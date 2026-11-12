@@ -2,8 +2,8 @@ import './FeatureFlag.scss'
 
 import { useActions, useValues } from 'kea'
 
-import { IconCode, IconFlag, IconGlobe, IconLaptop, IconList, IconServer } from '@posthog/icons'
-import { LemonCollapse, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
+import { IconCode, IconFlag, IconGlobe, IconLaptop, IconList, IconPencil, IconServer } from '@posthog/icons'
+import { LemonButton, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
@@ -21,11 +21,11 @@ import {
     isV1FeatureFlagConfig,
 } from 'products/feature_flags/frontend/featureFlagConfigFormat'
 import { FeatureFlagConfigReadonlyNotice } from 'products/feature_flags/frontend/FeatureFlagConfigReadonlyNotice'
+import { FeatureFlagImplementationPanel } from 'products/feature_flags/frontend/FeatureFlagImplementationPanel'
 import { FeatureFlagRulesV2Readonly } from 'products/feature_flags/frontend/FeatureFlagRulesV2Readonly'
 
 import { EditableOverviewSection } from './EditableOverviewSection'
 import { FeatureFlagEvaluationContexts } from './FeatureFlagEvaluationContexts'
-import { FeatureFlagInstructions } from './FeatureFlagInstructions'
 import { featureFlagLogic } from './featureFlagLogic'
 import { FeatureFlagReleaseConditionsReadonly } from './FeatureFlagReleaseConditionsReadonly'
 import { FeatureFlagVariantsSection } from './FeatureFlagVariantsSection'
@@ -68,7 +68,7 @@ function TagsDisplay({ tags, evaluationContexts, flagId, hasEvaluationContexts }
 export function FeatureFlagOverview({ featureFlag }: FeatureFlagOverviewProps): JSX.Element {
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const { recordingFilterForFlag, featureFlagActiveUpdateLoading, deletedCohortFilters } = useValues(featureFlagLogic)
-    const { toggleFeatureFlagActive } = useActions(featureFlagLogic)
+    const { toggleFeatureFlagActive, editFeatureFlag } = useActions(featureFlagLogic)
 
     const hasEvaluationContexts = !!featureFlags[FEATURE_FLAGS.FLAG_EVALUATION_TAGS] // NB: the tag was named "flag-evaluation-tags" before we renamed the concept – i.e. this powers evaluation contexts even though the name implies tags
 
@@ -76,9 +76,6 @@ export function FeatureFlagOverview({ featureFlag }: FeatureFlagOverviewProps): 
     const multivariateEnabled = !!v1Filters?.multivariate
     const variants = v1Filters?.multivariate?.variants || []
     const hasPayload = !!v1Filters?.payloads?.['true']
-    const showImplementation =
-        !!v1Filters ||
-        (isRulesV2FeatureFlagConfig(featureFlag.filters) && featureFlag.filters.return_type === 'boolean')
 
     const getFlagTypeDisplay = (): { icon: JSX.Element; label: string; description: string } => {
         if (featureFlag.is_remote_configuration) {
@@ -239,7 +236,32 @@ export function FeatureFlagOverview({ featureFlag }: FeatureFlagOverviewProps): 
                     {!v1Filters ? (
                         <div className="rounded border p-4 bg-bg-light">
                             {isRulesV2FeatureFlagConfig(featureFlag.filters) ? (
-                                <FeatureFlagRulesV2Readonly config={featureFlag.filters} />
+                                <FeatureFlagRulesV2Readonly
+                                    config={featureFlag.filters}
+                                    active={featureFlag.active}
+                                    editButton={
+                                        featureFlag.deleted ? null : (
+                                            <AccessControlAction
+                                                resourceType={AccessControlResourceType.FeatureFlag}
+                                                minAccessLevel={AccessControlLevel.Editor}
+                                                userAccessLevel={featureFlag.user_access_level}
+                                            >
+                                                {({ disabledReason }) => (
+                                                    <LemonButton
+                                                        icon={<IconPencil />}
+                                                        size="small"
+                                                        type="secondary"
+                                                        disabledReason={disabledReason}
+                                                        onClick={() => editFeatureFlag(true)}
+                                                        data-attr="edit-rules-v2-rules"
+                                                    >
+                                                        Edit rules
+                                                    </LemonButton>
+                                                )}
+                                            </AccessControlAction>
+                                        )
+                                    }
+                                />
                             ) : (
                                 <FeatureFlagConfigReadonlyNotice filters={featureFlag.filters} />
                             )}
@@ -296,25 +318,7 @@ export function FeatureFlagOverview({ featureFlag }: FeatureFlagOverviewProps): 
                 </div>
             </div>
 
-            {showImplementation && (
-                <LemonCollapse
-                    className="bg-bg-light"
-                    panels={[
-                        {
-                            key: 'implementation',
-                            header: 'How to implement',
-                            content: (
-                                <div className="flex flex-col gap-4">
-                                    <p className="text-sm text-muted m-0">
-                                        Use the following code to implement this feature flag.
-                                    </p>
-                                    <FeatureFlagInstructions featureFlag={featureFlag} />
-                                </div>
-                            ),
-                        },
-                    ]}
-                />
-            )}
+            <FeatureFlagImplementationPanel featureFlag={featureFlag} />
         </div>
     )
 }

@@ -46,6 +46,26 @@ class Visitor(Generic[T]):
 class TraversingVisitor(Visitor[None]):
     """Visitor that traverses the AST tree without returning anything"""
 
+    _visited_types: dict[int, ast.Type] | None = None
+
+    def visit(self, node: AST | None) -> None:
+        if not isinstance(node, ast.Type):
+            return super().visit(node)
+
+        # Alias references share type subgraphs, so walking every edge can expand exponentially.
+        is_root_type = self._visited_types is None
+        if self._visited_types is None:
+            self._visited_types = {}
+        if id(node) in self._visited_types:
+            return
+        self._visited_types[id(node)] = node
+        try:
+            super().visit(node)
+        finally:
+            # Later expressions and lazy-table resolution passes must see mutations to these types.
+            if is_root_type:
+                self._visited_types = None
+
     def visit_cte(self, node: ast.CTE):
         self.visit(node.expr)
 
@@ -906,6 +926,8 @@ class CloningVisitor(Visitor[Any]):
             end=None if self.clear_locations else node.end,
             type=None if self.clear_types else node.type,
             table=self.visit(node.table),
+            table_schema=node.table_schema,
+            cte_name=node.cte_name,
             table_args=[self.visit(expr) for expr in node.table_args] if node.table_args is not None else None,
             next_join=self.visit(node.next_join),
             table_final=node.table_final,

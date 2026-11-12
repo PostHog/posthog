@@ -3,9 +3,11 @@ from __future__ import annotations
 import uuid
 import functools
 from collections import defaultdict
+from collections.abc import Sequence
 from typing import Any, Literal, Optional, cast
 
 from django.core.cache import cache
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError, connections, transaction
 from django.db.models import Field, Manager, Prefetch
 from django.http import Http404
@@ -16,14 +18,16 @@ import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_serializer
 from prometheus_client import Counter
-from rest_framework import mixins, request, response, serializers, status, viewsets
+from rest_framework import exceptions, mixins, request, response, serializers, status, viewsets
 from rest_framework.permissions import SAFE_METHODS
 from rest_framework.settings import api_settings
 
+from posthog.accessible_teams import AccessibleTeams, CredentialScopeDenied
 from posthog.api.event_definition_generators.base import EventDefinitionGenerator
 from posthog.api.event_definition_generators.golang import GolangGenerator
 from posthog.api.event_definition_generators.python import PythonGenerator
 from posthog.api.event_definition_generators.typescript import TypeScriptGenerator
+from posthog.api.object_media_preview import visible_previews, with_preview_media
 from posthog.api.pagination import CappedCountLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -44,12 +48,13 @@ from posthog.constants import EventDefinitionType
 from posthog.event_usage import report_user_action
 from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
 from posthog.helpers.impersonation import is_impersonated
-from posthog.models import EventDefinition, ObjectMediaPreview, TaggedItem, Team
+from posthog.models import ObjectMediaPreview, TaggedItem, Team
 from posthog.models.activity_logging.activity_log import Detail, dict_changes_between, log_activity
+from posthog.models.event_filter_config import add_event_name_drop
 from posthog.models.tagged_item_registry import content_type_for
 from posthog.models.user import User
 from posthog.models.utils import UUIDT
-from posthog.permissions import is_scout_sandbox_request
+from posthog.permissions import is_scout_sandbox_request, is_service_auth
 from posthog.settings import EE_AVAILABLE
 from posthog.taxonomy.definition_listing import (
     DEFINITION_LIST_STATEMENT_TIMEOUT_MS,
@@ -67,6 +72,8 @@ from posthog.taxonomy.scout_writes import check_scout_event_definition_write
 from posthog.taxonomy.taxonomy import CORE_EVENTS, STALE_EVENT_DAYS
 from posthog.utils import get_safe_cache, relative_date_parse
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.event_definitions.backend.models import EventDefinition
 from products.event_definitions.backend.models.property_definition import effective_project_id_expr
 
 # If EE is enabled, we use ee.api.ee_event_definition.EnterpriseEventDefinitionSerializer
@@ -175,8 +182,9 @@ def create_event_definitions_sql(
     if order_expressions is None:
         order_expressions = []
 
+    # Qualified by table, so a column name both joined tables carry stays unambiguous.
     event_definition_fields = {
-        f'"{f.column}"'
+        f'{f.model._meta.db_table}."{f.column}"'
         for f in event_definition_model(is_enterprise)._meta.get_fields()
         if isinstance(f, Field) and f.column is not None and f.column not in ["deprecated_tags", "tags"]
     }
@@ -481,7 +489,9 @@ class EventDefinitionViewSet(
 
         exclude_hidden = self.request.GET.get("exclude_hidden", "false").lower() == "true"
         if exclude_hidden and EE_AVAILABLE:
-            filter_query += " AND (hidden IS NULL OR hidden = false)"
+            filter_query += (
+                " AND (ee_enterpriseeventdefinition.hidden IS NULL OR ee_enterpriseeventdefinition.hidden = false)"
+            )
 
         if exclude_stale:
             # `last_seen_at` is not indexed: the predicate runs after the project-scoped
@@ -496,11 +506,14 @@ class EventDefinitionViewSet(
 
         if verified_param is not None:
             if verified_param.lower() == "true":
-                filter_query += " AND (verified = true OR posthog_eventdefinition.name = ANY(%(core_events)s))"
+                filter_query += (
+                    " AND (ee_enterpriseeventdefinition.verified = true"
+                    " OR posthog_eventdefinition.name = ANY(%(core_events)s))"
+                )
                 params["core_events"] = CORE_EVENTS
             else:
                 filter_query += (
-                    " AND (verified IS NULL OR verified = false)"
+                    " AND (ee_enterpriseeventdefinition.verified IS NULL OR ee_enterpriseeventdefinition.verified = false)"
                     " AND NOT posthog_eventdefinition.name = ANY(%(core_events)s)"
                 )
                 params["core_events"] = CORE_EVENTS
@@ -550,7 +563,8 @@ class EventDefinitionViewSet(
         paginator = cast(CappedCountLimitOffsetPagination, self.paginator)
         query = EventDefinitionQuerySerializer(data=self.request.query_params)
         query.is_valid(raise_exception=True)
-        params["limit"] = query.validated_data["limit"]
+        # The paginator builds `next` from its capped limit, so the SQL page has to use the same cap.
+        params["limit"] = min(query.validated_data["limit"], paginator.max_limit)
         params["offset"] = query.validated_data["offset"]
 
         conditions = search_query + filter_query
@@ -775,12 +789,10 @@ class EventDefinitionViewSet(
             event_ids = [obj.id for obj in objects]
             media_map: dict[str, list[str]] = defaultdict(list)
             if event_ids:
-                previews = (
+                previews = with_preview_media(
                     ObjectMediaPreview.objects.filter(event_definition_id__in=event_ids)
-                    .select_related("uploaded_media", "exported_asset")
-                    .order_by("-updated_at")
-                )
-                for p in previews:
+                ).order_by("-updated_at")
+                for p in visible_previews(previews, self):
                     if p.media_url:
                         media_map[str(p.event_definition_id)].append(p.media_url)
 
@@ -970,6 +982,7 @@ class EventDefinitionViewSet(
                     enterprise.verified_by = user
                     enterprise.verified_at = now
                     enterprise.hidden = False  # an event cannot be both hidden and verified
+                    enterprise.scheduled_deletion_at = None  # a scheduled delete only applies to hidden events
                 else:
                     enterprise.verified_by = None
                     enterprise.verified_at = None
@@ -995,6 +1008,96 @@ class EventDefinitionViewSet(
                 updated.append({"id": enterprise.id, "verified": verified})
 
         return response.Response({"updated": updated, "skipped": skipped})
+
+    @extend_schema(request=None, responses={200: EventDefinitionSerializer})
+    @action(
+        methods=["POST"],
+        detail=True,
+        request=None,
+        required_scopes=["event_definition:write", "event_filter:write"],
+    )
+    def stop_ingesting(self, request, *args, **kwargs) -> response.Response:
+        """Drop new events with this name at ingestion, then hide the definition and schedule its delete.
+
+        Adds an exact event name condition to the live event filter of each environment in the
+        project, because the definition is shared by all of them. This never makes a team's own
+        filter conditions live: if a filter is in dry run or turned off, or can't take one more
+        condition, the request fails and nothing changes. Dropped events can't be recovered.
+        """
+        # `hidden` and `verified` live on the enterprise extension, as in bulk_update_verified.
+        if not EE_AVAILABLE:
+            raise serializers.ValidationError("Stopping ingestion of an event requires an enterprise license.")
+
+        from ee.models.event_definition import EnterpriseEventDefinition
+
+        # EE_AVAILABLE is checked above, so get_object returns an EnterpriseEventDefinition.
+        instance = cast(EnterpriseEventDefinition, self.get_object())
+        if instance.name.startswith("$"):
+            raise serializers.ValidationError("PostHog events can't be dropped from here.")
+
+        user = cast(User, request.user)
+        teams = list(Team.objects.filter(project_id=self.project_id))
+        self._check_event_filter_write_access(request, teams)
+        try:
+            # This commits before the hide, so ingestion loads the condition as early as possible.
+            add_event_name_drop(teams, instance.name, user)
+        except DjangoValidationError as error:
+            raise serializers.ValidationError(" ".join(error.messages))
+
+        from posthog.tasks.event_definitions import SCHEDULED_DELETION_DELAY
+
+        before = {"hidden": bool(instance.hidden), "verified": bool(instance.verified)}
+        # An event can't be both hidden and verified.
+        instance.hidden = True
+        instance.verified = False
+        instance.verified_by = None
+        instance.verified_at = None
+        instance.updated_by = user
+        # A periodic task deletes the definition after this, if nothing recreates it meanwhile.
+        instance.ingestion_stopped_at = timezone.now()
+        instance.scheduled_deletion_at = instance.ingestion_stopped_at + SCHEDULED_DELETION_DELAY
+        instance.save()
+
+        log_activity(
+            organization_id=None,
+            team_id=self.team_id,
+            user=user,
+            item_id=str(instance.id),
+            scope="EventDefinition",
+            # Its own activity, so the log tells this apart from a manual hide.
+            activity="stopped_ingesting",
+            was_impersonated=is_impersonated(request),
+            detail=Detail(
+                name=str(instance.name),
+                changes=dict_changes_between(
+                    "EventDefinition", before, {"hidden": True, "verified": False}, use_field_exclusions=True
+                ),
+            ),
+        )
+        report_user_action(
+            user, "event definition ingestion stopped", {"name": instance.name}, team=self.team, request=request
+        )
+        return response.Response(self.get_serializer(instance).data)
+
+    def _check_event_filter_write_access(self, request: request.Request, teams: Sequence[Team]) -> None:
+        """Check the caller may write the event filter of each environment, as the event filter endpoint would.
+
+        The permission classes only check the environment in the URL, but stop_ingesting writes them all.
+        """
+        denied = exceptions.PermissionDenied("You can't change the event filter of every environment in this project.")
+        try:
+            AccessibleTeams.for_request(request, [team.id for team in teams])
+        except CredentialScopeDenied:
+            raise denied
+        # Service credentials skip resource access control, as in AccessControlPermission.
+        if is_service_auth(request):
+            return
+        user = cast(User, request.user)
+        for team in teams:
+            if not UserAccessControl(user=user, team=team).check_access_level_for_resource(
+                "event_filter", required_level="editor"
+            ):
+                raise denied
 
     def perform_create(self, serializer):
         """Handle context and side effects for event definition creation."""

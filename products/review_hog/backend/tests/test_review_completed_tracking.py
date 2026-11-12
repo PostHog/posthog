@@ -192,6 +192,7 @@ class TestTrackReviewCompleted(BaseTest):
         assert props["run_index"] == 1
         assert props["trigger_source"] == "manual"
         assert props["turn_trigger_source"] == "manual"
+        assert "$update_person_last_seen_at" not in props
         assert props["author_login"] == "octocat"
         assert props["published"] is published
         assert props["findings_total"] == 2
@@ -408,6 +409,7 @@ class TestTrackReviewCompleted(BaseTest):
         first, second = capture.call_args_list
         assert first.kwargs["event"] == "reviewhog_push_gate_decided"
         props = first.kwargs["properties"]
+        assert props["$update_person_last_seen_at"] is False
         assert (props["skipped"], props["reason"], props["own_code_lines"]) == (True, "merge_only", 14)
         assert first.kwargs["uuid"] != second.kwargs["uuid"]
         # Each push reports the draft state of its own head.
@@ -751,7 +753,11 @@ class TestTrackReviewCompleted(BaseTest):
             _track_review_completed(self._tracking_input(report_id, turn_trigger_source=TRIGGER_STAMPHOG))
             _track_review_failed(
                 TrackReviewFailedInput(
-                    team_id=self.team.id, report_id=report_id, run_index=1, turn_trigger_source=TRIGGER_INBOX
+                    team_id=self.team.id,
+                    report_id=report_id,
+                    run_index=1,
+                    turn_trigger_source=TRIGGER_INBOX,
+                    turn_trigger_action="synchronize",
                 )
             )
             _track_review_started(
@@ -761,6 +767,7 @@ class TestTrackReviewCompleted(BaseTest):
                     head_sha="sha1",
                     run_index=1,
                     turn_trigger_source=TRIGGER_INBOX,
+                    turn_trigger_action="opened",
                 )
             )
 
@@ -783,6 +790,9 @@ class TestTrackReviewCompleted(BaseTest):
         assert completed.kwargs["properties"]["turn_trigger_source"] == "stamphog"
         assert failed.kwargs["properties"]["turn_trigger_source"] == "inbox"
         assert started.kwargs["properties"]["turn_trigger_source"] == "inbox"
+        assert completed.kwargs["properties"]["turn_trigger_action"] is None
+        assert failed.kwargs["properties"]["turn_trigger_action"] == "synchronize"
+        assert started.kwargs["properties"]["turn_trigger_action"] == "opened"
         # No snapshot for this head, so the draft state is unknown on both events that carry it.
         assert completed.kwargs["properties"]["pr_draft"] is None
         assert started.kwargs["properties"]["pr_draft"] is None

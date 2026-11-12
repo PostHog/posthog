@@ -1,14 +1,15 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
 import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
-import __dashboard_template_schema from 'scenes/dashboard/__mocks__/dashboard_template_schema.json'
-import __dashboard_templates from 'scenes/dashboard/__mocks__/dashboard_templates.json'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { NewDashboardModal as NewDashboardModalComponent } from 'scenes/dashboard/NewDashboardModal'
 
 import { mswDecorator } from '~/mocks/browser'
 import { useAvailableFeatures } from '~/mocks/features'
 import { BaseMathType, EntityTypes } from '~/types'
+
+import __dashboard_template_schema from './__mocks__/dashboard_template_schema.json'
+import __dashboard_templates from './__mocks__/dashboard_templates.json'
 
 const meta: Meta<typeof NewDashboardModalComponent> = {
     component: NewDashboardModalComponent,

@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Literal, Optional
 
 from posthog.event_usage import report_user_action
 
@@ -13,6 +13,7 @@ if TYPE_CHECKING:
 
 HISTORY_ENABLED_EVENT = "data warehouse history enabled"
 HISTORY_DISABLED_EVENT = "data warehouse history disabled"
+HISTORY_TABLE_DELETED_EVENT = "data warehouse history table deleted"
 
 
 def report_history_toggled(
@@ -52,3 +53,26 @@ def report_history_change(
     else:
         assert history_mode_before is not None
         report_history_toggled(user, schema, enabled=False, table_mode=history_mode_before, request=request)
+
+
+def report_history_table_deleted(
+    user: "User | AnonymousUser",
+    schema: ExternalDataSchema,
+    *,
+    trigger: Literal["mode_change", "delete_action", "mask"],
+    request: Optional["Request"] = None,
+) -> None:
+    """`trigger` tells a drop chosen while switching history off from one made later on its own, and from a
+    mask that empties the table."""
+    report_user_action(
+        user,
+        HISTORY_TABLE_DELETED_EVENT,
+        {
+            "source_type": schema.source.source_type,
+            "source_id": str(schema.source_id),
+            "schema_id": str(schema.id),
+            "trigger": trigger,
+        },
+        team=schema.team,
+        request=request,
+    )

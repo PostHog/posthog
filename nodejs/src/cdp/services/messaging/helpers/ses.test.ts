@@ -3,7 +3,7 @@ import { register } from 'prom-client'
 import { defaultConfig } from '~/common/config/config'
 import { logger } from '~/common/utils/logger'
 
-import { SesWebhookHandler, normalizeClickUrl, resolveClickDestination } from './ses'
+import { SesWebhookHandler, nonexistentRecipients, normalizeClickUrl, resolveClickDestination } from './ses'
 import { EmailTrackingCodeSigner } from './tracking-code'
 
 // Hardcoded (not imported) so a change to the header constant fails this test.
@@ -62,7 +62,7 @@ describe('SesWebhookHandler', () => {
                 distinctId: 'user-123',
                 teamId: '1',
                 metricName: 'email_opened',
-                properties: { $email_to: 'to@example.com' },
+                properties: { $email_to: 'to@example.com', $email_message_id: 'msg-123' },
                 timestamp: '2025-10-03T12:01:00Z',
             },
         ])
@@ -108,6 +108,7 @@ describe('SesWebhookHandler', () => {
         expect(result.metrics?.[0].distinctId).toBe('user-123')
         expect(result.metrics?.[0].properties).toEqual({
             $email_to: 'to@example.com',
+            $email_message_id: 'msg-123',
             $link_url: 'https://example.com',
         })
         expect(result.metrics?.[0].timestamp).toBe('2025-10-03T12:02:00Z')
@@ -132,6 +133,7 @@ describe('SesWebhookHandler', () => {
         expect(result.status).toBe(200)
         expect(result.metrics?.[0].properties).toEqual({
             $email_to: 'to@example.com',
+            $email_message_id: 'msg-123',
             $link_url: 'https://example.com/pricing?a=1',
             $link_index: '2',
         })
@@ -156,6 +158,7 @@ describe('SesWebhookHandler', () => {
         const result = await handler.handleWebhook({ body, headers: {} })
         expect(result.metrics?.[0].properties).toEqual({
             $email_to: 'to@example.com',
+            $email_message_id: 'msg-123',
             $link_url: 'https://app.posthog.com',
             $link_index: '1',
         })
@@ -286,6 +289,31 @@ describe('SesWebhookHandler', () => {
                 'https://webhooks.us.posthog.com/public/m/redirect?ph_id=abc.def',
             ],
             ['an unparseable link is passed through', 'not a url', 'not a url'],
+            [
+                'the workflow run tag is dropped',
+                'https://example.com/x?a=1&ph_workflow_run=run-1#top',
+                'https://example.com/x?a=1#top',
+            ],
+            [
+                'a leading workflow run tag is dropped',
+                'https://example.com/x?ph_workflow_run=run-1&a=1',
+                'https://example.com/x?a=1',
+            ],
+            [
+                'a lone workflow run tag is dropped',
+                'https://example.com/x?ph_workflow_run=run-1',
+                'https://example.com/x',
+            ],
+            [
+                'adjacent workflow run tags are all dropped',
+                'https://example.com/x?ph_workflow_run=old-1&ph_workflow_run=old-2&a=1',
+                'https://example.com/x?a=1',
+            ],
+            [
+                'a run tag inside the fragment is kept',
+                'https://example.com/#/page?ph_workflow_run=x&view=full',
+                'https://example.com/#/page?ph_workflow_run=x&view=full',
+            ],
         ])('%s', (_name, link, expected) => {
             expect(resolveClickDestination(link)).toBe(expected)
         })
@@ -500,7 +528,7 @@ describe('SesWebhookHandler', () => {
                 distinctId: 'user-123',
                 teamId: '1',
                 metricName: 'email_delivered',
-                properties: { $email_to: 'to@example.com' },
+                properties: { $email_to: 'to@example.com', $email_message_id: 'msg-123' },
                 timestamp: '2025-10-03T12:03:00Z',
             },
         ])
@@ -559,7 +587,12 @@ describe('SesWebhookHandler', () => {
         expect(result.metrics?.[0].properties).toMatchObject({ $bounce_type: 'soft' })
         expect(result.hardBounceRecipients).toEqual([])
         expect(result.transientBounceRecipients).toEqual([
-            { teamId: '1', emailAddresses: ['to@example.com'], diagnostic: 'temp' },
+            {
+                teamId: '1',
+                emailAddresses: ['to@example.com'],
+                diagnostic: 'temp',
+                bounceTimestamp: '2025-10-03T12:04:00Z',
+            },
         ])
     })
 
@@ -638,6 +671,62 @@ describe('SesWebhookHandler', () => {
             expect(result.complainedRecipients).toEqual(expectedRecipients)
         }
     )
+
+    it.each([
+        [
+            'Permanent bounce',
+            'hardBounceRecipients' as const,
+            (emailAddresses: string[]) => ({
+                eventType: 'Bounce',
+                bounce: {
+                    bounceType: 'Permanent',
+                    bouncedRecipients: emailAddresses.map((emailAddress) => ({ emailAddress, status: '5.1.1' })),
+                    timestamp: '2025-10-03T12:04:00Z',
+                },
+            }),
+        ],
+        [
+            'Transient bounce',
+            'transientBounceRecipients' as const,
+            (emailAddresses: string[]) => ({
+                eventType: 'Bounce',
+                bounce: {
+                    bounceType: 'Transient',
+                    bouncedRecipients: emailAddresses.map((emailAddress) => ({ emailAddress, status: '4.2.2' })),
+                    timestamp: '2025-10-03T12:04:00Z',
+                },
+            }),
+        ],
+        [
+            'Complaint',
+            'complainedRecipients' as const,
+            (emailAddresses: string[]) => ({
+                eventType: 'Complaint',
+                complaint: {
+                    complainedRecipients: emailAddresses.map((emailAddress) => ({ emailAddress })),
+                    timestamp: '2025-10-03T12:05:00Z',
+                },
+            }),
+        ],
+    ])('keeps only sent-to recipients of a %s for suppression', async (_label, arrayKey, buildEvent) => {
+        // The send passes a display name with the address, so the destination entry can carry it too.
+        const mail = { ...baseMail, destination: ['"Recipient Name" <to@example.com>'] }
+        const body = [
+            { mail, ...buildEvent(['TO@example.com', 'not-sent-to@example.org']) },
+            { mail, ...buildEvent(['not-sent-to@example.org']) },
+        ]
+        // Other tests in the process add to the counter, so read it as a delta.
+        const notSentToCount = async (): Promise<number> => {
+            const metric = await register.getSingleMetric('email_tracking_recipients_not_sent_to_total')!.get()
+            return metric.values.find((v) => v.labels.event_type === body[0].eventType)?.value ?? 0
+        }
+        const countBefore = await notSentToCount()
+
+        const result = await handler.handleWebhook({ body, headers: {} })
+
+        expect(result[arrayKey]).toEqual([expect.objectContaining({ teamId: '1', emailAddresses: ['TO@example.com'] })])
+        expect((await notSentToCount()) - countBefore).toBe(2)
+    })
 
     it('returns 200, no metrics and no logged payload if tracking code is missing from both carriers', async () => {
         const logSpies = (['info', 'warn', 'error'] as const).map((level) => jest.spyOn(logger, level))
@@ -725,32 +814,100 @@ describe('SesWebhookHandler', () => {
         fetchSpy.mockRestore()
     })
 
-    it('confirms a signed SubscriptionConfirmation end to end (SubscribeURL is part of the signed string)', async () => {
+    // Signs like AWS SNS SignatureVersion=1: alphabetical key/value lines of the fields each
+    // envelope type signs, and serves the matching certificate.
+    const SIGNED_FIELDS: Record<string, string[]> = {
+        Notification: ['Message', 'MessageId', 'Timestamp', 'TopicArn', 'Type'],
+        SubscriptionConfirmation: ['Message', 'MessageId', 'SubscribeURL', 'Timestamp', 'Token', 'TopicArn', 'Type'],
+    }
+    const signEnvelope = (envelope: Record<string, any>): jest.SpyInstance => {
         const { generateKeyPairSync, createSign } = jest.requireActual<typeof import('node:crypto')>('node:crypto')
         const { publicKey, privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 })
         const publicKeyPem = publicKey.export({ type: 'spki', format: 'pem' }).toString()
-
-        const envelope = buildConfirmationEnvelope(
-            'https://sns.us-east-1.amazonaws.com/?Action=ConfirmSubscription&TopicArn=arn:aws:sns:us-east-1:123456789012:ses-topic&Token=token-123'
-        )
-        // String to sign per AWS SNS SignatureVersion=1 for SubscriptionConfirmation:
-        // alphabetical key/value lines incl. the top-level SubscribeURL.
-        const stringToSign =
-            ['Message', 'MessageId', 'SubscribeURL', 'Timestamp', 'Token', 'TopicArn', 'Type']
-                .map((k) => `${k}\n${envelope[k]}`)
-                .join('\n') + '\n'
+        const stringToSign = SIGNED_FIELDS[envelope.Type].map((k) => `${k}\n${envelope[k]}`).join('\n') + '\n'
         const sign = createSign('RSA-SHA1')
         sign.update(stringToSign, 'utf8')
         envelope.Signature = sign.sign(privateKey, 'base64')
-
-        const fetchSpy = jest
+        return jest
             .spyOn(handler as any, 'fetchText')
             .mockImplementation((url) => Promise.resolve((url as string).endsWith('.pem') ? publicKeyPem : ''))
+    }
+
+    it('confirms a signed SubscriptionConfirmation end to end (SubscribeURL is part of the signed string)', async () => {
+        const envelope = buildConfirmationEnvelope(
+            'https://sns.us-east-1.amazonaws.com/?Action=ConfirmSubscription&TopicArn=arn:aws:sns:us-east-1:123456789012:ses-topic&Token=token-123'
+        )
+        const fetchSpy = signEnvelope(envelope)
 
         const result = await handler.handleWebhook({ body: envelope, headers: {}, verifySignature: true })
         expect(result.status).toBe(200)
         expect(fetchSpy).toHaveBeenCalledWith(envelope.SubscribeURL)
         fetchSpy.mockRestore()
+    })
+
+    describe('a Notification whose Message is not JSON', () => {
+        const plainText = 'Successfully validated SNS topic for Amazon SES event publishing.'
+        const plainTextNotification = (message = plainText): Record<string, any> => ({
+            Type: 'Notification',
+            MessageId: 'sns-msg-1',
+            TopicArn: 'arn:aws:sns:us-east-1:123456789012:ses-topic',
+            Message: message,
+            Timestamp: '2025-10-03T12:10:00Z',
+            SignatureVersion: '1',
+            Signature: 'forged',
+            SigningCertURL: 'https://sns.us-east-1.amazonaws.com/cert.pem',
+        })
+        const ignoredCount = async (): Promise<number> => {
+            const metric = await register.getSingleMetric('ses_webhook_ignored_notifications_total')?.get()
+            return metric?.values.find((v) => v.labels.reason === 'non_json_message')?.value ?? 0
+        }
+
+        it.each([
+            { label: 'plain text', message: plainText, logged: plainText },
+            { label: 'control character', message: '\u001b[31mforged\nline', logged: ' (31mforged line' },
+            {
+                label: 'truncated SES JSON',
+                message: '{"eventType":"Bounce","mail":{"destination":["victim@example.com"',
+                logged: undefined,
+            },
+        ])(
+            'is acknowledged without metrics when signed, logging its $label prefix only if not JSON-shaped',
+            async ({ message, logged }) => {
+                const warnSpy = jest.spyOn(logger, 'warn')
+                const envelope = plainTextNotification(message)
+                const fetchSpy = signEnvelope(envelope)
+                const before = await ignoredCount()
+
+                const result = await handler.handleWebhook({ body: envelope, headers: {}, verifySignature: true })
+
+                expect(result.status).toBe(200)
+                expect(result.metrics).toEqual([])
+                expect(await ignoredCount()).toBe(before + 1)
+                expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('not JSON'), {
+                    topicArn: envelope.TopicArn,
+                    messageId: envelope.MessageId,
+                    messageLength: message.length,
+                    messagePrefix: logged,
+                })
+                fetchSpy.mockRestore()
+                warnSpy.mockRestore()
+            }
+        )
+
+        it('is rejected when its signature does not verify', async () => {
+            const fetchSpy = jest.spyOn(handler as any, 'fetchText').mockResolvedValue('not a certificate')
+            const before = await ignoredCount()
+
+            const result = await handler.handleWebhook({
+                body: plainTextNotification(),
+                headers: {},
+                verifySignature: true,
+            })
+
+            expect(result.status).toBe(403)
+            expect(await ignoredCount()).toBe(before)
+            fetchSpy.mockRestore()
+        })
     })
 
     it.each([
@@ -795,7 +952,7 @@ describe('SesWebhookHandler', () => {
                 parentRunId: 'batch-run-id',
                 teamId: '1',
                 metricName: 'email_opened',
-                properties: { $email_to: 'to@example.com' },
+                properties: { $email_to: 'to@example.com', $email_message_id: 'msg-123' },
                 timestamp: '2025-10-03T12:01:00Z',
             },
         ])
@@ -1058,6 +1215,24 @@ describe('SesWebhookHandler', () => {
                 { eventType: 'Reject', reject: { reason: 'Bad content' } },
                 update('failed', transactionalMail.timestamp, 'provider_rejected'),
             ],
+            [
+                'an open',
+                {},
+                { eventType: 'Open', open: { timestamp: '2025-10-03T12:04:00Z' } },
+                update('opened', '2025-10-03T12:04:00Z'),
+            ],
+            [
+                'a click',
+                {},
+                { eventType: 'Click', click: { link: 'https://example.com/reset', timestamp: '2025-10-03T12:05:00Z' } },
+                update('clicked', '2025-10-03T12:05:00Z'),
+            ],
+            [
+                'an open of an untagged email',
+                { tags: baseMail.tags },
+                { eventType: 'Open', open: { timestamp: '2025-10-03T12:04:00Z' } },
+                [],
+            ],
             ['a delivery of an untagged email', { tags: baseMail.tags }, delivery(['to@example.com']), []],
             ['a delivery to the cc recipient only', {}, delivery(['cc@example.com']), []],
             ['a bounce of the cc recipient', {}, bounce('Permanent', 'cc@example.com'), []],
@@ -1075,6 +1250,18 @@ describe('SesWebhookHandler', () => {
             const result = await handler.handleWebhook({ body, headers: {} })
 
             expect(result.emailStatusUpdates).toEqual(expected)
+        })
+
+        it.each([
+            ['a transactional email', {}, true],
+            ['an email from a workflow step', { tags: baseMail.tags }, undefined],
+        ])('marks the event of %s as transactional', async (_desc, mailOverrides, expected) => {
+            const body = [{ mail: { ...transactionalMail, ...mailOverrides }, ...delivery(['to@example.com']) }]
+
+            const result = await handler.handleWebhook({ body, headers: {} })
+
+            expect(result.metrics?.[0].properties?.$email_transactional).toEqual(expected)
+            expect(result.metrics?.[0].properties?.$email_message_id).toEqual(baseMail.messageId)
         })
     })
 
@@ -1106,6 +1293,50 @@ describe('SesWebhookHandler', () => {
             SigningCertURL: 'https://sns.us-east-1.amazonaws.com/cert.pem',
         })
 
+        const globalBounce = {
+            eventType: 'Bounce',
+            mail: baseMail,
+            bounce: {
+                bounceType: 'Permanent',
+                bounceSubType: 'General',
+                bouncedRecipients: [
+                    { emailAddress: 'TO@example.com', status: '5.1.1' },
+                    { emailAddress: 'someone-else@example.org', status: '5.1.1' },
+                ],
+                timestamp: '2025-10-03T12:04:00Z',
+            },
+        }
+        const globalDelivery = {
+            eventType: 'Delivery',
+            mail: baseMail,
+            delivery: { timestamp: '2025-10-03T12:05:00Z', recipients: ['to@example.com'] },
+        }
+
+        it.each([
+            ['an allowlisted topic', ['arn:aws:sns:us-east-1:123456789012:allowed-topic'], true, ['TO@example.com']],
+            ['an empty allowlist', [], true, undefined],
+            ['a raw delivery', ['arn:aws:sns:us-east-1:123456789012:allowed-topic'], false, undefined],
+        ] as const)(
+            'writes the global hard-bounce list only for sent-to addresses from %s',
+            async (_label, topics, enveloped, expected) => {
+                const restricted = new SesWebhookHandler(signer, [...topics])
+                const wrap = (record: object): object =>
+                    enveloped ? buildEnvelope('arn:aws:sns:us-east-1:123456789012:allowed-topic', record) : [record]
+                const bounce = await restricted.handleWebhook({
+                    body: wrap(globalBounce),
+                    headers: {},
+                    verifySignature: false,
+                })
+                const delivery = await restricted.handleWebhook({
+                    body: wrap(globalDelivery),
+                    headers: {},
+                    verifySignature: false,
+                })
+                expect(bounce.hardBounceRecipients?.[0].nonexistentAddresses).toEqual(expected)
+                expect(delivery.deliveredRecipients?.[0].clearsGlobalHardBounces).toEqual(expected ? true : undefined)
+            }
+        )
+
         it('rejects a Notification whose TopicArn is not on the allowlist', async () => {
             const restricted = new SesWebhookHandler(signer, ['arn:aws:sns:us-east-1:123456789012:allowed-topic'])
             const envelope = buildEnvelope('arn:aws:sns:us-east-1:999999999999:other-topic', {
@@ -1129,14 +1360,14 @@ describe('SesWebhookHandler', () => {
                 mail: baseMail,
                 bounce: {
                     bounceType: 'Permanent',
-                    bouncedRecipients: [{ emailAddress: 'recipient@example.com', diagnosticCode: 'bad' }],
+                    bouncedRecipients: [{ emailAddress: 'to@example.com', diagnosticCode: 'bad' }],
                     timestamp: '2025-10-03T12:04:00Z',
                 },
             })
             const result = await restricted.handleWebhook({ body: envelope, headers: {}, verifySignature: false })
             expect(result.status).toBe(200)
             expect(result.hardBounceRecipients).toEqual([
-                { teamId: '1', emailAddresses: ['recipient@example.com'], diagnostic: 'bad' },
+                { teamId: '1', emailAddresses: ['to@example.com'], diagnostic: 'bad' },
             ])
         })
 
@@ -1216,5 +1447,32 @@ describe('SesWebhookHandler', () => {
             // Metrics are unaffected — engagement signal is still emitted for the parsed events.
             expect(result.metrics?.length).toBeGreaterThan(0)
         })
+    })
+    describe('nonexistentRecipients', () => {
+        // A sender-side rejection going global would let one team's broken DNS block valid addresses for all.
+        it.each([
+            ['Permanent', 'NoEmail', undefined, undefined, true],
+            ['Permanent', 'General', '5.1.1', 'smtp; 550 5.1.1 user unknown', true],
+            ['Permanent', 'General', '5.1.10', 'smtp; 556 5.1.10 null MX', true],
+            ['Permanent', 'General', undefined, 'smtp; 550 5.1.1 user unknown', true],
+            ['Permanent', 'General', '5.7.1', 'smtp; 550 5.7.1 rejected by DMARC policy', false],
+            ['Permanent', 'General', '5.7.26', 'smtp; 550 5.7.26 rejected for 5.1.1.example.com', false],
+            ['Permanent', 'General', undefined, 'smtp; 550 5.7.26 rejected for 5.1.1.example.com', false],
+            ['Permanent', 'General', undefined, 'smtp; 554 sender domain blocked', false],
+            ['Permanent', 'Suppressed', '5.1.1', undefined, false],
+            ['Permanent', 'OnAccountSuppressionList', undefined, undefined, false],
+            ['Transient', 'General', '5.1.1', 'smtp; 550 5.1.1 user unknown', false],
+        ] as const)(
+            '%s/%s bounce with status %s counts: %s',
+            (bounceType, bounceSubType, status, diagnosticCode, expected) => {
+                const recipients = nonexistentRecipients({
+                    bounceType,
+                    bounceSubType,
+                    bouncedRecipients: [{ emailAddress: 'to@example.com', status, diagnosticCode }],
+                    timestamp: '2026-01-01T00:00:00.000Z',
+                })
+                expect(recipients).toEqual(expected ? ['to@example.com'] : [])
+            }
+        )
     })
 })

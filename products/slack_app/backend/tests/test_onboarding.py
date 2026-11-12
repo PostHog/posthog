@@ -5,6 +5,7 @@ from django.core.cache import cache
 
 from slack_sdk.errors import SlackApiError
 
+from posthog.integrations import IntegrationManager
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
@@ -58,8 +59,9 @@ class TestOnboarding:
         assert onboarding.send_onboarding_dm(self.integration, "") is False
         client.chat_postMessage.assert_not_called()
 
+    @pytest.mark.parametrize("setup_thread_enabled", [False, True])
     @patch("posthog.models.integration.slack.WebClient")
-    def test_run_install_onboarding_creates_invites_and_dms(self, mock_webclient_class):
+    def test_run_install_onboarding_creates_invites_and_dms(self, mock_webclient_class, setup_thread_enabled):
         client = self._client(mock_webclient_class)
         self.integration.config = {"scope": "channels:manage,chat:write", "authed_user": {"id": "U_INSTALL"}}
         self.integration.save()
@@ -67,11 +69,19 @@ class TestOnboarding:
         client.conversations_create.return_value = {"channel": {"id": "C_NEW"}}
         client.conversations_info.return_value = {"channel": {"id": "C_NEW"}}
 
-        onboarding.run_install_onboarding(self.integration)
+        with (
+            patch.object(onboarding, "is_slack_app_onboarding_enabled", return_value=setup_thread_enabled),
+            patch.object(onboarding, "request_onboarding") as start_setup_thread,
+        ):
+            onboarding.run_install_onboarding(self.integration)
 
         client.conversations_create.assert_called_once()
         client.conversations_invite.assert_called_once_with(channel="C_NEW", users="U_INSTALL")
-        assert client.chat_postMessage.called
+        assert client.chat_postMessage.called is not setup_thread_enabled
+        assert start_setup_thread.called is setup_thread_enabled
+        if setup_thread_enabled:
+            assert start_setup_thread.call_args.args[1] == "U_INSTALL"
+            assert start_setup_thread.call_args.kwargs == {"may_start": True}
         assert get_default_slack_notification_channel(self.team.id) == "C_NEW|#posthog-inbox"
 
     @patch("posthog.models.integration.slack.WebClient")
@@ -296,6 +306,7 @@ class TestOnboarding:
 
         assert onboarding.EVENT_COMPLETED not in [c.args[1] for c in mock_capture.call_args_list]
 
+    @pytest.mark.parametrize("through_sdk", [False, True])
     @pytest.mark.parametrize(
         "slack_team_id,scope,workspace_already_linked,onboards",
         [
@@ -303,28 +314,33 @@ class TestOnboarding:
             ("T12345", "chat:write", True, False),
         ],
     )
+    @patch("products.slack_app.backend.signals._start_installer_onboarding")
     @patch("products.slack_app.backend.signals._start_inbox_onboarding_workflow")
     @patch("products.slack_app.backend.analytics.capture_slack_event")
     def test_install_captures_installed_for_every_fresh_install(
         self,
         mock_capture,
         mock_start,
+        mock_start_installer_onboarding,
         django_capture_on_commit_callbacks,
         slack_team_id,
         scope,
         workspace_already_linked,
         onboards,
+        through_sdk,
     ):
         other_team = Team.objects.create(organization=self.organization, name="Other")
+        config = {"scope": scope, "authed_user": {"id": "U_INSTALL"}}
 
         with django_capture_on_commit_callbacks(execute=True):
-            Integration.objects.create(
-                team=other_team,
-                kind="slack",
-                integration_id=slack_team_id,
-                config={"scope": scope, "authed_user": {"id": "U_INSTALL"}},
-                created_by=self.user,
-            )
+            if through_sdk:
+                IntegrationManager.slack.oauth.create(
+                    other_team.id, external_id=slack_team_id, config=config, created_by_id=self.user.id
+                )
+            else:
+                Integration.objects.create(
+                    team=other_team, kind="slack", integration_id=slack_team_id, config=config, created_by=self.user
+                )
 
         mock_capture.assert_called_once()
         assert mock_capture.call_args.args[1] == "slack app installed"
@@ -335,20 +351,72 @@ class TestOnboarding:
             "workspace_already_linked": workspace_already_linked,
         }
         assert mock_start.called is onboards
+        # Without the inbox scopes there is no inbox workflow to start it, so the installer's onboarding starts directly.
+        assert mock_start_installer_onboarding.called is not onboards
+
+    @pytest.mark.parametrize(
+        "write,onboards",
+        [
+            ("model_save", True),
+            ("sdk_upsert", True),
+            ("sdk_config_update", True),
+            ("sdk_errors_update", False),
+        ],
+    )
+    @patch("products.slack_app.backend.signals._start_installer_onboarding")
+    @patch("products.slack_app.backend.signals._start_inbox_onboarding_workflow")
+    @patch("products.slack_app.backend.analytics.capture_slack_event")
+    def test_reinstall_starts_only_the_installers_onboarding(
+        self,
+        mock_capture,
+        mock_start,
+        mock_start_installer_onboarding,
+        django_capture_on_commit_callbacks,
+        write,
+        onboards,
+    ):
+        config = {"scope": "channels:manage,chat:write", "authed_user": {"id": "U_INSTALL"}}
+        team_id, row_id = self.team.id, self.integration.id
+
+        with django_capture_on_commit_callbacks(execute=True):
+            if write == "model_save":
+                self.integration.config = config
+                self.integration.save()
+            elif write == "sdk_upsert":
+                IntegrationManager.slack.oauth.upsert(team_id, "T12345", config=config)
+            elif write == "sdk_config_update":
+                IntegrationManager.slack.oauth.update(team_id, row_id, config_patch=config)
+            else:
+                IntegrationManager.slack.oauth.update(team_id, row_id, errors="token_revoked")
+
+        mock_capture.assert_not_called()
+        mock_start.assert_not_called()
+        assert mock_start_installer_onboarding.call_count == (1 if onboards else 0)
 
     @patch("products.slack_app.backend.onboarding.run_install_onboarding")
     def test_onboarding_workflow_activity_runs_for_integration(self, mock_run):
         from products.slack_app.backend.temporal.activities.onboarding import run_posthog_slack_inbox_onboarding
 
-        run_posthog_slack_inbox_onboarding(self.integration.id)
+        run_posthog_slack_inbox_onboarding(self.integration.team_id, self.integration.id)
 
         mock_run.assert_called_once()
         assert mock_run.call_args.args[0].id == self.integration.id
 
     @patch("products.slack_app.backend.onboarding.run_install_onboarding")
+    def test_onboarding_inputs_without_team_id_still_load_and_stop_cleanly(self, mock_run):
+        from products.slack_app.backend.temporal.activities.onboarding import run_posthog_slack_inbox_onboarding
+        from products.slack_app.backend.temporal.types import PostHogSlackInboxOnboardingInputs
+
+        inputs = PostHogSlackInboxOnboardingInputs(**{"integration_id": self.integration.id})
+
+        assert inputs.team_id is None
+        run_posthog_slack_inbox_onboarding(inputs.team_id, inputs.integration_id)
+        mock_run.assert_not_called()
+
+    @patch("products.slack_app.backend.onboarding.run_install_onboarding")
     def test_onboarding_workflow_activity_noop_for_missing_integration(self, mock_run):
         from products.slack_app.backend.temporal.activities.onboarding import run_posthog_slack_inbox_onboarding
 
-        run_posthog_slack_inbox_onboarding(99999999)
+        run_posthog_slack_inbox_onboarding(self.integration.team_id, 99999999)
 
         mock_run.assert_not_called()

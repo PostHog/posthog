@@ -6,11 +6,12 @@ from django.db import models
 from drf_spectacular.utils import OpenApiResponse, extend_schema_serializer
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound, PermissionDenied
+from rest_framework.exceptions import APIException, NotFound, PermissionDenied
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.fields import JSONTolerantListField
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import (
@@ -20,20 +21,29 @@ from posthog.auth import (
     is_mcp_request,
 )
 from posthog.event_usage import report_user_action
-from posthog.models import User
+from posthog.models import Team, User
 from posthog.permissions import APIScopePermission, is_service_auth
 
-from products.signals.backend.activity_summary.prompt import ActivitySummaryMode
-from products.signals.backend.activity_summary.read import DEFAULT_VERSIONS_LIMIT, ActivitySummaryStatus
-from products.signals.backend.activity_summary.render import Product
 from products.signals.backend.facade import api as signals_facade
+from products.signals.backend.facade.api import (
+    ACTIVITY_SUMMARY_SEARCH_DEFAULT_LIMIT,
+    ACTIVITY_SUMMARY_SEARCH_MAX_LIMIT,
+    ACTIVITY_SUMMARY_VERSIONS_DEFAULT_LIMIT,
+    ActivitySummaryMode,
+    ActivitySummaryProductKey,
+    ActivitySummaryStatus,
+    MatchKind,
+    SearchMode,
+    SemanticSearchUnavailable,
+)
+from products.signals.backend.presentation.scout_permissions import ScoutCanonicalTeamAccessPermission
 
 READ_EVENT = "activity summary read"
 
 
-# Built from `Product`, so the API enum cannot drift from the keys that `computed.py` writes.
+# Built from `ActivitySummaryProductKey`, so the API enum cannot drift from the keys that `computed.py` writes.
 ActivitySummaryProduct = models.TextChoices(  # type: ignore[call-overload]  # the stubs lack the functional API
-    "ActivitySummaryProduct", [(product.name, product.value) for product in Product]
+    "ActivitySummaryProduct", [(product.name, product.value) for product in ActivitySummaryProductKey]
 )
 
 
@@ -199,7 +209,7 @@ class ActivitySummaryVersionSerializer(serializers.Serializer):
 class ActivitySummaryVersionsQuerySerializer(serializers.Serializer):
     limit = serializers.IntegerField(
         min_value=1,
-        default=DEFAULT_VERSIONS_LIMIT,
+        default=ACTIVITY_SUMMARY_VERSIONS_DEFAULT_LIMIT,
         help_text="The most versions to return, newest first. Capped at the number of versions kept.",
     )
     version = serializers.IntegerField(
@@ -280,3 +290,166 @@ class ActivitySummaryViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             count=len(versions),
         )
         return Response(ActivitySummaryVersionSerializer([asdict(version) for version in versions], many=True).data)
+
+
+class ActivitySummarySearchQuerySerializer(serializers.Serializer):
+    query = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=500,
+        help_text="Natural language or keywords, such as an object name, a topic or a product area. "
+        "Without a query, the search lists members with a summary, the newest summary first.",
+    )
+    search_mode = serializers.ChoiceField(
+        choices=SearchMode.choices,
+        default=SearchMode.HYBRID,
+        help_text="`hybrid` merges the keyword and semantic rankings. `semantic` ranks by meaning only, and "
+        "returns 503 when the vector search fails. `keyword` matches query terms in the profile, the headline, "
+        "the theme labels and the names of owned and watched objects.",
+    )
+    product = serializers.ChoiceField(
+        choices=ActivitySummaryProduct.choices,
+        required=False,
+        help_text="Only members who work in or visit this product.",
+    )
+    exclude_user_uuids = JSONTolerantListField(
+        child=serializers.UUIDField(),
+        required=False,
+        default=list,
+        help_text="Members to leave out, such as people you already checked.",
+    )
+    include_profile = serializers.BooleanField(
+        default=False,
+        help_text="Add the one-page markdown profile to each result. Set it only for the people you want to read.",
+    )
+    limit = serializers.IntegerField(
+        min_value=1,
+        max_value=ACTIVITY_SUMMARY_SEARCH_MAX_LIMIT,
+        default=ACTIVITY_SUMMARY_SEARCH_DEFAULT_LIMIT,
+        help_text="The most results to return, best match first.",
+    )
+
+
+class ActivitySummarySearchMatchSerializer(serializers.Serializer):
+    kind = serializers.ChoiceField(
+        choices=MatchKind.choices,
+        help_text="`semantic` for a vector match, else the summary field a keyword matched.",
+    )
+    snippet = serializers.CharField(
+        allow_null=True, help_text="A short excerpt around the first keyword match. Null for a semantic match."
+    )
+
+
+class ActivitySummarySearchHitSerializer(serializers.Serializer):
+    user_uuid = serializers.UUIDField(help_text="The member. Use it in `suggested_reviewers`.")
+    first_name = serializers.CharField(help_text="The member's first name.")
+    last_name = serializers.CharField(help_text="The member's last name.")
+    github_login = serializers.CharField(
+        allow_null=True, help_text="The member's GitHub login, lowercase. Null when no GitHub identity is linked."
+    )
+    score = serializers.FloatField(
+        allow_null=True,
+        help_text="The reciprocal rank fusion score. Higher is a better match. Null when the request had no query.",
+    )
+    matched_on = ActivitySummarySearchMatchSerializer(many=True, help_text="Why this member matched.")
+    headline = serializers.CharField(
+        allow_null=True, help_text="One or two sentences about what the member works on in this project."
+    )
+    themes = ActivitySummaryThemeSerializer(many=True, help_text="The main threads of the member's work.")
+    modes = serializers.ListField(
+        child=serializers.ChoiceField(choices=ActivitySummaryMode.choices),
+        help_text="How the member works in this project overall, the main mode first.",
+    )
+    generated_at = serializers.DateTimeField(allow_null=True, help_text="When this summary was written.")
+    stale = serializers.BooleanField(help_text="True when a newer version will replace this summary soon.")
+    profile = serializers.CharField(
+        allow_null=True, help_text="The one-page markdown profile. Set only when the request sets `include_profile`."
+    )
+
+
+class ActivitySummarySearchResultSerializer(serializers.Serializer):
+    results = ActivitySummarySearchHitSerializer(many=True, help_text="The matching members, best match first.")
+    semantic_used = serializers.BooleanField(
+        help_text="False when the search used keywords only: a `keyword` search, a request with no query, or a "
+        "`hybrid` search whose vector search failed."
+    )
+    not_ready_count = serializers.IntegerField(
+        help_text="Members with access to the project and no summary yet. The search cannot find them."
+    )
+
+
+class _SemanticSearchUnavailable(APIException):
+    status_code = 503
+    default_detail = "The semantic search is unavailable. Try again, or use `search_mode=hybrid` or `keyword`."
+    default_code = "semantic_search_unavailable"
+
+
+class ActivitySummaryMembersViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    """Search the activity summaries of a project's members, for reviewer routing in a scout run.
+
+    `scope_object = "signal_scout_internal"` makes this reachable only with a scout sandbox token, as
+    `SignalScoutMembersViewSet` is: session auth, personal API keys and user-grantable OAuth tokens are rejected.
+    """
+
+    serializer_class = ActivitySummarySearchResultSerializer
+    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
+    permission_classes = [IsAuthenticated, APIScopePermission, ScoutCanonicalTeamAccessPermission]
+    scope_object = "signal_scout_internal"
+    pagination_class = None
+
+    @validated_request(
+        query_serializer=ActivitySummarySearchQuerySerializer,
+        responses={200: OpenApiResponse(response=ActivitySummarySearchResultSerializer)},
+        summary="Search member activity summaries",
+        description="Find the project members whose activity summary matches a topic, an object or a product, "
+        "including people who only open the work and never edit it. Returns 404 when the search is not available "
+        "for this project.",
+        operation_id="signals_activity_summary_members_search",
+    )
+    @action(detail=False, methods=["GET"], required_scopes=["signal_scout_internal:read"])
+    def search(self, request: ValidatedRequest, *args: object, **kwargs: object) -> Response:
+        query = request.validated_query_data
+        team = self.team
+        properties = {
+            "search_mode": query["search_mode"],
+            "has_query": bool((query.get("query") or "").strip()),
+            "has_product": query.get("product") is not None,
+            "excluded_count": len(query["exclude_user_uuids"]),
+            "include_profile": query["include_profile"],
+        }
+        try:
+            result = signals_facade.search_activity_summaries(
+                team=team,
+                query=query.get("query"),
+                search_mode=query["search_mode"],
+                product=query.get("product"),
+                exclude_user_uuids=[str(value) for value in query["exclude_user_uuids"]],
+                include_profile=query["include_profile"],
+                limit=query["limit"],
+            )
+        except SemanticSearchUnavailable:
+            self._capture(request, team, "semantic_unavailable", **properties)
+            raise _SemanticSearchUnavailable()
+        if result is None:
+            self._capture(request, team, "not_enrolled", **properties)
+            raise NotFound()
+        self._capture(
+            request,
+            team,
+            ActivitySummaryStatus.READY,
+            **properties,
+            count=len(result.results),
+            semantic_used=result.semantic_used,
+            not_ready_count=result.not_ready_count,
+        )
+        return Response(ActivitySummarySearchResultSerializer(asdict(result)).data)
+
+    def _capture(self, request: Request, team: Team, status: str, **properties: Any) -> None:
+        # Counts and modes only. The query can repeat report content, and the results are member data.
+        report_user_action(
+            request.user,
+            READ_EVENT,
+            properties={"endpoint": "search", "status": status, "via_mcp": is_mcp_request(request), **properties},
+            team=team,
+            request=request,
+        )

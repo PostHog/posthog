@@ -3,12 +3,10 @@ import { useValues } from 'kea'
 import { memo } from 'react'
 
 import { IconBug, IconCursorClick, IconKeyboard, IconLive } from '@posthog/icons'
-import { LemonTag } from '@posthog/lemon-ui'
+import { Badge, Skeleton, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
 import { PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
 import { TZLabel } from 'lib/components/TZLabel'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { SimpleTimeLabel } from 'scenes/session-recordings/components/SimpleTimeLabel'
 import { TimestampFormat, playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
@@ -19,11 +17,12 @@ import { SessionRecordingType } from '~/types'
 import { asDisplay } from 'products/persons/frontend/person-utils'
 
 import { gatherIconProperties } from './gatherIconProperties'
-import { ItemCheckbox } from './ItemCheckbox'
+import { QuillItemCheckbox } from './QuillItemCheckbox'
+import { QuillUnwatchedIndicator } from './QuillUnwatchedIndicator'
+import { RecordingRowStat } from './RecordingRowStat'
 import { sessionRecordingsListPropertiesLogic } from './sessionRecordingsListPropertiesLogic'
 import { DEFAULT_RECORDING_FILTERS_ORDER_BY, sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
 import { SortMetric } from './SortMetric'
-import { UnwatchedIndicator } from './UnwatchedIndicator'
 
 export interface SessionRecordingPreviewFeedProps {
     recording: SessionRecordingType
@@ -43,8 +42,8 @@ export const SessionRecordingPreviewFeed = memo(
 
         const order = filters.order || DEFAULT_RECORDING_FILTERS_ORDER_BY
         const recordingProperties = recordingPropertiesById[recording.id]
-        const loading = !recordingProperties && recordingPropertiesLoading
         const iconProperties = gatherIconProperties(recordingProperties, recording)
+        const loading = iconProperties.length === 0 && !recordingProperties && recordingPropertiesLoading
         const errorCount = recording.console_error_count ?? 0
         const startUrl = recording.start_url?.replace(/https?:\/\//g, '').split(/[?|#]/)[0]
         // nextSessionRecording is undefined while autoplay is off, so the label disappears with it
@@ -53,25 +52,31 @@ export const SessionRecordingPreviewFeed = memo(
         return (
             <DraggableToNotebook href={urls.replaySingle(recording.id)}>
                 <div
+                    data-quill
                     className={clsx(
-                        'SessionRecordingPreview SessionRecordingPreview--compact group flex items-start gap-x-2 overflow-hidden cursor-pointer py-2 px-2 text-[11px]',
+                        'SessionRecordingPreview SessionRecordingPreview--compact group flex items-center gap-x-2 overflow-hidden cursor-pointer py-2 px-2 text-[11px] text-foreground',
                         isActive && 'SessionRecordingPreview--active'
                     )}
                 >
                     {selectable && (
-                        <span className="shrink-0 flex items-center self-center [&_label]:min-h-0">
-                            <ItemCheckbox recording={recording} />
+                        <span className="shrink-0 flex items-center self-center">
+                            <QuillItemCheckbox recording={recording} />
                         </span>
                     )}
                     {loading ? (
-                        <LemonSkeleton className="w-16 h-16 shrink-0 rounded" />
+                        <Skeleton className="w-14 h-14 shrink-0 rounded" />
                     ) : (
-                        <div className="grid grid-cols-2 grid-rows-2 gap-0.5 p-0.5 w-16 h-16 shrink-0 rounded border bg-surface-secondary overflow-hidden ph-no-capture">
+                        <div className="grid grid-cols-2 grid-rows-2 gap-0.5 p-0.5 w-14 h-14 shrink-0 rounded border border-border bg-muted overflow-hidden ph-no-capture">
                             {iconProperties.map(({ property, value, label }) => (
-                                <Tooltip key={property} title={label}>
-                                    <span className="flex items-center justify-center rounded-sm bg-surface-primary leading-none text-base">
+                                <Tooltip key={property}>
+                                    <TooltipTrigger
+                                        render={
+                                            <span className="flex items-center justify-center rounded-sm bg-card leading-none text-sm" />
+                                        }
+                                    >
                                         <PropertyIcon property={property} value={value} />
-                                    </span>
+                                    </TooltipTrigger>
+                                    <TooltipContent>{label}</TooltipContent>
                                 </Tooltip>
                             ))}
                         </div>
@@ -87,50 +92,59 @@ export const SessionRecordingPreviewFeed = memo(
                                 {asDisplay(recording.person)}
                             </span>
                             {upNext && (
-                                <Tooltip title="Autoplay opens this recording when the current one ends.">
-                                    <LemonTag size="small" className="shrink-0" data-attr="feed-up-next">
+                                <Tooltip>
+                                    <TooltipTrigger render={<Badge className="shrink-0" data-attr="feed-up-next" />}>
                                         Up next
-                                    </LemonTag>
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                        Autoplay opens this recording when the current one ends.
+                                    </TooltipContent>
                                 </Tooltip>
                             )}
-                            {recording.ongoing && (
-                                <Tooltip title="This recording is still ongoing - we received data within the last 5 minutes.">
-                                    <IconLive className="shrink-0 mt-0.5 animate-[pulse_1s_ease-out_infinite] text-primary-3000" />
-                                </Tooltip>
-                            )}
-                            {!recording.viewed && (
-                                <span className="shrink-0 pt-1">
-                                    <UnwatchedIndicator otherViewersCount={recording.viewers?.length || 0} />
+                            {(recording.ongoing || !recording.viewed) && (
+                                <span className="flex items-center gap-x-1.5 shrink-0 h-[1lh] text-xs leading-snug">
+                                    {recording.ongoing && (
+                                        <Tooltip>
+                                            <TooltipTrigger render={<span className="inline-flex" />}>
+                                                <IconLive className="animate-[pulse_1s_ease-out_infinite] text-primary-3000" />
+                                            </TooltipTrigger>
+                                            <TooltipContent>
+                                                This recording is still ongoing - we received data within the last 5
+                                                minutes.
+                                            </TooltipContent>
+                                        </Tooltip>
+                                    )}
+                                    {!recording.viewed && (
+                                        <QuillUnwatchedIndicator otherViewersCount={recording.viewers?.length || 0} />
+                                    )}
                                 </span>
                             )}
                         </div>
                         {recording.matches_filters === false && (
-                            <Tooltip title="This recording is listed only because it's open. It doesn't match the current filters.">
-                                <LemonTag type="warning" size="small" className="self-start">
+                            <Tooltip>
+                                <TooltipTrigger render={<Badge variant="warning" className="self-start" />}>
                                     Doesn't match filters
-                                </LemonTag>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                    This recording is listed only because it's open. It doesn't match the current
+                                    filters.
+                                </TooltipContent>
                             </Tooltip>
                         )}
-                        <div className="flex items-center gap-x-2 flex-wrap text-secondary">
-                            <Tooltip title="Clicks">
-                                <span className="flex items-center gap-x-0.5 shrink-0">
-                                    <IconCursorClick />
-                                    {recording.click_count}
-                                </span>
-                            </Tooltip>
-                            <Tooltip title="Key presses">
-                                <span className="flex items-center gap-x-0.5 shrink-0">
-                                    <IconKeyboard />
-                                    {recording.keypress_count}
-                                </span>
-                            </Tooltip>
+                        <div className="flex items-center gap-x-2 flex-wrap text-muted-foreground">
+                            <RecordingRowStat icon={<IconCursorClick />} value={recording.click_count} label="Clicks" />
+                            <RecordingRowStat
+                                icon={<IconKeyboard />}
+                                value={recording.keypress_count}
+                                label="Key presses"
+                            />
                             {errorCount > 0 && order !== 'console_error_count' && (
-                                <Tooltip title="Console errors">
-                                    <span className="flex items-center gap-x-0.5 shrink-0 text-danger">
-                                        <IconBug />
-                                        {errorCount}
-                                    </span>
-                                </Tooltip>
+                                <RecordingRowStat
+                                    icon={<IconBug />}
+                                    value={errorCount}
+                                    label="Console errors"
+                                    destructive
+                                />
                             )}
                             {playlistTimestampFormat === TimestampFormat.Relative ? (
                                 <TZLabel className="shrink-0" time={recording.start_time} placement="right" />
@@ -148,7 +162,7 @@ export const SessionRecordingPreviewFeed = memo(
                         {startUrl && (
                             <span
                                 title={`First URL: ${recording.start_url}`}
-                                className="truncate text-secondary ph-no-capture"
+                                className="truncate text-muted-foreground ph-no-capture"
                             >
                                 {startUrl}
                             </span>

@@ -19,23 +19,33 @@ The core signal pipeline (`products/signals/backend/emission/pipeline.py`) is so
 
 1. **Record fetcher** — each source defines a `record_fetcher` callable on its config
 2. **Emitter** — transforms each record dict into a `SignalEmitterOutput` (or `None` to skip)
-3. **Summarization** — optionally summarizes long descriptions via LLM
-4. **Actionability filter** — optionally filters non-actionable records via LLM.
+3. **Admission** — records funding on the signal's spend receipt before any billable processing; retries reuse that decision.
+4. **Summarization** — optionally summarizes long descriptions via LLM
+5. **Actionability filter** — optionally filters non-actionable records via LLM.
    Teams can steer this gate per source via two keys on `SignalSourceConfig.config`: `steering` (plain-language rules injected into the canonical prompt) and `default_not_actionable` (flips the "when in doubt" posture from keep to filter).
    See `steering.py` — the injection escapes braces and caps length so team text can never break the prompt's one-word output contract, and every canonical actionability prompt must keep the `When in doubt, classify as ACTIONABLE` posture line the injection anchors on.
    The gate runs before a signal exists, so it sees only the description unless the record carries the verdict elsewhere.
    A source whose verdict depends on metadata the description doesn't carry declares those `extra` keys in `actionability_context_fields`, and they arrive in a `<record_metadata>` block inside the description (see `github_issues.py`, which declares the issue author).
    A steered gate gets all of `extra` in that block instead; a source declaring nothing keeps a byte-identical prompt.
-5. **Emission** — emits surviving outputs as Signals via `products/signals/backend/api/emit_signal`
+6. **Emission** — emits surviving outputs as Signals via `products/signals/backend/facade/api.py:emit_signal`
 
 ### Direct sources
 
 Error tracking and health checks never enter the shared pipeline: they build a description themselves and call `emit_signal` directly.
+`emit_signal` admits them before steering, including sources without steering text.
+Billing, trial, or daily report limit refusal drops new work normally; model failures alone may fail open.
+An open spend receipt means accepted work, regardless of source or billing exemption. It protects the signal through buffering and the report pass it triggers, even if a billing or daily report limit is reached meanwhile. Funding and exemption fields control accounting, not permission to continue. Finalization ends that admission. Explicit later report reruns still check current limits.
 They still honor steering, through the gate in `direct_gate.py` that `emit_signal` applies to the `(source_product, source_type)` pairs in `contracts.DIRECT_STEERABLE_SOURCES`.
 Two rules keep that gate predictable.
 A team that wrote no steering gets no LLM call and no change in behavior.
 A team that wrote steering is filtered by that text alone, because the prompt there carries no actionability criteria of its own, unlike the record-shaped prompts in `_prompts.py`.
-The gate fails open, and reports a dropped signal as `signal_data_source_filtered` with `steering_applied`, the same stage event the pipeline fires.
+The gate fails open on model errors, and reports a dropped signal as `signal_data_source_filtered` with `steering_applied`, the same stage event the pipeline fires.
+
+Error tracking also has a deterministic issue filter, which runs before `emit_signal` and so before the steering gate.
+The filter is a compiled property filter in the `issue_filters` key (`contracts.ISSUE_FILTERS_KEY`) of each error tracking row.
+`emit_issue_lifecycle_signal` in `products/error_tracking/backend/temporal/lifecycle/side_effects.py` evaluates it with the alert filter evaluator, and the backfill evaluates it against the stored issue.
+A filter that cannot be evaluated drops the signal.
+A dropped signal reports itself as `signal_source_filter_dropped` with a `filter_reason`, and never fires `signal_emission_started`.
 
 A pair listed in `DIRECT_STEERABLE_SOURCES` that the registry also serves would have every record judged twice, so the two sets must stay disjoint (`tests/test_direct_gate.py` holds that).
 The roster's `steerable` flags in `products/signals/frontend/inbox/components/config/agentRosterMeta.ts` mirror the same set: a source that offers the steering form without a gate behind it stores text nothing reads.
@@ -55,6 +65,9 @@ Each source defines how to fetch records via its `record_fetcher` on the config:
   A source that declares `scope_field` (a HogQL expression yielding a record's scope id) and `scope_config_key` (a list of allowed ids on `SignalSourceConfig.config`) gets an `IN` clause added to its query, so a team narrows a workspace-wide warehouse sync without changing what the warehouse imports.
   An absent, empty, or malformed list means no narrowing.
   Declare the key per source in `contracts.SCOPE_CONFIG_KEYS` and read it from there, as `linear_issues.py` does for Linear team ids: the table stays out of `emission/` so the API serializer validates the same key without importing the emitters.
+  A saved `hogql_filter` (`contracts.HOGQL_FILTER_KEY`) is bound to the filter catalog version it was saved against and ANDed into the same query before the limit (`source_filters.py`).
+  A row with a malformed value in a field the filter uses never passes: the fetcher drops it and logs the count.
+  Unlike a malformed scope list, a saved filter that cannot be read or bound raises, so emission stops rather than reading unfiltered rows.
 - **Grouped warehouse fetcher** (`fetchers/grouped_warehouse.py`) — for high-volume tables that store one row per occurrence (Datadog error spans and logs).
   The generic fetcher has no `GROUP BY`, so it would emit one signal per row.
   The grouped fetcher reads a fixed trailing window of event time (`GROUPED_WINDOW_DAYS`) and ignores `last_synced_at`.
@@ -68,7 +81,10 @@ Each source defines how to fetch records via its `record_fetcher` on the config:
   The fetcher rejects `scope_field`, because a group has no single scope value.
   The generic fetcher takes an optional `order_by` on the config, so the `max_records` limit keeps the most important records.
 - **Conversations fetcher** (`fetchers/conversations.py`) — queries Django ORM for Postgres tickets + comments.
-  Records emission in `SignalEmissionRecord` optimistically at fetch time.
+  Empty tickets are marked processed at fetch time. Actual outputs use the pipeline's `record_processed_outputs`
+  path, so admission refusal leaves them eligible for a later run. Snapshot keys include the last-message time;
+  retries reuse the receipt and a later conversation update can emit again. The coordinator preserves the
+  pre-fetch timestamp for the ledger, so messages arriving during processing remain eligible for a later snapshot.
 
 ### Data import sources (Zendesk, GitHub, Linear)
 

@@ -186,9 +186,8 @@ export const PostgresDestinationConfigApiType = {
 /**
  * Typed configuration for a PostgreSQL batch-export destination.
  *
- * Connection credentials may live in a linked Integration (when one is provided) or
- * inline in this config (legacy). Mirrors the non-credential fields of
- * `PostgresBatchExportInputs` in `products/batch_exports/backend/service.py`.
+ * Connection credentials live in the linked Integration, never here. Mirrors the
+ * non-credential fields of `PostgresBatchExportInputs` in `products/batch_exports/backend/service.py`.
  */
 export interface PostgresDestinationConfigApi {
     /** PostgreSQL database name to connect to. */
@@ -356,27 +355,6 @@ export const RedshiftExportModeEnumApi = {
 } as const
 
 /**
- * Authorization for Redshift to read staged files during COPY: the ARN of an IAM role attached to the cluster, inline AWS credentials, or the id of an aws-s3-kind Integration.
- */
-export type RedshiftCopyInputsApiAuthorization =
-    | number
-    | string
-    | {
-          aws_access_key_id: string
-          aws_secret_access_key: string
-      }
-
-/**
- * Credentials used to stage files in the S3 bucket: inline AWS credentials or the id of an aws-s3-kind Integration.
- */
-export type RedshiftCopyInputsApiBucketCredentials =
-    | number
-    | {
-          aws_access_key_id: string
-          aws_secret_access_key: string
-      }
-
-/**
  * S3 staging configuration for a Redshift batch export running in COPY mode.
  */
 export interface RedshiftCopyInputsApi {
@@ -386,10 +364,10 @@ export interface RedshiftCopyInputsApi {
     region_name: string
     /** Key prefix for staged files in the S3 bucket. */
     s3_key_prefix: string
-    /** Authorization for Redshift to read staged files during COPY: the ARN of an IAM role attached to the cluster, inline AWS credentials, or the id of an aws-s3-kind Integration. */
-    authorization: RedshiftCopyInputsApiAuthorization
-    /** Credentials used to stage files in the S3 bucket: inline AWS credentials or the id of an aws-s3-kind Integration. */
-    bucket_credentials: RedshiftCopyInputsApiBucketCredentials
+    /** Authorization for Redshift to read staged files during COPY: an IAM role ARN or an AWS S3 integration ID. */
+    authorization: number | string
+    /** AWS S3 integration ID used to stage files in the S3 bucket. */
+    bucket_credentials: number
 }
 
 export type RedshiftDestinationConfigApiType =
@@ -402,8 +380,7 @@ export const RedshiftDestinationConfigApiType = {
 /**
  * Typed configuration for a Redshift batch-export destination.
  *
- * Connection credentials may live in a linked Integration (when one is provided) or inline in
- * this config (legacy). Mirrors the non-credential fields of `RedshiftBatchExportInputs` in
+ * Connection credentials live in the linked Integration, never here. Mirrors the non-credential fields of `RedshiftBatchExportInputs` in
  * `products/batch_exports/backend/service.py`.
  */
 export interface RedshiftDestinationConfigApi {
@@ -1059,6 +1036,7 @@ export interface BatchExportApi {
      * * `America/Coral_Harbour` - America/Coral_Harbour
      * * `America/Cordoba` - America/Cordoba
      * * `America/Costa_Rica` - America/Costa_Rica
+     * * `America/Coyhaique` - America/Coyhaique
      * * `America/Creston` - America/Creston
      * * `America/Cuiaba` - America/Cuiaba
      * * `America/Curacao` - America/Curacao
@@ -1894,6 +1872,7 @@ export interface BatchExportBackfillApi {
 }
 
 export interface PaginatedBatchExportBackfillListApi {
+    count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
@@ -1902,6 +1881,7 @@ export interface PaginatedBatchExportBackfillListApi {
 }
 
 export interface PaginatedBatchExportRunListApi {
+    count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
@@ -2386,6 +2366,7 @@ export const RedshiftDestinationRequestTypeEnumApi = {
 export type BatchExportsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -2541,6 +2522,7 @@ export type BatchExportsLogsRetrieveParams = {
 export type FileDownloadBatchExportsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**

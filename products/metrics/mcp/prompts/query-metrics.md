@@ -6,10 +6,13 @@ All parameters go inside `query` — top-level fields are rejected:
 { "query": { "metricName": "m", "aggregation": "rate", "dateFrom": "2026-01-01T00:00:00Z" } }
 ```
 
-Two request forms:
+Three request forms:
 
 - **Single metric (shorthand):** set `metricName` (+ `aggregation`, `filters`, `groupBy`).
 - **Multi-clause / formula:** set `clauses: [{name, metricName, aggregation, quantile?, filters?, groupBy?}, ...]` and optionally `formula` (e.g. `"(a - b) / a"` over clause names; `+ - * /` and parentheses; division by zero yields 0). With a formula set, only the formula result series are returned.
+- **PromQL:** set `promql` to a PromQL expression, e.g. `{ "query": { "promql": "sum by (job) (rate(http_requests_total[5m]))", "dateFrom": "-3h" } }`. It runs as a range query on the same time grid. Put selectors, grouping and functions in the expression; `filters`, `groupBy`, `formula` and `metricType` are rejected with it. Unreported buckets are `null`, not zero. If the response says PromQL is not enabled for this project, use the builder forms.
+
+When you already have a PromQL expression (an alert rule, a runbook, a Grafana panel), send it as `promql` as written. Do not translate it into builder fields.
 
 # Workflow — follow this order every time
 
@@ -31,4 +34,4 @@ Two request forms:
 4. Use `formula` for normalized comparisons, e.g. error ratio `errors / requests` instead of raw error counts.
 5. Correlate the onset window across signals: query logs (`query-logs`, filtered to the same `service.name` and time window, severity error) and traces (APM span tools, same service/window) to find the cause and its blast radius.
 
-CRITICAL: be minimalist — only include filters/settings essential to the question. Time ranges: `dateFrom` and `dateTo` take ISO 8601 or a relative offset back from now (`-1h`, `-24h`, `-7d`, `-2w`; `m` means months, not minutes). `dateTo` defaults to now and `dateFrom` to 24 hours before `dateTo`. `dateFrom` snaps down to its bucket boundary, so the first point can be labelled up to one interval earlier than requested but always covers a whole bucket.
+CRITICAL: be minimalist — only include filters/settings essential to the question. Time ranges: `dateFrom` and `dateTo` take ISO 8601 or a relative offset back from now (`-30M`, `-1h`, `-24h`, `-7d`, `-2w`). Capital `M` is minutes and lowercase `m` is months, so the last 30 minutes is `-30M`; `-30m` is 30 months and fails the 31-day limit. `dateTo` defaults to now and `dateFrom` to 24 hours before `dateTo`. `dateFrom` snaps down to its bucket boundary, so the first point can be labelled up to one interval earlier than requested but always covers a whole bucket.

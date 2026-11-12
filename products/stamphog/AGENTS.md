@@ -64,7 +64,7 @@ A team left with none of those is not a digest audience at all.
 Subtracting rather than only dropping the all-generated case came from the same channel getting swept again: one regenerated file next to one real one read as a two-file stake, which is above the graze rule's threshold, so the sweep looked like ownership.
 Three things keep it from being the harmless-file rule above.
 It decides who hears about a merge, never whether code is safe to approve.
-The root `CLAUDE.md` forbids hand-editing those files, so the hand-edited-and-still-ships case does not apply to this path.
+[`.agents/architecture.md`](../../.agents/architecture.md) forbids hand-editing those files, so the hand-edited-and-still-ships case does not apply to this path.
 And it names one exact directory shape rather than any `generated/` directory, which is the match that would catch hand-editable code elsewhere.
 
 Both sides are read with `compare_diff`, from the base and head shas the run and the payload already fixed.
@@ -187,6 +187,41 @@ The requester's own GitHub access is not checked; the `stamphog:write` scope and
 The run is stamped `manual_review` provenance and the `manual` trigger, and it enters the workflow through `dismiss_stale_approvals` like every other run.
 A refusal writes nothing to GitHub and creates no run, so it cannot leave or remove an approval.
 
+## The silent trigger (a clean external review)
+
+`facade/tasks.py::queue_silent_review` lets ReviewHog start a review of one head after a clean review of it.
+The repo's `review_on_clean_external_review` switch must be on, and it takes the `manager` level like `routing_mode`.
+Like the manual trigger it bypasses `review_mode` and nothing else: the Celery task re-reads the config from the writer and refuses a closed PR, a draft, a bot author, an untrusted association, an author below write, a disabled repo, and a head that is no longer current.
+The head dedupe in `_queue_review_at_head` applies, so a head that already has a review gets no second one.
+The run is stamped with the `reviewhog_clean` trigger and no provenance dict, apart from manual and inbox provenance, so it never earns the self-driving carve-out or the ReviewHog refusal handoff. `ReviewRun.is_silent` reads that stamp.
+
+The run is silent: only an approval reaches the PR, through the same attest, adopt and guard steps as any approval.
+Every other verdict, and a failure, writes nothing to GitHub, on retries too: no review, no label strip, no failure notice, no 👀, no WAIT re-review after an external review, and the pre-check skips its LLM refusal summary.
+What it keeps: `dismiss_stale_approvals` first, the conditional terminal save, and the terminal orphan-approval sweep.
+Do not return early before them, or a silent refusal leaves an older approval standing.
+Every path that writes to the PR asks `ReviewRun.may_publish`, so the approval exception is decided in one place.
+Publication is its own state: a withheld verdict keeps `verdict_posted_at` empty (`ReviewRun.verdict_withheld`), so the verdict a run computed is never read as one the PR saw.
+
+FALLBACK routing is the one consumer of a withheld verdict, and the one PR write that does not ask `may_publish`: `_notify_finished_review` queues routing for every outcome of a silent run, because with the switch on `_stamphog_will_review` counts the head as reviewed and it waits for this run.
+Routing writes review requests and a comment that names cuts or the approval, never a withheld verdict, so keep it that way: a routing comment that names the outcome would publish what the run withheld.
+When ReviewHog will not start a silent review of a head (findings, a failed turn, or no automatic turn), it calls `facade/tasks.py::queue_routing_after_external_review`. The task routes the live head in full only while the record waits on the reported head, the repo is FALLBACK with the switch on, no non-superseded stamphog run covers the live head, and the live PR has no trigger label (a push starts no silent review, so a moved head routes too), with writer-pinned reads and the same claim as every other routing trigger. Anything else is a no-op, so the 30-minute safety net stays only a backstop for failures.
+The report and the opening event come from one delivery, in either order. A report that finds no record raises `RoutingBusy`, so the task retries after the opening event saved its waiting record. A record that waits on the live head instead (the author pushed before the opening event ran) routes that head, because a push starts no silent review. Do not turn that into a no-op, or a report that comes first is lost until the safety net.
+A silent review that a gate refuses reports the same way, and a withheld WAIT routes in full, because nothing reviews a silent WAIT again. That holds for the verdict task, for the opening event that finds the WAIT already stored, and for a silent WAIT on a head that only got its pinned owners.
+A verdict for a head that the author pushed past routes the live head in full through `_full_step_on_live_head`, the same helper the external-review step uses, when the record waits on the verdict's head or already on the live head. An approval of a stale head never earns pinned-only routing for the live head.
+Both supersession paths of a moved head hand the run to routing as a failure: `mark_review_failed` and the head-moved guard in `post_verdict` (`_route_after_moved_head`).
+The switch needs label mode: the write serializer refuses it with `review_mode=all`, and a save that sets `all` turns it off. A repository without ReviewHog automatic turns must leave it off, or every head waits for the safety net.
+
+A silent run never covers a visible request. `_queue_review_at_head` ignores a silent run whose verdict is unpublished unless the request is silent too, so a manual request supersedes a silent run in flight, as the label webhook always did.
+A visible request (the trigger label, or a manual request) creates its own run as always, so a caller polling that run follows it to the real outcome.
+When the head's latest run withheld a REFUSED or ESCALATE verdict (`_reusable_withheld_run`, asked by `_queue_review_at_head` for every visible request and by the webhook for the trigger label), the new run carries `withheld_run_id`.
+`post_verdict` stores `decision_fingerprint` on a run whose verdict it withholds, in the terminal save (`logic/decision_fingerprint.py`): a hash of the engine context minus the fields that move without changing the decision, each one named in that module.
+The workflow runs `reuse_withheld_verdict` before the sandbox starts. It reads the context again with no sandbox and no LLM call, and adopts the silent run's reviewer output only when the fingerprint matches, the PR is open, the head and the base are the reviewed ones, and a writer-pinned read finds no run between the two.
+The run then goes straight to `post_verdict`, which posts under its usual guards, records `reused_from_run_id`, and stamps the silent run's `verdict_posted_at` with its own, so neither run reads as withheld.
+Every other outcome, an error included, lets the same run review the PR the normal way, from the context the check already stored.
+A stored APPROVE never reaches `post_verdict` from here: a silent approval was posted when it was decided.
+A WAIT is never reused, because a WAIT can end with time alone (a reviewer bot's 👀 ages out) and the fingerprint cannot see that.
+A field added to the engine context belongs in the fingerprint, or a stale verdict gets published over the new input.
+
 ## External review evidence
 
 - `facade/review_evidence.py` is a registry of providers that stamphog owns. A product that reviews PRs and depends on stamphog (today review_hog, as PostHog Review) registers one at app-ready, for the same dependency-cycle reason as `inbox_hooks.py`. Stamphog never imports a provider's product.
@@ -220,7 +255,7 @@ A refusal writes nothing to GitHub and creates no run, so it cannot leave or rem
   able to rewrite the policy that gates it. Same for the `digest:` channel declaration and the
   root `owners.yaml` team registry the digest routes through.
 - A manually-created repo config (blank `installation_id`) binds **disabled** when a sync adopts it,
-  and its review policy (`review_mode`, `trigger_label`) resets to the model defaults: all of those
+  and its review policy (`review_mode`, `trigger_label`, `review_on_clean_external_review`) resets to the model defaults: all of those
   fields were set by someone who never proved GitHub access, so a pre-selected review mode or label
   would otherwise go live the moment someone enables the row. `add_repository` resets a placeholder's
   policy the same way when it binds one. Reinstall rebinds keep settings — those
@@ -279,9 +314,21 @@ Every input the sandbox reads from its checkout must reach the tree too, or fina
 `pregate()` decides that finality in the engine, and the server adds the file-list guards in `pregate_skip_reason` (head moved, list truncated, renames).
 Anything in doubt, and any error, falls through to the full review.
 
+The sandbox runs over a PR-controlled checkout, and nothing authenticates its stdout, so `post_verdict` never posts an approval on the sandbox's report alone.
+Before the approve branch, `_attest_gates` runs `review_local.py --attest` on the worker in the same tree as the pre-check, and a run that does not attest is posted as ESCALATE.
+The check reads the file list from a compare pinned to the merge base and the reviewed head, never from `get_pr_files`, which answers for whatever head is live.
+It reads each dependency manifest at both commits as a git blob, so the scripts scan runs without a checkout and sees a symlink as its link text, as `git show` does.
+Never read them through the contents API, which follows an in-repo symlink to its target.
+Every input the worker cannot confirm fails the check: a file list GitHub may have cut short, one that differs from the stored list, unread folder files or manifests, or an engine error.
+A retry of `post_verdict` reuses a stored answer that did not attest, because a second check that attests would post an approval over a delivered escalation. A stored answer that attested is checked again, because a deny lift can stop holding between attempts.
+The check reads the head's check runs again, so a lift that a policy `attestations` entry grants holds at posting time, and an approval such a lift made possible gets no approval retention.
+The worker records whether a lift was used as `gate_attestation.lifted`, and retention reads only that record, never the sandbox's report. An approval without the record is not retained.
+A failed read of the check runs at posting time counts as no check runs, so it refuses only an approval that needs a lift.
+A new path to an approval must go through this check too.
+
 A pending `Migration risk` check returns WAIT rather than falling through to a refusal, because a
 refusal costs a trigger-label strip, and a ReviewHog handoff on a self-driving PR, over what is a
-race with CI. It can't reuse `Pipeline._only_pending_migration_check`: that method disqualifies on
+race with CI. It can't reuse `Pipeline._only_pending_attestations`: that method disqualifies on
 any failing gate other than the deny-list, and a migrations deny always drags the tier gate to
 T2-never with it, so it answers False for every PR it exists to catch.
 

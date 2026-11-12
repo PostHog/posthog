@@ -53,7 +53,6 @@ class TestDeactivateStaleMaterializationsTask(BaseTest):
             query=self.sample_hogql_query,
             is_materialized=True,
             last_run_at=last_run_at or timezone.now(),
-            sync_frequency_interval=timedelta(hours=24),
             origin=DataWarehouseSavedQuery.Origin.ENDPOINT,
         )
         # Update saved_query.created_at if specified
@@ -393,7 +392,6 @@ class TestDeactivateEndpointMaterialization(BaseTest):
             query=self.sample_hogql_query,
             is_materialized=True,
             last_run_at=timezone.now(),
-            sync_frequency_interval=timedelta(hours=24),
             origin=DataWarehouseSavedQuery.Origin.ENDPOINT,
         )
         endpoint = Endpoint.objects.create(
@@ -428,7 +426,6 @@ class TestDeactivateEndpointMaterialization(BaseTest):
         saved_query.refresh_from_db()
         assert saved_query.deleted is True
         assert saved_query.is_materialized is False
-        assert saved_query.sync_frequency_interval is None
         assert saved_query.last_run_at is None
 
     def test_handles_endpoint_without_saved_query(self):

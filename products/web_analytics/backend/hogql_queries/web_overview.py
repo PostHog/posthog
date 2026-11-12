@@ -8,6 +8,7 @@ from posthog.schema import (
     CachedWebOverviewQueryResponse,
     EventPropertyFilter,
     HogQLQueryModifiers,
+    HogQLQueryResponse,
     PersonPropertyFilter,
     SessionTableVersion,
     WebAnalyticsPreComputeStrategy,
@@ -16,6 +17,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.constants import MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY, HogQLGlobalSettings
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
@@ -23,6 +25,18 @@ from posthog.hogql.query import execute_hogql_query
 from products.web_analytics.backend.hogql_queries.web_analytics_query_runner import (
     WEB_ANALYTICS_NO_JOIN_SERVED,
     WebAnalyticsQueryRunner,
+)
+from products.web_analytics.backend.hogql_queries.web_dimensional_precompute import (
+    WEB_BOUNCES_DIMENSIONAL_READ_TABLE,
+    DimensionalJobIds,
+)
+from products.web_analytics.backend.hogql_queries.web_dimensional_read import (
+    DimensionalReadFailure,
+    DimensionalWebOverviewQueryBuilder,
+    classify_dimensional_read_failure,
+    dimensional_precompute_stale,
+    dimensional_precomputed_at,
+    ready_dimensional_job_ids,
 )
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import lazy_precompute_ineligible_reason
 from products.web_analytics.backend.hogql_queries.web_overview_lazy_precompute import (
@@ -254,6 +268,20 @@ CROSS JOIN {sessions_agg} AS sessions_agg
         assert isinstance(combined, ast.SelectQuery)
         return combined
 
+    def get_dimensional_response(self) -> tuple[Optional[HogQLQueryResponse], Optional[DimensionalJobIds]]:
+        if self.query.conversionGoal or not self.preaggregated_query_builder.can_use_preaggregated_tables():
+            return None, None
+        # The overview builder reads only the bounces table.
+        job_ids = ready_dimensional_job_ids(self, tables=(WEB_BOUNCES_DIMENSIONAL_READ_TABLE,))
+        if job_ids is None:
+            return None, None
+        response = self._execute_pre_aggregated(
+            DimensionalWebOverviewQueryBuilder(self, job_ids),
+            query_type="web_overview_dimensional_query",
+            raise_errors=True,
+        )
+        return response, job_ids if response else None
+
     def get_pre_aggregated_response(self):
         should_use_preaggregated = (
             self.modifiers
@@ -265,6 +293,13 @@ CROSS JOIN {sessions_agg} AS sessions_agg
         if not should_use_preaggregated:
             return None
 
+        return self._execute_pre_aggregated(
+            self.preaggregated_query_builder, query_type="web_overview_preaggregated_query"
+        )
+
+    def _execute_pre_aggregated(
+        self, builder: WebOverviewPreAggregatedQueryBuilder, query_type: str, raise_errors: bool = False
+    ):
         try:
             # Pre-aggregated tables store data in UTC **buckets**, so we need to disable timezone conversion
             # to prevent HogQL from automatically converting DateTime fields to team timezone.
@@ -274,8 +309,8 @@ CROSS JOIN {sessions_agg} AS sessions_agg
             pre_agg_modifiers.convertToProjectTimezone = False
 
             response = execute_hogql_query(
-                query_type="web_overview_preaggregated_query",
-                query=self.preaggregated_query_builder.get_query(),
+                query_type=query_type,
+                query=builder.get_query(),
                 team=self.team,
                 user=self.user,
                 bypass_warehouse_access_control=self.bypass_warehouse_access_control,
@@ -292,7 +327,9 @@ CROSS JOIN {sessions_agg} AS sessions_agg
 
             return response
         except Exception as e:
-            logger.exception("Error getting pre-aggregated web_overview", error=e)
+            if raise_errors:
+                raise
+            logger.exception("Error getting pre-aggregated web_overview", query_type=query_type, error=e)
             return None
 
     def get_lazy_precomputed_row(self) -> Optional[list]:
@@ -445,11 +482,25 @@ WHERE and(
         if self.should_split_conversion_goal:
             return self._calculate_split_conversion_goal()
 
-        lazy_row = self.get_lazy_precomputed_row()
-        if lazy_row is not None:
-            return self._build_response_from_row(lazy_row)
+        live_blocking_error: Exception | None = None
+        try:
+            pre_aggregated_response, dimensional_job_ids = self.get_dimensional_response()
+        except Exception as error:
+            failure = classify_dimensional_read_failure(error)
+            if failure is DimensionalReadFailure.RERAISE:
+                raise
+            logger.exception("web_overview_dimensional_read_failed", team_id=self.team.pk)
+            pre_aggregated_response, dimensional_job_ids = None, None
+            if failure is DimensionalReadFailure.SKIP_LIVE:
+                live_blocking_error = error
+        if not pre_aggregated_response:
+            lazy_row = self.get_lazy_precomputed_row()
+            if lazy_row is not None:
+                return self._build_response_from_row(lazy_row)
 
-        pre_aggregated_response = self.get_pre_aggregated_response()
+            pre_aggregated_response = self.get_pre_aggregated_response()
+            if live_blocking_error is not None and not pre_aggregated_response:
+                raise live_blocking_error
 
         # Preflight only when the main query will actually run — if the
         # pre-aggregated builder already served the response, spending a
@@ -489,6 +540,7 @@ WHERE and(
                 timings=self.timings,
                 modifiers=execution_modifiers,
                 limit_context=self.limit_context,
+                settings=HogQLGlobalSettings(max_bytes_before_external_group_by=MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY),
             )
             if not pre_aggregated_response
             else pre_aggregated_response
@@ -532,6 +584,8 @@ WHERE and(
             dateTo=self.query_date_range.date_to_str,
             preComputeStrategy=strategy,
             preComputeIneligibleReason=lazy_precompute_ineligible_reason(strategy),
+            preComputeStale=dimensional_precompute_stale(dimensional_job_ids),
+            preComputedAt=dimensional_precomputed_at(dimensional_job_ids),
         )
 
     @cached_property

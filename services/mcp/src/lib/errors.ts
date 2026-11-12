@@ -3,7 +3,8 @@ import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js'
 import type { Schemas } from '@/api/generated'
 import { getPostHogClient } from '@/lib/posthog'
 import { getToolRecoveryHint } from '@/lib/tool-error-hints'
-import { sanitizeHeaderValue } from '@/lib/utils'
+import { withInformationalResponse } from '@/tools/tool-utils'
+import { POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY } from '@/tools/types'
 
 export enum ErrorCode {
     INVALID_API_KEY = 'INVALID_API_KEY',
@@ -143,6 +144,8 @@ export class McpSessionResetRequiredError extends Error {
 }
 
 export interface PostHogValidationErrorOptions {
+    /** Only code-controlled remediation belongs here; upstream details stay in `detail`. */
+    message?: string
     detail: string
     attr: string | undefined
     code: string | undefined
@@ -166,8 +169,7 @@ export class PostHogValidationError extends Error {
     public readonly method: string
 
     constructor(options: PostHogValidationErrorOptions) {
-        const attr = options.attr ? ` (field: ${options.attr})` : ''
-        super(`Validation error: ${options.detail}${attr}`)
+        super(options.message ?? 'PostHog API validation error. Check the request parameters and try again.')
         this.name = 'PostHogValidationError'
         this.detail = options.detail
         this.attr = options.attr
@@ -273,20 +275,20 @@ export class PostHogApiError extends Error {
     }
 }
 
-/** The request path without the upstream host. The host is not something an
- *  agent can act on, and reading one makes a 4xx look like an infrastructure
- *  fault; `client.ts` already logs the full URL server-side. */
-function requestPath(url: string): string {
+/** Diagnostic targets omit credentials and query values; never fall back to the raw URL. */
+export function formatSafeRequestTarget(url: string): string {
     try {
-        const parsed = new URL(url)
-        return `${parsed.pathname}${parsed.search}`
+        const parsed = new URL(url, 'https://diagnostic.invalid')
+        return parsed.protocol === 'http:' || parsed.protocol === 'https:'
+            ? parsed.pathname
+            : '[invalid request target]'
     } catch {
-        return url
+        return '[invalid request target]'
     }
 }
 
 function buildDefaultApiErrorMessage(options: PostHogApiErrorOptions): string {
-    return `Request failed:\nPath: ${options.method} ${requestPath(options.url)}\nStatus Code: ${options.status} (${options.statusText})\nError Message: ${options.body}`
+    return `Request failed:\nPath: ${options.method} ${formatSafeRequestTarget(options.url)}\nStatus Code: ${options.status}`
 }
 
 export interface PostHogRateLimitErrorOptions {
@@ -310,7 +312,7 @@ export class PostHogRateLimitError extends PostHogApiError {
             url: options.url,
             method: options.method,
             retryAfterSeconds: options.retryAfterSeconds,
-            message: `PostHog API rate limit exceeded (429) on ${options.method} ${options.url}.${retryHint}`,
+            message: `PostHog API rate limit exceeded (429) on ${options.method} ${formatSafeRequestTarget(options.url)}.${retryHint}`,
         })
         this.name = 'PostHogRateLimitError'
     }
@@ -347,14 +349,18 @@ export class PostHogTransportError extends Error {
     public readonly attempts: number
     /** True when the request hit the client's deadline instead of failing to connect. */
     public readonly timedOut: boolean
+    /**
+     * Names and codes from the cause chain, such as `TypeError > Error(ECONNREFUSED)`, for our
+     * logs and error tracking. It is not in `message`, and it never holds the cause's own text.
+     */
+    public readonly failure: string
 
     constructor(options: PostHogTransportErrorOptions) {
-        const reason = options.cause instanceof Error ? options.cause.message : String(options.cause)
         const advice = options.retryable
             ? 'The request applies nothing upstream, so it is safe to retry.'
             : 'The request may have been applied upstream, so check the state before you send it again.'
         super(
-            `Could not reach the PostHog API on ${options.method} ${requestPath(options.url)} after ${options.attempts} attempt${options.attempts === 1 ? '' : 's'}: ${reason}. ${advice}`
+            `Could not reach the PostHog API on ${options.method} ${formatSafeRequestTarget(options.url)} after ${options.attempts} attempt${options.attempts === 1 ? '' : 's'}. ${advice}`
         )
         this.name = 'PostHogTransportError'
         this.retryable = options.retryable
@@ -363,8 +369,47 @@ export class PostHogTransportError extends Error {
         this.attempts = options.attempts
         // A forwarded request nests the local transport error, so look through the cause chain.
         this.timedOut = hasTimeoutCause(options.cause)
-        ;(this as Error & { cause?: unknown }).cause = options.cause
+        this.failure = describeTransportCause(options.cause)
     }
+}
+
+const SAFE_ERROR_LABEL = /^[A-Za-z][\w.-]{0,63}$/
+
+/** Summarizes a transport cause by error names and codes only. Messages can hold headers or URL secrets. */
+export function describeTransportCause(cause: unknown): string {
+    const parts: string[] = []
+    let current: unknown = cause
+    const seen = new Set<unknown>()
+    while (current && !seen.has(current) && parts.length < 5) {
+        seen.add(current)
+        if (!(current instanceof Error)) {
+            parts.push(typeof current)
+            break
+        }
+        // The client wraps each attempt's failure, and that error keeps no `cause` to walk.
+        if (current instanceof PostHogTransportError) {
+            parts.push(current.failure)
+            break
+        }
+        const name = SAFE_ERROR_LABEL.test(current.name) ? current.name : 'Error'
+        const code = (current as Error & { code?: unknown }).code
+        parts.push(typeof code === 'string' && SAFE_ERROR_LABEL.test(code) ? `${name}(${code})` : name)
+        current = (current as Error & { cause?: unknown }).cause
+    }
+    return parts.join(' > ') || 'unknown'
+}
+
+export function findTransportError(error: unknown): PostHogTransportError | undefined {
+    let current: unknown = error
+    const seen = new Set<unknown>()
+    while (current && !seen.has(current)) {
+        if (current instanceof PostHogTransportError) {
+            return current
+        }
+        seen.add(current)
+        current = current instanceof Error ? (current as Error & { cause?: unknown }).cause : undefined
+    }
+    return undefined
 }
 
 /**
@@ -382,6 +427,7 @@ export function parseRetryAfterSeconds(header: string | null): number | null {
 export interface PostHogPermissionErrorOptions {
     detail: string
     missingScope?: string | undefined
+    challengeScopes?: string[] | undefined
     url: string
     method: string
 }
@@ -394,19 +440,29 @@ export interface PostHogPermissionErrorOptions {
 export class PostHogPermissionError extends Error {
     public readonly detail: string
     public readonly missingScope: string | undefined
+    /** From the API's `insufficient_scope` challenge, which it sends only for a step-up token. */
+    public readonly challengeScopes: string[] | undefined
     public readonly url: string
     public readonly method: string
 
     constructor(options: PostHogPermissionErrorOptions) {
         const message = options.missingScope
             ? `Missing PostHog API scope: '${options.missingScope}'`
-            : `PostHog API permission denied: ${options.detail}`
+            : 'PostHog API permission denied'
         super(message)
         this.name = 'PostHogPermissionError'
         this.detail = options.detail
         this.missingScope = options.missingScope
+        this.challengeScopes = options.challengeScopes
         this.url = options.url
         this.method = options.method
+    }
+
+    get requiredScopes(): string[] | undefined {
+        if (this.challengeScopes?.length) {
+            return this.challengeScopes
+        }
+        return this.missingScope ? [this.missingScope] : undefined
     }
 }
 
@@ -426,7 +482,8 @@ export function wrapError(message: string, cause: unknown): Error {
 const PERSONAL_API_KEY_DOCS_URL = 'https://posthog.com/docs/api#how-to-authenticate-with-the-posthog-api'
 
 export function formatPermissionErrorMessage(error: PostHogPermissionError): string {
-    const callTarget = error.method && error.url ? `${error.method} ${error.url}` : 'this MCP request'
+    const callTarget =
+        error.method && error.url ? `${error.method} ${formatSafeRequestTarget(error.url)}` : 'this MCP request'
     if (error.missingScope) {
         return [
             `Missing PostHog API scope: '${error.missingScope}'`,
@@ -442,7 +499,7 @@ export function formatPermissionErrorMessage(error: PostHogPermissionError): str
     // The backend sends this detail when a token restricted to some projects calls an organization endpoint.
     if (error.detail.includes('API keys with scoped projects are only supported on project-based endpoints')) {
         return [
-            `PostHog API permission denied: ${error.detail}`,
+            'PostHog API permission denied',
             '',
             `The request to ${callTarget} was rejected with HTTP 403. This is an organization endpoint, and your API key or OAuth token is limited to specific projects. More project access does not fix this.`,
             '',
@@ -453,29 +510,10 @@ export function formatPermissionErrorMessage(error: PostHogPermissionError): str
     }
 
     return [
-        `PostHog API permission denied: ${error.detail}`,
+        'PostHog API permission denied',
         '',
         `The request to ${callTarget} was rejected with HTTP 403. Verify that your API key, OAuth token, and user account have access to this project.`,
     ].join('\n')
-}
-
-/**
- * RFC 6750 §3.1: OAuth 2.0 Bearer challenge for 403 insufficient_scope. When
- * a missing scope is known, advertise it so OAuth-aware clients can prompt
- * for re-consent with the correct scope instead of reporting a generic error.
- */
-export function buildInsufficientScopeChallenge(error: PostHogPermissionError): string {
-    const parts = ['Bearer error="insufficient_scope"']
-    const scope = sanitizeHeaderValue(error.missingScope)
-    if (scope) {
-        parts.push(`scope="${scope}"`)
-    }
-    // Replace double quotes to keep the challenge syntactically valid.
-    const description = sanitizeHeaderValue(error.detail)?.replace(/"/g, "'")
-    if (description) {
-        parts.push(`error_description="${description}"`)
-    }
-    return parts.join(', ')
 }
 
 // Literal message shape produced by `new PostHogPermissionError({...})`. We
@@ -548,6 +586,55 @@ export function findRecoverableApiError(error: unknown): PostHogApiError | PostH
         current = current instanceof Error ? (current as Error & { cause?: unknown }).cause : undefined
     }
     return undefined
+}
+
+/**
+ * PostHog's own reason for refusing a request: the DRF `detail`, with the field for a validation
+ * error, and never a raw body. The reason can repeat values from the request, so error messages
+ * leave it out. The hosted server returns it to the agent that sent the request. The CLI prints it
+ * only outside CI, because CI logs are often public.
+ */
+export function serverDetailOf(error: unknown): string | undefined {
+    let current: unknown = error
+    const seen = new Set<unknown>()
+    while (current && !seen.has(current)) {
+        if (current instanceof PostHogValidationError) {
+            return current.attr ? `${current.detail} (field: ${current.attr})` : current.detail
+        }
+        if (current instanceof PostHogPermissionError) {
+            return current.detail
+        }
+        if (current instanceof PostHogApiError) {
+            return drfDetail(current.body)
+        }
+        seen.add(current)
+        current = current instanceof Error ? (current as Error & { cause?: unknown }).cause : undefined
+    }
+    return undefined
+}
+
+function drfDetail(body: string): string | undefined {
+    try {
+        const detail = (JSON.parse(body) as { detail?: unknown } | null)?.detail
+        return typeof detail === 'string' && detail ? detail : undefined
+    } catch {
+        return undefined
+    }
+}
+
+// The reason can quote text that someone other than the caller wrote, such as notebook content, so
+// it reaches the agent fenced as data and never as instructions.
+export function withServerDetail(message: string, error: unknown): string {
+    const detail = serverDetailOf(error)
+    if (!detail) {
+        return message
+    }
+    const fenced = withInformationalResponse(
+        { detail },
+        'posthog-error-detail',
+        "It holds PostHog's reason for refusing the request."
+    )
+    return `${message}\n\n${fenced[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]}`
 }
 
 /** True when the error or any error in its `cause` chain came from a request deadline. Tools that
@@ -628,7 +715,7 @@ export function handleToolError(
                 content: [
                     {
                         type: 'text',
-                        text: `Error: [${toolName}]: ${recoverableApiError.message}`,
+                        text: `Error: [${toolName}]: ${withServerDetail(recoverableApiError.message, recoverableApiError)}`,
                     },
                 ],
                 isError: true,
@@ -661,7 +748,7 @@ export function handleToolError(
             content: [
                 {
                     type: 'text',
-                    text: `Error: [${toolName}]: ${formatPermissionErrorMessage(permissionError)}`,
+                    text: `Error: [${toolName}]: ${withServerDetail(formatPermissionErrorMessage(permissionError), permissionError)}`,
                 },
             ],
             isError: true,
@@ -679,6 +766,7 @@ export function handleToolError(
         is_mcp_tool_error: error instanceof MCPToolError,
         suppress_analytics: suppressAnalytics,
         $exception_fingerprint: mcpError.tool,
+        transport_failure: findTransportError(error)?.failure,
     }
 
     if (sessionUuid) {

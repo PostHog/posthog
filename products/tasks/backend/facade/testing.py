@@ -1,15 +1,16 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 from uuid import UUID
 
 from django.core.cache import BaseCache
+from django.utils import timezone
 
-from posthog.models import User
+from posthog.models import Team, User
 
 from products.tasks.backend import push_dispatcher
-from products.tasks.backend.models import TaskArtifact, TaskPresence, TaskRun
+from products.tasks.backend.models import SandboxSession, TaskArtifact, TaskPresence, TaskRun
 from products.tasks.backend.push_dispatcher import notify_task_pull_request_outcome
 from products.tasks.backend.redis import get_tasks_cache
 
@@ -17,6 +18,7 @@ if TYPE_CHECKING:
     from posthog.temporal.oauth import PosthogMcpScopes
 
 __all__ = [
+    "create_completed_task_sandbox_session",
     "create_task_artifact",
     "create_task_presence",
     "create_task_run_oauth_access_token",
@@ -27,7 +29,29 @@ __all__ = [
     "notify_task_run_failed",
     "notify_task_run_turn_completed",
     "tasks_cache",
+    "run_task_tool",
 ]
+
+
+def create_completed_task_sandbox_session(*, team_id: int, task_run_id: UUID, duration: timedelta) -> UUID:
+    ended_at = timezone.now()
+    return (
+        SandboxSession.objects.for_team(team_id)
+        .create(
+            team_id=team_id,
+            task_run_id=task_run_id,
+            sandbox_id="test-compute-session",
+            cpu_cores=1,
+            memory_gb=1,
+            cpu_request_cores=1,
+            memory_request_mb=1024,
+            ttl_seconds=int(duration.total_seconds()),
+            created_at=ended_at - duration,
+            ttl_expires_at=ended_at,
+            ended_at=ended_at,
+        )
+        .id
+    )
 
 
 def create_task_artifact(*, team_id: int, task_id: UUID, task_run_id: UUID, name: str) -> UUID:
@@ -98,3 +122,11 @@ def create_task_run_oauth_access_token(
 
     run = _task_run(str(task_run_id), team_id)
     return create_oauth_access_token(run.task, user=User.objects.get(id=user_id), run_id=run.id, scopes=scopes)
+
+
+async def run_task_tool(*, team: Team, user: User, task_id: str) -> None:
+    from products.tasks.backend.max_tools import (
+        RunTaskTool,  # noqa: PLC0415 -- load tool dependencies only for tool tests
+    )
+
+    await RunTaskTool(team=team, user=user, config={})._arun_impl(task_id=task_id)

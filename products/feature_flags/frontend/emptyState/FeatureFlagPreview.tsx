@@ -7,7 +7,7 @@ import * as partyPng from '@posthog/brand/hoggies/png/party'
 
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { cn } from 'lib/utils/css-classes'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { inStorybook } from 'lib/utils/dom'
 
 // Hand-authored sparkline geometry for the conversion card. Both series share the same
 // baseline; the "on" series steps up at the release point (x=55), where the marker sits.
@@ -56,7 +56,7 @@ function SupportingFlagRow({
  * stacked in `__swap` grids and crossfaded, so flipping never changes the layout's size.
  */
 export function FeatureFlagPreview(): JSX.Element {
-    const isStatic = inStorybook() || inStorybookTestRunner()
+    const isStatic = inStorybook()
     // The preview can mount more than once on a page, so fixed ids would let one
     // instance's labels toggle another instance's checkboxes.
     const idPrefix = useId()

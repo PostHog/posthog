@@ -181,7 +181,7 @@ Required elements in every report:
 
 - **Specific event(s) / insight(s) / dashboard(s)** — entity IDs in the evidence list so a human can click straight to them.
 - **Volume + reach numbers** — the gap matters because of _N_ events affecting _M_ users; quote both. For a dead insight, quote the 30-day zero per event series, whether each series stopped (with its last firing date) or was never seen (with its opportunity evidence), and the dashboards that still show the insight.
-- **Suggested action** — "create a trends insight on event X" / "update insight Y to point at event Z" / "add insight A to dashboard B" / "configure an alert on event C". Concrete is better than abstract.
+- **Suggested action** — "create a trends insight on event X" / "update insight Y to point at event Z" / "add insight A to dashboard B" / "configure an alert on event C". Concrete is better than abstract. When the event's volume is noisy or seasonal, a fixed threshold will flap, so recommend an anomaly-detection alert instead and name the options: a statistical detector, or the AI detector (`llm`), which is billed as AI credits on every check and may not be enabled for every project.
 - **Why now** — if this gap has existed for weeks, why is it surfacing now? Because volume just crossed a threshold? Because a new event class emerged? Volume + recency is the dedupe key.
 
 The bar trades off:

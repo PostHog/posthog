@@ -1,58 +1,14 @@
+import re
 from uuid import uuid4
 
 from posthog.test.base import BaseTest
-from unittest.mock import patch
 
-from django.contrib import admin
-from django.contrib.admin.sites import AdminSite
-from django.contrib.messages.storage.fallback import FallbackStorage
-from django.core.exceptions import PermissionDenied
-from django.http import HttpRequest
-from django.template.loader import render_to_string
-from django.test import RequestFactory, SimpleTestCase
-from django.urls import reverse
+from django.test import Client, SimpleTestCase
 
-from posthog.admin.admins.organization_admin import BulkDeactivateOrganizationsForm, OrganizationAdmin
-from posthog.models import Organization
+from parameterized import parameterized
 
-
-def _attach_messages(request) -> None:
-    request.session = {}
-    request._messages = FallbackStorage(request)
-
-
-class _PostHogPermissions:
-    def __init__(self, *, change_organization: bool):
-        self.view_organization = True
-        self.change_organization = change_organization
-
-
-class _TemplatePermissions:
-    def __init__(self, *, change_organization: bool):
-        self.posthog = _PostHogPermissions(change_organization=change_organization)
-
-
-class TestOrganizationToolsAdminTemplate(SimpleTestCase):
-    def test_links_to_bulk_deactivation_for_users_with_change_permission(self) -> None:
-        rendered = render_to_string(
-            "organization_tools/app.html",
-            {"perms": _TemplatePermissions(change_organization=True)},
-        )
-
-        assert "Organization tools" in rendered
-        assert 'id="organization-tools"' in rendered
-        assert "Bulk deactivate organizations" in rendered
-        assert reverse("admin:organization_bulk_deactivate") in rendered
-
-    def test_hides_bulk_deactivation_without_change_permission(self) -> None:
-        rendered = render_to_string(
-            "organization_tools/app.html",
-            {"perms": _TemplatePermissions(change_organization=False)},
-        )
-
-        assert "Organization tools" in rendered
-        assert "Send usage report" in rendered
-        assert "Bulk deactivate organizations" not in rendered
+from posthog.admin.console.organization_tools import BulkDeactivateOrganizationsForm
+from posthog.models import Organization, User
 
 
 class TestBulkDeactivateOrganizationsForm(SimpleTestCase):
@@ -100,31 +56,6 @@ class TestBulkDeactivateOrganizationsForm(SimpleTestCase):
         assert not form.is_valid()
         assert "organization_ids" in form.errors
 
-    def test_preview_token_is_bound_to_ids_and_reason(self) -> None:
-        organization_id = uuid4()
-        form = BulkDeactivateOrganizationsForm(
-            {
-                "organization_ids": str(organization_id),
-                "reason": Organization.DeactivationReason.DESKTOP_ABUSE.value,
-                "custom_reason": "",
-            }
-        )
-
-        assert form.is_valid()
-        preview_token = form.preview_token()
-        assert form.preview_token_matches(preview_token)
-
-        changed_form = BulkDeactivateOrganizationsForm(
-            {
-                "organization_ids": str(organization_id),
-                "reason": Organization.DeactivationReason.UNPAID_BALANCE.value,
-                "custom_reason": "",
-            }
-        )
-
-        assert changed_form.is_valid()
-        assert not changed_form.preview_token_matches(preview_token)
-
     def test_rejects_more_than_max_organization_ids(self) -> None:
         form = BulkDeactivateOrganizationsForm(
             {
@@ -140,224 +71,102 @@ class TestBulkDeactivateOrganizationsForm(SimpleTestCase):
         assert "organization_ids" in form.errors
 
 
-class TestOrganizationAdminBulkDeactivate(BaseTest):
+TOOL_URL = "/admin/console/tools/bulk-deactivate-organizations/deactivate/"
+DESKTOP_ABUSE = Organization.DeactivationReason.DESKTOP_ABUSE.value
+COMPLIANCE_REVIEW = Organization.DeactivationReason.COMPLIANCE_REVIEW.value
+
+
+class TestBulkDeactivateOrganizationsTool(BaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.user.is_staff = True
         self.user.save()
-        self.factory = RequestFactory()
-        self.admin = OrganizationAdmin(Organization, AdminSite())
-
-    def test_changelist_links_to_organization_tools_module(self) -> None:
         self.client.force_login(self.user)
 
-        with patch.object(
-            admin.site,
-            "each_context",
-            return_value={
-                "site_title": admin.site.site_title,
-                "site_header": admin.site.site_header,
-                "site_url": admin.site.site_url,
-                "has_permission": True,
-                "available_apps": [],
-                "is_popup": False,
-                "is_nav_sidebar_enabled": False,
-                "log_entries": [],
-            },
-        ):
-            response = self.client.get(reverse("admin:posthog_organization_changelist"))
-
-        assert response.status_code == 200
-        assert b"Organization tools" in response.content
-        assert f"{reverse('admin:index')}#organization-tools".encode() in response.content
-
-    def _post(self, data: dict[str, str]) -> HttpRequest:
-        request = self.factory.post("/admin/posthog/organization/bulk-deactivate/", data)
-        request.user = self.user
-        _attach_messages(request)
-        return request
-
-    def _preview_token(self, organization_ids: str, reason: str, custom_reason: str = "") -> str:
-        form = BulkDeactivateOrganizationsForm(
-            {
-                "organization_ids": organization_ids,
-                "reason": reason,
-                "custom_reason": custom_reason,
-            }
+    def _preview(self, organization_ids: str, reason: str = DESKTOP_ABUSE, custom_reason: str = ""):
+        return self.client.post(
+            TOOL_URL, {"organization_ids": organization_ids, "reason": reason, "custom_reason": custom_reason}
         )
-        assert form.is_valid()
-        return form.preview_token()
+
+    def _confirm_token(self, preview_response) -> str:
+        match = re.search(r'name="confirm_token" value="([^"]+)"', preview_response.content.decode())
+        assert match is not None, "The preview page has no confirm button"
+        return match.group(1)
+
+    def _deactivate(self, organization_ids: str, reason: str = DESKTOP_ABUSE, custom_reason: str = ""):
+        token = self._confirm_token(self._preview(organization_ids, reason, custom_reason))
+        return self.client.post(TOOL_URL, {"confirm_token": token})
 
     def test_preview_shows_matched_organizations_and_missing_ids_without_deactivating(self) -> None:
         missing_id = uuid4()
-        request = self._post(
-            {
-                "organization_ids": f"{self.organization.id}\n{missing_id}",
-                "reason": Organization.DeactivationReason.DESKTOP_ABUSE.value,
-                "custom_reason": "",
-                "preview": "1",
-            }
-        )
 
-        response = self.admin.bulk_deactivate_view(request)
+        response = self._preview(f"{self.organization.id}\n{missing_id}")
 
         assert response.status_code == 200
         self.organization.refresh_from_db()
         assert self.organization.is_active
-        assert str(self.organization.id).encode() in response.content
-        assert str(missing_id).encode() in response.content
+        assert str(self.organization.id) in response.content.decode()
+        assert str(missing_id) in response.content.decode()
 
-    def test_confirm_deactivates_matched_organizations_with_selected_reason(self) -> None:
-        other_organization = Organization.objects.create(name="Bulk deactivate target")
-        missing_id = uuid4()
-        organization_ids = f"{self.organization.id}\n{other_organization.id}\n{missing_id}"
-        reason = Organization.DeactivationReason.DESKTOP_ABUSE.value
-        request = self._post(
-            {
-                "organization_ids": organization_ids,
-                "reason": reason,
-                "custom_reason": "",
-                "preview_token": self._preview_token(organization_ids, reason),
-                "confirm": "1",
-            }
+    @parameterized.expand(
+        [
+            ("preset_reason", DESKTOP_ABUSE, "", DESKTOP_ABUSE),
+            (
+                "custom_reason",
+                BulkDeactivateOrganizationsForm.CUSTOM_REASON,
+                "Manual review required.",
+                "Manual review required.",
+            ),
+        ]
+    )
+    def test_confirm_deactivates_active_organizations_and_keeps_inactive_ones(
+        self, _name: str, reason: str, custom_reason: str, expected_reason: str
+    ) -> None:
+        inactive = Organization.objects.create(
+            name="Already inactive", is_active=False, is_not_active_reason=COMPLIANCE_REVIEW
         )
 
-        response = self.admin.bulk_deactivate_view(request)
-
-        assert response.status_code == 302
-        for organization in (self.organization, other_organization):
-            organization.refresh_from_db()
-            assert organization.is_active is False
-            assert organization.is_not_active_reason == Organization.DeactivationReason.DESKTOP_ABUSE.value
-
-    def test_confirm_accepts_custom_reason(self) -> None:
-        organization_ids = str(self.organization.id)
-        custom_reason = "Manual review required."
-        request = self._post(
-            {
-                "organization_ids": organization_ids,
-                "reason": BulkDeactivateOrganizationsForm.CUSTOM_REASON,
-                "custom_reason": custom_reason,
-                "preview_token": self._preview_token(
-                    organization_ids, BulkDeactivateOrganizationsForm.CUSTOM_REASON, custom_reason
-                ),
-                "confirm": "1",
-            }
-        )
-
-        response = self.admin.bulk_deactivate_view(request)
+        response = self._deactivate(f"{self.organization.id}\n{inactive.id}\n{uuid4()}", reason, custom_reason)
 
         assert response.status_code == 302
         self.organization.refresh_from_db()
-        assert self.organization.is_active is False
-        assert self.organization.is_not_active_reason == "Manual review required."
+        inactive.refresh_from_db()
+        assert (self.organization.is_active, self.organization.is_not_active_reason) == (False, expected_reason)
+        assert (inactive.is_active, inactive.is_not_active_reason) == (False, COMPLIANCE_REVIEW)
 
-    def test_confirm_skips_already_inactive_organizations(self) -> None:
-        inactive_organization = Organization.objects.create(
-            name="Already inactive target",
-            is_active=False,
-            is_not_active_reason=Organization.DeactivationReason.COMPLIANCE_REVIEW.value,
-        )
-        organization_ids = f"{self.organization.id}\n{inactive_organization.id}"
-        reason = Organization.DeactivationReason.DESKTOP_ABUSE.value
-        request = self._post(
-            {
-                "organization_ids": organization_ids,
-                "reason": reason,
-                "custom_reason": "",
-                "preview_token": self._preview_token(organization_ids, reason),
-                "confirm": "1",
-            }
+    def test_confirm_keeps_the_reason_of_an_organization_deactivated_since_the_preview(self) -> None:
+        token = self._confirm_token(self._preview(str(self.organization.id)))
+        Organization.objects.filter(id=self.organization.id).update(
+            is_active=False, is_not_active_reason=COMPLIANCE_REVIEW
         )
 
-        response = self.admin.bulk_deactivate_view(request)
+        self.client.post(TOOL_URL, {"confirm_token": token})
 
-        assert response.status_code == 302
         self.organization.refresh_from_db()
-        inactive_organization.refresh_from_db()
-        assert self.organization.is_active is False
-        assert self.organization.is_not_active_reason == Organization.DeactivationReason.DESKTOP_ABUSE.value
-        assert inactive_organization.is_active is False
-        assert inactive_organization.is_not_active_reason == Organization.DeactivationReason.COMPLIANCE_REVIEW.value
-
-    def test_confirm_rechecks_active_state_before_saving_reason(self) -> None:
-        stale_organization = Organization.objects.get(id=self.organization.id)
-        self.organization.is_active = False
-        self.organization.is_not_active_reason = Organization.DeactivationReason.COMPLIANCE_REVIEW.value
-        self.organization.save(update_fields=["is_active", "is_not_active_reason"])
-        organization_ids = str(self.organization.id)
-        reason = Organization.DeactivationReason.DESKTOP_ABUSE.value
-        request = self._post(
-            {
-                "organization_ids": organization_ids,
-                "reason": reason,
-                "custom_reason": "",
-                "preview_token": self._preview_token(organization_ids, reason),
-                "confirm": "1",
-            }
-        )
-
-        with patch.object(self.admin, "_bulk_deactivation_candidates", return_value=([stale_organization], [])):
-            response = self.admin.bulk_deactivate_view(request)
-
-        assert response.status_code == 302
-        self.organization.refresh_from_db()
-        assert self.organization.is_active is False
-        assert self.organization.is_not_active_reason == Organization.DeactivationReason.COMPLIANCE_REVIEW.value
+        assert self.organization.is_not_active_reason == COMPLIANCE_REVIEW
 
     def test_preview_requires_at_least_one_active_organization(self) -> None:
-        inactive_organization = Organization.objects.create(
-            name="Only inactive target",
-            is_active=False,
-            is_not_active_reason=Organization.DeactivationReason.COMPLIANCE_REVIEW.value,
-        )
-        request = self._post(
-            {
-                "organization_ids": str(inactive_organization.id),
-                "reason": Organization.DeactivationReason.DESKTOP_ABUSE.value,
-                "custom_reason": "",
-                "preview": "1",
-            }
-        )
+        inactive = Organization.objects.create(name="Only inactive", is_active=False)
 
-        response = self.admin.bulk_deactivate_view(request)
+        response = self._preview(str(inactive.id))
 
-        assert response.status_code == 200
-        assert b"All matched organizations are already inactive." in response.content
+        assert response.status_code == 400
+        assert "All matched organizations are already inactive." in response.content.decode()
 
-    def test_confirm_requires_matching_preview_token(self) -> None:
-        other_organization = Organization.objects.create(name="Unpreviewed target")
-        reason = Organization.DeactivationReason.DESKTOP_ABUSE.value
-        request = self._post(
-            {
-                "organization_ids": str(other_organization.id),
-                "reason": reason,
-                "custom_reason": "",
-                "preview_token": self._preview_token(str(self.organization.id), reason),
-                "confirm": "1",
-            }
-        )
+    @parameterized.expand([("tampered_token", "tampered"), ("another_staff_member", "other_user")])
+    def test_confirm_refuses_a_token_it_did_not_issue_for_this_user(self, _name: str, case: str) -> None:
+        token = self._confirm_token(self._preview(str(self.organization.id)))
+        client = self.client
+        if case == "tampered":
+            token = token[:-2] + ("AA" if not token.endswith("AA") else "BB")
+        else:
+            other = User.objects.create_and_join(self.organization, "other-staff@posthog.com", None, is_staff=True)
+            client = Client()
+            client.force_login(other)
 
-        response = self.admin.bulk_deactivate_view(request)
+        response = client.post(TOOL_URL, {"confirm_token": token})
 
-        assert response.status_code == 200
-        assert b"Review the organizations again before deactivating." in response.content
+        assert response.status_code == 302
+        assert response["Location"] == TOOL_URL
         self.organization.refresh_from_db()
-        other_organization.refresh_from_db()
         assert self.organization.is_active
-        assert other_organization.is_active
-
-    def test_view_requires_change_permission(self) -> None:
-        self.user.is_staff = False
-        self.user.save()
-        request = self._post(
-            {
-                "organization_ids": str(self.organization.id),
-                "reason": Organization.DeactivationReason.DESKTOP_ABUSE.value,
-                "custom_reason": "",
-                "preview": "1",
-            }
-        )
-
-        with self.assertRaises(PermissionDenied):
-            self.admin.bulk_deactivate_view(request)

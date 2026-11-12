@@ -1,10 +1,13 @@
 import { fetch as streamingFetch } from 'expo/fetch'
 
+import { abortError } from '@/lib/abort'
 import { withAppReloadBlocked } from '@/lib/appReload'
 import { isRecord } from '@/lib/records'
 
 import { BudgetExceededError, type BudgetFamily, budgetFamilyFor, trySpend } from './budget'
+import type { ProjectScope } from './reports'
 import { recordServerDate } from './serverClock'
+import { requestWithDeadline, transport } from './transport'
 
 export interface ApiAuth {
     host: string
@@ -91,6 +94,22 @@ export function projectPath(path: string): string {
     return `/api/projects/${auth.projectId}/${path.replace(/^\//, '')}`
 }
 
+function hostKey(host: string): string {
+    return host.replace(/\/+$/, '').toLowerCase()
+}
+
+// The session's token works only on its own host, so a scope on another host throws.
+export function scopedPath(scope: ProjectScope | null, path: string): string {
+    const auth = requireAuth()
+    if (scope === null) {
+        throw new NotSignedInError()
+    }
+    if (hostKey(scope.host) !== hostKey(auth.host)) {
+        throw new Error('This project is in another region')
+    }
+    return `/api/projects/${scope.projectId}/${path.replace(/^\//, '')}`
+}
+
 export function buildQuery(query: Record<string, QueryValue> | undefined): string {
     if (!query) {
         return ''
@@ -108,6 +127,11 @@ export function buildQuery(query: Record<string, QueryValue> | undefined): strin
 export function apiUrl(path: string, query?: Record<string, QueryValue>): string {
     const { host } = requireAuth()
     return `${host}${path.startsWith('/') ? path : `/${path}`}${buildQuery(query)}`
+}
+
+/** The bearer header for a URL that a native loader, such as a video player, fetches instead of `send()`. */
+export function authorizationHeaders(): Record<string, string> {
+    return { Authorization: `Bearer ${requireAuth().accessToken as string}` }
 }
 
 /** The web app URL of a page in the current project, or undefined when no session or project is set. */
@@ -155,7 +179,17 @@ async function send(fetcher: Fetcher, path: string, init: ApiInit, accept: strin
         throw new BudgetExceededError(family)
     }
     const sent = auth.accessToken as string
-    let response = await fetcher(url, buildInit(init, sent, accept))
+    const fetchResponse = (token: string): Promise<Response> => {
+        if (init.signal?.aborted) {
+            throw abortError()
+        }
+        const options = buildInit(init, token, accept)
+        return transport(() => fetcher(url, options))
+    }
+    let response = await fetchResponse(sent)
+    if (init.signal?.aborted) {
+        throw abortError()
+    }
     noteServerDate(response)
     if (response.status === 401 && provider) {
         // The retry goes to `url`, which belongs to the session that sent the request. If the user signed out or
@@ -175,14 +209,14 @@ async function send(fetcher: Fetcher, path: string, init: ApiInit, accept: strin
         if (!token || !isSameSession(auth, provider.getAuth())) {
             throw new NotSignedInError()
         }
-        response = await fetcher(url, buildInit(init, token, accept))
+        response = await fetchResponse(token)
         noteServerDate(response)
     }
     return response
 }
 
 async function parseBody(response: Response): Promise<unknown> {
-    const text = await response.text()
+    const text = await transport(() => response.text())
     if (!text) {
         return undefined
     }
@@ -193,14 +227,29 @@ async function parseBody(response: Response): Promise<unknown> {
     }
 }
 
-/** Sends a request and returns the raw response. Refreshes the token once on a 401. */
-export async function apiFetch(path: string, init: ApiInit = {}): Promise<Response> {
-    return withAppReloadBlocked(() => send((url, options) => fetch(url, options), path, init, 'application/json'))
+export async function apiReadResponse<T>(
+    path: string,
+    init: ApiInit,
+    read: (response: Response) => Promise<T>
+): Promise<T> {
+    return withAppReloadBlocked(() =>
+        requestWithDeadline(async (signal) => {
+            const response = await send(
+                (url, options) => fetch(url, options),
+                path,
+                { ...init, signal },
+                'application/json'
+            )
+            if (signal.aborted) {
+                throw abortError()
+            }
+            return read(response)
+        }, init.signal)
+    )
 }
 
 export async function apiJson<T>(path: string, init: ApiInit = {}): Promise<T> {
-    return withAppReloadBlocked(async () => {
-        const response = await apiFetch(path, init)
+    return apiReadResponse(path, init, async (response) => {
         const body = await parseBody(response)
         if (!response.ok) {
             throw new ApiError(response.status, body, response.headers)

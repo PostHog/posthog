@@ -796,6 +796,10 @@ export interface _MetricErrorSpikesResponseApi {
 export interface _HasMetricsResponseApi {
     /** Whether the team has ingested any metrics. */
     hasMetrics: boolean
+    /** Whether the team sent spans or logs in the last day, so series could be derived from them. */
+    hasDerivedSources: boolean
+    /** Whether series derived from the team's spans and logs are available to chart. */
+    hasDerivedMetrics: boolean
 }
 
 export interface _MetricPickerNameApi {
@@ -998,7 +1002,7 @@ export interface _MetricQueryBodyApi {
      * * `exponential_histogram` - exponential_histogram
      * * `summary` - summary */
     metricType?: OtelMetricTypeEnumApi | null
-    /** Aggregation applied per time bucket, always across series rather than across raw samples. 'sum', 'avg', 'min', 'max' and 'p95' reduce each series to its last sample in the bucket and then combine those, so the result does not scale with the scrape rate; 'count' is the number of series that reported. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is). 'histogram_quantile' interpolates from OTel histogram buckets and requires 'quantile'. 'none' skips the aggregation and returns one series per label set, at most 100, using each series' last sample per bucket; it cannot be combined with 'groupBy'.
+    /** Defaults to 'sum'. Aggregation applied per time bucket, always across series rather than across raw samples. 'sum', 'avg', 'min', 'max' and 'p95' reduce each series to its last sample in the bucket and then combine those, so the result does not scale with the scrape rate; 'count' is the number of series that reported. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is). 'histogram_quantile' interpolates from OTel histogram buckets and requires 'quantile'. 'none' skips the aggregation and returns one series per label set, at most 100, using each series' last sample per bucket; it cannot be combined with 'groupBy'.
      *
      * * `none` - none
      * * `sum` - sum
@@ -1048,7 +1052,13 @@ export interface _MetricQueryBodyApi {
      * @nullable
      */
     formula?: string | null
-    /** Lower bound (inclusive) for the query range. ISO 8601, or a relative offset back from now such as '-1h', '-7d', '-2w', '-1m' (months). Defaults to 24 hours before dateTo. */
+    /**
+     * PromQL expression, run as a range query over the request's time grid, e.g. 'sum by (job) (rate(http_requests_total[5m]))'. Use it to run an alert or runbook expression as written. Mutually exclusive with 'metricName' and 'clauses'; put label selectors and grouping in the expression instead of 'filters' and 'groupBy'. In PromQL, service.name is service_name and other label names with dots need quotes. A bucket that a series did not report is null, not zero.
+     * @maxLength 8192
+     * @nullable
+     */
+    promql?: string | null
+    /** Lower bound (inclusive) for the query range. ISO 8601, or a relative offset back from now such as '-30M' (minutes), '-1h', '-7d', '-2w' or '-1m' (months; lowercase m is months, capital M is minutes). Defaults to 24 hours before dateTo. */
     dateFrom?: string
     /** Upper bound (exclusive) for the query range. ISO 8601 or a relative offset like dateFrom. Defaults to now if omitted. */
     dateTo?: string
@@ -1064,6 +1074,70 @@ export interface _MetricQueryResponseApi {
     results: _MetricSeriesApi[]
     /** Set only when the query returned no points: what to check before querying again. */
     hint?: string
+}
+
+export interface _MetricQueryCountApi {
+    /** Metric name as it appears in the team's data. */
+    metric_name: string
+    /** Number of builder and PromQL queries that read the metric in the window. SQL mode queries do not count. */
+    query_count: number
+    /** When a query last read the metric, ISO 8601. */
+    last_queried_at: string
+}
+
+export interface _MetricQueryCountsResponseApi {
+    /** Metrics that queries read in the window, the most queried first. */
+    results: _MetricQueryCountApi[]
+}
+
+export interface MetricsRecordingRuleApi {
+    /** Recording rule id. */
+    readonly id: string
+    /**
+     * The metric the rule writes, in the level:metric:operations form, for example job:http_errors:rate5m. It must contain a colon and cannot change after create.
+     * @maxLength 200
+     */
+    metric_name: string
+    /**
+     * A PromQL expression over this project's metrics that returns an instant vector or a scalar. Each series it returns is written as one series of `metric_name`, with the same labels.
+     * @maxLength 8192
+     */
+    query: string
+    /** What the recorded metric means. */
+    description?: string
+    /** When false, the rule is kept but not evaluated. */
+    enabled?: boolean
+    /** When the rule was created. */
+    readonly created_at: string
+    /** When the rule was last changed. */
+    readonly updated_at: string
+    /**
+     * The minute the rule last wrote a result. Null until it first writes.
+     * @nullable
+     */
+    readonly last_evaluated_at: string | null
+    /**
+     * How many series the last result had.
+     * @nullable
+     */
+    readonly last_series_count: number | null
+    /**
+     * Why the last evaluation wrote nothing. Null when the last evaluation wrote a result.
+     * @nullable
+     */
+    readonly last_error: string | null
+}
+
+export interface PatchedMetricsRecordingRuleUpdateApi {
+    /**
+     * A new PromQL expression for the rule.
+     * @maxLength 8192
+     */
+    query?: string
+    /** What the recorded metric means. */
+    description?: string
+    /** When false, the rule is kept but not evaluated. */
+    enabled?: boolean
 }
 
 export interface _MetricSamplesBodyApi {
@@ -1177,6 +1251,17 @@ export interface MetricsSuggestedDashboardApi {
     dashboard_id: number | null
 }
 
+export interface _MetricClassicHistogramApi {
+    /** The histogram's name without a suffix. */
+    base_name: string
+    /** The `_bucket` name, with the `le` label. PromQL reads this one. */
+    bucket: string
+    /** The `_sum` name: the total of the observed values. */
+    sum: string
+    /** The `_count` name: the number of observations. */
+    count: string
+}
+
 export interface _MetricNameApi {
     /** Metric name as it appears in the team's data. */
     name: string
@@ -1191,6 +1276,13 @@ export interface _MetricNameApi {
     last_seen?: string | null
     /** A small downsampled series of the metric's recent shape, for a sparkline. */
     sparkline?: number[]
+    /**
+     * Start of the earliest hour this metric arrived in, within retention, ISO 8601. Only present when `first_seen` was requested.
+     * @nullable
+     */
+    first_seen?: string | null
+    /** Set when this entry folds a Prometheus classic histogram's three names. Absent otherwise. */
+    classic_histogram?: _MetricClassicHistogramApi
 }
 
 export interface _MetricNamesResponseApi {
@@ -1308,152 +1400,6 @@ export interface _MetricVariableOptionsRequestApi {
 export interface _MetricVariableOptionsResponseApi {
     /** The options of the variable, at most 1,000. */
     results: string[]
-}
-
-/**
- * * `slack` - Slack
- * * `webhook` - Webhook
- * * `teams` - Microsoft Teams
- * * `discord` - Discord
- * * `pagerduty` - PagerDuty
- */
-export type MetricsAlertDestinationTypeEnumApi =
-    (typeof MetricsAlertDestinationTypeEnumApi)[keyof typeof MetricsAlertDestinationTypeEnumApi]
-
-export const MetricsAlertDestinationTypeEnumApi = {
-    Slack: 'slack',
-    Webhook: 'webhook',
-    Teams: 'teams',
-    Discord: 'discord',
-    Pagerduty: 'pagerduty',
-} as const
-
-/**
- * * `firing` - firing
- * * `resolved` - resolved
- * * `errored` - errored
- * * `broken` - broken
- */
-export type MetricsAlertDestinationEventKindEnumApi =
-    (typeof MetricsAlertDestinationEventKindEnumApi)[keyof typeof MetricsAlertDestinationEventKindEnumApi]
-
-export const MetricsAlertDestinationEventKindEnumApi = {
-    Firing: 'firing',
-    Resolved: 'resolved',
-    Errored: 'errored',
-    Broken: 'broken',
-} as const
-
-/**
- * * `critical` - critical
- * * `error` - error
- * * `warning` - warning
- * * `info` - info
- */
-export type PagerDutySeverityEnumApi = (typeof PagerDutySeverityEnumApi)[keyof typeof PagerDutySeverityEnumApi]
-
-export const PagerDutySeverityEnumApi = {
-    Critical: 'critical',
-    Error: 'error',
-    Warning: 'warning',
-    Info: 'info',
-} as const
-
-/**
- * * `us` - us
- * * `eu` - eu
- */
-export type PagerDutyRegionEnumApi = (typeof PagerDutyRegionEnumApi)[keyof typeof PagerDutyRegionEnumApi]
-
-export const PagerDutyRegionEnumApi = {
-    Us: 'us',
-    Eu: 'eu',
-} as const
-
-export interface MetricsAlertDestinationApi {
-    /** ID of the destination. Send it to the delete endpoint to remove it. */
-    id: string
-    /** Notification destination type.
-     *
-     * * `slack` - Slack
-     * * `webhook` - Webhook
-     * * `teams` - Microsoft Teams
-     * * `discord` - Discord
-     * * `pagerduty` - PagerDuty */
-    type: MetricsAlertDestinationTypeEnumApi
-    /** Whether the destination is sent to. */
-    enabled: boolean
-    /** The alert transitions the destination hears about. A PagerDuty destination hears the incident trigger and resolve of every firing. */
-    event_kinds: MetricsAlertDestinationEventKindEnumApi[]
-    /** Integration ID of the Slack workspace. Set when type=slack. */
-    slack_workspace_id?: number
-    /** Slack channel ID. Set when type=slack. */
-    slack_channel_id?: string
-    /** Human-readable Slack channel name. Set when type=slack. */
-    slack_channel_name?: string
-    /** Webhook endpoint reduced to scheme and host. The path, query and userinfo carry the secret. */
-    webhook_url?: string
-    /** PagerDuty integration key reduced to its last four characters. */
-    pagerduty_routing_key?: string
-    /** Severity of the PagerDuty incident.
-     *
-     * * `critical` - critical
-     * * `error` - error
-     * * `warning` - warning
-     * * `info` - info */
-    pagerduty_severity?: PagerDutySeverityEnumApi
-    /** PagerDuty service region the events go to.
-     *
-     * * `us` - us
-     * * `eu` - eu */
-    pagerduty_region?: PagerDutyRegionEnumApi
-}
-
-export interface MetricsAlertCreateDestinationApi {
-    /** Notification destination type.
-     *
-     * * `slack` - Slack
-     * * `webhook` - Webhook
-     * * `teams` - Microsoft Teams
-     * * `discord` - Discord
-     * * `pagerduty` - PagerDuty */
-    type: MetricsAlertDestinationTypeEnumApi
-    /** Integration ID for the Slack workspace. Required when type=slack. */
-    slack_workspace_id?: number
-    /** Slack channel ID. Required when type=slack. */
-    slack_channel_id?: string
-    /** Human-readable channel name for display. */
-    slack_channel_name?: string
-    /** HTTPS endpoint to post to. Required for webhook, teams and discord. */
-    webhook_url?: string
-    /** Integration key of a PagerDuty Events API v2 integration. Required when type=pagerduty. */
-    pagerduty_routing_key?: string
-    /** Severity PagerDuty records on the incident. Used when type=pagerduty.
-     *
-     * * `critical` - critical
-     * * `error` - error
-     * * `warning` - warning
-     * * `info` - info */
-    pagerduty_severity?: PagerDutySeverityEnumApi
-    /** PagerDuty service region of the account. Used when type=pagerduty.
-     *
-     * * `us` - us
-     * * `eu` - eu */
-    pagerduty_region?: PagerDutyRegionEnumApi
-    /**
-     * The alert transitions to send about. Defaults to every kind, or to firing and resolved for PagerDuty, which then hears each incident's trigger and resolve.
-     * @minItems 1
-     */
-    event_kinds?: MetricsAlertDestinationEventKindEnumApi[]
-}
-
-export interface MetricsAlertDeleteDestinationApi {
-    /**
-     * IDs of the destinations to delete, as the list endpoint returns them.
-     * @minItems 1
-     * @maxItems 100
-     */
-    destination_ids: string[]
 }
 
 export type MetricsAttributeValuesRetrieveParams = {
@@ -1575,7 +1521,30 @@ export type MetricsNamesRetrieveParams = {
     value?: string
 }
 
+export type MetricsQueryCountsRetrieveParams = {
+    /**
+     * Number of UTC days to count, today included.
+     * @minimum 1
+     * @maximum 90
+     */
+    days?: number
+    /**
+     * Maximum number of metrics to return.
+     * @minimum 1
+     * @maximum 1000
+     */
+    limit?: number
+}
+
 export type MetricsValuesRetrieveParams = {
+    /**
+     * Add `first_seen`: the earliest hour each name arrived in, within retention.
+     */
+    first_seen?: boolean
+    /**
+     * Fold a Prometheus classic histogram's `<name>_bucket`, `<name>_sum` and `<name>_count` into one `<name>_bucket` entry with `classic_histogram` set. Only folds when all three are in the page.
+     */
+    fold_histograms?: boolean
     /**
      * Max number of names to return. Defaults to 100; maximum 1000.
      * @minimum 1
@@ -1583,13 +1552,34 @@ export type MetricsValuesRetrieveParams = {
      */
     limit?: number
     /**
+     * How `value` matches a name. `substring` (default) and `prefix` are case-insensitive. `regex` is an RE2 pattern run with ClickHouse match(): case-sensitive and unanchored, so use `^` and `$` to anchor and `(?i)` to ignore case.
+     *
+     * * `substring` - substring
+     * * `prefix` - prefix
+     * * `regex` - regex
+     * @minLength 1
+     */
+    match?: MetricsValuesRetrieveMatch
+    /**
      * Comma-separated services to narrow the list to, e.g. `service=web,worker`. Omit for every service. Send it empty to select only series whose sender did not set `service.name`. A service name containing a comma cannot be selected.
      * @maxLength 1024
      */
     service?: string
     /**
-     * Substring filter (case-insensitive) applied to metric names.
+     * Attach a 24-point sparkline of the last 6 hours to each name. Turn off for a smaller, faster response.
+     */
+    sparklines?: boolean
+    /**
+     * Filter applied to metric names; `match` decides how. Empty lists every name, ordered by how many services report it.
      * @maxLength 255
      */
     value?: string
 }
+
+export type MetricsValuesRetrieveMatch = (typeof MetricsValuesRetrieveMatch)[keyof typeof MetricsValuesRetrieveMatch]
+
+export const MetricsValuesRetrieveMatch = {
+    Substring: 'substring',
+    Prefix: 'prefix',
+    Regex: 'regex',
+} as const

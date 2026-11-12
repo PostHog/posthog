@@ -1,0 +1,19 @@
+<table class="w-full border-collapse">
+    <thead>
+        <tr class="text-left text-xs text-muted-foreground border-b border-border">
+            <th class="py-1.5 font-bold">Team</th>
+            <th class="py-1.5 font-bold">Organization</th>
+            <th class="py-1.5 font-bold">ID</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for team in teams %}
+            <tr class="border-b border-border last:border-b-0">
+                <td class="py-1.5"><a class="font-semibold text-foreground underline decoration-border underline-offset-2 hover:decoration-current"
+   href="{% url 'admin_console_team' pk=team.pk %}">{{ team.name }}</a></td>
+                <td class="py-1.5">{{ team.organization.name }}</td>
+                <td class="py-1.5 font-mono text-xs">{{ team.pk }}</td>
+            </tr>
+        {% endfor %}
+    </tbody>
+</table>

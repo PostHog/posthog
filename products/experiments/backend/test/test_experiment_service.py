@@ -12,6 +12,7 @@ import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, PropertyMock, patch
 
+from django.db import IntegrityError
 from django.db.models import F
 from django.test import SimpleTestCase
 from django.utils import timezone
@@ -35,7 +36,7 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.team.extensions import get_or_create_team_extension
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action, update_action
 from products.approvals.backend.exceptions import ApprovalRequired
 from products.approvals.backend.models import ApprovalPolicy, ChangeRequest
 from products.cohorts.backend.models.cohort import Cohort
@@ -67,13 +68,31 @@ from products.experiments.backend.models.experiment import (
     ExperimentMetricResult,
     ExperimentSavedMetric,
     ExperimentTimeseriesRecalculation,
+    ExperimentToSavedMetric,
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
-from products.experiments.backend.test.utils import patch_exposure_event_flag
+from products.experiments.backend.test.utils import patch_calculation_key_version, patch_exposure_event_flag
+from products.experiments.backend.timeseries_backfill import backfill_experiment_timeseries
 from products.feature_flags.backend.facade.api import set_flag_active, update_flag
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.surveys.backend.models import Survey
-from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
+from products.warehouse_sources.backend.facade.models import (
+    DataWarehouseCredential,
+    DataWarehouseTable,
+    ExternalDataSource,
+)
+
+_SEQUENTIAL_STATS_CONFIG: dict[str, Any] = {
+    "method": "frequentist",
+    "frequentist": {"sequential_testing_enabled": True},
+}
+
+_QUANTILE_METRIC: dict[str, Any] = {
+    "kind": "ExperimentMetric",
+    "metric_type": "quantile",
+    "source": {"kind": "EventsNode", "event": "app_ready", "math_property": "app_ready_ms"},
+    "quantile": 0.9,
+}
 
 
 def _calculation_key(experiment: Experiment, metric_uuid: str) -> str:
@@ -807,18 +826,20 @@ class TestExperimentService(APIBaseTest):
                 "from_another_team",
                 True,
                 {"kind": "ExperimentMetric", "metric_type": "count", "uuid": "other-uuid", "event": "$pageview"},
+                {"type": "primary"},
                 "Saved metric does not exist or does not belong to this project",
             ),
             (
                 "legacy_query",
                 False,
                 {"kind": "ExperimentTrendsQuery", "count_query": {"kind": "TrendsQuery", "series": []}},
+                {"type": "primary"},
                 "Legacy shared metrics can't be added to an experiment: Unlinkable Metric",
             ),
         ]
     )
     def test_create_experiment_rejects_unlinkable_saved_metric(
-        self, _: str, from_other_team: bool, query: dict, expected_error: str
+        self, _: str, from_other_team: bool, query: dict, metadata: dict, expected_error: str
     ) -> None:
         self._create_flag(key="saved-metrics-link-check")
         team = Team.objects.create(organization=self.organization, name="Other Team") if from_other_team else self.team
@@ -829,10 +850,34 @@ class TestExperimentService(APIBaseTest):
             service.create_experiment(
                 name="Unlinkable Metric Experiment",
                 feature_flag_key="saved-metrics-link-check",
-                saved_metrics_ids=[{"id": saved_metric.id, "metadata": {"type": "primary"}}],
+                saved_metrics_ids=[{"id": saved_metric.id, "metadata": metadata}],
             )
 
         assert expected_error in str(ctx.exception)
+
+    def test_sequential_experiment_accepts_percentile_metrics(self) -> None:
+        self._create_flag(key="quantile-sequential")
+        saved_metric = ExperimentSavedMetric.objects.create(
+            team=self.team, name="Shared latency", query={**_QUANTILE_METRIC, "uuid": "saved-quantile-uuid"}
+        )
+        service = self._service()
+
+        experiment = service.create_experiment(
+            name="Latency experiment",
+            feature_flag_key="quantile-sequential",
+            stats_config=_SEQUENTIAL_STATS_CONFIG,
+            metrics=[{**_QUANTILE_METRIC, "uuid": "inline-quantile-uuid"}],
+            allow_unknown_events=True,
+        )
+        service.update_experiment(
+            experiment,
+            {"saved_metrics_ids": [{"id": saved_metric.id, "metadata": {"type": "primary"}}]},
+            allow_unknown_events=True,
+        )
+
+        experiment.refresh_from_db()
+        assert [metric["metric_type"] for metric in experiment.metrics or []] == ["quantile"]
+        assert [link.saved_metric_id for link in experiment.experimenttosavedmetric_set.all()] == [saved_metric.id]
 
     @parameterized.expand(
         [
@@ -878,23 +923,13 @@ class TestExperimentService(APIBaseTest):
                 "['ExperimentEventExposureConfig', 'ActionsNode'], got 'EventsNode'",
             ),
             (
-                "exposure_config_warehouse_native_not_supported",
-                {
-                    "exposure_config": {
-                        "kind": "ExperimentWarehouseNativeExposureConfig",
-                        "connection_id": "00000000-0000-0000-0000-000000000000",
-                        "query": "SELECT user_id AS entity_id, variant, exposed_at AS timestamp FROM exposures",
-                    }
-                },
-                "exposure_criteria.exposure_config: warehouse-native exposures are not supported yet",
-            ),
-            (
                 "activation_config_warehouse_native_rejected",
                 {
                     "activation_config": {
                         "kind": "ExperimentWarehouseNativeExposureConfig",
                         "connection_id": "00000000-0000-0000-0000-000000000000",
                         "query": "SELECT user_id AS entity_id, variant, exposed_at AS timestamp FROM exposures",
+                        "unit": {"unit_type": "customer", "id_namespace": "billing_customer_id"},
                     }
                 },
                 "exposure_criteria.activation_config.kind must be one of "
@@ -903,6 +938,17 @@ class TestExperimentService(APIBaseTest):
             (
                 "exposure_config_warehouse_native_missing_query",
                 {"exposure_config": {"kind": "ExperimentWarehouseNativeExposureConfig", "connection_id": "c"}},
+                "Invalid exposure_criteria.exposure_config (kind='ExperimentWarehouseNativeExposureConfig')",
+            ),
+            (
+                "exposure_config_warehouse_native_missing_unit",
+                {
+                    "exposure_config": {
+                        "kind": "ExperimentWarehouseNativeExposureConfig",
+                        "connection_id": "c",
+                        "query": "SELECT user_id AS entity_id, variant, exposed_at AS timestamp FROM exposures",
+                    }
+                },
                 "Invalid exposure_criteria.exposure_config (kind='ExperimentWarehouseNativeExposureConfig')",
             ),
             (
@@ -1092,6 +1138,23 @@ class TestExperimentService(APIBaseTest):
                     "start_handling": "first_seen",
                 },
             ),
+            ("valid_quantile", _QUANTILE_METRIC),
+            (
+                "valid_quantile_with_breakdown",
+                {**_QUANTILE_METRIC, "breakdownFilter": {"breakdowns": [{"property": "$browser"}]}},
+            ),
+            (
+                "valid_quantile_numerical_event_property",
+                {
+                    **_QUANTILE_METRIC,
+                    "source": {
+                        "kind": "EventsNode",
+                        "event": "app_ready",
+                        "math_property": "app_ready_ms",
+                        "math_property_type": "numerical_event_properties",
+                    },
+                },
+            ),
             (
                 "valid_retention_exposure_start",
                 {
@@ -1128,6 +1191,58 @@ class TestExperimentService(APIBaseTest):
                 "funnel_with_no_series",
                 [{"kind": "ExperimentMetric", "metric_type": "funnel", "series": []}],
                 "funnel metrics require at least one step",
+            ),
+            (
+                "quantile_above_range",
+                [{**_QUANTILE_METRIC, "quantile": 0.999}],
+                "less_than_equal",
+            ),
+            (
+                "quantile_below_range",
+                [{**_QUANTILE_METRIC, "quantile": 0.001}],
+                "greater_than_equal",
+            ),
+            (
+                "quantile_without_math_property",
+                [{**_QUANTILE_METRIC, "source": {"kind": "EventsNode", "event": "app_ready"}}],
+                "percentile metrics require a numeric property",
+            ),
+            (
+                "quantile_with_session_duration",
+                [{**_QUANTILE_METRIC, "source": {"kind": "EventsNode", "math_property": "$session_duration"}}],
+                "percentile metrics need a numeric event property",
+            ),
+            (
+                "quantile_with_person_property",
+                [
+                    {
+                        **_QUANTILE_METRIC,
+                        "source": {
+                            "kind": "EventsNode",
+                            "event": "app_ready",
+                            "math_property": "age",
+                            "math_property_type": "person_properties",
+                        },
+                    }
+                ],
+                "percentile metrics need a numeric event property",
+            ),
+            (
+                "quantile_with_data_warehouse_source",
+                [
+                    {
+                        **_QUANTILE_METRIC,
+                        "source": {
+                            "kind": "ExperimentDataWarehouseNode",
+                            "table_name": "app_loads",
+                            "timestamp_field": "ts",
+                            "events_join_key": "distinct_id",
+                            "data_warehouse_join_key": "user_id",
+                            "math_property": "app_ready_ms",
+                        },
+                    }
+                ],
+                "union_tag_invalid",
             ),
         ]
     )
@@ -2375,13 +2490,16 @@ class TestExperimentService(APIBaseTest):
         [
             ("name", {"name": "Renamed experiment"}, "name"),
             ("description", {"description": "A brand new hypothesis"}, "description"),
+            # Under key version 2 the credible interval feeds the key, so the update restamps every inline metric.
+            ("confidence", {"stats_config": {"method": "bayesian", "bayesian": {"ci_level": 0.9}}}, "stats_config"),
         ]
     )
     @patch("products.experiments.backend.experiment_service.report_user_action")
     def test_update_changed_fields_scalar_edit(self, _name, update_data, expected_field, mock_report_user_action):
-        experiment = self._create_draft_experiment()
-        service = self._service()
-        service.update_experiment(experiment, update_data, serializer_context=service._build_serializer_context())
+        with patch_calculation_key_version(2):
+            experiment = self._create_draft_experiment()
+            service = self._service()
+            service.update_experiment(experiment, update_data, serializer_context=service._build_serializer_context())
 
         changed = self._changed_fields(mock_report_user_action)
         assert expected_field in changed
@@ -2389,6 +2507,14 @@ class TestExperimentService(APIBaseTest):
         # update pipeline internally re-touches existing inline metrics.
         assert "metrics" not in changed
         assert "saved_metrics" not in changed
+        log = ActivityLog.objects.filter(scope="Experiment", item_id=str(experiment.id), activity="updated").latest(
+            "created_at"
+        )
+        assert log.detail is not None
+        logged_fields = [change["field"] for change in log.detail["changes"]]
+        assert expected_field in logged_fields
+        assert "metrics" not in logged_fields
+        assert "metrics_secondary" not in logged_fields
 
     @parameterized.expand(
         [
@@ -2436,6 +2562,12 @@ class TestExperimentService(APIBaseTest):
         changed = self._changed_fields(mock_report_user_action)
         assert expected_field in changed
         assert "saved_metrics" not in changed
+        log = ActivityLog.objects.filter(scope="Experiment", item_id=str(experiment.id), activity="updated").latest(
+            "created_at"
+        )
+        assert log.detail is not None
+        logged_fields = [change["field"] for change in log.detail["changes"]]
+        assert expected_field in logged_fields
 
     @parameterized.expand(
         [
@@ -4027,7 +4159,7 @@ class TestExperimentService(APIBaseTest):
                 lambda service, experiment, request: service.update_experiment(
                     experiment, {"start_date": timezone.now() - timedelta(days=90)}, event_source=EventSource.API
                 ),
-                [("update_start_date", 0, False, [], [], [], True)],
+                [("update_start_date", 0, False, ["stale_experiment"], [], ["stale_experiment::info:"], True)],
             ),
             (
                 "update_imports_concluded_draft",
@@ -5426,6 +5558,36 @@ class TestExperimentService(APIBaseTest):
             assert criterion["event_type"] == "events"
             assert criterion["event_filters"] == [flag_filter]
 
+    @parameterized.expand(
+        [
+            # (name, legacy custom_exposure_filter, expected exposure event)
+            ("empty_actions_string", {"actions": "", "events": [{"id": "signed_up", "order": 0}]}, "signed_up"),
+            (
+                "string_and_int_zero_order",
+                {"events": [{"id": "first_event", "order": "0"}, {"id": "second_event", "order": 0}]},
+                "first_event",
+            ),
+        ]
+    )
+    def test_create_exposure_cohort_reads_legacy_custom_exposure_filter(
+        self, name: str, custom_exposure_filter: dict, expected_event: str
+    ) -> None:
+        flag_key = f"cohort-legacy-{name}"
+        self._create_flag(key=flag_key)
+        service = self._service()
+        experiment = service.create_experiment(
+            name=f"Legacy {name}",
+            feature_flag_key=flag_key,
+            start_date=timezone.now(),
+            parameters={"custom_exposure_filter": custom_exposure_filter},
+        )
+
+        cohort = service.create_exposure_cohort(experiment)
+
+        assert cohort.filters is not None
+        criteria = cohort.filters["properties"]["values"][0]["values"]
+        assert [criterion["key"] for criterion in criteria] == [expected_event]
+
     def test_create_exposure_cohort_without_start_date_raises(self):
         self._create_flag(key="cohort-no-start")
         service = self._service()
@@ -5465,28 +5627,41 @@ class TestExperimentService(APIBaseTest):
         experiment = service.create_experiment(name="No Start", feature_flag_key="ts-no-start")
 
         with self.assertRaises(ValidationError) as ctx:
-            service.get_timeseries_results(experiment, metric_uuid="m1", fingerprint="fp1")
+            service.get_timeseries_results(experiment, metric_uuid="m1")
 
         assert "not been started" in str(ctx.exception)
 
-    def test_get_timeseries_results_pending_when_no_records(self):
-        self._create_flag(key="ts-pending")
+    @parameterized.expand([("metric_on_the_experiment", True), ("metric_not_on_the_experiment", False)])
+    def test_get_timeseries_results_pending_when_no_records(self, _name: str, metric_on_experiment: bool) -> None:
+        self._create_flag(key=f"ts-pending-{_name}")
         service = self._service()
         experiment = service.create_experiment(
             name="Pending",
-            feature_flag_key="ts-pending",
+            feature_flag_key=f"ts-pending-{_name}",
             start_date=timezone.now() - timedelta(days=2),
             end_date=timezone.now(),
+            metrics=[self._DEFAULT_METRIC] if metric_on_experiment else None,
+            allow_unknown_events=True,
         )
 
-        result = service.get_timeseries_results(experiment, metric_uuid="m1", fingerprint="fp1")
+        result = service.get_timeseries_results(experiment, metric_uuid="m1")
 
         assert result["status"] == "pending"
         assert result["experiment_id"] == experiment.id
         assert result["metric_uuid"] == "m1"
         assert len(result["timeseries"]) == 3
 
-    def test_get_timeseries_results_completed(self):
+    @parameterized.expand(
+        [
+            ("current_rows", ("current", "current"), "completed"),
+            # Rows under the inactive key version of the config render where no current row covers a day.
+            ("rows_of_the_other_key_version", ("other_version", "current"), "completed"),
+            ("rows_of_earlier_settings", ("earlier_settings", "current"), "partial"),
+        ]
+    )
+    def test_get_timeseries_results_completed(
+        self, _name: str, day_keys: tuple[str, str], expected_status: str
+    ) -> None:
         self._create_flag(key="ts-completed")
         service = self._service()
         now = timezone.now()
@@ -5498,14 +5673,23 @@ class TestExperimentService(APIBaseTest):
             feature_flag_key="ts-completed",
             start_date=start_midnight,
             end_date=end_midnight,
+            metrics=[self._DEFAULT_METRIC],
+            allow_unknown_events=True,
         )
+        calculation_config = get_metric_calculation_config(Experiment.objects.get(pk=experiment.pk), "m1")
+        assert calculation_config is not None
+        keys = {
+            "current": calculation_config.calculation_key(),
+            "other_version": calculation_config.key_for_version(2),
+            "earlier_settings": "a" * 64,
+        }
 
         # Create results whose query_to is midnight (exclusive end of each day)
-        for day_offset in range(2):
+        for day_offset, key_family in enumerate(day_keys):
             ExperimentMetricResult.objects.create(
                 experiment=experiment,
                 metric_uuid="m1",
-                fingerprint="fp1",
+                fingerprint=keys[key_family],
                 query_from=start_midnight + timedelta(days=day_offset),
                 query_to=start_midnight + timedelta(days=day_offset + 1),
                 status="completed",
@@ -5513,9 +5697,9 @@ class TestExperimentService(APIBaseTest):
                 completed_at=now,
             )
 
-        result = service.get_timeseries_results(experiment, metric_uuid="m1", fingerprint="fp1")
+        result = service.get_timeseries_results(experiment, metric_uuid="m1")
 
-        assert result["status"] == "completed"
+        assert result["status"] == expected_status
         assert result["computed_at"] is not None
 
     def test_get_timeseries_results_strips_step_sessions_and_emits_formatted_results(self):
@@ -5529,6 +5713,8 @@ class TestExperimentService(APIBaseTest):
             feature_flag_key="ts-strip",
             start_date=start_midnight,
             end_date=end_midnight,
+            metrics=[self._DEFAULT_METRIC],
+            allow_unknown_events=True,
         )
 
         session = {"event_uuid": "u", "person_id": "p", "session_id": "s", "timestamp": "t"}
@@ -5558,7 +5744,7 @@ class TestExperimentService(APIBaseTest):
             ExperimentMetricResult.objects.create(
                 experiment=experiment,
                 metric_uuid="m1",
-                fingerprint="fp1",
+                fingerprint=_calculation_key(experiment, "m1"),
                 query_from=start_midnight + timedelta(days=day_offset),
                 query_to=start_midnight + timedelta(days=day_offset + 1),
                 status="completed",
@@ -5566,7 +5752,7 @@ class TestExperimentService(APIBaseTest):
                 completed_at=now,
             )
 
-        result = service.get_timeseries_results(experiment, metric_uuid="m1", fingerprint="fp1")
+        result = service.get_timeseries_results(experiment, metric_uuid="m1")
 
         for day_payload in result["timeseries"].values():
             if day_payload is None:
@@ -5597,43 +5783,109 @@ class TestExperimentService(APIBaseTest):
             name="Recalc",
             feature_flag_key="ts-recalc",
             start_date=timezone.now(),
+            metrics=[self._DEFAULT_METRIC],
+            allow_unknown_events=True,
         )
 
-        result = service.request_timeseries_recalculation(
-            experiment, metric={"uuid": "m1", "kind": "ExperimentMetric"}, fingerprint="fp1"
-        )
+        result = service.request_timeseries_recalculation(experiment, metric_uuid="m1")
 
         assert result["experiment_id"] == experiment.id
         assert result["metric_uuid"] == "m1"
         assert result["status"] == ExperimentTimeseriesRecalculation.Status.PENDING
         assert result["is_existing"] is False
+        request = ExperimentTimeseriesRecalculation.objects.get(id=result["id"])
+        assert (request.fingerprint, request.metric["source"]["event"]) == (
+            _calculation_key(experiment, "m1"),
+            "$pageview",
+        )
 
-    def test_request_timeseries_recalculation_idempotent(self):
-        self._create_flag(key="ts-idempotent")
+    @parameterized.expand(
+        [
+            ("same_request", False, False, False),
+            # A backfill under the other key version writes the same days, so a second one would race it.
+            ("backfill_requested_under_the_other_key_version", True, False, False),
+            # A settings edit changes the key, but the running backfill still writes the same days.
+            ("settings_edited_while_the_backfill_runs", False, True, False),
+            # A Temporal retry can start a failed backfill again, beside its replacement under the same key.
+            ("backfill_failed_before_the_request", False, False, True),
+        ]
+    )
+    def test_request_timeseries_recalculation_idempotent(
+        self, _name: str, first_under_other_key_version: bool, edit_settings_after_first: bool, first_failed: bool
+    ) -> None:
+        self._create_flag(key=f"ts-idempotent-{_name}")
         service = self._service()
         experiment = service.create_experiment(
             name="Idempotent",
-            feature_flag_key="ts-idempotent",
+            feature_flag_key=f"ts-idempotent-{_name}",
             start_date=timezone.now(),
+            metrics=[self._DEFAULT_METRIC],
+            allow_unknown_events=True,
+        )
+        if first_under_other_key_version:
+            calculation_config = get_metric_calculation_config(experiment, "m1")
+            assert calculation_config is not None
+            first_id = ExperimentTimeseriesRecalculation.objects.create(
+                team=self.team,
+                experiment=experiment,
+                metric=calculation_config.definition,
+                fingerprint=calculation_config.key_for_version(2),
+                status=ExperimentTimeseriesRecalculation.Status.IN_PROGRESS,
+            ).id
+        else:
+            first_id = service.request_timeseries_recalculation(experiment, metric_uuid="m1")["id"]
+        if first_failed:
+            ExperimentTimeseriesRecalculation.objects.filter(id=first_id).update(
+                status=ExperimentTimeseriesRecalculation.Status.FAILED
+            )
+        if edit_settings_after_first:
+            key_before_edit = _calculation_key(experiment, "m1")
+            experiment.stats_config = {**(experiment.stats_config or {}), "method": "frequentist"}
+            experiment.save()
+            assert _calculation_key(experiment, "m1") != key_before_edit
+
+        second = service.request_timeseries_recalculation(experiment, metric_uuid="m1")
+
+        superseded = first_under_other_key_version or edit_settings_after_first or first_failed
+        assert second["is_existing"] is not superseded
+        assert (second["id"] == first_id) is not superseded
+        assert second["fingerprint"] == _calculation_key(experiment, "m1")
+        assert ExperimentTimeseriesRecalculation.objects.filter(experiment=experiment).count() == (
+            2 if superseded else 1
+        )
+        if superseded:
+            assert ExperimentTimeseriesRecalculation.objects.get(id=first_id).status == "canceled"
+            retried = backfill_experiment_timeseries(str(first_id))
+            assert (retried["status"], retried["days_processed"]) == ("canceled", 0)
+            assert ExperimentTimeseriesRecalculation.objects.get(id=first_id).status == "canceled"
+        chart = service.get_timeseries_results(experiment, metric_uuid="m1")
+        assert chart["recalculation_status"] is not None
+
+    @parameterized.expand(
+        [("not_started", False, "m1", "hasn't started"), ("unknown_metric", True, "nope", "not on the experiment")]
+    )
+    def test_request_timeseries_recalculation_rejects(
+        self, _name: str, launched: bool, metric_uuid: str, message: str
+    ) -> None:
+        self._create_flag(key=f"ts-{_name}")
+        service = self._service()
+        experiment = service.create_experiment(
+            name="Rejected",
+            feature_flag_key=f"ts-{_name}",
+            start_date=timezone.now() if launched else None,
+            metrics=[self._DEFAULT_METRIC],
+            allow_unknown_events=True,
         )
 
-        result1 = service.request_timeseries_recalculation(experiment, metric={"uuid": "m1"}, fingerprint="fp1")
-        result2 = service.request_timeseries_recalculation(experiment, metric={"uuid": "m1"}, fingerprint="fp1")
-
-        assert result1["id"] == result2["id"]
-        assert result2["is_existing"] is True
-
-    def test_request_timeseries_recalculation_not_started_raises(self):
-        self._create_flag(key="ts-not-started")
-        service = self._service()
-        experiment = service.create_experiment(name="Not Started", feature_flag_key="ts-not-started")
-
         with self.assertRaises(ValidationError) as ctx:
-            service.request_timeseries_recalculation(experiment, metric={"uuid": "m1"}, fingerprint="fp1")
+            service.request_timeseries_recalculation(experiment, metric_uuid=metric_uuid)
 
-        assert "hasn't started" in str(ctx.exception)
+        assert message in str(ctx.exception)
 
-    def test_request_timeseries_recalculation_deletes_old_results(self):
+    @parameterized.expand([("created", False), ("creation_failed", True)])
+    def test_request_timeseries_recalculation_deletes_old_results_only_when_created(
+        self, _name: str, creation_fails: bool
+    ) -> None:
         self._create_flag(key="ts-delete-old")
         service = self._service()
         now = timezone.now()
@@ -5641,12 +5893,14 @@ class TestExperimentService(APIBaseTest):
             name="Delete Old",
             feature_flag_key="ts-delete-old",
             start_date=now,
+            metrics=[self._DEFAULT_METRIC],
+            allow_unknown_events=True,
         )
 
         ExperimentMetricResult.objects.create(
             experiment=experiment,
             metric_uuid="m1",
-            fingerprint="fp1",
+            fingerprint=_calculation_key(experiment, "m1"),
             query_from=now,
             query_to=now + timedelta(days=1),
             status="completed",
@@ -5655,9 +5909,54 @@ class TestExperimentService(APIBaseTest):
         )
         assert ExperimentMetricResult.objects.filter(experiment=experiment, metric_uuid="m1").count() == 1
 
-        service.request_timeseries_recalculation(experiment, metric={"uuid": "m1"}, fingerprint="fp1")
+        if creation_fails:
+            with (
+                patch.object(
+                    ExperimentTimeseriesRecalculation.objects, "create", side_effect=IntegrityError("insert failed")
+                ),
+                self.assertRaises(IntegrityError),
+            ):
+                service.request_timeseries_recalculation(experiment, metric_uuid="m1")
+        else:
+            service.request_timeseries_recalculation(experiment, metric_uuid="m1")
 
-        assert ExperimentMetricResult.objects.filter(experiment=experiment, metric_uuid="m1").count() == 0
+        assert ExperimentMetricResult.objects.filter(experiment=experiment, metric_uuid="m1").count() == int(
+            creation_fails
+        )
+        assert ExperimentTimeseriesRecalculation.objects.filter(experiment=experiment).count() == int(
+            not creation_fails
+        )
+
+    @parameterized.expand([("inline", False), ("saved", True)])
+    def test_request_timeseries_recalculation_distinguishes_equivalent_metrics(self, _name: str, saved: bool) -> None:
+        self._create_flag(key="ts-equivalent")
+        service = self._service()
+        second_metric = {**self._DEFAULT_METRIC, "uuid": "m2"}
+        experiment = service.create_experiment(
+            name="Equivalent metrics",
+            feature_flag_key="ts-equivalent",
+            start_date=timezone.now(),
+            metrics=[self._DEFAULT_METRIC] if saved else [self._DEFAULT_METRIC, second_metric],
+            allow_unknown_events=True,
+        )
+        if saved:
+            saved_metric = ExperimentSavedMetric.objects.create(
+                team=self.team, name="Equivalent metric", query=second_metric
+            )
+            ExperimentToSavedMetric.objects.create(
+                experiment=experiment, saved_metric=saved_metric, metadata={"type": "secondary"}
+            )
+
+        first = service.request_timeseries_recalculation(experiment, metric_uuid="m1")
+        second = service.request_timeseries_recalculation(experiment, metric_uuid="m2")
+
+        assert first["fingerprint"] == second["fingerprint"]
+        assert first["id"] != second["id"]
+        assert (first["metric_uuid"], second["metric_uuid"]) == ("m1", "m2")
+        assert not second["is_existing"]
+        assert service.request_timeseries_recalculation(experiment, metric_uuid="m1")["id"] == first["id"]
+        assert service.request_timeseries_recalculation(experiment, metric_uuid="m2")["id"] == second["id"]
+        assert ExperimentTimeseriesRecalculation.objects.filter(experiment=experiment).count() == 2
 
     # ------------------------------------------------------------------
     # Experiment list/querying
@@ -5891,6 +6190,22 @@ class TestExperimentService(APIBaseTest):
         )
 
         assert list(queryset.values_list("name", flat=True)[:3]) == expected_order
+
+    def test_filter_experiments_queryset_by_feature_flag_ids(self) -> None:
+        service = self._service()
+        for name in ("First", "Second", "Unlisted"):
+            service.create_experiment(name=name, feature_flag_key=f"flag-ids-{name.lower()}")
+        flag_ids = Experiment.objects.filter(team=self.team, name__in=["First", "Second"]).values_list(
+            "feature_flag_id", flat=True
+        )
+
+        queryset = service.filter_experiments_queryset(
+            Experiment.objects.filter(team=self.team),
+            action="list",
+            query_params={"feature_flag_ids": ",".join(str(flag_id) for flag_id in flag_ids)},
+        )
+
+        assert sorted(queryset.values_list("name", flat=True)) == ["First", "Second"]
 
     def test_filter_experiments_queryset_validates_feature_flag_id(self) -> None:
         with self.assertRaises(ValidationError) as ctx:
@@ -6890,7 +7205,7 @@ class TestExperimentService(APIBaseTest):
 
     def test_metric_with_action_belonging_to_other_team_raises(self):
         other_team = Team.objects.create(organization=self.organization, name="Other Team")
-        action = Action.objects.create(team=other_team, name="other team action")
+        action = create_action(team=other_team, name="other team action")
         service = self._service()
         with self.assertRaises(ValidationError):
             service.create_experiment(
@@ -6906,7 +7221,7 @@ class TestExperimentService(APIBaseTest):
             )
 
     def test_metric_with_deleted_action_raises(self):
-        action = Action.objects.create(team=self.team, name="deleted action", deleted=True)
+        action = create_action(team=self.team, name="deleted action", deleted=True)
         service = self._service()
         with self.assertRaises(ValidationError):
             service.create_experiment(
@@ -6922,7 +7237,7 @@ class TestExperimentService(APIBaseTest):
             )
 
     def test_metric_with_valid_action_id_passes(self):
-        action = Action.objects.create(team=self.team, name="valid action")
+        action = create_action(team=self.team, name="valid action")
         service = self._service()
         experiment = service.create_experiment(
             name="Valid Action",
@@ -6938,7 +7253,7 @@ class TestExperimentService(APIBaseTest):
         assert experiment.metrics is not None and len(experiment.metrics) == 1
 
     def test_update_with_deleted_action_still_referenced_succeeds(self):
-        action = Action.objects.create(team=self.team, name="soon deleted action")
+        action = create_action(team=self.team, name="soon deleted action")
         stale = {
             "kind": "ExperimentMetric",
             "metric_type": "mean",
@@ -6950,15 +7265,14 @@ class TestExperimentService(APIBaseTest):
             feature_flag_key="stale-action-resend-flag",
             metrics=[stale],
         )
-        action.deleted = True
-        action.save()
+        update_action(action, deleted=True)
 
         updated = service.update_experiment(experiment, {"metrics": [stale], "metrics_secondary": []})
 
         assert updated.metrics is not None and len(updated.metrics) == 1
 
     def test_update_rejects_new_unknown_action_alongside_resent_stale_one(self):
-        action = Action.objects.create(team=self.team, name="another soon deleted action")
+        action = create_action(team=self.team, name="another soon deleted action")
         stale = {
             "kind": "ExperimentMetric",
             "metric_type": "mean",
@@ -6970,8 +7284,7 @@ class TestExperimentService(APIBaseTest):
             feature_flag_key="unknown-alongside-stale-action-flag",
             metrics=[stale],
         )
-        action.deleted = True
-        action.save()
+        update_action(action, deleted=True)
         fresh = {
             "kind": "ExperimentMetric",
             "metric_type": "mean",
@@ -6988,7 +7301,7 @@ class TestExperimentService(APIBaseTest):
         "products.access_control.backend.facade.user_access_control.UserAccessControl.access_controls_supported", True
     )
     def test_metric_action_needs_viewer_access_unless_already_referenced(self, placement: str):
-        action = Action.objects.create(team=self.team, name="restricted action", created_by=self.user)
+        action = create_action(team=self.team, name="restricted action", created_by=self.user)
         AccessControl.objects.create(team=self.team, resource="action", resource_id=str(action.id), access_level="none")
         metric = {"kind": "ExperimentMetric", "metric_type": "mean", "source": {"kind": "ActionsNode", "id": action.id}}
         definition: dict = {"metrics": [metric], "metrics_secondary": []}
@@ -7090,7 +7403,7 @@ class TestExperimentService(APIBaseTest):
         assert experiment.metrics[0]["metric_type"] == "funnel"
 
     def test_funnel_metric_with_nonexistent_action_in_series_raises(self):
-        action = Action.objects.create(team=self.team, name="real action")
+        action = create_action(team=self.team, name="real action")
         service = self._service()
         with self.assertRaises(ValidationError):
             service.create_experiment(
@@ -7420,7 +7733,7 @@ class TestExperimentService(APIBaseTest):
         assert experiment.metrics is not None and len(experiment.metrics) == 1
 
     def test_action_nodes_not_checked_for_event_existence(self):
-        action = Action.objects.create(team=self.team, name="valid action for event test")
+        action = create_action(team=self.team, name="valid action for event test")
         service = self._service()
         experiment = service.create_experiment(
             name="Action No Event Check",
@@ -7895,12 +8208,275 @@ class TestExperimentServiceWarehouseMetricAccess(APIBaseTest):
             filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
         )
         experiment = Experiment.objects.create(
-            team=self.team, created_by=self.user, name="E", feature_flag=flag, start_date=timezone.now()
+            team=self.team,
+            created_by=self.user,
+            name="E",
+            feature_flag=flag,
+            start_date=timezone.now(),
+            metrics=[{**self._dw_metric(), "uuid": "dw-metric"}],
         )
         service = ExperimentService(team=self.team, user=self.user)
         with pytest.raises(PermissionDenied):
-            service.request_timeseries_recalculation(experiment, metric=self._dw_metric(), fingerprint="fp1")
+            service.request_timeseries_recalculation(experiment, metric_uuid="dw-metric")
         assert not ExperimentTimeseriesRecalculation.objects.filter(experiment=experiment).exists()
+
+
+_WAREHOUSE_UNIT = {"unit_type": "customer", "id_namespace": "billing_customer_id"}
+
+
+def _warehouse_exposure(connection_id: str, unit: dict | None = None) -> dict:
+    return {
+        "exposure_config": {
+            "kind": "ExperimentWarehouseNativeExposureConfig",
+            "connection_id": connection_id,
+            "query": "SELECT customer_id AS entity_id, variant, exposed_at AS timestamp FROM exposures",
+            "unit": unit or _WAREHOUSE_UNIT,
+        }
+    }
+
+
+def _warehouse_metric(connection_id: str, unit: dict | None = None) -> dict:
+    return {
+        "kind": "ExperimentMetric",
+        "metric_type": "mean",
+        "source": {
+            "kind": "ExperimentWarehouseNativeNode",
+            "connection_id": connection_id,
+            "query": "SELECT customer_id AS entity_id, paid_at AS timestamp, amount FROM payments",
+            "unit": unit or _WAREHOUSE_UNIT,
+            "math": "sum",
+            "math_property": "amount",
+        },
+    }
+
+
+_EVENTS_METRIC = {
+    "kind": "ExperimentMetric",
+    "metric_type": "mean",
+    "source": {"kind": "EventsNode", "event": "$pageview"},
+}
+
+
+class TestExperimentServiceWarehouseNativeSources(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.bigquery = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="bigquery",
+            source_type="BigQuery",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            job_inputs={},
+        )
+        self.postgres = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="postgres",
+            source_type="Postgres",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            job_inputs={},
+        )
+        flag = patch(
+            "products.experiments.backend.warehouse_native_sources.bigquery_direct_query_enabled", return_value=True
+        )
+        self.flag_enabled = flag.start()
+        self.addCleanup(flag.stop)
+        self.service = ExperimentService(team=self.team, user=self.user)
+
+    def _create(self, *, exposure_criteria: dict | None, metrics: list[dict]) -> Experiment:
+        return self.service.create_experiment(
+            name="Warehouse experiment",
+            feature_flag_key="warehouse-experiment",
+            exposure_criteria=exposure_criteria,
+            metrics=metrics,
+            allow_unknown_events=True,
+        )
+
+    def test_saves_an_experiment_whose_exposure_and_metrics_read_one_bigquery_connection(self) -> None:
+        connection_id = str(self.bigquery.id)
+        experiment = self._create(
+            exposure_criteria=_warehouse_exposure(connection_id), metrics=[_warehouse_metric(connection_id)]
+        )
+
+        experiment.refresh_from_db()
+        assert experiment.exposure_criteria is not None and experiment.metrics is not None
+        assert experiment.exposure_criteria["exposure_config"]["connection_id"] == connection_id
+        assert experiment.metrics[0]["source"]["kind"] == "ExperimentWarehouseNativeNode"
+
+    @parameterized.expand(
+        [
+            (
+                "metric_without_warehouse_exposure",
+                None,
+                ["bigquery"],
+                "A warehouse-native metric needs a warehouse-native exposure",
+            ),
+            (
+                "exposure_with_an_events_metric",
+                "bigquery",
+                ["events"],
+                "can only use warehouse-native metrics",
+            ),
+            (
+                "metric_on_another_connection",
+                "bigquery",
+                ["postgres"],
+                "must use the same connection",
+            ),
+            (
+                "metric_with_another_unit",
+                "bigquery",
+                ["bigquery_other_unit"],
+                "must use the same unit binding",
+            ),
+            (
+                "connection_is_not_bigquery",
+                "postgres",
+                ["postgres"],
+                "support BigQuery connections only",
+            ),
+            (
+                "connection_does_not_exist",
+                "missing",
+                ["missing"],
+                "Invalid connectionId",
+            ),
+            (
+                "flag_off",
+                "bigquery",
+                ["bigquery"],
+                "not available in this project",
+            ),
+        ]
+    )
+    def test_create_rejects_sources_that_cannot_run_together(
+        self, name: str, exposure_connection: str | None, metric_connections: list[str], expected_error: str
+    ) -> None:
+        if name == "flag_off":
+            self.flag_enabled.return_value = False
+        connection_ids = {
+            "bigquery": str(self.bigquery.id),
+            "postgres": str(self.postgres.id),
+            "missing": str(uuid4()),
+        }
+        metrics = []
+        for metric_connection in metric_connections:
+            if metric_connection == "events":
+                metrics.append(_EVENTS_METRIC)
+            elif metric_connection == "bigquery_other_unit":
+                metrics.append(
+                    _warehouse_metric(
+                        connection_ids["bigquery"], {"unit_type": "account", "id_namespace": "account_id"}
+                    )
+                )
+            else:
+                metrics.append(_warehouse_metric(connection_ids[metric_connection]))
+        exposure_criteria = _warehouse_exposure(connection_ids[exposure_connection]) if exposure_connection else None
+
+        with self.assertRaises(ValidationError) as ctx:
+            self._create(exposure_criteria=exposure_criteria, metrics=metrics)
+
+        assert expected_error in str(ctx.exception)
+        assert not Experiment.objects.filter(team=self.team).exists()
+
+    @parameterized.expand(
+        [("launch_action",), ("patch_start_date",), ("live_create",), ("patch_sources_of_a_launched_experiment",)]
+    )
+    def test_refuses_warehouse_native_sources_on_a_launched_experiment(self, path: str) -> None:
+        connection_id = str(self.bigquery.id)
+        exposure_criteria = _warehouse_exposure(connection_id)
+        metrics = [_warehouse_metric(connection_id)]
+        with self.assertRaises(ValidationError) as ctx:
+            if path == "live_create":
+                self.service.create_experiment(
+                    name="Warehouse experiment",
+                    feature_flag_key="warehouse-experiment",
+                    exposure_criteria=exposure_criteria,
+                    metrics=metrics,
+                    start_date=timezone.now(),
+                )
+            elif path == "patch_sources_of_a_launched_experiment":
+                launched = self.service.create_experiment(
+                    name="Events experiment",
+                    feature_flag_key="events-experiment",
+                    metrics=[_EVENTS_METRIC],
+                    start_date=timezone.now(),
+                    allow_unknown_events=True,
+                )
+                self.service.update_experiment(launched, {"exposure_criteria": exposure_criteria, "metrics": metrics})
+            else:
+                experiment = self._create(exposure_criteria=exposure_criteria, metrics=metrics)
+                if path == "launch_action":
+                    self.service.launch_experiment(experiment)
+                else:
+                    self.service.update_experiment(experiment, {"start_date": timezone.now()})
+
+        assert "cannot run yet" in str(ctx.exception)
+        assert not Experiment.objects.filter(
+            team=self.team,
+            start_date__isnull=False,
+            exposure_criteria__exposure_config__kind="ExperimentWarehouseNativeExposureConfig",
+        ).exists()
+
+    def test_refuses_a_raw_query_when_the_user_cannot_read_every_table_on_the_connection(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.MEMBER
+        membership.save()
+        credential = DataWarehouseCredential.objects.create(access_key="x", access_secret="x", team=self.team)
+        table = DataWarehouseTable.objects.create(
+            name="restricted_payments",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+            credential=credential,
+            external_data_source=self.bigquery,
+            url_pattern="s3://bucket/restricted/*",
+            columns={"id": "String"},
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="warehouse_table",
+            resource_id=str(table.pk),
+            access_level="none",
+            organization_member=membership,
+        )
+        connection_id = str(self.bigquery.id)
+
+        # The flag `hogql-warehouse-access-control` turns on the per-table check of raw queries.
+        with (
+            patch("posthog.hogql.direct_connection.feature_enabled_or_false", return_value=True),
+            self.assertRaises(PermissionDenied),
+        ):
+            self._create(
+                exposure_criteria=_warehouse_exposure(connection_id), metrics=[_warehouse_metric(connection_id)]
+            )
+        assert not Experiment.objects.filter(team=self.team).exists()
+
+    @parameterized.expand(
+        [
+            ("metrics_now_read_events", {"metrics": [_EVENTS_METRIC]}, "can only use warehouse-native metrics"),
+            ("name_only_after_the_flag_is_off", {"name": "Renamed"}, None),
+        ]
+    )
+    def test_update_reads_the_fields_left_out_of_the_update_from_the_experiment(
+        self, _name: str, update_data: dict, expected_error: str | None
+    ) -> None:
+        connection_id = str(self.bigquery.id)
+        experiment = self._create(
+            exposure_criteria=_warehouse_exposure(connection_id), metrics=[_warehouse_metric(connection_id)]
+        )
+        self.flag_enabled.return_value = False
+
+        if expected_error is None:
+            self.service.update_experiment(experiment, update_data, allow_unknown_events=True)
+            experiment.refresh_from_db()
+            assert experiment.name == "Renamed"
+            return
+        with self.assertRaises(ValidationError) as ctx:
+            self.service.update_experiment(experiment, update_data, allow_unknown_events=True)
+        assert expected_error in str(ctx.exception)
 
 
 class TestDeprecatedFieldsInRequest(SimpleTestCase):

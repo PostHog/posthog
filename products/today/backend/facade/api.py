@@ -52,13 +52,29 @@ def report_figure_marks(*, team: Team, user: User, report_id: str) -> list[contr
     return report_pages.figure_marks(page, artefacts, _jev(team, user, figure_sources.FIGURE_MODEL))
 
 
-def get_highlights(*, team: Team, user: User, scopes: frozenset[str] | None) -> contracts.Highlights:
-    return highlights.get_highlights(team=team, user=user, scopes=scopes)
+def get_highlights(
+    *, team: Team, user: User, scopes: frozenset[str] | None, refresh: bool = False
+) -> contracts.Highlights:
+    return highlights.get_highlights(team=team, user=user, scopes=scopes, refresh=refresh)
 
 
 def get_pulse_pins(*, team: Team, user: User, scopes: frozenset[str] | None) -> contracts.PulsePins:
-    return contracts.PulsePins(pins=pulse_pins.get_pins(team=team, user_id=user.id, scopes=scopes))
+    choices = pulse_pins.get_choices(team=team, user_id=user.id, scopes=scopes)
+    return contracts.PulsePins(
+        pins=choices.pins,
+        hidden=pulse_pins.named_hidden(team=team, user=user, keys=choices.hidden, scopes=scopes),
+    )
 
 
-def set_pulse_pins(*, team: Team, user: User, pins: list[contracts.PulsePin]) -> contracts.PulsePins:
-    return contracts.PulsePins(pins=pulse_pins.set_pins(team=team, user_id=user.id, pins=pins))
+def set_pulse_pins(
+    *, team: Team, user: User, pins: list[contracts.PulsePin], scopes: frozenset[str] | None
+) -> contracts.PulsePins:
+    pulse_pins.set_pins(team=team, user_id=user.id, pins=pins)
+    return get_pulse_pins(team=team, user=user, scopes=scopes)
+
+
+def set_hidden_pulse_numbers(
+    *, team: Team, user: User, keys: list[str], scopes: frozenset[str] | None
+) -> contracts.HiddenPulseNumbers:
+    kept = pulse_pins.set_hidden(team=team, user_id=user.id, keys=keys)
+    return contracts.HiddenPulseNumbers(hidden=pulse_pins.named_hidden(team=team, user=user, keys=kept, scopes=scopes))

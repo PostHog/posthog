@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { ReactNode } from 'react'
 
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonButtonProps } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
@@ -10,7 +10,13 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { openLaunchSurveyDialog } from './launchSurveyDialog'
 
-export function LaunchSurveyButton({ children = 'Launch' }: { children?: ReactNode }): JSX.Element {
+export function LaunchSurveyButton({
+    children = 'Launch',
+    size = 'small',
+}: {
+    children?: ReactNode
+    size?: LemonButtonProps['size']
+}): JSX.Element {
     const { survey, surveyWarnings } = useValues(surveyLogic)
     const { launchSurvey } = useActions(surveyLogic)
 
@@ -23,7 +29,7 @@ export function LaunchSurveyButton({ children = 'Launch' }: { children?: ReactNo
             <LemonButton
                 type="primary"
                 data-attr="launch-survey"
-                size="small"
+                size={size}
                 onClick={() => openLaunchSurveyDialog({ survey, surveyWarnings, launchSurvey })}
             >
                 {children}

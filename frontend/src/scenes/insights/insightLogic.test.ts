@@ -18,7 +18,6 @@ import { urls } from 'scenes/urls'
 import { useMocks } from '~/mocks/jest'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
-import { tagsModel } from '~/models/tagsModel'
 import { examples } from '~/queries/examples'
 import { DataTableNode, type InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -146,7 +145,6 @@ describe('insightLogic', () => {
     beforeEach(async () => {
         useMocks({
             get: {
-                '/api/projects/:team/tags': [],
                 '/api/environments/:team_id/quick_filters/': {
                     results: [],
                 },
@@ -645,56 +643,91 @@ describe('insightLogic', () => {
         await expectLogic(dashLogic).toDispatchActions(['loadDashboard'])
     })
 
+    const savedInsightProps: InsightLogicProps = {
+        dashboardItemId: Insight42,
+        cachedInsight: {
+            id: 42,
+            short_id: Insight42,
+            query: examples.FunnelsQuery,
+            result: {},
+            dashboard_tiles: TILES_ON_DASHBOARDS_1_2_3,
+        },
+    }
+    const newDashboardInsightProps: InsightLogicProps = {
+        dashboardItemId: 'new',
+        cachedInsight: { ...createEmptyInsight('new'), dashboards: [MOCK_DASHBOARD_ID] },
+    }
+
     test.each([
         {
             name: 'a saved insight stays on the dashboards it sits on',
-            insightProps: {
-                dashboardItemId: Insight42,
-                cachedInsight: {
-                    id: 42,
-                    short_id: Insight42,
-                    query: examples.FunnelsQuery,
-                    result: {},
-                    dashboard_tiles: TILES_ON_DASHBOARDS_1_2_3,
-                },
-            },
+            insightProps: savedInsightProps,
+            tileGroup: null,
             expectedPlacements: [],
+            expectedGroupWrites: [],
+        },
+        {
+            name: 'a saved insight opened from a tile group link keeps its tiles where they are',
+            insightProps: savedInsightProps,
+            tileGroup: 'target',
+            expectedPlacements: [],
+            expectedGroupWrites: [],
         },
         {
             name: 'a new insight goes on the dashboard it was started from',
-            insightProps: {
-                dashboardItemId: 'new',
-                cachedInsight: { ...createEmptyInsight('new'), dashboards: [MOCK_DASHBOARD_ID] },
-            },
+            insightProps: newDashboardInsightProps,
+            tileGroup: null,
             expectedPlacements: [[12, MOCK_DASHBOARD_ID]],
+            expectedGroupWrites: [],
         },
-    ] as { name: string; insightProps: InsightLogicProps; expectedPlacements: number[][] }[])(
-        'saving: $name',
-        async ({ insightProps, expectedPlacements }) => {
-            const update = jest.spyOn(api, 'update')
-            const create = jest.spyOn(api, 'create')
-            const addToDashboard = jest
-                .spyOn(insightsApi, 'addToDashboard')
-                .mockImplementation(async (_insightId, dashboardId) => ({ id: 99, dashboard_id: dashboardId }))
-            logic = insightLogic(insightProps)
-            logic.mount()
-            insightDataLogic(insightProps).mount()
+        {
+            name: 'a new insight started from a tile group goes into that group',
+            insightProps: newDashboardInsightProps,
+            tileGroup: 'target',
+            expectedPlacements: [[12, MOCK_DASHBOARD_ID]],
+            expectedGroupWrites: [{ tiles: [{ id: 99, group_key: 'target' }] }],
+        },
+    ] as {
+        name: string
+        insightProps: InsightLogicProps
+        tileGroup: string | null
+        expectedPlacements: number[][]
+        expectedGroupWrites: unknown[]
+    }[])('saving: $name', async ({ insightProps, tileGroup, expectedPlacements, expectedGroupWrites }) => {
+        const groupWrites: unknown[] = []
+        useMocks({
+            patch: {
+                [`/api/environments/:team_id/dashboards/${MOCK_DASHBOARD_ID}/`]: async ({ request }) => {
+                    groupWrites.push(await request.json())
+                    return [200, {}]
+                },
+            },
+        })
+        router.actions.push('/insights/new', tileGroup ? { tile_group: tileGroup } : {})
+        const update = jest.spyOn(api, 'update')
+        const create = jest.spyOn(api, 'create')
+        const addToDashboard = jest
+            .spyOn(insightsApi, 'addToDashboard')
+            .mockImplementation(async (_insightId, dashboardId) => ({ id: 99, dashboard_id: dashboardId }))
+        logic = insightLogic(insightProps)
+        logic.mount()
+        insightDataLogic(insightProps).mount()
 
-            await expectLogic(logic, () => {
-                logic.actions.saveInsight()
-            }).toFinishAllListeners()
+        await expectLogic(logic, () => {
+            logic.actions.saveInsight()
+        }).toFinishAllListeners()
 
-            const insightWrites = [...update.mock.calls, ...create.mock.calls].filter(([url]) =>
-                /\/insights\/?(\d+\/?)?$/.test(url)
-            )
-            expect(insightWrites).toHaveLength(1)
-            expect(insightWrites[0][1]).not.toHaveProperty('dashboards')
-            expect(addToDashboard.mock.calls).toEqual(expectedPlacements)
-            update.mockRestore()
-            create.mockRestore()
-            addToDashboard.mockRestore()
-        }
-    )
+        const insightWrites = [...update.mock.calls, ...create.mock.calls].filter(([url]) =>
+            /\/insights\/?(\d+\/?)?$/.test(url)
+        )
+        expect(insightWrites).toHaveLength(1)
+        expect(insightWrites[0][1]).not.toHaveProperty('dashboards')
+        expect(addToDashboard.mock.calls).toEqual(expectedPlacements)
+        expect(groupWrites).toEqual(expectedGroupWrites)
+        update.mockRestore()
+        create.mockRestore()
+        addToDashboard.mockRestore()
+    })
 
     test('updateInsight updates dashboards', async () => {
         savedInsightsLogic().mount()
@@ -1469,7 +1502,7 @@ describe('insightLogic', () => {
             await expectLogic(logic, () => {
                 logic.actions.setInsightMetadata({ name: 'Foobar 43', description: 'Lorem ipsum.', tags: ['good'] })
             })
-                .toDispatchActions([tagsModel.actionTypes.loadTags, 'setInsightMetadataSuccess'])
+                .toDispatchActions(['setInsightMetadataSuccess'])
                 .toMatchValues({
                     savedInsight: partial({ name: 'Foobar 43', description: 'Lorem ipsum.', tags: ['good'] }),
                     insightChanged: false,
@@ -1518,7 +1551,6 @@ describe('insightLogic', () => {
                 logic.actions.setInsightMetadata({ favorited: true })
             })
                 .toDispatchActions(['setInsightMetadataSuccess'])
-                .toNotHaveDispatchedActions([tagsModel.actionTypes.loadTags])
                 .toMatchValues({
                     savedInsight: partial({ favorited: true }),
                 })

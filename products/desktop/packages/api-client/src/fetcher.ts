@@ -11,6 +11,7 @@ type ApiFetcherConfig = {
   appVersion: string;
   fetch?: FetchImplementation;
   userAgent?: string | null;
+  taskClientProvenance?: string;
 };
 
 /**
@@ -71,6 +72,9 @@ export const buildApiFetcher: (
     headers.set("Content-Type", "application/json");
     if (userAgent) {
       headers.set("User-Agent", userAgent);
+    }
+    if (config.taskClientProvenance) {
+      headers.set("X-PostHog-Client-Provenance", config.taskClientProvenance);
     }
 
     if (input.urlSearchParams) {

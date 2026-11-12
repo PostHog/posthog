@@ -53,7 +53,9 @@ import {
   type FileEnrichmentDeps,
 } from "@posthog/harness/extensions/enrichment";
 import {
+  buildFinishRunUpdate,
   isCloudRun,
+  isFinishReportRequired,
   LOCAL_TOOLS_MCP_NAME,
   type LocalToolCtx,
   resolveGithubToken,
@@ -1104,6 +1106,51 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       cache_creation_input_tokens: 0,
     };
     let stopReason: PromptResponse["stopReason"] = "end_turn";
+    const pendingSubagents = new Map<string, string | undefined>();
+    const completedSubagents = new Map<string, string | undefined>();
+    const endedSubagentRuns = new Map<string, string | undefined>();
+    const trackPendingSubagent = (
+      taskId: string,
+      runId: string | undefined,
+    ): void => {
+      // Snapshot and lifecycle events can overlap; a completed run must not become pending again.
+      if (endedSubagentRuns.has(taskId)) {
+        const endedRun = endedSubagentRuns.get(taskId);
+        if (
+          runId === undefined ||
+          endedRun === undefined ||
+          runId <= endedRun
+        ) {
+          return;
+        }
+      }
+      const pendingRun = pendingSubagents.get(taskId);
+      if (
+        pendingRun !== undefined &&
+        (runId === undefined || runId < pendingRun)
+      ) {
+        return;
+      }
+      pendingSubagents.set(taskId, runId);
+    };
+    interface SubagentReplyBatch {
+      runId?: string;
+      replyMessageId?: string;
+      tasks: Map<string, string | undefined>;
+    }
+    const subagentReplyBatches: SubagentReplyBatch[] = [];
+    let parentReplyMessageId: string | undefined;
+    const recordParentReply = (messageId: string): void => {
+      if (messageId === parentReplyMessageId) return;
+      parentReplyMessageId = messageId;
+      for (const batch of subagentReplyBatches) {
+        batch.replyMessageId = messageId;
+      }
+    };
+    const hasPendingSubagents = () =>
+      pendingSubagents.size > 0 ||
+      completedSubagents.size > 0 ||
+      subagentReplyBatches.some((batch) => batch.tasks.size > 0);
 
     // Read live: model switches reset session.lastContextWindowSize.
     const windowSize = () =>
@@ -1164,6 +1211,11 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     };
 
     const resetTurnScratch = () => {
+      pendingSubagents.clear();
+      completedSubagents.clear();
+      endedSubagentRuns.clear();
+      subagentReplyBatches.length = 0;
+      parentReplyMessageId = undefined;
       lastAssistantTotalUsage = null;
       lastRefusalExplanation = null;
       lastRefusalCategory = null;
@@ -1334,11 +1386,20 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
           if (refreshed()) {
             return;
           }
-          settleActive(
-            session.cancelled
-              ? this.cancelledResponse()
-              : { stopReason, usage: sessionUsage() },
-          );
+          if (!session.cancelled && session.activeTurn?.waitingForSubagents) {
+            failActive(
+              RequestError.internalError(
+                undefined,
+                "Session ended before sub-agents returned",
+              ),
+            );
+          } else {
+            settleActive(
+              session.cancelled
+                ? this.cancelledResponse()
+                : { stopReason, usage: sessionUsage() },
+            );
+          }
           // Queued turns the SDK never started produced no output; reject
           // them rather than report a success.
           for (const queued of [...session.turnQueue]) {
@@ -1372,6 +1433,31 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
 
         switch (message.type) {
           case "system":
+            if (session.waitForSubagents && session.activeTurn) {
+              if (
+                message.subtype === "task_started" &&
+                message.is_backgrounded !== false &&
+                !message.ambient &&
+                (message.task_type === "local_agent" || message.subagent_type)
+              ) {
+                trackPendingSubagent(message.task_id, message.run_id);
+              } else if (message.subtype === "background_tasks_changed") {
+                for (const task of message.tasks) {
+                  if (task.task_type === "local_agent" && !task.ambient) {
+                    trackPendingSubagent(task.task_id, task.run_id);
+                  }
+                }
+              } else if (
+                message.subtype === "task_notification" &&
+                pendingSubagents.has(message.task_id) &&
+                pendingSubagents.get(message.task_id) === message.run_id
+              ) {
+                // A completed worker still needs the parent to consume its result.
+                pendingSubagents.delete(message.task_id);
+                endedSubagentRuns.set(message.task_id, message.run_id);
+                completedSubagents.set(message.task_id, message.run_id);
+              }
+            }
             if (message.subtype === "init") {
               await this.syncFastModeState(message.fast_mode_state);
             }
@@ -1531,11 +1617,49 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
             break;
 
           case "result": {
-            // Task-notification followups are background work: they must not
-            // touch the user-turn lifecycle, but their cost is still reported.
-            const isTaskNotification =
-              (message as { origin?: { kind?: string } }).origin?.kind ===
-              "task-notification";
+            const origin = message.origin;
+            const isTaskNotification = origin?.kind === "task-notification";
+            let subagentReply: Map<string, string | undefined> | undefined;
+            if (isTaskNotification) {
+              const runId = origin.runId;
+              const batchIndex = runId
+                ? subagentReplyBatches.findIndex(
+                    (batch) =>
+                      batch.runId === runId ||
+                      [...batch.tasks.values()].includes(runId),
+                  )
+                : 0;
+              if (batchIndex >= 0) {
+                subagentReply = subagentReplyBatches.splice(batchIndex, 1)[0]
+                  ?.tasks;
+              }
+              // The SDK can omit the notification's user echo, but its result still identifies the run.
+              if (runId) {
+                for (const [taskId, completedRunId] of completedSubagents) {
+                  if (completedRunId === runId) {
+                    subagentReply ??= new Map();
+                    subagentReply.set(taskId, completedRunId);
+                    completedSubagents.delete(taskId);
+                  }
+                }
+              }
+            } else {
+              // An early echo can precede the old result; require a new parent response before retiring it.
+              for (let i = subagentReplyBatches.length - 1; i >= 0; i--) {
+                if (
+                  parentReplyMessageId !== undefined &&
+                  subagentReplyBatches[i]?.replyMessageId ===
+                    parentReplyMessageId
+                ) {
+                  subagentReplyBatches.splice(i, 1);
+                  session.backgroundTurnActive = false;
+                }
+              }
+            }
+            const isSubagentContinuation =
+              session.activeTurn != null && (subagentReply?.size ?? 0) > 0;
+            const isBackgroundResult =
+              isTaskNotification && !isSubagentContinuation;
             if (isTaskNotification) {
               session.backgroundTurnActive = false;
               if (hasUnconsumedBackgroundSteers(session)) {
@@ -1561,7 +1685,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
               );
             }
 
-            if (!isTaskNotification) {
+            if (!isBackgroundResult) {
               await this.syncFastModeState(
                 (message as { fast_mode_state?: FastModeState })
                   .fast_mode_state,
@@ -1570,7 +1694,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
 
             // Promote before accumulating usage: activation resets the
             // accumulator.
-            if (!isTaskNotification) {
+            if (!isBackgroundResult) {
               await ensureActiveTurn();
             }
 
@@ -1579,7 +1703,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
               break;
             }
 
-            if (!isTaskNotification) {
+            if (!isBackgroundResult) {
               // Accumulate usage from this result (guard against null from SDK)
               session.accumulatedUsage.inputTokens +=
                 message.usage.input_tokens ?? 0;
@@ -1603,7 +1727,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
               }
             }
 
-            if (!isTaskNotification && lastAssistantTotalUsage === null) {
+            if (!isBackgroundResult && lastAssistantTotalUsage === null) {
               const usedTokens = await withAbort(
                 fetchContextUsedTokens(query, this.logger),
                 cancelController.signal,
@@ -1671,7 +1795,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
                 }),
                 ...(lastRefusalCategory && { category: lastRefusalCategory }),
               });
-              if (isTaskNotification) {
+              if (isBackgroundResult) {
                 // Background work never activates a turn, so there is no
                 // settle path to broadcast completion — send it directly so
                 // the UI still closes this reply out as its own turn.
@@ -1691,7 +1815,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
               session.activeTurn?.madeProgress === true,
             );
             if (result.error) {
-              if (!isTaskNotification) {
+              if (!isBackgroundResult) {
                 failActive(result.error);
               }
               break;
@@ -1711,7 +1835,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
             // For local-only commands, forward the result text to the client
             if (
               session.activeTurn?.isLocalOnlyCommand &&
-              !isTaskNotification &&
+              !isBackgroundResult &&
               message.subtype === "success" &&
               message.result
             ) {
@@ -1724,9 +1848,21 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
               });
             }
 
-            // Settle at the terminal result rather than the trailing idle,
-            // which can lag behind background work.
-            if (isTaskNotification) {
+            if (!isBackgroundResult && session.activeTurn) {
+              if (hasPendingSubagents()) {
+                session.activeTurn.waitingForSubagents = true;
+                break;
+              }
+              if (
+                isSubagentContinuation &&
+                !session.activeTurn.waitingForSubagents
+              ) {
+                break;
+              }
+            }
+
+            // Unrelated notifications keep their independent background lifecycle.
+            if (isBackgroundResult) {
               // Background work never activates a turn, so there is no
               // settle path to broadcast completion — send it directly so
               // the UI still closes this reply out as its own turn instead
@@ -1776,6 +1912,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
                 message.event.type === "message_delta")
             ) {
               if (message.event.type === "message_start") {
+                recordParentReply(message.event.message.id);
                 const u = message.event.message.usage;
                 lastStreamUsage = {
                   input_tokens: u.input_tokens ?? 0,
@@ -1818,11 +1955,43 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
           case "user":
           case "assistant": {
             if (
+              message.type === "assistant" &&
+              message.parent_tool_use_id === null
+            ) {
+              recordParentReply(message.message.id);
+            }
+            if (
               message.type === "user" &&
               (message as { origin?: { kind?: string } }).origin?.kind ===
                 "task-notification"
             ) {
               session.backgroundTurnActive = true;
+              if (session.waitForSubagents && session.activeTurn) {
+                const origin = message.origin as { runId?: string } | undefined;
+                const content = message.message.content;
+                const text =
+                  typeof content === "string"
+                    ? content
+                    : content
+                        .filter((block) => block.type === "text")
+                        .map((block) => block.text)
+                        .join("\n");
+                const batch = new Map<string, string | undefined>();
+                for (const [taskId, runId] of completedSubagents) {
+                  if (
+                    origin?.runId
+                      ? runId === origin.runId
+                      : text.includes(`<task-id>${taskId}</task-id>`)
+                  ) {
+                    batch.set(taskId, runId);
+                    completedSubagents.delete(taskId);
+                  }
+                }
+                subagentReplyBatches.push({
+                  runId: origin?.runId,
+                  tasks: batch,
+                });
+              }
             }
             // The SDK can echo a task notification before the previous
             // background result, so that result clears the flag first. Model
@@ -3082,13 +3251,13 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     if (!config || !taskId || !taskRunId) {
       return undefined;
     }
-    return async (status, message) => {
+    return async (status, message, report) => {
       try {
-        await new PostHogAPIClient(config).updateTaskRun(taskId, taskRunId, {
-          status,
-          ...(status === "failed" && message ? { error_message: message } : {}),
-          ...(status === "failed" ? { error_type: "agent_declined" } : {}),
-        });
+        await new PostHogAPIClient(config).updateTaskRun(
+          taskId,
+          taskRunId,
+          buildFinishRunUpdate(status, message, report),
+        );
       } catch (error) {
         this.logger.error("finish tool failed to mark run terminal", error);
         throw error;
@@ -3191,6 +3360,10 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
           taskRunId: meta?.taskRunId,
           baseBranch,
           requestFinish,
+          finishReportRequired: isFinishReportRequired({
+            taskOriginProduct,
+            endRunWhenDone,
+          }),
         },
         {
           environment,
@@ -3199,6 +3372,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
           background: meta?.mode === "background",
           taskOriginProduct,
           endRunWhenDone,
+          callerEndsRun: meta?.callerEndsRun === true,
         },
       );
       return server ? { [LOCAL_TOOLS_MCP_NAME]: server } : {};
@@ -3345,6 +3519,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
       settingsManager,
       permissionMode,
       cloudMode: cloudRun,
+      waitForSubagents: meta?.mode === "background",
       posthogExecPermissionRegex,
       abortController,
       budgetGuard: budgetGuard ?? undefined,

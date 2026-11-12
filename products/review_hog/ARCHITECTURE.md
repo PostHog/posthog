@@ -6,6 +6,12 @@
 **Code review** is the name of the in-app page and its nav entry only.
 **ReviewHog** is the internal codename. Code, logs, metric names, keys, and developer docs use it.
 An `@posthog review` comment starts a Standard review, and `@posthog review --deep` starts a Deep review. No label starts a review.
+The comment is the primary GitHub-side trigger.
+Requesting the `posthog-review` GitHub team as a reviewer is an optional shortcut (`review_team_requests.py`, trigger source `review_request`).
+It takes no options: it starts a Standard review, or a Deep review once the pull request has a published Deep review.
+The team has no members, and ReviewHog removes its request afterwards, so requesting it again asks for the next review.
+GitHub offers the team in the reviewer picker only on repositories it can access, so each repository needs that access granted.
+The shortcut is internal until an explicit per-repository or per-installation opt-in exists, because the team slug matches on every installation.
 
 The UI and the text PostHog Review posts use the user-facing names. Code, API values, and stored data use the internal names.
 
@@ -56,7 +62,7 @@ in flight, with the detail in DECISIONS.md.
 ## Status & next
 
 ReviewHog runs end-to-end: label / UI / inbox / automatic authored-PR triggers → the Temporal pipeline → published PR review.
-Automatic Standard reviews run on new PRs and pushes, including drafts unless the owner turns them off (a draft gets one review, and the next one runs when it is marked ready), but never on PRs with the `skip-agent-review` label, in every repository a project reviews, for the authors that the project rule, the repository exceptions, and each person's own choices select (`backend/automatic_review_rules.py`).
+Automatic Standard reviews run on new PRs and pushes, including drafts in repositories that turn draft reviews on, unless the owner turns them off (a draft gets one review, and the next one runs when it is marked ready), but never on PRs with the `skip-agent-review` label, in every repository a project reviews, for the authors that the project rule, the repository exceptions, and each person's own choices select (`backend/automatic_review_rules.py`).
 The per-PR queue serializes reviews and coalesces automatic pushes into a follow-up for the latest head.
 The current focus is productionizing the reviewer-topology eval and tightening the finder/validator balance
 (validator strictness, fewer junk candidates, the coverage gap).
@@ -300,6 +306,16 @@ sessions, all on the PR's arm set (below) and all returning `SingleAgentReview`:
   and image assets, and `max_migration.txt`. One session runs per lens and part, so a turn opens at most 9 sessions, under one
   `MAX_CONCURRENT_SANDBOXES` semaphore. A lens session gets `FLASH_LENS_SESSION_TIMEOUT` (10 minutes, retry
   included) instead of the sandbox timeout. A failed or timed-out lens session costs only its own findings.
+- **The devex lens session** (`DEVEX_LENS`, `lens_devex.md`) reviews the changed files that the devex team owns.
+  It is not in `FLASH_LENSES`.
+  It runs only when the repository's `owners.yaml` files give a changed file to `DEVEX_OWNER_TEAM` and the per-PR flag `reviewhog-devex-lens` is on.
+  `_devex_lens_files` reads ownership from the default branch through `posthog/ownership`, so a repository without `owners.yaml` never runs the lens.
+  The fetch activity reads ownership once. It records the owned files on the turn's `pr_snapshot`, where the session reads its scope, and whether there are any on `ReviewMeta.devex_lens`.
+  A renamed file is routed by its new path.
+  The session is one more lens unit of `lens_review_activity` under pass 2003, so a turn that runs it opens at most 10 sessions.
+  Its diff holds only the owned files, and its findings go through the same dedup, ranking, and cap as the other lens findings.
+  A coordinated turn and a delta turn run without it.
+  Only a turn that runs it hashes `lens_devex.md` into its fingerprint, so every other turn keeps its cohort.
 
 **Arm sets.** `SINGLE_AGENT_ARM_SETS` (`reviewer/constants.py`) names each set of arms the sessions can run on: one arm
 for the main session, one for every lens session. The `control` set runs every session on `SINGLE_AGENT_FLASH_ARM`
@@ -959,7 +975,7 @@ whoever controls the run, the sandbox agent included), **MCP tools**
 `review-hog` feature flag) that drive the same reviews viewset with a personal API key or OAuth token, and **automatic authored-PR Flash reviews**.
 The automatic trigger consumes signed GitHub `pull_request` deliveries through `review_hog_authored_prs` and queues a Celery task for the ownership, identity, and rule checks.
 It accepts `opened`, `synchronize`, and `ready_for_review` for open PRs whose head and base belong to the delivery's repository, including drafts.
-A draft is skipped (`draft_skipped`) when the PR owner turned `review_drafts` off. Its first automatic review then comes from `ready_for_review`, and `automatic_reviewed_head_sha` keeps a head that was already reviewed as a draft from a second review.
+A draft is skipped (`draft_skipped`) unless its repository turned draft reviews on (`ReviewRepository.review_drafts`, default off) and the PR owner kept `review_drafts` on. A bot or an unmapped author follows the repository alone. The workflow checks both again when a queued run starts, and before it skips a draft it reads the draft state from GitHub again, because the queue drops a `ready_for_review` request for a head the run already holds. A failed read keeps the skip. A skipped draft's first automatic review then comes from `ready_for_review`, and `automatic_reviewed_head_sha` keeps a head that was already reviewed as a draft from a second review.
 A draft that is reviewed gets its first automatic review only: the push gate's `draft` rule skips the later pushes, and `ready_for_review` reviews everything since the last reviewed head, also when the author marks it ready without a push.
 A PR with the `skip-agent-review` label gets no automatic review (`label_skipped`). The task checks the payload labels, and the turn checks the labels its fetch reads from GitHub again, because `gh pr create --label` adds labels after the `opened` delivery.
 The turn ends before the status comment, so a skip leaves nothing on the PR. Removing the label does not start a review; comment `@posthog review` for one.

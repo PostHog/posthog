@@ -1,5 +1,6 @@
 import { useValues } from 'kea'
 import { router } from 'kea-router'
+import { useRef } from 'react'
 
 import { LemonButton } from '@posthog/lemon-ui'
 import { Button } from '@posthog/quill'
@@ -7,7 +8,6 @@ import { Button } from '@posthog/quill'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { NotFound } from 'lib/components/NotFound'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -17,15 +17,9 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { EmailSuspensionBanner } from '../EmailSuspensionBanner'
-import { MessagingSetup } from '../MessagingSetup'
 import { MessagingTabActions } from '../MessagingTabActions'
-import {
-    MESSAGING_NAV_TAB_KEYS,
-    MESSAGING_TAB_CONTENT,
-    MessagingNavTabKey,
-    isMessagingSetupTab,
-} from '../messagingTabs'
-import { TransactionalEmailsTable } from './TransactionalEmailsTable'
+import { TransactionalRoute, transactionalRouteFor } from './transactionalRoute'
+import { TransactionalTabs } from './TransactionalTabs'
 import { TransactionalEmailWizard } from './wizard/TransactionalEmailWizard'
 
 export const scene: SceneExport = {
@@ -37,19 +31,18 @@ export function TransactionalScene(): JSX.Element {
     const { location } = useValues(router)
     const showTransactional = useFeatureFlag('WORKFLOWS_TRANSACTIONAL_EMAIL_API')
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
-    // The tab routes are literal paths, so the tab is the last path segment rather than a route param.
-    const lastSegment = location.pathname.split('/').pop() ?? ''
-    const currentTab: MessagingNavTabKey | 'transactional' = MESSAGING_NAV_TAB_KEYS.includes(
-        lastSegment as MessagingNavTabKey
-    )
-        ? (lastSegment as MessagingNavTabKey)
-        : 'transactional'
+    // Leaving for another scene changes the URL before that scene has loaded, so this one keeps showing its last view.
+    const route = transactionalRouteFor(location.pathname)
+    const lastRoute = useRef<TransactionalRoute>(route ?? 'transactional')
+    lastRoute.current = route ?? lastRoute.current
+    const currentTab = lastRoute.current
+    const isTransactionalTab = currentTab === 'transactional' || currentTab === 'log' || currentTab === 'metrics'
 
     if (!showTransactional) {
         return <NotFound object="page" />
     }
 
-    if (lastSegment === 'new') {
+    if (currentTab === 'new') {
         return <TransactionalEmailWizard />
     }
 
@@ -60,7 +53,7 @@ export function TransactionalScene(): JSX.Element {
                 description="Send emails from your code with one API call"
                 resourceType={{ type: 'transactional' }}
                 actions={
-                    currentTab === 'transactional' ? (
+                    isTransactionalTab ? (
                         <AccessControlAction
                             resourceType={AccessControlResourceType.Workflow}
                             minAccessLevel={AccessControlLevel.Editor}
@@ -90,35 +83,7 @@ export function TransactionalScene(): JSX.Element {
                 }
             />
             <EmailSuspensionBanner />
-            <LemonTabs<'transactional' | 'library' | 'messaging-setup'>
-                activeKey={currentTab === 'transactional' || currentTab === 'library' ? currentTab : 'messaging-setup'}
-                tabs={[
-                    {
-                        label: 'Transactional emails',
-                        key: 'transactional',
-                        link: urls.transactional(),
-                        content: <TransactionalEmailsTable />,
-                    },
-                    {
-                        label: 'Templates',
-                        key: 'library',
-                        link: urls.transactional('library'),
-                        content: MESSAGING_TAB_CONTENT.library,
-                    },
-                    {
-                        label: 'Messaging',
-                        key: 'messaging-setup',
-                        link: urls.transactional('channels'),
-                        content: (
-                            <MessagingSetup
-                                tab={isMessagingSetupTab(currentTab) ? currentTab : 'channels'}
-                                linkFor={(tab) => urls.transactional(tab)}
-                            />
-                        ),
-                    },
-                ]}
-                sceneInset
-            />
+            <TransactionalTabs currentTab={currentTab} />
         </SceneContent>
     )
 }

@@ -40,7 +40,6 @@ import { GENERATED_TOOLS as logs } from './logs'
 import { GENERATED_TOOLS as managed_migrations } from './managed_migrations'
 import { GENERATED_TOOLS as marketing_analytics } from './marketing_analytics'
 import { GENERATED_TOOLS as mcp_analytics } from './mcp_analytics'
-import { GENERATED_TOOLS as mcp_registry } from './mcp_registry'
 import { GENERATED_TOOLS as mcp_store } from './mcp_store'
 import { GENERATED_TOOLS as messaging } from './messaging'
 import { GENERATED_TOOLS as metrics } from './metrics'
@@ -63,6 +62,8 @@ import { GENERATED_TOOLS as subscriptions } from './subscriptions'
 import { GENERATED_TOOLS as surveys } from './surveys'
 import { GENERATED_TOOLS as tasks } from './tasks'
 import { GENERATED_TOOLS as tracing } from './tracing'
+import { GENERATED_TOOLS as transactional_email_log } from './transactional_email_log'
+import { GENERATED_TOOLS as ui_customization } from './ui_customization'
 import { GENERATED_TOOLS as visual_review } from './visual_review'
 import { GENERATED_TOOLS as warehouse_destinations } from './warehouse_destinations'
 import { GENERATED_TOOLS as warehouse_sources } from './warehouse_sources'
@@ -111,7 +112,6 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...managed_migrations,
     ...marketing_analytics,
     ...mcp_analytics,
-    ...mcp_registry,
     ...mcp_store,
     ...messaging,
     ...metrics,
@@ -134,6 +134,8 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...surveys,
     ...tasks,
     ...tracing,
+    ...transactional_email_log,
+    ...ui_customization,
     ...visual_review,
     ...warehouse_destinations,
     ...warehouse_sources,

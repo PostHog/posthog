@@ -27,9 +27,10 @@ from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWareh
 from posthog.hogql.escape_sql import escape_param_clickhouse
 
 from posthog.clickhouse.client import sync_execute
-from posthog.exceptions import ClickHouseAtCapacity
+from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryTimeOut
 from posthog.models import Team
 
+from products.warehouse_sources.backend.facade.testing import read_unsaved_source_inputs_as_stored
 from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import (
@@ -85,7 +86,8 @@ class TestHogQLDefinitionDirectDispatch(BaseTest):
             columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "String", "valid": True}},
         )
 
-        assert type(table.hogql_definition()) is expected_class
+        with read_unsaved_source_inputs_as_stored():
+            assert type(table.hogql_definition()) is expected_class
 
 
 class TestDataWarehouseTableColumnOrder(BaseTest):
@@ -226,6 +228,23 @@ class TestSafeExposeChError:
         with pytest.raises(TransientObjectStoreError):
             DataWarehouseTable()._safe_expose_ch_error(delta_kernel_error)
 
+    @pytest.mark.parametrize("code", [209, 210])  # SOCKET_TIMEOUT, NETWORK_ERROR
+    def test_clickhouse_connection_errors_keep_their_own_message_instead_of_blaming_the_bucket(self, code: int) -> None:
+        # A mid-query connection drop to a ClickHouse node is unrelated to the customer's bucket.
+        # wrap_clickhouse_query_error already gives these codes their own safe, generic message, but
+        # the raw text ("Connection reset by peer...") matches no ExtractErrors/TRANSIENT_OBJECT_STORE
+        # needle, so this used to fall through to the storage-bucket fallback.
+        raw_message = (
+            "DB::Exception: Connection reset by peer, while reading from socket "
+            "(peer: 10.0.0.1:9440, local: 10.0.0.2:55632): while receiving packet from "
+            "ch-node:9440. While executing Remote."
+        )
+        with pytest.raises(Exception) as exc_info:
+            DataWarehouseTable()._safe_expose_ch_error(ServerException(raw_message, code=code))
+
+        assert "temporary problem" in str(exc_info.value)
+        assert "storage bucket" not in str(exc_info.value)
+
 
 class TestWarehouseReadErrorClassification:
     # Engine wording, written from the shape of each failure rather than copied from a customer's
@@ -240,6 +259,15 @@ class TestWarehouseReadErrorClassification:
                 RuntimeError(
                     "Code: 1001. DB::Exception: parquet::ParquetException: Couldn't deserialize thrift: "
                     "TProtocolException: Exceeded size limit. (STD_EXCEPTION)"
+                ),
+                "corrupted or oversized metadata",
+            ),
+            (
+                ServerException(
+                    "DB::Exception: The table structure cannot be extracted from a Parquet format file. Error:\n"
+                    "Code: 117. DB::Exception: Failed to parse Parquet Thrift metadata from 40 bytes: "
+                    "TProtocolException: Exceeded size limit. (INCORRECT_DATA).",
+                    code=636,
                 ),
                 "corrupted or oversized metadata",
             ),
@@ -275,6 +303,16 @@ class TestWarehouseReadErrorClassification:
                     code=636,
                 ),
                 "doesn't exist in the container",
+            ),
+            (
+                ServerException(
+                    "S3 error occurred. (DB::Exception: Failed to get object info: No response body.. "
+                    "HTTP response code: 404: while reading 'exports/my_table/' in bucket 'my-bucket' on disk "
+                    "'StorageS3': The table structure cannot be extracted from a CSV format file. You can "
+                    "specify the structure manually.",
+                    code=499,
+                ),
+                "doesn't exist in the bucket",
             ),
             (
                 ServerException("DB::Exception: A failure shape nobody has classified yet.", code=999),
@@ -371,6 +409,36 @@ class TestGetCountEngineChoice:
         assert mock_run_chdb.called is uses_chdb
         if not uses_chdb:
             assert "s3Cluster(" in mock_sync_execute.call_args.args[0]
+
+    @pytest.mark.parametrize(
+        "name,count_error,expected_attempts",
+        [
+            (
+                "unclassified_cluster_error",
+                ServerException("DB::Exception: Connection reset by peer", code=1002),
+                5,
+            ),
+            (
+                "query_performance_error",
+                ClickHouseQueryTimeOut(),
+                1,
+            ),
+        ],
+    )
+    def test_a_failed_count_retries_a_transient_cluster_error_but_not_a_query_performance_error(
+        self, name: str, count_error: Exception, expected_attempts: int
+    ) -> None:
+        # Mirrors get_columns' retry: the cluster fails intermittently on an unclassified error, so
+        # that's worth retrying, but a query-performance-limit error is a property of this query
+        # against this file and fails the same way every time.
+        with patch("products.warehouse_sources.backend.models.table.time.sleep"):
+            with patch(
+                "products.warehouse_sources.backend.models.table.sync_execute", side_effect=count_error
+            ) as mock_sync_execute:
+                with pytest.raises(Exception):
+                    self._table(None).get_count()
+
+        assert mock_sync_execute.call_count == expected_attempts
 
 
 class TestChdbEngineChoiceByFormat:
@@ -740,19 +808,37 @@ class TestSchemaInferenceMode(BaseTest):
 
         assert "schema_inference_mode" not in mock_sync_execute.call_args.kwargs["settings"]
 
-    def test_a_failed_describe_raises_instead_of_storing_a_narrower_schema(self) -> None:
+    @parameterized.expand(
+        [
+            (
+                "unclassified_cluster_error",
+                ServerException("DB::Exception: Unexpected", code=1002),
+                5,
+            ),
+            (
+                "query_performance_error",
+                ClickHouseQueryTimeOut(),
+                1,
+            ),
+        ]
+    )
+    def test_a_failed_describe_raises_instead_of_storing_a_narrower_schema(
+        self, _name: str, describe_error: Exception, expected_attempts: int
+    ) -> None:
         # A degraded schema that persists silently is indistinguishable from the bug being fixed:
         # the person refreshes, nothing changes, and no signal exists anywhere. The retries belong
-        # on this pass, because the cluster fails intermittently.
+        # on an unclassified error, because the cluster fails intermittently - but a
+        # query-performance-limit error (timeout, memory, size) is a property of this query
+        # against this file, so it fails the same way on every retry and must not be retried.
         with patch("products.warehouse_sources.backend.models.table.time.sleep"):
             with patch(
                 "products.warehouse_sources.backend.models.table.sync_execute",
-                side_effect=ServerException("DB::Exception: Unexpected", code=1002),
+                side_effect=describe_error,
             ) as mock_sync_execute:
                 with pytest.raises(Exception):
                     self._table(DataWarehouseTable.TableFormat.JSON).get_columns()
 
-        assert mock_sync_execute.call_count == 5
+        assert mock_sync_execute.call_count == expected_attempts
 
 
 class TestHistoryHiddenColumns(SimpleTestCase):

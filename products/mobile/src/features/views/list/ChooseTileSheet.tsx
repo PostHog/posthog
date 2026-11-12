@@ -1,14 +1,14 @@
 import { type ReactElement, useEffect, useMemo, useRef, useState } from 'react'
-import { ActivityIndicator, ScrollView, Text, useWindowDimensions, View } from 'react-native'
+import { ActivityIndicator, ScrollView, Text, View } from 'react-native'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 import Svg, { Path, Rect, Text as SvgText } from 'react-native-svg'
-
 import type { DashboardTileView, InsightSnapshot, PinView } from '@/model/views'
 import { BottomSheet } from '@/ui/BottomSheet'
 import { CheckIcon } from '@/ui/icons/CheckIcon'
 import { Pressable44 } from '@/ui/Pressable44'
 import { createStyles, useColors } from '@/ui/theme'
 import { motion, radii, type } from '@/ui/tokens'
+import { useSceneDimensions } from '@/ui/useSceneDimensions'
 
 import { type TileSheetEntry, trackPinTileSheetClosed } from '../analytics'
 import { insightQueryKey, tileTarget } from '../items'
@@ -71,7 +71,7 @@ function TileSheet({ target, visible, onClose, onChoose }: TileSheetProps): Reac
     const colors = useColors()
     const styles = useStyles()
     const { pin, mode, chooseFirst, entry } = target
-    const { height: windowHeight } = useWindowDimensions()
+    const { height: windowHeight } = useSceneDimensions()
     const listGesture = useMemo(() => Gesture.Native(), [])
     const { dashboard, retry } = useDashboardTiles(pin.ref)
     const [chosen, setChosen] = useState<number | null>(pin.display.tileId ?? null)
@@ -172,7 +172,11 @@ function TileSheet({ target, visible, onClose, onChoose }: TileSheetProps): Reac
                                         ? `Can't show as a ${mode}`
                                         : `No tile here shows as a ${mode}`}
                                 </Text>
-                                <Text style={styles.note}>A pin shows one number, or one line over time.</Text>
+                                <Text style={styles.note}>
+                                    {mode === 'chart'
+                                        ? 'Chart pins support line and bar charts, including SQL charts. Other visualizations can be opened on the web.'
+                                        : 'Number pins need a single value. Choose a big number or a chart with one series.'}
+                                </Text>
                             </View>
                         ) : null}
                         {groups.unusable.map(({ tile, reason }) => (
@@ -242,7 +246,7 @@ function TileOption({ dashboardRef, tile, selected, onPick, reason }: TileOption
                 <Text style={[styles.optionTitle, !eligible && styles.faded]} numberOfLines={1}>
                     {title}
                 </Text>
-                <Text style={styles.optionMeta} numberOfLines={1}>
+                <Text style={styles.optionMeta} numberOfLines={eligible ? 1 : undefined}>
                     {meta}
                 </Text>
             </View>

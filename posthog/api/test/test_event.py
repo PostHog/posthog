@@ -1,6 +1,6 @@
 import json
 from datetime import datetime
-from urllib.parse import unquote, urlencode
+from urllib.parse import parse_qs, unquote, urlencode, urlparse
 from zoneinfo import ZoneInfo
 
 import time_machine
@@ -24,15 +24,16 @@ from dateutil.relativedelta import relativedelta
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import Element, Organization, PropertyDefinition, User
+from posthog.models import Element, Organization, User
 from posthog.models.event.legacy_events_query import _execute_events_list_query
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team_revenue_analytics_config import TeamRevenueAnalyticsConfig
 from posthog.test.persons import create_person
 from posthog.test.test_journeys import journeys_for
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.cohorts.backend.models.cohort import Cohort
+from products.event_definitions.backend.models import PropertyDefinition
 
 
 class TestEvents(ClickhouseTestMixin, APIBaseTest):
@@ -114,10 +115,11 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         # personhog, not Postgres, so it's not in this count. Was 16 before passing team=team
         # into get_restricted_properties_for_team, which lets is_property_access_control_enabled
         # skip its per-call Team+organization lookup. +1 for the saved-expressions fetch in the
-        # HogQL database build. +1 for the flag-cache TTL instance setting, cold-cache here but
-        # TTL-cached per worker in production. +1 for the organization's flag_evaluations mode lookup in
+        # HogQL database build. +1 each for the flag-cache TTL, projection kill-switch and
+        # properties-narrowing instance settings, cold-cache here but TTL-cached per worker in production. +1 for the
+        # organization's flag_evaluations mode lookup in the HogQL database build. +1 for the MCP custom harness fetch in
         # the HogQL database build.
-        with self.assertNumQueries(16):
+        with self.assertNumQueries(17):
             response = self.client.get(f"/api/projects/{self.team.id}/events/?event=event_name").json()
             assert response["results"][0]["event"] == "event_name"
 
@@ -152,9 +154,10 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         # Group-type-mapping is read via personhog, not Postgres, so it's not in this count.
         # Was 24 before passing team=team into get_restricted_properties_for_team, which lets
         # is_property_access_control_enabled skip its per-call Team+organization lookup.
-        # +1 for the saved-expressions fetch in the HogQL database build. +1 for the flag-cache
-        # TTL instance setting, cold-cache here but TTL-cached per worker in production. +1 for
-        # the organization's flag_evaluations mode lookup in the HogQL database build.
+        # +1 for the saved-expressions fetch in the HogQL database build. +1 each for the flag-cache
+        # TTL, projection kill-switch and properties-narrowing instance settings, cold-cache here but
+        # TTL-cached per worker in production. +1 for the organization's flag_evaluations mode lookup in the HogQL database build.
+        # +1 for the MCP custom harness fetch in the HogQL database build.
         expected_queries = 23 if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else 24
 
         with self.assertNumQueries(expected_queries):
@@ -233,7 +236,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):  # Normally this is False in tests
             with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
                 response = self.client.get(
-                    f"/api/projects/{self.team.id}/events/?properties=%s"
+                    f"/api/projects/{self.team.id}/events/?after=2020-01-01&properties=%s"
                     % (json.dumps([{"key": "id", "value": cohort1.id, "type": "cohort"}]))
                 ).json()
 
@@ -725,16 +728,17 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
             response = self.client.get(f"/api/projects/{self.team.id}/events/?before=4d").json()
             assert len(response["results"]) == 1
 
-        action = Action.objects.create(team=self.team, steps_json=[{"event": "sign up"}])
+        action = create_action(team=self.team, steps_json=[{"event": "sign up"}])
 
         response = self.client.get(
-            f"/api/projects/{self.team.id}/events/?after=2020-01-09T00:00:00.000Z&action_id=%s" % action.pk
+            f"/api/projects/{self.team.id}/events/?after=2020-01-09T00:00:00.000Z&action_id=%s" % action.id
         ).json()
         assert len(response["results"]) == 1
         assert response["results"][0]["id"] == event1_uuid
 
         response = self.client.get(
-            f"/api/projects/{self.team.id}/events/?before=2020-01-09T00:00:00.000Z&action_id=%s" % action.pk
+            f"/api/projects/{self.team.id}/events/?after=2020-01-01T00:00:00.000Z&before=2020-01-09T00:00:00.000Z&action_id=%s"
+            % action.id
         ).json()
         assert len(response["results"]) == 1
         assert response["results"][0]["id"] == event2_uuid
@@ -744,7 +748,9 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         assert len(response["results"]) == 1
         assert response["results"][0]["id"] == event1_uuid
 
-        response = self.client.get(f"/api/projects/{self.team.id}/events/?before=2020-01-09T00:00:00.000Z").json()
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/events/?after=2020-01-01T00:00:00.000Z&before=2020-01-09T00:00:00.000Z"
+        ).json()
         assert len(response["results"]) == 2
         assert response["results"][0]["id"] == event2_uuid
         assert response["results"][1]["id"] == event3_uuid
@@ -759,15 +765,17 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
                     distinct_id="1",
                     timestamp=timezone.now() - relativedelta(months=11) + relativedelta(days=idx, seconds=idx),
                 )
-            response = self.client.get(f"/api/projects/{self.team.id}/events/?distinct_id=1").json()
+            response = self.client.get(f"/api/projects/{self.team.id}/events/?distinct_id=1&after=2020-01-01").json()
             assert len(response["results"]) == 100
-            assert f"http://testserver/api/projects/{self.team.id}/events/?distinct_id=1&before=" in unquote(
-                response["next"]
+            assert (
+                f"http://testserver/api/projects/{self.team.id}/events/?distinct_id=1&after=2020-01-01&before="
+                in unquote(response["next"])
             )
-            response = self.client.get(f"/api/projects/{self.team.id}/events/?distinct_id=1").json()
+            response = self.client.get(f"/api/projects/{self.team.id}/events/?distinct_id=1&after=2020-01-01").json()
             assert len(response["results"]) == 100
-            assert f"http://testserver/api/projects/{self.team.id}/events/?distinct_id=1&before=" in unquote(
-                response["next"]
+            assert (
+                f"http://testserver/api/projects/{self.team.id}/events/?distinct_id=1&after=2020-01-01&before="
+                in unquote(response["next"])
             )
 
             page2 = self.client.get(response["next"]).json()
@@ -785,7 +793,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
             assert len(page2["results"]) == 100
             assert (
                 unquote(page2["next"])
-                == f"http://testserver/api/projects/{self.team.id}/events/?distinct_id=1&before=2020-12-30T12:03:53.829294+00:00"
+                == f"http://testserver/api/projects/{self.team.id}/events/?distinct_id=1&after=2020-01-01&before=2020-12-30T12:03:53.829294+00:00"
             )
 
             page3 = self.client.get(page2["next"]).json()
@@ -850,7 +858,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
             )
 
         response = self.client.get(
-            f"/api/projects/{self.team.id}/events/?distinct_id=1&limit=10&orderBy={json.dumps(['timestamp'])}"
+            f"/api/projects/{self.team.id}/events/?distinct_id=1&limit=10&after=-360d&orderBy={json.dumps(['timestamp'])}"
         ).json()
         assert len(response["results"]) == 10
         assert parser.parse(response["results"][0]["timestamp"]) < parser.parse(response["results"][-1]["timestamp"])
@@ -865,7 +873,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
                 timestamp=timezone.now() - relativedelta(months=11) + relativedelta(days=idx, seconds=idx),
             )
 
-        response = self.client.get(f"/api/projects/{self.team.id}/events/?distinct_id=1&limit=10").json()
+        response = self.client.get(f"/api/projects/{self.team.id}/events/?distinct_id=1&limit=10&after=-360d").json()
         assert len(response["results"]) == 10
         assert parser.parse(response["results"][0]["timestamp"]) > parser.parse(response["results"][-1]["timestamp"])
         assert "before=" in response["next"]
@@ -880,7 +888,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
             )
 
         response = self.client.get(
-            f"/api/projects/{self.team.id}/events/?distinct_id=1&limit=10&orderBy={json.dumps(['-timestamp'])}"
+            f"/api/projects/{self.team.id}/events/?distinct_id=1&limit=10&after=-360d&orderBy={json.dumps(['-timestamp'])}"
         ).json()
         assert len(response["results"]) == 10
         assert parser.parse(response["results"][0]["timestamp"]) > parser.parse(response["results"][-1]["timestamp"])
@@ -918,9 +926,9 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         assert response["results"][0]["timestamp"] == "2026-06-30T20:44:19.407000+00:00"
 
     def test_action_no_steps(self):
-        action = Action.objects.create(team=self.team)
+        action = create_action(team=self.team)
 
-        response = self.client.get(f"/api/projects/{self.team.id}/events/?action_id=%s" % action.pk)
+        response = self.client.get(f"/api/projects/{self.team.id}/events/?action_id=%s" % action.id)
         assert response.status_code == 200
         assert len(response.json()["results"]) == 0
 
@@ -1119,7 +1127,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         # until finding one with >= half_limit results, then falls back to full range
         # Windows: [60, 300, 900, 3600, 21600, 86400] seconds
 
-        # With only 1 result (< half of default limit 100), tries all 6 windows + fallback = 7 calls
+        # With only 1 result (< half of default limit 100), tries the 5 shorter windows + the 24h default = 6 calls
         patch_execute_query.return_value = (
             [
                 {
@@ -1136,7 +1144,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         )
         response = self.client.get(f"/api/projects/{self.team.id}/events/").json()
         assert len(response["results"]) == 1
-        assert patch_execute_query.call_count == 7  # 6 windows + 1 fallback
+        assert patch_execute_query.call_count == 6
 
         # With 50+ results (>= half of limit 100), succeeds on first window = 1 call
         patch_execute_query.reset_mock()
@@ -1159,9 +1167,8 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         assert patch_execute_query.call_count == 1
 
     @patch("posthog.models.event.legacy_events_query._execute_events_list_query", wraps=_execute_events_list_query)
-    @override_settings(PATCH_EVENT_LIST_MAX_OFFSET=2)
     def test_default_after(self, patch_execute_query):
-        # With PATCH_EVENT_LIST_MAX_OFFSET=2, default after = before - 24h
+        # A missing after defaults to before - 24h
         # Progressive windows to try (< 86400s): [60, 300, 900, 3600, 21600] = 5 windows
         # Events at: 01-01T01:01, 01-02T02:02, ..., 01-09T09:09
         [
@@ -1193,11 +1200,65 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         assert len(response["results"]) == 1
         assert patch_execute_query.call_count == 14
 
-        # No events after 01-09T09:09, all windows fail including fallback
-        # 5 windows + fallback = 6 calls (cumulative: 20)
+        # No events after 01-09T09:09. The previous request cached the full 24h range, so no probes run
+        # 1 call (cumulative: 15)
         response = self.client.get(f"/api/projects/{self.team.id}/events/?before=2024-01-10T10:20:02Z&limit=1").json()
         assert len(response["results"]) == 0
-        assert patch_execute_query.call_count == 20
+        assert patch_execute_query.call_count == 15
+
+    def test_missing_after_defaults_to_24h(self):
+        with time_machine.travel("2024-03-10T12:00:00Z", tick=False):
+            old_event = _create_event(
+                team=self.team, event="old", distinct_id="1", timestamp=timezone.now() - relativedelta(days=3)
+            )
+            recent_events = [
+                _create_event(
+                    team=self.team,
+                    event="recent",
+                    distinct_id="1",
+                    timestamp=timezone.now() - relativedelta(seconds=seconds),
+                )
+                for seconds in (10, 20, 30)
+            ]
+            flush_persons_and_events()
+
+            first_page = self.client.get(
+                f"/api/projects/{self.team.id}/events/?limit=2", HTTP_ORIGIN="https://example.com"
+            )
+            full_page = self.client.get(f"/api/projects/{self.team.id}/events/")
+            explicit_after = self.client.get(
+                f"/api/projects/{self.team.id}/events/",
+                data={"after": (timezone.now() - relativedelta(days=7)).isoformat()},
+            )
+
+        assert first_page.headers["X-PostHog-Events-Default-After"] == "2024-03-09T12:00:05+00:00"
+        assert "X-PostHog-Events-Default-After" in first_page.headers["Access-Control-Expose-Headers"]
+        assert parse_qs(urlparse(first_page.json()["next"]).query)["after"] == ["2024-03-09T12:00:05+00:00"]
+        assert [event["id"] for event in full_page.json()["results"]] == recent_events
+        assert "X-PostHog-Events-Default-After" not in explicit_after.headers
+        assert [event["id"] for event in explicit_after.json()["results"]] == [*recent_events, old_event]
+
+    @parameterized.expand(
+        [
+            ("clocks_go_forward", "2024-03-10T12:00:00Z", "2024-03-09T12:00:05+00:00"),
+            ("clocks_go_back", "2024-11-03T12:00:00Z", "2024-11-02T12:00:05+00:00"),
+        ]
+    )
+    def test_missing_after_spans_24_hours_across_a_clock_change(self, _name, now, expected_after):
+        self.team.timezone = "America/New_York"
+        self.team.save()
+
+        with (
+            time_machine.travel(now, tick=False),
+            patch(
+                "posthog.models.event.legacy_events_query._execute_events_list_query",
+                wraps=_execute_events_list_query,
+            ) as patch_execute_query,
+        ):
+            response = self.client.get(f"/api/projects/{self.team.id}/events/")
+
+        assert response.headers["X-PostHog-Events-Default-After"] == expected_after
+        assert patch_execute_query.call_count == 6
 
     def test_optimize_query_with_bounded_dates(self):
         # Test that bounded date ranges return correct results
@@ -1603,6 +1664,37 @@ class TestEventListTimeWindowOptimization(ClickhouseTestMixin, APIBaseTest):
 
         # Should not cache anything when fallback is used
         mock_cache.set.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("first_poll_probes_then_caches_the_range", None, 6, {"window": 86400, "result_count": 60}),
+            ("later_poll_skips_the_probes", {"window": 86400, "result_count": 60}, 1, None),
+        ]
+    )
+    @patch("posthog.models.event.legacy_events_query.cache")
+    @patch("posthog.models.event.legacy_events_query._execute_events_list_query")
+    def test_range_as_wide_as_a_window_reuses_it(
+        self, _name, cached, expected_queries, expected_cached, patch_execute_query, mock_cache
+    ):
+        mock_cache.get.return_value = cached
+        row = {
+            "uuid": "event",
+            "event": "test",
+            "properties": "{}",
+            "timestamp": timezone.now(),
+            "team_id": str(self.team.pk),
+            "distinct_id": "1",
+            "elements_chain": "",
+        }
+        patch_execute_query.side_effect = [([], False)] * (expected_queries - 1) + [([row] * 60, False)]
+
+        self.client.get(f"/api/projects/{self.team.id}/events/?after=2024-01-01T00:00:00Z&before=2024-01-02T00:00:00Z")
+
+        assert patch_execute_query.call_count == expected_queries
+        if expected_cached:
+            assert mock_cache.set.call_args[0][1] == expected_cached
+        else:
+            mock_cache.set.assert_not_called()
 
     @patch("posthog.models.event.legacy_events_query._execute_events_list_query")
     def test_only_tries_windows_shorter_than_request(self, patch_execute_query):

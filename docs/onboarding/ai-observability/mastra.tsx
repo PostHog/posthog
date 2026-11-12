@@ -96,8 +96,10 @@ export const getMastraSteps = (ctx: OnboardingComponentsContext): StepDefinition
 
                     <Markdown>
                         Pass `tracingOptions.metadata` to `generate()` to attach per-request metadata. The `userId`
-                        field maps to PostHog's distinct ID, `sessionId` maps to `$ai_session_id`, and any other keys
-                        are passed through as custom event properties.
+                        field maps to PostHog's distinct ID, `sessionId` maps to `$ai_session_id`, `$groups` attaches
+                        every event in the run to [groups](https://posthog.com/docs/product-analytics/group-analytics),
+                        and any other keys are passed through as custom event properties. `$groups` needs
+                        `@mastra/posthog` 1.0.28 or later.
                     </Markdown>
 
                     <CodeBlock
@@ -110,6 +112,7 @@ export const getMastraSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                 metadata: {
                                   userId: 'user_123', // becomes distinct_id
                                   sessionId: 'session_abc', // becomes $ai_session_id
+                                  $groups: { company: 'company_id_in_your_db' }, // attaches every event to this group
                                   conversation_id: 'abc-123', // custom property
                                 },
                               },

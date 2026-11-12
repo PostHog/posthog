@@ -1,0 +1,29 @@
+from typing import cast
+
+from products.warehouse_sources.sources.sdk import (
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    SimpleSource,
+    SourceConfig,
+    SourceRegistry,
+)
+from products.warehouse_sources.sources.tessitura._config import TessituraSourceConfig
+
+
+@SourceRegistry.register
+class TessituraSource(SimpleSource[TessituraSourceConfig]):
+    @property
+    def source_type(self) -> ExternalDataSourceType:
+        return ExternalDataSourceType.TESSITURA
+
+    @property
+    def get_source_config(self) -> SourceConfig:
+        return SourceConfig(
+            name=ExternalDataSourceType.TESSITURA,
+            category=DataWarehouseSourceCategory.CRM,
+            label="Tessitura",
+            iconPath="/static/services/tessitura.png",
+            fields=cast(list[FieldType], []),
+            unreleasedSource=True,
+        )

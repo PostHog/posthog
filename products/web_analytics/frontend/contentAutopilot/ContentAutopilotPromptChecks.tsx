@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonTable, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonTable, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 
@@ -72,9 +72,18 @@ export const ContentAutopilotPromptChecks = (): JSX.Element => {
                     {
                         title: 'Result',
                         key: 'result',
-                        render: (_, { cited, check_failed }) => (
-                            <ContentAutopilotCheckResultTag cited={cited} checkFailed={check_failed} />
-                        ),
+                        render: (_, { mode, cited, check_failed, target_best_position }) =>
+                            mode === 'no_search' && !check_failed ? (
+                                <Tooltip title="This engine answers without searching the web, so it never cites a page.">
+                                    <LemonTag type="muted">No search</LemonTag>
+                                </Tooltip>
+                            ) : (
+                                <ContentAutopilotCheckResultTag
+                                    cited={cited}
+                                    checkFailed={check_failed}
+                                    position={target_best_position}
+                                />
+                            ),
                     },
                 ]}
             />

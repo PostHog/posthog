@@ -12,19 +12,23 @@ import structlog
 
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.ph_client import ph_scoped_capture
+from posthog.utils import safe_cache_add
 
 from ..classifier import SnapshotClassifier
 from ..db import WRITER_DB
 from ..facade.contracts import CreateRunInput
-from ..facade.enums import RunStatus, SnapshotResult
+from ..facade.enums import AutoQuarantineMode, RunStatus, SnapshotResult
 from ..models import Repo, Run, RunSnapshot
 from ..storage import ArtifactStorage
 from . import (
     artifact_store,
+    auto_lift,
+    auto_quarantine,
     baselines,
     ci_status,
     errors,
     gating,
+    github_api,
     quarantine_lifts,
     repos,
     run_queries,
@@ -112,6 +116,40 @@ def _create_run_inner(repo: Repo, team_id: int, input: CreateRunInput) -> tuple[
     return run, uploads
 
 
+def _lock_run(run: Run) -> None:
+    Run.objects.using(WRITER_DB).select_for_update().filter(id=run.id, team_id=run.team_id).exists()
+
+
+def _insert_new_snapshots(run: Run, snapshots: list[dict]) -> int:
+    first_snapshot_by_identifier: dict[str, dict] = {}
+    for snap in snapshots:
+        first_snapshot_by_identifier.setdefault(snap["identifier"], snap)
+
+    _lock_run(run)
+    existing_identifiers = set(
+        run.snapshots.using(WRITER_DB)
+        .filter(identifier__in=first_snapshot_by_identifier.keys())
+        .values_list("identifier", flat=True)
+    )
+    new_snapshots = [
+        RunSnapshot(
+            run=run,
+            team_id=run.team_id,
+            identifier=identifier,
+            current_hash=snap["content_hash"],
+            baseline_hash="",
+            result=SnapshotResult.NEW,  # Provisional — reclassified at complete time
+            current_width=snap.get("width"),
+            current_height=snap.get("height"),
+            metadata=snap.get("metadata") or {},
+        )
+        for identifier, snap in first_snapshot_by_identifier.items()
+        if identifier not in existing_identifiers
+    ]
+    RunSnapshot.objects.using(WRITER_DB).bulk_create(new_snapshots, ignore_conflicts=True)
+    return len(new_snapshots)
+
+
 def _register_snapshots(
     run: Run,
     repo: Repo,
@@ -124,29 +162,8 @@ def _register_snapshots(
     Idempotent per (run, identifier) via unique constraint — safe for retries.
     """
     repo_id = repo.id
-    all_hashes: set[str] = set()
-    added_count = 0
-
-    for snap in snapshots:
-        identifier = snap["identifier"]
-        current_hash = snap["content_hash"]
-        all_hashes.add(current_hash)
-
-        _snapshot, created = RunSnapshot.objects.get_or_create(
-            run=run,
-            team_id=repo.team_id,
-            identifier=identifier,
-            defaults={
-                "current_hash": current_hash,
-                "baseline_hash": "",
-                "result": SnapshotResult.NEW,  # Provisional — reclassified at complete time
-                "current_width": snap.get("width"),
-                "current_height": snap.get("height"),
-                "metadata": snap.get("metadata") or {},
-            },
-        )
-        if created:
-            added_count += 1
+    all_hashes = {snap["content_hash"] for snap in snapshots}
+    added_count = _insert_new_snapshots(run, snapshots)
 
     # Generate upload URLs for missing artifacts
     artifact_store.lock_artifact_registry(repo_id)
@@ -379,6 +396,13 @@ def finish_processing(run_id: UUID, error_message: str = "") -> Run:
     # then reclassifies every snapshot whose diff came in under the threshold. A reader
     # that sees COMPLETED before the recount therefore gets counts that still report drift
     # the run no longer has, and the CLI fails CI on them.
+    # Before the recount, so a quarantine this run proves is stamped on this run and the run passes.
+    # A failure here must never fail the run or make it retry, because the gate works without it.
+    try:
+        auto_quarantine.quarantine_proven_flakes(run)
+    except Exception:
+        logger.exception("visual_review.auto_quarantine_failed", run_id=str(run_id))
+
     try:
         snapshots = gating._recount(run)
     except Exception as exc:
@@ -400,6 +424,7 @@ def finish_processing(run_id: UUID, error_message: str = "") -> Run:
 
     gating._post_status(run, snapshots)
     _enqueue_quarantine_lift_check(run)
+    _enqueue_clean_quarantine_release(run)
 
     return run
 
@@ -421,6 +446,36 @@ def _enqueue_quarantine_lift_check(run: Run) -> None:
         reconcile_quarantine_lifts.delay(run.team_id, str(run.id))
     except Exception:
         logger.warning("visual_review.quarantine_lift_enqueue_failed", run_id=str(run.id), exc_info=True)
+
+
+# A clean window does not end within an hour, so a busy default branch skips the grouped read on most runs.
+_CLEAN_RELEASE_THROTTLE_SECONDS = 60 * 60
+
+
+def _enqueue_clean_quarantine_release(run: Run) -> None:
+    """Hand a completed full default-branch run to the task that lifts quarantines gone clean.
+
+    A failure here must never fail the run: a later default-branch run checks again.
+    """
+    if not auto_lift.may_release(run):
+        return
+    try:
+        if run.repo.auto_quarantine_mode == AutoQuarantineMode.OFF:
+            return
+        # Before the hourly slot, so a full run without a pull request on another branch cannot take it.
+        if github_api.default_branch_name(run.repo) != run.branch:
+            return
+        if not safe_cache_add(
+            f"visual_review:release_clean_quarantines:{run.repo_id}:{run.run_type}",
+            True,
+            timeout=_CLEAN_RELEASE_THROTTLE_SECONDS,
+        ):
+            return
+        from ..tasks.tasks import release_clean_quarantines  # noqa: PLC0415 — avoids the logic/tasks circular import
+
+        release_clean_quarantines.delay(run.team_id, str(run.id))
+    except Exception:
+        logger.warning("visual_review.clean_quarantine_release_enqueue_failed", run_id=str(run.id), exc_info=True)
 
 
 def capture_run_processing_metrics(run_id: UUID, *, outcome: str, diffed_count: int) -> None:

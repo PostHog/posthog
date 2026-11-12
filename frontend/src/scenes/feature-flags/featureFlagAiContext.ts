@@ -23,7 +23,7 @@ const MAX_DESCRIPTION_LENGTH = 400
 export function featureFlagContextItems(featureFlag: FeatureFlagType): AttachedContextItem[] {
     return [
         // `name` on a flag is the description, so the key is the only display name available here.
-        { type: 'feature_flag', key: featureFlag.key, label: featureFlag.key },
+        { type: 'feature_flag', key: featureFlag.key, pageId: featureFlag.id, label: featureFlag.key },
         { type: 'feature_flag_targeting', label: 'Release conditions', value: targetingValue(featureFlag) },
     ]
 }
@@ -130,6 +130,7 @@ export const FEATURE_FLAG_MUTATION_TOOLS = [
     'feature-flag-disable',
     'feature-flag-archive',
     'feature-flag-unarchive',
+    'feature-flag-restore',
 ]
 
 // Every mutation tool accepts these spellings for the flag id (`param_overrides.id.aliases` in

@@ -14,7 +14,6 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
-from posthog.models import PropertyDefinition
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
@@ -37,6 +36,7 @@ from products.ai_observability.backend.models.evaluations import Evaluation
 from products.cohorts.backend.models.cohort import Cohort
 from products.conversations.backend.models import Ticket
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.event_definitions.backend.models import PropertyDefinition
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
@@ -226,9 +226,9 @@ class TestAccessControlMinimumLevelValidation(BaseAccessControlTest):
     def test_action_access_level_cannot_be_below_viewer(self):
         """Test that action access level cannot be set below minimum 'viewer'"""
         self._org_membership(OrganizationMembership.Level.ADMIN)
-        from products.actions.backend.models.action import Action
+        from products.actions.backend.facade.testing import create_action
 
-        action = Action.objects.create(team=self.team, name="test action")
+        action = create_action(team=self.team, name="test action")
 
         res = self.client.put(
             f"/api/projects/@current/actions/{action.id}/access_controls",
@@ -240,9 +240,9 @@ class TestAccessControlMinimumLevelValidation(BaseAccessControlTest):
     def test_action_access_level_accepts_viewer_and_above(self):
         """Test that action access level accepts viewer, editor, and manager"""
         self._org_membership(OrganizationMembership.Level.ADMIN)
-        from products.actions.backend.models.action import Action
+        from products.actions.backend.facade.testing import create_action
 
-        action = Action.objects.create(team=self.team, name="test action")
+        action = create_action(team=self.team, name="test action")
 
         for level in ["viewer", "editor", "manager"]:
             res = self.client.put(
@@ -297,6 +297,40 @@ class TestAccessControlMinimumLevelValidation(BaseAccessControlTest):
 
         res = self.client.get("/api/projects/@current/advanced_activity_logs/")
         assert res.status_code == status.HTTP_403_FORBIDDEN, f"Expected 403, got {res.status_code}: {res.json()}"
+
+
+# The actions viewset serves contracts, so these endpoints reach the action through its ObjectAccessRef.
+class TestObjectAccessControlsOnAContractBackedView(BaseAccessControlTest):
+    def setUp(self):
+        super().setUp()
+        from products.actions.backend.facade.testing import create_action
+
+        self._org_membership(OrganizationMembership.Level.MEMBER)
+        self.creator = self._create_user("creator@example.com")
+        self.action = create_action(team=self.team, name="test action", created_by=self.creator)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="action",
+            resource_id=str(self.action.id),
+            organization_member=self.organization_membership,
+            access_level="viewer",
+        )
+
+    def test_access_controls_resolve_the_viewer_level(self):
+        res = self.client.get(f"/api/projects/@current/actions/{self.action.id}/access_controls")
+
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        body = res.json()
+        assert (body["user_access_level"], body["user_can_edit_access_levels"]) == ("viewer", False)
+        assert body["inherited_access"]["source"] == "system_default"
+
+    def test_users_with_access_name_where_each_level_comes_from(self):
+        res = self.client.get(f"/api/projects/@current/actions/{self.action.id}/users_with_access")
+
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        levels = {user["user_id"]: (user["access_level"], user["access_source"]) for user in res.json()["users"]}
+        assert levels[str(self.user.uuid)] == ("viewer", AccessSource.EXPLICIT_MEMBER.value)
+        assert levels[str(self.creator.uuid)] == ("manager", AccessSource.CREATOR.value)
 
 
 class TestAccessControlResourceLevelAPI(BaseAccessControlTest):
@@ -1292,22 +1326,22 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
 
         # Access controls total 3 extra queries - 1 for org membership, 1 for the user roles, 1 for the preloaded access controls
         self._assert_access_control_adds_queries(
-            f"/api/projects/@current/dashboards/{my_dashboard.id}?no_items_field=true", expected_extra_queries=3
+            f"/api/projects/@current/dashboards/{my_dashboard.id}?no_items_field=true", expected_extra_queries=5
         )
 
         # Accessing a different users dashboard doesn't +1 as the preload works using the pk
         self._assert_access_control_adds_queries(
-            f"/api/projects/@current/dashboards/{other_user_dashboard.id}?no_items_field=true", expected_extra_queries=3
+            f"/api/projects/@current/dashboards/{other_user_dashboard.id}?no_items_field=true", expected_extra_queries=5
         )
 
         # Getting my own notebook is the same as a dashboard - 3 extra queries
         self._assert_access_control_adds_queries(
-            f"/api/projects/@current/notebooks/{self.notebook.short_id}", expected_extra_queries=3
+            f"/api/projects/@current/notebooks/{self.notebook.short_id}", expected_extra_queries=5
         )
 
         # Except when accessing a different notebook where we _also_ need to check as we are not the creator and the pk is not the same (short_id)
         self._assert_access_control_adds_queries(
-            f"/api/projects/@current/notebooks/{self.other_user_notebook.short_id}", expected_extra_queries=3
+            f"/api/projects/@current/notebooks/{self.other_user_notebook.short_id}", expected_extra_queries=5
         )
 
         # Project access doesn't double query the object, but roles and access controls load 3 times, 2 queries each
@@ -1317,7 +1351,7 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
         )
 
         # When accessing the list of notebooks we have extra queries due to checking for role based access and filtering out items
-        self._assert_access_control_adds_queries("/api/projects/@current/notebooks/", expected_extra_queries=3)
+        self._assert_access_control_adds_queries("/api/projects/@current/notebooks/", expected_extra_queries=5)
 
     def test_query_counts_with_preload_optimization(self):
         self._org_membership(OrganizationMembership.Level.MEMBER)
@@ -1328,24 +1362,24 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
 
         # Access controls total 3 extra queries - 1 for org membership, 1 for the user roles, 1 for the preloaded access controls
         self._assert_access_control_adds_queries(
-            f"/api/projects/@current/dashboards/{my_dashboard.id}?no_items_field=true", expected_extra_queries=3
+            f"/api/projects/@current/dashboards/{my_dashboard.id}?no_items_field=true", expected_extra_queries=5
         )
 
         # Accessing a different users dashboard doesn't +1 as the preload works using the pk
         self._assert_access_control_adds_queries(
-            f"/api/projects/@current/dashboards/{other_user_dashboard.id}?no_items_field=true", expected_extra_queries=3
+            f"/api/projects/@current/dashboards/{other_user_dashboard.id}?no_items_field=true", expected_extra_queries=5
         )
 
     def test_query_counts_only_adds_1_for_non_pk_resources(self):
         self._org_membership(OrganizationMembership.Level.MEMBER)
         # Getting my own notebook is the same as a dashboard - 3 extra queries
         self._assert_access_control_adds_queries(
-            f"/api/projects/@current/notebooks/{self.notebook.short_id}", expected_extra_queries=3
+            f"/api/projects/@current/notebooks/{self.notebook.short_id}", expected_extra_queries=5
         )
 
         # Except when accessing a different notebook where we _also_ need to check as we are not the creator and the pk is not the same (short_id)
         self._assert_access_control_adds_queries(
-            f"/api/projects/@current/notebooks/{self.other_user_notebook.short_id}", expected_extra_queries=3
+            f"/api/projects/@current/notebooks/{self.other_user_notebook.short_id}", expected_extra_queries=5
         )
 
     def test_query_counts_stable_for_project_access(self):
@@ -1358,24 +1392,24 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
         )
 
         # When accessing the list of notebooks we have extra queries due to checking for role based access and filtering out items
-        self._assert_access_control_adds_queries("/api/projects/@current/notebooks/", expected_extra_queries=3)
+        self._assert_access_control_adds_queries("/api/projects/@current/notebooks/", expected_extra_queries=5)
 
     def test_query_counts_stable_when_listing_resources(self):
         # When accessing the list of notebooks we have extra queries due to checking for role based access and filtering out items
-        self._assert_access_control_adds_queries("/api/projects/@current/notebooks/", expected_extra_queries=3)
+        self._assert_access_control_adds_queries("/api/projects/@current/notebooks/", expected_extra_queries=5)
 
     def test_query_counts_stable_when_listing_resources_including_access_control_info(self):
         content_type_for(FeatureFlag)
         for i in range(10):
             FeatureFlag.objects.create(team=self.team, created_by=self.other_user, key=f"flag-{i}")
 
-        self._assert_access_control_adds_queries("/api/projects/@current/feature_flags/", expected_extra_queries=3)
+        self._assert_access_control_adds_queries("/api/projects/@current/feature_flags/", expected_extra_queries=5)
 
         for i in range(10):
             FeatureFlag.objects.create(team=self.team, created_by=self.other_user, key=f"flag-{10 + i}")
 
         # More flags add no access control queries
-        self._assert_access_control_adds_queries("/api/projects/@current/feature_flags/", expected_extra_queries=3)
+        self._assert_access_control_adds_queries("/api/projects/@current/feature_flags/", expected_extra_queries=5)
 
 
 class TestAccessControlFiltering(BaseAccessControlTest):
@@ -2637,7 +2671,9 @@ class TestAccessControlSubjectRulesEndpoints(BaseAccessControlTest):
 
     def test_object_names_resolve_with_raw_id_fallback(self):
         dashboard = Dashboard.objects.create(team=self.team, name="Growth dashboard", created_by=self.user)
-        insight = Insight.objects.create(team=self.team, derived_name="Weekly signups", created_by=self.user)
+        insight = Insight.objects.create(
+            id=dashboard.id, team=self.team, derived_name="Weekly signups", created_by=self.user
+        )
         AccessControl.objects.create(
             team=self.team, resource="dashboard", resource_id=str(dashboard.id), access_level="editor"
         )
@@ -2654,15 +2690,15 @@ class TestAccessControlSubjectRulesEndpoints(BaseAccessControlTest):
 
         res = self.client.get("/api/projects/@current/access_control_default_objects")
         assert res.status_code == status.HTTP_200_OK, res.json()
-        rows = {r["resource_id"]: r for r in res.json()["results"]}
-        assert rows[str(dashboard.id)]["name"] == "Growth dashboard"
+        rows = {(r["resource"], r["resource_id"]): r for r in res.json()["results"]}
+        assert rows[("dashboard", str(dashboard.id))]["name"] == "Growth dashboard"
         # Insight.name is empty, so the derived name shows, with short_id alongside for linking
-        assert rows[str(insight.id)]["name"] == "Weekly signups"
-        assert rows[str(insight.id)]["short_id"] == insight.short_id
+        assert rows[("insight", str(insight.id))]["name"] == "Weekly signups"
+        assert rows[("insight", str(insight.id))]["short_id"] == insight.short_id
         # Resolved through _MODELS_NOT_IN_ENTITY_MAP, since search doesn't index warehouse tables
-        assert rows[str(table.id)]["name"] == "events_parquet"
+        assert rows[("warehouse_table", str(table.id))]["name"] == "events_parquet"
         # A rule pointing at a missing object keeps the raw id as its name
-        assert rows["999999"]["name"] == "999999"
+        assert rows[("dashboard", "999999")]["name"] == "999999"
 
 
 class TestCohortUsedInAccessControl(BaseAccessControlTest):
@@ -2865,6 +2901,20 @@ class TestOrganizationMemberProjectAccess(BaseAccessControlTest):
         other_membership = OrganizationMembership.objects.get(user=other_user, organization=other_org)
         res = self.client.get(f"/api/organizations/@current/members/project_access?member_id={other_membership.id}")
         assert res.status_code == status.HTTP_404_NOT_FOUND, res.json()
+
+    def test_membership_level_decides_without_the_entitlement(self):
+        self._set_access_control_available(False)
+        # A stale rule from before the downgrade must not be consulted
+        self._project_rule(self.team, "admin", organization_member=self.user2_membership)
+
+        projects = self._projects(self._get(), self.user2_membership.id)
+        assert {(p["access_level"], p["resolved"]["source"]) for p in projects.values()} == {
+            ("member", "org_membership")
+        }
+        admin_projects = self._projects(self._get(), self.organization_membership.id)
+        assert {(p["access_level"], p["resolved"]["source"]) for p in admin_projects.values()} == {
+            ("admin", "org_admin")
+        }
 
     def test_query_count_does_not_grow_with_members_or_projects(self):
         def query_count() -> int:

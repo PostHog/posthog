@@ -18,7 +18,10 @@ const response: MarketingAnalyticsAggregatedQueryResponse = {
 }
 
 describe('Ad performance metric selection', () => {
-    beforeEach(() => initKeaTests())
+    beforeEach(() => {
+        initKeaTests()
+        marketingAnalyticsTilesLogic.mount()
+    })
     afterEach(cleanup)
 
     it.each([
@@ -39,7 +42,6 @@ describe('Ad performance metric selection', () => {
         fireEvent.click(button)
         expect(marketingAnalyticsLogic.values.tileColumnSelection).toBe(metric)
         expect(button.getAttribute('aria-pressed')).toBe('true')
-        expect(marketingAnalyticsTilesLogic.values.marketingChartTile.title).toBe(`Marketing ${metric}`)
         expect(
             (marketingAnalyticsTilesLogic.values.marketingChartTile.query as InsightVizNode).source.dateRange
         ).toEqual(before.dateRange)

@@ -10,6 +10,7 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.linked_identity_provider_config import LinkedIdentityProviderConfig
 from posthog.models.organization_domain import OrganizationDomain
+from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
 from posthog.test.authentication_checks import covers_authentication
 
 from products.access_control.backend.models.role import Role
@@ -192,6 +193,20 @@ class TestSCIMAPI(APILicensedTest):
         response = self.client.get(f"/scim/v2/{self.config.scim_slug}/Users")
         assert response.status_code == status.HTTP_200_OK
         assert "Resources" in response.json()
+
+    @parameterized.expand(
+        [
+            (resource, ip, expected)
+            for resource in ("Users", "Groups")
+            for ip, expected in (("203.0.113.7", status.HTTP_200_OK), ("198.51.100.7", status.HTTP_403_FORBIDDEN))
+        ]
+    )
+    def test_scim_organization_ip_policy(self, resource: str, ip: str, expected: int) -> None:
+        OrganizationIPRestrictions.objects.create(organization=self.organization, ip_restrictions=["203.0.113.0/24"])
+        self.client.logout()
+        self.client.credentials(**self.scim_headers)
+        response = self.client.get(f"/scim/v2/{self.config.scim_slug}/{resource}", REMOTE_ADDR=ip)
+        assert response.status_code == expected
 
     def test_scim_groups_endpoint(self):
         """Test that SCIM Groups endpoint works with valid license"""

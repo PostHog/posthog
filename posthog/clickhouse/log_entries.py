@@ -359,6 +359,7 @@ def LOG_ENTRIES_AUX_WRITABLE_TABLE_SQL():
 
 def KAFKA_LOG_ENTRIES_AUX_TABLE_SQL():
     from posthog.clickhouse.kafka_engine import CONSUMER_GROUP_LOG_ENTRIES_AUX, kafka_num_consumers
+    from posthog.run_mode import RunMode, run_mode
 
     return (
         LOG_ENTRIES_TABLE_BASE_SQL
@@ -370,7 +371,10 @@ def KAFKA_LOG_ENTRIES_AUX_TABLE_SQL():
              kafka_max_block_size = 100000
     """
     ).format(
-        num_consumers=kafka_num_consumers(1),
+        # kafka_num_consumers is per node. EU has fewer nodes than partitions and needs the second
+        # consumer to keep up at peak. US has one node per partition, so a second consumer there
+        # gets no assignment and still holds a thread.
+        num_consumers=kafka_num_consumers(2 if run_mode() is RunMode.CLOUD_EU else 1),
         table_name=KAFKA_LOG_ENTRIES_AUX_TABLE,
         on_cluster_clause=ON_CLUSTER_CLAUSE(False),
         engine=kafka_engine(

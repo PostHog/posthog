@@ -3,9 +3,11 @@
  * To make this easier this class is designed to abstract the queue as much as possible from
  * the underlying implementation.
  */
+import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 import { compress, uncompress } from 'snappy'
 
+import type { CommonConfig } from '~/common/config'
 import { KafkaConsumerInterface, createKafkaConsumer } from '~/common/kafka/consumer'
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { parseJSON } from '~/common/utils/json-parse'
@@ -29,7 +31,8 @@ export class CyclotronJobQueueKafka implements JobQueue {
         private config: Pick<
             CdpConfig,
             'CDP_CYCLOTRON_COMPRESS_KAFKA_DATA' | 'CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS'
-        >,
+        > &
+            Pick<CommonConfig, 'ENCRYPTION_SALT_KEYS'>,
         private consumerBatchSize: number
     ) {
         this.sanitizer = createInvocationSanitizer(config)
@@ -143,6 +146,17 @@ export class CyclotronJobQueueKafka implements JobQueue {
     // Kafka jobs don't need explicit dequeue — they're just dropped
     public async dequeueInvocations(_invocations: CyclotronJobInvocation[]): Promise<void> {}
     public async heartbeatInvocations(_invocations: CyclotronJobInvocation[]): Promise<void> {}
+
+    public async deferInvocations(
+        deferrals: { invocation: CyclotronJobInvocation; scheduledAt: Date }[]
+    ): Promise<void> {
+        await this.queueInvocations(
+            deferrals.map(({ invocation, scheduledAt }) => ({
+                ...invocation,
+                queueScheduledAt: DateTime.fromJSDate(scheduledAt),
+            }))
+        )
+    }
 
     public async queueInvocationResults(invocationResults: CyclotronJobInvocationResult[]) {
         // With kafka we are essentially re-queuing the work to the target topic if it isn't finished

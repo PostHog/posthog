@@ -1,0 +1,77 @@
+# Self-driving usage
+
+Use `inbox-usage-get` for a monthly overview by source and scout, including downstream report implementation.
+Use `execute-sql` for individual reports, runs, daily trends, or custom filters.
+The monthly tool is available when the project's rollout permits it; the SQL tables use HogQL access controls.
+
+## Spend records (`system.signal_spend`)
+
+{{ schema_columns('system.signal_spend') }}
+
+Requires usage access in the project.
+Usage history starts on October 1, 2026, at 00:00 UTC, using `finalized_at` for settled costs and `created_at` for unsettled costs.
+Each row owns one amount of recorded usage; sum these rows once.
+`credits` is a decimal, including fractional credits.
+Multiply credits by `pricing.usd_per_credit` returned by `inbox-usage-get` for the recorded USD value.
+Do not describe this value as the invoice: exemptions, billing cutovers, grants, discounts, and billing rounding can change the amount charged.
+`billing_exempt` identifies exempt recorded usage but is not a complete billability decision.
+
+Use `finalized_at` for monthly or daily usage, with an inclusive start and exclusive end in UTC.
+Unfinalized rows can still change; report them separately instead of treating their amounts as final.
+`accounting_failed` also applies to some running work, so it does not distinguish permanent failure from settling.
+The monthly tool reports unsettled work created in the requested month separately; that is not an outstanding balance across all months.
+Missing receipts are unknown costs, not zero costs.
+
+```sql
+SELECT toDate(finalized_at) AS day, kind,
+       sum(credits) AS recorded_credits,
+       sumIf(credits, billing_exempt) AS exempt_credits
+FROM system.signal_spend
+WHERE finalized_at >= toStartOfMonth(now())
+  AND finalized_at < now()
+GROUP BY day, kind
+ORDER BY day, kind
+```
+
+## Scout runs (`system.scout_runs`)
+
+{{ schema_columns('system.scout_runs') }}
+
+Requires scout access; joining spend records also requires usage access.
+`spend_credits` is a convenience copy of the run's recorded execution cost, excluding downstream report research and implementation.
+Do not add it to `system.signal_spend.credits`.
+Private scout trials are absent from both tables.
+Spend records belong to the canonical parent project.
+The monthly tool resolves a child environment to its parent, requires access to that parent, and returns the owning `project_id`.
+Use that project for SQL reconciliation.
+
+```sql
+SELECT r.skill_name, count() AS run_count, sum(s.credits) AS execution_credits
+FROM system.signal_spend s
+JOIN system.scout_runs r ON s.scout_run_id = r.id
+WHERE s.kind = 'scout_run'
+  AND s.finalized_at >= toStartOfMonth(now())
+  AND s.finalized_at < now()
+GROUP BY r.skill_name
+ORDER BY execution_credits DESC
+```
+
+Runs with no emitted reports still incur usage.
+`emitted_report_ids` can overlap between runs; deduplicate report IDs before reporting yield.
+
+## Reports and sources
+
+Signal processing (`ad-hoc`), research, and repository selection belong to `signal_id`.
+Implementation belongs to `report_id`, joining `system.inbox_reports.id` after converting the UUID to a string.
+The report's `triggering_signal_id` identifies the source to which the monthly tool attributes implementation.
+It is the current triggering signal and can change when a report is researched again; attribution is not an immutable historical invoice ledger.
+
+To resolve a signal's source, join its string ID to `document_embeddings.document_id` for product `signals`, document type `signal`, rendering `plain`, and the signals embedding model.
+Use the latest metadata version per document (`argMax(metadata, inserted_at)`) before extracting `source_product` and `source_type`; the `signals` skill has the complete signal-query patterns.
+Do not use `metadata.total_spend` as another charge: it is a cumulative copy of spend records, and grouping it by signal creation month misdates later research.
+The summary retains missing source metadata in a null-source bucket.
+Deleted reports are absent from `system.inbox_reports`, so their implementation receipts can remain readable without a report join; preserve those amounts as unattributed rather than dropping them.
+
+A report's detail shows its lifetime research/processing, implementation, and associated scout-run costs.
+The associated scout costs can be shared by multiple reports and must not be added across reports.
+For a monthly total, use the underlying spend records once: source rows contain processing/research/implementation, and scout rows contain execution.

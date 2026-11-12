@@ -88,8 +88,247 @@
             "type": "string"
         },
         "filters": {
-            "description": "Dashboard-level filters (date range and properties) applied across all tiles as the source of truth.",
+            "description": "Dashboard-level filters (date range, properties, breakdown, interval, comparison) applied across all tiles as the source of truth.",
             "properties": {
+                "breakdown_filter": {
+                    "anyOf": [
+                        {
+                            "properties": {
+                                "breakdown": {
+                                    "anyOf": [
+                                        {
+                                            "type": "string"
+                                        },
+                                        {
+                                            "items": {
+                                                "anyOf": [
+                                                    {
+                                                        "type": "string"
+                                                    },
+                                                    {
+                                                        "type": "number"
+                                                    }
+                                                ]
+                                            },
+                                            "type": "array"
+                                        },
+                                        {
+                                            "type": "number"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ]
+                                },
+                                "breakdown_group_type_index": {
+                                    "anyOf": [
+                                        {
+                                            "type": "number"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ]
+                                },
+                                "breakdown_hide_other_aggregation": {
+                                    "anyOf": [
+                                        {
+                                            "type": "boolean"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ]
+                                },
+                                "breakdown_histogram_bin_count": {
+                                    "anyOf": [
+                                        {
+                                            "type": "number"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ]
+                                },
+                                "breakdown_limit": {
+                                    "anyOf": [
+                                        {
+                                            "type": "number"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ]
+                                },
+                                "breakdown_normalize_url": {
+                                    "anyOf": [
+                                        {
+                                            "type": "boolean"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ]
+                                },
+                                "breakdown_path_cleaning": {
+                                    "anyOf": [
+                                        {
+                                            "type": "boolean"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ]
+                                },
+                                "breakdown_type": {
+                                    "anyOf": [
+                                        {
+                                            "enum": [
+                                                "cohort",
+                                                "person",
+                                                "event",
+                                                "event_metadata",
+                                                "element",
+                                                "group",
+                                                "session",
+                                                "hogql",
+                                                "data_warehouse",
+                                                "data_warehouse_person_property",
+                                                "revenue_analytics"
+                                            ],
+                                            "type": "string"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "default": "event"
+                                },
+                                "breakdowns": {
+                                    "anyOf": [
+                                        {
+                                            "items": {
+                                                "properties": {
+                                                    "group_type_index": {
+                                                        "anyOf": [
+                                                            {
+                                                                "type": "number"
+                                                            },
+                                                            {
+                                                                "type": "null"
+                                                            }
+                                                        ]
+                                                    },
+                                                    "histogram_bin_count": {
+                                                        "anyOf": [
+                                                            {
+                                                                "type": "number"
+                                                            },
+                                                            {
+                                                                "type": "null"
+                                                            }
+                                                        ]
+                                                    },
+                                                    "normalize_url": {
+                                                        "anyOf": [
+                                                            {
+                                                                "type": "boolean"
+                                                            },
+                                                            {
+                                                                "type": "null"
+                                                            }
+                                                        ]
+                                                    },
+                                                    "property": {
+                                                        "anyOf": [
+                                                            {
+                                                                "type": "string"
+                                                            },
+                                                            {
+                                                                "type": "number"
+                                                            }
+                                                        ]
+                                                    },
+                                                    "type": {
+                                                        "anyOf": [
+                                                            {
+                                                                "enum": [
+                                                                    "person",
+                                                                    "event",
+                                                                    "event_metadata",
+                                                                    "element",
+                                                                    "group",
+                                                                    "session",
+                                                                    "hogql",
+                                                                    "cohort",
+                                                                    "revenue_analytics",
+                                                                    "data_warehouse",
+                                                                    "data_warehouse_person_property"
+                                                                ],
+                                                                "type": "string"
+                                                            },
+                                                            {
+                                                                "type": "null"
+                                                            }
+                                                        ]
+                                                    }
+                                                },
+                                                "required": ["property"],
+                                                "type": "object"
+                                            },
+                                            "maxItems": 3,
+                                            "type": "array"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ]
+                                }
+                            },
+                            "type": "object"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Dashboard-level breakdown applied to every tile that supports one, replacing the tile's own breakdown. Example: {\"breakdown_type\": \"event\", \"breakdown\": \"$browser\"}. Null clears it."
+                },
+                "compareFilter": {
+                    "anyOf": [
+                        {
+                            "properties": {
+                                "compare": {
+                                    "anyOf": [
+                                        {
+                                            "type": "boolean"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "default": false,
+                                    "description": "Whether to compare the current date range to a previous date range."
+                                },
+                                "compare_to": {
+                                    "anyOf": [
+                                        {
+                                            "type": "string"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "description": "The date range to compare to. The value is a relative date. Examples of relative dates are: `-1y` for 1 year ago, `-14m` for 14 months ago, `-100w` for 100 weeks ago, `-14d` for 14 days ago, `-30h` for 30 hours ago."
+                                }
+                            },
+                            "type": "object"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Period comparison forced onto every tile that supports one. Null means each tile keeps its own."
+                },
                 "date_from": {
                     "anyOf": [
                         {
@@ -111,6 +350,30 @@
                         }
                     ],
                     "description": "Dashboard-level end of the date range, e.g. '-1d' or an ISO date. Null/omitted means up to now."
+                },
+                "filterTestAccounts": {
+                    "anyOf": [
+                        {
+                            "type": "boolean"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "True forces test accounts out of every tile, false forces them in, null keeps each tile's setting."
+                },
+                "interval": {
+                    "anyOf": [
+                        {
+                            "description": "* `second` - second\n* `minute` - minute\n* `hour` - hour\n* `day` - day\n* `week` - week\n* `month` - month\n* `quarter` - quarter\n* `year` - year",
+                            "enum": ["second", "minute", "hour", "day", "week", "month", "quarter", "year"],
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Time granularity forced onto every tile that supports one. Null means each tile keeps its own.\n\n* `second` - second\n* `minute` - minute\n* `hour` - hour\n* `day` - day\n* `week` - week\n* `month` - month\n* `quarter` - quarter\n* `year` - year"
                 },
                 "properties": {
                     "description": "Dashboard-level property filters applied to every tile (PostHog property filter group)."

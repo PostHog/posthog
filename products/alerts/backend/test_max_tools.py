@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from uuid import UUID
 
 import pytest
 from posthog.test.base import BaseTest
@@ -13,8 +14,11 @@ from posthog.schema import AlertCalculationInterval, AlertConditionType, AlertSt
 
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, Team, User
+from posthog.models.scoping import team_scope
 
 from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription, Threshold
+from products.alerts_platform.backend.facade.api import get_configuration, subscriber_user_ids_by_public_id
+from products.alerts_platform.backend.facade.contracts import PlatformAlertConfigurationView, SourceKind
 from products.product_analytics.backend.facade.models import Insight
 
 from .max_tools import CreateAlertAction, UpdateAlertAction, UpsertAlertTool
@@ -134,6 +138,47 @@ class TestUpsertAlertTool(BaseTest):
 
         subscription = await sync_to_async(AlertSubscription.objects.get)(alert_configuration=alert)
         assert subscription.user_id == self.user.id
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_create_alert_in_a_team_creating_native_alerts_writes_only_the_platform(self):
+        insight = await self._create_insight()
+        tool = self._setup_tool()
+
+        with mock.patch(
+            "products.alerts.backend.platform_ownership.posthoganalytics.feature_enabled", return_value=True
+        ):
+            content, artifact = await tool._arun_impl(
+                action=CreateAlertAction(
+                    name="Hourly signups below 100",
+                    condition_type=AlertConditionType.ABSOLUTE_VALUE,
+                    insight_id=insight.id,
+                    lower_threshold=100.0,
+                    calculation_interval=AlertCalculationInterval.HOURLY,
+                )
+            )
+
+        assert "created successfully" in content, content
+        alert_id = UUID(artifact["alert_id"])
+        assert not await AlertConfiguration.objects.filter(team=self.team).aexists()
+
+        def _stored() -> tuple[PlatformAlertConfigurationView | None, dict[UUID, tuple[int, ...]]]:
+            with team_scope(self.team.id):
+                return (
+                    get_configuration(
+                        team_id=self.team.id, source_kinds=[SourceKind.INSIGHT.value], configuration_id=alert_id
+                    ),
+                    subscriber_user_ids_by_public_id(team_id=self.team.id, public_ids=[alert_id]),
+                )
+
+        created, subscribers = await sync_to_async(_stored)()
+        assert created is not None
+        assert (created.name, created.check_interval_minutes, created.created_by_id) == (
+            "Hourly signups below 100",
+            60,
+            self.user.id,
+        )
+        assert subscribers == {alert_id: (self.user.id,)}
 
     @parameterized.expand(
         [
@@ -358,6 +403,31 @@ class TestUpsertAlertTool(BaseTest):
 
         assert "limited to 1 alerts" in content.lower()
         assert artifact["error"] == "plan_limit_reached"
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_a_create_another_create_overtook_is_refused_under_the_lock(self):
+        insight = await self._create_insight()
+        await self._create_alert(insight)
+        tool = self._setup_tool()
+
+        # The early check passed before the other alert existed, so only the check under the lock sees it.
+        with (
+            mock.patch.object(AlertConfiguration, "ALERTS_ALLOWED_ON_FREE_TIER", 1),
+            mock.patch.object(tool, "_check_alert_limit", return_value=None),
+        ):
+            content, artifact = await tool._arun_impl(
+                action=CreateAlertAction(
+                    name="Over limit",
+                    condition_type=AlertConditionType.ABSOLUTE_VALUE,
+                    insight_id=insight.id,
+                    lower_threshold=100.0,
+                )
+            )
+
+        assert "limited to 1 alerts" in content.lower()
+        assert artifact["error"] == "plan_limit_reached"
+        assert await AlertConfiguration.objects.filter(team=self.team).acount() == 1
 
     async def _enable_real_time_alerts(self, limit: int) -> None:
         def _set():

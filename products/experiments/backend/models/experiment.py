@@ -1,11 +1,15 @@
 from collections.abc import Callable, Sequence
+from datetime import datetime
 from typing import TYPE_CHECKING, Any, Literal
 
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
 from django.db.models import Exists, OuterRef, QuerySet
+from django.db.models.fields.json import KeyTextTransform
 from django.utils import timezone
 
+from posthog.exceptions_capture import capture_exception
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.file_system.constants import DEFAULT_SURFACE
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
@@ -203,11 +207,49 @@ class Experiment(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMixi
         return self.is_launched and self.end_date is not None
 
     @property
-    def hours_since_launch(self) -> float | None:
+    def hours_since_start(self) -> float | None:
         # Counts to now also after the end date.
         if self.start_date is None:
             return None
         return (timezone.now() - self.start_date).total_seconds() / 3600
+
+    def launched_at(self, *, read_activity_log: bool) -> datetime | None:
+        """
+        The later of the start date and the latest launch in the activity log. The start date can be moved back to
+        before the launch, so it can be earlier than the first variant the flag served. Without `read_activity_log`,
+        for a reader who may not read the experiment's activity log, it is the start date.
+        """
+        start_date = self.start_date
+        if start_date is None or not read_activity_log:
+            return start_date
+        # A launch logs the start date that it sets on a draft. An experiment created with a start date logs none, and
+        # its start date stands.
+        try:
+            logged = (
+                ActivityLog.objects.filter(
+                    team_id=self.team_id,
+                    scope="Experiment",
+                    item_id=str(self.id),
+                    activity="updated",
+                    detail__contains={"changes": [{"field": "start_date", "before": None}]},
+                )
+                .order_by("-created_at")
+                .values_list("created_at", flat=True)
+                .first()
+            )
+        except Exception as error:
+            # The start date is a safe fallback, so a failed lookup must not fail the caller.
+            capture_exception(error)
+            return start_date
+        return start_date if logged is None or logged < start_date else logged
+
+    def hours_since_launch(self, at: datetime | None = None, *, read_activity_log: bool) -> float | None:
+        """The hours from `launched_at` to `at`, or to now."""
+        launched_at = self.launched_at(read_activity_log=read_activity_log)
+        if launched_at is None:
+            return None
+        # Counts to now also after the end date.
+        return ((at or timezone.now()) - launched_at).total_seconds() / 3600
 
     @property
     def is_paused(self) -> bool:
@@ -331,7 +373,7 @@ class Experiment(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMixi
         )
 
 
-def _live_experiments_for_flag(feature_flag_id: Any) -> "QuerySet[Experiment]":
+def live_experiments_for_flag(feature_flag_id: Any) -> "QuerySet[Experiment]":
     """Single source of truth for the `has_experiment` predicate: a flag has a linked
     experiment iff a non-deleted Experiment row references it. The Rust flags service
     (rust/feature-flags/src/flags/feature_flag_list.rs) mirrors this in hand-written SQL —
@@ -344,12 +386,12 @@ def _live_experiments_for_flag(feature_flag_id: Any) -> "QuerySet[Experiment]":
 
 def live_experiment_exists() -> Exists:
     """`Exists` subquery for `.annotate()` over many flags. For a single in-hand flag, use `flag_has_live_experiment`."""
-    return Exists(_live_experiments_for_flag(OuterRef("pk")))
+    return Exists(live_experiments_for_flag(OuterRef("pk")))
 
 
 def flag_has_live_experiment(feature_flag_id: int) -> bool:
     """Instance-level companion to `live_experiment_exists` — same predicate, one flag."""
-    return _live_experiments_for_flag(feature_flag_id).exists()
+    return live_experiments_for_flag(feature_flag_id).exists()
 
 
 def metric_display_rank(ordered_uuids: Sequence[str] | None) -> Callable[[str], int]:
@@ -474,6 +516,10 @@ class ExperimentMetricResult(models.Model):
     experiment = models.ForeignKey("Experiment", on_delete=models.CASCADE)
     metric_uuid = models.CharField(max_length=255)
     fingerprint = models.CharField(max_length=64, null=True, blank=True)  # SHA256 hash is 64 chars
+    # The version 1 key of the calculation config the row was computed from, salted like `fingerprint` on a
+    # recalculation row. It hashes only inputs the experiment owns, so the chart still shows the row after a team
+    # setting moves `fingerprint` away from the current key. No reuse check reads it.
+    display_key = models.CharField(max_length=64, null=True, blank=True)
     query_from = models.DateTimeField()
     query_to = models.DateTimeField()
     status = models.CharField(max_length=20, choices=Status, default=Status.PENDING)
@@ -501,6 +547,7 @@ class ExperimentTimeseriesRecalculation(UUIDModel):
         IN_PROGRESS = "in_progress", "In Progress"
         COMPLETED = "completed", "Completed"
         FAILED = "failed", "Failed"
+        CANCELED = "canceled", "Canceled"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     experiment = models.ForeignKey("Experiment", on_delete=models.CASCADE)
@@ -518,9 +565,11 @@ class ExperimentTimeseriesRecalculation(UUIDModel):
         ]
         constraints = [
             models.UniqueConstraint(
-                fields=["experiment", "fingerprint"],
+                models.F("experiment"),
+                KeyTextTransform("uuid", "metric"),
+                models.F("fingerprint"),
                 condition=models.Q(status__in=["pending", "in_progress"]),
-                name="unique_active_recalculation_per_experiment_metric",
+                name="unique_active_backfill_per_metric_key",
             ),
         ]
         db_table = "posthog_experimenttimeseriesrecalculation"
@@ -546,8 +595,9 @@ class ExperimentMetricsRecalculation(TeamScopedRootMixin, UUIDModel):
         MANUAL = "manual", "Manual"
         AGENT_MCP = "agent_mcp", "Agent (MCP)"
         COLD_RUN = "cold_run", "Cold Run"
-        # The frontend refreshes a running experiment on page load when its latest results are older than its
-        # staleness threshold. Advances the window to now, so every metric recomputes.
+        # The frontend refreshes results on page load when they stop more than its staleness threshold before the
+        # window end, which is now for a running experiment and the end date for a stopped one. Advances the window to
+        # that end, so every metric recomputes.
         STALE_REFRESH = "stale_refresh", "Stale Refresh"
         # Deprecated: feature no longer available.
         AUTO_REFRESH = "auto_refresh", "Auto Refresh"

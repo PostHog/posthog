@@ -17,9 +17,11 @@ from parameterized import parameterized
 from posthog.kafka_client.client import ClickhouseProducer, ProduceResult
 from posthog.kafka_client.topics import KAFKA_PERSON
 from posthog.models.person.divergence import repairs, team_scan, verbs
+from posthog.models.person.divergence.cleanup_queue import PG_CLEANUP_QUEUE_TABLE
 from posthog.models.person.test.divergence_fixtures import DivergenceFixturesMixin
 from posthog.models.person.util import tombstone_persons_in_postgres
 from posthog.personhog_client.fake_client import get_active_fake
+from posthog.persons_db import persons_db_connection
 
 
 class _Stop(Exception):
@@ -112,7 +114,7 @@ class TestRepairVerbs(DivergenceFixturesMixin, ClickhouseTestMixin, BaseTest):
         assert resumed == [k for k in (str(first.uuid), str(second.uuid)) if k != canary_persons[0][0]]
         assert self._scan()[1] == {}
 
-    def test_bury_tombstones_what_postgres_deleted_and_leaves_strays_to_ingestion(self):
+    def test_bury_and_detach_tombstone_what_postgres_deleted(self):
         deleted = self._pg_person(version=2)
         tombstone_persons_in_postgres(self.team.pk, [deleted.uuid])
         self._ch_person(str(deleted.uuid), 7, {"email": "old@example.com"})
@@ -131,31 +133,166 @@ class TestRepairVerbs(DivergenceFixturesMixin, ClickhouseTestMixin, BaseTest):
         self._ch_mapping("gone", holder.uuid, 5)
         self._ch_mapping("unpublished", holder.uuid, 1)
         self._ch_mapping("holder-1", holder.uuid, 0)
-        stray_owner = fake.add_person(
-            team_id=self.team.pk,
-            person_id=990_002,
-            uuid=str(uuid4()),
-            version=3,
-            is_deleted=True,
-            distinct_ids=["stray-1"],
-        )
-        self._ch_mapping("stray-1", stray_owner.uuid, 0)
+
+        def stray_owner(person_id: int, *distinct_ids: str) -> str:
+            return fake.add_person(
+                team_id=self.team.pk,
+                person_id=person_id,
+                uuid=str(uuid4()),
+                version=3,
+                is_deleted=True,
+                distinct_ids=list(distinct_ids),
+            ).uuid
+
+        # No ClickHouse rows for the strays.
+        nothing_in_ch = stray_owner(990_010, "s-none", "s-later-diverged")
+        # ClickHouse resolves the stray to its owner, which still waits for the sweep, at a version above Postgres.
+        pending = stray_owner(990_011, "s-pending")
+        self._ch_person(pending, 3, {}, deleted=True)
+        self._ch_mapping("s-pending", pending, 5)
+        # The owner's tombstone never reached ClickHouse.
+        visible = stray_owner(990_012, "s-owner-visible")
+        self._ch_person(visible, 2, {"email": "v@example.com"})
+        self._ch_mapping("s-owner-visible", visible, 0)
+        # ClickHouse resolves the stray to another person.
+        differs = stray_owner(990_013, "s-differs")
+        self._ch_person(differs, 3, {}, deleted=True)
+        self._ch_mapping("s-differs", holder.uuid, 4)
+        # The owner is gone from ClickHouse, but the stray still has rows there.
+        outlived = stray_owner(990_014, "s-outlived")
+        self._ch_mapping("s-outlived", outlived, 0)
+        # A sweep already queued the owner, so it is swept even though its ClickHouse rows show up again.
+        requeued = stray_owner(990_015, "s-requeued")
+        self._ch_person(requeued, 3, {}, deleted=True)
+        self._ch_mapping("s-requeued", requeued, 0)
+        # Rows at ClickHouse's top version name two owners.
+        tied = stray_owner(990_016, "s-tied")
+        self._ch_person(tied, 3, {}, deleted=True)
+        self._ch_mapping("s-tied", tied, 2)
+        self._ch_mapping("s-tied", holder.uuid, 2)
+        # Its only stray has no ClickHouse rows, so detaching it leaves the owner nothing live.
+        released = stray_owner(990_017, "s-released")
+        # Queued by an earlier sweep, then tombstoned again above that bound: the next sweep takes it.
+        retombstoned = stray_owner(990_018, "s-retombstoned")
+        self._ch_person(retombstoned, 5, {}, deleted=True)
+        self._ch_mapping("s-retombstoned", retombstoned, 0)
+        self._queue_person(retombstoned, max_version=3)
+        self._queue_person(nothing_in_ch, blocked=True)
+        self._queue_person(requeued, blocked=True)
+        self._queue_person(released, blocked=True)
+
         scan_dir, before = self._scan()
         assert before == {
             str(deleted.uuid): ("deleted_visible", "bury"),
             "gone": ("deleted_visible", "bury"),
             "unpublished": ("deleted_visible", "bury"),
-            "stray-1": ("stray", None),
+            visible: ("deleted_visible", "bury"),
+            "s-none": ("stray", "detach"),
+            "s-later-diverged": ("stray", "detach"),
+            "s-pending": ("stray", "detach"),
+            "s-released": ("stray", "detach"),
+            "s-retombstoned": ("stray", "detach"),
+            "s-owner-visible": ("stray", None),
+            "s-differs": ("stray", None),
+            "s-outlived": ("stray", None),
+            "s-requeued": ("stray", None),
+            "s-tied": ("stray", None),
         }
+        assert self._sub_flavors(scan_dir, "s-owner-visible", "s-differs", "s-outlived", "s-requeued", "s-tied") == [
+            "owner_visible",
+            "ch_owner_differs",
+            "rows_outlive_owner",
+            "rows_outlive_owner",
+            "ch_tie",
+        ]
 
         buried = self._run(scan_dir, "bury", apply=True)
+        # ClickHouse changes after the scan: detach re-checks before it writes.
+        self._ch_mapping("s-later-diverged", holder.uuid, 2)
+        planned = self._run(scan_dir, "detach", apply=False, name="dry")
+        detached = self._run(scan_dir, "detach", apply=True)
 
         assert {a["key"]: a["outcome"] for a in buried} == {
             str(deleted.uuid): "republished",
             "gone": "buried",
             "unpublished": "buried",
+            visible: "republished",
         }
-        assert self._scan()[1] == {"stray-1": ("stray", None)}
+        assert {a["key"]: a["outcome"] for a in planned} == {
+            "s-none": "would_detach",
+            "s-later-diverged": "skipped_ch_owner_differs",
+            "s-pending": "would_detach",
+            "s-released": "would_detach",
+            "s-retombstoned": "would_detach",
+        }
+        assert {a["key"]: (a["outcome"], a["detail"].get("version")) for a in detached} == {
+            "s-none": ("detached", 1),
+            "s-later-diverged": ("skipped_ch_owner_differs", None),
+            "s-pending": ("detached", 6),
+            "s-released": ("detached", 1),
+            "s-retombstoned": ("detached", 1),
+        }
+        # Released only once the owner has no live distinct id left: s-later-diverged still holds its owner.
+        assert not self._queue_blocked(released)
+        assert self._queue_blocked(nothing_in_ch)
+        assert self._queue_blocked(requeued)
+
+        rescan_dir, after = self._scan()
+        assert after == {
+            "s-later-diverged": ("stray", None),
+            "s-pending": ("awaiting_sweep", None),
+            "s-retombstoned": ("awaiting_sweep", None),
+            "s-owner-visible": ("stray", "detach"),
+            "s-differs": ("stray", None),
+            "s-outlived": ("stray", None),
+            "s-requeued": ("stray", None),
+            "s-tied": ("stray", None),
+        }
+
+        assert [(a["key"], a["outcome"]) for a in self._run(rescan_dir, "detach", apply=True)] == [
+            ("s-owner-visible", "detached")
+        ]
+        assert self._scan()[1]["s-owner-visible"] == ("awaiting_sweep", None)
+
+        # A report from before the owner was pending still names bury; bury re-checks and leaves it to the sweep.
+        report = rescan_dir / team_scan.REPORT_FILE
+        stale = [json.loads(line) for line in report.read_text().splitlines()]
+        report.write_text(
+            "".join(json.dumps({**r, "verb": "bury"} if r["key"] == "s-pending" else r) + "\n" for r in stale)
+        )
+        assert [(a["key"], a["outcome"]) for a in self._run(rescan_dir, "bury", apply=True)] == [
+            ("s-pending", "skipped_awaiting_sweep")
+        ]
+
+    def test_bury_only_raises_postgres_for_a_mapping_the_sweep_removes_with_its_owner(self):
+        fake = get_active_fake()
+        assert fake is not None
+        owner = fake.add_person(
+            team_id=self.team.pk,
+            person_id=990_020,
+            uuid=str(uuid4()),
+            version=3,
+            is_deleted=True,
+            distinct_ids=["t-below"],
+            distinct_id_versions={"t-below": 2},
+            tombstoned_distinct_ids=["t-below"],
+        ).uuid
+        self._ch_person(owner, 3, {}, deleted=True)
+        self._ch_mapping("t-below", owner, 4)
+        scan_dir, before = self._scan()
+        assert before == {"t-below": ("deleted_visible", "bury")}
+
+        planned = self._run(scan_dir, "bury", apply=False, name="dry")
+        raised = self._run(scan_dir, "bury", apply=True)
+
+        assert [(a["outcome"], a["detail"]["target_version"]) for a in planned] == [("would_raise_for_sweep", 5)]
+        assert [(a["outcome"], a["detail"]["version"]) for a in raised] == [("raised_for_sweep", 5)]
+        # Still live in ClickHouse, so no tombstone was published; Postgres is now above it.
+        assert self._scan()[1] == {"t-below": ("awaiting_sweep", None)}
+
+    def _sub_flavors(self, scan_dir: Path, *keys: str) -> list[str | None]:
+        rows = {r["key"]: r for r in map(json.loads, (scan_dir / team_scan.REPORT_FILE).read_text().splitlines())}
+        return [rows[key]["sub_flavor"] for key in keys]
 
     def _hidden_person_with_stale_mapping(self) -> str:
         person = self._pg_person(version=1, distinct_ids=["h-1"])
@@ -242,6 +379,24 @@ class TestRepairVerbs(DivergenceFixturesMixin, ClickhouseTestMixin, BaseTest):
         verbs.run_verb(scan_dir, verb, apply=True, actions_path=actions_path, resume=True)
 
         assert self._scan()[1] == {}
+
+    def _queue_person(self, person_uuid: str, *, blocked: bool = False, max_version: int = 3) -> None:
+        with persons_db_connection(writer=True) as conn, conn.cursor() as cursor:
+            cursor.execute(
+                f"INSERT INTO {PG_CLEANUP_QUEUE_TABLE} (team_id, person_uuid, deleted_at, max_version, blocked_at) "
+                f"VALUES (%s, %s, now(), %s, {'now()' if blocked else 'NULL'})",
+                [self.team.pk, person_uuid, max_version],
+            )
+
+    def _queue_blocked(self, person_uuid: str) -> bool:
+        with persons_db_connection(writer=False) as conn, conn.cursor() as cursor:
+            cursor.execute(
+                f"SELECT blocked_at IS NOT NULL FROM {PG_CLEANUP_QUEUE_TABLE} WHERE team_id = %s AND person_uuid = %s",
+                [self.team.pk, person_uuid],
+            )
+            row = cursor.fetchone()
+            assert row is not None
+            return row[0]
 
     def test_a_run_stopped_by_sigterm_records_its_undelivered_keys_for_resume(self):
         key = self._hidden_person_with_stale_mapping()

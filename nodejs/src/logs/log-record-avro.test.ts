@@ -1,3 +1,4 @@
+import { compress } from '@mongodb-js/zstd'
 import avro from 'avsc'
 
 import { parseJSON } from '~/common/utils/json-parse'
@@ -420,10 +421,54 @@ describe('log-record-avro', () => {
             expect(decoded[0].bytes_uncompressed).toBe(789)
         })
 
-        it('rejects promise for invalid buffer', async () => {
-            const invalidBuffer = Buffer.from('not avro data')
+        it.each([
+            [
+                'bytes that are not a container',
+                () => Promise.resolve(Buffer.from('not avro data')),
+                'invalid magic bytes',
+            ],
+            [
+                'a trailing block count past 2^53',
+                async () =>
+                    Buffer.concat([
+                        await encodeLogRecords(LOG_RECORD_SCHEMA, 'zstandard', [createRecord()]),
+                        Buffer.from([0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x20]),
+                    ]),
+                'potential precision loss',
+            ],
+        ])('rejects promise for %s', async (_name, build, message) => {
+            await expect(decodeLogRecords(await build())).rejects.toThrow(message)
+        })
 
-            await expect(decodeLogRecords(invalidBuffer)).rejects.toThrow()
+        it('keeps decoding bytes fields after a container whose bytes length is NaN', async () => {
+            // uuid null, then trace_id as bytes with a length varint whose float read gives NaN.
+            const craftedBlock = Buffer.concat([
+                Buffer.from([0x00, 0x02]),
+                Buffer.alloc(200, 0x80),
+                Buffer.from([0x00]),
+            ])
+            const crafted = await new Promise<Buffer>((resolve, reject) => {
+                const buffers: Buffer[] = []
+                const encoder = new avro.streams.BlockEncoder(LOG_RECORD_SCHEMA, {
+                    codec: 'zstandard',
+                    codecs: {
+                        zstandard: (_buf: Buffer, cb: (err: Error | null, compressed?: Buffer) => void) => {
+                            compress(craftedBlock, 1).then((compressed) => cb(null, compressed), cb)
+                        },
+                    },
+                })
+                encoder.on('data', (buf: Buffer) => buffers.push(buf))
+                encoder.on('end', () => resolve(Buffer.concat(buffers)))
+                encoder.on('error', reject)
+                encoder.end(createRecord())
+            })
+            const traceId = Buffer.from('0102030405060708090a0b0c0d0e0f10', 'hex')
+            const valid = await encodeLogRecords(LOG_RECORD_SCHEMA, 'zstandard', [createRecord({ trace_id: traceId })])
+
+            await expect(decodeLogRecords(crafted)).rejects.toThrow()
+            const [, , decoded] = await decodeLogRecords(valid)
+
+            expect(decoded[0].trace_id).toEqual(traceId)
         })
     })
 

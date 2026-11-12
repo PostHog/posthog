@@ -3,7 +3,6 @@
 import uuid
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -16,12 +15,14 @@ from posthog.test.base import (
     _create_flag_evaluations,
     flush_persons_and_events,
 )
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from django.utils import timezone
 
+from asgiref.sync import async_to_sync
 from parameterized import parameterized
 
+from posthog.constants import AvailableFeature
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.team.team import DEPRECATED_ATTRS
@@ -29,6 +30,7 @@ from posthog.models.user import User
 from posthog.test.db_context_capturing import capture_db_queries
 from posthog.test.persons import create_person
 
+from products.access_control.backend.facade.testing import create_access_control
 from products.experiments.backend.facade import api, count_running_experiments_on_feature_flag_called, create_experiment
 from products.experiments.backend.facade.change_signals import connect_experiment_changed, experiment_changed
 from products.experiments.backend.facade.contracts import (
@@ -36,7 +38,9 @@ from products.experiments.backend.facade.contracts import (
     DigestCompletedExperiment,
     DigestLaunchedExperiment,
     EndedExperiment,
+    ExperimentAssistantContext,
     ExperimentChanged,
+    ExperimentFlagVariantSplit,
     ExperimentValidationError,
     LinkedExperiment,
     StoredPrimaryResult,
@@ -319,6 +323,53 @@ class TestHighlightFacts(BaseTest):
 
         assert [(e.name, e.flag_key) for e in found] == [(name, listed[name]) for name in expected]
 
+    @parameterized.expand([("the root team", False), ("a child environment", True)])
+    def test_names_only_the_experiments_the_user_can_view(self, _name: str, from_child: bool) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        shown = self._experiment("Checkout redesign")
+        hidden_from_reader = self._experiment("Pricing copy")
+        deleted = self._experiment("Deleted", deleted=True)
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        elsewhere = Experiment.objects.create(
+            team=other_team,
+            name="Elsewhere",
+            feature_flag=FeatureFlag.objects.create(team=other_team, key="elsewhere", created_by=self.user),
+            created_by=self.user,
+        )
+        create_access_control(
+            team_id=self.team.id, resource="experiment", resource_id=str(hidden_from_reader.id), access_level="none"
+        )
+
+        child = Team.objects.create(organization=self.organization, project=self.team.project, parent_team=self.team)
+
+        names = api.viewable_experiment_names(
+            team=child if from_child else self.team,
+            user=self._create_user("reader@example.com"),
+            experiment_ids=[shown.id, hidden_from_reader.id, deleted.id, elsewhere.id],
+        )
+
+        assert names == {shown.id: "Checkout redesign"}
+
+    def test_lists_own_running_experiments_with_any_exposure_newest_first(self) -> None:
+        now = timezone.now()
+        self._experiment("Onboarding tips", start_date=now - timedelta(days=80))
+        self._experiment("Custom exposure", start_date=now - timedelta(days=2), exposure_criteria=PAGEVIEW_EXPOSURE)
+        self._experiment("Checkout copy", start_date=now - timedelta(days=10))
+        self._experiment("Draft")
+        self._experiment("Ended", start_date=now - timedelta(days=30), end_date=now - timedelta(days=1))
+        self._experiment("Archived", start_date=now - timedelta(days=30), archived=True)
+        self._experiment("Deleted", start_date=now - timedelta(days=30), deleted=True)
+        self._experiment(
+            "Not yours", start_date=now - timedelta(days=5), created_by=self._create_user("other@example.com")
+        )
+
+        found = api.list_own_running_experiments(team_id=self.team.pk, user_id=self.user.pk, limit=2)
+
+        assert [e.name for e in found] == ["Custom exposure", "Checkout copy"]
+
 
 @time_machine.travel("2026-10-28T12:00:00Z", tick=False)
 class TestConnectExperimentChanged(BaseTest):
@@ -494,6 +545,97 @@ class TestTeamHasLaunchedExperiments(BaseTest):
         assert api.team_has_launched_experiments(self.team.id) is expected
 
 
+class TestExperimentAssistantContext(BaseTest):
+    def _create_experiment(self, team: Team, *, deleted: bool = False) -> Experiment:
+        flag = FeatureFlag.objects.create(
+            team=team,
+            key="checkout",
+            created_by=self.user,
+            filters={
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "rollout_percentage": 50},
+                        {"key": "test", "rollout_percentage": 50},
+                    ]
+                }
+            },
+        )
+        return Experiment.objects.create(
+            team=team,
+            name="Checkout test",
+            description="Does the new checkout convert better?",
+            feature_flag=flag,
+            created_by=self.user,
+            start_date=datetime(2026, 9, 1, tzinfo=UTC),
+            conclusion="won",
+            variants={"control": {"name": "Old checkout"}, "test": {}},
+            stats_config={"method": "frequentist"},
+            deleted=deleted,
+        )
+
+    @parameterized.expand([("by_id", True), ("by_flag_key", False)])
+    def test_reads_the_experiment_with_its_flag(self, _name: str, by_id: bool) -> None:
+        experiment = self._create_experiment(self.team)
+
+        context = async_to_sync(api.aget_experiment_assistant_context)(
+            self.team.id,
+            experiment_id=experiment.id if by_id else None,
+            feature_flag_key=None if by_id else "checkout",
+        )
+
+        assert context == ExperimentAssistantContext(
+            id=experiment.id,
+            team_id=self.team.id,
+            created_by_id=self.user.id,
+            name="Checkout test",
+            description="Does the new checkout convert better?",
+            type="product",
+            start_date=datetime(2026, 9, 1, tzinfo=UTC),
+            end_date=None,
+            created_at=experiment.created_at,
+            conclusion="won",
+            conclusion_comment=None,
+            stats_method="frequentist",
+            variant_names={"control": "Old checkout", "test": "test"},
+            feature_flag_key="checkout",
+            feature_flag_variants=(
+                ExperimentFlagVariantSplit(key="control", rollout_percentage=50),
+                ExperimentFlagVariantSplit(key="test", rollout_percentage=50),
+            ),
+        )
+
+    @parameterized.expand(
+        [
+            ("deleted", "own", "own", True),
+            ("another_team", "other", "own", False),
+            # Experiments save on the project's root team. An environment's id must not match them, because the
+            # caller checks object access against its own team.
+            ("environment_of_the_project", "own", "environment", False),
+        ]
+    )
+    def test_does_not_read(self, _name: str, experiment_team: str, lookup_team: str, deleted: bool) -> None:
+        teams = {
+            "own": self.team,
+            "other": Team.objects.create(organization=self.organization, name="Other"),
+            "environment": Team.objects.create(organization=self.organization, name="Env", parent_team=self.team),
+        }
+        experiment = self._create_experiment(teams[experiment_team], deleted=deleted)
+        aget_context = async_to_sync(api.aget_experiment_assistant_context)
+
+        assert aget_context(teams[lookup_team].id, experiment_id=experiment.id) is None
+        assert aget_context(teams[lookup_team].id, feature_flag_key="checkout") is None
+
+
+class TestGetExperimentTeamId(BaseTest):
+    def test_reads_the_team_of_any_experiment_including_a_deleted_one(self) -> None:
+        other_team = Team.objects.create(organization=Organization.objects.create(name="Other"), name="Other")
+        flag = FeatureFlag.objects.create(team=other_team, key="experiment-flag")
+        experiment = Experiment.objects.create(team=other_team, name="Experiment", feature_flag=flag, deleted=True)
+
+        assert api.get_experiment_team_id(experiment.id) == other_team.id
+        assert api.get_experiment_team_id(-1) is None
+
+
 class TestExperimentFlagIds(BaseTest):
     @parameterized.expand(
         [
@@ -661,14 +803,6 @@ class TestPrecomputationSettings(BaseTest):
         )
 
 
-def _github_with_repositories(*full_names: str) -> MagicMock:
-    return MagicMock(
-        return_value=SimpleNamespace(
-            list_all_cached_repositories=lambda max_repos: [{"full_name": full_name} for full_name in full_names]
-        )
-    )
-
-
 class TestTeamExperimentsSettings(BaseTest):
     def test_reads_every_setting(self) -> None:
         TeamExperimentsConfig.objects.create(
@@ -715,8 +849,8 @@ class TestTeamExperimentsSettings(BaseTest):
         )
 
         with patch(
-            "products.tasks.backend.facade.repo_selection.resolve_team_github_integration",
-            _github_with_repositories("PostHog/posthog"),
+            "products.tasks.backend.facade.repo_selection.team_repository_names",
+            return_value={"posthog/posthog": "PostHog/posthog"},
         ):
             updated = api.update_team_experiments_settings(
                 team_id=self.team.id,
@@ -791,8 +925,8 @@ class TestTeamExperimentsSettings(BaseTest):
 
         with (
             patch(
-                "products.tasks.backend.facade.repo_selection.resolve_team_github_integration",
-                _github_with_repositories("PostHog/posthog"),
+                "products.tasks.backend.facade.repo_selection.team_repository_names",
+                return_value={"posthog/posthog": "PostHog/posthog"},
             ),
             pytest.raises(ExperimentValidationError) as raised,
         ):
