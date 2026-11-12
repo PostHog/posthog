@@ -35,6 +35,8 @@ from django.conf import settings
 import pyarrow as pa
 import pyarrow.compute as pc
 
+from posthog.temporal.common.errors import NonReportableError
+
 # Exact duplicate detection has to remember every distinct key a run has produced. Past this budget
 # the keys move to a local SQLite index, so a huge materialization cannot OOM the worker. Peak memory
 # of the in-memory check is about this state plus one slice, and a worker runs many activities at
@@ -55,6 +57,11 @@ UNIQUE_KEY_CHECK_SLICE_ROWS = 1_000_000
 
 class IncrementalWriteError(Exception):
     """A batch cannot be safely upserted. Carries a message meant for the run's error field."""
+
+
+class DuplicateUniqueKeyError(IncrementalWriteError, NonReportableError):
+    """The unique key matches more than one row of the query's result. A rebuild reads every row the
+    failed window read, so a retry or a full refresh fails on the same repeat, after a longer scan."""
 
 
 class _TrackerClosed(Exception):
@@ -173,8 +180,8 @@ class UniqueKeyTracker:
         if self._closed.is_set():
             raise _TrackerClosed()
 
-    def _duplicate_key_error(self, occurrences: int) -> IncrementalWriteError:
-        return IncrementalWriteError(
+    def _duplicate_key_error(self, occurrences: int) -> DuplicateUniqueKeyError:
+        return DuplicateUniqueKeyError(
             f"The unique key ({', '.join(self._columns)}) does not identify a single row: one key "
             f"appears {occurrences} times in this run's result. Add the columns that tell those rows apart."
         )

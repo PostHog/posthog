@@ -47,7 +47,6 @@ from products.warehouse_sources.backend.logic.source_credentials import (
     CredentialsUnreadable,
     CredentialsUnreadableError,
     WarehouseSourceCredentialsStore,
-    same_connection_fields,
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.types import source_key
@@ -193,7 +192,7 @@ def read_connection_fields(source: ExternalDataSource, inputs: dict[str, Any]) -
         _count_read(source, "event_loop")
         raise RuntimeError("A warehouse source with credentials must be loaded with aload from async code")
     if slot is not None:
-        return _with_column_pointer(source, kept, slot)
+        return _with_column_pointer(source, inputs, kept, slot)
     stored: dict[str, Any] | CredentialsUnreadable | None
     if _PRELOADED_ROW_ATTR in source.__dict__:
         stored = source.__dict__[_PRELOADED_ROW_ATTR]
@@ -258,7 +257,7 @@ def read_connection_fields_many(
             continue
         if slot is not None:
             try:
-                result[source.id] = _with_column_pointer(source, kept, slot)
+                result[source.id] = _with_column_pointer(source, inputs, kept, slot)
             except SourceCredentialsMissingError:
                 pass
         elif reads_row:
@@ -405,12 +404,19 @@ def _without_store_keys(inputs: Mapping[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in inputs.items() if key not in STRIPPED_STORE_KEYS}
 
 
-def _with_column_pointer(source: ExternalDataSource, kept: dict[str, Any], slot: "PointerPath") -> dict[str, Any]:
+def _with_column_pointer(
+    source: ExternalDataSource, inputs: Mapping[str, Any], kept: dict[str, Any], slot: "PointerPath"
+) -> dict[str, Any]:
     from products.warehouse_sources.backend.temporal.data_imports.sources.common.oauth_pointers import (  # noqa: PLC0415 — see `_source_class`
+        pointer_at,
         with_pointer_at,
     )
 
     column = _column_legacy_id(source)
+    if column is None and not is_stripped(inputs):
+        # A source not yet stripped may have never had a column written, so `job_inputs` stay the only source.
+        _count_read(source, "oauth_reference" if pointer_at(kept, slot) is not None else "no_row")
+        return kept
     if column is None:
         _count_read(source, "missing")
         logger.error("warehouse_source_credentials.reference_missing", **_log_context(source))
@@ -534,11 +540,6 @@ def _slot_of(source_class: Any, inputs: Mapping[str, Any]) -> "PointerPath | Non
     if CONNECTION_FIELDS_STRIPPED_TYPED_IN_KEY in inputs:
         return None
     return source_class.in_use_oauth_slot(inputs)
-
-
-def connection_fields_equal(left: Mapping[str, Any], right: Mapping[str, Any]) -> bool:
-    """True when two connection field mappings hold the same stored values."""
-    return same_connection_fields(left, right)
 
 
 def split_connection_fields(source_type: str, inputs: Mapping[str, Any]) -> dict[str, Any]:

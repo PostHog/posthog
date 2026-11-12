@@ -25,11 +25,14 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_select
+from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.constants import AvailableFeature, GroupTypeIndex
 from posthog.helpers.dashboard_templates import create_group_type_mapping_detail_dashboard
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.group.group import Group
 from posthog.models.group.util import ListGroupsResult, create_group, list_groups, raw_create_group_ch
 from posthog.models.group_type_mapping import (
@@ -46,6 +49,7 @@ from posthog.personhog_client.fake_client import fake_personhog_client
 from posthog.test.persons import create_group_type_mapping, create_person
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
+from products.access_control.backend.facade import api as access_control_api
 from products.access_control.backend.facade.contracts import PropertyAccessLevel
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
@@ -62,6 +66,13 @@ def typed_group_type_index(value: int) -> GroupTypeIndex:
 
 
 class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
+    def _assert_group_activity_records_group_type(self, group_type_index: int) -> None:
+        entries = ActivityLog.objects.filter(team_id=self.team.id, scope="Group")
+        self.assertTrue(entries.exists())
+        for entry in entries:
+            assert isinstance(entry.detail, dict)
+            self.assertEqual(entry.detail["context"], {"group_type_index": group_type_index})
+
     maxDiff = None
 
     @time_machine.travel("2021-05-02", tick=False)
@@ -538,6 +549,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
             self.assertIsNone(result["detail"]["changes"][0]["before"])
             prop_name = result["detail"]["name"]
             self.assertEqual(result["detail"]["changes"][0]["after"], group_properties[prop_name])
+        self._assert_group_activity_records_group_type(0)
 
     @mock.patch("products.groups.backend.presentation.views.capture_internal")
     def test_create_group_duplicated_group_key(self, mock_capture):
@@ -749,6 +761,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["action"], "created")
         self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["before"], None)
         self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["after"], "technology")
+        self._assert_group_activity_records_group_type(0)
 
     @time_machine.travel("2021-05-02", tick=False)
     @mock.patch("products.groups.backend.presentation.views.capture_internal")
@@ -831,6 +844,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["action"], "changed")
         self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["before"], "finance")
         self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["after"], "technology")
+        self._assert_group_activity_records_group_type(0)
 
     @mock.patch("products.groups.backend.presentation.views.capture_internal")
     def test_group_property_update_reuses_definition_from_another_environment(self, mock_capture):
@@ -991,6 +1005,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["action"], "deleted")
         self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["before"], "finance")
         self.assertEqual(response.json()["results"][0]["detail"]["changes"][0]["after"], None)
+        self._assert_group_activity_records_group_type(0)
 
     @time_machine.travel("2021-05-02", tick=False)
     def test_group_property_crud_delete_missing_key(self):
@@ -2708,6 +2723,81 @@ class TestGroupsRestrictedProperties(ClickhouseTestMixin, APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/groups?group_type_index=0&search={search}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["results"]), expected_count)
+
+    def _restrict_nested_customer_tax_id(self) -> PropertyDefinition:
+        nested_def = PropertyDefinition.objects.create(
+            team=self.team,
+            name="customer.tax_id",
+            property_type="String",
+            type=PropertyDefinition.Type.GROUP,
+            group_type_index=0,
+        )
+        PropertyAccessControl.objects.create(
+            team=self.team, property_definition=nested_def, access_level=PropertyAccessLevel.NONE.value
+        )
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org:2",
+            properties={"name": "Initech", "customer": {"tier": "gold", "tax_id": "example-tax-id"}},
+        )
+        return nested_def
+
+    @parameterized.expand(
+        [
+            ("sibling_of_restricted_path", None, "gold", ["org:2"]),
+            ("parent_of_restricted_path", None, "customer", ["org:2"]),
+            ("restricted_nested_value", None, "example-tax-id", []),
+            ("restricted_nested_key", None, "tax_id", []),
+            ("allowed_user_nested_value", PropertyAccessLevel.READ, "example-tax-id", ["org:2"]),
+        ]
+    )
+    def test_list_search_skips_only_restricted_nested_values(
+        self, _name: str, member_level: PropertyAccessLevel | None, search: str, expected_keys: list[str]
+    ) -> None:
+        nested_def = self._restrict_nested_customer_tax_id()
+        if member_level is not None:
+            PropertyAccessControl.objects.create(
+                team=self.team,
+                property_definition=nested_def,
+                access_level=member_level.value,
+                organization_member=self.organization_membership,
+            )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/groups?group_type_index=0&search={search}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([group["group_key"] for group in response.json()["results"]], expected_keys)
+
+    def test_list_search_reads_masked_properties(self) -> None:
+        self._restrict_nested_customer_tax_id()
+        restricted_properties = access_control_api.get_restricted_properties_for_group_type(
+            user=self.user, team_id=self.team.pk, group_type_index=0
+        )
+
+        printed: dict[str, Any] = {}
+
+        def print_query(query: ast.SelectQuery, *, context: HogQLContext, **_kwargs: Any) -> mock.MagicMock:
+            print_context = HogQLContext(
+                team_id=self.team.pk,
+                team=self.team,
+                enable_select_queries=True,
+                restricted_properties=context.restricted_properties,
+            )
+            printed["sql"], _ = prepare_and_print_ast(query, context=print_context, dialect="clickhouse")
+            printed["values"] = print_context.values
+            return mock.MagicMock(results=[])
+
+        with patch("posthog.hogql.query.execute_hogql_query", side_effect=print_query):
+            list_groups(
+                team_id=self.team.pk, group_type_index=0, search="gold", restricted_properties=restricted_properties
+            )
+
+        # The search reads the properties blob through the mask, so it never sees a restricted value.
+        having = printed["sql"].split("HAVING", 1)[1]
+        self.assertIn("ilike(toString(if(empty(", having)
+        self.assertIn("JSONDropKeysPool(", having)
+        self.assertIn(["arr", "customer.tax_id"], list(printed["values"].values()))
 
     def test_related_hides_restricted_properties(self) -> None:
         for index, group_type in [(0, "organization"), (1, "company")]:

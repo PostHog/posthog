@@ -2,11 +2,11 @@ import { MakeLogicType, actions, afterMount, kea, listeners, path, reducers } fr
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
-import { lemonToast } from '@posthog/lemon-ui'
-
 import api from 'lib/api'
 import { ACCESS_BLOCKED_ERROR_CODE, PROJECT_ACCESS_DENIED_DETAIL } from 'lib/api-error'
 import { timeSensitiveAuthenticationLogic } from 'lib/components/TimeSensitiveAuthentication/timeSensitiveAuthenticationLogic'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { isOAuthMode } from 'lib/utils/oauthClient'
 import { twoFactorLogic } from 'scenes/authentication/two-factor-setup/twoFactorLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -201,7 +201,13 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
                 if (response?.status === 403) {
                     const responseData = await response?.json()
                     markCurrentProjectAccessDenied(response.url, responseData)
-                    if (
+                    if (responseData.code === 'ip_not_allowed' && !isOAuthMode()) {
+                        if (!cache.ipRestrictionRedirectStarted) {
+                            cache.ipRestrictionRedirectStarted = true
+                            // A document request renders the denial page without fetching blocked app data.
+                            window.location.reload()
+                        }
+                    } else if (
                         responseData.code === 'two_factor_setup_required' &&
                         !values.timeSensitiveAuthenticationRequired &&
                         !twoFactorLogic.findMounted()?.values.isTwoFactorSetupModalOpen

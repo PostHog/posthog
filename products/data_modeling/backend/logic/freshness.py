@@ -43,7 +43,14 @@ import dataclasses
 from collections import defaultdict, deque
 from collections.abc import Collection, Iterable, Mapping, Set
 from datetime import timedelta
-from typing import Literal
+
+from products.data_modeling.backend.facade.contracts import (
+    Bound,
+    TargetBounds,
+    TargetOption,
+    UnsatisfiableFrequencyError,
+    UnsupportedFrequencyTargetError,
+)
 
 # A streamed source (e.g. the events table) is continuously fresh, so it imposes no
 # floor: a descendant may be as tight as the buckets allow. Imported sources instead
@@ -71,14 +78,6 @@ SCHEDULABLE_BUCKETS: frozenset[timedelta] = frozenset(
         timedelta(days=30),
     }
 )
-
-
-class UnsatisfiableFrequencyError(ValueError):
-    """A declared target falls outside the node's legal [source_floor, consumer_ceiling] range."""
-
-
-class UnsupportedFrequencyTargetError(ValueError):
-    """A declared target is not one of the cadences a person may pick (SCHEDULABLE_BUCKETS)."""
 
 
 def is_finer_than(cadence: timedelta, other: timedelta) -> bool:
@@ -179,19 +178,6 @@ def compute_effective_cadences(
     if len(resolved) != len(nodes):
         raise ValueError(f"cycle detected in DAG; unresolved nodes: {sorted(nodes - resolved.keys())}")
     return resolved
-
-
-@dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
-class Bound:
-    """A bound and the node that set it, so a refusal can name what someone has to change.
-
-    `blocker` is the node the value originates from, carried across the whole traversal rather
-    than the immediate neighbour: a floor propagated down four views still points at the source
-    that delivers slowly, which is the thing a person can act on.
-    """
-
-    value: timedelta
-    blocker: str | None  # None when nothing set it (a derived node with no parents)
 
 
 def _bound_sort_key(bound: Bound) -> tuple[timedelta, str]:
@@ -439,45 +425,6 @@ def normalize_seed_target(seed: timedelta, source_floor: timedelta) -> timedelta
     if is_finer_than(bucket, source_floor):
         return _nearest_at_least(source_floor, SCHEDULABLE_BUCKETS)
     return bucket
-
-
-BlockedBy = Literal["source", "consumer"]
-
-
-@dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
-class TargetOption:
-    """One cadence a person could pick, and why it is withheld when it is."""
-
-    value: timedelta
-    allowed: bool
-    blocked_by: BlockedBy | None = None
-    blocker: str | None = None  # node id of the source or consumer that withholds it
-
-
-@dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
-class TargetBounds:
-    """Every selectable cadence for one node, each marked allowed or blocked with its cause.
-
-    `floor` and `ceiling` are reported only when they actually withhold an option. A 5min source
-    delivers faster than any tier runs, so it withholds nothing, and reporting it would explain a
-    restriction the person cannot see.
-    """
-
-    options: tuple[TargetOption, ...]  # ascending by cadence
-    floor: Bound | None = None
-    ceiling: Bound | None = None
-
-    @property
-    def allowed(self) -> tuple[timedelta, ...]:
-        return tuple(option.value for option in self.options if option.allowed)
-
-    @property
-    def satisfiable(self) -> bool:
-        """False when nothing is legal: bounds that cross, or a source slower than every target."""
-        return bool(self.allowed)
-
-    def option_for(self, target: timedelta) -> TargetOption | None:
-        return next((option for option in self.options if option.value == target), None)
 
 
 def compute_target_bounds(

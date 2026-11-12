@@ -72,7 +72,7 @@ capture = { path = ".", features = ["test-utils"] }
 # tests use, so they assert the timeout without sleeping in real time.
 tokio = { workspace = true, features = ["test-util"] }
 assert-json-diff = { workspace = true }
-brotli = "8"
+brotli = "9"
 zstd = "0.13"
 common-continuous-profiling = { path = "../common/continuous_profiling" }
 anyhow = { workspace = true }
@@ -81,7 +81,7 @@ futures = { workspace = true }
 metrics-util = { workspace = true }
 once_cell = { workspace = true }
 rand = { workspace = true }
-rstest = "0.26"
+rstest = "0.28"
 strum = { version = "0.28", features = ["derive"] }
 rdkafka = { workspace = true }
 reqwest = { workspace = true, features = ["multipart"] }

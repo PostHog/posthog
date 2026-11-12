@@ -80,8 +80,9 @@ Every refusal carries a `code`. Do not retry any of them unchanged.
 Use `inbox-reports-create` when the user wants a finding of their own, often from their own
 agent, to land in the inbox. The tool is behind a rollout flag, so it is not always present.
 
-1. Search first. Call `inbox-reports-list` with `search` for the topic. If a report already covers
-   it, tell the user and work on that report instead of filing a near-duplicate.
+1. Search first. Call `inbox-reports-search` with a `query` for the topic, and search again in other words
+   before you decide nothing matches. When that tool is not present, call `inbox-reports-list` with `search`.
+   If a report already covers it, tell the user and work on that report instead of filing a near-duplicate.
 2. Send `title`, `summary`, at least one `evidence` entry, `actionability`, and
    `actionability_explanation`. Add `suggested_reviewers` to route it to the people who should read it.
 3. Read the result. `report_status` is `ready`, `pending_input`, or `suppressed`. A suppressed report

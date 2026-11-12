@@ -39,7 +39,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    rank_incremental_fields,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import resolve_detected_primary_keys
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.keyset import KeysetResumeState
@@ -526,6 +529,22 @@ _SPURIOUS_CANCEL_EXHAUSTED_MESSAGE = (
     "mid-query, or someone or something on your database canceled it. Check your database and "
     "pooler logs around the time of the failure. This sync is still enabled and will run again on "
     "its next schedule."
+)
+
+# Twin of `_SPURIOUS_CANCEL_EXHAUSTED_MESSAGE` for a genuine statement_timeout hit by one of the
+# cheap, single-table catalog lookups `_get_table` runs during setup (the materialized-view/view
+# checks, the column metadata SELECT). Those normally finish in milliseconds, so a timeout here on
+# every retry points at something external rather than a doomed query: a connection pooler that ran
+# the setup's own `SET statement_timeout` and the next statement on different backends (see
+# client_deadline.py's module docstring), or a lock another session holds on the table.
+_METADATA_PROBE_TIMEOUT_EXHAUSTED_MESSAGE = (
+    "PostHog's own check of this table's metadata hit your database's statement timeout, and it "
+    "kept happening on every retry, even though that check normally finishes in milliseconds. This "
+    "usually means a connection pooler is routing PostHog's statements to different backend "
+    "connections, so the longer timeout PostHog sets never applies to the next one, or something "
+    "else is holding a long-running lock on this table. Check your pooler's session affinity and "
+    "your database for long-running transactions on this table. This sync is still enabled and "
+    "will run again on its next schedule."
 )
 
 _SERIALIZATION_CONFLICT_EXHAUSTED_MESSAGE = (
@@ -1524,6 +1543,26 @@ class PostgresSource(
             # file-descriptor exhaustion that clears once load on the source drops, so that case
             # must stay retryable. The volatile file path is excluded from the match.
             "Input/output error": _SOURCE_PAGE_CORRUPTION_ERROR,
+            # The server's dynamic loader failed to `dlopen()` a native extension library it needs
+            # to evaluate a column or function — `UndefinedFile` (SQLSTATE 58P01), observed as
+            # PostGIS's library failing to load because the server is missing GEOS, one of its own
+            # OS-level dependencies: `could not load library "...": libgeos_c.so.1: cannot open
+            # shared object file: No such file or directory`. The missing library lives in the
+            # server's own package install, not anything in our query, so every retry dlopens the
+            # same absent file. `dlerror()` reports the same "cannot open shared object file:"
+            # prefix for any errno, including transient `EMFILE`/`ENFILE` ("Too many open files")
+            # when the server has exhausted file descriptors for an otherwise-installed library —
+            # the sibling trap the file-descriptor-exhaustion case above guards against. Match the
+            # specific "No such file or directory" (`ENOENT`) reason so that case stays retryable,
+            # and exclude the volatile library path, which embeds the server's build/version.
+            "cannot open shared object file: No such file or directory": (
+                "Your PostgreSQL server failed to load a native extension library it needs to read "
+                'this data ("could not load library ... cannot open shared object file"). This '
+                "usually means the extension (for example PostGIS) is missing one of its own "
+                "OS-level dependencies on the database server. Reinstall or repair the extension's "
+                "dependencies on your database server, or ask your database provider to, then "
+                "re-enable the sync."
+            ),
             # Raised when a Postgres numeric value cannot be represented in any Delta-compatible
             # decimal type — the pipeline falls back through the best-fit decimal and
             # `decimal256(76, 32)` before giving up. Only triggers when source data genuinely
@@ -1821,9 +1860,25 @@ class PostgresSource(
         # rather than the direct connection. Without it here, every occurrence of an otherwise
         # transient foreign-server blip would still be logged at `exception` and flood error
         # tracking, the exact failure mode this set exists to avoid.
+        #
+        # "canceling statement due to statement timeout" reaching here is a genuine server-side
+        # statement_timeout cancellation that nothing converted first — unlike the data-read path
+        # (`get_rows`'s offset chunking and server-cursor FETCH), which always converts this into a
+        # more specific exception (`_statement_timeout_as_non_retryable`, `_full_table_timeout_error`,
+        # `_keyset_page_timeout_error`) before it can propagate, and unlike the whole-schema catalog
+        # scan in `_schemas_from_conn`, which converts it to the non-retryable
+        # `_schema_discovery_timeout_error` because its cost scales with the schema. The one place
+        # that currently leaves this raw is `_get_table`'s own per-table catalog probes (the
+        # materialized-view/view checks, the column metadata SELECT) — each a cheap, single-table
+        # lookup that normally finishes in milliseconds, so a timeout there points at something
+        # external (a pooler that ran `_get_table`'s own `SET statement_timeout` and the next
+        # statement on different backends, or a lock another session holds), not a query doomed to
+        # repeat the same failure. A fresh connection on retry can land on a backend without that
+        # problem, so it's self-recovering like the other entries here.
         return {
             CLIENT_DEADLINE_ERROR,
             "canceling statement due to user request",
+            "canceling statement due to statement timeout",
             *_CONNECTION_DROPPED_ERROR_SUBSTRINGS,
             *_POOLER_CONNECTION_DROPPED_ERROR_SUBSTRINGS,
             *_SERVER_STARTING_UP_ERROR_SUBSTRINGS,
@@ -1859,6 +1914,7 @@ class PostgresSource(
             "TransactionRetryWithProtoRefreshError": _SERIALIZATION_CONFLICT_EXHAUSTED_MESSAGE,
             CLIENT_DEADLINE_ERROR: _CLIENT_DEADLINE_EXHAUSTED_MESSAGE,
             "canceling statement due to user request": _SPURIOUS_CANCEL_EXHAUSTED_MESSAGE,
+            "canceling statement due to statement timeout": _METADATA_PROBE_TIMEOUT_EXHAUSTED_MESSAGE,
             HOST_RESOLUTION_TIMEOUT_ERROR: HOST_RESOLUTION_EXHAUSTED_MESSAGE,
             TEMPORARY_HOST_RESOLUTION_ERROR: HOST_RESOLUTION_EXHAUSTED_MESSAGE,
             _SSH_FORWARD_FAILED_ERROR: _SSH_FORWARD_FAILED_EXHAUSTED_MESSAGE,
@@ -2056,17 +2112,19 @@ class PostgresSource(
             # None when index discovery failed for the whole listing — default to True so
             # a transient permission/query error never produces a misleading warning.
             indexed_cols = indexed_columns_by_table.get(table_name) if indexed_columns_by_table is not None else None
-            incremental_fields: list[IncrementalField] = [
-                {
-                    "label": field_name,
-                    "type": field_type,
-                    "field": field_name,
-                    "field_type": field_type,
-                    "nullable": nullable,
-                    "is_indexed": True if indexed_cols is None else field_name in indexed_cols,
-                }
-                for field_name, field_type, nullable in incremental_field_tuples
-            ]
+            incremental_fields: list[IncrementalField] = rank_incremental_fields(
+                [
+                    {
+                        "label": field_name,
+                        "type": field_type,
+                        "field": field_name,
+                        "field_type": field_type,
+                        "nullable": nullable,
+                        "is_indexed": True if indexed_cols is None else field_name in indexed_cols,
+                    }
+                    for field_name, field_type, nullable in incremental_field_tuples
+                ]
+            )
             # `supports_incremental`/`supports_append` must reflect the real cursor fields only —
             # compute them before appending the synthetic xmin entry.
             supports_real_cursor = len(incremental_fields) > 0

@@ -36,6 +36,7 @@ from products.signals.backend.activity_summary.read import (
     readable_config,
     ready_view,
 )
+from products.signals.backend.hybrid_search import SearchMode, SemanticSearchUnavailable, reciprocal_rank_fusion
 from products.signals.backend.models import UserActivitySummary
 from products.signals.backend.ranking.features import EMBEDDING_DIMENSIONS
 from products.signals.backend.report_embeddings import EMBEDDING_PRODUCT
@@ -46,9 +47,6 @@ logger = structlog.get_logger(__name__)
 SEARCH_FLAG = "activity-summary-search"
 DEFAULT_LIMIT = 10
 MAX_LIMIT = 25
-# The standard constant from the reciprocal rank fusion paper. It keeps one top rank from outweighing
-# agreement between the two rankings.
-RRF_K = 60
 # The member roster attaches activity only to a narrowed result, so a full roster stays small.
 MAX_MEMBERS_WITH_ACTIVITY = 10
 # The roster carries a short activity block per member, so it keeps only the most active objects.
@@ -84,12 +82,6 @@ LIMIT %(limit)s
 """
 
 
-class SearchMode(models.TextChoices):
-    HYBRID = "hybrid"
-    SEMANTIC = "semantic"
-    KEYWORD = "keyword"
-
-
 class MatchKind(models.TextChoices):
     SEMANTIC = "semantic"
     HEADLINE = "headline"
@@ -97,10 +89,6 @@ class MatchKind(models.TextChoices):
     OWNED = "owned"
     WATCHED = "watched"
     PROFILE = "profile"
-
-
-class SemanticSearchUnavailable(Exception):
-    """The query embedding or the vector read failed, so a semantic-only search has no ranking."""
 
 
 @frozen
@@ -249,7 +237,7 @@ def search_summaries(
             if search_mode == SearchMode.SEMANTIC:
                 raise SemanticSearchUnavailable() from error
 
-    scores = _fuse([keyword_ranking, semantic_ranking])
+    scores = reciprocal_rank_fusion([keyword_ranking, semantic_ranking])
     semantic_ids = set(semantic_ranking)
     top_scores = sorted(scores.items(), key=lambda item: (-item[1], item[0]))[:limit]
     _prefetch_github_identities([candidates[user_id] for user_id, _ in top_scores])
@@ -318,9 +306,12 @@ def _prefetch_github_identities(candidates: Sequence[_Candidate]) -> None:
     # Deferred: resolve_reviewers imports the engineering_analytics facade, which imports the signals facade.
     from products.signals.backend.report_generation.resolve_reviewers import (  # noqa: PLC0415
         _github_identity_prefetches,
+        _with_team_github_integrations,
     )
 
-    prefetch_related_objects([candidate.user for candidate in candidates], *_github_identity_prefetches())
+    users = [candidate.user for candidate in candidates]
+    prefetch_related_objects(users, *_github_identity_prefetches())
+    _with_team_github_integrations(users)
 
 
 def _uses_product(computed: dict[str, Any], product: str) -> bool:
@@ -416,14 +407,6 @@ def _semantic_ranking(team: Team, query: str, user_ids: Iterable[int], *, limit:
         or [],
     )
     return [int(user_id) for user_id, _ in rows]
-
-
-def _fuse(rankings: Sequence[Sequence[int]]) -> dict[int, float]:
-    scores: dict[int, float] = {}
-    for ranking in rankings:
-        for rank, user_id in enumerate(ranking, start=1):
-            scores[user_id] = scores.get(user_id, 0.0) + 1.0 / (RRF_K + rank)
-    return scores
 
 
 def _hit(

@@ -105,7 +105,7 @@ export interface FlameGraphProps<Meta = unknown> {
     config?: FlameGraphConfig
     /** Case-insensitive match on node names. Non-matches dim. */
     search?: string
-    /** Read on mount only; give the chart a new `key` to open on another node. */
+    /** Read on mount only, and scrolled to the top of the viewport; give the chart a new `key` to open on another node. */
     defaultFocusedId?: string | null
     tooltip?: (ctx: FlameTooltipContext<Meta>) => React.ReactNode
     /** Called when a click, a breadcrumb, Escape or reset changes the zoom, with null for no zoom. */

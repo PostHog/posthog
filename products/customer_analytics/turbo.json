@@ -6,6 +6,7 @@
                 "backend/facade/**",
                 "backend/presentation/**",
                 "backend/routes.py",
+                "backend/integration_hooks.py",
                 "backend/webhook_consumers.py",
                 "backend/hogql_queries/**",
                 "backend/max_tools.py",
@@ -14,7 +15,12 @@
                 "backend/signals.py",
                 "backend/models/**",
                 "backend/migrations/**",
-                "backend/scopes.py"
+                "backend/scopes.py",
+                "backend/activity_logging.py",
+                "backend/apps.py",
+                "backend/logic/account_property_projection.py",
+                "backend/logic/person_property_projection.py",
+                "backend/logic/person_property_runs.py"
             ],
             "outputs": [],
             "cache": true

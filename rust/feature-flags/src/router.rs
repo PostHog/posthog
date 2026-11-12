@@ -724,19 +724,24 @@ fn spawn_rate_limiter_cleanup_task<C>(
     });
 }
 
-/// Tests a single database pool by acquiring a connection and optionally running a test query.
+/// Opens `min_connections` connections in a pool (at least one) and optionally runs a test
+/// query on one of them.
+///
+/// A lazy sqlx pool with an `idle_timeout` does not open `min_connections` at startup. It
+/// tops up only after it reaps an idle connection, so a pool that stays busy never reaches
+/// its minimum. Holding all connections at once makes the pool open each of them.
 ///
 /// When `skip_query` is true (because `test_before_acquire` is enabled), only connection
 /// acquisition is tested since sqlx already validates connections on acquire.
-async fn test_pool_connection(pool: &PgPool, name: &str, skip_query: bool) -> Result<(), String> {
-    let mut conn = pool
-        .acquire()
+async fn warm_pool_connections(pool: &PgPool, name: &str, skip_query: bool) -> Result<(), String> {
+    let count = pool.options().get_min_connections().max(1) as usize;
+    let mut conns = futures::future::try_join_all((0..count).map(|_| pool.acquire()))
         .await
         .map_err(|e| format!("{name} pool unavailable: {e}"))?;
 
     if !skip_query {
         sqlx::query("SELECT 1")
-            .execute(&mut *conn)
+            .execute(&mut *conns[0])
             .await
             .map_err(|e| format!("{name} connection test failed: {e}"))?;
     }
@@ -787,19 +792,19 @@ pub async fn startup(database_pools: Arc<DatabasePools>) -> &'static str {
     // Best-effort warmup: try all pools in parallel, log failures, never block startup
     let skip_query = database_pools.test_before_acquire;
     let (reader_result, writer_result, persons_reader_result, persons_writer_result) = tokio::join!(
-        test_pool_connection(
+        warm_pool_connections(
             &database_pools.non_persons_reader,
             "non_persons_reader",
             skip_query
         ),
-        test_pool_connection(
+        warm_pool_connections(
             &database_pools.non_persons_writer,
             "non_persons_writer",
             skip_query
         ),
         async {
             if persons_reader_is_distinct {
-                test_pool_connection(&database_pools.persons_reader, "persons_reader", skip_query)
+                warm_pool_connections(&database_pools.persons_reader, "persons_reader", skip_query)
                     .await
             } else {
                 Ok(()) // Already warmed via non_persons_reader
@@ -807,7 +812,7 @@ pub async fn startup(database_pools: Arc<DatabasePools>) -> &'static str {
         },
         async {
             if persons_writer_is_distinct {
-                test_pool_connection(&database_pools.persons_writer, "persons_writer", skip_query)
+                warm_pool_connections(&database_pools.persons_writer, "persons_writer", skip_query)
                     .await
             } else {
                 Ok(()) // Already warmed via non_persons_writer
@@ -846,36 +851,32 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn test_pool_connection_success() {
-        let database_url = std::env::var("DATABASE_URL")
-            .unwrap_or("postgres://posthog:posthog@localhost:5432/test_database".to_string());
+    async fn test_warm_pool_connections_success() {
+        let database_url = crate::config::Config::default_test_config().read_database_url;
 
         let pool = sqlx::postgres::PgPoolOptions::new()
-            .max_connections(1)
+            .min_connections(3)
+            .max_connections(5)
+            .idle_timeout(std::time::Duration::from_secs(300))
             .connect_lazy(&database_url)
             .expect("Failed to create pool");
 
-        let result = test_pool_connection(&pool, "test_pool", false).await;
+        warm_pool_connections(&pool, "test_pool", false)
+            .await
+            .expect("warmup should succeed");
 
-        // If database is available, connection test should succeed
-        // If not, it will fail - both are acceptable in test environment
-        match result {
-            Ok(()) => {}
-            Err(e) => {
-                assert!(e.contains("test_pool"));
-            }
-        }
+        assert_eq!(pool.size(), 3);
     }
 
     #[tokio::test]
-    async fn test_pool_connection_failure_includes_pool_name() {
+    async fn test_warm_pool_connections_failure_includes_pool_name() {
         let pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(1)
             .acquire_timeout(std::time::Duration::from_millis(100))
             .connect_lazy("postgres://invalid:invalid@localhost:54321/nonexistent")
             .expect("Failed to create pool");
 
-        let result = test_pool_connection(&pool, "test_pool", false).await;
+        let result = warm_pool_connections(&pool, "test_pool", false).await;
 
         assert!(result.is_err());
         let err = result.unwrap_err();

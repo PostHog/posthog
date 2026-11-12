@@ -1,9 +1,6 @@
-from datetime import UTC, datetime, timedelta
-from types import SimpleNamespace
-from typing import Any, cast
+from datetime import datetime, timedelta
 
 from posthog.test.base import APIBaseTest, _create_event, flush_persons_and_events
-from unittest.mock import patch
 
 from django.conf import settings
 from django.core.cache import cache
@@ -12,12 +9,12 @@ from django.utils.timezone import now
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import Comment, SessionRecordingPlaylist
+from posthog.models import Comment, SessionRecording, SessionRecordingPlaylist
 from posthog.models.event.sql import EVENTS_JSON_DATA_TABLE
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.utils import uuid7
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
-from posthog.session_recordings.session_recording_api import RecordingsListingResult
+from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.session_recordings.synthetic_playlists import ExpiringPlaylistSource, FrustrationSignalsPlaylistSource
 
 from products.exports.backend.models.exported_asset import ExportedAsset
@@ -56,34 +53,34 @@ class TestSyntheticPlaylists(APIBaseTest):
 
         assert sorted(synthetic_short_ids) == sorted(expected)
 
+    def _produce_recording(self, session_id: str, retention_period_days: int) -> None:
+        produce_replay_summary(
+            team_id=self.team.pk,
+            session_id=session_id,
+            first_timestamp=now() - timedelta(hours=1),
+            retention_period_days=retention_period_days,
+            ensure_analytics_event_in_session=False,
+        )
+
     def test_expiring_playlist_caches_and_shares_one_scan(self) -> None:
         cache.clear()
-
-        now_ts = datetime.now(UTC)
-        recordings = [
-            SimpleNamespace(session_id="expiring-soon", expiry_time=now_ts + timedelta(days=3)),
-            SimpleNamespace(session_id="expiring-later", expiry_time=now_ts + timedelta(days=40)),
-            SimpleNamespace(session_id="no-expiry", expiry_time=None),
-        ]
+        expiring_soon, expiring_later, expiring_after_first_scan = (str(uuid7()) for _ in range(3))
+        self._produce_recording(expiring_soon, retention_period_days=5)
+        self._produce_recording(expiring_later, retention_period_days=30)
 
         source = ExpiringPlaylistSource()
 
-        with patch(
-            "posthog.session_recordings.synthetic_playlists.list_recordings_from_query",
-            return_value=RecordingsListingResult(
-                recordings=cast(Any, recordings), more_recordings_available=False, timings_header="", next_cursor=None
-            ),
-        ) as mock_query:
-            count = source.count_session_ids(self.team, self.user)
-            session_ids = source.get_session_ids(self.team, self.user)
-            # a second list load within the cache TTL must not re-scan
-            recount = source.count_session_ids(self.team, self.user)
+        count = source.count_session_ids(self.team, self.user)
+        self._produce_recording(expiring_after_first_scan, retention_period_days=5)
+        session_ids = source.get_session_ids(self.team, self.user)
+        # a second list load within the cache TTL must not re-scan
+        recount = source.count_session_ids(self.team, self.user)
 
-        assert count == 1
-        assert recount == 1
-        assert session_ids == ["expiring-soon"]
+        assert expiring_soon in session_ids
+        assert expiring_later not in session_ids
         # count + get_session_ids + recount share a single cached scan
-        assert mock_query.call_count == 1
+        assert expiring_after_first_scan not in session_ids
+        assert recount == count == len(session_ids)
 
     def test_retrieve_synthetic_playlist(self) -> None:
         playlist = self._get_synthetic_playlist("synthetic-watch-history")
@@ -181,6 +178,56 @@ class TestSyntheticPlaylists(APIBaseTest):
         playlist = self._get_synthetic_playlist("synthetic-exported")
 
         assert playlist["recordings_counts"]["collection"]["count"] == 2
+
+    def test_list_counts_each_session_once_including_numeric_export_ids(self) -> None:
+        other_user = self._create_user("other@posthog.com")
+        SessionRecordingViewed.objects.create(team=self.team, user=self.user, session_id="viewed-1")
+        SessionRecordingViewed.objects.create(team=self.team, user=self.user, session_id="viewed-2")
+        SessionRecordingViewed.objects.create(team=self.team, user=self.user, session_id="123")
+        SessionRecordingViewed.objects.create(team=self.team, user=other_user, session_id="viewed-by-other")
+        for session_id in ("viewed-1", "viewed-1", "viewed-by-other"):
+            Comment.objects.create(team=self.team, created_by=self.user, scope="Replay", item_id=session_id)
+        SharingConfiguration.objects.create(
+            team=self.team,
+            recording=SessionRecording.objects.create(team=self.team, session_id="viewed-2"),
+            enabled=True,
+            access_token="shared-token",
+        )
+        for export_session_id in ("viewed-1", "viewed-1", "unviewed", 123):
+            ExportedAsset.objects.create(
+                team=self.team,
+                export_format=ExportedAsset.ExportFormat.GIF,
+                export_context={"session_recording_id": export_session_id},
+                created_by=self.user,
+            )
+        cache.set(
+            ExpiringPlaylistSource._get_cache_key(self.team.pk),
+            ["viewed-2", "unviewed"],
+            ExpiringPlaylistSource.CACHE_TTL,
+        )
+        cache.set(
+            FrustrationSignalsPlaylistSource._get_cache_key(self.team.pk),
+            [],
+            FrustrationSignalsPlaylistSource.CACHE_TTL,
+        )
+
+        results = self._get_playlists_response()["results"]
+
+        counts = {
+            playlist["short_id"]: (
+                playlist["recordings_counts"]["collection"]["count"],
+                playlist["recordings_counts"]["collection"]["watched_count"],
+            )
+            for playlist in results
+        }
+        assert counts == {
+            "synthetic-watch-history": (3, 3),
+            "synthetic-commented": (2, 1),
+            "synthetic-shared": (1, 1),
+            "synthetic-exported": (3, 2),
+            "synthetic-expiring": (2, 1),
+            "synthetic-frustrated": (None, 0),
+        }
 
     @parameterized.expand(
         [

@@ -26,7 +26,10 @@ from posthog.security.url_validation import strip_userinfo
 from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 
 from ..llm.client import Client
-from ..llm.decisions import DecisionClient
+from ..llm.decisions import (
+    DecisionClient,
+    error_field_for_validation_message as system_one_error_field,
+)
 from ..llm.providers.anthropic import (
     DISALLOWED_FOUNDRY_ENDPOINT_MESSAGE,
     error_field_for_validation_message as anthropic_error_field,
@@ -94,7 +97,8 @@ def _validation_error_field(provider: str, error_message: str | None) -> str | N
 
     Azure OpenAI, Anthropic on Microsoft Foundry, and OpenAI-compatible providers may fail because
     of endpoint issues (unreachable, wrong domain, 404), in which case the error is attributed to the
-    endpoint field so the UI can highlight the right input. Callers that must land the error on some field fall back to
+    endpoint field so the UI can highlight the right input. A System One endpoint that does not know the model is
+    attributed to the model ID field. Callers that must land the error on some field fall back to
     `api_key`; the pre-validation endpoint reports the field separately and keeps the None.
     """
     if provider == LLMProvider.AZURE_OPENAI:
@@ -103,6 +107,8 @@ def _validation_error_field(provider: str, error_message: str | None) -> str | N
         return anthropic_error_field(error_message)
     if provider == LLMProvider.OPENAI_COMPATIBLE:
         return openai_compatible_error_field(error_message)
+    if provider == LLMProvider.SYSTEM_ONE:
+        return system_one_error_field(error_message)
     return None
 
 
@@ -373,7 +379,8 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
             self._pop_provider_config_kwargs(provider, validated_data)
             state, error_message = validate_provider_key(provider, api_key or "", team_id=team.id, **connection_config)
             if state != LLMProviderKey.State.OK:
-                raise serializers.ValidationError({"api_key": error_message})
+                error_field = _validation_error_field(provider, error_message) or "api_key"
+                raise serializers.ValidationError({error_field: error_message})
             validated_data["encrypted_config"] = {"api_key": api_key or "", **connection_config}
             validated_data["state"] = state
             validated_data["error_message"] = None
@@ -407,7 +414,8 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
                 config["api_key"] = validated_data.pop("api_key", config.get("api_key", ""))
                 state, error_message = validate_provider_key(instance.provider, team_id=instance.team_id, **config)
                 if state != LLMProviderKey.State.OK:
-                    raise serializers.ValidationError({"api_key": error_message})
+                    error_field = _validation_error_field(instance.provider, error_message) or "api_key"
+                    raise serializers.ValidationError({error_field: error_message})
                 instance.encrypted_config = config
                 instance.state = state
                 instance.error_message = None

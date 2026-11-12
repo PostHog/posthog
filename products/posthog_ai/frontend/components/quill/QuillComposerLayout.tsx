@@ -109,7 +109,8 @@ export function QuillComposerLayout({
                     // The textarea is Lemon's, so quill's own focus rule, keyed to its input slot, never fires here.
                     'h-auto cursor-text flex-col bg-[var(--card)] focus-within:border-[color-mix(in_oklab,var(--ring)_50%,transparent)] focus-within:shadow-[0_0_0_3px_color-mix(in_oklab,var(--ring)_30%,transparent)] ' +
                     // LemonTextArea puts the composer's padding on both its wrapper and the textarea. The wrapper keeps it, so the textarea drops it. The textarea keeps 2px on the left because it clips the caret at x=0.
-                    '[&_[data-slot=composer-placeholder]]:top-2 [&_[data-slot=composer-placeholder]]:left-2.5 [&_[data-slot=composer-placeholder]]:right-0 [&_[data-slot=composer-placeholder]]:truncate [&_textarea]:p-0 [&_textarea]:pl-0.5 ' +
+                    '[&_textarea]:p-0 [&_textarea]:pl-0.5 ' +
+                    '[&_:has(>[data-slot=composer-placeholder])]:grid [&_:has(>[data-slot=composer-placeholder])>*]:[grid-area:1/1] [&_[data-slot=composer-placeholder]]:static [&_[data-slot=composer-placeholder]]:min-w-0 [&_[data-slot=composer-placeholder]]:truncate [&_[data-slot=composer-placeholder]]:py-2 [&_[data-slot=composer-placeholder]]:pl-2.5 [&_[data-slot=composer-placeholder]]:pr-2.5 ' +
                     // One line tall at rest: the field is only as tall as the send button and its ledge need, then grows with the text.
                     '[&_:has(>textarea)]:min-h-10 [&_:has(>textarea)]:pr-1 [&_textarea]:min-h-0'
                 }

@@ -11,6 +11,8 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     AddSourcesRequestApi,
     AddSourcesResponseApi,
+    ApplyMigrationItemApi,
+    ApplyMigrationItemResponseApi,
     CdcEnableResponseApi,
     CdcPrerequisitesResponseApi,
     CdcStatusApi,
@@ -40,6 +42,7 @@ import type {
     ExternalDataSourceCreateResponseApi,
     ExternalDataSourceExistsApi,
     ExternalDataSourceSerializersApi,
+    ExternalDataSourceSyncStateApi,
     ExternalDataSourcesConnectLinkRetrieveParams,
     ExternalDataSourcesJobsListParams,
     ExternalDataSourcesListParams,
@@ -69,6 +72,7 @@ import type {
     SourcePreviewResponseApi,
     SourceSetupApi,
     SourceSetupResponseApi,
+    UpdateWebhookInputsRequestApi,
     UpdateWebhookInputsResponseApi,
     WarehouseAlertCreateDestinationApi,
     WarehouseAlertDeleteDestinationApi,
@@ -81,6 +85,9 @@ import type {
     WarehouseMigrationItemApi,
     WarehouseMigrationSkipItemsApi,
     WarehouseMigrationSkipItemsResponseApi,
+    WarehouseMigrationStartUploadApi,
+    WarehouseMigrationUploadConnectionsApi,
+    WarehouseMigrationUploadResponseApi,
     WarehouseMigrationsConnectLinkRetrieveParams,
     WarehouseMigrationsItemsListParams,
     WarehouseMigrationsListParams,
@@ -872,14 +879,11 @@ export const getExternalDataSourcesCreateWebhookCreateUrl = (projectId: string, 
 export const externalDataSourcesCreateWebhookCreate = async (
     projectId: string,
     id: string,
-    externalDataSourceSerializersApi: NonReadonly<ExternalDataSourceSerializersApi>,
     options?: RequestInit
 ): Promise<CreateWebhookResponseApi> => {
     return apiMutator<CreateWebhookResponseApi>(getExternalDataSourcesCreateWebhookCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(externalDataSourceSerializersApi),
     })
 }
 
@@ -893,14 +897,11 @@ export const getExternalDataSourcesDeleteWebhookCreateUrl = (projectId: string, 
 export const externalDataSourcesDeleteWebhookCreate = async (
     projectId: string,
     id: string,
-    externalDataSourceSerializersApi: NonReadonly<ExternalDataSourceSerializersApi>,
     options?: RequestInit
 ): Promise<DeleteWebhookResponseApi> => {
     return apiMutator<DeleteWebhookResponseApi>(getExternalDataSourcesDeleteWebhookCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(externalDataSourceSerializersApi),
     })
 }
 
@@ -1194,7 +1195,7 @@ export const getExternalDataSourcesUpdateWebhookInputsCreateUrl = (projectId: st
 export const externalDataSourcesUpdateWebhookInputsCreate = async (
     projectId: string,
     id: string,
-    externalDataSourceSerializersApi: NonReadonly<ExternalDataSourceSerializersApi>,
+    updateWebhookInputsRequestApi: UpdateWebhookInputsRequestApi,
     options?: RequestInit
 ): Promise<UpdateWebhookInputsResponseApi> => {
     return apiMutator<UpdateWebhookInputsResponseApi>(
@@ -1203,7 +1204,7 @@ export const externalDataSourcesUpdateWebhookInputsCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(externalDataSourceSerializersApi),
+            body: JSON.stringify(updateWebhookInputsRequestApi),
         }
     )
 }
@@ -1223,6 +1224,26 @@ export const externalDataSourcesWebhookInfoRetrieve = async (
     return apiMutator<WebhookInfoResponseApi>(getExternalDataSourcesWebhookInfoRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getExternalDataSourcesApplyMigrationItemCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/external_data_sources/apply_migration_item/`
+}
+
+/**
+ * Create the planned PostHog source for one migration item, then set its sync schedule.
+ */
+export const externalDataSourcesApplyMigrationItemCreate = async (
+    projectId: string,
+    applyMigrationItemApi: ApplyMigrationItemApi,
+    options?: RequestInit
+): Promise<ApplyMigrationItemResponseApi> => {
+    return apiMutator<ApplyMigrationItemResponseApi>(getExternalDataSourcesApplyMigrationItemCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(applyMigrationItemApi),
     })
 }
 
@@ -1589,6 +1610,25 @@ export const externalDataSourcesStoredCredentialsList = async (
     })
 }
 
+export const getExternalDataSourcesSyncStateRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/external_data_sources/sync_state/`
+}
+
+/**
+ * Return a fingerprint of the sync state the sources list shows.
+ *
+ * A client that polls the list can compare fingerprints and refetch the list only when it changed.
+ */
+export const externalDataSourcesSyncStateRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ExternalDataSourceSyncStateApi> => {
+    return apiMutator<ExternalDataSourceSyncStateApi>(getExternalDataSourcesSyncStateRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getExternalDataSourcesWizardRetrieveUrl = (
     projectId: string,
     params?: ExternalDataSourcesWizardRetrieveParams
@@ -1830,6 +1870,27 @@ export const warehouseMigrationsDestroy = async (
     })
 }
 
+export const getWarehouseMigrationsConnectionsCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/warehouse_migrations/${id}/connections/`
+}
+
+/**
+ * Plan vendor connections an agent read, and add them to an uploaded migration.
+ */
+export const warehouseMigrationsConnectionsCreate = async (
+    projectId: string,
+    id: string,
+    warehouseMigrationUploadConnectionsApi?: WarehouseMigrationUploadConnectionsApi,
+    options?: RequestInit
+): Promise<WarehouseMigrationUploadResponseApi> => {
+    return apiMutator<WarehouseMigrationUploadResponseApi>(getWarehouseMigrationsConnectionsCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(warehouseMigrationUploadConnectionsApi),
+    })
+}
+
 export const getWarehouseMigrationsItemsListUrl = (
     projectId: string,
     id: string,
@@ -1866,6 +1927,25 @@ export const warehouseMigrationsItemsList = async (
             method: 'GET',
         }
     )
+}
+
+export const getWarehouseMigrationsItemsRetrieveUrl = (projectId: string, id: string, itemId: string) => {
+    return `/api/projects/${projectId}/warehouse_migrations/${id}/items/${itemId}/`
+}
+
+/**
+ * Import a team's Fivetran setup and plan the PostHog sources that replace it.
+ */
+export const warehouseMigrationsItemsRetrieve = async (
+    projectId: string,
+    id: string,
+    itemId: string,
+    options?: RequestInit
+): Promise<WarehouseMigrationItemApi> => {
+    return apiMutator<WarehouseMigrationItemApi>(getWarehouseMigrationsItemsRetrieveUrl(projectId, id, itemId), {
+        ...options,
+        method: 'GET',
+    })
 }
 
 export const getWarehouseMigrationsItemsSkipCreateUrl = (projectId: string, id: string, itemId: string) => {
@@ -1963,4 +2043,24 @@ export const warehouseMigrationsConnectLinkRetrieve = async (
             method: 'GET',
         }
     )
+}
+
+export const getWarehouseMigrationsUploadCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/warehouse_migrations/upload/`
+}
+
+/**
+ * Start a migration that an agent fills with what it reads from the vendor, without a vendor key.
+ */
+export const warehouseMigrationsUploadCreate = async (
+    projectId: string,
+    warehouseMigrationStartUploadApi: WarehouseMigrationStartUploadApi,
+    options?: RequestInit
+): Promise<WarehouseMigrationApi> => {
+    return apiMutator<WarehouseMigrationApi>(getWarehouseMigrationsUploadCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(warehouseMigrationStartUploadApi),
+    })
 }

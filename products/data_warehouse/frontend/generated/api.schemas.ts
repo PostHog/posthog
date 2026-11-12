@@ -1166,6 +1166,8 @@ export interface WarehouseTrinoStatusApi {
      * @nullable
      */
     ready_at: string | null
+    /** Whether the organization's Trino catalog is backed by hoglake. Hoglake credentials reach nothing otherwise. */
+    hoglake: boolean
     /** Trino connection target. Null until Trino is ready and reachable. */
     connection: WarehouseTrinoConnectionApi | null
 }
@@ -1887,8 +1889,6 @@ export interface DataWarehouseSavedQueryMinimalApi {
     readonly user_access_level: string | null
     /** The engine that runs this view, and what the product can do with it. */
     readonly engine: ViewEngineApi
-    /** Deprecated, read `engine` instead. Whether this view stores raw Trino SQL. Only hosted Trino can run it, and HogQL queries cannot reference it. */
-    readonly is_raw_managed_trino: boolean
 }
 
 export interface PaginatedDataWarehouseSavedQueryMinimalListApi {
@@ -2193,6 +2193,8 @@ export interface DataWarehouseSavedQueryApi {
      * @nullable
      */
     soft_update?: boolean | null
+    /** Confirm an update that removes columns used by downstream views. The first request is refused with code 'breaking_column_change' and names the affected views that the caller can access. */
+    acknowledge_breaking_changes?: boolean
     /** @nullable */
     readonly is_materialized: boolean | null
     /** Where this SavedQuery is created.
@@ -2217,8 +2219,6 @@ export interface DataWarehouseSavedQueryApi {
     readonly suspended: DataWarehouseSavedQueryApiSuspended
     /** The engine that runs this view, and what the product can do with it. */
     readonly engine: ViewEngineApi
-    /** Deprecated, read `engine` instead. Whether this view stores raw Trino SQL. Only hosted Trino can run it, and HogQL queries cannot reference it. */
-    readonly is_raw_managed_trino: boolean
 }
 
 export type PatchedDataWarehouseSavedQueryApiQueryKind =
@@ -2321,6 +2321,8 @@ export interface PatchedDataWarehouseSavedQueryApi {
      * @nullable
      */
     soft_update?: boolean | null
+    /** Confirm an update that removes columns used by downstream views. The first request is refused with code 'breaking_column_change' and names the affected views that the caller can access. */
+    acknowledge_breaking_changes?: boolean
     /** @nullable */
     readonly is_materialized?: boolean | null
     /** Where this SavedQuery is created.
@@ -2345,8 +2347,6 @@ export interface PatchedDataWarehouseSavedQueryApi {
     readonly suspended?: PatchedDataWarehouseSavedQueryApiSuspended
     /** The engine that runs this view, and what the product can do with it. */
     readonly engine?: ViewEngineApi
-    /** Deprecated, read `engine` instead. Whether this view stores raw Trino SQL. Only hosted Trino can run it, and HogQL queries cannot reference it. */
-    readonly is_raw_managed_trino?: boolean
 }
 
 /**
@@ -2830,6 +2830,22 @@ export interface PatchedTableApi {
      * @nullable
      */
     readonly user_access_level?: string | null
+}
+
+export interface HistoryTableRefApi {
+    /** ID of the history table. */
+    id: string
+    /** Name the history table is queried by in HogQL. */
+    name: string
+    /** Whether you can change who can access the history table. */
+    user_can_manage_access: boolean
+}
+
+export interface TableHistoryTableApi {
+    /** Whether this table has access rules of its own that you can manage, so there are rules to copy to its history table. */
+    main_table_has_copyable_rules: boolean
+    /** The table's history table, which keeps every past version of its rows. `null` when the table has none or you can't view it. */
+    history_table: HistoryTableRefApi | null
 }
 
 /**

@@ -12,7 +12,7 @@
         "marked": "*",
         "monaco-editor": "^0.55.1",
         "posthog-js": "catalog:",
-        "react-intersection-observer": "^9.5.3",
+        "react-intersection-observer": "^9.16.0",
         "tailwind-merge": "*"
     },
     "devDependencies": {

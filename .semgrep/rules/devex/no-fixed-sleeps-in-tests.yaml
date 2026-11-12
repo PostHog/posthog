@@ -1,0 +1,23 @@
+rules:
+    - id: no-fixed-sleeps-in-tests
+      pattern-either:
+          - pattern: time.sleep(...)
+          - patterns:
+                - pattern: asyncio.sleep(...)
+                - pattern-not: asyncio.sleep(0, ...)
+      message: >-
+          A fixed sleep does not prove another operation finished. Wait for an event,
+          future, or process output; control the clock; or set timestamps explicitly.
+          Use posthog.test.waiting.wait_until for bounded condition polling. To block
+          until cancellation, await an asyncio.Event that nothing sets. If elapsed
+          time is the behavior under test, explain why next to a specific
+          nosemgrep: no-fixed-sleeps-in-tests exemption.
+      languages: [python]
+      severity: WARNING
+      paths:
+          include:
+              - '**/test_*.py'
+              - '**/*_test.py'
+              - '**/conftest.py'
+              - '**/test/**/*.py'
+              - '**/tests/**/*.py'

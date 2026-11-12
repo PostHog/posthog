@@ -19,7 +19,7 @@ from products.warehouse_sources.sources.sdk import (
     detect,
 )
 from products.warehouse_sources.sources.statuspage._config import StatuspageSourceConfig
-from products.warehouse_sources.sources.statuspage.settings import ENDPOINTS, INCREMENTAL_FIELDS
+from products.warehouse_sources.sources.statuspage.settings import ENDPOINTS, INCREMENTAL_FIELDS, STATUSPAGE_ENDPOINTS
 from products.warehouse_sources.sources.statuspage.statuspage import (
     StatuspageResumeConfig,
     statuspage_source,
@@ -67,6 +67,11 @@ class StatuspageSource(ResumableSource[StatuspageSourceConfig, StatuspageResumeC
                 ],
             ),
         )
+
+    def resume_covers_run(self, *, incremental_or_append: bool, schema_name: str | None = None) -> bool:
+        # Endpoints two levels under /pages run as a chained fan-out, which saves no resume state.
+        config = STATUSPAGE_ENDPOINTS.get(schema_name) if schema_name else None
+        return config is None or config.parent is None
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {

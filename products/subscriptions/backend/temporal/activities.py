@@ -12,11 +12,14 @@ import temporalio.activity
 from structlog import get_logger
 from temporalio.exceptions import ApplicationError
 
+from posthog.dataclasses import frozen
 from posthog.sync import database_sync_to_async
 from posthog.utils import pluralize
 
-from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.dashboards.backend.facade import api as dashboards_api
+from products.dashboards.backend.facade.contracts import DashboardInsightTileSummary, DashboardSummary
 from products.exports.backend.models.exported_asset import ExportedAsset
+from products.product_analytics.backend.facade.api import insights_including_soft_deleted_for_team
 from products.product_analytics.backend.facade.models import Insight
 from products.subscriptions.backend.logic import _capture_delivery_failed_event
 from products.subscriptions.backend.logic.auto_disable import (
@@ -83,40 +86,52 @@ class NoExportableInsightsError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@frozen
 class ResolvedExportableInsights:
-    tile_insight_pairs: list[tuple[DashboardTile | None, Insight]]
+    tile_insight_pairs: list[tuple[DashboardInsightTileSummary | None, Insight]]
     available_insight_count: int
     selected_insight_count: int
     no_exportable_reason: str | None
+    dashboard: DashboardSummary | None = None
+
+
+def _insight_tiles_in_layout_order(
+    *, team_id: int, dashboard_id: int
+) -> list[tuple[DashboardInsightTileSummary | None, Insight]]:
+    tiles = sorted(
+        dashboards_api.insight_tiles(dashboard_id=dashboard_id),
+        key=lambda tile: (tile.layouts.get("sm", {}).get("y", 100), tile.layouts.get("sm", {}).get("x", 100)),
+    )
+    insights = {
+        insight.id: insight
+        for insight in insights_including_soft_deleted_for_team(
+            team_id=team_id, insight_ids=[tile.insight_id for tile in tiles]
+        )
+    }
+    return [(tile, insights[tile.insight_id]) for tile in tiles if tile.insight_id in insights]
 
 
 async def _resolve_exportable_insights(subscription: Subscription) -> ResolvedExportableInsights:
-    dashboard = subscription.dashboard
-    if dashboard:
+    dashboard = (
+        await database_sync_to_async(dashboards_api.get_dashboard, thread_sensitive=False)(
+            team_id=subscription.team_id, dashboard_id=subscription.dashboard_id, include_deleted=True
+        )
+        if subscription.dashboard_id is not None
+        else None
+    )
+    if dashboard is not None:
         if dashboard.deleted:
             return ResolvedExportableInsights(
                 tile_insight_pairs=[],
                 available_insight_count=0,
                 selected_insight_count=0,
                 no_exportable_reason=NoExportableInsightsReason.DASHBOARD_DELETED,
+                dashboard=dashboard,
             )
 
-        tiles = await database_sync_to_async(
-            lambda: list(
-                dashboard.tiles.select_related("insight").filter(insight__isnull=False, insight__deleted=False).all()
-            ),
-            thread_sensitive=False,
-        )()
-        tiles.sort(
-            key=lambda x: (
-                (x.layouts or {}).get("sm", {}).get("y", 100),
-                (x.layouts or {}).get("sm", {}).get("x", 100),
-            )
+        tile_insight_pairs = await database_sync_to_async(_insight_tiles_in_layout_order, thread_sensitive=False)(
+            team_id=subscription.team_id, dashboard_id=dashboard.id
         )
-        tile_insight_pairs: list[tuple[DashboardTile | None, Insight]] = [
-            (tile, tile.insight) for tile in tiles if tile.insight
-        ]
         available_insight_count = len(tile_insight_pairs)
         selected_ids = await database_sync_to_async(
             lambda: (
@@ -127,7 +142,7 @@ async def _resolve_exportable_insights(subscription: Subscription) -> ResolvedEx
             thread_sensitive=False,
         )()
         if selected_ids:
-            selected_pairs: list[tuple[DashboardTile | None, Insight]] = [
+            selected_pairs: list[tuple[DashboardInsightTileSummary | None, Insight]] = [
                 (tile, insight) for tile, insight in tile_insight_pairs if insight.id in selected_ids
             ]
             return ResolvedExportableInsights(
@@ -137,6 +152,7 @@ async def _resolve_exportable_insights(subscription: Subscription) -> ResolvedEx
                 no_exportable_reason=(
                     None if selected_pairs else NoExportableInsightsReason.SELECTED_INSIGHTS_NO_LONGER_AVAILABLE
                 ),
+                dashboard=dashboard,
             )
 
         return ResolvedExportableInsights(
@@ -144,6 +160,7 @@ async def _resolve_exportable_insights(subscription: Subscription) -> ResolvedEx
             available_insight_count=available_insight_count,
             selected_insight_count=0,
             no_exportable_reason=None if tile_insight_pairs else NoExportableInsightsReason.EMPTY_DASHBOARD,
+            dashboard=dashboard,
         )
 
     if subscription.insight and not subscription.insight.deleted:
@@ -231,7 +248,7 @@ async def fetch_due_subscriptions_activity(inputs: FetchDueSubscriptionsActivity
 async def validate_subscription_for_delivery(subscription_id: int) -> DeliveryAbort | None:
     """Returns abort info when delivery should not proceed; None to continue."""
     subscription = await database_sync_to_async(
-        Subscription.objects.select_related("created_by", "integration").get,
+        Subscription.objects.select_related("created_by").get,
         thread_sensitive=False,
     )(pk=subscription_id)
 
@@ -278,23 +295,24 @@ async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExport
         )
 
     subscription = await database_sync_to_async(
-        Subscription.objects.select_related("created_by", "insight", "dashboard", "team").get,
+        Subscription.objects.select_related("created_by", "insight", "team").get,
         thread_sensitive=False,
     )(pk=inputs.subscription_id)
 
     team = subscription.team
-    dashboard = subscription.dashboard
+    has_dashboard = subscription.dashboard_id is not None
 
     await LOGGER.ainfo(
         "create_export_assets.loaded",
         subscription_id=inputs.subscription_id,
-        has_dashboard=bool(dashboard),
+        has_dashboard=has_dashboard,
         has_insight=bool(subscription.insight_id),
         target_type=subscription.target_type,
     )
 
     resolved_insights = await _resolve_exportable_insights(subscription)
     tile_insight_pairs = resolved_insights.tile_insight_pairs
+    dashboard = resolved_insights.dashboard
 
     total_insight_count = len(tile_insight_pairs)
 
@@ -304,7 +322,7 @@ async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExport
             raise RuntimeError("No-exportable-insights resolution missing a failure reason")
         failure_context: NoExportableInsightsContext = {
             "reason": no_exportable_reason,
-            "resource_type": "dashboard" if dashboard else "insight" if subscription.insight_id else "unknown",
+            "resource_type": "dashboard" if has_dashboard else "insight" if subscription.insight_id else "unknown",
             "available_insight_count": resolved_insights.available_insight_count,
             "selected_insight_count": resolved_insights.selected_insight_count,
         }
@@ -341,7 +359,7 @@ async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExport
             team=team,
             export_format=ExportedAsset.ExportFormat.PNG,
             insight=insight,
-            dashboard=dashboard,
+            dashboard_id=subscription.dashboard_id,
             expires_after=expiry,
             # The exporter runs the insight query as the asset's creator; without it the render is
             # userless and warehouse access control fails closed, breaking subscription deliveries.
@@ -444,7 +462,7 @@ async def _deliver_subscription(inputs: DeliverSubscriptionInputs) -> DeliverSub
     recipient_results: list[RecipientResult] = []
 
     subscription = await database_sync_to_async(
-        Subscription.objects.select_related("created_by", "insight", "dashboard", "team", "integration").get,
+        Subscription.objects.select_related("created_by", "insight", "dashboard", "team").get,
         thread_sensitive=False,
     )(pk=inputs.subscription_id)
 

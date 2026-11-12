@@ -9,7 +9,13 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    AlertReceiverApi,
+    AlertReceiverWriteApi,
+    AlertRouteApi,
+    AlertRouteWriteApi,
     PaginatedPlatformAlertConfigurationListApi,
+    PatchedAlertReceiverWriteApi,
+    PatchedAlertRouteWriteApi,
     PatchedPlatformAlertConfigurationEditApi,
     PlatformAlertApi,
     PlatformAlertConfigurationApi,
@@ -18,9 +24,161 @@ import type {
     PlatformAlertCreateDestinationApi,
     PlatformAlertDeleteDestinationApi,
     PlatformAlertDestinationApi,
+    PlatformAlertEventApi,
     PlatformAlertGroupSnoozeApi,
+    PlatformAlertSnoozeApi,
+    PlatformAlertsEventsListParams,
     PlatformAlertsListParams,
 } from './api.schemas'
+
+export const getPlatformAlertReceiversListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/platform_alert_receivers/`
+}
+
+/**
+ * List the project's alert receivers.
+ */
+export const platformAlertReceiversList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<AlertReceiverApi[]> => {
+    return apiMutator<AlertReceiverApi[]>(getPlatformAlertReceiversListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getPlatformAlertReceiversCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/platform_alert_receivers/`
+}
+
+/**
+ * Add a receiver that routes can send alerts to.
+ */
+export const platformAlertReceiversCreate = async (
+    projectId: string,
+    alertReceiverWriteApi: AlertReceiverWriteApi,
+    options?: RequestInit
+): Promise<AlertReceiverApi> => {
+    return apiMutator<AlertReceiverApi>(getPlatformAlertReceiversCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(alertReceiverWriteApi),
+    })
+}
+
+export const getPlatformAlertReceiversPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/platform_alert_receivers/${id}/`
+}
+
+/**
+ * Change a receiver. Destination fields replace the stored destination and need the type.
+ */
+export const platformAlertReceiversPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedAlertReceiverWriteApi?: PatchedAlertReceiverWriteApi,
+    options?: RequestInit
+): Promise<AlertReceiverApi> => {
+    return apiMutator<AlertReceiverApi>(getPlatformAlertReceiversPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedAlertReceiverWriteApi),
+    })
+}
+
+export const getPlatformAlertReceiversDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/platform_alert_receivers/${id}/`
+}
+
+/**
+ * Delete a receiver and every route that sends to it.
+ */
+export const platformAlertReceiversDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getPlatformAlertReceiversDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getPlatformAlertRoutesListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/platform_alert_routes/`
+}
+
+/**
+ * List the project's alert routes, in the order delivery reads them.
+ */
+export const platformAlertRoutesList = async (projectId: string, options?: RequestInit): Promise<AlertRouteApi[]> => {
+    return apiMutator<AlertRouteApi[]>(getPlatformAlertRoutesListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getPlatformAlertRoutesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/platform_alert_routes/`
+}
+
+/**
+ * Add a route. Every alert whose labels match it also sends to its receiver.
+ */
+export const platformAlertRoutesCreate = async (
+    projectId: string,
+    alertRouteWriteApi: AlertRouteWriteApi,
+    options?: RequestInit
+): Promise<AlertRouteApi> => {
+    return apiMutator<AlertRouteApi>(getPlatformAlertRoutesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(alertRouteWriteApi),
+    })
+}
+
+export const getPlatformAlertRoutesPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/platform_alert_routes/${id}/`
+}
+
+/**
+ * Change a route. Fields left out keep their stored value.
+ */
+export const platformAlertRoutesPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedAlertRouteWriteApi?: PatchedAlertRouteWriteApi,
+    options?: RequestInit
+): Promise<AlertRouteApi> => {
+    return apiMutator<AlertRouteApi>(getPlatformAlertRoutesPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedAlertRouteWriteApi),
+    })
+}
+
+export const getPlatformAlertRoutesDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/platform_alert_routes/${id}/`
+}
+
+/**
+ * Delete a route.
+ */
+export const platformAlertRoutesDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getPlatformAlertRoutesDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
 
 export const getPlatformAlertsListUrl = (projectId: string, params?: PlatformAlertsListParams) => {
     const normalizedParams = new URLSearchParams()
@@ -185,6 +343,82 @@ export const platformAlertsDestinationsDeleteCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(platformAlertDeleteDestinationApi),
+    })
+}
+
+export const getPlatformAlertsEventsListUrl = (
+    projectId: string,
+    id: string,
+    params?: PlatformAlertsEventsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/platform_alerts/${id}/events/?${stringifiedParams}`
+        : `/api/projects/${projectId}/platform_alerts/${id}/events/`
+}
+
+/**
+ * The alert's history over the past 30 days, newest first: checks that moved its state or failed, and the changes people made to it. Checks that changed nothing are left out.
+ * @summary List an alert's history
+ */
+export const platformAlertsEventsList = async (
+    projectId: string,
+    id: string,
+    params?: PlatformAlertsEventsListParams,
+    options?: RequestInit
+): Promise<PlatformAlertEventApi[]> => {
+    return apiMutator<PlatformAlertEventApi[]>(getPlatformAlertsEventsListUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getPlatformAlertsResetCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/platform_alerts/${id}/reset/`
+}
+
+/**
+ * Clears a broken alert's failure count so it is checked again.
+ * @summary Reset a broken alert
+ */
+export const platformAlertsResetCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<PlatformAlertConfigurationApi> => {
+    return apiMutator<PlatformAlertConfigurationApi>(getPlatformAlertsResetCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getPlatformAlertsSnoozeCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/platform_alerts/${id}/snooze/`
+}
+
+/**
+ * @summary Snooze a whole alert
+ */
+export const platformAlertsSnoozeCreate = async (
+    projectId: string,
+    id: string,
+    platformAlertSnoozeApi: PlatformAlertSnoozeApi,
+    options?: RequestInit
+): Promise<PlatformAlertConfigurationApi> => {
+    return apiMutator<PlatformAlertConfigurationApi>(getPlatformAlertsSnoozeCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(platformAlertSnoozeApi),
     })
 }
 

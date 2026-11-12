@@ -204,4 +204,52 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "valid_to_relative_days": "Number of days the membership is valid for from the issue date. Null if fixed.",
         },
     },
+    "holds": {
+        "description": "A hold that reserves tickets for an event occurrence so they cannot be sold.",
+        "docs_url": "https://developers.tickettailor.com/docs/api/get-hold-list",
+        "columns": {
+            "id": "A unique identifier for the hold.",
+            "event_id": "ID of the event that the hold belongs to.",
+            "note": "A note for the hold.",
+            "total_on_hold": "Total number of tickets on hold.",
+            "quantities": "Hold quantities for each associated ticket type ID.",
+            "created_at": "Timestamp when the hold was created.",
+            "updated_at": "Timestamp when the hold was last updated.",
+        },
+    },
+    "stores": {
+        "description": "A store in your box office that sells products.",
+        "docs_url": "https://developers.tickettailor.com/docs/api/get-store-list",
+        "columns": {
+            "id": "A unique identifier for the store.",
+            "name": "Name of the store.",
+            "currency": "The currency code used by the store.",
+            "payment_methods": "IDs of the payment methods associated with the store.",
+            "products": "IDs of the products that are sold in the store.",
+        },
+    },
+    "voucher_codes": {
+        "description": "An individual code issued under a voucher, with its value and redemption state.",
+        "docs_url": "https://developers.tickettailor.com/docs/api/get-voucher-code-list",
+        "columns": {
+            "id": "A unique identifier for the voucher code.",
+            "voucher_id": "ID of the voucher that the code belongs to.",
+            "code": "The voucher code.",
+            "value": "The value of the voucher code, in cents.",
+            "expiry": "When the voucher code expires.",
+            "used": "When the voucher code was used. Null if not used.",
+        },
+    },
+    "waitlist_signups": {
+        "description": "A signup to the waitlist of an event series.",
+        "docs_url": "https://developers.tickettailor.com/docs/api/get-event-series-waitlist-list",
+        "columns": {
+            "id": "A unique identifier for the waitlist signup.",
+            "event_series_id": "ID of the event series whose waitlist the signup belongs to.",
+            "event_id": "ID of the event occurrence the signup is attached to.",
+            "email": "Email address of the person who signed up.",
+            "notified_date": "When the person was notified. Null if not notified.",
+            "created_at": "When the waitlist signup was created.",
+        },
+    },
 }

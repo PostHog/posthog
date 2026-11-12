@@ -17,7 +17,6 @@ import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { type FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
-import { publicWebhooksHostOrigin } from 'lib/utils/apiHost'
 import { objectsEqual } from 'lib/utils/objects'
 import { sanitizeInputs } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
 import type { EmailFieldErrors } from 'scenes/hog-functions/email-templater/types'
@@ -32,6 +31,7 @@ import { resourceEditedLogic } from 'products/notifications/frontend/resourceEdi
 import {
     hogFlowsCreate,
     hogFlowsResumeEmailSending,
+    hogFlowsRunCreate,
     hogFlowsSchedulesCreate,
     hogFlowsSchedulesDestroy,
 } from 'products/workflows/frontend/generated/api'
@@ -77,6 +77,7 @@ import {
 } from './hogflows/types'
 import { openPublishConfirmDialog } from './PublishImpactDialog'
 import { ResourceSaveQueue } from './resourceSaveQueue'
+import { hasEditAccess } from './workflowAccess'
 import { workflowStartPath } from './workflowBuilderProgress'
 import { prepareWorkflowDuplicate } from './workflowDuplication'
 import {
@@ -437,6 +438,7 @@ export interface workflowLogicValues {
     isRowScopedTrigger: boolean
     isScheduleRepeating: boolean
     isSyncingExternalEdit: boolean
+    isViewOnly: boolean
     isWorkflowSubmitting: boolean
     isWorkflowValid: boolean
     keepsLocalEditsOnExternalEdit: boolean
@@ -830,8 +832,9 @@ export interface workflowLogicActions {
                                         value: any
                                     }
                                 >
-                                message_category_id?: string | undefined
+                                message_category_id?: string | null | undefined
                                 message_category_type?: 'marketing' | 'transactional' | undefined
+                                skip_frequency_cap?: boolean | undefined
                                 template_id: 'template-email'
                                 template_uuid?: string | undefined
                                 tracking_enabled?: boolean | undefined
@@ -1719,8 +1722,9 @@ export interface workflowLogicActions {
                                         value: any
                                     }
                                 >
-                                message_category_id?: string | undefined
+                                message_category_id?: string | null | undefined
                                 message_category_type?: 'marketing' | 'transactional' | undefined
+                                skip_frequency_cap?: boolean | undefined
                                 template_id: 'template-email'
                                 template_uuid?: string | undefined
                                 tracking_enabled?: boolean | undefined
@@ -2666,8 +2670,9 @@ export interface workflowLogicActions {
                           value: any
                       }
                   >
-                  message_category_id?: string | undefined
+                  message_category_id?: string | null | undefined
                   message_category_type?: 'marketing' | 'transactional' | undefined
+                  skip_frequency_cap?: boolean | undefined
                   template_id: 'template-email'
                   template_uuid?: string | undefined
                   tracking_enabled?: boolean | undefined
@@ -3078,8 +3083,9 @@ export interface workflowLogicActions {
                           value: any
                       }
                   >
-                  message_category_id?: string | undefined
+                  message_category_id?: string | null | undefined
                   message_category_type?: 'marketing' | 'transactional' | undefined
+                  skip_frequency_cap?: boolean | undefined
                   template_id: 'template-email'
                   template_uuid?: string | undefined
                   tracking_enabled?: boolean | undefined
@@ -3180,6 +3186,7 @@ export interface workflowLogicMeta {
         ) => AiEmailDraftStatusProps | null
         logicProps: (arg: WorkflowLogicProps) => WorkflowLogicProps
         workflowUserAccessLevel: (originalWorkflow: HogFlow | null) => AccessControlLevel | null
+        isViewOnly: (workflowUserAccessLevel: AccessControlLevel | null) => boolean
         currentSchedule: (schedules: HogFlowSchedule[], selectedScheduleId: string | null) => HogFlowSchedule | null
         pendingSchedule: (
             currentSchedule: HogFlowSchedule | null,
@@ -4039,6 +4046,10 @@ export const workflowLogic = kea<workflowLogicType>([
             (s) => [s.originalWorkflow],
             (originalWorkflow: HogFlow | null): AccessControlLevel | null =>
                 originalWorkflow?.user_access_level ?? null,
+        ],
+        isViewOnly: [
+            (s) => [s.workflowUserAccessLevel],
+            (workflowUserAccessLevel: AccessControlLevel | null): boolean => !hasEditAccess(workflowUserAccessLevel),
         ],
         currentSchedule: [
             (s) => [s.schedules, s.selectedScheduleId],
@@ -4992,12 +5003,15 @@ export const workflowLogic = kea<workflowLogicType>([
             })
         },
         setWorkflowInfo: async ({ workflow }) => {
+            if (values.isViewOnly) {
+                return
+            }
             actions.setWorkflowValues(workflow)
             actions.autoSaveWorkflow()
         },
         setWorkflowActionConfig: async ({ actionId, config }) => {
             const action = values.workflow.actions.find((action) => action.id === actionId)
-            if (!action) {
+            if (!action || values.isViewOnly) {
                 return
             }
 
@@ -5054,11 +5068,17 @@ export const workflowLogic = kea<workflowLogicType>([
             captureAiEmailDraft('workflow', request, aiEmailDraft, skipped)
         },
         setWorkflowAction: async ({ actionId, action }) => {
+            if (values.isViewOnly) {
+                return
+            }
             const newActions = values.workflow.actions.map((a) => (a.id === actionId ? action : a))
             actions.setWorkflowValues({ actions: newActions })
             actions.autoSaveWorkflow()
         },
         setWorkflowActionEdges: async ({ actionId, edges }) => {
+            if (values.isViewOnly) {
+                return
+            }
             // Helper method - Replaces all edges related to the action with the new edges
             const actionEdges = values.edgesByActionId[actionId] ?? []
             const newEdges = values.workflow.edges.filter((e) => !actionEdges.includes(e))
@@ -5081,6 +5101,7 @@ export const workflowLogic = kea<workflowLogicType>([
             // (stage_draft in the saveWorkflow loader), so nothing deploys without an explicit publish.
             const shouldSkip =
                 !values.autoSaveEnabled ||
+                values.isViewOnly ||
                 !props.id ||
                 props.id === 'new' ||
                 !!props.editTemplateId ||
@@ -5101,7 +5122,16 @@ export const workflowLogic = kea<workflowLogicType>([
             if (!workflow) {
                 return
             }
-            const createdWorkflow = await api.hogFlows.createHogFlow(prepareWorkflowDuplicate(workflow))
+            let createdWorkflow: HogFlow
+            try {
+                createdWorkflow = (await hogFlowsCreate(
+                    String(ApiConfig.getCurrentTeamId()),
+                    prepareWorkflowDuplicate(workflow) as unknown as Parameters<typeof hogFlowsCreate>[1]
+                )) as unknown as HogFlow
+            } catch {
+                lemonToast.error('Could not duplicate the workflow. Please try again.')
+                return
+            }
             lemonToast.success('Workflow duplicated')
             router.actions.push(urls.workflow(createdWorkflow.id, 'workflow'))
         },
@@ -5111,27 +5141,11 @@ export const workflowLogic = kea<workflowLogicType>([
                 return
             }
 
-            const webhookUrl = publicWebhooksHostOrigin() + '/public/webhooks/' + values.workflow.id
-
             lemonToast.info('Triggering workflow...')
 
             try {
-                const response = await fetch(webhookUrl, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        user_id: values.user?.email,
-                        $variables: variables,
-                    }),
-                    credentials: 'omit',
-                })
-
-                // fetch rejects only on a network failure, so a refused webhook resolves here too.
-                if (!response.ok) {
-                    throw new Error(`the webhook returned ${response.status}`)
-                }
+                // An authenticated call, so only a user who can edit the workflow starts a run.
+                await hogFlowsRunCreate(String(ApiConfig.getCurrentTeamId()), values.workflow.id, { variables })
 
                 lemonToast.success('Workflow triggered', {
                     button: {
@@ -5140,7 +5154,12 @@ export const workflowLogic = kea<workflowLogicType>([
                     },
                 })
             } catch (e) {
-                lemonToast.error('Error triggering workflow: ' + (e as Error).message)
+                lemonToast.error('Error triggering workflow: ' + (e as Error).message, {
+                    button: {
+                        label: 'View logs',
+                        action: () => router.actions.push(urls.workflow(values.workflow.id!, 'logs')),
+                    },
+                })
                 return
             }
         },

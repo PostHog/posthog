@@ -182,6 +182,9 @@ class TaskRunSpend:
     is_terminal: bool
     stage: str
     accounting_failed: bool
+    compute_cost_microusd: int = 0
+    trial_grant_id: str | None = None
+    billing_exempt: bool = False
 
 
 @dataclass(frozen=True)
@@ -1097,6 +1100,13 @@ class WarmTaskDTO:
 
 
 @dataclass(frozen=True)
+class TaskStatusMismatchRow:
+    stored_status: str
+    derived_status: str
+    count: int
+
+
+@dataclass(frozen=True)
 class TaskRunGaugeRow:
     """One metric value keyed by (status, environment, origin_product)."""
 
@@ -1171,3 +1181,11 @@ class RunPlan:
 
     plan_name: str
     owner_user_id: int | None
+
+
+@dataclass(frozen=True)
+class TaskRunLogLink:
+    """A short-lived download link for a run's log, or why there is none."""
+
+    url: str | None
+    unavailable_reason: str | None = None

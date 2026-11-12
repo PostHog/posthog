@@ -1,4 +1,4 @@
-import { BuiltLogic, KeaPlugin, resetContext } from 'kea'
+import { BuiltLogic, CreateStoreOptions, KeaPlugin, resetContext } from 'kea'
 import { disposablesPlugin } from 'kea-disposables'
 import { formsPlugin } from 'kea-forms'
 import { loadersPlugin } from 'kea-loaders'
@@ -119,9 +119,11 @@ const ERROR_FILTER_ALLOW_LIST_BY_LOGIC_PATH: Record<string, string> = {
     loadReportDiff: 'scenes.inbox.logics.inboxReportDetailLogic',
     loadMembers: 'products.replay_vision.frontend.replay_scanners.highlightFeedGroupLogic', // The feed card shows its own retry
     loadTraceSpans: 'products.tracing.frontend.components.TraceDialog.traceDialogLogic', // The dialog shows its own retry
+    loadTransactionalEmailOptions: 'products.workflows.frontend.Transactional.webhooks.deliveryWebhooksLogic',
     fetchMatchingCounts: 'products.tracing.frontend.tracingDataLogic', // The matching-count label is hidden when the count fails
     loadPreview: 'products.metrics.frontend.components.metricVariableEditorLogic', // The variable editor shows the error under the preview
     loadSiteProfiles: 'products.webAnalytics.contentAutopilot.contentAutopilotLogic',
+    loadSiteSnapshot: 'products.surveys.draftReview.surveySiteSnapshotLogic', // The preview falls back to its generic frame
     loadProposals: 'products.webAnalytics.contentAutopilot.contentAutopilotLogic',
     loadOpportunities: 'products.webAnalytics.contentAutopilot.contentAutopilotLogic',
     refreshOpportunities: 'products.webAnalytics.contentAutopilot.contentAutopilotLogic',
@@ -149,18 +151,10 @@ const ERROR_FILTER_ALLOW_LIST_BY_LOGIC_PATH: Record<string, string> = {
     loadSummary: 'products.ai_observability.frontend.redesign.trace.traceSummaryLogic',
     requestSummary: 'products.ai_observability.frontend.redesign.trace.traceSummaryLogic',
     loadTracePullRequest: 'products.ai_observability.frontend.redesign.trace.traceGitPullRequestLogic', // The trace view's git chip stays plain when the read fails
+    loadTraceStepItem: 'scenes.ai-observability.saveToDatasetButtonLogic', // The add to dataset dropdown shows the error with a retry
     // Setup mode polls these every few seconds and shows its own retry text, so a toast per poll would stack up
     loadRecentCalls: 'products.mcp_analytics.frontend.setupMode.mcpSetupModeLogic',
     loadServerTools: 'products.mcp_analytics.frontend.setupMode.mcpSetupModeLogic',
-    // Each MCP analytics dashboard card shows its own error with a retry. The model and protocol
-    // version cards hide when they have no rows, so their loaders keep the toast.
-    loadKPIs: 'products.mcp_analytics.frontend.mcpDashboardOverviewLogic',
-    loadUsers: 'products.mcp_analytics.frontend.mcpDashboardOverviewLogic',
-    loadToolRows: 'products.mcp_analytics.frontend.mcpDashboardOverviewLogic',
-    loadSessionRows: 'products.mcp_analytics.frontend.mcpDashboardOverviewLogic',
-    loadHarnessRows: 'products.mcp_analytics.frontend.mcpDashboardOverviewLogic',
-    loadActivityRows: 'products.mcp_analytics.frontend.mcpDashboardOverviewLogic',
-    loadToolDailyRows: 'products.mcp_analytics.frontend.mcpDashboardOverviewLogic',
 }
 
 // A keyed logic's path ends with its key, so match the owner path as a prefix.
@@ -226,6 +220,9 @@ Every other failure on these actions still toasts and reports.
 const VALIDATION_ERROR_SELF_HANDLED_BY_LOGIC_PATH: Record<string, string> = {
     updateTable: 'products.dataWarehouse.selfManagedSourceLogic',
     setEnabled: 'scenes.subscriptions.subscriptionSceneLogic', // Toasts the refusal, or offers to take ownership
+    // Shows the rejected field under its input, or toasts the rejection
+    createProviderKey: 'products.ai_observability.settings.llmProviderKeysLogic',
+    updateProviderKey: 'products.ai_observability.settings.llmProviderKeysLogic',
 }
 
 /*
@@ -278,6 +275,7 @@ interface InitKeaProps {
     routerLocation?: any
     beforePlugins?: KeaPlugin[]
     replaceInitialPathInWindow?: boolean
+    middleware?: CreateStoreOptions['middleware']
 }
 
 // Used in some tests to make life easier
@@ -296,6 +294,7 @@ export function initKea({
     routerLocation,
     beforePlugins,
     replaceInitialPathInWindow,
+    middleware = [],
 }: InitKeaProps = {}): void {
     const plugins = [
         ...(beforePlugins || []),
@@ -448,6 +447,7 @@ export function initKea({
     resetContext({
         plugins: plugins,
         createStore: {
+            middleware,
             // Disable redux dev-tools's compose by passing `compose` from redux directly
             compose: ((...funcs: any[]) => {
                 if (funcs.length === 0) {

@@ -9,6 +9,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.schema import (
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
+    ExperimentQuantileMetric,
     ExperimentQueryResponse,
     ExperimentRatioMetric,
     ExperimentRetentionMetric,
@@ -43,10 +44,15 @@ from products.experiments.stats.shared.cuped import CupedCovariate, cuped_adjust
 from products.experiments.stats.shared.enums import DifferenceType
 from products.experiments.stats.shared.statistics import (
     ProportionStatistic,
+    QuantileBounds,
+    QuantileStatistic,
     RatioStatistic,
     SampleMeanStatistic,
     StatisticError,
+    choose_quantile_bounds,
+    quantile_grid_levels,
 )
+from products.experiments.stats.shared.utils import validate_statistic_inputs
 
 if TYPE_CHECKING:
     from products.experiments.stats.shared.statistics import RelativeEffectBaseline
@@ -54,6 +60,14 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 V = TypeVar("V", bound=ExperimentStatsBase)
+
+AnyExperimentMetric = (
+    ExperimentMeanMetric
+    | ExperimentFunnelMetric
+    | ExperimentRatioMetric
+    | ExperimentRetentionMetric
+    | ExperimentQuantileMetric
+)
 
 
 def get_experiment_query_debug(
@@ -170,12 +184,14 @@ _ALIAS_TO_STATS_FIELD: dict[str, str] = {
     "covariate_sum": "covariate_sum",
     "covariate_sum_squares": "covariate_sum_squares",
     "covariate_sum_product": "covariate_sum_product",
+    "quantile_grid": "quantile_grid",
 }
 
 
 def get_variant_result(
     row: tuple,
     columns: list[str],
+    alias_to_field: dict[str, str] = _ALIAS_TO_STATS_FIELD,
 ) -> tuple[tuple[str, ...] | None, ExperimentStatsBase]:
     """
     Parse one result row into (breakdown_tuple, stats).
@@ -193,7 +209,7 @@ def get_variant_result(
     breakdown_tuple = tuple(str(row_dict[k]) for k in breakdown_keys) or None
 
     base_stats: dict[str, Any] = {
-        field: row_dict[alias] for alias, field in _ALIAS_TO_STATS_FIELD.items() if alias in row_dict
+        field: row_dict[alias] for alias, field in alias_to_field.items() if alias in row_dict
     }
 
     return breakdown_tuple, ExperimentStatsBase(**base_stats)
@@ -206,11 +222,31 @@ def get_variant_results(
     return [get_variant_result(row, columns) for row in rows]
 
 
+def get_overall_variant_results(
+    rows: list[tuple],
+    columns: list[str],
+) -> list[tuple[tuple[str, ...] | None, ExperimentStatsBase]]:
+    """
+    Parse the rows of a query with breakdowns into stats that add up to the overall stats of each variant.
+
+    The quantiles of the breakdowns do not give the quantile of the whole variant, so a quantile query returns
+    an overall_<alias> column for each stat that does not add up, and that column replaces <alias>. The stats
+    of other metrics add up as they are.
+    """
+    alias_to_field = {
+        (f"overall_{alias}" if f"overall_{alias}" in columns else alias): field
+        for alias, field in _ALIAS_TO_STATS_FIELD.items()
+    }
+    return [get_variant_result(row, columns, alias_to_field) for row in rows]
+
+
 def aggregate_variants_across_breakdowns(
     variants: list[tuple[tuple[str, ...] | None, ExperimentStatsBase]],
 ) -> list[ExperimentStatsBase]:
     """
     Sum each variant's stats over all breakdown combinations to get the overall stats per variant.
+
+    The stats must come from get_overall_variant_results, because quantiles do not add up.
     """
     from collections import defaultdict
 
@@ -261,15 +297,75 @@ def aggregate_variants_across_breakdowns(
                 }
             )
 
+        if any(v.quantile_grid is not None for v in variant_list):
+            # Each row of a variant holds the same grid of the whole variant, but a breakdown without events
+            # holds an empty grid.
+            aggregated_stats["quantile_grid"] = next((v.quantile_grid for v in variant_list if v.quantile_grid), [])
+
         aggregated_variants.append(ExperimentStatsBase(**aggregated_stats))
 
     return aggregated_variants
 
 
+@frozen
+class VariantQuantile:
+    quantile: float
+    bounds: QuantileBounds
+
+
+def read_variant_quantile(quantile_level: float, quantile_grid: list[float] | None, n: int) -> VariantQuantile | None:
+    """
+    Read the quantile and the chosen bounds from the quantile_grid array of a variant with n events.
+
+    The array holds the quantile, then Y_L and Y_U for each n* in the grid, in the order of
+    quantile_query_levels(). Returns None when the variant has no events, or when Y_L == Y_U
+    for every eligible n* (too many tied values).
+    """
+    levels = quantile_grid_levels(quantile_level)
+    if n <= 0 or not quantile_grid or len(quantile_grid) != 1 + 2 * len(levels):
+        return None
+    grid_bounds = [
+        QuantileBounds(n_star=level.n_star, lower=quantile_grid[1 + 2 * j], upper=quantile_grid[2 + 2 * j])
+        for j, level in enumerate(levels)
+    ]
+    chosen = choose_quantile_bounds(n, grid_bounds)
+    if chosen is None:
+        return None
+    return VariantQuantile(quantile=quantile_grid[0], bounds=chosen)
+
+
+def quantile_statistic(
+    metric: ExperimentQuantileMetric, variant: ExperimentStatsBase | ExperimentStatsBaseValidated
+) -> QuantileStatistic | None:
+    """The QuantileStatistic of a variant, or None when its bounds are unavailable or its sums are inconsistent."""
+    n_events = int(variant.denominator_sum or 0)
+    variant_quantile = read_variant_quantile(metric.quantile, variant.quantile_grid, n_events)
+    if variant_quantile is None:
+        return None
+    try:
+        return QuantileStatistic(
+            nu=metric.quantile,
+            n=n_events,
+            n_clusters=variant.number_of_samples,
+            quantile=variant_quantile.quantile,
+            quantile_lower=variant_quantile.bounds.lower,
+            quantile_upper=variant_quantile.bounds.upper,
+            n_star=variant_quantile.bounds.n_star,
+            s_sum=variant.sum,
+            s_sum_squares=variant.sum_squares,
+            n_sum=variant.denominator_sum or 0.0,
+            n_sum_squares=variant.denominator_sum_squares or 0.0,
+            s_n_sum_of_products=variant.numerator_denominator_sum_product or 0.0,
+        )
+    except StatisticError:
+        return None
+
+
 def validate_variant_result(
     variant_result: ExperimentStatsBase,
-    metric: ExperimentFunnelMetric | ExperimentMeanMetric | ExperimentRatioMetric | ExperimentRetentionMetric,
+    metric: AnyExperimentMetric,
     is_baseline=False,
+    difference_type: DifferenceType = DifferenceType.RELATIVE,
 ) -> ExperimentStatsBaseValidated:
     validation_failures = []
 
@@ -283,7 +379,16 @@ def validate_variant_result(
     if isinstance(metric, ExperimentRatioMetric) and not variant_result.denominator_sum:
         validation_failures.append(ExperimentStatsValidationFailure.NOT_ENOUGH_METRIC_DATA)
 
-    if is_baseline and variant_result.sum == 0:
+    if isinstance(metric, ExperimentQuantileMetric):
+        quantile_stat = quantile_statistic(metric, variant_result)
+        # The statistical tests refuse these quantiles, so flag them here to show why the variant has no inference.
+        if quantile_stat is None or validate_statistic_inputs(quantile_stat):
+            validation_failures.append(ExperimentStatsValidationFailure.NOT_ENOUGH_METRIC_DATA)
+        # sum holds the count of events at or below the quantile, so the baseline check reads the quantile instead.
+        # Only a relative difference divides by the baseline, so an absolute difference accepts a zero quantile.
+        elif is_baseline and difference_type == DifferenceType.RELATIVE and quantile_stat.quantile == 0:
+            validation_failures.append(ExperimentStatsValidationFailure.BASELINE_MEAN_IS_ZERO)
+    elif is_baseline and variant_result.sum == 0:
         validation_failures.append(ExperimentStatsValidationFailure.BASELINE_MEAN_IS_ZERO)
 
     validated_result = ExperimentStatsBaseValidated(
@@ -302,6 +407,9 @@ def validate_variant_result(
         validated_result.denominator_sum_squares = variant_result.denominator_sum_squares
         validated_result.numerator_denominator_sum_product = variant_result.numerator_denominator_sum_product
 
+    if variant_result.quantile_grid is not None:
+        validated_result.quantile_grid = variant_result.quantile_grid
+
     if hasattr(variant_result, "covariate_sum") and variant_result.covariate_sum is not None:
         validated_result.covariate_sum = variant_result.covariate_sum
         validated_result.covariate_sum_squares = variant_result.covariate_sum_squares
@@ -311,9 +419,9 @@ def validate_variant_result(
 
 
 def metric_variant_to_statistic(
-    metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric,
+    metric: AnyExperimentMetric,
     variant: ExperimentStatsBaseValidated,
-) -> SampleMeanStatistic | ProportionStatistic | RatioStatistic:
+) -> SampleMeanStatistic | ProportionStatistic | RatioStatistic | QuantileStatistic:
     if isinstance(metric, ExperimentMeanMetric):
         # A thresholded mean is a binary "did the user reach N" outcome, so it must be
         # analyzed as a proportion (Bernoulli), not a continuous mean (Gaussian).
@@ -328,33 +436,16 @@ def metric_variant_to_statistic(
             sum=variant.sum,
             sum_squares=variant.sum_squares,
         )
-    elif isinstance(metric, ExperimentRatioMetric):
-        numerator_stat = SampleMeanStatistic(
-            n=variant.number_of_samples,
-            sum=variant.sum,
-            sum_squares=variant.sum_squares,
-        )
-        denominator_stat = SampleMeanStatistic(
-            n=variant.number_of_samples,
-            sum=variant.denominator_sum or 0.0,
-            sum_squares=variant.denominator_sum_squares or 0.0,
-        )
-        return RatioStatistic(
-            n=variant.number_of_samples,
-            m_statistic=numerator_stat,
-            d_statistic=denominator_stat,
-            m_d_sum_of_products=variant.numerator_denominator_sum_product or 0.0,
-        )
-    elif isinstance(metric, ExperimentRetentionMetric):
+    elif isinstance(metric, (ExperimentRatioMetric, ExperimentRetentionMetric)):
         # Model retention as a ratio so that the variance includes the uncertainty
         # in both the numerator and the denominator.
-        # Numerator: users who completed (0 or 1 per user).
+        # Retention numerator: users who completed (0 or 1 per user).
         numerator_stat = SampleMeanStatistic(
             n=variant.number_of_samples,
             sum=variant.sum,
             sum_squares=variant.sum_squares,
         )
-        # Denominator: each user who started contributes 1.
+        # Retention denominator: each user who started contributes 1.
         denominator_stat = SampleMeanStatistic(
             n=variant.number_of_samples,
             sum=variant.denominator_sum or 0.0,
@@ -366,6 +457,14 @@ def metric_variant_to_statistic(
             d_statistic=denominator_stat,
             m_d_sum_of_products=variant.numerator_denominator_sum_product or 0.0,
         )
+    elif isinstance(metric, ExperimentQuantileMetric):
+        quantile_stat = quantile_statistic(metric, variant)
+        if quantile_stat is None:
+            raise StatisticError("Quantile bounds are unavailable - no events or too many tied values")
+        errors = validate_statistic_inputs(quantile_stat)
+        if errors:
+            raise StatisticError("; ".join(errors))
+        return quantile_stat
     else:
         # ExperimentFunnelMetric case
         return ProportionStatistic(
@@ -397,7 +496,7 @@ def _copy_cuped_fields(
     result.covariate_sum_product = variant.covariate_sum_product
 
 
-ExperimentStatistic = SampleMeanStatistic | ProportionStatistic | RatioStatistic
+ExperimentStatistic = SampleMeanStatistic | ProportionStatistic | RatioStatistic | QuantileStatistic
 
 
 @frozen
@@ -408,7 +507,7 @@ class CupedAdjustment:
 
 
 def _apply_cuped_adjustment_if_enabled(
-    metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric,
+    metric: AnyExperimentMetric,
     cuped_config: CupedQueryConfig,
     test_stat: ExperimentStatistic,
     control_stat: ExperimentStatistic,
@@ -448,14 +547,46 @@ def _apply_cuped_adjustment_if_enabled(
     )
 
 
+def _log_statistics_skipped(variant: ExperimentStatsBaseValidated, error: StatisticError) -> None:
+    logger.info(
+        "experiment_statistics_skipped",
+        variant_key=variant.key,
+        number_of_samples=variant.number_of_samples,
+        reason=str(error),
+    )
+
+
+@frozen
+class ValidatedVariants:
+    control: ExperimentStatsBaseValidated
+    tests: tuple[ExperimentStatsBaseValidated, ...]
+    control_stat: ExperimentStatistic | None
+
+
+def _validate_variants(
+    metric: AnyExperimentMetric,
+    control_variant: ExperimentStatsBase,
+    test_variants: list[ExperimentStatsBase],
+    difference_type: DifferenceType,
+) -> ValidatedVariants:
+    control = validate_variant_result(control_variant, metric, is_baseline=True, difference_type=difference_type)
+    tests = tuple(
+        validate_variant_result(test_variant, metric, difference_type=difference_type) for test_variant in test_variants
+    )
+    control_stat = None
+    if not control.validation_failures:
+        try:
+            control_stat = metric_variant_to_statistic(metric, control)
+        except StatisticError as e:
+            _log_statistics_skipped(control, e)
+    return ValidatedVariants(control=control, tests=tests, control_stat=control_stat)
+
+
 VariantResultT = TypeVar("VariantResultT", ExperimentVariantResultFrequentist, ExperimentVariantResultBayesian)
-TestResultT = TypeVar("TestResultT", TestResult, BayesianResult)
 
 
-def _variant_result_with_inputs(
-    result_class: type[VariantResultT], variant: ExperimentStatsBaseValidated
-) -> VariantResultT:
-    result = result_class(
+def _variant_result(result_cls: type[VariantResultT], variant: ExperimentStatsBaseValidated) -> VariantResultT:
+    result = result_cls(
         key=variant.key,
         number_of_samples=variant.number_of_samples,
         sum=variant.sum,
@@ -463,38 +594,38 @@ def _variant_result_with_inputs(
         step_counts=variant.step_counts,
         validation_failures=variant.validation_failures,
     )
-
-    if hasattr(variant, "denominator_sum") and variant.denominator_sum is not None:
+    if variant.denominator_sum is not None:
         result.denominator_sum = variant.denominator_sum
         result.denominator_sum_squares = variant.denominator_sum_squares
         result.numerator_denominator_sum_product = variant.numerator_denominator_sum_product
+    result.quantile_grid = variant.quantile_grid
     _copy_cuped_fields(result, variant)
     return result
 
 
-def _compare_with_control(
+TestResultT = TypeVar("TestResultT", TestResult, BayesianResult)
+
+
+def _run_variant_test(
     run_test: Callable[..., TestResultT],
-    *,
-    metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric,
+    metric: AnyExperimentMetric,
     cuped_config: CupedQueryConfig,
-    control_stat: ExperimentStatistic | None,
-    control_variant: ExperimentStatsBaseValidated,
     test_variant: ExperimentStatsBaseValidated,
+    variants: ValidatedVariants,
 ) -> TestResultT | None:
     """Runs the test of one variant against the control, with CUPED where it applies. Returns None when either
     side has no valid statistic, and logs why when the statistics are invalid."""
-    if not control_stat or test_variant.validation_failures:
+    if variants.control_stat is None or test_variant.validation_failures:
         return None
-
     try:
         test_stat = metric_variant_to_statistic(metric, test_variant)
         cuped_adjustment = _apply_cuped_adjustment_if_enabled(
             metric,
             cuped_config,
             test_stat,
-            control_stat,
+            variants.control_stat,
             test_variant,
-            control_variant,
+            variants.control,
         )
         return run_test(
             cuped_adjustment.test_stat,
@@ -502,12 +633,7 @@ def _compare_with_control(
             relative_effect_baseline=cuped_adjustment.relative_effect_baseline,
         )
     except StatisticError as e:
-        logger.info(
-            "experiment_statistics_skipped",
-            variant_key=test_variant.key,
-            number_of_samples=test_variant.number_of_samples,
-            reason=str(e),
-        )
+        _log_statistics_skipped(test_variant, e)
         return None
 
 
@@ -597,7 +723,7 @@ def resolve_frequentist_settings(
 
 
 def get_frequentist_experiment_result(
-    metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric,
+    metric: AnyExperimentMetric,
     control_variant: ExperimentStatsBase,
     test_variants: list[ExperimentStatsBase],
     stats_config: dict | None = None,
@@ -621,53 +747,22 @@ def get_frequentist_experiment_result(
     )
     method = FrequentistMethod(config)
 
-    control_variant_validated = validate_variant_result(control_variant, metric, is_baseline=True)
-    test_variants_validated = [validate_variant_result(test_variant, metric) for test_variant in test_variants]
-
-    control_stat = None
-    if not control_variant_validated.validation_failures:
-        try:
-            control_stat = metric_variant_to_statistic(metric, control_variant_validated)
-        except StatisticError as e:
-            logger.info(
-                "experiment_statistics_skipped",
-                variant_key=control_variant_validated.key,
-                number_of_samples=control_variant_validated.number_of_samples,
-                reason=str(e),
-            )
-
+    validated = _validate_variants(metric, control_variant, test_variants, settings.difference_type)
     variants: list[ExperimentVariantResultFrequentist] = []
-
-    for test_variant_validated in test_variants_validated:
-        experiment_variant_result = _variant_result_with_inputs(
-            ExperimentVariantResultFrequentist, test_variant_validated
-        )
-        result = _compare_with_control(
-            method.run_test,
-            metric=metric,
-            cuped_config=resolved_cuped_config,
-            control_stat=control_stat,
-            control_variant=control_variant_validated,
-            test_variant=test_variant_validated,
-        )
-
+    for test_variant in validated.tests:
+        variant_result = _variant_result(ExperimentVariantResultFrequentist, test_variant)
+        result = _run_variant_test(method.run_test, metric, resolved_cuped_config, test_variant, validated)
         if result is not None:
-            confidence_interval = [result.confidence_interval[0], result.confidence_interval[1]]
+            variant_result.p_value = result.p_value
+            variant_result.confidence_interval = [result.confidence_interval[0], result.confidence_interval[1]]
+            variant_result.significant = result.is_significant
+        variants.append(variant_result)
 
-            experiment_variant_result.p_value = result.p_value
-            experiment_variant_result.confidence_interval = confidence_interval
-            experiment_variant_result.significant = result.is_significant
-
-        variants.append(experiment_variant_result)
-
-    return ExperimentQueryResponse(
-        baseline=control_variant_validated,
-        variant_results=variants,
-    )
+    return ExperimentQueryResponse(baseline=validated.control, variant_results=variants)
 
 
 def get_bayesian_experiment_result(
-    metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric,
+    metric: AnyExperimentMetric,
     control_variant: ExperimentStatsBase,
     test_variants: list[ExperimentStatsBase],
     stats_config: dict | None = None,
@@ -679,44 +774,15 @@ def get_bayesian_experiment_result(
     config = BayesianConfig(ci_level=settings.ci_level, difference_type=settings.difference_type)
     method = BayesianMethod(config)
 
-    control_variant_validated = validate_variant_result(control_variant, metric, is_baseline=True)
-    test_variants_validated = [validate_variant_result(test_variant, metric) for test_variant in test_variants]
-
-    control_stat = None
-    if not control_variant_validated.validation_failures:
-        try:
-            control_stat = metric_variant_to_statistic(metric, control_variant_validated)
-        except StatisticError as e:
-            logger.info(
-                "experiment_statistics_skipped",
-                variant_key=control_variant_validated.key,
-                number_of_samples=control_variant_validated.number_of_samples,
-                reason=str(e),
-            )
-
+    validated = _validate_variants(metric, control_variant, test_variants, settings.difference_type)
     variants: list[ExperimentVariantResultBayesian] = []
-
-    for test_variant_validated in test_variants_validated:
-        experiment_variant_result = _variant_result_with_inputs(ExperimentVariantResultBayesian, test_variant_validated)
-        result = _compare_with_control(
-            method.run_test,
-            metric=metric,
-            cuped_config=resolved_cuped_config,
-            control_stat=control_stat,
-            control_variant=control_variant_validated,
-            test_variant=test_variant_validated,
-        )
-
+    for test_variant in validated.tests:
+        variant_result = _variant_result(ExperimentVariantResultBayesian, test_variant)
+        result = _run_variant_test(method.run_test, metric, resolved_cuped_config, test_variant, validated)
         if result is not None:
-            credible_interval = [result.credible_interval[0], result.credible_interval[1]]
+            variant_result.chance_to_win = result.chance_to_win
+            variant_result.credible_interval = [result.credible_interval[0], result.credible_interval[1]]
+            variant_result.significant = result.is_decisive
+        variants.append(variant_result)
 
-            experiment_variant_result.chance_to_win = result.chance_to_win
-            experiment_variant_result.credible_interval = credible_interval
-            experiment_variant_result.significant = result.is_decisive
-
-        variants.append(experiment_variant_result)
-
-    return ExperimentQueryResponse(
-        baseline=control_variant_validated,
-        variant_results=variants,
-    )
+    return ExperimentQueryResponse(baseline=validated.control, variant_results=variants)

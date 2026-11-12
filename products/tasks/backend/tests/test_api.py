@@ -61,6 +61,7 @@ from products.tasks.backend.constants import (
     DEFAULT_SANDBOX_WORKING_DIR,
     DEV_STACK_PREVIEW_PORT,
     FINAL_MESSAGE_MAX_CHARS,
+    TASK_DESCRIPTION_PREVIEW_LENGTH,
 )
 from products.tasks.backend.exceptions import SandboxNotFoundError
 from products.tasks.backend.facade import (
@@ -1835,6 +1836,23 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertNotIn("description", row)
         self.assertEqual(row["description_preview"], "x" * 1000)
 
+    def test_basic_list_reads_only_a_slice_of_the_description(self):
+        self.create_task("Long", description="x" * 1500)
+
+        with CaptureQueriesContext(connection) as ctx:
+            response = self.client.get("/api/projects/@current/tasks/?basic=true")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["results"][0]["description_preview"], "x" * TASK_DESCRIPTION_PREVIEW_LENGTH)
+        task_selects = [
+            query["sql"]
+            for query in ctx.captured_queries
+            if 'FROM "posthog_task"' in query["sql"] and "COUNT(" not in query["sql"]
+        ]
+        self.assertEqual(len(task_selects), 1)
+        self.assertIn("SUBSTRING", task_selects[0])
+        self.assertEqual(task_selects[0].count('"posthog_task"."description"'), 1)
+
     def test_list_tasks_includes_latest_run(self):
         task1 = self.create_task("Task 1")
         task2 = self.create_task("Task 2")
@@ -2800,6 +2818,7 @@ class TestTaskAPI(BaseTaskAPITest):
             self.team.id,
             self.user.id,
             origin_product=Task.OriginProduct.USER_CREATED,
+            posthog_mcp_scopes="full",
             repository="posthog/posthog",
             repositories=["posthog/posthog", "posthog/code"],
             github_integration_id=integration.id,
@@ -3673,18 +3692,24 @@ class TestTaskAPI(BaseTaskAPITest):
             self.assertIn(expected_detail, response.json()["error"])
             self.assertFalse(Task.objects.filter(title="Report task").exists())
 
-    def test_implementation_creation_respects_an_external_claim(self):
+    # A person and their agents count as one owner: their own agent's claim lets them start a task, a teammate's
+    # agent claim does not.
+    @parameterized.expand(
+        [("own_agent", True, status.HTTP_201_CREATED), ("teammate_agent", False, status.HTTP_429_TOO_MANY_REQUESTS)]
+    )
+    def test_implementation_creation_respects_an_external_claim(self, _name, own_agent, expected_status):
         from products.signals.backend.models import SignalReport, SignalReportAssignment
 
+        holder = self.user if own_agent else self.create_organization_user("teammate")
         report = SignalReport.objects.create(team=self.team)
         assignment = SignalReportAssignment.all_teams.create(
-            team=self.team, report=report, actor_kind="agent", actor_user=self.user, actor_agent="test-agent"
+            team=self.team, report=report, actor_kind="agent", actor_user=holder, actor_agent="test-agent"
         )
         response = self._post_signal_report_task(report.id, "implementation")
-        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertEqual(response.status_code, expected_status)
         assignment.refresh_from_db()
         self.assertEqual(assignment.actor_agent, "test-agent")
-        self.assertFalse(Task.objects.filter(title="Report task").exists())
+        self.assertEqual(Task.objects.filter(title="Report task").exists(), own_agent)
 
     @parameterized.expand(
         [
@@ -18888,36 +18913,43 @@ class TestSandboxCustomImageAPI(BaseTaskAPITest):
 
     @parameterized.expand(
         [
-            ("origin_on_the_vm_runtime", '{"origin_products": ["user_created", "posthog_ai"]}', "posthog_ai", 200),
+            ("origin_on_the_vm_runtime", '{"origin_products": ["user_created", "posthog_ai"]}', "posthog_ai", True),
             (
                 "origin_on_the_default_vm_base",
                 '{"origin_products": ["user_created"], "default_base_origin_products": ["posthog_ai"]}',
                 "posthog_ai",
-                200,
+                True,
             ),
             (
                 "origin_fully_rolled_out_to_the_vm_runtime",
                 '{"origin_products": ["user_created"], "origin_product_rollout_percentages": {"posthog_ai": 100}}',
                 "posthog_ai",
-                200,
+                True,
             ),
             (
                 "origin_partly_rolled_out_to_the_vm_runtime",
                 '{"origin_products": ["user_created"], "origin_product_rollout_percentages": {"posthog_ai": 50}}',
                 "posthog_ai",
-                403,
+                False,
             ),
-            ("origin_off_the_vm_runtime", '{"origin_products": ["user_created"]}', "posthog_ai", 403),
-            ("no_origin_given", '{"origin_products": ["user_created"]}', None, 200),
+            ("origin_off_the_vm_runtime", '{"origin_products": ["user_created"]}', "posthog_ai", False),
+            ("no_origin_given", '{"origin_products": ["user_created"]}', None, True),
         ]
     )
-    def test_list_checks_the_vm_runtime_for_the_requested_origin(self, _name, payload, origin_product, expected):
+    def test_list_returns_images_only_when_the_requested_origin_can_use_them(
+        self, _name, payload, origin_product, images_listed
+    ):
+        image = _make_custom_image(team=self.team, user=self.user, name="img")
         self._vm_flag_payload = payload
         query = f"?origin_product={origin_product}" if origin_product else ""
 
         response = self.client.get(f"{self.base_url}{query}")
 
-        self.assertEqual(response.status_code, expected)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            [result["id"] for result in response.json()["results"]],
+            [str(image.id)] if images_listed else [],
+        )
 
     def test_create_spawns_linked_builder_task_with_vm_override(self):
         response = self.client.post(
