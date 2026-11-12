@@ -87,12 +87,20 @@ function parseAttrs(raw: string): Record<string, string> {
 /** CommonMark inline code on one line: a run of N backticks closes on the next run of exactly N. */
 function inlineCodeSpans(line: string, offset: number): Span[] {
     const runs = Array.from(line.matchAll(RE_BACKTICK_RUN))
+    // For each run, the index of the next run of the same length, or -1. One pass from the right keeps
+    // the scan linear, because searching forward from each opener is quadratic on many backtick pairs.
+    const nextSameLength: number[] = Array.from({ length: runs.length }, () => -1)
+    const lastSeenAt = new Map<number, number>()
+    for (let i = runs.length - 1; i >= 0; i--) {
+        const length = runs[i][0].length
+        nextSameLength[i] = lastSeenAt.get(length) ?? -1
+        lastSeenAt.set(length, i)
+    }
     const spans: Span[] = []
     let index = 0
     while (index < runs.length) {
         const opener = runs[index]
-        const length = opener[0].length
-        const closerIndex = runs.findIndex((run, i) => i > index && run[0].length === length)
+        const closerIndex = nextSameLength[index]
         if (closerIndex === -1) {
             index += 1
             continue
@@ -102,6 +110,15 @@ function inlineCodeSpans(line: string, offset: number): Span[] {
         index = closerIndex + 1
     }
     return spans
+}
+
+/**
+ * A backtick fence cannot carry a backtick in its info string, so such a line opens no fence.
+ * This is not a lookahead in RE_FENCE_LINE, because the regex would then scan the rest of the
+ * line again for each shorter run.
+ */
+function opensFence(line: string, fence: RegExpExecArray): boolean {
+    return fence[1][0] !== '`' || !line.includes('`', fence[0].length)
 }
 
 /**
@@ -118,9 +135,6 @@ function scanCode(text: string): Span[] {
     let offset = 0
     for (const line of text.split('\n')) {
         const fence = RE_FENCE_LINE.exec(line)
-        // A backtick fence cannot carry a backtick in its info string. This is not a lookahead in
-        // RE_FENCE_LINE, because the regex would then scan the rest of the line again for each shorter run.
-        const opensFence = fence !== null && !(fence[1][0] === '`' && line.includes('`', fence[0].length))
         if (fenceChar) {
             const closes =
                 fence !== null &&
@@ -131,7 +145,7 @@ function scanCode(text: string): Span[] {
                 spans.push({ start: fenceStart, end: offset + line.length })
                 fenceChar = ''
             }
-        } else if (opensFence) {
+        } else if (fence !== null && opensFence(line, fence)) {
             fenceChar = fence[1][0]
             fenceLength = fence[1].length
             fenceStart = offset

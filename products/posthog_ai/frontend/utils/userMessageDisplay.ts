@@ -3,7 +3,7 @@ import { unescapeXml } from 'lib/components/AgentObjectTags/rewriteAgentObjectTa
 import { stripInjectedBlocks } from 'products/tasks/frontend/spaces/spaceFeedPreview'
 
 const MENTION_TAG =
-    /<file\s+path="([^"]+)"\s*\/>|<(github_issue|github_pr)\s+number="([^"]+)"(?:\s+title="([^"]*)")?(?:\s+url="([^"]*)")?\s*\/>|<error_context\s+label="([^"]*)">[\s\S]*?<\/error_context>|<folder\s+path="([^"]+)"\s*\/>|<comment_context\s+label="([^"]*)"(?:\s+screenshot="[^"]*")?>[\s\S]*?<\/comment_context>|<skill\s+name="([^"]+)"[^>]*\/>/g
+    /<file\s+path="([^"]+)"\s*\/>|<(github_issue|github_pr)\s+number="([^"]+)"(?:\s+title="([^"]*)")?(?:\s+url="([^"]*)")?\s*\/>|<error_context\s+label="([^"]*)">[\s\S]*?<\/error_context>|<folder\s+path="([^"]+)"\s*\/>|<comment_context\s+label="([^"]*)"(?:\s+screenshot="[^"]*")?>[\s\S]*?<\/comment_context>|<skill\s+name="([^"<>]+)"[^<>]*\/>/g
 
 function lastSegments(path: string, count: number): string {
     return path.split('/').filter(Boolean).slice(-count).join('/') || path

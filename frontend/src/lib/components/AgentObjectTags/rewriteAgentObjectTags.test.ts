@@ -41,6 +41,16 @@ describe('rewriteAgentObjectTags', () => {
             '<insight id="a">Error [rate] > 1% | daily</insight>',
             '[Error rate &gt; 1% daily](/project/2/insights/a)',
         ],
+        [
+            'a tag after an unmatched backtick that follows a closed code span',
+            '`a` ` <insight id="a">x</insight>',
+            '`a` ` [x](/project/2/insights/a)',
+        ],
+        [
+            'a tag between backtick runs of different lengths',
+            '`` <insight id="a">x</insight> `',
+            '`` [x](/project/2/insights/a) `',
+        ],
     ])('%s', (_name, input, expected) => {
         expect(rewriteAgentObjectTags(input, BASE)).toBe(expected)
     })
@@ -54,6 +64,8 @@ describe('rewriteAgentObjectTags', () => {
 
     it.each([
         ['inline code', 'Use `<insight id="a">kept</insight>`.'],
+        ['a double-backtick span that holds a single backtick', 'Use ``a ` <insight id="a">kept</insight>``.'],
+        ['the second of two code spans', 'Use `a` and `<insight id="a">kept</insight>`.'],
         ['fenced code', '```xml\n<insight id="a">kept</insight>\n```'],
         ['plain text without tags', 'Nothing to do here.'],
         ['unknown non-object markup', 'A <div>block</div> stays.'],
