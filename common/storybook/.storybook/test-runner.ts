@@ -892,9 +892,6 @@ async function waitBeforeRecapture(locator: Locator | Page): Promise<void> {
 }
 
 /**
- * Captures until two captures in a row match. Before each capture the chart paint, animation finish
- * and loader wait run again, so a page that changed after the waits is captured again once it settles.
- *
  * A match alone does not prove the page is done: the 0 ms animations freeze a spinner, so two captures
  * of a loading state match too. So unless the story opts out of the loader wait, a capture is kept
  * only when no loader shows after it.
@@ -935,12 +932,7 @@ async function captureUntilSettled(
 
 const cdpSessionByPage = new WeakMap<Page, CDPSession>()
 
-/**
- * Pause or resume page script through the Chrome DevTools Protocol, and return whether it worked.
- *
- * `takeSettledSnapshotImage` says why a capture pauses script. WebKit has no CDP, so there it does
- * nothing.
- */
+/** Returns false where script cannot be paused: only Chromium has a CDP session. */
 async function setPageScriptPaused(page: Page, paused: boolean): Promise<boolean> {
     if (page.context().browser()?.browserType().name() !== 'chromium') {
         return false
