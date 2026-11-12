@@ -18,6 +18,7 @@ from posthog.models.integration import GitHubIntegrationError
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.utils import close_db_connections
+from posthog.token_bucket import BucketUnavailable, Budget, consume, refund
 
 from ...merge_check.check import run_merge_check
 from ...merge_check.deadline import CheckDeadline, CheckDeadlineExceeded, DeadlineGitHub, deadline_http
@@ -34,6 +35,8 @@ logger = structlog.get_logger(__name__)
 
 MERGE_CHECK_FAILED_REASON = "merge_check_failed"
 NOT_ADMITTED_REASON = "not_admitted"
+CHECK_CAPPED_REASON = "check_capped"
+MERGE_CHECK_BUDGET = Budget(burst=200, per_hour=34)
 MERGE_CHECK_ATTEMPTS = 3
 MERGE_CHECK_RETRY_INTERVAL = timedelta(minutes=1)
 GITHUB_READ_ERRORS = (
@@ -101,6 +104,18 @@ def record_unchecked_merge(inputs: MergeCheckInputs, *, reason: str, failure_rea
     intake.submit(verdict, team_id=inputs.team_id)
 
 
+def merge_check_budget_key(team_id: int) -> str:
+    return f"knowledge_writer:merge_check_budget:{team_id}"
+
+
+def is_within_check_budget(team_id: int) -> bool:
+    decision = consume(merge_check_budget_key(team_id), MERGE_CHECK_BUDGET)
+    if isinstance(decision, BucketUnavailable):
+        logger.warning("knowledge_writer_merge_check_budget_unavailable", team_id=team_id, error=decision.error)
+        return True
+    return decision.allowed
+
+
 def check_merge(inputs: MergeCheckInputs, *, is_final_attempt: bool) -> None:
     try:
         is_admitted = inputs.installation_id is None or is_delivery_admitted(inputs, inputs.installation_id)
@@ -117,6 +132,9 @@ def check_merge(inputs: MergeCheckInputs, *, is_final_attempt: bool) -> None:
         return
     if inputs.pull_request_number is None:
         record_merge_check_failed(inputs, MergeCheckFailure.NO_PULL_REQUEST_NUMBER)
+        return
+    if not is_within_check_budget(inputs.team_id):
+        record_unchecked_merge(inputs, reason=CHECK_CAPPED_REASON, failure_reason=None)
         return
     github = docs_github(inputs.team_id, inputs.repository.split("/", 1)[0], priority=Priority.NORMAL)
     if github is None:
@@ -150,6 +168,7 @@ def check_merge(inputs: MergeCheckInputs, *, is_final_attempt: bool) -> None:
             )
     except MERGE_CHECK_RETRYABLE_ERRORS as error:
         if not is_final_attempt:
+            refund(merge_check_budget_key(inputs.team_id), MERGE_CHECK_BUDGET)
             raise
         capture_exception(error, {"commit_sha": inputs.commit_sha})
         record_merge_check_failed(inputs, MergeCheckFailure.RETRIES_EXHAUSTED)
