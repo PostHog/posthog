@@ -424,15 +424,30 @@ def _is_customer_email_verified(ticket: Ticket, customer_email: str) -> bool:
     # authenticated sender in email_from, or the platform user's email in distinct_id on Slack and
     # Teams. An outbound email ticket keeps the recipient's analytics ID in distinct_id, so email
     # tickets use email_from. The widget form can supply any email, so the email counts as verified
-    # only when it is that attested identity.
+    # only when it is that attested identity, or the widget's signed email claim for that distinct_id.
+    if ticket.identity_verified is not True or not customer_email:
+        return False
     if ticket.channel_source == Channel.EMAIL:
-        attested_identity = ticket.email_from or ticket.distinct_id
+        attested_identities = [ticket.email_from or ticket.distinct_id]
     else:
-        attested_identity = ticket.distinct_id
+        attested_identities = [ticket.distinct_id]
+        if ticket.channel_source == Channel.WIDGET:
+            attested_identities.append(ticket.verified_email)
+    return any(identity and customer_email.lower() == identity.lower() for identity in attested_identities)
+
+
+def _is_author_the_customer(ticket: Ticket, author_identity: str, customer_email: str) -> bool:
+    if not author_identity:
+        return False
+    if author_identity.lower() == customer_email.lower():
+        return True
+    # A signed email claim is bound to the ticket's distinct_id, so a message attested by that
+    # distinct_id comes from the owner of the claimed email.
     return (
-        ticket.identity_verified is True
-        and bool(customer_email)
-        and customer_email.lower() == (attested_identity or "").lower()
+        ticket.channel_source == Channel.WIDGET
+        and bool(ticket.verified_email)
+        and customer_email.lower() == (ticket.verified_email or "").lower()
+        and author_identity.lower() == (ticket.distinct_id or "").lower()
     )
 
 
@@ -448,7 +463,9 @@ def _get_customer_properties(ticket: Ticket, *, include_distinct_id: bool = Fals
     """Customer identity on the ticket, for workflow filters and analytics."""
     # The ticket update API stores any JSON value as the traits, so neither the traits nor a trait has a fixed type.
     traits = ticket.anonymous_traits if isinstance(ticket.anonymous_traits, dict) else {}
-    customer_email = _text_trait(traits, "email") or ticket.email_from or ""
+    # A signed claim outranks the form trait, which the widget visitor can set to any address.
+    signed_email = ticket.verified_email if ticket.channel_source == Channel.WIDGET else None
+    customer_email = signed_email or _text_trait(traits, "email") or ticket.email_from or ""
     properties = {
         "customer_name": _text_trait(traits, "name"),
         "customer_email": customer_email,
@@ -757,10 +774,9 @@ def capture_message_received(
     properties["author_type"] = "customer"
     customer_properties = _get_customer_properties(ticket)
     author_identity = _message_author_identity(ticket, item_context or {})
-    customer_properties["customer_email_verified"] = (
-        customer_properties["customer_email_verified"]
-        and author_identity.lower() == customer_properties["customer_email"].lower()
-    )
+    customer_properties["customer_email_verified"] = customer_properties[
+        "customer_email_verified"
+    ] and _is_author_the_customer(ticket, author_identity, customer_properties["customer_email"])
     properties.update(customer_properties)
     properties.update(_get_assignment_properties(ticket))
 

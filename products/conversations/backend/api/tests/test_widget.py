@@ -1497,6 +1497,7 @@ class TestWidgetIdentityVerification(BaseTest):
         self.assertEqual(ticket.distinct_id, ticket_distinct_id)
         self.assertEqual(ticket.identity_verified, identity_verified)
         self.assertEqual(ticket.anonymous_traits, {})
+        self.assertIsNone(ticket.verified_email)
 
     def test_mark_read_email_bridge_allows_verified_ticket(self):
         email = "person@example.com"
@@ -1530,20 +1531,32 @@ class TestWidgetIdentityVerification(BaseTest):
 
     # --- Send message ---
 
-    def test_send_message_creates_ticket_with_identity(self):
-        response = self.client.post(
-            "/api/conversations/v1/widget/message",
-            {
-                "identity_distinct_id": self.distinct_id,
-                "identity_hash": self.identity_hash,
-                "message": "Hello from identity mode",
-            },
-            **self._get_headers(),
-        )
+    @parameterized.expand(
+        [
+            ("no_email_claim", None, None),
+            ("signed_email_claim", "signed", "person@example.com"),
+            ("tampered_email_claim", "tampered", None),
+        ]
+    )
+    def test_send_message_creates_ticket_with_identity(self, _name, email_claim, expected_verified_email):
+        payload = {
+            "identity_distinct_id": self.distinct_id,
+            "identity_hash": self.identity_hash,
+            "message": "Hello from identity mode",
+            "traits": {"email": "typed-in@example.com"},
+        }
+        if email_claim:
+            payload.update(self._email_claim("Person@Example.com"))
+        if email_claim == "tampered":
+            payload["identity_hash_email"] = "0" * 64
+
+        response = self.client.post("/api/conversations/v1/widget/message", payload, **self._get_headers())
+
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         ticket = Ticket.objects.get(id=response.json()["ticket_id"])
         self.assertEqual(ticket.distinct_id, self.distinct_id)
         self.assertTrue(ticket.identity_verified)
+        self.assertEqual(ticket.verified_email, expected_verified_email)
 
     def test_anonymous_message_creates_unverified_ticket(self):
         # A widget_session_id-only (no HMAC) request is not server-attested.
@@ -1571,6 +1584,7 @@ class TestWidgetIdentityVerification(BaseTest):
             {
                 "identity_distinct_id": self.distinct_id,
                 "identity_hash": self.identity_hash,
+                **self._email_claim("person@example.com"),
                 "message": "Now verified",
                 "ticket_id": str(ticket.id),
             },
@@ -1579,6 +1593,7 @@ class TestWidgetIdentityVerification(BaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         ticket.refresh_from_db()
         self.assertTrue(ticket.identity_verified)
+        self.assertEqual(ticket.verified_email, "person@example.com")
 
     def test_send_message_existing_ticket_ownership_by_distinct_id(self):
         ticket = self._create_ticket()

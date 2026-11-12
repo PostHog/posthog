@@ -476,10 +476,14 @@ class WidgetMessageView(APIView):
         except IdentityVerificationFailed as e:
             return Response({"error": e.public_error}, status=status.HTTP_403_FORBIDDEN)
 
+        verified_email: str | None = None
         if verified_distinct_id is not None:
             distinct_id = verified_distinct_id
             # Deterministic widget_session_id from the HMAC (for DB storage)
             widget_session_id = str(uuid.UUID(serializer.validated_data["identity_hash"][:32]))
+            verified_email = _verify_identity_claim(
+                serializer.validated_data, team, verified_distinct_id, secrets=identity_secrets
+            )
         elif "widget_session_id" in serializer.validated_data:
             widget_session_id = str(serializer.validated_data["widget_session_id"])
             distinct_id = serializer.validated_data["distinct_id"]
@@ -508,9 +512,6 @@ class WidgetMessageView(APIView):
 
                 ownership_match: TicketOwnershipMatch | None = None
                 if verified_distinct_id is not None:
-                    verified_email = _verify_identity_claim(
-                        serializer.validated_data, team, verified_distinct_id, secrets=identity_secrets
-                    )
                     ownership_match = _viewer_ticket_match(team, verified_distinct_id, ticket, verified_email)
                     if ownership_match is None:
                         return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
@@ -539,6 +540,10 @@ class WidgetMessageView(APIView):
                 # sender's address or platform account, and this request proves neither.
                 if ownership_match == "distinct_id" and ticket.channel_source == Channel.WIDGET:
                     ticket.identity_verified = True
+                    # The claim is bound to the distinct ID this ticket now carries. A viewer matched
+                    # only by email must not change where replies are sent.
+                    if verified_email:
+                        ticket.verified_email = verified_email
 
                 # Increment unread count for team (customer sent a message)
                 ticket.unread_team_count = F("unread_team_count") + 1
@@ -550,6 +555,7 @@ class WidgetMessageView(APIView):
                         "session_context",
                         "unread_team_count",
                         "identity_verified",
+                        "verified_email",
                         "updated_at",
                     ]
                 )
@@ -577,6 +583,7 @@ class WidgetMessageView(APIView):
                 session_id=session_id,
                 session_context=session_context,
                 identity_verified=verified_distinct_id is not None,
+                verified_email=verified_email,
             )
             set_cached_session_has_tickets(team.id, widget_session_id)
 
