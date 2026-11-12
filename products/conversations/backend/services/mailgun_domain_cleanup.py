@@ -22,6 +22,8 @@ logger = structlog.get_logger(__name__)
 
 # An orphan this young may belong to a connect that registered the domain but has not saved its channel yet.
 ORPHAN_MIN_AGE = timedelta(hours=1)
+# Allows for clock skew between Mailgun and us when comparing creation times.
+REGISTRATION_CLOCK_SKEW = timedelta(minutes=10)
 MAX_DELETIONS_PER_RUN = 100
 DELETE_PAUSE_SECONDS = 0.1
 
@@ -67,7 +69,7 @@ def _scan_orphans(mailgun_domains: list[dict[str, Any]], now: datetime) -> Orpha
         domain.lower()
         for domain in EmailChannel.objects.filter(kind=EmailChannelKind.SUPPORT).values_list("domain", flat=True)
     }
-    registered_here = set(MailgunDomainRegistration.objects.values_list("domain", flat=True))
+    registered_at_by_domain = dict(MailgunDomainRegistration.objects.values_list("domain", "registered_at"))
     scan = OrphanScan(owned=[], unowned=[], kept=Counter())
 
     for item in mailgun_domains:
@@ -83,10 +85,13 @@ def _scan_orphans(mailgun_domains: list[dict[str, Any]], now: datetime) -> Orpha
         elif state != "unverified":
             # An active or disabled orphan may belong to something outside Conversations. Operators decide.
             scan.kept[f"orphan_{state or 'unknown'}"] += 1
-        elif name not in registered_here:
-            scan.unowned.append(name)
         else:
-            scan.owned.append(name)
+            registered_at = registered_at_by_domain.get(name)
+            # Another region can reclaim an unverified domain, which re-creates it in Mailgun after our registration.
+            if registered_at is None or created_at > registered_at + REGISTRATION_CLOCK_SKEW:
+                scan.unowned.append(name)
+            else:
+                scan.owned.append(name)
 
     return scan
 
@@ -97,7 +102,7 @@ def _prune_registrations(mailgun_domains: list[dict[str, Any]], now: datetime) -
     stale_ids = [
         registration_id
         for registration_id, domain in MailgunDomainRegistration.objects.filter(
-            created_at__lt=now - ORPHAN_MIN_AGE
+            registered_at__lt=now - ORPHAN_MIN_AGE
         ).values_list("id", "domain")
         if domain not in in_mailgun
     ]

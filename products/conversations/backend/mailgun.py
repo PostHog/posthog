@@ -5,6 +5,7 @@ from io import BytesIO
 from typing import Any, TypedDict
 
 from django.core.mail import EmailMessage
+from django.utils import timezone
 
 import requests
 import structlog
@@ -107,7 +108,9 @@ def add_domain(domain: str) -> MailgunDnsRecords:
     )
 
     if resp.status_code in (200, 201):
-        MailgunDomainRegistration.objects.get_or_create(domain=domain.lower())
+        MailgunDomainRegistration.objects.update_or_create(
+            domain=domain.lower(), defaults={"registered_at": timezone.now()}
+        )
         data = resp.json()
         return {
             "sending_dns_records": _filter_sending_records(data.get("sending_dns_records", [])),

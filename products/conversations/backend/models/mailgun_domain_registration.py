@@ -1,4 +1,5 @@
 from django.db import models
+from django.utils import timezone
 
 from posthog.models.utils import UUIDModel
 
@@ -12,7 +13,8 @@ class MailgunDomainRegistration(UUIDModel):
     """
 
     domain = models.CharField(max_length=255, unique=True)
-    created_at = models.DateTimeField(auto_now_add=True)
+    # Refreshed on every registration. A Mailgun creation time later than this means another region registered the domain again.
+    registered_at = models.DateTimeField(default=timezone.now)
 
     class Meta:
         app_label = "conversations"

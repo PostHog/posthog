@@ -15,6 +15,8 @@ from products.conversations.backend.models import EmailChannel, EmailChannelKind
 from products.conversations.backend.services.mailgun_domain_cleanup import cleanup_mailgun_domains
 
 SERVICE = "products.conversations.backend.services.mailgun_domain_cleanup"
+DAYS_60 = timedelta(days=60)
+DAYS_365 = timedelta(days=365)
 
 
 def _mailgun_domain(name: str, state: str, age: timedelta = timedelta(days=60)) -> dict[str, Any]:
@@ -36,28 +38,21 @@ class TestMailgunDomainCleanup(BaseTest):
 
     @parameterized.expand(
         [
-            ("registered_unverified_orphan", [], True, "unverified", timedelta(days=60), False, True),
-            ("orphan_registered_by_another_region", [], False, "unverified", timedelta(days=60), False, False),
-            ("orphan_just_registered", [], True, "unverified", timedelta(minutes=5), False, False),
-            ("active_orphan", [], True, "active", timedelta(days=60), False, False),
-            ("inbound_domain", [], True, "unverified", timedelta(days=60), True, False),
-            (
-                "old_unverified_channel",
-                [(False, timedelta(days=365))],
-                True,
-                "unverified",
-                timedelta(days=365),
-                False,
-                False,
-            ),
-            ("verified_channel", [(True, timedelta(days=45))], True, "active", timedelta(days=60), False, False),
+            ("registered_unverified_orphan", [], DAYS_60, "unverified", DAYS_60, False, True),
+            ("orphan_registered_by_another_region", [], None, "unverified", DAYS_60, False, False),
+            ("orphan_reclaimed_by_another_region", [], DAYS_60, "unverified", timedelta(days=2), False, False),
+            ("orphan_just_registered", [], timedelta(minutes=5), "unverified", timedelta(minutes=5), False, False),
+            ("active_orphan", [], DAYS_60, "active", DAYS_60, False, False),
+            ("inbound_domain", [], DAYS_60, "unverified", DAYS_60, True, False),
+            ("old_unverified_channel", [(False, DAYS_365)], DAYS_365, "unverified", DAYS_365, False, False),
+            ("verified_channel", [(True, DAYS_60)], DAYS_60, "active", DAYS_60, False, False),
         ]
     )
     def test_deletes_only_unverified_domains_this_region_registered_with_no_support_channel(
         self,
         _name: str,
         channels: list[tuple[bool, timedelta]],
-        registered_here: bool,
+        registration_age: timedelta | None,
         mailgun_state: str,
         mailgun_age: timedelta,
         is_inbound_domain: bool,
@@ -66,8 +61,8 @@ class TestMailgunDomainCleanup(BaseTest):
         domain = "acme.example.com"
         for verified, age in channels:
             self._channel(domain, verified=verified, age=age)
-        if registered_here:
-            MailgunDomainRegistration.objects.create(domain=domain)
+        if registration_age is not None:
+            MailgunDomainRegistration.objects.create(domain=domain, registered_at=timezone.now() - registration_age)
 
         with (
             override_instance_config("CONVERSATIONS_EMAIL_INBOUND_DOMAIN", domain if is_inbound_domain else ""),
