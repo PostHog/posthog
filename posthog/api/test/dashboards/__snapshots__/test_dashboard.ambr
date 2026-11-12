@@ -1635,8 +1635,8 @@
   WHERE ("alerts_platformalertconfiguration"."legacy_configuration_id" IS NULL
          AND "alerts_platformalertconfiguration"."source_kind" = 'insight'
          AND "alerts_platformalertconfiguration"."team_id" = 99999
-         AND ("alerts_platformalertconfiguration"."source_config" @> '{"insight_id": 4}'::jsonb
-              OR "alerts_platformalertconfiguration"."source_config" @> '{"insight_id": 5}'::jsonb))
+         AND ("alerts_platformalertconfiguration"."source_config" @> '{"insight_id": 99999}'::jsonb
+              OR "alerts_platformalertconfiguration"."source_config" @> '{"insight_id": 99999}'::jsonb))
   ORDER BY "alerts_platformalertconfiguration"."created_at" ASC,
            1 ASC
   '''
@@ -3870,9 +3870,9 @@
   WHERE ("alerts_platformalertconfiguration"."legacy_configuration_id" IS NULL
          AND "alerts_platformalertconfiguration"."source_kind" = 'insight'
          AND "alerts_platformalertconfiguration"."team_id" = 99999
-         AND ("alerts_platformalertconfiguration"."source_config" @> '{"insight_id": 4}'::jsonb
-              OR "alerts_platformalertconfiguration"."source_config" @> '{"insight_id": 5}'::jsonb
-              OR "alerts_platformalertconfiguration"."source_config" @> '{"insight_id": 6}'::jsonb))
+         AND ("alerts_platformalertconfiguration"."source_config" @> '{"insight_id": 99999}'::jsonb
+              OR "alerts_platformalertconfiguration"."source_config" @> '{"insight_id": 99999}'::jsonb
+              OR "alerts_platformalertconfiguration"."source_config" @> '{"insight_id": 99999}'::jsonb))
   ORDER BY "alerts_platformalertconfiguration"."created_at" ASC,
            1 ASC
   '''
@@ -7757,7 +7757,7 @@
   WHERE ("alerts_platformalertconfiguration"."legacy_configuration_id" IS NULL
          AND "alerts_platformalertconfiguration"."source_kind" = 'insight'
          AND "alerts_platformalertconfiguration"."team_id" = 99999
-         AND "alerts_platformalertconfiguration"."source_config" @> '{"insight_id": 4}'::jsonb)
+         AND "alerts_platformalertconfiguration"."source_config" @> '{"insight_id": 99999}'::jsonb)
   ORDER BY "alerts_platformalertconfiguration"."created_at" ASC,
            1 ASC
   '''
