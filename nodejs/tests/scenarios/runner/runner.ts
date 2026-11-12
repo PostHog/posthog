@@ -11,6 +11,7 @@ import {
 } from 'fs'
 import type { ProducerGlobalConfig } from 'node-rdkafka'
 import path from 'path'
+import { Client } from 'pg'
 import { pipeline } from 'stream/promises'
 import { setTimeout as sleep } from 'timers/promises'
 
@@ -151,6 +152,18 @@ function withEvidenceError(result: RunResult, error: string | undefined): RunRes
           }
 }
 
+async function connectWithin(databaseUrl: string, withinMs: number): Promise<void> {
+    const client = new Client({ connectionString: databaseUrl, connectionTimeoutMillis: withinMs })
+    try {
+        await client.connect()
+    } catch (error) {
+        throw new Error(
+            `the seeding database did not finish connecting within ${withinMs} ms: ${(error as Error).message}`
+        )
+    }
+    await client.end()
+}
+
 async function seedWithin(
     loaded: LoadedCard,
     postgres: PostgresRouter,
@@ -216,8 +229,10 @@ export function createRunner(
                     )
                     throw error
                 })
+                const seedingUrl = seedingUrlOf(specs[0])
+                await connectWithin(seedingUrl, seedWithinMs)
                 postgres = new PostgresRouter(
-                    { DATABASE_URL: seedingUrlOf(specs[0]), POSTGRES_CONNECTION_POOL_SIZE: 2 },
+                    { DATABASE_URL: seedingUrl, POSTGRES_CONNECTION_POOL_SIZE: 2 },
                     'posthog-scenarios'
                 )
                 const seeded = await seedWithin(loaded, postgres, signal, seedWithinMs)

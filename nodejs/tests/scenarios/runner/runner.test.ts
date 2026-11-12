@@ -1,6 +1,7 @@
 import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
 
 import { SESv2Client } from '@aws-sdk/client-sesv2'
+import { once } from 'events'
 import fs, { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { AddressInfo, Socket, createServer } from 'net'
 import { KafkaConsumer } from 'node-rdkafka'
@@ -244,7 +245,7 @@ describe('runner', () => {
 
     it('stops seeding when the database accepts the connection and never answers its startup', async () => {
         const sockets: Socket[] = []
-        const silent = createServer((socket) => void sockets.push(socket))
+        const silent = createServer((socket) => void sockets.push(socket.resume()))
         await new Promise<void>((resolve) => silent.listen(0, '127.0.0.1', resolve))
         try {
             const { port } = silent.address() as AddressInfo
@@ -261,8 +262,12 @@ describe('runner', () => {
 
             expect(result).toMatchObject({
                 status: 'invalid',
-                statusReason: expect.stringMatching(/^the run stopped: seeding did not finish within 1000 ms/),
+                statusReason: expect.stringMatching(
+                    /^the run stopped: the seeding database did not finish connecting within 1000 ms/
+                ),
             })
+            await Promise.all(sockets.map((socket) => (socket.closed ? Promise.resolve() : once(socket, 'close'))))
+            expect(sockets).toHaveLength(1)
         } finally {
             sockets.forEach((socket) => socket.destroy())
             await new Promise((resolve) => silent.close(resolve))
