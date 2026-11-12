@@ -50714,11 +50714,6 @@ export namespace Schemas {
 
     export type ExternalDataSourceSerializersSchemasItem = { [key: string]: unknown };
 
-    export interface SourceUpdatePayload {
-      /** Id of a stored credential to reconnect this source with. The user enters new connection details on the page that data-warehouse-source-connect-link returns, and the id comes from the stored_credentials list. Only the user who stored the credential can use it, and it must be for this source's source_type and not expired. Its values replace the source's connection details, then the connection is checked. The stored credential is deleted when the update succeeds. */
-      credential_id: string;
-    }
-
     /**
      * Mixin for serializers to add user access control fields
      */
@@ -50807,8 +50802,6 @@ export namespace Schemas {
          * @nullable
          */
       readonly connection_warning: string | null;
-      /** Update only. Reconnects the source or rotates its credentials with a stored credential, so secrets do not go through the request. Send {'credential_id': '<uuid>'}. */
-      payload?: SourceUpdatePayload;
     }
 
     export interface ExternalDataSourceSyncState {
@@ -87007,8 +87000,6 @@ export namespace Schemas {
          * @nullable
          */
       readonly connection_warning?: string | null;
-      /** Update only. Reconnects the source or rotates its credentials with a stored credential, so secrets do not go through the request. Send {'credential_id': '<uuid>'}. */
-      payload?: SourceUpdatePayload;
     }
 
     export interface PatchedFeatureFlagPartialUpdateRequestSchema {
@@ -110702,6 +110693,18 @@ export namespace Schemas {
      */
     export type SendEmailMessageData = {[key: string]: unknown};
 
+    /**
+     * What PostHog tracks for the email your code rendered. `true` tracks opens and clicks and captures engagement events. `false` turns off all of it, now and for any kind of tracking added later. An object sets each kind on its own, and a kind it leaves out keeps its default. Without this field, PostHog tracks opens and captures engagement events, and tracks clicks only when the email isn't sensitive (see `sensitive`). Turn on `clicks` for a sensitive email only when its links are safe to send through a redirect. A link with `data-ph-no-track` keeps its own address either way. Click tracking needs open tracking. A project whose admin turned engagement capture off captures nothing, whatever the send says. The object form needs a JSON body.
+     */
+    export type SendEmailTracking = boolean | {
+      /** Whether PostHog adds its open pixel to the email. Defaults to true. */
+      opens?: boolean;
+      /** Whether the email's links go through a redirect that counts clicks. Defaults to true when the email isn't sensitive and false when it is. Needs `opens`. A link with `data-ph-no-track` keeps its own address. */
+      clicks?: boolean;
+      /** Whether the email's engagement events (sent, delivered, opened, clicked, bounced) are captured as analytics events of the recipient. Defaults to true. */
+      engagement?: boolean;
+    };
+
     export interface SendEmail {
       /** Email address of the recipient. */
       to: string;
@@ -110742,8 +110745,15 @@ export namespace Schemas {
          * @nullable
          */
       attachments?: EmailAttachment[] | null;
-      /** Whether the engagement events (sent, delivered, opened, clicked, bounced) of the email your code rendered are captured as analytics events of the recipient. Defaults to true. A project whose admin turned engagement capture off captures nothing, whatever the send says. */
+      /**
+         * Deprecated: use `tracking.engagement`. Whether the engagement events (sent, delivered, opened, clicked, bounced) of the email your code rendered are captured as analytics events of the recipient. Defaults to true. A send with `tracking` can't also carry this field. A project whose admin turned engagement capture off captures nothing, whatever the send says.
+         * @deprecated
+         */
       capture_engagement?: boolean;
+      /** What PostHog tracks for the email your code rendered. `true` tracks opens and clicks and captures engagement events. `false` turns off all of it, now and for any kind of tracking added later. An object sets each kind on its own, and a kind it leaves out keeps its default. Without this field, PostHog tracks opens and captures engagement events, and tracks clicks only when the email isn't sensitive (see `sensitive`). Turn on `clicks` for a sensitive email only when its links are safe to send through a redirect. A link with `data-ph-no-track` keeps its own address either way. Click tracking needs open tracking. A project whose admin turned engagement capture off captures nothing, whatever the send says. The object form needs a JSON body. */
+      tracking?: SendEmailTracking;
+      /** Mark the email as sensitive when it carries login links, reset tokens, or codes. Sensitive emails keep their links unchanged unless `tracking` turns clicks on, leave the subject off engagement events, and keep the content out of logs. Defaults to the matched template's setting, or true when no template matches. It can't be false when the matched template is sensitive. */
+      sensitive?: boolean;
       /**
          * Sender of the email your code rendered, as `security@example.com` or `Example <security@example.com>`, on a verified domain of the project. Without it, the email goes out from the project's default sender, or from its only verified sender when it has no default.
          * @maxLength 1024
@@ -113628,7 +113638,7 @@ export namespace Schemas {
     }
 
     export interface SourceCredential {
-      /** Stored credential id. Pass it as {'credential_id': <id>} in the payload of the setup endpoint to create a source, or of a source update to reconnect an existing source. */
+      /** Stored credential id. Pass to the setup endpoint as {'credential_id': <id>} to create the source. */
       credential_id: string;
       /** The source type the stored credentials are for. */
       source_type: string;
@@ -139611,7 +139621,7 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * Return 403 unless tasks from this origin product can run on custom images. Leave it out to only check that custom images are enabled.
+     * The list is empty when tasks from this origin product cannot run on custom images. Leave it out to list every image you can see.
      *
      * * `onboarding` - Onboarding
      * * `account_audit` - Account audit
