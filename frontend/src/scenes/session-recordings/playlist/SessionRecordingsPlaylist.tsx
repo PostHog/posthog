@@ -54,14 +54,13 @@ export function SessionRecordingsPlaylist({
         watchLayout,
     }
     const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
-    const { canOverrideLayout, staffLayoutOverride } = useValues(playerSettingsLogic)
-    const layoutOverridden = canOverrideLayout && !!staffLayoutOverride
+    const { canOverrideLayout } = useValues(playerSettingsLogic)
     useEffect(() => {
         // Opening the Replay page is the exposure. An override is not the flag's arm.
-        if (watchLayout && receivedFeatureFlags && !layoutOverridden) {
+        if (watchLayout && receivedFeatureFlags && !canOverrideLayout) {
             reportFeatureFlagExposure(featureFlags, FEATURE_FLAGS.REPLAY_WATCH_LAYOUT)
         }
-    }, [watchLayout, receivedFeatureFlags, featureFlags, layoutOverridden])
+    }, [watchLayout, receivedFeatureFlags, featureFlags, canOverrideLayout])
 
     const { sidePanelWidth } = useValues(panelLayoutLogic)
     const { isWindowLessThan } = useWindowSize({ widthOffset: sidePanelWidth })
