@@ -12,7 +12,7 @@ import {
     FilterSearchSubMenu,
 } from '@posthog/quill'
 
-import { useTagPages } from 'lib/components/useTagPages'
+import { QuillTagsFilterSubMenu } from 'lib/components/QuillTagsFilterSubMenu'
 import { fullName } from 'lib/utils/strings'
 import { AnalyticsOwnerAvatar } from 'scenes/analytics/AnalyticsOwner'
 import { userLogic } from 'scenes/userLogic'
@@ -42,7 +42,6 @@ export function QuillSavedInsightsFilterMenu({
     active: boolean
     onClear: () => void
 }): JSX.Element {
-    const tagPages = useTagPages('saved-insights-modal-tags')
     const { meFirstMembers, membersLoading } = useValues(membersLogic)
     const { ensureAllMembersLoaded } = useActions(membersLogic)
     const { user } = useValues(userLogic)
@@ -92,25 +91,13 @@ export function QuillSavedInsightsFilterMenu({
                     dataAttr="saved-insights-modal-created-by"
                     optionDataAttr="saved-insights-modal-created-by-option"
                 />
-                <FilterSearchSubMenu
-                    label="Tags"
-                    allLabel="Any tag"
-                    pluralNoun="tags"
-                    options={tagPages.tags.map(({ tag }) => ({ value: tag, label: tag }))}
+                <QuillTagsFilterSubMenu
+                    logicKey="saved-insights-modal-tags"
                     selected={filters.tags ?? []}
                     onChange={(tags) => {
                         setFilters({ tags })
                         posthog.capture('saved insights filtered', { filter_type: 'tags', value: tags })
                     }}
-                    loading={tagPages.awaitingFirstPage || tagPages.pageLoading}
-                    searchPlaceholder="Search tags"
-                    emptyText="No matching tags"
-                    onOpen={() => tagPages.setOpen(true)}
-                    onClose={() => tagPages.setOpen(false)}
-                    onSearchChange={tagPages.setSearch}
-                    onScrollEnd={tagPages.loadMore}
-                    error={tagPages.error ? "Couldn't load tags." : undefined}
-                    onRetry={tagPages.retry}
                     dataAttr="saved-insights-modal-tags"
                     optionDataAttr="saved-insights-modal-tags-option"
                 />

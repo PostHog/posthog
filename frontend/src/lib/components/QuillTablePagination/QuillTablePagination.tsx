@@ -9,31 +9,34 @@ import {
     getPaginationRange,
 } from '@posthog/quill'
 
-export function QuillSavedInsightsPagination({
-    currentPage,
-    pageSize,
-    total,
-    onPageChange,
-}: {
+export interface QuillTablePaginationProps {
     currentPage: number
+    pageCount: number
     pageSize: number
     total: number
     onPageChange: (page: number) => void
-}): JSX.Element {
-    const pageCount = Math.max(1, Math.ceil(total / pageSize))
+}
+
+export function QuillTablePagination({
+    currentPage,
+    pageCount,
+    pageSize,
+    total,
+    onPageChange,
+}: QuillTablePaginationProps): JSX.Element {
     const pageIndex = currentPage - 1
     const start = pageIndex * pageSize + 1
     const end = Math.min(currentPage * pageSize, total)
 
     return (
         <div className="flex flex-wrap items-center justify-between gap-2 px-3 pb-2">
-            <span className="text-xs tabular-nums text-muted-foreground" translate="no">
+            <span className="text-xs tabular-nums text-muted-foreground">
                 {start}–{end} of {total}
             </span>
             <Pagination className="w-auto">
                 <PaginationContent>
                     <PaginationItem>
-                        <PaginationPrevious disabled={currentPage <= 1} onClick={() => onPageChange(currentPage - 1)}>
+                        <PaginationPrevious disabled={currentPage === 1} onClick={() => onPageChange(currentPage - 1)}>
                             <span className="sr-only">Previous</span>
                         </PaginationPrevious>
                     </PaginationItem>
@@ -56,7 +59,7 @@ export function QuillSavedInsightsPagination({
                     )}
                     <PaginationItem>
                         <PaginationNext
-                            disabled={currentPage >= pageCount}
+                            disabled={currentPage === pageCount}
                             onClick={() => onPageChange(currentPage + 1)}
                         >
                             <span className="sr-only">Next</span>

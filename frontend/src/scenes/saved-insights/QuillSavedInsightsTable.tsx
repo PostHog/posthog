@@ -5,6 +5,7 @@ import { useMemo } from 'react'
 import { IconCheck, IconPlus } from '@posthog/icons'
 import { Badge, Button, Card, DataTable, Text, cn } from '@posthog/quill'
 
+import { QuillTablePagination } from 'lib/components/QuillTablePagination/QuillTablePagination'
 import { TZLabel } from 'lib/components/TZLabel'
 import { AnalyticsOwner } from 'scenes/analytics/AnalyticsOwner'
 import { AnalyticsSearchInput } from 'scenes/analytics/AnalyticsSearchInput'
@@ -16,7 +17,6 @@ import { addSavedInsightsModalLogic } from './addSavedInsightsModalLogic'
 import { InsightIcon } from './InsightIcon'
 import { QuillSavedInsightsEmptyState } from './QuillSavedInsightsEmptyState'
 import { QuillSavedInsightsFilterMenu } from './QuillSavedInsightsFilterMenu'
-import { QuillSavedInsightsPagination } from './QuillSavedInsightsPagination'
 import { QuillSavedInsightsTableSkeleton } from './QuillSavedInsightsTableSkeleton'
 import { SavedInsightFilters } from './savedInsightsLogic'
 import { SavedInsightsTableProps } from './SavedInsightsTable'
@@ -205,8 +205,9 @@ export function QuillSavedInsightsTable({
                     />
                 </div>
                 {count > insightsPerPage && (
-                    <QuillSavedInsightsPagination
+                    <QuillTablePagination
                         currentPage={modalPage}
+                        pageCount={Math.ceil(count / insightsPerPage)}
                         pageSize={insightsPerPage}
                         total={count}
                         onPageChange={setModalPage}
