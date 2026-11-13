@@ -2082,8 +2082,8 @@ export interface IncrementalFieldTableApi {
 
 export interface IncrementalFieldRecommendationsRequestApi {
     /**
-     * Tables from database_schema to get a recommended incremental field for.
-     * @maxItems 128
+     * Tables from database_schema to get a recommended incremental field for. One request is one model call: up to 8 tables with up to 32 candidate fields in total, or a single table of any size.
+     * @maxItems 8
      */
     tables: IncrementalFieldTableApi[]
 }

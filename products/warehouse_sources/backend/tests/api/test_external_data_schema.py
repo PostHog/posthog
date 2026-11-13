@@ -44,7 +44,7 @@ from products.data_warehouse.backend.facade.api import (
     sync_external_data_job_workflow,
 )
 from products.data_warehouse.backend.facade.contracts import WebhookHogFunctionCreateResult
-from products.warehouse_sources.backend.facade.incremental_field_model import recommend_for_candidates
+from products.warehouse_sources.backend.facade.incremental_field_model import WIZARD_PATH, recommend_for_candidates
 from products.warehouse_sources.backend.facade.models import (
     INCREMENTAL_HISTORY_KEY,
     DataWarehouseTable,
@@ -777,7 +777,9 @@ class TestExternalDataSchema(APIBaseTest):
         ):
             if wizard_asked_first:
                 discovered = open_orders_schema()
-                recommend_for_candidates([(discovered.name, discovered.incremental_fields)], team=self.team)
+                recommend_for_candidates(
+                    [(discovered.name, discovered.incremental_fields)], team=self.team, path=WIZARD_PATH
+                )
             first_fields = []
             for _ in expected_first_field_per_open:
                 response = self.client.post(
@@ -802,7 +804,9 @@ class TestExternalDataSchema(APIBaseTest):
             fake_decision_model(choice="c0"),
         ):
             discovered = open_orders_schema()
-            recommend_for_candidates([(discovered.name, discovered.incremental_fields)], team=self.team)
+            recommend_for_candidates(
+                [(discovered.name, discovered.incremental_fields)], team=self.team, path=WIZARD_PATH
+            )
             first_field = self._open_sync_form(schema)
 
         assert first_field == "created_at"
