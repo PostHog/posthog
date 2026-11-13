@@ -1282,8 +1282,6 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
         it('leaves the body unread when the team id header names a team with no actionable flow', async () => {
             const parseErrorsBefore = await parseErrorCount()
             const noActionableFlowBefore = await skipCount('no_actionable_flow')
-            // Team 2 has no actionable flow and this body cannot be parsed, so a parse error could only
-            // come from reading a body the matcher does not need.
             const unreadable = withTeamIdHeader({ value: Buffer.from('{') }, 2)
 
             const result = await (matcher as any)._parseKafkaBatch([unreadable, rawEvent({})])
