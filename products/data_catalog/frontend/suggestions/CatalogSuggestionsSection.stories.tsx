@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react'
+import { waitFor } from '@testing-library/react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
@@ -10,6 +11,8 @@ import type {
     WarehouseSuggestionApi,
     WarehouseSuggestionStatusApi,
 } from 'products/warehouse_suggestions/frontend/generated/api.schemas'
+
+import { userEvent } from 'storybook/test'
 
 import { catalogStoryMocks, grantWarehouseEditorAccess, inMainContent } from '../catalogStoryFixtures'
 import { DataCatalogScene } from '../DataCatalogScene'
@@ -132,5 +135,40 @@ export const AllCaughtUpWithMoreWaiting: Story = {
 export const AllCaughtUp: Story = {
     parameters: {
         msw: { mocks: suggestionsMocks([], ACTIVE_STATUS) },
+    },
+}
+
+async function waitForElement<T extends Element>(root: ParentNode, selector: string): Promise<T> {
+    return await waitFor(() => {
+        const element = root.querySelector<T>(selector)
+        if (!element) {
+            throw new Error(`${selector} not rendered yet`)
+        }
+        return element
+    })
+}
+
+export const FilteredByName: Story = {
+    play: async ({ canvasElement }) => {
+        const search = await waitForElement<HTMLInputElement>(
+            canvasElement,
+            '[data-attr="data-catalog-suggestions-search"]'
+        )
+        await userEvent.type(search, 'stripe')
+    },
+}
+
+export const BulkApproveDialog: Story = {
+    play: async ({ canvasElement }) => {
+        await waitForElement(canvasElement, '[aria-label^="Select every"]')
+        canvasElement
+            .querySelectorAll<HTMLElement>('[aria-label^="Select every"]')
+            .forEach((checkbox) => checkbox.click())
+        const approve = await waitForElement<HTMLElement>(
+            canvasElement,
+            '[data-attr="data-catalog-suggestions-bulk-accept"]'
+        )
+        approve.click()
+        await waitForElement(document, '[data-attr="warehouse-suggestions-bulk-accept-dialog"]')
     },
 }
