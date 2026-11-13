@@ -13,7 +13,7 @@ from posthog.temporal.mcp_analytics.intent_topics.constants import (
     COORDINATOR_CHILD_WORKFLOW_RETRY_POLICY,
     COORDINATOR_DEFAULT_MAX_CONCURRENT_TEAMS,
     COORDINATOR_WORKFLOW_NAME,
-    WORKFLOW_EXECUTION_TIMEOUT,
+    WORKFLOW_EXECUTION_TIMEOUTS,
 )
 from posthog.temporal.mcp_analytics.intent_topics.models import IntentTopicsWorkflowInputs, IntentTopicsWorkflowResult
 from posthog.temporal.mcp_analytics.intent_topics.workflow import IntentTopicsWorkflow
@@ -79,7 +79,9 @@ class IntentTopicsCoordinatorWorkflow(PostHogWorkflow):
                     IntentTopicsWorkflow.run,
                     IntentTopicsWorkflowInputs(team_id=team_id, kind=inputs.kind),
                     id=f"{CHILD_WORKFLOW_ID_PREFIX}-{team_id}-{inputs.kind}-{temporalio.workflow.now().isoformat()}",
-                    execution_timeout=WORKFLOW_EXECUTION_TIMEOUT,
+                    execution_timeout=WORKFLOW_EXECUTION_TIMEOUTS.get(
+                        inputs.kind, WORKFLOW_EXECUTION_TIMEOUTS["refit"]
+                    ),
                     retry_policy=COORDINATOR_CHILD_WORKFLOW_RETRY_POLICY,
                     parent_close_policy=temporalio.workflow.ParentClosePolicy.TERMINATE,
                 )
