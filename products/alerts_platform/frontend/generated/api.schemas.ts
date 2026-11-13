@@ -134,18 +134,6 @@ export interface AlertRouteApi {
     enabled: boolean
 }
 
-export interface AlertRouteMatchingRequestApi {
-    /** The alert's labels, by name, such as {"team": "checkout"}. Unsaved labels work too. */
-    labels: Record<string, string>
-}
-
-export interface AlertRouteMatchApi {
-    /** A route these labels match. */
-    route: AlertRouteApi
-    /** The receiver the route sends to. */
-    receiver: AlertReceiverApi
-}
-
 export interface AlertRouteWriteApi {
     /** ID of the receiver this route sends to. */
     receiver_id: string
@@ -172,6 +160,23 @@ export interface PatchedAlertRouteWriteApi {
     event_kinds?: PlatformAlertDestinationEventKindEnumApi[]
     /** Whether this route sends. Defaults to true. */
     enabled?: boolean
+}
+
+/**
+ * The alert's labels, by name, such as {"team": "checkout"}. Unsaved labels work too.
+ */
+export type AlertRouteMatchingRequestApiLabels = { [key: string]: string }
+
+export interface AlertRouteMatchingRequestApi {
+    /** The alert's labels, by name, such as {"team": "checkout"}. Unsaved labels work too. */
+    labels: AlertRouteMatchingRequestApiLabels
+}
+
+export interface AlertRouteMatchApi {
+    /** A route these labels match. */
+    route: AlertRouteApi
+    /** The receiver the route sends to. */
+    receiver: AlertReceiverApi
 }
 
 /**
