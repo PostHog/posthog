@@ -147,4 +147,12 @@ describe('SavedInsightsFilters Created by dropdown', () => {
 
         expect(setFilters).toHaveBeenCalledWith({ createdBy: [MOCK_SECOND_BASIC_USER.id] })
     })
+
+    it('toggles notOnAnyDashboard when the dashboard membership filter is clicked', async () => {
+        renderFilters({ notOnAnyDashboard: false })
+
+        await userEvent.click(screen.getByText(/Not on any dashboard/))
+
+        expect(setFilters).toHaveBeenCalledWith({ notOnAnyDashboard: true })
+    })
 })

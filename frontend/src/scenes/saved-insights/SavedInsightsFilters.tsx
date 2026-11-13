@@ -4,8 +4,8 @@ import { SavedInsightFilters } from 'scenes/saved-insights/savedInsightsLogic'
 
 import { SavedInsightsQuickFilters } from './SavedInsightsQuickFilters'
 
-export type QuickFilterKind = 'insightType' | 'tags' | 'createdBy' | 'favorites'
-const ALL_QUICK_FILTERS: QuickFilterKind[] = ['insightType', 'tags', 'createdBy', 'favorites']
+export type QuickFilterKind = 'insightType' | 'tags' | 'createdBy' | 'favorites' | 'notOnAnyDashboard'
+const ALL_QUICK_FILTERS: QuickFilterKind[] = ['insightType', 'tags', 'createdBy', 'favorites', 'notOnAnyDashboard']
 
 export function SavedInsightsFilters({
     filters,

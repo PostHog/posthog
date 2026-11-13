@@ -6,6 +6,7 @@ import { SavedInsightFilters } from 'scenes/saved-insights/savedInsightsLogic'
 
 import { SavedInsightsFavoriteFilter } from './SavedInsightsFavoriteFilter'
 import { QuickFilterKind } from './SavedInsightsFilters'
+import { SavedInsightsNotOnAnyDashboardFilter } from './SavedInsightsNotOnAnyDashboardFilter'
 import { SavedInsightsTypeFilter } from './SavedInsightsTypeFilter'
 
 type SetFilters = (filters: Partial<SavedInsightFilters>) => void
@@ -21,7 +22,7 @@ export function SavedInsightsQuickFilters({
     quickFilters: QuickFilterKind[]
     borderless: boolean
 }): JSX.Element {
-    const { favorited, tags, insightType, createdBy } = filters
+    const { favorited, notOnAnyDashboard, tags, insightType, createdBy } = filters
     const quickFilterSet = new Set(quickFilters)
 
     return (
@@ -57,6 +58,13 @@ export function SavedInsightsQuickFilters({
             )}
             {quickFilterSet.has('favorites') && (
                 <SavedInsightsFavoriteFilter favorited={favorited} setFilters={setFilters} borderless={borderless} />
+            )}
+            {quickFilterSet.has('notOnAnyDashboard') && (
+                <SavedInsightsNotOnAnyDashboardFilter
+                    notOnAnyDashboard={notOnAnyDashboard}
+                    setFilters={setFilters}
+                    borderless={borderless}
+                />
             )}
         </div>
     )
