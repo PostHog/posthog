@@ -110,21 +110,41 @@ class TestStableChunks(SimpleTestCase):
         with patch("posthog.stable_chunks._resolve_stable_chunks", return_value=stable):
             assert (stable_chunks_for_request(request) is not None) == expect_stable
 
+    BROWSER_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36"
+
     @parameterized.expand(
         [
-            ("a chunk that failed to load", "?stable_chunks=fallback", "load_failed"),
+            ("a chunk that failed to load", "?stable_chunks=fallback", BROWSER_UA, "load_failed", "false"),
             (
                 "a chunk missing from the import map",
                 "?stable_chunks=fallback&stable_chunks_unmapped=@c/Abc123",
+                BROWSER_UA,
                 "unmapped_specifier",
+                "false",
             ),
-            ("a value that is not a specifier", "?stable_chunks=fallback&stable_chunks_unmapped=<b>", "load_failed"),
+            (
+                "a value that is not a specifier",
+                "?stable_chunks=fallback&stable_chunks_unmapped=<b>",
+                BROWSER_UA,
+                "load_failed",
+                "false",
+            ),
+            (
+                "a crawler that replays the fallback URL",
+                "?stable_chunks=fallback",
+                "Mozilla/5.0 (compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm)",
+                "load_failed",
+                "true",
+            ),
+            ("a request with no user agent", "?stable_chunks=fallback", "", "load_failed", "true"),
         ]
     )
-    def test_a_fallback_counts_why_it_reloaded(self, _name: str, query: str, reason: str) -> None:
-        request = RequestFactory().get(f"/{query}")
+    def test_a_fallback_counts_why_it_reloaded(
+        self, _name: str, query: str, user_agent: str, reason: str, bot: str
+    ) -> None:
+        request = RequestFactory().get(f"/{query}", headers={"user-agent": user_agent} if user_agent else None)
         request.user = AnonymousUser()
-        labels = {"authenticated": "false", "reason": reason}
+        labels = {"authenticated": "false", "reason": reason, "bot": bot}
         before = REGISTRY.get_sample_value("posthog_stable_chunks_fallback_total", labels) or 0
 
         assert stable_chunks_for_request(request) is None

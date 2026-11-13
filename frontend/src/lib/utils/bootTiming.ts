@@ -51,6 +51,16 @@ function recordHidden(): void {
     pageWasHidden ||= document.visibilityState === 'hidden'
 }
 
+type ChunkBuild = 'stable' | 'fallback' | 'hashed'
+
+function getChunkBuild(): ChunkBuild {
+    if (window.POSTHOG_STABLE_CHUNKS_FALLBACK) {
+        return 'fallback'
+    }
+    // Only the stable chunk build renders an import map (see posthog/stable_chunks.py).
+    return document.querySelector('script[type="importmap"]') ? 'stable' : 'hashed'
+}
+
 async function sendBootTiming(): Promise<void> {
     // The entry chunk imports this module, and static imports would pull these modules into it.
     // import() also resolves after the current React commit. A parent's layout effect runs after
@@ -66,7 +76,10 @@ async function sendBootTiming(): Promise<void> {
     // `identity_distinct_id`. The distinct ID changes only at login, so a user stays in or out across page loads.
     const distinctId = posthog.get_distinct_id()
     // hashCodeForString returns 0 for an empty string, which would put every such page load in the sample.
-    if (!distinctId?.trim() || hashCodeForString(distinctId) % 100 >= SAMPLE_RATE * 100) {
+    const chunkBuild = getChunkBuild()
+    // Fallback page loads are rare, and the share of them that boot is only measurable with all of them.
+    const sampleRate = chunkBuild === 'fallback' ? 1 : SAMPLE_RATE
+    if (!distinctId?.trim() || hashCodeForString(distinctId) % 100 >= sampleRate * 100) {
         return
     }
     const durations = Object.fromEntries(
@@ -77,7 +90,8 @@ async function sendBootTiming(): Promise<void> {
         ...context,
         ...getNavigationProperties(),
         page_was_hidden: pageWasHidden,
-        sample_rate: SAMPLE_RATE,
+        chunk_build: chunkBuild,
+        sample_rate: sampleRate,
     })
 }
 
