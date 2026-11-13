@@ -189,7 +189,7 @@ async function discover(
     return { failures, tagged: new Set(tagged.map(keyOfResource)), blind }
 }
 
-async function receiptsOf(evidence: ReturnType<typeof evidenceOf>, manifest: Manifest): Promise<Receipt[]> {
+export async function receiptsOf(evidence: ReturnType<typeof evidenceOf>, manifest: Manifest): Promise<Receipt[]> {
     const receipts: Receipt[] = []
     for (const key of (await evidence.keys(keyOf(manifest.runId, 'receipts/'))).sort()) {
         receipts.push(parseJSON(await evidence.get(key)) as Receipt)

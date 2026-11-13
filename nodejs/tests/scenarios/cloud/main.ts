@@ -5,6 +5,7 @@ import { awaitCard, prepareDatabase, startCard } from './host'
 import { lease, manifestOf } from './lease'
 import { githubOrigin } from './origin'
 import { CloudProfile, REGION, RunInputs, loadCloudProfile, loadRunInputs } from './profile'
+import { report } from './report'
 import { addReader, createRunStack } from './stack'
 import { teardown, teardownExpired } from './teardown'
 
@@ -53,6 +54,8 @@ async function run(controller: Controller, loaded: RunInputs): Promise<number> {
         interruption.abort()
     })
     let outcome: number = EXIT_CODE.passed
+    const reasons: string[] = []
+    let teardownClean = false
     try {
         const parameters = await createRunStack(controller, profile, manifest, interruption.signal)
         await prepareDatabase(controller, profile, manifest, interruption.signal)
@@ -61,14 +64,17 @@ async function run(controller: Controller, loaded: RunInputs): Promise<number> {
         outcome = await awaitCard(controller, profile, manifest, interruption.signal)
     } catch (error) {
         controller.warn(`Run ${manifest.runId} is invalid: ${(error as Error).message}`)
+        reasons.push((error as Error).message)
         outcome = EXIT_CODE.invalid
     } finally {
-        if (!(await teardown(controller, profile, manifest))) {
+        teardownClean = await teardown(controller, profile, manifest)
+        if (!teardownClean) {
+            reasons.push('teardown did not confirm that the run left nothing behind')
             outcome = EXIT_CODE.invalid
         }
         stopListening()
     }
-    return outcome
+    return await report(controller, loaded, manifest, { exitCode: outcome, reasons, teardownClean })
 }
 
 async function cleanup(controller: Controller, profile: CloudProfile, target: string): Promise<number> {

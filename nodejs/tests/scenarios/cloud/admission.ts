@@ -27,7 +27,7 @@ export type Admitted = { owner: string; commit: string }
 type EstimateLine = { item: string; usd: number }
 
 const HOUR_S = 3600
-const HOURS_PER_MONTH = 730
+export const HOURS_PER_MONTH = 730
 const BYTES_PER_GB = 1e9
 const MONITORED_INSTANCES = 2
 const SERVERLESS_CLASS = 'db.serverless'
@@ -70,7 +70,7 @@ export function estimateOf({ writerClass, readerAcu, host, admission }: CloudPro
     ]
 }
 
-const dollars = (usd: number): string => `$${usd.toFixed(2)}`
+export const dollars = (usd: number): string => `$${usd.toFixed(2)}`
 
 function printEstimate({ print }: Controller, profile: CloudProfile): number {
     const lines = estimateOf(profile)

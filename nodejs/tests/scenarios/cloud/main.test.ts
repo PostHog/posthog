@@ -6,7 +6,8 @@ import { stringify } from 'yaml'
 
 import { parseJSON } from '~/common/utils/json-parse'
 
-import { FakeCloud, FakeCloudOptions } from './fake-cloud'
+import { FakeProjectApi, startFakeProjectApi } from '../scorecard/fake-project-api'
+import { FakeCloud, FakeCloudOptions, ReaderMinute } from './fake-cloud'
 import { PROFILE } from './fixtures'
 import { lease } from './lease'
 import { Controller, main } from './main'
@@ -29,6 +30,9 @@ type Setup = {
 
 const sha256 = (text: string): string => createHash('sha256').update(text).digest('hex')
 
+const minutes = (from: number, to: number, max: number, avg: number): ReaderMinute[] =>
+    Array.from({ length: to - from + 1 }, (_, i) => ({ minute: from + i, max, avg }))
+
 describe('cloud controller', () => {
     let dir: string
     let now: Date
@@ -37,6 +41,7 @@ describe('cloud controller', () => {
     let err: string[]
     let interrupt: (() => void) | undefined
     let onSleep: (() => Promise<void> | void) | undefined
+    let api: FakeProjectApi
 
     const profilePath = (): string => path.join(dir, 'profile.yaml')
 
@@ -118,7 +123,19 @@ describe('cloud controller', () => {
             .map(({ expression }) => expression)
             .sort()
 
+    const published = (): Record<string, unknown> => {
+        expect(api.captured).toHaveLength(1)
+        return api.captured[0].properties
+    }
+
+    beforeAll(async () => {
+        api = await startFakeProjectApi()
+    })
+
+    afterAll(() => api.close())
+
     beforeEach(() => {
+        api.captured.length = 0
         dir = mkdtempSync(path.join(os.tmpdir(), 'scenario-cloud-'))
         now = T
         out = []
@@ -752,6 +769,8 @@ describe('cloud controller', () => {
         await expect(main(['run', profilePath()], controller)).resolves.toBe(2)
 
         expect(err.join('\n')).toContain(reason)
+        expect(published()).toMatchObject({ run_id: leasedRunId(), origin: 'cloud-manual', status: 'invalid' })
+        expect(published().status_reason).toContain(reason)
         expect(cloud.deleteStackRequests).toEqual([])
         expect(cloud.billable()).toEqual([])
         expect(cloud.schedules.size).toBe(0)
@@ -764,7 +783,7 @@ describe('cloud controller', () => {
         ['passes while its liveness probes are lost', { probe: 'lost' }, 0],
         ['passes while its liveness probes time out', { probe: 'timedOut' }, 0],
     ])('seeds before it adds the reader, and exits as the card does when it %s', async (_, options, exitCode) => {
-        const { controller } = prepare({ cloud: options })
+        const { controller } = prepare({ cloud: options, env: api.credentials })
         let doneAt: number | undefined
         let deletedAt: number | undefined
         onSleep = () => {
@@ -784,6 +803,7 @@ describe('cloud controller', () => {
         expect(parseJSON(cloud.objects.get(`runs/${runId}/host/done`)!)).toMatchObject({ exitCode })
         expect(cloud.objects.has(`runs/${runId}/evidence/SHA256SUMS`)).toBe(true)
         expect(cloud.billable()).toEqual([])
+        expect(published()).toMatchObject({ run_id: runId, status: exitCode === 1 ? 'failed' : 'passed' })
     })
 
     it.each<[string, Partial<FakeCloudOptions>, (fake: FakeCloud) => void, boolean]>([
@@ -1201,6 +1221,151 @@ describe('cloud controller', () => {
 
         expect(evidenceAtDelete).toBe(true)
         expect(cloud.billable()).toEqual([])
+    })
+
+    it.each<[string, ReaderMinute[], (fake: FakeCloud) => void, string, string]>([
+        [
+            'a T0 minute above 1 ACU alone',
+            [...minutes(-3, -1, 1, 1), ...minutes(0, 0, 2.5, 1.4), ...minutes(1, 2, 8, 6)],
+            () => undefined,
+            'passed',
+            '',
+        ],
+        [
+            'a complete minute before T0 above 1 ACU',
+            [
+                ...minutes(-3, -3, 1, 1),
+                ...minutes(-2, -2, 1.5, 1.2),
+                ...minutes(-1, -1, 1, 1),
+                ...minutes(0, 0, 2.5, 1.4),
+                ...minutes(1, 2, 8, 6),
+            ],
+            () => undefined,
+            'invalid',
+            'reader above 1 ACU before T0',
+        ],
+        [
+            'no capacity before T0',
+            [...minutes(0, 0, 2.5, 1.4), ...minutes(1, 2, 8, 6)],
+            () => undefined,
+            'invalid',
+            'no reader capacity before T0',
+        ],
+        [
+            'capacity CloudWatch cannot answer',
+            minutes(-3, 2, 1, 1),
+            (fake) => fake.failWhen('get-metric-data', (args) => args.includes('--scan-by')),
+            'invalid',
+            'could not read the reader capacity',
+        ],
+    ])('judges the reader on %s and publishes it', async (_, readerAcu, arrange, status, reason) => {
+        const { controller } = prepare({ cloud: { readerAcu }, env: api.credentials })
+        arrange(cloud)
+
+        await expect(main(['run', profilePath()], controller)).resolves.toBe(status === 'passed' ? 0 : 2)
+
+        expect(published()).toMatchObject({ run_id: leasedRunId(), status })
+        expect(published().status_reason).toContain(reason)
+        if (status === 'passed') {
+            expect(published()).toMatchObject({
+                acu_pre_t0_max: 1,
+                acu_t0_minute_max: 2.5,
+                acu_peak: 8,
+                acu_seconds_to_peak: 60,
+            })
+        }
+    })
+
+    it('publishes the receipt, the cost estimate and the fingerprint beside the runner measurements', async () => {
+        const readerAcu = [...minutes(-30, -1, 1, 1), ...minutes(0, 9, 6, 5), ...minutes(12, 29, 6, 5)]
+        const { controller } = prepare({ cloud: { readerAcu }, env: api.credentials })
+
+        await expect(main(['run', profilePath()], controller)).resolves.toBe(0)
+
+        const runId = leasedRunId()
+        const { createdAt } = parseJSON(cloud.objects.get(`runs/${runId}/manifest.json`)!) as { createdAt: string }
+        const properties = published()
+        const hours = (Date.parse(String(properties.ended_at)) - Date.parse(createdAt)) / HOUR_MS
+        const t0 = Date.parse(String(properties.t0_at))
+        const minuteAt = (offset: number): string => new Date(t0 - (t0 % 60_000) + offset * 60_000).toISOString()
+        expect(properties).toMatchObject({
+            run_id: runId,
+            origin: 'cloud-manual',
+            status: 'passed',
+            m_writer_recovery_s: 42,
+            environment_kind: 'run-host',
+            writer_class: 'db.r8g.2xlarge',
+            reader_acu_min: 1,
+            reader_acu_max: 32,
+            host_class: 'm7i.8xlarge',
+            engine_version: '16.4',
+            pooler_replicas: 2,
+            cloud_profile_hash: sha256(readFileSync(profilePath(), 'utf8')),
+            runner_profile_hash: sha256(readFileSync(path.join(dir, 'runner.yaml'), 'utf8')),
+            teardown_clean: true,
+            teardown_leftovers: [],
+            acu_gaps: [minuteAt(10), minuteAt(11)],
+            enhanced_monitoring_events: 6,
+            cost_estimate_excluded: ['data transfer', 'S3 requests', 'Enhanced Monitoring log ingestion'],
+        })
+        expect(properties.deviations).toEqual(expect.arrayContaining([expect.stringMatching(/team skew/)]))
+        expect(properties.cost_estimate_items).toEqual(
+            expect.arrayContaining([
+                `writer db.r8g.2xlarge, ${hours.toFixed(2)} h: $${hours.toFixed(2)}`,
+                'reader, 2.83 ACU-hours, 2 minutes missing: $0.28',
+            ])
+        )
+        const items = properties.cost_estimate_items as string[]
+        const total = items.reduce((sum, item) => sum + Number(/\$(\d+\.\d\d)$/.exec(item)![1]), 0)
+        expect(properties.cost_estimate_usd).toBeCloseTo(total, 1)
+        expect(parseJSON(cloud.objects.get(`runs/${runId}/scorecard.json`)!)).toEqual(properties)
+        const pages = [...cloud.objects.keys()].filter((key) => key.startsWith(`runs/${runId}/capacity/rdsosmetrics/`))
+        expect(pages).toHaveLength(3)
+        const kept = pages
+            .flatMap((key) => parseJSON(cloud.objects.get(key)!) as { message: string }[])
+            .map(({ message }) => (parseJSON(message) as { instanceID: string }).instanceID)
+        expect(kept.sort()).toEqual([...Array(3).fill(`scn-${runId}-reader`), ...Array(3).fill(`scn-${runId}-writer`)])
+    })
+
+    it('fingerprints runs alike only when their environment matches', async () => {
+        const fingerprintOf = async (replicas: number): Promise<unknown> => {
+            api.captured.length = 0
+            const { controller } = prepare({
+                profile: (p) => ({ ...p, pooler: { ...p.pooler, replicas } }),
+                env: api.credentials,
+            })
+            await expect(main(['run', profilePath()], controller)).resolves.toBe(0)
+            return published().fingerprint
+        }
+
+        const first = await fingerprintOf(2)
+        const again = await fingerprintOf(2)
+        const other = await fingerprintOf(3)
+
+        expect(first).toMatch(/^[0-9a-f]{64}$/)
+        expect(again).toBe(first)
+        expect(other).not.toBe(first)
+    })
+
+    it('publishes an invalid run with what teardown left behind', async () => {
+        const { controller } = prepare({ cloud: { outlives: ['AWS::EC2::Volume'] }, env: api.credentials })
+
+        await expect(main(['run', profilePath()], controller)).resolves.toBe(2)
+
+        const [volume] = cloud.billable()
+        expect(published()).toMatchObject({ status: 'invalid', teardown_clean: false })
+        expect(published().teardown_leftovers).toEqual([expect.stringContaining(volume.split(' ')[1])])
+    })
+
+    it('keeps the scorecard in the bucket and names it when no Scenario runs credentials are set', async () => {
+        const { controller } = prepare()
+
+        await expect(main(['run', profilePath()], controller)).resolves.toBe(0)
+
+        const key = `runs/${leasedRunId()}/scorecard.json`
+        expect(parseJSON(cloud.objects.get(key)!)).toMatchObject({ origin: 'cloud-manual', status: 'passed' })
+        expect(out.join('\n')).toContain(`s3://test-evidence/${key}`)
+        expect(api.captured).toEqual([])
     })
 
     it('deletes the stack by schedule when the controller dies after creating it', async () => {
