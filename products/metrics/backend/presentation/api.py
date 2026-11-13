@@ -5,10 +5,12 @@ recognizable.
 """
 
 import re
+import json
 import datetime as dt
 from collections.abc import Sequence
 from dataclasses import asdict
 from typing import cast
+from urllib.parse import urlencode
 from zoneinfo import ZoneInfo
 
 from django.db import models
@@ -34,7 +36,7 @@ from posthog.clickhouse.query_tagging import Feature, Product, get_query_tag_val
 from posthog.event_usage import report_user_action
 from posthog.exceptions import InsufficientScope
 from posthog.hogql_queries.query_runner import api_queries_budget_enforcement_enabled, get_api_queries_budget_status
-from posthog.models import User
+from posthog.models import Team, User
 from posthog.permissions import PostHogFeatureFlagPermission, posthog_feature_flag_enabled, scopes_caller_lacks
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.scopes import APIScopeObject
@@ -56,7 +58,10 @@ from products.metrics.backend.facade.api import (
     list_metric_picker_names,
     list_metric_query_counts,
     list_metric_variable_options,
+    metric_instant_window,
+    run_metric_instant_query,
     run_metric_query,
+    run_promql_instant_query,
     run_promql_query,
     team_has_metrics,
 )
@@ -207,11 +212,18 @@ class MetricQueryInterval(models.TextChoices):
     WEEK = "week", "week"
 
 
+class MetricQueryOutput(models.TextChoices):
+    POINTS = "points", "points"
+    SUMMARY = "summary", "summary"
+
+
 # ASCII digits with a length cap: `\d` also matches other scripts, which makes the parser backtrack quadratically.
 _RELATIVE_DATE_RE = re.compile(r"^-[0-9]{1,6}[Mhdwmy]$")
 # PostHog-wide, lowercase m is months and capital M is minutes, so "-30m" reads 30 months back.
 _LOWERCASE_MONTHS_RE = re.compile(r"^-([0-9]{1,6})m$")
 _DEFAULT_QUERY_LOOKBACK = dt.timedelta(hours=24)
+# More than the furthest an instant builder query reads back: three week-wide buckets after aligning to a week.
+_INSTANT_LOOKBACK_LIMIT = dt.timedelta(weeks=5)
 
 
 class _PromQLBackendUnavailable(APIException):
@@ -343,8 +355,47 @@ class _MetricQueryBodySerializer(serializers.Serializer):
         help_text="Return at most this many series, the ones with the largest summed absolute value, and count the rest in 'omitted_by_limit'. Applies after dropEmptySeries.",
     )
 
+    instant = serializers.BooleanField(
+        required=False,
+        help_text="Return one value per series instead of a time series. PromQL runs as an instant query at 'time'. The builder returns the last complete bucket before 'time', 5 minutes wide unless 'interval' says otherwise. Each series then has 'value' and 'time' instead of 'points'. Cannot be combined with 'dateFrom', 'dateTo' or 'output'.",
+    )
+    time = _RelativeOrIsoDateTimeField(
+        required=False,
+        help_text="Evaluation time of an instant query: ISO 8601 or a relative offset like dateFrom. Defaults to now. Setting it makes the query instant.",
+    )
+    output = serializers.ChoiceField(
+        choices=MetricQueryOutput.choices,
+        required=False,
+        help_text="'points' (default) returns every point. 'summary' runs the same range query but returns per series only 'last' (the last non-null value), its 'time', and 'min', 'max' and 'avg' over the non-null points.",
+    )
+
     def validate(self, attrs: dict) -> dict:
         now = timezone.now()
+        if attrs.get("time") is not None:
+            attrs["instant"] = True
+        if attrs.get("instant"):
+            if set_fields := [field for field in ("dateFrom", "dateTo") if attrs.get(field) is not None]:
+                raise serializers.ValidationError(
+                    f"An instant query takes 'time', not {' or '.join(repr(f) for f in set_fields)}."
+                )
+            if attrs.get("output") == "summary":
+                raise serializers.ValidationError(
+                    "'output': 'summary' applies to range queries; an instant query already returns one value per series."
+                )
+            if (attrs.get("promql") or "").strip() and attrs.get("interval"):
+                raise serializers.ValidationError(
+                    "'interval' does not apply to an instant PromQL query: put the window in the expression, e.g. rate(x[5m])."
+                )
+            attrs["time"] = _resolve_query_bound(attrs.get("time"), now=now, field="time") or now
+            try:
+                attrs["time"] - _INSTANT_LOOKBACK_LIMIT
+            except OverflowError:
+                raise serializers.ValidationError({"time": "Too early for an instant query."})
+            # Aligning 'time' to a bucket in the project timezone can move it past the latest datetime.
+            try:
+                attrs["time"] + _INSTANT_LOOKBACK_LIMIT
+            except OverflowError:
+                raise serializers.ValidationError({"time": "Too late for an instant query."})
         date_to = _resolve_query_bound(attrs.get("dateTo"), now=now, field="dateTo") or now
         date_from = _resolve_query_bound(attrs.get("dateFrom"), now=now, field="dateFrom")
         if date_from is None:
@@ -425,7 +476,33 @@ class _MetricSeriesSerializer(serializers.Serializer):
         child=serializers.CharField(),
         help_text="Label values identifying this series. Empty for an ungrouped query.",
     )
-    points = _MetricQueryPointSerializer(many=True, help_text="Time-bucketed points, ordered by time ascending.")
+    points = _MetricQueryPointSerializer(
+        many=True,
+        required=False,
+        help_text="Time-bucketed points, ordered by time ascending. Absent for instant queries and the summary output.",
+    )
+    value = serializers.FloatField(
+        required=False,
+        allow_null=True,
+        help_text="Instant queries only: the series' value at 'time'.",
+    )
+    time = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Instant queries: the time of 'value' (for the builder, the start of the bucket). Summary output: the time of 'last'.",
+    )
+    last = serializers.FloatField(
+        required=False, allow_null=True, help_text="Summary output only: the last non-null value."
+    )
+    min = serializers.FloatField(
+        required=False, allow_null=True, help_text="Summary output only: the smallest non-null value."
+    )
+    max = serializers.FloatField(
+        required=False, allow_null=True, help_text="Summary output only: the largest non-null value."
+    )
+    avg = serializers.FloatField(
+        required=False, allow_null=True, help_text="Summary output only: the mean of the non-null values."
+    )
     metric_name = serializers.CharField(
         required=False,
         allow_null=True,
@@ -471,6 +548,10 @@ class _MetricQueryResponseSerializer(serializers.Serializer):
         required=False,
         help_text="Number of series left out by 'limit'. Set only when it left some out.",
     )
+    url_params = serializers.CharField(
+        required=False,
+        help_text="Search params that open this query in the metrics viewer, e.g. /metrics?<url_params>. For a builder query the viewer cannot show (a 'resource' or 'attribute' scope, an unusual quantile), they open the viewer without it.",
+    )
 
 
 _NO_SERIES_HINT = (
@@ -494,7 +575,12 @@ def _mixed_layouts_hint(layout_count: int) -> str:
 
 
 def _series_response(
-    series: list[MetricSeries], *, drop_empty_series: bool = False, limit: int | None = None
+    series: list[MetricSeries],
+    *,
+    drop_empty_series: bool = False,
+    limit: int | None = None,
+    shape: str = "points",
+    url_params: str = "",
 ) -> Response:
     response_data: dict = {}
     layout_count = max((s.histogram_layout_count or 0 for s in series), default=0)
@@ -512,16 +598,141 @@ def _series_response(
         largest = set(sorted(range(len(series)), key=lambda index: -_series_magnitude(series[index]))[:limit])
         response_data["omitted_by_limit"] = len(series) - limit
         series = [s for index, s in enumerate(series) if index in largest]
-    response_data["results"] = [asdict(s) for s in series]
+    response_data["results"] = [_shape_series(s, shape) for s in series]
+    if url_params:
+        response_data["url_params"] = url_params
     return Response(response_data, status=status.HTTP_200_OK)
 
 
-def _trim_options(request: Request, query_data: dict) -> dict:
+def _shape_series(series: MetricSeries, shape: str) -> dict:
+    data = asdict(series)
+    if shape == "points":
+        return data
+    points = data.pop("points")
+    if shape == "instant":
+        point = points[-1] if points else None
+        return {**data, "value": point["value"] if point else None, "time": point["time"] if point else None}
+    present = [point for point in points if point["value"] is not None]
+    values = [point["value"] for point in present]
+    return {
+        **data,
+        "last": values[-1] if values else None,
+        "time": present[-1]["time"] if present else None,
+        "min": min(values) if values else None,
+        "max": max(values) if values else None,
+        "avg": sum(values) / len(values) if values else None,
+    }
+
+
+def _response_options(request: Request, query_data: dict, team: Team) -> dict:
     drop_empty_series = query_data.get("dropEmptySeries")
     return {
         "drop_empty_series": is_mcp_request(request) if drop_empty_series is None else drop_empty_series,
         "limit": query_data.get("limit"),
+        "shape": "instant" if query_data.get("instant") else query_data.get("output") or "points",
+        "url_params": _viewer_url_params(request, query_data, team),
     }
+
+
+# The metrics viewer's URL contract lives in products/metrics/frontend/metricsSceneLogic.tsx and metricsLinks.ts.
+_VIEWER_FILTER_OPERATORS = {"eq": "exact", "neq": "is_not", "regex": "regex", "not_regex": "not_regex"}
+_VIEWER_HISTOGRAM_AGGREGATIONS = {0.5: "histogram_p50", 0.95: "histogram_p95", 0.99: "histogram_p99"}
+# An instant query opens in the viewer over at least the hour before its time.
+_VIEWER_INSTANT_WINDOW = dt.timedelta(hours=1)
+# The viewer's clause names, from CLAUSE_NAME_PATTERN in metricsSceneLogic.tsx.
+_VIEWER_CLAUSE_NAME = re.compile(r"[a-z][a-z0-9_]{0,63}")
+
+
+def _viewer_clause(clause: dict, name: str) -> dict | None:
+    """One builder clause in the viewer's `clauses` URL param, or None when the viewer cannot show it."""
+    aggregation = clause.get("aggregation") or "sum"
+    range_function = clause.get("rangeFunction")
+    if aggregation in ("rate", "increase"):
+        aggregation, range_function = "sum", aggregation
+    if aggregation == "histogram_quantile":
+        aggregation = _VIEWER_HISTOGRAM_AGGREGATIONS.get(clause.get("quantile") or 0.0)
+        if aggregation is None:
+            return None
+    filters = clause.get("filters") or []
+    group_by = clause.get("groupBy") or []
+    # The viewer reads attributes with scope 'auto' only.
+    if any(item.get("scope", "auto") != "auto" for item in [*filters, *group_by]):
+        return None
+    # The viewer drops a filter whose value is empty, so its link would match more series.
+    if any(f.get("value", "") == "" for f in filters):
+        return None
+    item: dict = {"name": name, "metricName": clause["metricName"]}
+    if range_function:
+        item["rangeFunction"] = range_function
+    # The viewer has no aggregation for 'none': it leaves it out.
+    if aggregation != "none":
+        item["aggregation"] = aggregation
+    if clause.get("metricType"):
+        item["metricType"] = clause["metricType"]
+    if group_by:
+        item["groupBy"] = [g["key"] for g in group_by]
+    if filters:
+        item["filterGroup"] = {
+            "type": "AND",
+            "values": [
+                {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "metric_attribute",
+                            "key": f["key"],
+                            "value": [f["value"]],
+                            "operator": _VIEWER_FILTER_OPERATORS[f.get("op", "eq")],
+                        }
+                        for f in filters
+                    ],
+                }
+            ],
+        }
+    return item
+
+
+def _viewer_url_params(request: Request, query_data: dict, team: Team) -> str:
+    """Search params that open the query in the metrics viewer, or just the viewer when it cannot show the query."""
+    params: dict[str, str] = {"activeTab": "viewer"}
+    promql = (query_data.get("promql") or "").strip()
+    if promql:
+        params |= {"language": "promql", "query": query_data["promql"]}
+    else:
+        if query_data.get("clauses"):
+            # A formula refers to clauses by name, so a name the viewer rejects cannot be renamed alone.
+            if not all(_VIEWER_CLAUSE_NAME.fullmatch(c["name"]) for c in query_data["clauses"]):
+                return urlencode(params)
+            clauses = [_viewer_clause(c, c["name"]) for c in query_data["clauses"]]
+        else:
+            clauses = [_viewer_clause(query_data, "a")]
+        if any(c is None for c in clauses):
+            return urlencode(params)
+        params["clauses"] = json.dumps(clauses, separators=(",", ":"))
+        if query_data.get("formula"):
+            params["formula"] = query_data["formula"]
+    if query_data.get("instant"):
+        time: dt.datetime = query_data["time"]
+        if promql:
+            date_from, date_to = time - _VIEWER_INSTANT_WINDOW, time
+        else:
+            # The builder value is the last bucket of this window, which can end well before 'time'.
+            window = metric_instant_window(team=team, time=time, interval=query_data.get("interval"))
+            date_from, date_to = min(window.date_from, window.date_to - _VIEWER_INSTANT_WINDOW), window.date_to
+        params |= {"dateFrom": date_from.isoformat(), "dateTo": date_to.isoformat()}
+    else:
+        # Keep a relative range relative, so the link shows the latest data when it is opened.
+        raw = request.data.get("query") if isinstance(request.data, dict) else None
+        raw = raw if isinstance(raw, dict) else {}
+        for field in ("dateFrom", "dateTo"):
+            value = raw.get(field)
+            if isinstance(value, str) and value.strip():
+                params[field] = value.strip()
+            elif field == "dateFrom":
+                params[field] = query_data["dateFrom"].isoformat()
+    if query_data.get("interval") and not (promql and query_data.get("instant")):
+        params["interval"] = query_data["interval"]
+    return urlencode(params)
 
 
 class _MetricAnomalyBodySerializer(serializers.Serializer):
@@ -1491,15 +1702,24 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 clauses = tuple(_build_clause(c, name=c["name"]) for c in query_data["clauses"])
             else:
                 clauses = (_build_clause(query_data, name="a"),)
-            metric_request = MetricQueryRequest(
-                clauses=clauses,
-                date_from=query_data["dateFrom"],
-                date_to=date_to,
-                interval=query_data.get("interval"),
-                formula=query_data.get("formula"),
-            )
             self._enforce_derived_source_access(request, clauses)
-            series = run_metric_query(team=self.team, request=metric_request)
+            if query_data.get("instant"):
+                series = run_metric_instant_query(
+                    team=self.team,
+                    clauses=clauses,
+                    time=query_data["time"],
+                    interval=query_data.get("interval"),
+                    formula=query_data.get("formula"),
+                )
+            else:
+                metric_request = MetricQueryRequest(
+                    clauses=clauses,
+                    date_from=query_data["dateFrom"],
+                    date_to=date_to,
+                    interval=query_data.get("interval"),
+                    formula=query_data.get("formula"),
+                )
+                series = run_metric_query(team=self.team, request=metric_request)
         except ValueError as exc:
             raise _query_error(exc, raw_date_from) from exc
 
@@ -1510,7 +1730,9 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 "language": "builder",
                 "aggregations": sorted({c.aggregation.value for c in clauses}),
                 "clause_count": len(clauses),
-                "has_formula": metric_request.formula is not None,
+                "has_formula": query_data.get("formula") is not None,
+                "instant": bool(query_data.get("instant")),
+                "output": query_data.get("output"),
                 "series_count": len(series),
                 "result_count": sum(len(s.points) for s in series),
                 "is_derived": any(is_derived_metric_name(c.metric_name) for c in clauses),
@@ -1519,7 +1741,7 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             request=request,
         )
 
-        return _series_response(series, **_trim_options(request, query_data))
+        return _series_response(series, **_response_options(request, query_data, self.team))
 
     def _can_read_derived_source(self, request: Request, resource: APIScopeObject) -> bool:
         return not scopes_caller_lacks(
@@ -1550,13 +1772,16 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             raise PermissionDenied("PromQL queries are not enabled for this project.")
         self._enforce_api_queries_budget()
         try:
-            series = run_promql_query(
-                team=self.team,
-                expr=query_data["promql"],
-                date_from=query_data["dateFrom"],
-                date_to=date_to,
-                interval=query_data.get("interval"),
-            )
+            if query_data.get("instant"):
+                series = run_promql_instant_query(team=self.team, expr=query_data["promql"], time=query_data["time"])
+            else:
+                series = run_promql_query(
+                    team=self.team,
+                    expr=query_data["promql"],
+                    date_from=query_data["dateFrom"],
+                    date_to=date_to,
+                    interval=query_data.get("interval"),
+                )
         except ConcurrencyLimitExceeded as exc:
             raise Throttled(wait=CONCURRENCY_LIMIT_RETRY_AFTER_SECONDS, detail=CONCURRENCY_LIMIT_USER_MESSAGE) from exc
         except PromQLQueryError as exc:
@@ -1571,13 +1796,15 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             "metrics query ran",
             {
                 "language": "promql",
+                "instant": bool(query_data.get("instant")),
+                "output": query_data.get("output"),
                 "series_count": len(series),
                 "result_count": sum(len(s.points) for s in series),
             },
             team=self.team,
             request=request,
         )
-        return _series_response(series, **_trim_options(request, query_data))
+        return _series_response(series, **_response_options(request, query_data, self.team))
 
     @extend_schema(request=_MetricSamplesRequestSerializer, responses={200: _MetricSamplesResponseSerializer})
     @action(detail=False, methods=["POST"], required_scopes=["metrics:read"])
