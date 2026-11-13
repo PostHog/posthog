@@ -9,9 +9,11 @@ import { SurveyPosition } from '~/types'
 
 import type { SurveysSiteSnapshotRetrieveDevice } from 'products/surveys/frontend/generated/api.schemas'
 
+import { SurveyPreviewPagePlaceholder } from './SurveyPreviewPagePlaceholder'
 import { SurveyPreviewZoomControls } from './SurveyPreviewZoomControls'
 import { SurveyPreviewArea } from './surveyReview'
 import { surveySiteSnapshotLogic } from './surveySiteSnapshotLogic'
+import { useSnapshotZoom } from './useSnapshotZoom'
 
 const SURVEY_PLACEMENTS: Record<SurveyPosition, string> = {
     [SurveyPosition.TopLeft]: 'top-4 left-4',
@@ -26,9 +28,6 @@ const SURVEY_PLACEMENTS: Record<SurveyPosition, string> = {
     [SurveyPosition.NextToTrigger]: 'bottom-4 right-4',
 }
 
-const MAX_SCALE = 2
-// Zooming out by steps lands a hair above the fit scale in floating point, which still counts as fit.
-const FIT_TOLERANCE = 1.001
 const WHEEL_ZOOM_SENSITIVITY = 0.01
 // A mouse wheel notch reports a delta near 100 where a pinch reports a few, so one notch is capped near one button step.
 const MAX_WHEEL_DELTA = 25
@@ -38,11 +37,6 @@ const highlightClasses = (active: boolean): string =>
         'outline-2 outline-offset-2 motion-safe:transition-[outline-color]',
         active ? 'outline-accent' : 'outline-transparent'
     )
-
-function clampZoom(next: number, fitScale: number): number | 'fit' {
-    const clamped = Math.min(MAX_SCALE, next)
-    return clamped <= fitScale * FIT_TOLERANCE ? 'fit' : clamped
-}
 
 function centerOn(viewport: HTMLElement, element: HTMLElement): void {
     const viewportRect = viewport.getBoundingClientRect()
@@ -70,39 +64,14 @@ export function SurveyPreviewBrowserFrame({
     // The viewport mounts only once the snapshot is ready, so the resize observer follows the element, not a ref.
     const [viewport, setViewport] = useState<HTMLDivElement | null>(null)
     const surveyRef = useRef<HTMLDivElement>(null)
-    const { width: viewportWidth = 0, height: viewportHeight = 0 } = useResizeObserver({ ref: viewport })
-    // Page size and zoom belong to one image, so a new snapshot starts from its own size at fit.
-    const [loadedPage, setLoadedPage] = useState<{ imageUrl: string; height: number } | null>(null)
-    const [zoomState, setZoomState] = useState<{ imageUrl: string; zoom: number | 'fit' } | null>(null)
+    const { width = 0, height = 0 } = useResizeObserver({ ref: viewport })
     const [failedImageUrl, setFailedImageUrl] = useState<string | null>(null)
-
     const snapshot = readySnapshot && readySnapshot.imageUrl !== failedImageUrl ? readySnapshot : null
-    const imageUrl = snapshot?.imageUrl
+    const { scale, pageHeight, isFit, isMax, zoomBy, zoomTo, onPageLoad } = useSnapshotZoom(snapshot, {
+        width,
+        height,
+    })
     const pageWidth = snapshot?.viewportWidth ?? 0
-    const pageHeight = imageUrl && loadedPage?.imageUrl === imageUrl ? loadedPage.height : null
-    const zoom = imageUrl && zoomState?.imageUrl === imageUrl ? zoomState.zoom : 'fit'
-    const fitScale =
-        pageWidth && pageHeight && viewportWidth
-            ? Math.min(viewportWidth / pageWidth, viewportHeight / pageHeight, 1)
-            : null
-    const scale = fitScale === null ? null : zoom === 'fit' ? fitScale : Math.max(fitScale, zoom)
-
-    const zoomTo = (target: number | 'fit'): void => {
-        if (imageUrl && fitScale !== null) {
-            setZoomState({ imageUrl, zoom: target === 'fit' ? 'fit' : clampZoom(target, fitScale) })
-        }
-    }
-    const zoomBy = (factor: number): void => {
-        if (imageUrl && fitScale !== null) {
-            setZoomState((previous) => {
-                const current =
-                    previous?.imageUrl === imageUrl && previous.zoom !== 'fit'
-                        ? Math.max(fitScale, previous.zoom)
-                        : fitScale
-                return { imageUrl, zoom: clampZoom(current * factor, fitScale) }
-            })
-        }
-    }
 
     useLayoutEffect(() => {
         if (viewport && surveyRef.current) {
@@ -163,18 +132,31 @@ export function SurveyPreviewBrowserFrame({
                 {scale !== null && (
                     <SurveyPreviewZoomControls
                         scale={scale}
-                        isFit={zoom === 'fit' || scale === fitScale}
-                        isMax={scale >= MAX_SCALE}
+                        isFit={isFit}
+                        isMax={isMax}
                         onZoomBy={zoomBy}
                         onZoomTo={zoomTo}
                     />
                 )}
             </div>
             <div className="relative flex min-h-[26rem] flex-1">
-                {snapshot ? (
-                    <div ref={setViewport} className={cn('absolute inset-1 flex overflow-auto rounded', pageHighlight)}>
+                {scale === null && (
+                    <>
+                        <SurveyPreviewPagePlaceholder isMobile={isMobile} highlightClassName={pageHighlight} />
+                        {surveyLayer}
+                    </>
+                )}
+                {snapshot && (
+                    <div
+                        ref={setViewport}
+                        className={cn(
+                            'absolute inset-1 flex overflow-auto rounded',
+                            pageHighlight,
+                            scale === null && 'invisible'
+                        )}
+                    >
                         <div
-                            className={cn('relative m-auto shrink-0', scale === null && 'invisible')}
+                            className="relative m-auto shrink-0"
                             style={{ width: pageWidth * (scale ?? 1), height: (pageHeight ?? 0) * (scale ?? 1) }}
                         >
                             <div
@@ -186,47 +168,13 @@ export function SurveyPreviewBrowserFrame({
                                     alt=""
                                     aria-hidden
                                     className="block w-full max-w-none"
-                                    onLoad={(event) =>
-                                        setLoadedPage({
-                                            imageUrl: snapshot.imageUrl,
-                                            height:
-                                                (pageWidth * event.currentTarget.naturalHeight) /
-                                                event.currentTarget.naturalWidth,
-                                        })
-                                    }
+                                    onLoad={(event) => onPageLoad(event.currentTarget)}
                                     onError={() => setFailedImageUrl(snapshot.imageUrl)}
                                 />
-                                {surveyLayer}
+                                {scale !== null && surveyLayer}
                             </div>
                         </div>
                     </div>
-                ) : (
-                    <>
-                        <div className="flex w-full" aria-hidden>
-                            {!isMobile && (
-                                <div className="flex w-36 shrink-0 flex-col gap-2 border-r p-3">
-                                    {[0, 1, 2, 3, 4, 5].map((bar) => (
-                                        <span key={bar} className="h-2.5 rounded-sm bg-border" />
-                                    ))}
-                                </div>
-                            )}
-                            <div
-                                className={cn(
-                                    'm-6 flex flex-1 flex-col items-center gap-3 self-center rounded p-4',
-                                    pageHighlight
-                                )}
-                            >
-                                <span className="h-4 w-1/2 rounded-sm bg-border" />
-                                <span className="h-10 w-full max-w-md rounded border bg-surface-secondary" />
-                                <div className="flex flex-wrap justify-center gap-2">
-                                    {[0, 1, 2].map((chip) => (
-                                        <span key={chip} className="h-5 w-20 rounded-full border" />
-                                    ))}
-                                </div>
-                            </div>
-                        </div>
-                        {surveyLayer}
-                    </>
                 )}
             </div>
         </div>

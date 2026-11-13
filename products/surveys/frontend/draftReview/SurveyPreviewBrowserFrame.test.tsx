@@ -41,9 +41,12 @@ describe('SurveyPreviewBrowserFrame zoom', () => {
     })
     afterEach(cleanup)
 
-    it('keeps the survey visible when the page image fails to load', () => {
+    it.each([
+        ['loads', (): void => {}],
+        ['fails to load', (): void => void fireEvent.error(document.querySelector('img') as HTMLImageElement)],
+    ])('keeps the survey visible while the page image %s', (_, imageEvent) => {
         render(frame())
-        fireEvent.error(document.querySelector('img') as HTMLImageElement)
+        imageEvent()
 
         expect(screen.getByTestId('survey').closest('.invisible')).toBeNull()
     })
