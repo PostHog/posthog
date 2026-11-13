@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { IconBook } from '@posthog/icons'
 import {
+    Button,
     Empty,
     EmptyContent,
     EmptyDescription,
@@ -12,7 +13,9 @@ import {
 } from '@posthog/quill'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
+import { urls } from 'scenes/urls'
 
 import { QuillCopyAgentSetupPromptButton } from '../components/QuillCopyAgentSetupPromptButton'
 import { QuillSetupWithPostHogAIButton } from '../components/QuillSetupWithPostHogAIButton'
@@ -42,6 +45,14 @@ export function CatalogMetricsEmptyState(): JSX.Element {
             <MetricsHowItWorksDiagram />
             <EmptyContent className="flex-row flex-wrap justify-center">
                 {isMaxAvailable && <QuillSetupWithPostHogAIButton source="empty_state" />}
+                <Button
+                    variant="outline"
+                    render={<LinkPrimitive to={urls.dataCatalogNewMetric()} />}
+                    // pinned: data-attr values feed autocapture dashboards, shared with the other new-metric entry points
+                    data-attr="data-catalog-new-metric-button"
+                >
+                    Define your first metric
+                </Button>
                 <QuillCopyAgentSetupPromptButton source="empty_state" />
             </EmptyContent>
         </Empty>

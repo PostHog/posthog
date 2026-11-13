@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 
 import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
 import { initKeaTests } from '~/test/init'
@@ -19,6 +19,11 @@ jest.mock('~/layout/ai/aiConsentLogic', () => {
         ]),
     }
 })
+
+// Admins and members see different consent text, so check for the popover itself.
+function consentPopoverOpen(): boolean {
+    return document.querySelector('.Popover') !== null
+}
 
 describe('RunMetricWithAIButton', () => {
     beforeEach(() => {
@@ -43,18 +48,27 @@ describe('RunMetricWithAIButton', () => {
     })
 
     it.each([
-        ['consent already given', true, 1],
-        ['consent not yet given', false, 0],
-    ])('runs %s exactly %s time(s) per click', (_label, accepted, expectedRuns) => {
-        ;(global as any).__consentAccepted = accepted
-        aiConsentLogic.mount()
-        const onRun = jest.fn()
+        ['consent already given', true, 1, false],
+        ['consent not yet given', false, 0, true],
+    ])(
+        'when %s, runs %s time(s) per click and opens consent only on click',
+        async (_label, accepted, expectedRuns, popoverAfterClick) => {
+            ;(global as any).__consentAccepted = accepted
+            aiConsentLogic.mount()
+            const onRun = jest.fn()
 
-        render(<RunMetricWithAIButton onRun={onRun} />)
-        fireEvent.click(screen.getByText('Run with AI'))
+            render(<RunMetricWithAIButton onRun={onRun} />)
+            // The popover mounts its overlay after a frame, so let pending effects settle before each check.
+            await act(async () => {})
+            // With `ignoreDismissal`, an ungated popover opens on render and Cancel cannot close it.
+            expect(consentPopoverOpen()).toBe(false)
+            fireEvent.click(screen.getByText('Run with AI'))
+            await act(async () => {})
 
-        // Without the guard an unapproved click fires here and again from the consent popover's
-        // onApprove, recording the run twice.
-        expect(onRun).toHaveBeenCalledTimes(expectedRuns)
-    })
+            // Without the guard an unapproved click fires here and again from the consent popover's
+            // onApprove, recording the run twice.
+            expect(onRun).toHaveBeenCalledTimes(expectedRuns)
+            expect(consentPopoverOpen()).toBe(popoverAfterClick)
+        }
+    )
 })

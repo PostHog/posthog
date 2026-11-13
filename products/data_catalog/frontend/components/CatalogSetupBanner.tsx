@@ -29,11 +29,11 @@ function VisibleCatalogSetupBanner(): JSX.Element {
             <div className="flex flex-col gap-2 @2xl:flex-row @2xl:items-center @2xl:justify-between">
                 <div>
                     <div className="font-semibold">
-                        {isMaxAvailable ? 'Let PostHog AI draft your catalog' : 'Let your agent draft your catalog'}
+                        {isMaxAvailable ? 'Let PostHog AI draft your catalog' : 'Draft your catalog with an AI agent'}
                     </div>
                     <div className="font-normal">
-                        It looks at the insights and dashboards your team uses most and proposes metrics for you to
-                        review. Nothing is approved until you approve it.
+                        It proposes metrics from the insights and dashboards your team uses most. Agents can use a
+                        proposed metric, with a warning, until someone on your team approves it.
                     </div>
                 </div>
                 <div className="flex flex-wrap gap-2 shrink-0">

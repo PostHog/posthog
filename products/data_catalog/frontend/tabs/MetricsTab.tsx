@@ -22,6 +22,7 @@ import { urls } from 'scenes/urls'
 
 import { InsightShortId } from '~/types'
 
+import { catalogExplainerLogic } from '../catalogExplainerLogic'
 import { compareText, humanizeDefinitionKind, metricCount, reportCatalogTableSorted } from '../common'
 import { CatalogExplainer } from '../components/CatalogExplainer'
 import { CatalogSetupBanner } from '../components/CatalogSetupBanner'
@@ -116,6 +117,7 @@ export function MetricsTab(): JSX.Element {
     } = useActions(metricsLogic)
 
     const reviewQueueEnabled = useFeatureFlag('DATA_CATALOG_REVIEW_QUEUE')
+    const { explainerDismissed } = useValues(catalogExplainerLogic)
 
     const bulkBusyReason = bulkBusyReasonFor(bulkActionInFlight)
     const reloadDisabledReason = reloadDisabledReasonFor(bulkActionInFlight, actionsInFlight)
@@ -416,7 +418,8 @@ export function MetricsTab(): JSX.Element {
         <div className="@container flex flex-col gap-4">
             {/* The explainer describes agent behavior that ships with the review queue, so it shares its flag. */}
             {reviewQueueEnabled && <CatalogExplainer />}
-            <CatalogSetupBanner />
+            {/* One onboarding notice at a time: the setup offer waits until the explainer is gone. */}
+            {(!reviewQueueEnabled || explainerDismissed) && <CatalogSetupBanner />}
             {reviewQueueEnabled && (
                 <LifecycleStrip counts={stageCounts} status={filters.status} onToggle={toggleStage} />
             )}

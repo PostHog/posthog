@@ -3,7 +3,7 @@ import posthog from 'posthog-js'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { autoRunMaxPrompt } from 'scenes/max/maxPrompt'
-import { teamLogic } from 'scenes/teamLogic'
+import { projectLogic } from 'scenes/projectLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
@@ -16,9 +16,13 @@ import { MetricsLoadState, metricsLogic } from './metricsLogic'
 // back for everyone who dismissed it
 export const SETUP_BANNER_DISMISSED_KEY = 'data_catalog_setup_banner'
 
-// The app keeps no record of a setup run, so a small catalog stands in for "never set up". A setup
-// run seeds metrics from the insights a team uses most, and most catalogs that never had one hold
-// only the few metrics an agent proposed while it built a dashboard.
+// pinned: key in the user's server-side `has_seen_product_intro_for`. A person who started setup is not
+// asked again, however few metrics the run proposed.
+export const SETUP_STARTED_KEY = 'data_catalog_setup_started'
+
+// The app keeps no team-level record of a setup run, so a small catalog stands in for "never set up".
+// A setup run seeds metrics from the insights a team uses most, and most catalogs that never had one
+// hold only the few metrics an agent proposed while it built a dashboard.
 export const SMALL_CATALOG_SIZE = 10
 
 /** Where the person started setup from. pinned: analytics property value, renaming it splits the dashboards */
@@ -51,7 +55,7 @@ export function buildAgentSetupPrompt(projectId: number | null): string {
 export interface catalogSetupLogicValues {
     allMetrics: DataCatalogMetricApi[] // metricsLogic
     metricsLoadState: MetricsLoadState // metricsLogic
-    currentTeamId: number | null // teamLogic
+    currentProjectId: number | null // projectLogic
     user: UserType | null // userLogic
     dismissedLocally: boolean
     setupBannerDismissed: boolean
@@ -80,6 +84,9 @@ export interface catalogSetupLogicActions {
     dismissSetupBanner: () => {
         value: true
     }
+    recordSetupStarted: () => {
+        value: true
+    }
     reportSetupBannerShown: () => {
         value: true
     }
@@ -95,6 +102,7 @@ export interface catalogSetupLogicMeta {
         showSetupBanner: (
             metricsLoadState: MetricsLoadState,
             allMetrics: DataCatalogMetricApi[],
+            user: UserType | null,
             setupBannerDismissed: boolean
         ) => boolean
     }
@@ -110,7 +118,14 @@ export type catalogSetupLogicType = MakeLogicType<
 export const catalogSetupLogic = kea<catalogSetupLogicType>([
     path(['products', 'data_catalog', 'frontend', 'catalogSetupLogic']),
     connect(() => ({
-        values: [metricsLogic, ['allMetrics', 'metricsLoadState'], teamLogic, ['currentTeamId'], userLogic, ['user']],
+        values: [
+            metricsLogic,
+            ['allMetrics', 'metricsLoadState'],
+            projectLogic,
+            ['currentProjectId'],
+            userLogic,
+            ['user'],
+        ],
         actions: [sidePanelStateLogic, ['openSidePanel'], userLogic, ['updateHasSeenProductIntroFor']],
     })),
     actions({
@@ -118,6 +133,7 @@ export const catalogSetupLogic = kea<catalogSetupLogicType>([
         copyAgentSetupPrompt: (source: CatalogSetupSource) => ({ source }),
         dismissSetupBanner: true,
         reportSetupBannerShown: true,
+        recordSetupStarted: true,
     }),
     reducers({
         // Hides the banner at once; the user record confirms the dismissal after it reloads.
@@ -125,6 +141,7 @@ export const catalogSetupLogic = kea<catalogSetupLogicType>([
             false,
             {
                 dismissSetupBanner: () => true,
+                recordSetupStarted: () => true,
             },
         ],
     }),
@@ -132,16 +149,21 @@ export const catalogSetupLogic = kea<catalogSetupLogicType>([
         setupBannerDismissed: [
             (s) => [s.dismissedLocally, s.user],
             (dismissedLocally: boolean, user: UserType | null): boolean =>
-                dismissedLocally || !!user?.has_seen_product_intro_for?.[SETUP_BANNER_DISMISSED_KEY],
+                dismissedLocally ||
+                !!user?.has_seen_product_intro_for?.[SETUP_BANNER_DISMISSED_KEY] ||
+                !!user?.has_seen_product_intro_for?.[SETUP_STARTED_KEY],
         ],
         showSetupBanner: [
-            (s) => [s.metricsLoadState, s.allMetrics, s.setupBannerDismissed],
+            (s) => [s.metricsLoadState, s.allMetrics, s.user, s.setupBannerDismissed],
             (
                 metricsLoadState: MetricsLoadState,
                 allMetrics: DataCatalogMetricApi[],
+                user: UserType | null,
                 setupBannerDismissed: boolean
             ): boolean =>
                 metricsLoadState === 'loaded' &&
+                // The dismissal lives on the user record, so wait for it before showing the banner.
+                !!user &&
                 allMetrics.length > 0 &&
                 allMetrics.length < SMALL_CATALOG_SIZE &&
                 !setupBannerDismissed,
@@ -151,19 +173,26 @@ export const catalogSetupLogic = kea<catalogSetupLogicType>([
         startSetupWithPostHogAI: ({ source }) => {
             // pinned: analytics event name, renaming it breaks the setup funnel
             posthog.capture('data catalog setup with ai started', { source })
+            actions.recordSetupStarted()
             actions.openSidePanel(SidePanelTab.Max, autoRunMaxPrompt(buildPostHogAISetupPrompt()))
         },
         copyAgentSetupPrompt: async ({ source }) => {
-            const copied = await copyToClipboard(buildAgentSetupPrompt(values.currentTeamId), 'prompt')
+            const copied = await copyToClipboard(buildAgentSetupPrompt(values.currentProjectId), 'prompt')
             if (copied) {
                 // pinned: analytics event name, renaming it breaks the setup funnel
                 posthog.capture('data catalog setup prompt copied', { source })
+                actions.recordSetupStarted()
             }
         },
         dismissSetupBanner: () => {
             actions.updateHasSeenProductIntroFor(SETUP_BANNER_DISMISSED_KEY)
             // pinned: analytics event name, renaming it breaks the setup funnel
             posthog.capture('data catalog setup banner dismissed')
+        },
+        recordSetupStarted: () => {
+            if (!values.user?.has_seen_product_intro_for?.[SETUP_STARTED_KEY]) {
+                actions.updateHasSeenProductIntroFor(SETUP_STARTED_KEY)
+            }
         },
         reportSetupBannerShown: () => {
             // pinned: analytics event name, renaming it breaks the setup funnel

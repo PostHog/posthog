@@ -10,17 +10,8 @@ import { catalogSetupLogic } from '../catalogSetupLogic'
 import { QuillCopyAgentSetupPromptButton } from './QuillCopyAgentSetupPromptButton'
 import { QuillSetupWithPostHogAIButton } from './QuillSetupWithPostHogAIButton'
 
-export function QuillCatalogSetupBanner(): JSX.Element | null {
-    const { showSetupBanner } = useValues(catalogSetupLogic)
-
-    if (!showSetupBanner) {
-        return null
-    }
-    return <VisibleQuillCatalogSetupBanner />
-}
-
-/** Split out so the impression event fires once, when the banner first shows, not on every render. */
-function VisibleQuillCatalogSetupBanner(): JSX.Element {
+/** The metrics section mounts it only when it is the notice to show, so the impression event fires once per showing. */
+export function QuillCatalogSetupBanner(): JSX.Element {
     const { isMaxAvailable } = useValues(maxGlobalLogic)
     const { dismissSetupBanner, reportSetupBannerShown } = useActions(catalogSetupLogic)
 
@@ -33,11 +24,11 @@ function VisibleQuillCatalogSetupBanner(): JSX.Element {
             </ItemMedia>
             <ItemContent className="min-w-60">
                 <ItemTitle>
-                    {isMaxAvailable ? 'Let PostHog AI draft your catalog' : 'Let your agent draft your catalog'}
+                    {isMaxAvailable ? 'Let PostHog AI draft your catalog' : 'Draft your catalog with an AI agent'}
                 </ItemTitle>
                 <ItemDescription>
-                    It looks at the insights and dashboards your team uses most and proposes metrics for you to review.
-                    Nothing is approved until you approve it.
+                    It proposes metrics from the insights and dashboards your team uses most. Agents can use a proposed
+                    metric, with a warning, until someone on your team approves it.
                 </ItemDescription>
             </ItemContent>
             <ItemActions className="flex-wrap">

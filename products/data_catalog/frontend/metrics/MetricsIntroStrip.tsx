@@ -25,12 +25,12 @@ export function MetricsIntroStrip(): JSX.Element {
                     <span className="font-medium">How metrics work:</span>
                     <span className="inline-flex items-center gap-1.5">
                         <Badge variant="warning">Proposed</Badge>
-                        <span>a teammate reviews it</span>
+                        <span>agents use it with a warning</span>
                     </span>
                     <IconArrowRight aria-hidden className="size-3 shrink-0 text-muted-foreground" />
                     <span className="inline-flex items-center gap-1.5">
                         <Badge variant="success">Approved</Badge>
-                        <span>PostHog AI and agents compute the number from it</span>
+                        <span>a teammate reviewed it, so agents use it without one</span>
                     </span>
                 </div>
             </ItemContent>

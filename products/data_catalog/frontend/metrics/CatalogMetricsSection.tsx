@@ -66,21 +66,22 @@ function MetricsContent(): JSX.Element {
     return <LoadingRows />
 }
 
-/** One notice at a time: the first visit explains how metrics work, later visits offer setup. */
-function MetricsNotice(): JSX.Element {
-    const { showIntroStrip } = useValues(metricsIntroLogic)
-    return showIntroStrip ? <MetricsIntroStrip /> : <QuillCatalogSetupBanner />
+function MetricsNotice(): JSX.Element | null {
+    const { metricsNotice } = useValues(metricsIntroLogic)
+    if (metricsNotice === 'intro') {
+        return <MetricsIntroStrip />
+    }
+    return metricsNotice === 'setup' ? <QuillCatalogSetupBanner /> : null
 }
 
 export function CatalogMetricsSection(): JSX.Element {
     const { selectedMetricIds } = useValues(catalogMetricsLogic)
-    const { allMetrics, metricsLoadState } = useValues(metricsLogic)
-    // Search and filters have nothing to act on in an empty catalog.
-    const catalogEmpty = metricsLoadState === 'loaded' && allMetrics.length === 0
+    const { catalogEmpty } = useValues(metricsLogic)
 
     return (
         <section aria-label="Metrics" className="flex flex-col gap-3" data-attr="data-catalog-metrics">
             <MetricsNotice />
+            {/* Search and filters have nothing to act on in an empty catalog. */}
             {!catalogEmpty && <CatalogMetricsToolbar />}
             <ChecksLoadError />
             <MetricsContent />
