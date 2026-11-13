@@ -2352,43 +2352,22 @@ class TestWorkflowFilesUnderRealTransactions(NonAtomicBaseTest):
         self.assertEqual(deleted.status_code, 204, deleted.content)
         self.assertEqual(self.client.get(workflow_url).status_code, 404)
 
-    @parameterized.expand(
-        [
-            (
-                "workflow",
-                "hog_flow",
-                "SELECT 1 FROM posthog_hogflow WHERE id = %s FOR UPDATE",
-                "This workflow is being saved. Try again in a moment.",
-            ),
-        ]
-    )
-    def test_tree_delete_refuses_while_a_save_holds_the_object(
-        self, _name: str, file_type: str, lock_row: str, busy_detail: str
-    ) -> None:
-        if file_type == "hog_flow":
-            created = self.client.post(
-                f"/api/projects/{self.team.id}/hog_flows/",
-                {
-                    "name": "Welcome",
-                    "actions": [{"id": "trigger", "name": "Trigger", "type": "trigger", "config": {"type": "manual"}}],
-                    "edges": [],
-                },
-                format="json",
-            )
-            self.assertEqual(created.status_code, 201, created.content)
-            object_url = f"/api/projects/{self.team.id}/hog_flows/{created.json()['id']}/"
-            HogFlow.objects.filter(id=created.json()["id"]).update(status=HogFlow.State.ARCHIVED)
-        else:
-            created = self.client.post(
-                f"/api/projects/{self.team.id}/messaging_templates/",
-                {"name": "Welcome", "type": "email"},
-                format="json",
-            )
-            self.assertEqual(created.status_code, 201, created.content)
-            object_url = f"/api/projects/{self.team.id}/messaging_templates/{created.json()['id']}/"
+    def test_tree_delete_refuses_while_a_save_holds_the_workflow(self) -> None:
+        created = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/",
+            {
+                "name": "Welcome",
+                "actions": [{"id": "trigger", "name": "Trigger", "type": "trigger", "config": {"type": "manual"}}],
+                "edges": [],
+            },
+            format="json",
+        )
+        self.assertEqual(created.status_code, 201, created.content)
+        object_url = f"/api/projects/{self.team.id}/hog_flows/{created.json()['id']}/"
+        HogFlow.objects.filter(id=created.json()["id"]).update(status=HogFlow.State.ARCHIVED)
         object_id = created.json()["id"]
         files_url = f"/api/projects/{self.team.id}/file_system/"
-        file_id = self.client.get(files_url, {"type": file_type, "ref": object_id}).json()["results"][0]["id"]
+        file_id = self.client.get(files_url, {"type": "hog_flow", "ref": object_id}).json()["results"][0]["id"]
         locked = Event()
         release = Event()
 
@@ -2396,7 +2375,7 @@ class TestWorkflowFilesUnderRealTransactions(NonAtomicBaseTest):
             close_old_connections()
             try:
                 with transaction.atomic(), connection.cursor() as cursor:
-                    cursor.execute(lock_row, [object_id])
+                    cursor.execute("SELECT 1 FROM posthog_hogflow WHERE id = %s FOR UPDATE", [object_id])
                     locked.set()
                     release.wait(timeout=10)
             finally:
@@ -2412,7 +2391,7 @@ class TestWorkflowFilesUnderRealTransactions(NonAtomicBaseTest):
             holder.result(timeout=15)
 
         self.assertEqual(refused.status_code, 409, refused.content)
-        self.assertEqual(refused.json()["detail"], busy_detail)
+        self.assertEqual(refused.json()["detail"], "This workflow is being saved. Try again in a moment.")
         self.assertEqual(self.client.get(f"{files_url}{file_id}/").status_code, 200)
 
         deleted = self.client.delete(f"{files_url}{file_id}/")
