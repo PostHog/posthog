@@ -53,8 +53,8 @@ import { rethrowKafkaOutageAsDependency } from './logs-produce-errors'
 import type { CompiledMetricRule, MetricRuleSource } from './metrics-rules/compile-metric-rules'
 import { withDefaultMetricRules } from './metrics-rules/default-metric-rules'
 import { MetricRulesCache } from './metrics-rules/metric-rules-cache'
+import { MetricRulesEmission } from './metrics-rules/metric-rules-window'
 import { LogsMetricsEmitter } from './metrics-rules/metrics-emitter'
-import { buildMetricRulesOtlpPayload } from './metrics-rules/otlp-payload'
 import { type BatchTallies, MetricSeriesAdmission, createBatchTallies, tallyRecords } from './metrics-rules/tally'
 import { LOGS_DLQ_OUTPUT, LOGS_OUTPUT, LogsDlqOutput, LogsOutput } from './outputs/outputs'
 import { PatternMessageKeysCache } from './pattern-message-keys-cache'
@@ -415,6 +415,7 @@ export class LogsIngestionConsumer {
     private readonly metricRulesKillswitch: boolean
     private readonly defaultMetricRulesEnabledTeamsRaw: string
     private readonly metricSeriesAdmission = new MetricSeriesAdmission()
+    private readonly metricRulesEmission: MetricRulesEmission
     private readonly transformationsEnabledTeamsRaw: string
     private readonly transformationsKillswitch: boolean
     private readonly retentionEnabledTeamsRaw: string
@@ -475,6 +476,12 @@ export class LogsIngestionConsumer {
         this.metricRulesEnabledTeamsRaw = mergedConfig.LOGS_METRICS_RULES_ENABLED_TEAMS
         this.metricRulesKillswitch = mergedConfig.LOGS_METRICS_RULES_KILLSWITCH
         this.defaultMetricRulesEnabledTeamsRaw = mergedConfig.LOGS_DEFAULT_METRIC_RULES_ENABLED_TEAMS
+        const metricRulesWindowTeams = mergedConfig.LOGS_METRICS_RULES_WINDOW_TEAMS
+        this.metricRulesEmission = new MetricRulesEmission(
+            deps.metricsEmitter,
+            (teamId) => teamIdMatchesCsv(metricRulesWindowTeams, teamId),
+            mergedConfig.LOGS_METRICS_RULES_WINDOW_MS
+        )
         this.transformationsEnabledTeamsRaw = mergedConfig.LOGS_TRANSFORMATIONS_ENABLED_TEAMS
         this.transformationsKillswitch = mergedConfig.LOGS_TRANSFORMATIONS_KILLSWITCH
         this.retentionEnabledTeamsRaw = mergedConfig.LOGS_RETENTION_ENABLED_TEAMS
@@ -1028,7 +1035,7 @@ export class LogsIngestionConsumer {
     }
 
     private async emitMetricRuleTallies(byTeam: MetricTalliesByTeam): Promise<void> {
-        for (const [teamId, { token, rules, tallies }] of byTeam) {
+        for (const [teamId, { tallies }] of byTeam) {
             const teamIdLabel = teamId.toString()
             if (tallies.valueSkipped > 0) {
                 logsMetricRulesValueSkippedCounter.inc({ team_id: teamIdLabel }, tallies.valueSkipped)
@@ -1052,18 +1059,8 @@ export class LogsIngestionConsumer {
             if (matched > 0) {
                 logsMetricRulesRecordsMatchedCounter.inc({ team_id: teamIdLabel }, matched)
             }
-
-            const payload = buildMetricRulesOtlpPayload(rules, tallies, Date.now())
-            if (!payload) {
-                continue
-            }
-            try {
-                await this.deps.metricsEmitter!.emit(token, teamId, payload)
-            } catch (error) {
-                // Emission is best-effort: a failing metrics endpoint must never fail log ingestion.
-                logger.warn('[logs-metric-rules] emit threw', { teamId, error: String(error) })
-            }
         }
+        await this.metricRulesEmission.emitBatch(byTeam)
     }
 
     private async processAndProduceLogMessages(
@@ -1658,12 +1655,19 @@ export class LogsIngestionConsumer {
             return await instrumentFn('logsIngestionConsumer.handleEachBatch', async () => {
                 return await this.processKafkaBatch(messages)
             })
-        })
+        }, this.flushMetricRuleWindow)
+    }
+
+    // Revocation runs after the revoked partitions' batches finish, so their counts are in the open window.
+    private readonly flushMetricRuleWindow = async (): Promise<void> => {
+        await this.metricRulesEmission.flushOpen()
     }
 
     public async stop(): Promise<void> {
         logger.info('💤', 'Stopping consumer...')
         await this.kafkaConsumer.disconnect()
+        // The last batch has finished, so the open metric-rule window holds every count still unsent.
+        await this.metricRulesEmission.flushAll()
         logger.info('💤', 'Consumer stopped!')
     }
 
