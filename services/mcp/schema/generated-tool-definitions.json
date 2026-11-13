@@ -5514,7 +5514,7 @@
         }
     },
     "error-tracking-issues-tag-definitions-retrieve": {
-        "description": "List the issue tags enabled for the project, with the key, label and description of each. Use a key with `error-tracking-issues-tag-partial-update` to correct the answer of an issue to that tag. The list is empty when the project does not have issue tags.",
+        "description": "List the issue tags enabled for the project, with the key, label and description of each. Use a key with `error-tracking-issues-tag-partial-update` to apply that tag to an issue or remove it. The list is empty when the project does not have issue tags.",
         "category": "Error tracking",
         "feature": "error_tracking",
         "summary": "List error tracking issue tags",
@@ -5529,11 +5529,11 @@
         }
     },
     "error-tracking-issues-tag-partial-update": {
-        "description": "Correct the answer of an error tracking issue to one tag. Provide the issue ID as `id`, the tag as `key`, and the answer as `value`: true for yes, false for no, or null for unknown. Get the keys from `error-tracking-issues-tag-definitions-retrieve`. A correction ranks above AI answers, so a later AI answer does not replace it. The call fails with \"Issue tags are off for this project.\" when the project does not have issue tags.",
+        "description": "Apply one tag to an error tracking issue, or remove it. Provide the issue ID as `id` and the tag as `key`. Set `applied` to true to apply the tag, or to false to remove it. Get the keys from `error-tracking-issues-tag-definitions-retrieve`. A person's change ranks above AI taggers, so an AI tagger does not apply a removed tag again or remove an applied tag. The call fails with \"Issue tags are off for this project.\" when the project does not have issue tags.",
         "category": "Error tracking",
         "feature": "error_tracking",
-        "summary": "Correct error tracking issue tag",
-        "title": "Correct error tracking issue tag",
+        "summary": "Apply or remove error tracking issue tag",
+        "title": "Apply or remove error tracking issue tag",
         "required_scopes": ["error_tracking:write"],
         "api_operations": ["PATCH /api/projects/{project_id}/error_tracking/issues/{id}/tag/"],
         "annotations": {

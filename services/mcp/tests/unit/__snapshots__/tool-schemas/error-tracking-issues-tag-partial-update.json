@@ -1,26 +1,19 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "applied": {
+            "description": "True applies the tag. False removes it and stops automatic taggers from applying it again.",
+            "type": "boolean"
+        },
         "id": {
             "type": "string"
         },
         "key": {
-            "description": "Key of the tag to set. The tag definitions endpoint lists the tags enabled for the project.",
+            "description": "Key of the tag to apply or remove. The tag definitions endpoint lists the tags enabled for the project.",
             "maxLength": 64,
             "type": "string"
-        },
-        "value": {
-            "anyOf": [
-                {
-                    "type": "boolean"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "The answer to set: true for yes, false for no, null for unknown."
         }
     },
-    "required": ["id", "key", "value"],
+    "required": ["id", "key", "applied"],
     "type": "object"
 }

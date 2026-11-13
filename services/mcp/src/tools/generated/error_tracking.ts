@@ -418,7 +418,7 @@ const ErrorTrackingIssuesTagPartialUpdateSchema = () => {
         .extend(ErrorTrackingIssuesTagPartialUpdateBody.shape)
         .extend({
             key: ErrorTrackingIssuesTagPartialUpdateBody.shape['key'].nonoptional(),
-            value: ErrorTrackingIssuesTagPartialUpdateBody.shape['value'].nonoptional(),
+            applied: ErrorTrackingIssuesTagPartialUpdateBody.shape['applied'].nonoptional(),
         })
 }
 
@@ -437,8 +437,8 @@ const errorTrackingIssuesTagPartialUpdate = (): ToolBase<
         if (params.key !== undefined) {
             body['key'] = params.key
         }
-        if (params.value !== undefined) {
-            body['value'] = params.value
+        if (params.applied !== undefined) {
+            body['applied'] = params.applied
         }
         const result = await context.api.request<Schemas.ErrorTrackingIssueTagRead>({
             method: 'PATCH',

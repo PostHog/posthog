@@ -279,7 +279,7 @@ class TestErrorTracking(APIBaseTest):
         with patch("products.error_tracking.backend.presentation.views.issues.is_impersonated", return_value=True):
             response = self.client.patch(
                 f"/api/environments/{self.team.id}/error_tracking/issues/{issue.id}/tag",
-                data={"key": BLOCKS_CHECKOUT.key, "value": None},
+                data={"key": BLOCKS_CHECKOUT.key, "applied": False},
                 format="json",
             )
         set_issue_tag(self.team.id, issue.id, BLOCKS_CHECKOUT.key, JEV_YES, ErrorTrackingIssueTag.Source.JEV)
@@ -289,11 +289,11 @@ class TestErrorTracking(APIBaseTest):
             "key": BLOCKS_CHECKOUT.key,
             "label": BLOCKS_CHECKOUT.label,
             "description": BLOCKS_CHECKOUT.description,
-            "value": None,
+            "value": False,
             "source": "manual",
         }
         tag = ErrorTrackingIssueTag.objects.for_team(self.team.id).get(issue=issue, key=BLOCKS_CHECKOUT.key)
-        assert (tag.source, tag.value, tag.set_by_id) == ("manual", None, self.user.id)
+        assert (tag.source, tag.value, tag.set_by_id) == ("manual", False, self.user.id)
         correction_logs = ActivityLog.objects.filter(
             team_id=self.team.id, scope="ErrorTrackingIssue", item_id=str(issue.id), user=self.user
         )
@@ -342,6 +342,16 @@ class TestErrorTracking(APIBaseTest):
                 "Issue not found",
                 True,
             ),
+            (
+                "null_applied",
+                {ISSUE_TAGS_FLAG, BLOCKS_CHECKOUT.enabled_flag},
+                BLOCKS_CHECKOUT.key,
+                False,
+                400,
+                "This field may not be null.",
+                False,
+                None,
+            ),
         ]
     )
     def test_issue_tag_correction_writes_nothing_when_rejected(
@@ -353,6 +363,7 @@ class TestErrorTracking(APIBaseTest):
         expected_status: int,
         expected_detail: str,
         malformed_id: bool = False,
+        applied: bool | None = True,
     ) -> None:
         self._enable_issue_tags(enabled_flags)
         team = Team.objects.create(organization=self.organization) if other_team else self.team
@@ -360,7 +371,7 @@ class TestErrorTracking(APIBaseTest):
 
         response = self.client.patch(
             f"/api/environments/{self.team.id}/error_tracking/issues/{'not-a-uuid' if malformed_id else issue.id}/tag",
-            data={"key": key, "value": True},
+            data={"key": key, "applied": applied},
             format="json",
         )
 
@@ -558,7 +569,7 @@ class TestErrorTracking(APIBaseTest):
         self._enable_issue_tags()
         issue = self.create_issue(["fingerprint"])
         set_issue_tag(self.team.id, issue.id, BLOCKS_CHECKOUT.key, JEV_YES, ErrorTrackingIssueTag.Source.JEV)
-        return "patch", f"issues/{issue.id}/tag", {"key": BLOCKS_CHECKOUT.key, "value": False}
+        return "patch", f"issues/{issue.id}/tag", {"key": BLOCKS_CHECKOUT.key, "applied": False}
 
     def _issue_tag_repeated_correction(self) -> tuple[str, str, dict]:
         method, path, data = self._issue_tag_correction()
@@ -568,11 +579,11 @@ class TestErrorTracking(APIBaseTest):
     def _issue_tag_first_answer(self) -> tuple[str, str, dict]:
         self._enable_issue_tags()
         issue = self.create_issue(["fingerprint"])
-        return "patch", f"issues/{issue.id}/tag", {"key": BLOCKS_CHECKOUT.key, "value": True}
+        return "patch", f"issues/{issue.id}/tag", {"key": BLOCKS_CHECKOUT.key, "applied": True}
 
     def _issue_tag_confirmation(self) -> tuple[str, str, dict]:
         method, path, data = self._issue_tag_correction()
-        return method, path, {**data, "value": True}
+        return method, path, {**data, "applied": True}
 
     @parameterized.expand(
         [
@@ -597,9 +608,9 @@ class TestErrorTracking(APIBaseTest):
                     "action": "tag",
                     "tag_key": BLOCKS_CHECKOUT.key,
                     "previous_tag_source": "jev",
-                    "previous_tag_value": True,
                     "previous_tag_probability": 0.9,
-                    "tag_value": False,
+                    "previous_applied": True,
+                    "applied": False,
                 },
             ),
             ("tag_with_the_same_answer", _issue_tag_repeated_correction, None),
@@ -609,15 +620,15 @@ class TestErrorTracking(APIBaseTest):
                 {
                     "action": "tag",
                     "previous_tag_source": None,
-                    "previous_tag_value": None,
                     "previous_tag_probability": None,
-                    "tag_value": True,
+                    "previous_applied": False,
+                    "applied": True,
                 },
             ),
             (
                 "tag_confirming_jev",
                 _issue_tag_confirmation,
-                {"action": "tag", "previous_tag_source": "jev", "previous_tag_value": True, "tag_value": True},
+                {"action": "tag", "previous_tag_source": "jev", "previous_applied": True, "applied": True},
             ),
         ]
     )

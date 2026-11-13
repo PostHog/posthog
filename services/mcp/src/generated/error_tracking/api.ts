@@ -8281,8 +8281,13 @@ export const ErrorTrackingIssuesTagPartialUpdateBody = () => zod.object({
         .string()
         .max(errorTrackingIssuesTagPartialUpdateBodyKeyMax)
         .optional()
-        .describe('Key of the tag to set. The tag definitions endpoint lists the tags enabled for the project.'),
-    value: zod.boolean().nullish().describe('The answer to set: true for yes, false for no, null for unknown.'),
+        .describe(
+            'Key of the tag to apply or remove. The tag definitions endpoint lists the tags enabled for the project.'
+        ),
+    applied: zod
+        .boolean()
+        .optional()
+        .describe('True applies the tag. False removes it and stops automatic taggers from applying it again.'),
 })
 
 export const ErrorTrackingIssuesTagDefinitionsRetrieveParams = () => zod.object({

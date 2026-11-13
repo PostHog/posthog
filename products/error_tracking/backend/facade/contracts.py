@@ -186,9 +186,9 @@ class ErrorTrackingIssueTag:
 @dataclass(frozen=True)
 class ErrorTrackingIssueTagCorrection:
     tag: ErrorTrackingIssueTag
-    # The answer that the correction replaced. Each field is None when the issue had no answer to the tag.
+    # The answer that the correction replaced. Source and probability are None when the issue had no answer.
     previous_source: str | None
-    previous_value: bool | None
+    previous_applied: bool
     previous_probability: float | None
     changed: bool
 

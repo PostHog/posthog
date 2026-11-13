@@ -1188,15 +1188,12 @@ export interface ErrorTrackingIssueSummaryResponseApi {
 
 export interface PatchedErrorTrackingIssueTagWriteApi {
     /**
-     * Key of the tag to set. The tag definitions endpoint lists the tags enabled for the project.
+     * Key of the tag to apply or remove. The tag definitions endpoint lists the tags enabled for the project.
      * @maxLength 64
      */
     key?: string
-    /**
-     * The answer to set: true for yes, false for no, null for unknown.
-     * @nullable
-     */
-    value?: boolean | null
+    /** True applies the tag. False removes it and stops automatic taggers from applying it again. */
+    applied?: boolean
 }
 
 /**

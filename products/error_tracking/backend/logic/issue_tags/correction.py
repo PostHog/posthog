@@ -21,9 +21,9 @@ class UnknownIssueTagError(Exception):
 
 
 def correct_issue_tag(
-    team_id: int, issue_id: UUID, key: str, value: bool | None, *, user: User, was_impersonated: bool
+    team_id: int, issue_id: UUID, key: str, applied: bool, *, user: User, was_impersonated: bool
 ) -> contracts.ErrorTrackingIssueTagCorrection:
-    """Store a person's answer to a tag. Manual ranks first, so no automated tagger replaces it later."""
+    """Apply or remove a tag for a person. Manual ranks first, so no automated tagger reverses it later."""
     if not issue_tags_enabled(team_id):
         raise IssueTagsDisabledError
     try:
@@ -41,7 +41,7 @@ def correct_issue_tag(
         .first()
     ) or (None, None, None)
     answer = TagAnswer(
-        value=value, probability=None, model=None, question_version=definition.question_version, set_by=user
+        value=applied, probability=None, model=None, question_version=definition.question_version, set_by=user
     )
     try:
         stored = set_issue_tag(team_id, issue_id, key, answer, source, was_impersonated=was_impersonated)
@@ -53,10 +53,10 @@ def correct_issue_tag(
 
     return contracts.ErrorTrackingIssueTagCorrection(
         tag=contracts.ErrorTrackingIssueTag(
-            key=key, label=definition.label, description=definition.description, value=value, source=source
+            key=key, label=definition.label, description=definition.description, value=applied, source=source
         ),
         previous_source=previous_source,
-        previous_value=previous_value,
+        previous_applied=previous_value is True,
         previous_probability=previous_probability,
-        changed=(previous_source, previous_value) != (source, value),
+        changed=(previous_source, previous_value) != (source, applied),
     )

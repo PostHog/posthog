@@ -86,10 +86,10 @@ class ErrorTrackingIssueTagReadSerializer(ErrorTrackingIssueTagDefinitionSeriali
 class ErrorTrackingIssueTagWriteSerializer(serializers.Serializer):
     key = serializers.CharField(
         max_length=64,
-        help_text="Key of the tag to set. The tag definitions endpoint lists the tags enabled for the project.",
+        help_text="Key of the tag to apply or remove. The tag definitions endpoint lists the tags enabled for the project.",
     )
-    value = serializers.BooleanField(
-        allow_null=True, help_text="The answer to set: true for yes, false for no, null for unknown."
+    applied = serializers.BooleanField(
+        help_text="True applies the tag. False removes it and stops automatic taggers from applying it again."
     )
 
 
@@ -549,12 +549,13 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         except ValueError:
             raise NotFound("Issue not found")
         key = request.validated_data["key"]
+        applied = request.validated_data["applied"]
         try:
             correction = issues_facade.correct_issue_tag(
                 self.team.id,
                 issue_id,
                 key,
-                request.validated_data["value"],
+                applied,
                 user=cast(User, request.user),
                 was_impersonated=is_impersonated(request),
             )
@@ -572,9 +573,9 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
                     "issue_id": str(issue_id),
                     "tag_key": key,
                     "previous_tag_source": correction.previous_source,
-                    "previous_tag_value": correction.previous_value,
                     "previous_tag_probability": correction.previous_probability,
-                    "tag_value": correction.tag.value,
+                    "previous_applied": correction.previous_applied,
+                    "applied": applied,
                 },
             )
         return Response(ErrorTrackingIssueTagReadSerializer(correction.tag).data)

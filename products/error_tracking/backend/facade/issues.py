@@ -58,10 +58,10 @@ def assign_issue(
 
 
 def correct_issue_tag(
-    team_id: int, issue_id: UUID, key: str, value: bool | None, *, user: User, was_impersonated: bool
+    team_id: int, issue_id: UUID, key: str, applied: bool, *, user: User, was_impersonated: bool
 ) -> contracts.ErrorTrackingIssueTagCorrection:
     return _issue_tag_correction.correct_issue_tag(
-        team_id, issue_id, key, value, user=user, was_impersonated=was_impersonated
+        team_id, issue_id, key, applied, user=user, was_impersonated=was_impersonated
     )
 
 
