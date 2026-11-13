@@ -416,7 +416,10 @@ class TestResendImport(BaseTest):
         assert action_types["welcome"] == "function_email"
         assert action_types["wait"] == "delay"
         assert action_types["is_pro"] == "conditional_branch"
-        is_pro = next(a for a in actions if a["id"] == "is_pro")["config"]["conditions"][0]["filters"]["properties"]
+        is_pro_filters = next(a for a in actions if a["id"] == "is_pro")["config"]["conditions"][0]["filters"]
+        # A draft keeps a filter that fails to compile, just without bytecode.
+        assert is_pro_filters.get("bytecode")
+        is_pro = is_pro_filters["properties"]
         assert is_pro[1] == {
             "key": "toFloat(properties.`min-spend`) IS NOT NULL AND "
             "toFloat(person.properties.`lifetime-spend`) >= toFloat(properties.`min-spend`)",
@@ -425,7 +428,7 @@ class TestResendImport(BaseTest):
         assert action_types["wait_upgrade"] == "wait_until_condition"
         assert action_types["update"] == "function"
         update = next(a for a in actions if a["id"] == "update")["config"]
-        assert update["inputs"]["set_properties"]["value"] == {"first_name": "{event.properties.first_name}"}
+        assert update["inputs"]["set_properties"]["value"] == {"first_name": "{event.properties['first_name']}"}
         edges = {(edge["from"], edge["to"], edge["type"]) for edge in cast(list[dict[str, Any]], workflow.edges)}
         assert ("wait_upgrade", "receipt", "branch") in edges
         html = next(a for a in actions if a["id"] == "welcome")["config"]["inputs"]["email"]["value"]["html"]
@@ -508,6 +511,12 @@ class TestResendImport(BaseTest):
             assert len(notes) == 1 and note in notes[0]
         else:
             assert notes == ()
+
+    def test_a_template_keeps_subject_and_sender_notes_apart(self) -> None:
+        imported = resend._imported_email({**FIXTURES["templates"][0], "subject": "", "from": ""}, {})
+
+        assert ["no subject" in note for note in imported.subject_notes] == [True]
+        assert ["no sender" in note for note in imported.sender_notes] == [True]
 
     def test_a_template_without_a_display_name_uses_the_senders_name(self) -> None:
         sender = cast(IntegrationRecord, SimpleNamespace(id=7, config={"name": "Acme team", "verified": True}))

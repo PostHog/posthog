@@ -59,8 +59,8 @@ _CONTACT_ONLY_FIELDS = {"id", "unsubscribed", "created_at"}
 _CONTACT_VARIABLE_PROPERTIES = {"FIRST_NAME": "first_name", "LAST_NAME": "last_name", "EMAIL": "email"}
 # An "or" inside an "and" multiplies paths, and past this the editor can't show the step usefully.
 _MAX_CONDITION_PATHS = 20
-_HOG_IDENTIFIER = re.compile(r"^[A-Za-z_]\w*$")
-_LIQUID_IDENTIFIER = re.compile(r"^[A-Za-z_][\w-]*$")
+# Liquid reads only ASCII names, so any other name goes in brackets.
+_LIQUID_IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_-]*$")
 
 
 @frozen
@@ -759,8 +759,9 @@ def _unreadable_message(name: str, path: str) -> str:
 
 
 def _hog_path(path: str) -> str:
-    # In Hog a double-quoted name is a variable, so a key that isn't a plain name needs a single-quoted string.
-    return _bracketed(path, _HOG_IDENTIFIER, escape_hogql_string)
+    # Hog reads only plain ASCII names and reserves words like `null`, so every property name is a quoted string.
+    scope, properties, *names = path.split(".")
+    return f"{scope}.{properties}" + "".join(f"[{escape_hogql_string(name)}]" for name in names)
 
 
 def _liquid_path(path: str) -> str:
