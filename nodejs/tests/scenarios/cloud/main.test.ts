@@ -723,6 +723,16 @@ describe('cloud controller', () => {
             { cloud: { card: { exitCode: 7 } } },
             'without a runner exit',
         ],
+        [
+            'the card cannot upload its evidence',
+            { cloud: { card: { uploadFails: true } } },
+            'did not upload its evidence',
+        ],
+        [
+            'the card dies without reporting done',
+            { cloud: { card: { diesAfterMs: HOUR_MS / 2 } } },
+            'stopped without reporting',
+        ],
     ])('makes the run invalid and tears down when %s', async (_, setup, reason) => {
         const { controller } = prepare(setup)
 
@@ -740,18 +750,11 @@ describe('cloud controller', () => {
         ['cannot write its scorecard', 3],
     ])('seeds before it adds the reader, and exits as the card does when it %s', async (_, exitCode) => {
         const { controller } = prepare({ cloud: { card: { exitCode } } })
-        let seededBeforeReader = false
-        cloud.beforeCall('update-stack', () => {
-            seededBeforeReader = cloud.commands.some(
-                ({ script, status, settlesAt }) =>
-                    script.includes('host-prepare.sh') && status === 'Success' && settlesAt <= now.getTime()
-            )
-        })
 
         await expect(main(['run', profilePath()], controller)).resolves.toBe(exitCode)
 
         const runId = leasedRunId()
-        expect(seededBeforeReader).toBe(true)
+        expect(cloud.resources.find(({ logicalId }) => logicalId === 'Reader')).toMatchObject({ seeded: true })
         expect(parseJSON(cloud.objects.get(`runs/${runId}/host/done`)!)).toMatchObject({ exitCode })
         expect(cloud.objects.has(`runs/${runId}/evidence/SHA256SUMS`)).toBe(true)
         expect(cloud.billable()).toEqual([])
@@ -760,7 +763,12 @@ describe('cloud controller', () => {
     it.each<[string, Partial<FakeCloudOptions>, (fake: FakeCloud) => void, boolean]>([
         ['it is interrupted while the card runs', {}, () => undefined, true],
         ['the card ignores the stop', { card: { ignoresStop: true } }, () => undefined, false],
-        ['the stop command fails', {}, (fake) => fake.failOnCall('send-command', 3), false],
+        [
+            'the stop command fails',
+            {},
+            (fake) => fake.failWhen('send-command', (args) => args.some((arg) => arg.includes('systemctl stop'))),
+            false,
+        ],
     ])('stops the card, then deletes the stack, when %s', async (_, options, arrange, uploaded) => {
         const { controller } = prepare({ cloud: options })
         arrange(cloud)
@@ -785,6 +793,7 @@ describe('cloud controller', () => {
         await expect(main(['run', profilePath()], controller)).resolves.toBe(2)
 
         expect(evidenceAtDelete).toBe(uploaded)
+        expect(err.join('\n').includes('Could not stop the card')).toBe(!uploaded)
         expect(deletedAt! - interruptedAt!).toBeLessThan(HOUR_MS / 6)
         expect(cloud.billable()).toEqual([])
         expect(cloud.schedules.size).toBe(0)

@@ -4,9 +4,10 @@ set -Eeuo pipefail
 export HOME="${HOME:-/root}"
 repo=$(cd "$(dirname "$0")/../../../.." && pwd)
 prefix="s3://${SCENARIO_EVIDENCE_BUCKET}/runs/${SCENARIO_RUN_ID}"
-input=/opt/scenario/input
-log=/var/log/scenario-prepare.log
-exec > >(tee "$log") 2>&1
+root=${SCENARIO_HOST_ROOT:-/opt/scenario}
+input=$root/input
+log=$root/prepare.log
+exec >"$log" 2>&1
 trap 'aws s3 cp --only-show-errors "$log" "$prefix/host/prepare.log" || true' EXIT
 
 cluster=$(aws rds describe-db-clusters --db-cluster-identifier "scn-${SCENARIO_RUN_ID}" --query 'DBClusters[0]' --output json)

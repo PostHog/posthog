@@ -13,6 +13,7 @@ const SCRIPTS = `${REPO}/nodejs/tests/scenarios/cloud`
 const START_TIMEOUT_S = 60
 const STOP_TIMEOUT_S = 300
 const STOP_WAIT_MS = (STOP_TIMEOUT_S + START_TIMEOUT_S) * 1000
+const LIVENESS_MS = 5 * 60_000
 const SETTLED = new Set(['Success', 'Failed', 'Cancelled', 'TimedOut'])
 const EXIT_CODES = new Set<number>(Object.values(EXIT_CODE))
 
@@ -168,6 +169,22 @@ export async function startCard(
     }
 }
 
+async function reportOf(controller: Controller, profile: CloudProfile, manifest: Manifest): Promise<number> {
+    const bucket = profile.baseline.evidenceBucket
+    const { exitCode, uploaded } = parseJSON(
+        await evidenceOf(controller.aws, bucket).get(keyOf(manifest.runId, 'host/done'))
+    ) as { exitCode?: unknown; uploaded?: unknown }
+    if (typeof exitCode !== 'number' || !EXIT_CODES.has(exitCode)) {
+        throw new Error(`The card reported done without a runner exit code: ${JSON.stringify(exitCode)}.`)
+    }
+    if (uploaded !== true) {
+        throw new Error(
+            `The card ended with exit ${exitCode} but did not upload its evidence to s3://${bucket}/${keyOf(manifest.runId, 'evidence/')}.`
+        )
+    }
+    return exitCode
+}
+
 export async function awaitCard(
     controller: Controller,
     profile: CloudProfile,
@@ -176,19 +193,37 @@ export async function awaitCard(
 ): Promise<number> {
     const evidence = evidenceOf(controller.aws, profile.baseline.evidenceBucket)
     const done = keyOf(manifest.runId, 'host/done')
+    const reported = async (): Promise<boolean> => (await evidence.keys(keyOf(manifest.runId, 'host/'))).includes(done)
     const until = lastWorkAt(profile, manifest)
+    let checkedAt = controller.now().getTime()
     for (;;) {
-        const markers = await evidence.keys(keyOf(manifest.runId, 'host/'))
+        const isDone = await reported()
         signal.throwIfAborted()
-        if (markers.includes(done)) {
-            const { exitCode } = parseJSON(await evidence.get(done)) as { exitCode?: unknown }
-            if (typeof exitCode !== 'number' || !EXIT_CODES.has(exitCode)) {
-                throw new Error(`The card reported done without a runner exit code: ${JSON.stringify(exitCode)}.`)
-            }
-            return exitCode
+        if (isDone) {
+            return await reportOf(controller, profile, manifest)
         }
-        if (controller.now().getTime() >= until) {
+        const now = controller.now().getTime()
+        if (now >= until) {
             throw new Error(`The card did not finish by ${new Date(until).toISOString()}.`)
+        }
+        if (now - checkedAt >= LIVENESS_MS) {
+            checkedAt = now
+            const host = await requireHost(controller, manifest)
+            const unit = unitOf(manifest)
+            const { Status } = await runOnHost(
+                controller,
+                host,
+                [`systemctl is-active --quiet ${unit}`],
+                START_TIMEOUT_S,
+                until,
+                signal
+            )
+            if (Status !== 'Success') {
+                if (await reported()) {
+                    return await reportOf(controller, profile, manifest)
+                }
+                throw new Error(`The card's unit ${unit} stopped without reporting done.`)
+            }
         }
         await controller.sleep(POLL_MS)
     }
@@ -206,12 +241,14 @@ export async function stopCard(controller: Controller, profile: CloudProfile, ma
     if (host === undefined) {
         return
     }
-    const until = controller.now().getTime() + STOP_WAIT_MS
-    await runOnHost(controller, host, [`systemctl stop ${unitOf(manifest)}`], STOP_TIMEOUT_S + START_TIMEOUT_S, until)
-    while (!(await evidence.keys(keyOf(manifest.runId, 'host/'))).includes(done)) {
-        if (controller.now().getTime() >= until) {
-            throw new Error(`the card did not report done by ${new Date(until).toISOString()}`)
-        }
-        await controller.sleep(POLL_MS)
+    const { Status, ResponseCode } = await runOnHost(
+        controller,
+        host,
+        [`systemctl stop ${unitOf(manifest)}`],
+        STOP_TIMEOUT_S + START_TIMEOUT_S,
+        controller.now().getTime() + STOP_WAIT_MS
+    )
+    if (!(await evidence.keys(keyOf(manifest.runId, 'host/'))).includes(done)) {
+        throw new Error(`the card did not report done after its stop ended ${Status} (exit ${ResponseCode})`)
     }
 }

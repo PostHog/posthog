@@ -22,10 +22,13 @@ mark() {
 }
 
 upload_evidence() {
-    local run="$XDG_CACHE_HOME/posthog-scenarios/$SCENARIO_RUN_ID"
-    if [ -d "$run" ]; then
-        cp -r "$run" "$evidence/run"
-    fi
+    local run
+    mkdir -p "$evidence/run"
+    for run in "$XDG_CACHE_HOME"/posthog-scenarios/*-*-*-*-*/; do
+        if [ -d "$run" ]; then
+            cp -r "$run" "$evidence/run/" || return 1
+        fi
+    done
     (cd "$evidence" && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 -r sha256sum) >"$root/SHA256SUMS" &&
         mv "$root/SHA256SUMS" "$evidence/SHA256SUMS" &&
         aws s3 cp --recursive --only-show-errors "$evidence/" "$prefix/evidence/"
@@ -47,10 +50,11 @@ stop() {
 mkdir -p "$evidence"
 trap stop TERM INT
 trap finish EXIT
-mark started "{\"at\":\"$(now)\"}"
+mark started "{\"at\":\"$(now)\"}" || exit
 pnpm --dir "$repo/nodejs" exec tsx tests/scenarios/main.ts run "$CARD" --profile "$input/runner-profile.yaml" >"$evidence/card.log" 2>&1 &
 card=$!
 while kill -0 "$card" 2>/dev/null; do
     wait "$card"
-    code=$?
 done
+wait "$card"
+code=$?
