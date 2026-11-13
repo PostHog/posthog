@@ -21,9 +21,6 @@ const mockHost = vi.hoisted(() => ({
   detectRepo: vi.fn(),
   getCloudPromptTransport: vi.fn(),
   resolveLocalSkillCommandPrompt: vi.fn(async (prompt: string) => prompt),
-  takeWarmTaskLease: vi.fn(
-    (): { taskId: string; runId: string } | null => null,
-  ),
   uploadRunAttachments: vi.fn(),
   setProvisioningActive: vi.fn(),
   clearProvisioning: vi.fn(),
@@ -35,6 +32,11 @@ const mockHost = vi.hoisted(() => ({
   deleteClaudeCliImportRecord: vi.fn(),
   linkTaskBranch: vi.fn(),
 }));
+
+const warmSubmission = {
+  take: vi.fn<() => { taskId: string; runId: string } | null>(() => null),
+  finish: vi.fn(),
+};
 
 import { TaskCreationSaga } from "./taskCreationSaga";
 import { buildWorktreeAdoptionInput } from "./taskInput";
@@ -105,6 +107,7 @@ function makeSaga(
       ...posthog,
     } as never,
     host,
+    warmSubmission,
     sessionService,
     piRunner,
     fileReadClient,
@@ -116,6 +119,7 @@ function makeSaga(
 describe("TaskCreationSaga", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    warmSubmission.take.mockReturnValue(null);
     mockHost.createWorkspace.mockResolvedValue({});
     mockHost.deleteWorkspace.mockResolvedValue(undefined);
     mockHost.getTaskDirectory.mockResolvedValue(null);
@@ -848,7 +852,7 @@ describe("TaskCreationSaga", () => {
       messageText: "/my-skill do it",
       promptText: "/my-skill do it",
     });
-    mockHost.takeWarmTaskLease.mockReturnValue({
+    warmSubmission.take.mockReturnValue({
       taskId: "warm-task",
       runId: "warm-run",
     });
@@ -878,16 +882,6 @@ describe("TaskCreationSaga", () => {
     });
 
     expect(result.success).toBe(true);
-    expect(mockHost.takeWarmTaskLease).toHaveBeenCalledWith({
-      repository: "posthog/posthog",
-      branch: "main",
-      runtimeAdapter: "claude",
-      model: null,
-      reasoningEffort: null,
-      permissionMode: "plan",
-      sandboxEnvironmentId: null,
-      customImageId: null,
-    });
     // The bundle must land on the warm run before createTask triggers activation.
     expect(mockHost.uploadRunAttachments).toHaveBeenCalledWith(
       expect.anything(),
@@ -926,7 +920,7 @@ describe("TaskCreationSaga", () => {
       messageText: "/my-skill do it",
       promptText: "/my-skill do it",
     });
-    mockHost.takeWarmTaskLease.mockReturnValue(null);
+    warmSubmission.take.mockReturnValue(null);
     mockHost.uploadRunAttachments.mockResolvedValue(["skill-artifact-1"]);
 
     const createdTask = createTask();
@@ -970,7 +964,7 @@ describe("TaskCreationSaga", () => {
       messageText: "/my-skill do it",
       promptText: "/my-skill do it",
     });
-    mockHost.takeWarmTaskLease.mockReturnValue({
+    warmSubmission.take.mockReturnValue({
       taskId: "warm-task",
       runId: "warm-run",
     });
@@ -1010,6 +1004,7 @@ describe("TaskCreationSaga", () => {
   });
 
   it.each([
+    { selection: "default settings", input: {}, expectedRunOptions: {} },
     {
       selection: "sandbox environment",
       input: { sandboxEnvironmentId: "environment-123" },
@@ -1023,7 +1018,7 @@ describe("TaskCreationSaga", () => {
   ])(
     "falls back to a cold run without a matching warm $selection lease",
     async ({ input, expectedRunOptions }) => {
-      mockHost.takeWarmTaskLease.mockReturnValue(null);
+      warmSubmission.take.mockReturnValue(null);
       const createdTask = createTask();
       const startedTask = createTask({ latest_run: createRun() });
       const createTaskMock = vi.fn().mockResolvedValue(createdTask);
@@ -1053,7 +1048,7 @@ describe("TaskCreationSaga", () => {
   );
 
   it("reuses a warm run built from the selected custom image", async () => {
-    mockHost.takeWarmTaskLease.mockReturnValue({
+    warmSubmission.take.mockReturnValue({
       taskId: "warm-task",
       runId: "warm-run",
     });
@@ -1085,6 +1080,41 @@ describe("TaskCreationSaga", () => {
     );
     expect(createTaskRunMock).not.toHaveBeenCalled();
   });
+
+  it.each([{ contextWindow: "1m" as const }, { fastMode: true }])(
+    "preserves cold-only settings even before the warm hook updates: %j",
+    async (input) => {
+      warmSubmission.take.mockReturnValue({
+        taskId: "warm-task",
+        runId: "warm-run",
+      });
+      const createTaskMock = vi.fn().mockResolvedValue(createTask());
+      const createTaskRunMock = vi.fn().mockResolvedValue(createRun());
+      const saga = makeSaga({
+        createTask: createTaskMock,
+        createTaskRun: createTaskRunMock,
+        startTaskRun: vi
+          .fn()
+          .mockResolvedValue(createTask({ latest_run: createRun() })),
+      });
+
+      const result = await saga.run({
+        content: "Ship the fix",
+        repository: "posthog/posthog",
+        workspaceMode: "cloud",
+        branch: "main",
+        ...input,
+      });
+
+      expect(result.success).toBe(true);
+      expect(warmSubmission.take).not.toHaveBeenCalled();
+      expect(createTaskMock.mock.calls[0][0].branch).toBeUndefined();
+      expect(createTaskRunMock).toHaveBeenCalledWith(
+        "task-123",
+        expect.objectContaining(input),
+      );
+    },
+  );
 
   it("uses the selected user GitHub integration for cloud task creation", async () => {
     const createdTask = createTask({
@@ -1148,7 +1178,7 @@ describe("TaskCreationSaga", () => {
     });
 
     expect(result.success).toBe(true);
-    expect(mockHost.takeWarmTaskLease).not.toHaveBeenCalled();
+    expect(warmSubmission.take).not.toHaveBeenCalled();
     const body = createTaskMock.mock.calls[0][0];
     expect(body).toMatchObject({
       repository: "acme/platform/api",
