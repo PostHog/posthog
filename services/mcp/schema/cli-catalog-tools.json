@@ -38520,6 +38520,10 @@
                 {
                     "param": "api_key",
                     "key": "api_key"
+                },
+                {
+                    "param": "settings",
+                    "key": "settings"
                 }
             ],
             "injectBody": {},
