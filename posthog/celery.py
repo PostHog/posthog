@@ -315,8 +315,7 @@ class StopWorkerWhenEmbeddedSchedulerExits(bootsteps.StartStopStep):
         hub.call_repeatedly(_EMBEDDED_SCHEDULER_CHECK_INTERVAL_SECONDS, stop_worker_if_scheduler_exited)
 
 
-if app.steps:
-    app.steps["worker"].add(StopWorkerWhenEmbeddedSchedulerExits)
+app.steps["worker"].add(StopWorkerWhenEmbeddedSchedulerExits)
 
 
 _ANALYTICS_METRICS_FLUSH_TIMEOUT_SECONDS = 5.0

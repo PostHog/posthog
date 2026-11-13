@@ -109,6 +109,9 @@ class TestWorkerStopsWhenEmbeddedSchedulerExits(TestCase):
         blueprint.send_all(worker, "register_with_event_loop", args=(hub,))
         return hub.call_repeatedly
 
+    def test_the_worker_app_has_the_step(self) -> None:
+        assert StopWorkerWhenEmbeddedSchedulerExits in posthog.celery.app.steps["worker"]
+
     def test_worker_without_embedded_scheduler_runs_no_check(self) -> None:
         self._registered_check(MagicMock(beat=None)).assert_not_called()
 
