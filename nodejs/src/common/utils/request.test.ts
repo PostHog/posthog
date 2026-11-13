@@ -481,7 +481,14 @@ describe('fetch', () => {
         const deadIpv4First = [{ address: '127.0.0.2', family: 4 }, ipv4]
         const ipv4Mapped = [{ address: '::ffff:127.0.0.1', family: 6 }]
 
-        test.each([
+        test.each<{
+            name: string
+            enforced: string
+            addresses: { address: string; family: number }[]
+            expected: (number | string)[]
+            expectedConnections: number
+            teams?: number[]
+        }>([
             {
                 name: 'rejects over the limit',
                 enforced: 'true',
@@ -531,9 +538,17 @@ describe('fetch', () => {
                 expected: [200, 200, 'ConnectionRateLimitError'],
                 expectedConnections: 2,
             },
+            {
+                name: 'gives each team its own budget',
+                enforced: 'true',
+                addresses: [ipv4],
+                teams: [1, 1, 1, 2],
+                expected: [200, 200, 'ConnectionRateLimitError', 200],
+                expectedConnections: 3,
+            },
         ])(
             '$name, for an origin that closes every connection',
-            async ({ enforced, addresses, expected, expectedConnections }) => {
+            async ({ enforced, addresses, expected, expectedConnections, teams }) => {
                 let connections = 0
                 const closing = http.createServer((_req, res) => {
                     res.setHeader('connection', 'close')
@@ -552,13 +567,18 @@ describe('fetch', () => {
                         },
                         async (fresh) => {
                             jest.mocked(require('dns/promises').lookup).mockResolvedValue(addresses)
+                            const {
+                                fetchAttribution,
+                            }: typeof import('./fetch-attribution') = require('./fetch-attribution')
                             const outcomes = []
-                            for (const _ of range(3)) {
+                            for (const teamId of teams ?? range(3).map(() => undefined)) {
                                 outcomes.push(
-                                    await fresh.fetch(url).then(
-                                        (response) => response.status,
-                                        (error) => error.code ?? error.name
-                                    )
+                                    await fetchAttribution
+                                        .run({ teamId }, () => fresh.fetch(url))
+                                        .then(
+                                            (response) => response.status,
+                                            (error) => error.code ?? error.name
+                                        )
                                 )
                             }
 
@@ -572,6 +592,22 @@ describe('fetch', () => {
                 }
             }
         )
+
+        test('returns each address in a DNS answer once', async () => {
+            await withIsolatedRequestModule(
+                { EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_PER_SECOND: '1' },
+                async (fresh) => {
+                    jest.mocked(require('dns/promises').lookup).mockResolvedValue([ipv4, ipv4, ...ipv4Mapped])
+                    const result = await new Promise((resolve, reject) =>
+                        fresh.httpStaticLookup('localhost', {}, (error, addresses) =>
+                            error ? reject(error) : resolve(addresses)
+                        )
+                    )
+
+                    expect(result).toEqual([ipv4])
+                }
+            )
+        })
     })
 })
 
