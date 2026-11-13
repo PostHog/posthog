@@ -42,7 +42,7 @@ const BASELINE: Duration = Duration::from_secs(3);
 const RECOVERY_LIMIT: Duration = Duration::from_secs(10);
 /// Load continues this long after recovery, so connections reopened after the fault show.
 const SETTLE: Duration = Duration::from_secs(5);
-/// Production sizes the persons read pool of a zone to the client connections of its minimum
+/// prod-us sizes the persons read pool of a zone to the client connections of its minimum
 /// flags pods, and the write pool to a fifth of that.
 const POOLER_READ_POOL_SIZE: u32 = 8;
 const POOLER_WRITE_POOL_SIZE: u32 = 2;
@@ -66,7 +66,7 @@ async fn test_cancels_heard_late(
     report.assert_degrades_then_recovers();
     report.assert_connections_reopen();
     if let Topology::PgBouncer = topology {
-        report.assert_server_connections_survive();
+        report.assert_database_logins_bounded();
     }
 }
 
@@ -82,7 +82,7 @@ async fn test_lock_wait_for_16s(
     report.assert_degrades_then_recovers();
     report.assert_connections_reopen();
     if let Topology::PgBouncer = topology {
-        report.assert_server_connections_survive();
+        report.assert_database_logins_bounded();
     }
 }
 
@@ -210,16 +210,9 @@ impl PersonsDb {
         }
     }
 
-    fn read_url(&self) -> String {
+    fn url(&self, pooler_database: &str) -> String {
         match &self.pooler {
-            Some(pooler) => pooler.url(pgbouncer::READ_DATABASE),
-            None => self.proxy.url().to_string(),
-        }
-    }
-
-    fn write_url(&self) -> String {
-        match &self.pooler {
-            Some(pooler) => pooler.url(pgbouncer::WRITE_DATABASE),
+            Some(pooler) => pooler.url(pooler_database),
             None => self.proxy.url().to_string(),
         }
     }
@@ -348,8 +341,8 @@ impl Scenario {
             max_concurrency: self.max_concurrency,
             persons_reader_statement_timeout_ms: self.fault.persons_statement_timeout_ms(),
             test_before_acquire: FlexBool(true),
-            persons_read_database_url: db.read_url(),
-            persons_write_database_url: db.write_url(),
+            persons_read_database_url: db.url(pgbouncer::READ_DATABASE),
+            persons_write_database_url: db.url(pgbouncer::WRITE_DATABASE),
             ..Config::default_test_config()
         };
         match self.topology {
@@ -781,15 +774,6 @@ impl Report {
         assert!(
             self.at_finish.ok_persons_requests > self.at_end.ok_persons_requests,
             "no ok persons request counted after the fault"
-        );
-    }
-
-    /// No new login reaches Postgres, because PgBouncer keeps its server connections.
-    fn assert_server_connections_survive(&self) {
-        assert_eq!(
-            self.connect_attempts_during() + self.connect_attempts_after(),
-            0,
-            "PgBouncer opened new server connections"
         );
     }
 
