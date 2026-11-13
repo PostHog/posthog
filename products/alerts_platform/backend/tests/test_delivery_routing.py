@@ -1,3 +1,4 @@
+from dataclasses import replace
 from typing import Any, cast
 
 import pytest
@@ -14,6 +15,7 @@ from products.alerts_platform.backend.delivery.transport import DeliveryError, D
 from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
     AlertEventKind,
+    AnnouncedTransition,
     DestinationType,
     SourceKind,
 )
@@ -61,7 +63,7 @@ class TestDeliverRoutes(APIBaseTest):
             team=self.team, receiver=receiver, matchers=matchers, event_kinds=["firing"], position=position
         )
 
-    def _deliver(self, flag: Any = True) -> int:
+    def _deliver(self, flag: Any = True, transitions: tuple[AnnouncedTransition, ...] | None = None) -> int:
         def feature_enabled(key: str, *args: Any, **kwargs: Any) -> Any:
             if isinstance(flag, Exception):
                 raise flag
@@ -75,7 +77,8 @@ class TestDeliverRoutes(APIBaseTest):
             patch(
                 "products.alerts_platform.backend.logic.platform_alert_events._read_evaluation",
                 return_value=AnnouncementRead(
-                    status=AnnouncementStatus.FOUND, announcement=_announcement(_transition(AlertEventKind.FIRING))
+                    status=AnnouncementStatus.FOUND,
+                    announcement=_announcement(*(transitions or (_transition(AlertEventKind.FIRING),))),
                 ),
             ),
             patch(f"{_MODULE}.DatabaseThreadStore"),
@@ -102,6 +105,30 @@ class TestDeliverRoutes(APIBaseTest):
                 MessageDetail(label="team", value="infra"),
                 MessageDetail(label="runbook", value="https://example.com/runbook"),
             )
+
+    def test_routes_each_group_on_its_own_labels_under_the_rules(self) -> None:
+        self._route("C-rotation-a", [{"label": "rotation", "op": "=", "value": "a"}], 3)
+        self._route("C-rotation-b", [{"label": "rotation", "op": "=", "value": "b"}], 4)
+        groups = (
+            replace(_transition(AlertEventKind.FIRING, "a"), labels={"rotation": "a"}),
+            replace(_transition(AlertEventKind.FIRING, "b"), labels={"rotation": "b"}),
+            replace(_transition(AlertEventKind.FIRING, "billing"), labels={"team": "billing"}),
+        )
+
+        sent = self._deliver(transitions=groups)
+
+        heard = [(channel, message.labels.get("rotation", "-")) for channel, message in RecordingTransport.sends]
+        assert heard == [
+            ("C-infra", "a"),
+            ("C-infra", "b"),
+            ("C-infra", "-"),
+            ("C-all", "a"),
+            ("C-all", "b"),
+            ("C-all", "-"),
+            ("C-rotation-a", "a"),
+            ("C-rotation-b", "b"),
+        ]
+        assert sent == 4
 
     @parameterized.expand(
         [
