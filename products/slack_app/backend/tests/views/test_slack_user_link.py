@@ -228,7 +228,7 @@ class TestCallbackView:
             ) as exchange,
             patch("products.slack_app.backend.views.slack_user_link.start_work_focus") as work_focus,
             patch(
-                "products.slack_app.backend.views.slack_user_link.connect_slack_mcp_from_user_token",
+                "products.slack_app.backend.views.slack_user_link.connect_slack_mcp_from_slack_link",
                 return_value=True,
             ) as connect_slack_mcp,
             patch(
@@ -245,14 +245,14 @@ class TestCallbackView:
         assert exchange.call_args.kwargs["search_scopes"] is search_scopes
         assert work_focus.called is search_scopes
         assert connect_slack_mcp.called is (search_scopes and slack_mcp)
-        if search_scopes and slack_mcp:
-            assert connect_slack_mcp.call_args.kwargs["access_token"] == SLACK_USER_ACCESS_TOKEN
         assert mock_refresh_card.call_args.args[1] == SLACK_USER_ID
         mock_ph.return_value.alias.assert_called_once_with(
             previous_id=user.distinct_id, distinct_id=f"slack:{SLACK_TEAM_ID}:{SLACK_USER_ID}"
         )
         link = UserIntegration.objects.get(user=user, kind=UserIntegration.IntegrationKind.SLACK)
         assert link.integration_id == SLACK_USER_ID
+        if search_scopes and slack_mcp:
+            assert connect_slack_mcp.call_args.kwargs["slack_link_id"] == str(link.id)
         assert link.config["slack_team_id"] == SLACK_TEAM_ID
         assert link.config["slack_team_name"] == "My Workspace"
         assert link.config["slack_email_at_link"] == "dev@slack.example"

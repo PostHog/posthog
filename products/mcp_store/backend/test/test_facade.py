@@ -7,6 +7,7 @@ from parameterized import parameterized
 
 from posthog.models import User
 from posthog.models.organization import OrganizationMembership
+from posthog.models.user_integration import UserIntegration, user_slack_integration_from_identity
 
 from products.mcp_store.backend.agents import (
     create_gateway_agent_token,
@@ -16,7 +17,7 @@ from products.mcp_store.backend.agents import (
 from products.mcp_store.backend.facade.api import (
     SLACK_MCP_URL,
     call_member_server_tool,
-    connect_slack_mcp_from_user_token,
+    connect_slack_mcp_from_slack_link,
     get_active_installations,
     get_installations_for_sandbox,
     get_sandbox_mcp_server_names,
@@ -33,6 +34,7 @@ from products.mcp_store.backend.facade.contracts import (
     UnmountedInstallationReason,
 )
 from products.mcp_store.backend.models import (
+    LINKED_SLACK_USER_INTEGRATION_KEY,
     MCPGatewayServer,
     MCPMemberServerRevocation,
     MCPOrgRule,
@@ -226,8 +228,33 @@ class TestGetActiveInstallations(BaseTest):
         assert (len(results) == 1) == expected_included
 
 
-class TestConnectSlackMcpFromUserToken(BaseTest):
+class TestConnectSlackMcpFromSlackLink(BaseTest):
     SCOPES = ["channels:read", "channels:history", "search:read.public"]
+
+    def _slack_template(self, source: str = "slack_app", team_enabled: bool = True) -> None:
+        template = MCPServerTemplate.objects.create(
+            name="Slack",
+            url=SLACK_MCP_URL,
+            auth_type="oauth",
+            is_active=True,
+            oauth_credentials_source=source,
+            oauth_scope_allowlist=self.SCOPES,
+            created_by=self.user,
+        )
+        MCPGatewayServer.objects.for_team(self.team.id).create(
+            team_id=self.team.id, name="Slack", url=SLACK_MCP_URL, template=template, is_team_enabled=team_enabled
+        )
+
+    def _link_slack(self, scopes: list[str]) -> UserIntegration:
+        return user_slack_integration_from_identity(
+            self.user,
+            slack_user_id="U1",
+            slack_team_id="T1",
+            slack_team_name="Example",
+            slack_email_at_link=None,
+            user_access_token="xoxp-link",
+            user_scopes=" ".join(scopes),
+        )
 
     @parameterized.expand(
         [
@@ -247,18 +274,7 @@ class TestConnectSlackMcpFromUserToken(BaseTest):
         existing_token: str | None,
         connects: bool,
     ) -> None:
-        template = MCPServerTemplate.objects.create(
-            name="Slack",
-            url=SLACK_MCP_URL,
-            auth_type="oauth",
-            is_active=True,
-            oauth_credentials_source=source,
-            oauth_scope_allowlist=self.SCOPES,
-            created_by=self.user,
-        )
-        MCPGatewayServer.objects.for_team(self.team.id).create(
-            team_id=self.team.id, name="Slack", url=SLACK_MCP_URL, template=template, is_team_enabled=team_enabled
-        )
+        self._slack_template(source, team_enabled)
         if existing_token:
             MCPServerInstallation.objects.create(
                 team=self.team,
@@ -267,10 +283,9 @@ class TestConnectSlackMcpFromUserToken(BaseTest):
                 auth_type="oauth",
                 sensitive_configuration={"access_token": existing_token},
             )
+        link = self._link_slack(granted)
 
-        connected = connect_slack_mcp_from_user_token(
-            self.team.id, self.user, access_token="xoxp-link", refresh_token=None, granted_scopes=frozenset(granted)
-        )
+        connected = connect_slack_mcp_from_slack_link(self.team.id, self.user, slack_link_id=str(link.id))
 
         assert connected is connects
         assert slack_mcp_user_scopes(self.team.id, self.user.id) == (
@@ -281,10 +296,15 @@ class TestConnectSlackMcpFromUserToken(BaseTest):
             assert installation is None
             return
         assert installation is not None
-        assert installation.sensitive_configuration["access_token"] == (existing_token or "xoxp-link")
         assert [active.id for active in get_active_installations(self.team.id, self.user.id)] == [str(installation.id)]
-        if not existing_token:
-            assert installation.gateway_server is not None
+        if existing_token:
+            assert installation.sensitive_configuration == {"access_token": existing_token}
+            return
+        assert installation.sensitive_configuration == {LINKED_SLACK_USER_INTEGRATION_KEY: str(link.id)}
+        assert installation.gateway_server is not None
+        # The installation keeps no copy of the token, so an unlink also ends its access.
+        link.delete()
+        assert get_active_installations(self.team.id, self.user.id) == []
 
 
 class TestTeamToolsNotConnected(BaseTest):

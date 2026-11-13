@@ -37,6 +37,7 @@ from posthog.event_usage import report_user_action
 from posthog.ip_restrictions import enforce_ip_restrictions
 from posthog.models import User
 from posthog.models.scoping.manager import resolve_effective_team_id
+from posthog.models.user_integration import mark_slack_mcp_opted_out
 from posthog.permissions import DenyMCPBuiltInAgentOAuth, DenyWorkloadAccessToken
 from posthog.rate_limit import (
     MCPOAuthBurstThrottle,
@@ -401,8 +402,7 @@ class MCPServerInstallationSerializer(serializers.ModelSerializer):
     def get_pending_oauth(self, obj: MCPServerInstallation) -> bool:
         if obj.auth_type != "oauth":
             return False
-        sensitive = obj.sensitive_configuration or {}
-        return not sensitive.get("access_token")
+        return not obj.upstream_access_token()
 
     def get_proxy_url(self, obj: MCPServerInstallation) -> str:
         request = self.context.get("request")
@@ -1004,6 +1004,10 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             team=self.team,
             request=request,
         )
+        # A member who removes the Slack MCP that came with their Slack link opts out of it, so a relink does
+        # not connect it again.
+        if (link_id := installation.linked_slack_user_integration_id) is not None:
+            mark_slack_mcp_opted_out(link_id, user_id=installation.user_id)
         installation.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 

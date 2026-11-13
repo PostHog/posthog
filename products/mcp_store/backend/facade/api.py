@@ -5,7 +5,6 @@ This is the ONLY module other apps are allowed to import.
 """
 
 import json
-import time
 import uuid
 from collections import Counter, defaultdict
 from collections.abc import Iterable
@@ -19,6 +18,7 @@ from django.db.models import Q
 import structlog
 
 from posthog.models.user import User
+from posthog.models.user_integration import SLACK_MCP_OPTED_OUT_CONFIG_KEY, UserIntegration, slack_link_scopes
 
 from products.mcp_store.backend.agents import (
     BuiltInAgentKey,
@@ -51,6 +51,7 @@ from products.mcp_store.backend.gateway import (
     server_disabled_reason,
 )
 from products.mcp_store.backend.models import (
+    LINKED_SLACK_USER_INTEGRATION_KEY,
     MCPAuthType,
     MCPGatewayServer,
     MCPMemberServerRevocation,
@@ -231,7 +232,7 @@ def _is_oauth_ready(installation: MCPServerInstallation) -> bool:
     sensitive = installation.sensitive_configuration or {}
     if sensitive.get("needs_reauth"):
         return False
-    if not sensitive.get("access_token"):
+    if not installation.upstream_access_token():
         return False
     return True
 
@@ -468,13 +469,24 @@ def slack_mcp_user_scopes(team_id: int, user_id: int | None) -> tuple[str, ...]:
     return tuple(template.oauth_scope_allowlist or ()) if template is not None else ()
 
 
-def connect_slack_mcp_from_user_token(
-    team_id: int, user: User, *, access_token: str, refresh_token: str | None, granted_scopes: frozenset[str]
-) -> bool:
-    """Connect the member's Slack MCP with the user token that PostHog's Slack app just minted for them, so they skip
-    a second Slack consent screen. A working connection stays as it is. Returns whether the member is connected."""
+# The token keys of an installation that holds its own token. A linked installation has none of them.
+_OWN_TOKEN_KEYS = ("access_token", "refresh_token", "token_retrieved_at", "expires_in", "needs_reauth")
+
+
+def connect_slack_mcp_from_slack_link(team_id: int, user: User, *, slack_link_id: str) -> bool:
+    """Connect the member's Slack MCP through their Slack account link, so they skip a second Slack consent screen.
+    The installation points at the link and keeps no copy of its token, so an unlink also ends the access. A member
+    who removed a linked Slack MCP is not connected again, and a working connection stays as it is. Returns whether
+    the member is connected."""
     template = _connectable_slack_template(team_id, user.id)
-    if template is None or not set(template.oauth_scope_allowlist or ()) <= granted_scopes:
+    if template is None:
+        return False
+    link = UserIntegration.objects.filter(
+        id=slack_link_id, user=user, kind=UserIntegration.IntegrationKind.SLACK
+    ).first()
+    if link is None or (link.config or {}).get(SLACK_MCP_OPTED_OUT_CONFIG_KEY):
+        return False
+    if not set(template.oauth_scope_allowlist or ()) <= slack_link_scopes(link):
         return False
     with transaction.atomic():
         installation, _ = MCPServerInstallation.objects.get_or_create(
@@ -494,12 +506,9 @@ def connect_slack_mcp_from_user_token(
         sensitive = {
             key: value
             for key, value in (installation.sensitive_configuration or {}).items()
-            if key not in ("needs_reauth", "refresh_token", "expires_in")
+            if key not in _OWN_TOKEN_KEYS
         }
-        sensitive["access_token"] = access_token
-        sensitive["token_retrieved_at"] = int(time.time())
-        if refresh_token:
-            sensitive["refresh_token"] = refresh_token
+        sensitive[LINKED_SLACK_USER_INTEGRATION_KEY] = str(link.id)
         installation.template = template
         installation.is_enabled = True
         installation.sensitive_configuration = sensitive

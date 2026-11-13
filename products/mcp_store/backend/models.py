@@ -6,6 +6,7 @@ from django.db.models import Q
 
 from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
+from posthog.models.user_integration import UserIntegration, slack_link_scopes
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 
 from .oauth_credentials import oauth_credentials_source_is_allowed
@@ -242,6 +243,31 @@ class MCPServerInstallation(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
                 name="uniq_shared_install",
             ),
         ]
+
+    @property
+    def linked_slack_user_integration_id(self) -> str | None:
+        """The member's Slack account link that this installation uses instead of a copy of its token. The link
+        stays the only place that holds the token, so an unlink also ends the installation's access."""
+        value = (self.sensitive_configuration or {}).get(LINKED_SLACK_USER_INTEGRATION_KEY)
+        return str(value) if value else None
+
+    def upstream_access_token(self) -> str | None:
+        """The installation's own OAuth token first. Otherwise the token of the member's Slack link, while the link
+        exists and grants all the scopes that the template asks for."""
+        if own_token := (self.sensitive_configuration or {}).get("access_token"):
+            return own_token
+        link_id = self.linked_slack_user_integration_id
+        if link_id is None or self.template is None:
+            return None
+        link = UserIntegration.objects.filter(
+            id=link_id, user_id=self.user_id, kind=UserIntegration.IntegrationKind.SLACK
+        ).first()
+        if link is None or not set(self.template.oauth_scope_allowlist or ()) <= slack_link_scopes(link):
+            return None
+        return (link.sensitive_config or {}).get("user_access_token") or None
+
+
+LINKED_SLACK_USER_INTEGRATION_KEY = "linked_slack_user_integration_id"
 
 
 class MCPServerInstallationTool(CreatedMetaFields, UpdatedMetaFields, UUIDModel):

@@ -1,7 +1,9 @@
+from products.mcp_store.backend.facade.api import slack_mcp_user_scopes
 from products.slack_app.backend.feature_flags import (
     is_slack_app_daily_work_focus_enabled,
     is_slack_app_link_search_scopes_enabled,
     is_slack_app_oauth_enabled,
+    is_slack_app_slack_mcp_enabled,
 )
 from products.slack_app.backend.logic.onboarding.step import OnboardingContext, OnboardingStep, OnboardingStepKey
 from products.slack_app.backend.services.slack_messages import section_block
@@ -38,6 +40,10 @@ class LinkAccountStep(OnboardingStep):
             else:
                 text += "\nAfter you link, I read your recent Slack messages once to suggest what I can help with. "
             text += "Slack lets you choose which kinds of conversations I can search."
+            if is_slack_app_slack_mcp_enabled(ctx.integration) and slack_mcp_user_scopes(
+                ctx.integration.team_id, ctx.posthog_user.id if ctx.posthog_user else None
+            ):
+                text += " Your PostHog tasks can also read and search Slack's public channels as you."
         return [
             section_block(text),
             {

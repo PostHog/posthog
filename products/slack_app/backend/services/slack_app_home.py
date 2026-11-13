@@ -29,7 +29,7 @@ import structlog
 from posthog.models.integration import SLACK_INTEGRATION_KINDS, SlackIntegration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
-from posthog.models.user_integration import UserIntegration
+from posthog.models.user_integration import UserIntegration, revoke_slack_user_token
 from posthog.slack.formatting import escape_slack_mrkdwn
 from posthog.templatetags.posthog_assets import absolute_asset_url
 from posthog.user_permissions import UserPermissions
@@ -887,7 +887,10 @@ def _posthog_account_button(account_state: AccountState) -> dict | None:
                 "title": {"type": "plain_text", "text": "Disconnect your PostHog account?"},
                 "text": {
                     "type": "mrkdwn",
-                    "text": "@PostHog will fall back to matching your Slack email against PostHog users until you link again.",
+                    "text": (
+                        "@PostHog will fall back to matching your Slack email against PostHog users until you link "
+                        "again. PostHog tasks also lose the Slack access that came with the link."
+                    ),
                 },
                 "confirm": {"type": "plain_text", "text": "Disconnect"},
                 "deny": {"type": "plain_text", "text": "Cancel"},
@@ -2894,12 +2897,15 @@ def _unlink_user_account(integration: WorkspaceIntegration, slack_user_id: str) 
     )
     if not candidate_user_ids:
         return
-    UserIntegration.objects.filter(
+    links = UserIntegration.objects.filter(
         kind=UserIntegration.IntegrationKind.SLACK,
         integration_id=slack_user_id,
         config__slack_team_id=slack_team_id,
         user_id__in=candidate_user_ids,
-    ).delete()
+    )
+    for link in links:
+        revoke_slack_user_token(link)
+    links.delete()
 
 
 def _workspace_org_ids(slack_team_id: str) -> set:

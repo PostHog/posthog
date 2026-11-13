@@ -238,7 +238,7 @@ class GatewayAgentAccessSerializer(serializers.Serializer):
 def _installation_pending_oauth(installation: MCPServerInstallation) -> bool:
     if installation.auth_type != "oauth":
         return False
-    return not (installation.sensitive_configuration or {}).get("access_token")
+    return not installation.upstream_access_token()
 
 
 def _installation_needs_reauth(installation: MCPServerInstallation) -> bool:

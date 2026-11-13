@@ -12,6 +12,7 @@ import structlog
 
 from posthog.egress.github.transport import github_request, raise_if_github_rate_limited
 from posthog.egress.limiter.policies import Priority
+from posthog.egress.slack.client import SlackWebClient
 from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.github_integration_base import (
     _GITHUB_REPO_PATH_RE,
@@ -72,7 +73,8 @@ class UserIntegration(UUIDModel):
     - `config` holds {slack_team_id, slack_team_name, slack_email_at_link, scope,
       linked_at}; `scope` is the user scopes Slack granted, space-delimited as OIDC
       returns them (the workspace row's `Integration.config["scope"]` is Slack's
-      comma-separated bot list, so don't parse the two the same way)
+      comma-separated bot list, so don't parse the two the same way). `slack_mcp_opted_out`
+      is set when the person removes the Slack MCP that came with the link, and stays across relinks
     - `sensitive_config` holds {user_access_token, user_refresh_token?} — the
       Slack user-to-server token plus, when the Slack app has
       `token_rotation_enabled`, a refresh token used to rotate it. Today's
@@ -1055,6 +1057,16 @@ def user_slack_integration_from_identity(
     }
     if user_refresh_token is not None:
         sensitive_config["user_refresh_token"] = user_refresh_token
+    previous_config = (
+        UserIntegration.objects.filter(
+            user=user, kind=UserIntegration.IntegrationKind.SLACK, integration_id=slack_user_id
+        )
+        .values_list("config", flat=True)
+        .first()
+        or {}
+    )
+    if previous_config.get(SLACK_MCP_OPTED_OUT_CONFIG_KEY):
+        config[SLACK_MCP_OPTED_OUT_CONFIG_KEY] = True
     integration, _created = UserIntegration.objects.update_or_create(
         user=user,
         kind=UserIntegration.IntegrationKind.SLACK,
@@ -1065,3 +1077,39 @@ def user_slack_integration_from_identity(
         },
     )
     return integration
+
+
+SLACK_MCP_OPTED_OUT_CONFIG_KEY = "slack_mcp_opted_out"
+
+
+def slack_link_scopes(integration: UserIntegration) -> frozenset[str]:
+    return frozenset(str((integration.config or {}).get("scope") or "").replace(",", " ").split())
+
+
+def mark_slack_mcp_opted_out(integration_id: str, *, user_id: int) -> None:
+    """The person removed the Slack MCP that came with their Slack link, so a relink must not connect it again."""
+    link = UserIntegration.objects.filter(
+        id=integration_id, user_id=user_id, kind=UserIntegration.IntegrationKind.SLACK
+    ).first()
+    if link is None:
+        return
+    link.config = {**(link.config or {}), SLACK_MCP_OPTED_OUT_CONFIG_KEY: True}
+    link.save(update_fields=["config"])
+
+
+def revoke_slack_user_token(integration: UserIntegration) -> None:
+    """Revoke the link's token at Slack before the link is deleted. Never raises, so a person can always unlink."""
+    token = (integration.sensitive_config or {}).get("user_access_token")
+    if not token:
+        return
+    client = SlackWebClient(
+        token,
+        source="user_slack_unlink",
+        workspace_id=(integration.config or {}).get("slack_team_id"),
+        app_id="posthog",
+        timeout=5,
+    )
+    try:
+        client.auth_revoke()
+    except Exception:
+        logger.warning("user_slack_integration_revoke_failed", integration_id=str(integration.id), exc_info=True)

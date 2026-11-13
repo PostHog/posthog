@@ -25,6 +25,7 @@ from posthog.models.instance_setting import override_instance_config
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
+from posthog.models.user_integration import user_slack_integration_from_identity
 from posthog.security.url_validation import PinnedUrlVerdict
 from posthog.test.anti_ssrf import mock_anti_ssrf_dns_lookup
 from posthog.test.authentication_checks import covers_authentication
@@ -32,6 +33,7 @@ from posthog.test.authentication_checks import covers_authentication
 from products.mcp_store.backend.agents import create_gateway_agent_token, sync_built_in_agents
 from products.mcp_store.backend.catalog import MCP_SERVER_CATALOG
 from products.mcp_store.backend.catalog_sync import sync_mcp_catalog
+from products.mcp_store.backend.facade.api import SLACK_MCP_URL, connect_slack_mcp_from_slack_link
 from products.mcp_store.backend.models import (
     MCPAuditEvent,
     MCPGatewayServer,
@@ -2817,6 +2819,42 @@ class TestMCPServerInstallationAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchi
         response = self.client.delete(f"/api/environments/{self.team.id}/mcp_server_installations/{installation.id}/")
         assert response.status_code == status.HTTP_204_NO_CONTENT
         assert not MCPServerInstallation.objects.filter(id=installation.id).exists()
+
+    def test_uninstalling_the_slack_mcp_from_a_slack_link_keeps_a_relink_from_connecting_it_again(self):
+        scopes = ["channels:read", "search:read.public"]
+        template = MCPServerTemplate.objects.create(
+            name="Slack",
+            url=SLACK_MCP_URL,
+            auth_type="oauth",
+            is_active=True,
+            oauth_credentials_source="slack_app",
+            oauth_scope_allowlist=scopes,
+            created_by=self.user,
+        )
+        MCPGatewayServer.objects.for_team(self.team.id).create(
+            team_id=self.team.id, name="Slack", url=SLACK_MCP_URL, template=template, is_team_enabled=True
+        )
+
+        def link_slack() -> str:
+            link = user_slack_integration_from_identity(
+                self.user,
+                slack_user_id="U1",
+                slack_team_id="T1",
+                slack_team_name="Example",
+                slack_email_at_link=None,
+                user_access_token="xoxp-link",
+                user_scopes=" ".join(scopes),
+            )
+            return str(link.id)
+
+        assert connect_slack_mcp_from_slack_link(self.team.id, self.user, slack_link_id=link_slack())
+        installation = MCPServerInstallation.objects.get(team=self.team, user=self.user, url=SLACK_MCP_URL)
+
+        response = self.client.delete(f"/api/environments/{self.team.id}/mcp_server_installations/{installation.id}/")
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not connect_slack_mcp_from_slack_link(self.team.id, self.user, slack_link_id=link_slack())
+        assert not MCPServerInstallation.objects.filter(team=self.team, user=self.user, url=SLACK_MCP_URL).exists()
 
     def test_update_installation(self):
         installation = MCPServerInstallation.objects.create(

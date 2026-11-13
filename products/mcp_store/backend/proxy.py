@@ -132,7 +132,7 @@ def build_upstream_auth_headers(installation: MCPServerInstallation) -> dict[str
         return {"Authorization": f"Bearer {api_key}"}
 
     if installation.auth_type == "oauth":
-        access_token = sensitive.get("access_token")
+        access_token = installation.upstream_access_token()
         if not access_token:
             return {}
         return {"Authorization": f"Bearer {access_token}"}
@@ -183,7 +183,7 @@ def validate_installation_auth(
         )
 
     if installation.auth_type == "oauth":
-        if not sensitive.get("access_token"):
+        if not installation.upstream_access_token():
             logger.warning(
                 "Proxy auth failed: no OAuth credentials", installation_id=str(installation.id), url=installation.url
             )
