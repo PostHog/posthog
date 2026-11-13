@@ -623,6 +623,33 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
         max_length=AGENT_STEERING_MAX_LENGTH,
         help_text="Project-level instructions for agents implementing signal reports. Other agent roles do not receive them. Blank uses project instructions only.",
     )
+    scout_custom_image_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "ID of a project-shared custom sandbox image that scout runs without their own image start from. Null uses the standard image. "
+            "Only a project admin can change it. An image that is missing or not ready at run time falls back "
+            "to the standard image."
+        ),
+    )
+    research_custom_image_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "ID of a project-shared custom sandbox image that report research and monitoring assessment runs start from. Null uses the standard image. "
+            "Only a project admin can change it. An image that is missing or not ready at run time falls back "
+            "to the standard image."
+        ),
+    )
+    implementation_custom_image_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "ID of a project-shared custom sandbox image that report implementation runs start from. Null uses the standard image. "
+            "Only a project admin can change it. An image that is missing or not ready at run time falls back "
+            "to the standard image."
+        ),
+    )
     issue_tracking_integration = IntegrationReferenceField(
         kinds=sorted(SUPPORTED_EXTERNAL_ISSUE_PROVIDERS),
         required=False,
@@ -820,6 +847,9 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
             "scout_instructions",
             "research_instructions",
             "implementation_instructions",
+            "scout_custom_image_id",
+            "research_custom_image_id",
+            "implementation_custom_image_id",
             "issue_tracking_integration",
             "issue_tracking_config",
             "max_reports_per_day",

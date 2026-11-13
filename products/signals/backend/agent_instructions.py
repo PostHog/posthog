@@ -1,4 +1,5 @@
 from enum import StrEnum
+from uuid import UUID
 
 from products.signals.backend.models import SignalTeamConfig
 
@@ -16,6 +17,23 @@ STEERING_FIELDS = {
     SignalAgentRole.RESEARCH: "research_instructions",
     SignalAgentRole.IMPLEMENTATION: "implementation_instructions",
 }
+
+CUSTOM_IMAGE_FIELDS = {
+    SignalAgentRole.SCOUT: "scout_custom_image_id",
+    SignalAgentRole.RESEARCH: "research_custom_image_id",
+    SignalAgentRole.IMPLEMENTATION: "implementation_custom_image_id",
+}
+
+
+def resolve_custom_image_id(
+    team_id: int, role: SignalAgentRole, scout_custom_image_id: UUID | None = None
+) -> str | None:
+    if scout_custom_image_id is not None:
+        return str(scout_custom_image_id)
+    image_id = (
+        SignalTeamConfig.objects.filter(team_id=team_id).values_list(CUSTOM_IMAGE_FIELDS[role], flat=True).first()
+    )
+    return str(image_id) if image_id is not None else None
 
 
 class SignalAgentInstructions:

@@ -26,6 +26,7 @@ from products.signals.backend.models import (
     SignalScoutConfig,
     SignalScoutNote,
     SignalScratchpad,
+    SignalTeamConfig,
 )
 from products.signals.backend.scout_harness.model_selection import ScoutModel
 from products.signals.backend.scout_harness.run_gates import check_fleet_gates
@@ -565,6 +566,41 @@ class TestScoutTrialLaunch(APIBaseTest):
         self.config.refresh_from_db()
         assert self.skill.body == baseline.skill_body
         assert not self.config.enabled and not self.config.emit
+
+    @parameterized.expand(
+        [
+            ("scout_image_added", None, "scout", True),
+            ("project_default_added", None, "project_default", True),
+            ("scout_image_removed", uuid4(), "scout_cleared", True),
+            ("saved_without_image_key", None, None, False),
+        ]
+    )
+    def test_variants_sharing_a_context_reject_a_changed_effective_image(
+        self, _name: str, initial_image: UUID | None, change: str | None, rejected: bool
+    ) -> None:
+        SignalScoutConfig.objects.for_team(self.team.id).filter(id=self.config.id).update(custom_image_id=initial_image)
+        self.config.refresh_from_db()
+        first = create_trial_launch(config=self.config, user=self.user, launch_id=uuid4())
+        context_key = f"signals/scout-trials/{self.team.id}/contexts/{first.context_id}.json"
+        saved = json.loads(self.documents[context_key])
+        assert ("custom_image_id" in saved["capabilities"]) is (initial_image is not None)
+        if change is None:
+            saved["capabilities"].pop("custom_image_id", None)
+            self.documents[context_key] = json.dumps(saved)
+        elif change == "project_default":
+            SignalTeamConfig.objects.update_or_create(team=self.team, defaults={"scout_custom_image_id": uuid4()})
+        else:
+            SignalScoutConfig.objects.for_team(self.team.id).filter(id=self.config.id).update(
+                custom_image_id=uuid4() if change == "scout" else None
+            )
+        if not rejected:
+            create_trial_launch(config=self.config, user=self.user, launch_id=uuid4(), context_id=first.context_id)
+            assert load_trial_launch(self.team.id, first.id) == first
+            return
+        with self.assertRaisesMessage(ScoutTrialLaunchError, "capabilities changed"):
+            create_trial_launch(config=self.config, user=self.user, launch_id=uuid4(), context_id=first.context_id)
+        with self.assertRaisesMessage(ScoutTrialLaunchError, "capabilities changed"):
+            load_trial_launch(self.team.id, first.id)
 
     def test_launch_rejects_unsupported_capabilities_and_model_effort_before_dispatch(self) -> None:
         rejected_id = uuid4()

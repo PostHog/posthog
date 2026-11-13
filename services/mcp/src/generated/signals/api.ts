@@ -345,6 +345,24 @@ export const SignalsConfigCreateBody = () => zod.object({
         .describe(
             'Project-level instructions for agents implementing signal reports. Other agent roles do not receive them. Blank uses project instructions only.'
         ),
+    scout_custom_image_id: zod
+        .string()
+        .nullish()
+        .describe(
+            'ID of a project-shared custom sandbox image that scout runs without their own image start from. Null uses the standard image. Only a project admin can change it. An image that is missing or not ready at run time falls back to the standard image.'
+        ),
+    research_custom_image_id: zod
+        .string()
+        .nullish()
+        .describe(
+            'ID of a project-shared custom sandbox image that report research and monitoring assessment runs start from. Null uses the standard image. Only a project admin can change it. An image that is missing or not ready at run time falls back to the standard image.'
+        ),
+    implementation_custom_image_id: zod
+        .string()
+        .nullish()
+        .describe(
+            'ID of a project-shared custom sandbox image that report implementation runs start from. Null uses the standard image. Only a project admin can change it. An image that is missing or not ready at run time falls back to the standard image.'
+        ),
     issue_tracking_integration: zod
         .number()
         .nullish()
@@ -2186,6 +2204,12 @@ export const SignalsScoutCreateBody = () => zod
                     .describe(
                         "Optional model id this scout's runs are pinned to, e.g. `claude-opus-4-5`. Must be one of the platform's agent models; an invalid id is rejected with the available ones listed. Null keeps the default model, chosen by the platform. Early access: the pin can only be set on projects enrolled in the scout model preview, and only takes effect there. Set null to clear it."
                     ),
+                custom_image_id: zod
+                    .string()
+                    .nullish()
+                    .describe(
+                        "ID of a project-shared custom sandbox image this scout's runs start from. Null uses the project's default scout image, or the standard image when no default is set. Only the scout's author or a project admin can change it. Setting an image requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access), since the image can supply agent instructions. An image that is missing or not ready at run time falls back to the standard image."
+                    ),
                 tags: zod
                     .array(zod.string())
                     .max(signalsScoutCreateBodyConfigOneTagsMax)
@@ -2447,6 +2471,12 @@ export const SignalsScoutConfigCreateBody = () => zod
             .nullish()
             .describe(
                 "Optional model id this scout's runs are pinned to, e.g. `claude-opus-4-5`. Must be one of the platform's agent models; an invalid id is rejected with the available ones listed. Null keeps the default model, chosen by the platform. Early access: the pin can only be set on projects enrolled in the scout model preview, and only takes effect there. Set null to clear it."
+            ),
+        custom_image_id: zod
+            .string()
+            .nullish()
+            .describe(
+                "ID of a project-shared custom sandbox image this scout's runs start from. Null uses the project's default scout image, or the standard image when no default is set. Only the scout's author or a project admin can change it. Setting an image requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access), since the image can supply agent instructions. An image that is missing or not ready at run time falls back to the standard image."
             ),
         tags: zod
             .array(zod.string())
@@ -2795,6 +2825,12 @@ export const SignalsScoutConfigUpdateBody = () => zod
             .nullish()
             .describe(
                 "Optional model id this scout's runs are pinned to, e.g. `claude-opus-4-5`. Must be one of the platform's agent models; an invalid id is rejected with the available ones listed. Null keeps the default model, chosen by the platform. Early access: the pin can only be set on projects enrolled in the scout model preview, and only takes effect there. Set null to clear it."
+            ),
+        custom_image_id: zod
+            .string()
+            .nullish()
+            .describe(
+                "ID of a project-shared custom sandbox image this scout's runs start from. Null uses the project's default scout image, or the standard image when no default is set. Only the scout's author or a project admin can change it. Setting an image requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access), since the image can supply agent instructions. An image that is missing or not ready at run time falls back to the standard image."
             ),
         auto_pause_exempt: zod
             .boolean()

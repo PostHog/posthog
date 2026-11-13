@@ -88,6 +88,7 @@ const BASE_CONFIG: SignalScoutConfigApi = {
     lifecycle_locked: false,
     network_access: 'trusted',
     model: null,
+    custom_image_id: null,
     precheck_query: null,
     precheck_disabled: false,
     effective_precheck_query: null,

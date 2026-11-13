@@ -1469,6 +1469,9 @@ const InboxSteeringInstructionsUpdateSchema = () => {
         default_slack_notification_min_priority: true,
         default_slack_notification_integration: true,
         autostart_base_branches: true,
+        scout_custom_image_id: true,
+        research_custom_image_id: true,
+        implementation_custom_image_id: true,
         issue_tracking_integration: true,
         issue_tracking_config: true,
         max_reports_per_day: true,
@@ -1588,6 +1591,9 @@ const scoutConfigCreate = (): ToolBase<ReturnType<typeof ScoutConfigCreateSchema
         const body: Record<string, unknown> = {}
         if (params.model !== undefined) {
             body['model'] = params.model
+        }
+        if (params.custom_image_id !== undefined) {
+            body['custom_image_id'] = params.custom_image_id
         }
         if (params.tags !== undefined) {
             body['tags'] = params.tags
@@ -1789,6 +1795,9 @@ const scoutConfigUpdate = (): ToolBase<
         }
         if (params.model !== undefined) {
             body['model'] = params.model
+        }
+        if (params.custom_image_id !== undefined) {
+            body['custom_image_id'] = params.custom_image_id
         }
         if (params.auto_pause_exempt !== undefined) {
             body['auto_pause_exempt'] = params.auto_pause_exempt
@@ -3183,6 +3192,9 @@ const signalsScoutConfigCreate = (): ToolBase<
         if (params.model !== undefined) {
             body['model'] = params.model
         }
+        if (params.custom_image_id !== undefined) {
+            body['custom_image_id'] = params.custom_image_id
+        }
         if (params.tags !== undefined) {
             body['tags'] = params.tags
         }
@@ -3354,6 +3366,9 @@ const signalsScoutConfigUpdate = (): ToolBase<
         }
         if (params.model !== undefined) {
             body['model'] = params.model
+        }
+        if (params.custom_image_id !== undefined) {
+            body['custom_image_id'] = params.custom_image_id
         }
         if (params.auto_pause_exempt !== undefined) {
             body['auto_pause_exempt'] = params.auto_pause_exempt
