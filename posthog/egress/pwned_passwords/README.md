@@ -17,7 +17,7 @@ Add a gate only if it publishes one.
 ## Lanes and callers
 
 No lanes, because nothing is gated.
-`BreachedPasswordValidator` in `posthog/auth.py` is the caller, with the source `password_validation`.
+`BreachedPasswordValidator` in `posthog/breached_password_validator.py` is the caller, with the source `password_validation`.
 It runs from `AUTH_PASSWORD_VALIDATORS` on signup, invite signup, password change, and password reset.
 The validator accepts the password when a call fails, so a failed call never blocks a user.
 

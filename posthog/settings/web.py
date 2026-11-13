@@ -462,7 +462,7 @@ TWO_FACTOR_REMEMBER_COOKIE_AGE = 60 * 60 * 24 * 30
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},
     {"NAME": "posthog.auth.ZxcvbnValidator"},
-    {"NAME": "posthog.auth.BreachedPasswordValidator"},
+    {"NAME": "posthog.breached_password_validator.BreachedPasswordValidator"},
 ]
 
 # The breached-password check calls api.pwnedpasswords.com, so an instance without outbound access turns it off.

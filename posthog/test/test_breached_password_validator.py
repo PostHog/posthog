@@ -8,7 +8,7 @@ from django.test import SimpleTestCase, override_settings
 import requests
 from parameterized import parameterized
 
-from posthog.auth import BreachedPasswordValidator
+from posthog.breached_password_validator import BreachedPasswordValidator
 
 PASSWORD = "vX9#qLm2$rTp-unique"
 PASSWORD_SHA1 = hashlib.sha1(PASSWORD.encode()).hexdigest().upper()
