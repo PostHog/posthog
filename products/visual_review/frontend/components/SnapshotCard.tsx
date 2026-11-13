@@ -9,6 +9,7 @@ import { urls } from 'scenes/urls'
 
 import type { BaselineEntryApi, BaselineQuarantineSummaryApi } from '../generated/api.schemas'
 import { parseArea, parseTheme } from '../lib/parseIdentifier'
+import { quarantineAuthor } from '../lib/quarantineAuthor'
 import { splitRepoFullName } from '../lib/repoPaths'
 import { sourceRunPrNumber } from '../lib/runPredicates'
 
@@ -52,9 +53,9 @@ function buildQuarantineTooltip(quarantine: BaselineQuarantineSummaryApi): JSX.E
     lines.push(
         quarantine.expires_at ? `Expires ${dayjs(quarantine.expires_at).format('MMM D, YYYY')}` : 'No expiry set'
     )
-    if (quarantine.created_by) {
-        const name = quarantine.created_by.first_name || quarantine.created_by.email
-        lines.push(`By ${name} · ${dayjs(quarantine.created_at).fromNow()}`)
+    const author = quarantineAuthor(quarantine, (name) => `By ${name}`)
+    if (author) {
+        lines.push(`${author} · ${dayjs(quarantine.created_at).fromNow()}`)
     }
     if (quarantine.source_run) {
         const prNumber = sourceRunPrNumber(quarantine.source_run)
@@ -248,9 +249,8 @@ export function SnapshotCard({
                 {quarantine && (
                     <div className="flex items-center justify-between gap-2 text-[10px] text-muted truncate">
                         <span className="truncate">
-                            {quarantine.created_by
-                                ? `by ${quarantine.created_by.first_name || quarantine.created_by.email}`
-                                : 'quarantined'}
+                            {quarantineAuthor(quarantine, (name) => `by ${name}`, 'quarantined automatically') ??
+                                'quarantined'}
                         </span>
                         {quarantine.source_run && (
                             <span className="font-mono shrink-0" title={`From run ${quarantine.source_run.commit_sha}`}>

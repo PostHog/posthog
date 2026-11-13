@@ -184,7 +184,11 @@ function readPairs(
                 realpathSync(pair.mapPath)
             )
         ) {
-            skipped.push({ path: artifact.display, reason: `its sourcemap matches an ignore pattern in posthog.json` })
+            skipped.push({
+                path: artifact.display,
+                reason: `its sourcemap matches an ignore pattern in posthog.json`,
+                intended: true,
+            })
             continue
         }
         if (pair && !seen.has(pair.sourcePath)) {
@@ -817,6 +821,7 @@ function packageNative(
             skipped.push({
                 path: byFile.get(dropped)!.display,
                 reason: `${byFile.get(kept)!.display} has the same debug ID and is at least as large, so hog uploads that one.`,
+                intended: true,
             })
     ).map((file) => {
         const { root } = byFile.get(file)!
@@ -856,6 +861,7 @@ function packageNative(
         skipped.push({
             path: owners.get(dropped)!.display,
             reason: `a dSYM bundle has the same UUID ${dropped.chunkId}, so hog uploads the bundle.`,
+            intended: true,
         })
     )
     return merged.map((upload) => ({ artifact: owners.get(upload)!, upload }))

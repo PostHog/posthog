@@ -9,11 +9,11 @@ from django.db.models.manager import ManagerDescriptor
 from django.utils.functional import Promise
 
 import structlog
-from prometheus_client import Counter
 
-from posthog.helpers.encrypted_fields import FERNET_TOKEN_PREFIX, EncryptedJSONField
+from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.integrations.contracts import IntegrationRecord, creator_can_manage
 from posthog.integrations.references import IntegrationReference
+from posthog.integrations.secret_reads import readable_secret
 from posthog.models.user import User
 from posthog.rbac.decorators import field_access_control
 from posthog.sync import database_sync_to_async
@@ -33,73 +33,6 @@ from .auth_types import (
 )
 
 logger = structlog.get_logger(__name__)
-
-
-class UndecryptedIntegrationSecretError(ValueError):
-    """Raised when a value read off `Integration.sensitive_config` still looks like Fernet
-    ciphertext instead of the decrypted secret, and no configured key can open it.
-
-    `sensitive_config` sets `ignore_decrypt_errors=True` so integrations written before
-    encryption existed keep loading, but that same leniency means a value that fails to
-    decrypt under every configured key (a lost key, a corrupted row) comes back as raw
-    ciphertext rather than raising. Left unchecked, that ciphertext gets sent to the
-    third-party API as if it were the real credential, which rejects it as invalid, hiding
-    the actual cause behind what looks like a bad customer-supplied key.
-
-    The message is user-facing: it lands on the failed data warehouse job as `latest_error`.
-    """
-
-    def __init__(self) -> None:
-        super().__init__(
-            "We couldn't read the saved credentials for this connection. Reconnect the account to start syncing again."
-        )
-
-
-# Reading a still-encrypted secret means the row is either recoverably over-encrypted or
-# permanently unreadable. Both are invisible from the sync failure alone, so count them by kind:
-# a rising `unreadable` rate means live customer credentials are being lost.
-integration_secret_decrypt_counter = Counter(
-    "integration_sensitive_config_decrypt_recovery",
-    "Reads of an Integration secret that came back still encrypted, by recovery outcome",
-    labelnames=["kind", "result"],
-)
-
-
-def _decrypted_sensitive_value(integration: "Integration", field_name: str) -> str | None:
-    """Read a secret off `sensitive_config`, peeling any extra encryption layers it picked up.
-
-    A read-then-save of a row whose secret failed to decrypt writes that ciphertext back
-    encrypted again, so the stored value ends up double-encrypted. One decrypt (the field's
-    own) then leaves ciphertext behind. Peel the rest here: the underlying secret is intact
-    and the connection keeps working.
-    """
-    value = integration.sensitive_config.get(field_name)
-    if not isinstance(value, str) or not value.startswith(FERNET_TOKEN_PREFIX):
-        return value
-
-    field = cast(EncryptedJSONField, integration._meta.get_field("sensitive_config"))
-    recovered = field.decrypt_all_layers(value)
-
-    if recovered is None:
-        integration_secret_decrypt_counter.labels(kind=integration.kind, result="unreadable").inc()
-        logger.error(
-            "integration_sensitive_config_unreadable",
-            integration_id=integration.pk,
-            team_id=integration.team_id,
-            kind=integration.kind,
-            field=field_name,
-        )
-        raise UndecryptedIntegrationSecretError()
-
-    integration_secret_decrypt_counter.labels(kind=integration.kind, result="recovered").inc()
-    logger.warning(
-        "integration_sensitive_config_over_encrypted",
-        integration_id=integration.pk,
-        team_id=integration.team_id,
-        kind=integration.kind,
-        field=field_name,
-    )
-    return recovered
 
 
 # Marks a row that a data warehouse source created from the fields a user typed in. The value is the
@@ -186,6 +119,8 @@ class IntegrationQuerySet(models.QuerySet["Integration"]):
         kind = kwargs.get("kind") or (defaults or {}).get("kind") or (create_defaults or {}).get("kind")
         if defaults is not None and "config" in defaults:
             defaults = self._with_config_for_write(dict(defaults), kind)
+        if create_defaults is not None and "config" in create_defaults:
+            create_defaults = self._with_config_for_write(dict(create_defaults), kind)
         return super().update_or_create(defaults=defaults, create_defaults=create_defaults, **kwargs)
 
     def for_github_installation_id(self, installation_id: str | int) -> Self:
@@ -269,6 +204,7 @@ class Integration(models.Model):
         CUSTOMERIO_WEBHOOK = "customerio-webhook"
         DATABRICKS = "databricks"
         EMAIL = "email"
+        EMAIL_SANDBOX = "email_sandbox"
         FIREBASE = "firebase"
         GITHUB = "github"
         GITLAB = "gitlab"
@@ -463,11 +399,32 @@ class Integration(models.Model):
 
     @property
     def access_token(self) -> str | None:
-        return _decrypted_sensitive_value(self, "access_token")
+        return self._readable_secret("access_token")
 
     @property
     def refresh_token(self) -> str | None:
-        return _decrypted_sensitive_value(self, "refresh_token")
+        return self._readable_secret("refresh_token")
+
+    def _readable_secret(self, field_name: str) -> str | None:
+        return readable_secret(
+            kind=self.kind,
+            id=self.id,
+            team_id=self.team_id,
+            field_name=field_name,
+            value=self.sensitive_config.get(field_name),
+        )
+
+    @classmethod
+    def from_db(cls, db: str | None, field_names: Any, values: Any, *args: Any, **kwargs: Any) -> "Integration":
+        instance = super().from_db(db, field_names, values, *args, **kwargs)
+        if "sensitive_config" not in instance.get_deferred_fields():
+            # Every load path (the SDK, a foreign key, `refresh_from_db()`) gets clean secrets.
+            from posthog.integrations.backend.django_backend import (  # noqa: PLC0415 — the backend imports this module
+                peel_secret_layers,
+            )
+
+            peel_secret_layers(instance)
+        return instance
 
 
 # `setattr`, because the type of `objects` is the manager, not its descriptor.
@@ -478,7 +435,9 @@ def integration_model(record: IntegrationRecord) -> Integration:
     """The model behind a row of the integrations SDK.
 
     The SDK returns its rows as the read-only `IntegrationRecord`, and they are model instances at
-    runtime. Only the per-kind adapters next to the model use it, because they still write the row.
+    runtime. Only the per-kind adapters next to the model use it, because callers outside this package
+    still read model-only attributes (`team`, `pk`, `refresh_from_db()`) from `adapter.integration`.
+    The adapters write the row through the SDK (see `row_writes.py`), not with `save()`.
     """
     return cast(Integration, record)
 

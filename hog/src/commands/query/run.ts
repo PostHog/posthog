@@ -1,17 +1,8 @@
-import { z } from 'zod'
-
 import { defineCommand } from '@/core/command'
 import type { ColumnKind } from '@/core/output'
 import { plural } from '@/core/text'
 import { ApiError } from '@/posthog/api'
-
-// HogQLQueryResponse declares `columns` and `types` optional.
-const QueryResponse = z.looseObject({
-    columns: z.array(z.string()).nullish(),
-    types: z.array(z.tuple([z.string(), z.string()])).nullish(),
-    results: z.array(z.array(z.unknown())),
-    hasMore: z.boolean().nullish(),
-})
+import { runHogQL, type HogQLResponse } from '@/posthog/query'
 
 // ClickHouse returns 64-bit integers as JSON numbers and dates as strings, so the declared type
 // colors a column better than its values do.
@@ -40,11 +31,9 @@ export default defineCommand({
     examples: ['hog query run "select event, count() from events group by event"', 'cat query.sql | hog query run -'],
 
     async run({ args, ctx }) {
-        const api = await ctx.posthog()
-        let response: z.output<typeof QueryResponse>
+        let response: HogQLResponse
         try {
-            const body = { query: { kind: 'HogQLQuery', query: args.query }, refresh: 'blocking' }
-            response = await api.post('query', body, QueryResponse)
+            response = await runHogQL(await ctx.posthog(), args.query)
         } catch (error) {
             if (error instanceof ApiError && error.type === 'validation_error') {
                 throw error.withHint('Run `hog query check` on the query to see where it fails.')

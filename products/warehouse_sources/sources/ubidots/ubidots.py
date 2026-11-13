@@ -4,7 +4,7 @@ import dataclasses
 from collections.abc import Iterator
 from datetime import datetime
 from typing import Any, Optional
-from urllib.parse import urlencode, urlparse, urlunparse
+from urllib.parse import quote, urlencode, urlparse, urlunparse
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -100,6 +100,10 @@ class UbidotsResumeConfig:
     # ``current_variable_id``. That path walks time windows backwards instead of following pages,
     # so this is its equivalent of ``next_url``.
     current_window_end: int | None = None
+    # Fan-out streams other than values (event logs): the parent whose pages ``next_url``
+    # continues, plus the parents already fully synced this run.
+    current_parent_id: str | None = None
+    completed_parent_ids: list[str] = dataclasses.field(default_factory=list)
 
 
 def _headers(api_token: str) -> dict[str, str]:
@@ -221,23 +225,74 @@ def get_rows(
         resumable_source_manager.safe_point()
 
 
-def _iter_variable_ids(
+def _iter_parent_ids(
     session: requests.Session,
     base_url: str,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[UbidotsResumeConfig],
+    parent_path: str = VARIABLES_LIST_PATH,
 ) -> Iterator[str]:
-    """List every variable id via the v2.0 API — the parent set the values stream fans out over."""
-    url: Optional[str] = f"{base_url}{VARIABLES_LIST_PATH}?{urlencode({'page_size': PAGE_SIZE})}"
+    """List every id of a v2.0 collection — the parent set a fan-out stream walks."""
+    url: Optional[str] = f"{base_url}{parent_path}?{urlencode({'page_size': PAGE_SIZE})}"
     while url:
         items, next_url = _fetch_page(session, url, logger)
         url = _validated_page_url(next_url, base_url) if next_url else None
         for item in items:
-            # Direct access on purpose: a variable without an id would otherwise silently drop its
-            # whole time series from the sync — better to fail loudly on a malformed page.
+            # Direct access on purpose: a parent without an id would otherwise silently drop all its
+            # child rows from the sync — better to fail loudly on a malformed page.
             yield str(item["id"])
-        # The caller has finished every variable on this page and holds no rows.
+        # The caller has finished every parent on this page and holds no rows.
         resumable_source_manager.safe_point()
+
+
+def get_fanout_rows(
+    api_token: str,
+    api_base_url: str | None,
+    endpoint: str,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[UbidotsResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    config = UBIDOTS_ENDPOINTS[endpoint]
+    fanout = config.fanout
+    if fanout is None:
+        raise ValueError(f"Ubidots endpoint '{endpoint}' is not a fan-out endpoint")
+    base_url = _validated_api_base_url(api_base_url)
+    session = make_tracked_session(headers=_headers(api_token), redact_values=(api_token,))
+
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    completed: set[str] = set(resume.completed_parent_ids) if resume else set()
+    resume_parent_id = resume.current_parent_id if resume else None
+    resume_next_url = resume.next_url if resume else None
+
+    for parent_id in _iter_parent_ids(session, base_url, logger, resumable_source_manager, fanout.parent_path):
+        if parent_id in completed:
+            continue
+
+        url: Optional[str]
+        if parent_id == resume_parent_id and resume_next_url:
+            url = _validated_page_url(resume_next_url, base_url)
+            logger.debug(f"Ubidots: resuming {endpoint} for parent {parent_id} from cursor {url}")
+        else:
+            child_path = config.path.format(parent_id=quote(parent_id, safe=""))
+            url = f"{base_url}{child_path}?{urlencode({'page_size': PAGE_SIZE})}"
+
+        while url:
+            items, next_url = _fetch_page(session, url, logger)
+            url = _validated_page_url(next_url, base_url) if next_url else None
+            if url:
+                state = UbidotsResumeConfig(
+                    next_url=url, current_parent_id=parent_id, completed_parent_ids=sorted(completed)
+                )
+            else:
+                state = UbidotsResumeConfig(completed_parent_ids=sorted(completed | {parent_id}))
+            resumable_source_manager.save_state(state)
+
+            if items:
+                yield [{**item, fanout.parent_key: parent_id} for item in items]
+            else:
+                resumable_source_manager.safe_point()
+
+        completed.add(parent_id)
 
 
 def _initial_values_url(base_url: str, variable_id: str, start: Optional[int]) -> str:
@@ -267,7 +322,7 @@ def get_values_rows(
 
     start = _start_timestamp_ms(db_incremental_field_last_value) if should_use_incremental_field else None
 
-    for variable_id in _iter_variable_ids(session, base_url, logger, resumable_source_manager):
+    for variable_id in _iter_parent_ids(session, base_url, logger, resumable_source_manager):
         if variable_id in completed:
             continue
 
@@ -443,7 +498,7 @@ def get_values_rows_v2(
     floor = min(watermark, now_ms) if watermark is not None else None
     url = f"{base_url}{DATA_SERIES_PATH}?{urlencode({'results_format': 'object'})}"
 
-    for variable_id in _iter_variable_ids(session, base_url, logger, resumable_source_manager):
+    for variable_id in _iter_parent_ids(session, base_url, logger, resumable_source_manager):
         if variable_id in completed:
             continue
 
@@ -533,6 +588,21 @@ def ubidots_source(
             # Values return newest first and the API exposes no ascending sort, so the incremental
             # watermark is only committed once the whole sync completes.
             sort_mode="desc",
+        )
+
+    if config.fanout is not None:
+        return SourceResponse(
+            name=endpoint,
+            items=lambda: get_fanout_rows(
+                api_token=api_token,
+                api_base_url=api_base_url,
+                endpoint=endpoint,
+                logger=logger,
+                resumable_source_manager=resumable_source_manager,
+            ),
+            primary_keys=config.primary_keys,
+            partition_count=1,
+            partition_size=1,
         )
 
     return SourceResponse(

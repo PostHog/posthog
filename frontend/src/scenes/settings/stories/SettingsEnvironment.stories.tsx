@@ -135,6 +135,9 @@ export const SettingsEnvironmentMarketingAnalytics: Story = {
     args: { sectionId: 'environment-marketing-analytics' },
     parameters: {
         featureFlags: [...STORYBOOK_FEATURE_FLAGS, 'advance-marketing-analytics-settings'],
+        msw: {
+            mocks: { post: { '/api/environments/:team_id/query/DatabaseSchemaQuery/': { tables: {}, joins: [] } } },
+        },
     },
 }
 
@@ -337,6 +340,14 @@ const codexSubscriptionMocks = (codex: Record<string, unknown>): Record<string, 
         '/api/users/@me/integrations/codex/': codex,
     },
 })
+
+export const SettingsEnvironmentAiSubscriptionsUnavailable: Story = {
+    args: { sectionId: 'environment-ai-subscriptions' },
+    parameters: {
+        featureFlags: STORYBOOK_FEATURE_FLAGS.filter((flag) => flag !== FEATURE_FLAGS.PHAI_SANDBOX_MODE),
+        testOptions: { snapshotBrowsers: [] },
+    },
+}
 
 export const SettingsEnvironmentAiSubscriptionsCodexConnected: Story = {
     args: { sectionId: 'environment-ai-subscriptions' },

@@ -299,6 +299,11 @@ export class FakeEmailDomainBackend {
         this.publishRecords(domain)
     }
 
+    /** Deletes the sender the way another tab or teammate would, so a page that already listed it holds a stale row. */
+    removeSender(id: number): void {
+        this.senders.delete(id)
+    }
+
     fail(endpoint: FakeEndpoint, failure: FakeFailure): void {
         this.failures.set(endpoint, failure)
     }
@@ -510,6 +515,7 @@ export class FakeEmailDomainBackend {
         const state = this.domainState((sender.config as EmailSenderConfig).domain)
         if (state.ses === 'verified') {
             state.awaitingRecord = false
+            this.verifyDomain(state.domain)
             return { status: 'success', dnsRecords: [] }
         }
         state.ses = 'pending'

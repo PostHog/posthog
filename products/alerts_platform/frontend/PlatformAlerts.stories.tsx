@@ -15,6 +15,11 @@ const CONFIGURATION: PlatformAlertConfigurationApi = {
     enabled: true,
     labels: {},
     annotations: {},
+    created_by: null,
+    last_checked_at: null,
+    last_error_message: null,
+    state_timeline: [],
+    destination_types: [],
     source_kind: 'logs',
     source_config: {
         filters: { serviceNames: ['checkout'], severityLevels: ['error'] },
@@ -78,6 +83,11 @@ const GROUPED_CONFIGURATION: PlatformAlertConfigurationApi = {
     name: 'Errors per service above 50',
     legacy_configuration_id: null,
     owner: 'platform',
+    labels: { team: 'checkout', severity: 'page' },
+    annotations: {
+        runbook_url: 'https://example.com/runbooks/checkout-errors',
+        summary: '{{ $labels.service_name }} logged {{ $value }} errors',
+    },
     grouping: {
         mode: 'by_result_labels',
         keys: ['service_name', 'severity_text'],
@@ -224,6 +234,18 @@ export const DetailGroupedSnoozeMenuOpen: Story = {
             .find((trigger) => trigger.textContent === 'Snoozed')
             ?.click()
         await within(document.body).findByText('Unsnooze')
+    },
+}
+
+export const DetailRuleMetadataModalOpen: Story = {
+    parameters: {
+        pageUrl: urls.platformAlert(GROUPED_CONFIGURATION.id),
+        testOptions: { snapshotBrowsers: [] },
+    },
+    play: async ({ canvasElement }) => {
+        await within(canvasElement).findByText('Labels and annotations')
+        canvasElement.querySelector<HTMLElement>('[data-attr="platform-alert-rule-metadata-edit"]')?.click()
+        await within(document.body).findByText('Edit labels and annotations')
     },
 }
 

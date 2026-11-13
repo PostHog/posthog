@@ -5,7 +5,7 @@ import dataclasses
 from collections.abc import Callable, Iterator, Sequence
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from django.conf import settings
 from django.db import transaction
@@ -190,8 +190,9 @@ class InboxSummary:
 
 
 def get_inbox_summary(*, team_id: int, user: object | None = None, service_auth: bool = False) -> InboxSummary:
+    task_filter: Q | None = None
     if service_auth:
-        rows = generated_pull_requests(team_id)
+        can_read_summary = True
     elif isinstance(user, User):
         access = tasks_facade.task_access_scope(team_id=team_id, user=user)
         task_filter = tasks_facade.visible_tasks_q(access.user_id, relation="task")
@@ -199,28 +200,46 @@ def get_inbox_summary(*, team_id: int, user: object | None = None, service_auth:
             task_filter &= Q(task_id__in=access.allowed_ids) | Q(task__created_by_id=access.user_id)
         elif access.blocked_ids:
             task_filter &= ~(Q(task_id__in=access.blocked_ids) & ~Q(task__created_by_id=access.user_id))
-        rows = generated_pull_requests(team_id, task_filter=task_filter)
+        can_read_summary = True
     else:
-        rows = SignalReportPullRequest.objects.for_team(team_id).none()
+        can_read_summary = False
 
     period_end = timezone.now()
     period_start = period_end - INBOX_SUMMARY_PERIOD
-    merged_rows = (
-        rows.filter(state="merged", merged_at__gte=period_start, merged_at__lt=period_end)
-        .values(
-            "number",
-            "participant_ids",
-            "participant_logins",
-            "participants_synced_at",
-            "repository",
-            "url",
+    # Keep the indexed merge-window lookup separate so the JSON-backed provenance check runs only for recent PRs.
+    candidate_rows = (
+        list(
+            SignalReportPullRequest.objects.for_team(team_id)
+            .filter(state="merged", merged_at__gte=period_start, merged_at__lt=period_end)
+            .values(
+                "id",
+                "number",
+                "participant_ids",
+                "participant_logins",
+                "participants_synced_at",
+                "repository",
+                "url",
+            )
+            .order_by("-merged_at", "repository", "number")
         )
-        .order_by("-merged_at", "repository", "number")
+        if can_read_summary
+        else []
+    )
+    generated_ids = (
+        set(
+            generated_pull_requests(team_id, task_filter=task_filter)
+            .filter(id__in=[row["id"] for row in candidate_rows])
+            .values_list("id", flat=True)
+        )
+        if candidate_rows
+        else set()
     )
     participation_complete = True
     people_by_id: dict[int, str] = {}
     pull_requests: list[InboxSummaryPullRequest] = []
-    for row in merged_rows.iterator():
+    for row in candidate_rows:
+        if row["id"] not in generated_ids:
+            continue
         pull_requests.append(
             InboxSummaryPullRequest(repository=row["repository"], number=row["number"], url=row["url"])
         )
@@ -433,13 +452,51 @@ def validate_signal_input(
 
 def dismiss_report_from_slack(
     team_id: int, report_id: str, *, slack_user_id: str | None = None, user_id: int | None = None
-) -> bool:
+) -> Literal["changed", "unchanged", "refused"]:
     """Facade entrypoint for the Slack 'Dismiss' button. See report_actions.suppress_report_from_slack."""
     from products.signals.backend.report_actions import (
         suppress_report_from_slack,  # noqa: PLC0415 — avoids importing model layer at facade import time
     )
 
     return suppress_report_from_slack(team_id, report_id, slack_user_id=slack_user_id, user_id=user_id)
+
+
+def resolve_report_from_slack(
+    team_id: int, report_id: str, *, slack_user_id: str | None = None, user_id: int | None = None
+) -> Literal["changed", "unchanged", "refused"]:
+    """Facade entrypoint for the Slack 'Mark resolved' button. See report_actions.resolve_report_from_slack."""
+    from products.signals.backend.report_actions import (
+        resolve_report_from_slack as resolve_report_from_slack_impl,  # noqa: PLC0415 — avoids importing model layer at facade import time
+    )
+
+    return resolve_report_from_slack_impl(team_id, report_id, slack_user_id=slack_user_id, user_id=user_id)
+
+
+def remove_reviewer_from_slack(
+    team_id: int, report_id: str, *, user_id: int
+) -> Literal["removed", "not_reviewer", "failed"]:
+    """Facade entrypoint for the Slack 'Remove me' button. Takes the member off the report's suggested reviewers."""
+    from products.signals.backend.facade.reviewer_exclusions import (  # noqa: PLC0415 — avoids importing the views layer at facade import time
+        ReviewerWriteError,
+        remove_report_reviewer,
+    )
+
+    team = Team.objects.filter(id=team_id).first()
+    user = User.objects.filter(id=user_id, is_active=True).first()
+    if team is None or user is None:
+        return "failed"
+    try:
+        removed = remove_report_reviewer(
+            team=team, report_id=report_id, user=user, scoped_team_ids=None, was_impersonated=False
+        )
+    except ReviewerWriteError:
+        logger.warning("signals_remove_reviewer_from_slack_refused", report_id=report_id, team_id=team_id)
+        return "failed"
+    except Exception:
+        # The removal raises DRF's NotFound for a missing report, which this facade must not import.
+        logger.exception("signals_remove_reviewer_from_slack_failed", report_id=report_id, team_id=team_id)
+        return "failed"
+    return "removed" if removed else "not_reviewer"
 
 
 def report_id_for_slack_thread(*, team_id: int, slack_workspace_id: str, channel: str, thread_ts: str) -> str | None:
@@ -465,8 +522,14 @@ def report_team_id_for_slack_thread(
     )
 
 
-def record_slack_report_discussion(*, team_id: int, report_id: str, task_id: str, user_id: int) -> None:
-    """Record a discussion started by a verified Slack user after its thread mapping is saved."""
+def record_slack_report_discussion(
+    *, team_id: int, report_id: str, task_id: str, user_id: int, question: str | None = None
+) -> None:
+    """Record a discussion started by a verified Slack user after its thread mapping is saved.
+
+    `question` is kept on the action row rather than read back from the task, because a `task:write`
+    credential can rewrite the task's description. `report_discussions` returns it to the report's scout.
+    """
     from products.signals.backend.models import SignalReport, SignalReportAction
     from products.signals.backend.task_run_artefacts import record_report_task
 
@@ -477,6 +540,7 @@ def record_slack_report_discussion(*, team_id: int, report_id: str, task_id: str
         report_id=report_id,
         user_id=user_id,
         action_type=SignalReportAction.ActionType.SLACK_DISCUSSION,
+        metadata={"task_id": task_id, "question": question} if question else None,
     )
 
 

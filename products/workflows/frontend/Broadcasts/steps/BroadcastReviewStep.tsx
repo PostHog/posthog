@@ -18,6 +18,7 @@ import { broadcastAudienceCohortsLogic } from '../audience/broadcastAudienceCoho
 import { BroadcastEmailPreview } from '../BroadcastEmailPreview'
 import { BroadcastPushPreview } from '../BroadcastPushPreview'
 import { BroadcastWizardStep, SENDERS_LOAD_FAILED_ERROR, broadcastWizardLogic } from '../broadcastWizardLogic'
+import { BroadcastRateLimitSuggestion } from './BroadcastRateLimitSuggestion'
 import { BroadcastReviewTestEmail } from './BroadcastReviewTestEmail'
 
 function ReviewRow({
@@ -31,9 +32,9 @@ function ReviewRow({
     showErrors?: boolean
     children: React.ReactNode
 }): JSX.Element {
-    const { stepValidationErrors } = useValues(broadcastWizardLogic)
+    const { stepValidationErrors, rateLimitMessage } = useValues(broadcastWizardLogic)
     const { setStep } = useActions(broadcastWizardLogic)
-    const errors = showErrors ? stepValidationErrors[step] : []
+    const errors = showErrors ? stepValidationErrors[step].filter((error) => error !== rateLimitMessage) : []
 
     return (
         <div className="flex flex-col gap-1 border-b border-border pb-3 last:border-b-0">
@@ -75,6 +76,8 @@ export function BroadcastReviewStep(): JSX.Element {
         scheduleSummary,
         emailRateLimit,
         rateLimitedSendDuration,
+        rateLimitNeeded,
+        rateLimitMessage,
         stepValidationErrors,
         emailSettings,
         missingRecipientEmail,
@@ -86,7 +89,7 @@ export function BroadcastReviewStep(): JSX.Element {
     const { categories } = useValues(optOutCategoriesLogic())
     const category = categories.find((item) => item.id === emailSettings.messageCategoryId)
     const { props } = useMountedLogic(broadcastWizardLogic)
-    const { openInWorkflowEditor, setEmail } = useActions(broadcastWizardLogic)
+    const { editEmailContent, openInWorkflowEditor, setEmail } = useActions(broadcastWizardLogic)
     const { nonCohortAudience } = useValues(broadcastAudienceCohortsLogic(props))
     const { integrationsLoading } = useValues(integrationsLogic)
     const { loadIntegrations } = useActions(integrationsLogic)
@@ -98,7 +101,9 @@ export function BroadcastReviewStep(): JSX.Element {
         ...stepValidationErrors.content,
         ...stepValidationErrors.schedule,
     ])
-    const reviewOnlyErrors = stepValidationErrors.review.filter((error) => !stepErrors.has(error))
+    const reviewOnlyErrors = stepValidationErrors.review.filter(
+        (error) => !stepErrors.has(error) && error !== rateLimitMessage
+    )
 
     const goalEventNames: string[] = goalEnabled
         ? (conversion.events?.[0]?.filters?.events ?? []).map(
@@ -176,6 +181,11 @@ export function BroadcastReviewStep(): JSX.Element {
                         {emailSettings.utmTagsEnabled && (
                             <div className="text-xs text-secondary">Links get UTM tags.</div>
                         )}
+                        {emailSettings.skipFrequencyCap && emailSettings.messageCategoryType !== 'transactional' && (
+                            <div className="text-xs text-secondary">
+                                The frequency cap won't delay or skip this email.
+                            </div>
+                        )}
                         {aiEmailDraftStatus ? <AiEmailDraftStatus {...aiEmailDraftStatus} /> : null}
                         <div className="@container">
                             <div className="grid grid-cols-1 gap-2 @lg:grid-cols-2">
@@ -208,7 +218,7 @@ export function BroadcastReviewStep(): JSX.Element {
                                 </div>
                             </div>
                         </div>
-                        <BroadcastEmailPreview showTestButton={false} />
+                        <BroadcastEmailPreview showTestButton={false} onModifyContent={editEmailContent} />
                     </ReviewRow>
                 )}
 
@@ -216,10 +226,19 @@ export function BroadcastReviewStep(): JSX.Element {
                     {scheduleSummary}
                 </ReviewRow>
 
-                {emailRateLimit && channel === 'email' && (
+                {channel === 'email' && (emailRateLimit || rateLimitNeeded) && (
                     <ReviewRow label="Sending rate" step="schedule" showErrors={false}>
-                        At most {humanFriendlyNumber(emailRateLimit.count)} emails per {emailRateLimit.period}
-                        {rateLimitedSendDuration ? `, so about ${rateLimitedSendDuration} to reach everyone` : ''}
+                        {emailRateLimit ? (
+                            <span>
+                                At most {humanFriendlyNumber(emailRateLimit.count)} emails per {emailRateLimit.period}
+                                {rateLimitedSendDuration && !rateLimitNeeded
+                                    ? `, so about ${rateLimitedSendDuration} to reach everyone`
+                                    : ''}
+                            </span>
+                        ) : (
+                            <span>No limit</span>
+                        )}
+                        <BroadcastRateLimitSuggestion />
                     </ReviewRow>
                 )}
             </div>

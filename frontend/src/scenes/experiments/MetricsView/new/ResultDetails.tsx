@@ -13,6 +13,7 @@ import { experimentLogic } from 'scenes/experiments/experimentLogic'
 import { getMetricRecordingModes } from 'scenes/experiments/ExperimentView/experimentRecordingModes'
 import { VariantTag } from 'scenes/experiments/ExperimentView/VariantTag'
 import { viewRecordingsLinkabilityLogic } from 'scenes/experiments/viewRecordingsLinkabilityLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import {
     CachedNewExperimentQueryResponse,
@@ -127,6 +128,7 @@ export function ResultDetails({
     surface?: ExperimentResultsSurface
 }): JSX.Element {
     const { featureFlags } = useValues(experimentLogic)
+    const { baseCurrency } = useValues(teamLogic)
     const { unlinkableEventNames, linkabilityLoaded } = useValues(viewRecordingsLinkabilityLogic({ experiment }))
 
     const baselineKey = result.baseline?.key
@@ -167,7 +169,7 @@ export function ResultDetails({
                   : isExperimentQuantileMetric(metric)
                     ? formatQuantileLevel(metric.quantile)
                     : 'Conversion rate',
-            render: (_, item) => formatMetricValue(item, metric),
+            render: (_, item) => formatMetricValue(item, metric, baseCurrency),
         },
         {
             key: 'statistical_measure',

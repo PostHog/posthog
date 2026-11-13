@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable
 from datetime import timedelta
+from typing import IO
 from uuid import UUID
 
 from django.conf import settings
@@ -20,6 +21,7 @@ import structlog
 import posthoganalytics
 
 from posthog.cloud_utils import get_cached_instance_license
+from posthog.constants import AvailableFeature
 from posthog.email import EmailMessage, get_email_team_and_org_context, is_email_available
 from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
@@ -35,7 +37,8 @@ from . import pandadoc as pandadoc_client
 
 logger = structlog.get_logger(__name__)
 
-# Addon types that entitle an organization to a BAA.
+# A trial of these addons grants the BAA entitlement, but a BAA needs a paid
+# subscription, so an active trial of one of them blocks it.
 BAA_ADDON_TYPES = frozenset({"boost", "scale", "enterprise"})
 
 # Startup program organizations always pay with credits, and credits do not cover
@@ -86,11 +89,11 @@ def get_baa_block_reason(organization: Organization, impersonated: bool) -> BaaB
     on_startup_program = billing.get("startup_program_label") == BAA_BLOCKED_STARTUP_PROGRAM_LABEL
     if on_startup_program and not impersonated:
         return BaaBlockReason.STARTUP_PROGRAM
-    for product in billing.get("products") or []:
-        for addon in product.get("addons") or []:
-            if addon.get("type") in BAA_ADDON_TYPES and addon.get("subscribed"):
-                return None
-    return BaaBlockReason.NO_QUALIFYING_ADDON
+    trial = billing.get("trial") or {}
+    on_qualifying_trial = trial.get("status") == "active" and trial.get("target") in BAA_ADDON_TYPES
+    if on_qualifying_trial or not organization.is_feature_available(AvailableFeature.HIPAA_BAA):
+        return BaaBlockReason.NO_QUALIFYING_ADDON
+    return None
 
 
 def _signed_baa_subquery() -> QuerySet[LegalDocument]:
@@ -167,6 +170,42 @@ def create_document(
         company_address=company_address,
         representative_email=representative_email,
     )
+
+
+class SignedPdfUploadFailed(Exception):
+    pass
+
+
+def create_signed_document_from_upload(
+    organization_id: UUID,
+    created_by_id: int,
+    document_type: str,
+    company_name: str,
+    company_address: str,
+    representative_email: str,
+    pdf: IO[bytes],
+) -> LegalDocument:
+    # The row and the PDF commit together, so a row never points at a missing PDF and a PDF never
+    # sits in storage without a row. The PDF is written here, so the row is stored from the start.
+    with transaction.atomic():
+        document = LegalDocument.objects.create(
+            organization_id=organization_id,
+            created_by_id=created_by_id,
+            document_type=document_type,
+            company_name=company_name,
+            company_address=company_address,
+            representative_email=representative_email,
+            status=LegalDocument.Status.SIGNED,
+            signed_pdf_stored=True,
+        )
+        try:
+            object_storage.write_stream(
+                signed_pdf_storage_key(document), pdf, extras={"ContentType": "application/pdf"}
+            )
+        except Exception as exc:
+            logger.exception("legal_document_staff_upload_failed", document_id=str(document.id))
+            raise SignedPdfUploadFailed from exc
+    return document
 
 
 def try_mark_signed_if_pending(document: LegalDocument) -> bool:
@@ -376,9 +415,9 @@ def delete_document(document: LegalDocument, *, strict_pandadoc: bool = False) -
     document.delete()
 
 
-# Customer.io template name for the email sent to org owners when we auto opt
+# Template name of the email sent to org owners when we auto opt
 # them out of AI data processing because they signed a BAA. Wired through
-# CUSTOMER_IO_TEMPLATE_ID_MAP in posthog/email.py.
+# WORKFLOWS_TEMPLATE_ID_MAP in posthog/email.py.
 BAA_SIGNED_AI_DISABLED_TEMPLATE = "baa_signed_ai_disabled"
 
 

@@ -4,7 +4,7 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { VariantTag } from 'scenes/experiments/ExperimentView/VariantTag'
 
-import { ExperimentMetric, isExperimentQuantileMetric } from '~/queries/schema/schema-general'
+import { CurrencyCode, ExperimentMetric, isExperimentQuantileMetric } from '~/queries/schema/schema-general'
 
 import {
     type ExperimentVariantResult,
@@ -21,12 +21,16 @@ import {
     metricSupportsTimeseries,
 } from '../shared/utils'
 
-const renderValueRows = (variantResult: ExperimentVariantResult, metric: ExperimentMetric): JSX.Element =>
+const renderValueRows = (
+    variantResult: ExperimentVariantResult,
+    metric: ExperimentMetric,
+    baseCurrency: CurrencyCode
+): JSX.Element =>
     isExperimentQuantileMetric(metric) ? (
         <>
             <div className="flex justify-between items-center">
                 <span className="text-muted-alt font-semibold">{formatQuantileLevel(metric.quantile)}:</span>
-                <span className="font-semibold">{formatMetricValue(variantResult, metric)}</span>
+                <span className="font-semibold">{formatMetricValue(variantResult, metric, baseCurrency)}</span>
             </div>
             <div className="flex justify-between items-center">
                 <span className="text-muted-alt font-semibold">Events:</span>
@@ -47,7 +51,8 @@ const renderValueRows = (variantResult: ExperimentVariantResult, metric: Experim
 export const renderTooltipContent = (
     variantResult: ExperimentVariantResult,
     metric: ExperimentMetric,
-    baselineKey: string
+    baselineKey: string,
+    baseCurrency: CurrencyCode
 ): JSX.Element => {
     const intervalPercent = formatIntervalPercent(variantResult)
     const intervalLabel = getIntervalLabel(variantResult)
@@ -67,7 +72,7 @@ export const renderTooltipContent = (
                 )}
             </div>
 
-            {renderValueRows(variantResult, metric)}
+            {renderValueRows(variantResult, metric, baseCurrency)}
 
             <div className="flex justify-between items-center">
                 <span className="text-muted-alt font-semibold">Exposures:</span>

@@ -14,6 +14,7 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.clickhouse.client.connection import Workload, events_cluster_host
 from posthog.models import Organization, Team, User
 from posthog.models.event.new_events_schema import (
     NEW_EVENTS_SCHEMA_COOKIE,
@@ -116,6 +117,28 @@ class TestEventsTableSwitchThroughTheApi(APIBaseTest):
                 modifiers=HogQLQueryModifiers(usePreaggregatedTableTransforms=True, useNewEventsSchema=events_json),
             )
         self.assertEqual("web_pre_aggregated_stats" in execute.call_args.args[0], not events_json)
+
+    @parameterized.expand([("legacy", False, None), ("events_json", True, "events.example.com")])
+    @override_settings(CLICKHOUSE_EVENTS_ONLINE_HOST="events.example.com")
+    def test_the_connection_host_follows_the_printed_events_table(
+        self, _name: str, events_json: bool, expected_host: str | None
+    ) -> None:
+        hosts: list[str | None] = []
+
+        def record_host(*_args: object, **kwargs: object) -> tuple[list, list]:
+            hosts.append(events_cluster_host(Workload.ONLINE, self.team.pk))
+            return [], []
+
+        with (
+            override_instance_config("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", str(self.team.pk)),
+            patch("posthog.hogql.query.sync_execute", side_effect=record_host),
+        ):
+            execute_hogql_query(
+                parse_select("select count() from events"),
+                team=self.team,
+                modifiers=HogQLQueryModifiers(useNewEventsSchema=events_json),
+            )
+        self.assertEqual(hosts, [expected_host])
 
     def test_the_cookie_reaches_a_streamed_dashboards_cache_lookup(self) -> None:
         self.user.is_staff = True

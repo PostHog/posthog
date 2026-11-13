@@ -13,6 +13,7 @@ from uuid import UUID
 from posthog.dataclasses import frozen
 
 from .enums import (
+    WizardPullRequestState,
     WizardRunArtifactType,
     WizardRunEnvironment,
     WizardRunStage,
@@ -122,6 +123,8 @@ class WizardProgram:
     tags: tuple[str, ...]
     required_programs: tuple[str, ...]
     supported_environments: tuple[WizardRunEnvironment, ...]
+    # None means cloud runs follow the latest context-mill release.
+    context_mill_version: str | None = None
 
 
 @frozen
@@ -282,6 +285,10 @@ class WizardRunPullRequestArtifactDTO:
     head_branch: str
     base_branch: str
     created_at: datetime
+    # None for artifacts stored before the pull request state was tracked.
+    state: WizardPullRequestState | None = None
+    merged_at: datetime | None = None
+    closed_at: datetime | None = None
 
 
 type WizardRunArtifactDTO = WizardRunGitDiffArtifactDTO | WizardRunPullRequestArtifactDTO
@@ -320,3 +327,11 @@ class WizardScanResult:
     id: UUID
     # False when the session already reported this scan, so nothing was written.
     created: bool
+
+
+@frozen
+class WizardDetectedWarehouseSource:
+    kind: str
+    warehouse_source_type: str
+    first_seen_at: datetime
+    last_seen_at: datetime

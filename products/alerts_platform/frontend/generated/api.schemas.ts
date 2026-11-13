@@ -328,6 +328,101 @@ export interface PlatformAlertApi {
 }
 
 /**
+ * * `engineering` - Engineering
+ * * `data` - Data
+ * * `product` - Product Management
+ * * `founder` - Founder
+ * * `leadership` - Leadership
+ * * `marketing` - Marketing
+ * * `sales` - Sales / Success
+ * * `student` - Student
+ * * `other` - Other
+ */
+export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
+
+export const RoleAtOrganizationEnumApi = {
+    Engineering: 'engineering',
+    Data: 'data',
+    Product: 'product',
+    Founder: 'founder',
+    Leadership: 'leadership',
+    Marketing: 'marketing',
+    Sales: 'sales',
+    Student: 'student',
+    Other: 'other',
+} as const
+
+export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
+
+export const BlankEnumApi = {
+    '': '',
+} as const
+
+/**
+ * @nullable
+ */
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
+
+export interface UserBasicApi {
+    readonly id: number
+    readonly uuid: string
+    /**
+     * @maxLength 200
+     * @nullable
+     */
+    distinct_id?: string | null
+    /** @maxLength 150 */
+    first_name?: string
+    /** @maxLength 150 */
+    last_name?: string
+    /** @maxLength 254 */
+    email: string
+    /** @nullable */
+    is_email_verified?: boolean | null
+    /** @nullable */
+    readonly hedgehog_config: UserBasicApiHedgehogConfig
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
+}
+
+export interface PlatformAlertStateIntervalApi {
+    /** Interval start, inclusive. */
+    start: string
+    /** Interval end, exclusive. */
+    end: string
+    /** The whole alert's state during the interval.
+     *
+     * * `not_firing` - Not firing
+     * * `firing` - Firing
+     * * `errored` - Errored
+     * * `snoozed` - Snoozed
+     * * `broken` - Broken */
+    state: BillingAlertConfigurationStateEnumApi
+    /** Whether the alert was enabled during the interval. */
+    enabled: boolean
+}
+
+/**
+ * * `slack` - Slack
+ * * `discord` - Discord
+ * * `webhook` - Webhook
+ * * `teams` - Microsoft Teams
+ * * `pagerduty` - PagerDuty
+ * * `email` - Email
+ * * `in_app` - In-app notification
+ */
+export type DestinationTypeEnumApi = (typeof DestinationTypeEnumApi)[keyof typeof DestinationTypeEnumApi]
+
+export const DestinationTypeEnumApi = {
+    Slack: 'slack',
+    Discord: 'discord',
+    Webhook: 'webhook',
+    Teams: 'teams',
+    Pagerduty: 'pagerduty',
+    Email: 'email',
+    InApp: 'in_app',
+} as const
+
+/**
  * Source-specific settings. The shape depends on source_kind. The bound the alert is evaluated against is under the condition key.
  */
 export type PlatformAlertConfigurationApiSourceConfig = { [key: string]: unknown }
@@ -425,6 +520,22 @@ export interface PlatformAlertConfigurationApi {
     readonly labels: PlatformAlertConfigurationApiLabels
     /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
     readonly annotations: PlatformAlertConfigurationApiAnnotations
+    /** Who created the alert. Null when it was created by a system or the user is gone. Set on reads of the list and of one alert. */
+    readonly created_by: UserBasicApi | null
+    /**
+     * When the alert was last checked. Null when it has not been checked, or when its check history could not be read.
+     * @nullable
+     */
+    readonly last_checked_at: string | null
+    /**
+     * Error from the alert's last check in the past day, or null when that check succeeded.
+     * @nullable
+     */
+    readonly last_error_message: string | null
+    /** The whole alert's state over the past 24 hours, oldest first. Each interval holds one state and one enabled setting. Empty on a create or an edit. */
+    readonly state_timeline: readonly PlatformAlertStateIntervalApi[]
+    /** Types of the alert's enabled notification destinations, such as slack. Empty when it has none. */
+    readonly destination_types: readonly DestinationTypeEnumApi[]
 }
 
 export interface PaginatedPlatformAlertConfigurationListApi {
@@ -1381,6 +1492,14 @@ export interface InsightPlatformAlertConditionApi {
     detector?: InsightPlatformAlertConditionApiDetector
 }
 
+export type InsightPlatformAlertSourceConfigInvestigationInconclusiveActionEnumApi =
+    (typeof InsightPlatformAlertSourceConfigInvestigationInconclusiveActionEnumApi)[keyof typeof InsightPlatformAlertSourceConfigInvestigationInconclusiveActionEnumApi]
+
+export const InsightPlatformAlertSourceConfigInvestigationInconclusiveActionEnumApi = {
+    Notify: 'notify',
+    Suppress: 'suppress',
+} as const
+
 /**
  * Which part of the insight the alert reads, such as the series and whether the current interval counts. It can't change through this API.
  */
@@ -1400,6 +1519,12 @@ export interface InsightPlatformAlertSourceConfigApi {
      * @minimum 0
      */
     evaluation_delay_intervals?: number
+    /** Whether an AI agent investigates each firing of an anomaly alert. It can't change through this API. */
+    investigation_agent_enabled?: boolean
+    /** Whether a firing waits for the agent's verdict, and is dropped when the agent calls it a false positive. It can't change through this API. */
+    investigation_gates_notifications?: boolean
+    /** What a waiting firing does when the agent's verdict is inconclusive. It can't change through this API. */
+    investigation_inconclusive_action?: InsightPlatformAlertSourceConfigInvestigationInconclusiveActionEnumApi
 }
 
 /**
@@ -2294,6 +2419,86 @@ export interface PlatformAlertDeleteDestinationApi {
     destination_ids: string[]
 }
 
+/**
+ * The condition the check was evaluated against, as it was then, so its value reads in that condition's unit. Empty for a change.
+ */
+export type PlatformAlertEventApiCondition = { [key: string]: unknown }
+
+/**
+ * * `check` - Check
+ * * `enable` - Enable
+ * * `disable` - Disable
+ * * `snooze` - Snooze
+ * * `unsnooze` - Unsnooze
+ * * `reset` - Reset
+ * * `config_change` - Config change
+ */
+export type PlatformAlertEventKindEnumApi =
+    (typeof PlatformAlertEventKindEnumApi)[keyof typeof PlatformAlertEventKindEnumApi]
+
+export const PlatformAlertEventKindEnumApi = {
+    Check: 'check',
+    Enable: 'enable',
+    Disable: 'disable',
+    Snooze: 'snooze',
+    Unsnooze: 'unsnooze',
+    Reset: 'reset',
+    ConfigChange: 'config_change',
+} as const
+
+export interface PlatformAlertEventApi {
+    /** When it happened. */
+    occurred_at: string
+    /** check for a check that moved the alert's state or failed, else the change a person made.
+     *
+     * * `check` - Check
+     * * `enable` - Enable
+     * * `disable` - Disable
+     * * `snooze` - Snooze
+     * * `unsnooze` - Unsnooze
+     * * `reset` - Reset
+     * * `config_change` - Config change */
+    kind: PlatformAlertEventKindEnumApi
+    /** The alert's state before it.
+     *
+     * * `not_firing` - Not firing
+     * * `firing` - Firing
+     * * `errored` - Errored
+     * * `snoozed` - Snoozed
+     * * `broken` - Broken */
+    previous_state: BillingAlertConfigurationStateEnumApi
+    /** The alert's state after it.
+     *
+     * * `not_firing` - Not firing
+     * * `firing` - Firing
+     * * `errored` - Errored
+     * * `snoozed` - Snoozed
+     * * `broken` - Broken */
+    state: BillingAlertConfigurationStateEnumApi
+    /**
+     * What a check measured. Null for a change, or a check that measured nothing.
+     * @nullable
+     */
+    value: number | null
+    /**
+     * Why a check failed. Null otherwise.
+     * @nullable
+     */
+    error_message: string | null
+    /** Key of the group a check moved, as the grouping_key of the alert's instances. Empty for a change, or for an alert that does not group. */
+    grouping_key: string
+    /** The condition the check was evaluated against, as it was then, so its value reads in that condition's unit. Empty for a change. */
+    condition: PlatformAlertEventApiCondition
+}
+
+export interface PlatformAlertSnoozeApi {
+    /**
+     * Time until which every group's notifications are muted. Must be in the future and at most 30 days away. Null clears the snooze. The alert keeps being checked.
+     * @nullable
+     */
+    snooze_until: string | null
+}
+
 export interface PlatformAlertGroupSnoozeApi {
     /**
      * Key of the group to snooze, as the grouping_key of one of the alert's instances.
@@ -2309,6 +2514,10 @@ export interface PlatformAlertGroupSnoozeApi {
 
 export type PlatformAlertsListParams = {
     /**
+     * Only alerts created by the user with this UUID.
+     */
+    created_by?: string
+    /**
      * Only the alert copied from, or created with, this source configuration, such as a logs alert's id.
      */
     legacy_configuration_id?: string
@@ -2321,4 +2530,37 @@ export type PlatformAlertsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * Only alerts of this source kind, such as metrics. A kind the caller cannot read returns no alerts.
+     *
+     * * `logs` - Logs
+     * * `insight` - Insight
+     * * `warehouse_source` - Warehouse source
+     * * `warehouse_destination` - Warehouse destination
+     * * `metrics` - Metrics
+     * * `traces` - Traces
+     * @minLength 1
+     */
+    source_kind?: PlatformAlertsListSourceKind
+}
+
+export type PlatformAlertsListSourceKind =
+    (typeof PlatformAlertsListSourceKind)[keyof typeof PlatformAlertsListSourceKind]
+
+export const PlatformAlertsListSourceKind = {
+    Logs: 'logs',
+    Insight: 'insight',
+    WarehouseSource: 'warehouse_source',
+    WarehouseDestination: 'warehouse_destination',
+    Metrics: 'metrics',
+    Traces: 'traces',
+} as const
+
+export type PlatformAlertsEventsListParams = {
+    /**
+     * Most events to return, newest first. Up to 100.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
 }

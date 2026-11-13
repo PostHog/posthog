@@ -65,7 +65,12 @@ const InputGroupAddon = React.forwardRef<
                 if ((e.target as HTMLElement).closest('button')) {
                     return
                 }
-                e.currentTarget.parentElement?.querySelector('input')?.focus()
+                // A rich text editor is a contenteditable, not an input, but it is the group's control all the same.
+                e.currentTarget.parentElement
+                    ?.querySelector<HTMLElement>(
+                        "[data-slot='input-group-control'], [contenteditable='true'], input:not([type='hidden'], [type='file'])"
+                    )
+                    ?.focus()
             }}
             {...props}
         />
@@ -113,15 +118,37 @@ const InputGroupText = React.forwardRef<HTMLSpanElement, React.ComponentProps<'s
     return <span ref={ref} className={cn('quill-input-group__text flex items-end gap-2', className)} {...props} />
 })
 
-const InputGroupInput = React.forwardRef<HTMLInputElement, Omit<React.ComponentProps<'input'>, 'size'>>(
-    ({ className, ...props }, ref) => {
+type InputGroupInputProps = Omit<React.ComponentProps<'input'>, 'size' | 'placeholder'> & {
+    /**
+     * A string is the native placeholder. A node renders in the input's own box, so it starts where the
+     * caret sits, and can hold markup or animation a native placeholder cannot. It is visual only, so give
+     * the input an `aria-label` too.
+     */
+    placeholder?: React.ReactNode
+}
+
+// The input always sits in the field, whatever the placeholder is, so changing the placeholder never
+// remounts the input and drops its focus.
+const InputGroupInput = React.forwardRef<HTMLInputElement, InputGroupInputProps>(
+    ({ className, placeholder, ...props }, ref) => {
+        const nativePlaceholder = typeof placeholder === 'string' ? placeholder : undefined
+        const richPlaceholder = placeholder != null && nativePlaceholder === undefined ? placeholder : null
         return (
-            <Input
-                ref={ref}
-                data-slot="input-group-control"
-                className={cn('quill-input-group__control', className)}
-                {...props}
-            />
+            <span data-slot="input-group-field" className="quill-input-group__field">
+                <Input
+                    ref={ref}
+                    data-slot="input-group-control"
+                    className={cn('quill-input-group__control', className)}
+                    // `:placeholder-shown` needs a native placeholder, so a rich one sets a blank string.
+                    placeholder={richPlaceholder ? ' ' : nativePlaceholder}
+                    {...props}
+                />
+                {richPlaceholder && (
+                    <span aria-hidden className="quill-input-group__placeholder">
+                        {richPlaceholder}
+                    </span>
+                )}
+            </span>
         )
     }
 )

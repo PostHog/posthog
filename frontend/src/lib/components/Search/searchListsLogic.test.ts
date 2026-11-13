@@ -6,6 +6,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { terminalDockLogic } from 'scenes/terminal/terminalDockLogic'
 import { urls } from 'scenes/urls'
 
+import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import type { Setting } from '~/scenes/settings/types'
 import { initKeaTests } from '~/test/init'
 import { ActivityTab } from '~/types'
@@ -74,6 +75,48 @@ describe('searchListsLogic', () => {
         const items = logic.values[list].filter((item) => !item.parentName)
 
         expect(items.filter((item) => item.href === href).map((item) => item.displayName)).toEqual([name])
+    })
+
+    it.each<[string, string[], string[]]>([
+        ['both catalog flags hide Models', [FEATURE_FLAGS.TODAY_RAIL_NAV, FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE], []],
+        ['one catalog flag keeps Models', [FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE], [urls.models()]],
+    ])('lists a starred product by its visibility when %s', (_case, enabledFlags, expectedHrefs) => {
+        featureFlagLogic.actions.setFeatureFlags([], Object.fromEntries(enabledFlags.map((flag) => [flag, true])))
+        projectTreeDataLogic.actions.loadShortcutsSuccess([
+            { id: 'star-models', path: 'Models', type: 'product', href: urls.models() },
+        ])
+
+        expect(logic.values.starredItems.map((item) => item.href)).toEqual(expectedHrefs)
+    })
+
+    it.each<[string, string, string[], string[]]>([
+        [
+            'models',
+            'both',
+            [FEATURE_FLAGS.TODAY_RAIL_NAV, FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE],
+            [urls.dataCatalog('tables')],
+        ],
+        [
+            'views',
+            'both',
+            [FEATURE_FLAGS.TODAY_RAIL_NAV, FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE],
+            [urls.dataCatalog('tables')],
+        ],
+        [
+            'data quality',
+            'both',
+            [FEATURE_FLAGS.TODAY_RAIL_NAV, FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE],
+            [urls.dataCatalog('data-quality')],
+        ],
+        ['data quality', 'one', [FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE], []],
+    ])('finds Data catalog sections for "%s" with %s catalog flags on', (query, _case, enabledFlags, expectedHrefs) => {
+        featureFlagLogic.actions.setFeatureFlags([], Object.fromEntries(enabledFlags.map((flag) => [flag, true])))
+
+        const catalogSectionHrefs = filterSearchItems(logic.values.productsItems, query)
+            .filter((item) => item.parentName === 'Data catalog')
+            .map((item) => item.href)
+
+        expect(catalogSectionHrefs).toEqual(expectedHrefs)
     })
 
     it('lists each product destination once', () => {

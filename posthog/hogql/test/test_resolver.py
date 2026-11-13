@@ -33,7 +33,7 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.persons import PersonsTable
-from posthog.hogql.errors import QueryError
+from posthog.hogql.errors import QueryError, ResolutionCycleError, ResolutionDepthExceededError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast, print_prepared_ast
@@ -74,7 +74,7 @@ class TestSavedViewBounds(SimpleTestCase):
         ]
     )
     def test_rejects_cycles(self, _name: str, views: dict[str, str]) -> None:
-        with self.assertRaisesRegex(QueryError, "Circular dependency"):
+        with self.assertRaisesRegex(ResolutionCycleError, "Circular dependency"):
             resolve_types(parse_select("select * from first"), self._context(views), "hogql")
 
     @parameterized.expand(
@@ -109,7 +109,7 @@ class TestSavedViewBounds(SimpleTestCase):
     def test_nested_depth_is_bounded(self) -> None:
         context = self._context({"first": "select * from second", "second": "select 1"})
         with patch("posthog.hogql.resolver.MAX_VIEW_DEPTH", 1):
-            with self.assertRaisesRegex(QueryError, "1 nested saved views"):
+            with self.assertRaisesRegex(ResolutionDepthExceededError, "1 nested saved views"):
                 resolve_types(parse_select("select * from first"), context, "hogql")
 
     def test_repeated_views_share_sql_size_budget(self) -> None:
@@ -1479,7 +1479,9 @@ class TestResolver(BaseTest):
             name="person_properties", nullable=False
         )
 
-        node = self._select("SELECT event, person.id, person.properties, person.created_at FROM events")
+        node = self._select(
+            "SELECT event, person.id, person.properties, person.created_at, poe.id, poe.created_at FROM events"
+        )
         node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
 
         # all columns resolve to a type in the end
@@ -1504,6 +1506,24 @@ class TestResolver(BaseTest):
             nullable=False,
             description="When the person was first seen by PostHog.",
         )
+        for person_index, poe_index in ((1, 4), (3, 5)):
+            assert cast(ast.FieldType, node.select[poe_index].type).resolve_database_field(self.context) == cast(
+                ast.FieldType, node.select[person_index].type
+            ).resolve_database_field(self.context)
+
+        with self.assertRaises(QueryError):
+            resolve_types(self._select("SELECT event.`..`.uuid FROM events"), self.context, dialect="clickhouse")
+
+    @parameterized.expand(
+        [
+            ("direct_virtual", "SELECT poe.`..` FROM events"),
+            ("qualified_virtual", "SELECT events.poe.`..` FROM events"),
+            ("traverser", "SELECT person.`..` FROM events"),
+        ]
+    )
+    def test_field_traverser_trailing_double_dot(self, _name, query):
+        with self.assertRaisesRegex(QueryError, "Expected a field after '\\.\\.'"):
+            resolve_types(self._select(query), self.context, dialect="clickhouse")
 
     def test_visit_hogqlx_tag(self):
         node = self._select("select event from <HogQLQuery query='select event from events' />")

@@ -28,6 +28,7 @@ from posthog.hogql.database.models import (
 from posthog.hogql.database.s3_table import DataWarehouseTable
 from posthog.hogql.errors import QueryError
 from posthog.hogql.escape_sql import escape_trino_identifier
+from posthog.hogql.functions.clickhouse.conversions import NUMERIC_CONVERSION_ALIASES
 from posthog.hogql.functions.mapping import HOGQL_AGGREGATIONS, HOGQL_CLICKHOUSE_FUNCTIONS, HOGQL_POSTHOG_FUNCTIONS
 from posthog.hogql.helpers.timestamp_visitor import is_time_or_interval_constant
 from posthog.hogql.parser import parse_expr, parse_select
@@ -628,6 +629,7 @@ def test_tracks_every_registered_function_without_a_trino_mapping(snapshot: Snap
         *TRINO_FUNCTION_RENAMES_LOWER,
         *TRINO_PASSTHROUGH_FUNCTIONS,
         *_SPECIAL_CALLS,
+        *(alias.lower() for alias in NUMERIC_CONVERSION_ALIASES),
     }
     registries = {
         "scalar": HOGQL_CLICKHOUSE_FUNCTIONS,

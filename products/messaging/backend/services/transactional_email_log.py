@@ -42,6 +42,7 @@ from products.messaging.backend.models.email_status_sql import (
 )
 from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.models.transactional_email_key import TransactionalEmailKey
+from products.messaging.backend.services.transactional_email_status import message_created_at
 from products.workflows.backend.facade.contracts import WorkflowViewAccess
 from products.workflows.backend.facade.message_assets import (
     fetch_first_email_sends,
@@ -92,13 +93,10 @@ def _window(date_from: datetime | None, date_to: datetime | None) -> _Period:
     return _Period(start=start, end=end)
 
 
-def _queued_at(message_id: UUID) -> datetime | None:
-    """When a message was queued, which its id starts with, or None when the log can't hold a message with this id."""
-    queued_ms = int.from_bytes(message_id.bytes[:6], "big")
-    now = datetime.now(UTC)
-    if not (now - RETENTION).timestamp() * 1000 <= queued_ms <= (now + _CLOCK_SKEW).timestamp() * 1000:
-        return None
-    return datetime.fromtimestamp(queued_ms / 1000, tz=UTC)
+def _message_created_at(team_id: int, message_id: UUID) -> datetime | None:
+    # The log reads email_status_events, which its own consumer fills, so a send the email_status consumer has not
+    # reached yet is still found.
+    return message_created_at(team_id, message_id, Workload.ONLINE, lag_fallback_table=EMAIL_STATUS_EVENTS_TABLE)
 
 
 def _execute(team_id: int, query: str, params: dict[str, Any], settings: dict[str, int] | None = None) -> list[tuple]:
@@ -209,7 +207,7 @@ def list_transactional_emails(
     search = (search or "").strip()
     message_id = UUID(search) if search and _is_uuid(search) else None
     if message_id:
-        sent_around = _queued_at(message_id)
+        sent_around = _message_created_at(team_id, message_id)
         if sent_around is None:
             return [], False
         params["message_id"] = str(message_id)
@@ -270,7 +268,7 @@ def get_transactional_email(
 ) -> TransactionalEmailLogDetail | None:
     """One send with every status it went through, or None when the project has no send with this id, or the reader
     may not view its workflow."""
-    queued = _queued_at(message_id)
+    queued = _message_created_at(team_id, message_id)
     if queued is None:
         return None
     params = {"message_id": str(message_id), "start": queued - _CLOCK_SKEW, "end": queued + _CLOCK_SKEW}

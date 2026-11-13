@@ -38,10 +38,14 @@ from rest_framework.exceptions import (
 )
 
 from posthog.schema import (
+    AccountActivityMatrixQuery,
     AccountsQuery,
     AccountsTableQuery,
     ActorsPropertyTaxonomyQuery,
     ActorsQuery,
+    BookActivityFirstsQuery,
+    BookActivityMatrixQuery,
+    BookActivityPeopleQuery,
     BreakdownType,
     CachedLifecycleQueryResponse,
     CachedStickinessQueryResponse,
@@ -115,7 +119,6 @@ from posthog.schema import (
     StickinessQueryResponse,
     SuggestedQuestionsQuery,
     TeamTaxonomyQuery,
-    TraceNeighborsQuery,
     TraceQuery,
     TracesQuery,
     TrendsQuery,
@@ -155,7 +158,13 @@ from posthog.api_queries_budget import (
     refill_and_read,
     seconds_until_positive,
 )
-from posthog.caching.utils import ThresholdMode, cache_target_age, is_stale, last_refresh_from_cached_result
+from posthog.caching.utils import (
+    WARMING_TRIGGER_PREFIX,
+    ThresholdMode,
+    cache_target_age,
+    is_stale,
+    last_refresh_from_cached_result,
+)
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.client.execute_async import QueryNotFoundError, enqueue_process_query_task, get_query_status
 from posthog.clickhouse.client.limit import (
@@ -200,6 +209,7 @@ from posthog.hogql_queries.validation.validation import (
     QueryValidationRule,
     run_validation_rules,
 )
+from posthog.hogql_queries.warehouse_suggestion_notes import serve_warehouse_suggestions
 from posthog.models import Team, User
 from posthog.models.event.new_events_schema import (
     events_route_cache_modifiers,
@@ -369,6 +379,10 @@ class QueryRun:
 
     def elapsed_ms(self) -> float:
         return round((perf_counter() - self.start_time) * 1000, 2)
+
+    @property
+    def is_warming(self) -> bool:
+        return self.trigger is not None and self.trigger.startswith(WARMING_TRIGGER_PREFIX)
 
     def event_properties(self, modifiers: HogQLQueryModifiers) -> dict[str, Any]:
         return {
@@ -679,6 +693,10 @@ RunnableQueryNode = Union[
     UsageMetricsQuery,
     AccountsQuery,
     AccountsTableQuery,
+    AccountActivityMatrixQuery,
+    BookActivityMatrixQuery,
+    BookActivityPeopleQuery,
+    BookActivityFirstsQuery,
     EndpointsUsageOverviewQuery,
     EndpointsUsageTableQuery,
     EndpointsUsageTrendsQuery,
@@ -1604,17 +1622,6 @@ def get_query_runner(
             modifiers=modifiers,
             user=user,
         )
-    if kind == "TraceNeighborsQuery":
-        from .ai.trace_neighbors_query_runner import TraceNeighborsQueryRunner
-
-        return TraceNeighborsQueryRunner(
-            query=cast(TraceNeighborsQuery | dict[str, Any], query),
-            team=team,
-            timings=timings,
-            limit_context=limit_context,
-            modifiers=modifiers,
-            user=user,
-        )
     if kind == "VectorSearchQuery":
         from .ai.vector_search_query_runner import VectorSearchQueryRunner
 
@@ -1731,6 +1738,54 @@ def get_query_runner(
         from products.customer_analytics.backend.facade.queries import AccountsQueryRunner
 
         return AccountsQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+            user=user,
+        )
+
+    if kind == "AccountActivityMatrixQuery":
+        from products.customer_analytics.backend.facade.queries import AccountActivityMatrixQueryRunner
+
+        return AccountActivityMatrixQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+            user=user,
+        )
+
+    if kind == "BookActivityMatrixQuery":
+        from products.customer_analytics.backend.facade.queries import BookActivityMatrixQueryRunner
+
+        return BookActivityMatrixQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+            user=user,
+        )
+
+    if kind == "BookActivityPeopleQuery":
+        from products.customer_analytics.backend.facade.queries import BookActivityPeopleQueryRunner
+
+        return BookActivityPeopleQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+            user=user,
+        )
+
+    if kind == "BookActivityFirstsQuery":
+        from products.customer_analytics.backend.facade.queries import BookActivityFirstsQueryRunner
+
+        return BookActivityFirstsQueryRunner(
             query=query,
             team=team,
             timings=timings,
@@ -2319,7 +2374,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             # When rolling out schema changes, cached responses may not match the new schema.
             # Trigger recomputation in this case.
             try:
-                cached_response = CachedResponse(**cached_response_candidate)
+                cached_response = CachedResponse.model_validate(cached_response_candidate, extra="ignore")
                 if raw_results is not None:
                     self.raw_cached_results_bytes = raw_results
             except Exception as e:
@@ -2678,6 +2733,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                             access_method=get_query_tag_value("access_method"),
                         ),
                     )
+                    if not query_run.is_warming:
+                        cache_manager.record_read()
 
                     if execution_mode == ExecutionMode.CALCULATE_ASYNC_ALWAYS:
                         # The forced dispatch skips the result cache, but not the breaker: the
@@ -2839,7 +2896,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         # which can take the field off the response.
         cached_query_scan = getattr(results, "query_scan", None)
         if isinstance(results, self.cached_response_type):
-            if (not query_run.trigger or not query_run.trigger.startswith("warming")) and results.query_metadata:
+            if not query_run.is_warming and results.query_metadata:
                 log_event_usage_from_query_metadata(
                     results.query_metadata,
                     team_id=self.team.id,
@@ -2895,7 +2952,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         try:
             phase = self._phase
             stats = phase.stats
-            refused = getattr(error, "served_from_query_failure_cache", False)
+            # The breaker and the read budget turn the run away on purpose, before ClickHouse runs it.
+            refused = getattr(error, "served_from_query_failure_cache", False) or isinstance(
+                error, APIQueriesBudgetExceeded
+            )
             query_failed_props = {
                 **query_run.event_properties(self.modifiers),
                 "calculation_trigger": query_run.trigger,
@@ -3014,7 +3074,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 fresh_response_dict["query_metadata"] = query_metadata
 
                 # Don't log usage for warming queries
-                if not query_run.trigger or not query_run.trigger.startswith("warming"):
+                if not query_run.is_warming:
                     log_event_usage_from_query_metadata(
                         query_metadata,
                         team_id=self.team.id,
@@ -3117,6 +3177,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             # where its findings reach the recomputed response. Served before the event, so the
             # response time covers the same work as on a cache hit.
             self._serve_query_scan(response, query_run.user)
+            notes_outcome = serve_warehouse_suggestions(
+                self.team, response, query_run.user, query_stats.saved_query_ids, query_run.trigger
+            )
             phase_times = compute_phase_times(self.timings.to_dict(), before=self._timings_before_run)
             query_executed_props = {
                 **query_run.event_properties(self.modifiers),
@@ -3138,6 +3201,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 "direct_connection_source_ids": sorted(query_stats.direct_source_ids),
                 "query_scan_triggered": scan_skip is None,
                 "query_scan_skipped_reason": scan_skip,
+                **notes_outcome.event_properties(),
                 **phase_times,
             }
             report_user_or_team_action(

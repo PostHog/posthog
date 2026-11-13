@@ -11,7 +11,7 @@ from products.tasks.backend.models import Task
 def task_review(team_id: int, task_id: str, user_id: int, page: int) -> dict:
     task = (
         Task.objects.filter(team_id=team_id, id=task_id, created_by_id=user_id, deleted=False)
-        .select_related("github_integration", "github_user_integration")
+        .select_related("github_user_integration")
         .first()
     )
     if task is None:

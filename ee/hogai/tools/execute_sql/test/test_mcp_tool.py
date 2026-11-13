@@ -1,15 +1,26 @@
+import json
+from datetime import UTC, datetime, timedelta
+
 from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest, _create_event
 from unittest.mock import AsyncMock, patch
 
 from django.test import SimpleTestCase
 
+import posthoganalytics
 from asgiref.sync import sync_to_async
 from parameterized import parameterized
 
-from posthog.schema import HogQLNotice, HogQLQuery
+from posthog.schema import DateRange, EventPropertyFilter, HogQLFilters, HogQLNotice, HogQLQuery, PropertyOperator
 
+from posthog.hogql.constants import LimitContext
+
+from posthog.api.services.query import process_query_dict
+from posthog.clickhouse.query_tagging import tags_context
 from posthog.event_usage import EventSource
+from posthog.exceptions_capture import capture_exception
+from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Organization, Team, User
+from posthog.ph_client import default_before_send
 from posthog.sync import database_sync_to_async
 
 from products.event_definitions.backend.models import EventDefinition
@@ -17,8 +28,8 @@ from products.product_analytics.backend.facade.models import Insight, InsightVar
 
 from ee.hogai.context.insight.context import InsightContext
 from ee.hogai.context.insight.format.sql import SQLResultsFormatter
-from ee.hogai.tool_errors import MaxToolRetryableError
-from ee.hogai.tools.execute_sql.compatibility_hints import ACCEPTED_CAST_TYPES, NESTABLE_BINARY_FUNCTIONS
+from ee.hogai.tool_errors import MaxToolError, MaxToolRetryableError
+from ee.hogai.tools.execute_sql.compatibility_hints import ACCEPTED_CAST_TYPES
 from ee.hogai.tools.execute_sql.mcp_tool import (
     ExecuteSQLMCPTool,
     ExecuteSQLMCPToolArgs,
@@ -70,6 +81,66 @@ class TestExecuteSQLMCPTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
         self.assertIn("test_event", result.content)
 
+    async def test_filters_stay_in_execution_but_not_backend_telemetry(self) -> None:
+        private_value = "private-filter@example.com"
+        _create_event(
+            team=self.team, distinct_id="example-user", event="example_event", properties={"email": private_value}
+        )
+        filters = HogQLFilters(properties=[EventPropertyFilter(key="email", value=[private_value])])
+        args = ExecuteSQLMCPToolArgs(query="SELECT count() AS n FROM events WHERE {filters}", filters=filters)
+        messages = []
+        before_send = default_before_send(private_scout_capture=False, self_hosted=False)
+
+        def record(message):
+            message = before_send(message)
+            if message is not None:
+                messages.append(message)
+            return message
+
+        client = posthoganalytics.Client("test-key", send=False, enable_local_evaluation=False, before_send=record)
+        try:
+            with patch.multiple(posthoganalytics, default_client=client, disabled=False, before_send=record):
+                result = await self.tool.execute(args)
+                replay = await self.tool.execute(args)
+                assert result.structured_content is not None
+                query = HogQLQuery.model_validate(result.structured_content["query"])
+                await database_sync_to_async(process_query_dict)(
+                    self.team,
+                    query.model_dump(mode="json"),
+                    user=self.user,
+                    limit_context=LimitContext.POSTHOG_AI,
+                    execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+                )
+                other = await self.tool.execute(
+                    args.model_copy(
+                        update={
+                            "filters": HogQLFilters(
+                                properties=[EventPropertyFilter(key="email", value=["other@example.com"])]
+                            )
+                        }
+                    )
+                )
+                with self.assertRaises(MaxToolError):
+                    await self.tool.execute(
+                        args.model_copy(update={"query": "SELECT intDiv(1, 0) FROM events WHERE {filters}"})
+                    )
+                with tags_context(query=HogQLQuery(query=args.query, filters=filters).model_dump(mode="json")):
+                    capture_exception(ValueError(f"SQL execution failed: {private_value}"))
+        finally:
+            client.shutdown()
+
+        self.assertEqual(replay.content, result.content)
+        self.assertNotEqual(other.content, result.content)
+        self.assertEqual(query.filters, filters)
+        executed = [message for message in messages if message["event"] == "query executed"]
+        self.assertTrue(executed)
+        self.assertTrue(any(message["properties"]["cache_hit"] for message in executed))
+        self.assertTrue(any(message["event"] == "query execution failed" for message in messages))
+        self.assertFalse(
+            any(message["event"] == "$exception" and "query" in message["properties"] for message in messages)
+        )
+        self.assertNotIn(private_value, json.dumps(messages, default=str))
+
     async def test_saved_variables_survive_visualization_query_reexecution(self) -> None:
         variable = await database_sync_to_async(InsightVariable.objects.create)(
             team=self.team,
@@ -91,6 +162,102 @@ class TestExecuteSQLMCPTool(ClickhouseTestMixin, NonAtomicBaseTest):
         )
         self.assertIn("Example organization", result.content)
         self.assertEqual(replay, result.content)
+
+    async def test_date_value_placeholders_use_supplied_range(self) -> None:
+        filters = HogQLFilters(dateRange=DateRange(date_from="2026-01-01", date_to="2026-01-03"))
+        result = await self.tool.execute(
+            ExecuteSQLMCPToolArgs(
+                query="SELECT {filters.dateRange.from} AS start, {filters.dateRange.to} AS end", filters=filters
+            )
+        )
+        self.assertIn("2026-01-01", result.content)
+        self.assertIn("2026-01-03", result.content)
+
+    @parameterized.expand([("filters.interval",), ("filters.interval('day')",)])
+    async def test_interval_placeholder_does_not_apply_date_range(self, placeholder: str) -> None:
+        with self.assertRaisesRegex(MaxToolRetryableError, "date range needs"):
+            await self.tool.execute(
+                ExecuteSQLMCPToolArgs(
+                    query="SELECT {" + placeholder + "} AS bucket, count() FROM events",
+                    filters=HogQLFilters(dateRange=DateRange(date_from="-7d")),
+                )
+            )
+
+    @parameterized.expand([(1, True, 1), (7, True, 2), (1, False, 2), (None, False, 4)])
+    async def test_editor_filters_apply_to_ctes_and_visualization(
+        self, days: int | None, filter_test_accounts: bool, expected_count: int
+    ) -> None:
+        now = datetime.now(UTC)
+        self.team.test_account_filters = [
+            {"key": "account_type", "type": "event", "value": ["test"], "operator": "is_not"}
+        ]
+        await database_sync_to_async(self.team.save)()
+        for distinct_id, age, region, account_type in [
+            ("recent", 0, "west", "real"),
+            ("older", 3, "west", "real"),
+            ("test", 0, "west", "test"),
+            ("other_region", 0, "east", "real"),
+        ]:
+            _create_event(
+                team=self.team,
+                distinct_id=distinct_id,
+                event="example_event",
+                timestamp=now - timedelta(days=age, hours=1),
+                properties={"region": region, "account_type": account_type},
+            )
+        filters = (
+            HogQLFilters(
+                dateRange=DateRange(date_from=(now - timedelta(days=days)).isoformat(), date_to=now.isoformat()),
+                properties=[EventPropertyFilter(key="region", value=["west"], operator=PropertyOperator.EXACT)],
+                filterTestAccounts=filter_test_accounts,
+            )
+            if days is not None
+            else HogQLFilters()
+        )
+        sql = """
+            WITH first_scan AS (SELECT count() AS n FROM events WHERE {filters}),
+                 second_scan AS (SELECT count() AS n FROM events WHERE {filters})
+            SELECT first_scan.n AS first_count, second_scan.n AS second_count
+            FROM first_scan CROSS JOIN second_scan
+        """
+
+        result = await self.tool.execute(ExecuteSQLMCPToolArgs(query=sql, filters=filters))
+
+        assert result.structured_content is not None
+        query = HogQLQuery.model_validate(result.structured_content["query"])
+        self.assertEqual(query.filters, filters)
+        self.assertEqual(query.query.count("{filters}"), 2)
+        self.assertIn(f"{expected_count}|{expected_count}", result.content)
+        replay = await InsightContext(team=self.team, user=self.user, query=query).execute_and_format(
+            prompt_template="{{{results}}}", include_prompt_framing=False
+        )
+        self.assertEqual(replay, result.content)
+
+    @parameterized.expand(
+        [
+            ("no_placeholder", "SELECT 1", None, False, True, "no filter placeholders"),
+            ("raw_connection", "SELECT 1", "example-connection", True, True, "cannot be applied with sendRawQuery"),
+            ("date_only_test_accounts", "SELECT {filters.dateRange.from}", None, False, True, "predicate placeholder"),
+            ("date_only_properties", "SELECT {filters.dateRange.from}", None, False, False, "predicate placeholder"),
+        ]
+    )
+    async def test_filters_cannot_be_silently_ignored(
+        self, _name: str, sql: str, connection_id: str | None, raw: bool, test_accounts: bool, expected_error: str
+    ) -> None:
+        with self.assertRaisesRegex(MaxToolRetryableError, expected_error):
+            await self.tool.execute(
+                ExecuteSQLMCPToolArgs(
+                    query=sql,
+                    filters=HogQLFilters(
+                        filterTestAccounts=test_accounts,
+                        properties=None
+                        if test_accounts
+                        else [EventPropertyFilter(key="region", value=["west"], operator=PropertyOperator.EXACT)],
+                    ),
+                    connectionId=connection_id,
+                    sendRawQuery=raw,
+                )
+            )
 
     async def test_result_has_no_prompt_framing(self):
         _create_event(team=self.team, distinct_id="user1", event="test_event")
@@ -139,15 +306,22 @@ class TestExecuteSQLMCPTool(ClickhouseTestMixin, NonAtomicBaseTest):
             ("trailing_tokens", "SELECT 1 FROM events LIMIT 1 blah", "blah"),
             ("reserved_keyword", "SELECT count() FROM events WHERE GROUP BY", "BY"),
             ("bad_operator", "SELECT * FROM events WHERE 1 === 2", "="),
+            ("connection_filters", "SELECT 1 FROM example_table LIMIT 1 blah", "blah", "example-connection"),
         ]
     )
     async def test_syntax_error_locates_the_offending_fragment(
-        self, _name: str, query: str, expected_fragment: str
+        self, _name: str, query: str, expected_fragment: str, connection_id: str | None = None
     ) -> None:
         # A bare "this query isn't valid HogQL" tells the caller nothing about which construct to
         # rewrite, so it retries the same query. The parser knows the offset and the token; keep both.
         with self.assertRaises(MaxToolRetryableError) as ctx:
-            await self.tool.execute(ExecuteSQLMCPToolArgs(query=query))
+            await self.tool.execute(
+                ExecuteSQLMCPToolArgs(
+                    query=query,
+                    connectionId=connection_id,
+                    filters=HogQLFilters(filterTestAccounts=True) if connection_id else None,
+                )
+            )
 
         message = str(ctx.exception)
         self.assertIn("Parser detail:", message)
@@ -156,8 +330,6 @@ class TestExecuteSQLMCPTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
     @parameterized.expand(
         [
-            ("variadic_greatest", "SELECT greatest(1, 2, 3) FROM events", "greatest(x1, greatest(x2, x3))"),
-            ("variadic_least", "SELECT least(1, 2, 3) FROM events", "least(x1, least(x2, x3))"),
             ("like_escape", r"SELECT 1 FROM events WHERE event LIKE '%\_x%'", "position("),
             ("width_suffixed_cast", "SELECT CAST(1 AS Float64) FROM events", "CAST(x AS Float)"),
         ]
@@ -174,16 +346,9 @@ class TestExecuteSQLMCPTool(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertIn("<hogql_compatibility_hint>", message)
         self.assertIn(expected_rewrite, message)
 
-    @parameterized.expand([(name,) for name in NESTABLE_BINARY_FUNCTIONS])
-    async def test_nesting_rewrite_is_actually_accepted(self, name: str) -> None:
-        # Pins the advice against the validator: if the arity cap is ever lifted, the flat call
-        # starts passing and this test says the nesting hint has gone stale.
-        with self.assertRaises(MaxToolRetryableError):
-            await self.tool.execute(ExecuteSQLMCPToolArgs(query=f"SELECT {name}(1, 2, 3) FROM events"))
-
-        result = await self.tool.execute(
-            ExecuteSQLMCPToolArgs(query=f"SELECT {name}(1, {name}(2, 3)) AS x FROM events")
-        )
+    @parameterized.expand([("greatest",), ("least",)])
+    async def test_variadic_functions_are_accepted(self, name: str) -> None:
+        result = await self.tool.execute(ExecuteSQLMCPToolArgs(query=f"SELECT {name}(1, 2, 3) AS x"))
         self.assertIsNotNone(result.content)
 
     @parameterized.expand([(name,) for name in ACCEPTED_CAST_TYPES])
@@ -346,7 +511,7 @@ class TestExecuteSQLMCPTool(ClickhouseTestMixin, NonAtomicBaseTest):
         # A connection query skips local validation, so a compatibility rejection arrives from the
         # runner. It has to gain the same rewrite the validation path attaches.
         async def fake_execute_and_format(self, *args, **kwargs):
-            raise MaxToolRetryableError("Function 'greatest' expects 2 arguments, found 3")
+            raise MaxToolRetryableError("Unsupported type cast to 'float64'")
 
         with patch(
             "ee.hogai.tools.execute_sql.mcp_tool.InsightContext.execute_and_format",
@@ -354,12 +519,12 @@ class TestExecuteSQLMCPTool(ClickhouseTestMixin, NonAtomicBaseTest):
         ):
             with self.assertRaises(MaxToolRetryableError) as ctx:
                 await self.tool.execute(
-                    ExecuteSQLMCPToolArgs(query="SELECT greatest(1, 2, 3) FROM t", connectionId="conn_abc"),
+                    ExecuteSQLMCPToolArgs(query="SELECT CAST(1 AS Float64) FROM t", connectionId="conn_abc"),
                 )
 
         message = str(ctx.exception)
-        self.assertIn("Function 'greatest' expects 2 arguments, found 3", message)
-        self.assertIn("greatest(x1, greatest(x2, x3))", message)
+        self.assertIn("Unsupported type cast to 'float64'", message)
+        self.assertIn("CAST(x AS Float)", message)
 
     async def test_deferred_execution_error_without_a_rule_is_left_alone(self):
         # Most runner failures match no rule. Those must reach the caller unchanged rather than

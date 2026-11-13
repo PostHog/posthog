@@ -197,6 +197,7 @@ class TestDebugCHQuery(APIBaseTest):
                     "cohort_not_calculated",
                     "data_warehouse",
                     "group_aggregation",
+                    "flag_rule",
                 )
             )
         }
@@ -231,7 +232,7 @@ class TestDebugCHQuery(APIBaseTest):
         self.user.is_staff = True
         self.user.save()
         nan = float("nan")
-        no_skips = (0,) * 7
+        no_skips = (0,) * 8
         reads_row = (
             "direct_scan",
             5,  # reads
@@ -265,7 +266,7 @@ class TestDebugCHQuery(APIBaseTest):
         # row's (counts summed, stats lied).
         self.user.is_staff = True
         self.user.save()
-        no_skips = (0,) * 7
+        no_skips = (0,) * 8
 
         def read_row(path, p50):
             return (path, 3, 0, *no_skips, 3, 3, 0, 0, p50, p50, p50, 1024.0, 4096)

@@ -196,6 +196,10 @@ WEB_DIMENSIONAL_SPECIFIC_FIELDS = {
     "job_id": UUIDDatabaseField(
         name="job_id", description="Precomputation job that wrote this row; reads filter to READY job ids."
     ),
+    "channel_type": StringDatabaseField(
+        name="channel_type",
+        description="Session channel type with the team's custom channel rules applied when the row was written.",
+    ),
 }
 
 

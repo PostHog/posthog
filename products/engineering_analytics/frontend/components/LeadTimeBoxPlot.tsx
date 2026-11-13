@@ -6,9 +6,8 @@ import type { BoxPlotDatum, BoxPlotSeries, BoxPlotTooltipContext } from '@postho
 import { cn } from 'lib/utils/css-classes'
 
 export interface BoxPlotBucket {
-    /** x-axis and tooltip label for the bucket (e.g. its date). Must be unique across buckets. */
+    /** Must be unique across buckets. */
     label: string
-    /** Samples in the bucket; 0 renders an empty slot. */
     count: number
     minSeconds: number | null
     p05Seconds: number | null
@@ -21,29 +20,23 @@ export interface BoxPlotBucket {
 }
 
 export interface LeadTimeBoxPlotProps {
-    /** Series identity: chart key and the label shown in the tooltip legend. */
     seriesKey: string
     seriesLabel: string
-    /** One entry per bucket, oldest first. */
+    /** Oldest first. */
     buckets: BoxPlotBucket[]
-    /** Value formatter for the tooltip rows (seconds in, short label out). */
     formatSeconds: (seconds: number) => string
-    /** Draw the whiskers at p5/p95 instead of min/max, so one extreme PR can't flatten the boxes. */
+    /** Draws the whiskers at p5/p95 instead of min/max, so one extreme PR can't flatten the boxes. */
     excludeOutliers?: boolean
-    /** List the buckets down the side with the time axis along the bottom. Suits a few buckets. */
     horizontal?: boolean
-    /** Put the time axis on a log scale, so minutes and days both stay readable on one axis. */
     logScale?: boolean
     dataAttr: string
     className?: string
 }
 
-/** Per-bucket sample counts, carried into the tooltip through the series meta. */
 interface BucketMeta {
     counts: number[]
 }
 
-/** The six numbers a box draws, for the checks that have to cover all of them. */
 const BOX_STATS = ['min', 'p25', 'median', 'mean', 'p75', 'max'] as const
 
 function toDatum(bucket: BoxPlotBucket, excludeOutliers: boolean): BoxPlotDatum | null {
@@ -58,7 +51,7 @@ function toDatum(bucket: BoxPlotBucket, excludeOutliers: boolean): BoxPlotDatum 
     ) {
         return null
     }
-    // Older cached responses may lack p5/p95; fall back to the full range rather than dropping the bucket.
+    // A cached response may lack p5/p95, so fall back to the full range instead of dropping the bucket.
     const lower = excludeOutliers ? (bucket.p05Seconds ?? bucket.minSeconds) : bucket.minSeconds
     const upper = excludeOutliers ? (bucket.p95Seconds ?? bucket.maxSeconds) : bucket.maxSeconds
     return {
@@ -71,12 +64,7 @@ function toDatum(bucket: BoxPlotBucket, excludeOutliers: boolean): BoxPlotDatum 
     }
 }
 
-/**
- * One box-and-whisker per bucket (quill BoxPlot): whisker min→max, box p25→p75, a median line
- * and a mean dot, on a shared seconds scale. Empty buckets stay empty slots so a quiet stretch
- * reads as "nothing deployed", not missing data. One lead-time stage per instance; the Deploys
- * tab stacks three vertical ones so the stages compare bucket by bucket.
- */
+/** Empty buckets stay empty slots, so a quiet stretch reads as "nothing deployed", not as missing data. */
 export function LeadTimeBoxPlot({
     seriesKey,
     seriesLabel,
@@ -116,8 +104,8 @@ export function LeadTimeBoxPlot({
         [formatSeconds, horizontal, logScale, hasZeroDuration]
     )
     return (
-        // The chart's root is a `flex-1` child, so the sized wrapper must be a flex column —
-        // in a plain block parent the canvas measures 0px tall and paints nothing.
+        // The chart's root is a `flex-1` child, so the sized wrapper must be a flex column.
+        // In a plain block parent the canvas measures 0px tall and paints nothing.
         <div className={cn('flex h-48 flex-col', className)}>
             <BoxPlot<BucketMeta>
                 series={series}

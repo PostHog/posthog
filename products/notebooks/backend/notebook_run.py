@@ -18,6 +18,12 @@ from django.utils import timezone
 
 import structlog
 
+from posthog.hogql.direct_connection import (
+    get_direct_connection_source,
+    raw_query_uses_organization_grant,
+    require_browser_session_for_organization_grant,
+)
+
 from posthog.dataclasses import frozen
 from posthog.models import Team, User
 
@@ -110,6 +116,18 @@ def plan_notebook_cells(notebook: Notebook, *, include_prepared_insights: bool =
     return plan
 
 
+def _require_browser_session_for_organization_grant_cells(team: Team, cell_plan: list[PlannedCell]) -> None:
+    # The cells run later from a Temporal worker, which cannot see how this request authenticated,
+    # so the check runs here, before the run exists.
+    raw_connection_ids = {
+        cell["connection_id"] for cell in cell_plan if cell["send_raw_query"] and cell["connection_id"]
+    }
+    for connection_id in raw_connection_ids:
+        source = get_direct_connection_source(team, connection_id)
+        if source is not None and raw_query_uses_organization_grant(source):
+            require_browser_session_for_organization_grant()
+
+
 def _create_notebook_run(
     notebook: Notebook,
     user: User | None,
@@ -127,6 +145,7 @@ def _create_notebook_run(
     cell_plan = plan_notebook_cells(notebook, include_prepared_insights=include_prepared_insights)
     if not cell_plan:
         raise NotebookRunNothingToRun(_NOTHING_TO_RUN)
+    _require_browser_session_for_organization_grant_cells(team, cell_plan)
 
     try:
         # The savepoint keeps the IntegrityError from poisoning a caller's transaction: the

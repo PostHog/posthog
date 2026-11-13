@@ -17,7 +17,7 @@ from posthog.test.base import (
 )
 from unittest.mock import patch
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import param, parameterized
 
@@ -40,11 +40,13 @@ from posthog.hogql.functions.mapping import HOGQL_CLICKHOUSE_FUNCTIONS
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import HogQLQueryExecutor, execute_hogql_query
+from posthog.hogql.test.test_prompt_jev import gateway_response
 from posthog.hogql.transforms.flag_calls_union import rename_flag_call_scans_to_union
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.escape import substitute_params
+from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.constants import AvailableFeature
 from posthog.test.persons import create_group_type_mapping
 
@@ -62,11 +64,16 @@ MIXED = "event IN ('$pageview', '$feature_flag_called')"
 SESSION_ID = "0190a8d1-3f7a-7b00-8000-000000000001"
 E_MIXED = "e.event IN ('$pageview', '$feature_flag_called')"
 UNION = "posthog.events_with_flag_calls"
+EVENTS = FlagEvaluationsMode.EVENTS
 READ = FlagEvaluationsMode.READ_FLAG_EVALUATIONS
 ONLY = FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY
 
 
 UNION_EXPANSION = "FROM flag_evaluations"
+FLAG_CALLS_FROM = "FROM events WHERE event = '$feature_flag_called'"
+FLAG_CALLS = f"SELECT count() {FLAG_CALLS_FROM}"
+SAMPLED_FLAG_CALLS = "SELECT count() FROM events SAMPLE 0.1 WHERE event = '$feature_flag_called'"
+KEYED_BOUNDED_FLAG_CALLS = f"{FLAG_CALLS} AND properties.$feature_flag = 'f' AND timestamp >= now() - INTERVAL 7 DAY"
 
 
 def _performed_flag_call_cohort(team, flag_key: str) -> Cohort:
@@ -187,6 +194,35 @@ def _list_alias_in_many_comparisons() -> ast.SelectQuery:
     return select
 
 
+def _with_list_read_by_many_subqueries() -> ast.SelectQuery:
+    names = ast.Tuple(
+        exprs=[
+            *(ast.Constant(value="$feature_flag_called", start=n, end=n + 1) for n in range(30_000)),
+            ast.Constant(value="$pageview"),
+        ]
+    )
+    branches = [_select("SELECT 1 FROM events WHERE event IN names") for _ in range(300)]
+    select = _select("SELECT 1 FROM (SELECT 1)")
+    select.ctes = {"names": ast.CTE(name="names", expr=names, cte_type="column")}
+    assert select.select_from is not None
+    select.select_from.table = ast.SelectSetQuery(
+        initial_select_query=branches[0],
+        subsequent_select_queries=[
+            ast.SelectSetNode(set_operator="UNION ALL", select_query=branch) for branch in branches[1:]
+        ],
+    )
+    return select
+
+
+def _long_with() -> ast.SelectQuery:
+    select = _select("SELECT 1 FROM events WHERE event IN ('$pageview', c49999)")
+    names = [*(f"e{n}" for n in range(49_999)), "$feature_flag_called"]
+    select.ctes = {
+        f"c{n}": ast.CTE(name=f"c{n}", expr=ast.Constant(value=name), cte_type="column") for n, name in enumerate(names)
+    }
+    return select
+
+
 def _set_mode(organization, mode: FlagEvaluationsMode) -> None:
     OrganizationFeatureFlagsConfig.objects.update_or_create(
         organization=organization, defaults={"flag_evaluations_mode": mode}
@@ -199,6 +235,11 @@ def _enabled_flags(union: bool):
         "posthog.hogql.database.database.feature_enabled_or_false",
         side_effect=lambda key, *args, **kwargs: key in enabled,
     )
+
+
+def _flag_evaluations_table_in_catalog():
+    # Outside Cloud and DEBUG the catalog leaves the table out for an organization on mode 0.
+    return patch("products.feature_flags.backend.facade.flags.is_flag_evaluations_table_enabled", return_value=True)
 
 
 def _restrict(organization, team, name: str) -> None:
@@ -474,6 +515,134 @@ class TestRenameFlagCallScansToUnion(SimpleTestCase):
                 [],
             ),
             (
+                "with_constant_in_a_list_with_other_events",
+                "WITH '$feature_flag_called' AS fc SELECT count() FROM events WHERE event IN ('$pageview', fc)",
+                [UNION],
+                [],
+            ),
+            # The flag_evaluations swap does not read a WITH constant, so it cannot take this scan on mode 2.
+            (
+                "with_constant_pinned_to_only_flag_calls",
+                "WITH '$feature_flag_called' AS fc SELECT count() FROM events WHERE event = fc",
+                [UNION],
+                [],
+            ),
+            (
+                "with_tuple_as_the_in_list",
+                "WITH ('$pageview', '$feature_flag_called') AS names SELECT count() FROM events WHERE event IN names",
+                [UNION],
+                [],
+            ),
+            (
+                "alias_of_a_with_constant",
+                "WITH '$feature_flag_called' AS fc SELECT fc AS name, count() FROM events "
+                "WHERE event IN ('$pageview', name) GROUP BY name",
+                [UNION],
+                [],
+            ),
+            (
+                "with_constant_inside_a_lambda",
+                "WITH '$feature_flag_called' AS fc SELECT count() FROM events "
+                "WHERE arrayExists(x -> event IN ('$pageview', fc), [1])",
+                [UNION],
+                [],
+            ),
+            (
+                "with_constant_named_by_another_with_name",
+                "WITH '$feature_flag_called' AS a, a AS b SELECT count() FROM events WHERE event IN ('$pageview', b)",
+                [UNION],
+                [],
+            ),
+            (
+                "with_tuple_that_names_another_with_name",
+                "WITH '$feature_flag_called' AS a, ('$pageview', a) AS names "
+                "SELECT count() FROM events WHERE event IN names",
+                [UNION],
+                [],
+            ),
+            (
+                "with_name_compared_with_a_lambda_argument_named_event",
+                "WITH '$feature_flag_called' AS fc SELECT count() FROM events SAMPLE 0.1 "
+                "WHERE event = '$pageview' AND arrayExists(event -> event = fc, ['$pageview'])",
+                ["events"],
+                [],
+            ),
+            (
+                "with_value_computed_from_another_with_name",
+                "WITH '$feature_flag_called' AS a, concat(a, '') AS fc "
+                "SELECT count() FROM events WHERE event IN ('$pageview', fc)",
+                [UNION],
+                [],
+            ),
+            (
+                "with_name_shadowed_by_an_events_column",
+                "WITH '$feature_flag_called' AS distinct_id SELECT count() FROM events "
+                "WHERE event IN ('$pageview', distinct_id)",
+                ["events"],
+                [],
+            ),
+            (
+                "with_name_shadowed_by_a_lambda_argument",
+                "WITH '$feature_flag_called' AS fc SELECT count() FROM events "
+                "WHERE arrayExists(fc -> event IN ('$pageview', fc), ['$autocapture'])",
+                ["events"],
+                [],
+            ),
+            (
+                "outer_with_constant_in_a_subquery",
+                "WITH '$feature_flag_called' AS fc "
+                "SELECT count() FROM (SELECT event FROM events WHERE event IN ('$pageview', fc))",
+                [UNION],
+                [],
+            ),
+            (
+                "subquery_with_constant",
+                "SELECT count() FROM "
+                "(WITH '$feature_flag_called' AS fc SELECT event FROM events WHERE event IN ('$pageview', fc))",
+                [UNION],
+                [],
+            ),
+            (
+                "subquery_with_name_shadowing_an_outer_with_name",
+                "WITH '$feature_flag_called' AS fc SELECT count() FROM "
+                "(WITH '$autocapture' AS fc SELECT event FROM events WHERE event IN ('$pageview', fc))",
+                ["events"],
+                [],
+            ),
+            (
+                "with_constant_in_a_later_branch_of_a_select_set",
+                "WITH '$feature_flag_called' AS fc SELECT 1 FROM events WHERE event = '$pageview' "
+                "UNION ALL SELECT 1 FROM events WHERE event IN ('$pageview', fc) "
+                "UNION ALL (WITH '$autocapture' AS fc SELECT 1 FROM events WHERE event IN ('$pageview', fc))",
+                ["events", UNION, "events"],
+                [],
+            ),
+            # The body of `x` reads the outer `fc`, because the inner `fc` comes after `x` in its WITH.
+            (
+                "with_name_declared_after_the_cte_that_reads_it",
+                "WITH '$feature_flag_called' AS fc SELECT count() FROM "
+                "(WITH x AS (SELECT count() FROM events WHERE event IN ('$pageview', fc)), '$autocapture' AS fc "
+                "SELECT * FROM x)",
+                ["x", UNION],
+                [],
+            ),
+            (
+                "with_constant_in_a_scan_after_another_table",
+                "WITH '$feature_flag_called' AS fc SELECT count() FROM persons AS p JOIN events AS e "
+                "ON p.id = e.person_id WHERE e.event IN ('$pageview', fc)",
+                ["persons", "events"],
+                ["it joins events after another table"],
+            ),
+            param(
+                "with_constant_on_mode_1",
+                "WITH '$feature_flag_called' AS fc SELECT count() FROM events WHERE event IN ('$pageview', fc)",
+                [UNION],
+                [],
+                only_in_flag_evaluations=False,
+            ),
+            ("long_with", _long_with(), [UNION], []),
+            ("with_list_read_by_many_subqueries", _with_list_read_by_many_subqueries(), [UNION] * 300, []),
+            (
                 "cte_named_events_after_another_table",
                 "WITH events AS (SELECT 1 AS person_id, '$pageview' AS event) "
                 f"SELECT count() FROM persons AS p JOIN events AS e ON p.id = e.person_id WHERE {E_MIXED}",
@@ -555,19 +724,35 @@ class TestRenameFlagCallScansToUnion(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("no_flag_call_constant", "", []),
+            (
+                "no_flag_call_constant",
+                "SELECT count() FROM persons AS p JOIN events AS e ON p.id = e.person_id "
+                "WHERE e.event IN ('$pageview', '$autocapture', '$identify')",
+                [],
+            ),
             (
                 "flag_call_constant_elsewhere",
-                ", '$feature_flag_called' AS name",
+                "SELECT count(), '$feature_flag_called' AS name FROM persons AS p JOIN events AS e ON p.id = e.person_id "
+                "WHERE e.event IN ('$pageview', '$autocapture', '$identify')",
+                ["it compares `event` with more values than the flag-call check reads"],
+            ),
+            (
+                "flag_call_constant_in_an_outer_with",
+                "WITH '$feature_flag_called' AS fc SELECT * FROM (SELECT count() FROM persons AS p "
+                "JOIN events AS e ON p.id = e.person_id WHERE e.event IN ('$pageview', '$autocapture', fc))",
+                ["it compares `event` with more values than the flag-call check reads"],
+            ),
+            (
+                "flag_call_constant_in_the_first_branch_with",
+                "WITH '$feature_flag_called' AS fc SELECT 1 FROM events WHERE event = '$pageview' "
+                "UNION ALL SELECT count() FROM persons AS p JOIN events AS e ON p.id = e.person_id "
+                "WHERE e.event IN ('$pageview', '$autocapture', fc)",
                 ["it compares `event` with more values than the flag-call check reads"],
             ),
         ]
     )
-    def test_scan_past_the_compared_values_budget(self, _name: str, extra_select: str, expected_refusals: list[str]):
-        select = _select(
-            f"SELECT count(){extra_select} FROM persons AS p JOIN events AS e ON p.id = e.person_id "
-            "WHERE e.event IN ('$pageview', '$autocapture', '$identify')"
-        )
+    def test_scan_past_the_compared_values_budget(self, _name: str, query: str, expected_refusals: list[str]):
+        select = _select(query)
         with patch("posthog.hogql.transforms.flag_calls_union._COMPARED_VALUES_BUDGET", 2):
             rename = rename_flag_call_scans_to_union(
                 select, flag_key_compares_as_string=lambda: True, only_in_flag_evaluations=True
@@ -600,12 +785,14 @@ class TestReadFlagCallsWithUnion(BaseTest):
         modifiers: HogQLQueryModifiers | None = None,
         inline_cohorts: bool = False,
         in_cohort_via: InCohortVia | None = None,
+        rewrite_flag_calls: bool = True,
     ) -> str:
         _set_mode(self.organization, mode)
-        with _enabled_flags(union=union):
+        with _enabled_flags(union=union), _flag_evaluations_table_in_catalog():
             sql, context = HogQLQueryExecutor(
                 query=query,
                 team=self.team,
+                context=HogQLContext(team_id=self.team.pk, rewrite_flag_calls_to_flag_evaluations=rewrite_flag_calls),
                 modifiers=(modifiers or HogQLQueryModifiers()).model_copy(
                     update={
                         "personIdPushdown": person_id_pushdown,
@@ -686,6 +873,20 @@ class TestReadFlagCallsWithUnion(BaseTest):
             param(
                 "alias_of_the_flag_call_event_name_on_mode_2",
                 "SELECT '$feature_flag_called' AS name, count() FROM events WHERE event = name",
+                True,
+                True,
+                mode=ONLY,
+            ),
+            param(
+                "with_constant_in_a_mixed_filter_on_mode_2",
+                "WITH '$feature_flag_called' AS fc SELECT count() FROM events WHERE event IN ('$pageview', fc)",
+                True,
+                True,
+                mode=ONLY,
+            ),
+            param(
+                "with_constant_pinned_to_only_flag_calls_on_mode_2",
+                "WITH '$feature_flag_called' AS fc SELECT count() FROM events WHERE event = fc",
                 True,
                 True,
                 mode=ONLY,
@@ -869,6 +1070,78 @@ class TestReadFlagCallsWithUnion(BaseTest):
         assert "UNION ALL" in sql
         assert "JOIN flag_evaluations AS b" in sql
 
+    @parameterized.expand(
+        [
+            ("mode_0_native", FLAG_CALLS, EVENTS, True, True),
+            ("mode_0_native_keyed_and_bounded", KEYED_BOUNDED_FLAG_CALLS, EVENTS, True, True),
+            ("mode_1_native", FLAG_CALLS, READ, True, True),
+            ("mode_1_native_keyed_and_bounded", KEYED_BOUNDED_FLAG_CALLS, READ, True, True),
+            ("mode_2_native", FLAG_CALLS, ONLY, True, True),
+            ("mode_0_legacy_keyed_and_bounded", KEYED_BOUNDED_FLAG_CALLS, EVENTS, False, False),
+            # Mode 1 on the legacy table still needs a flag key and a time bound to swap.
+            ("mode_1_legacy", FLAG_CALLS, READ, False, False),
+            ("mode_1_legacy_keyed_and_bounded", KEYED_BOUNDED_FLAG_CALLS, READ, False, True),
+            ("mode_2_legacy", FLAG_CALLS, ONLY, False, True),
+        ]
+    )
+    def test_flag_call_scan_reads_flag_evaluations_on_the_native_events_schema_whatever_the_mode(
+        self, _name: str, query: str, mode: FlagEvaluationsMode, new_events_schema: bool, reads_flag_evaluations: bool
+    ):
+        _set_mode(self.organization, mode)
+        with _flag_evaluations_table_in_catalog():
+            assert Database.create_for(team=self.team).has_table(["posthog", "flag_evaluations"])
+
+        sql = self._sql(query, mode=mode, union=False, new_events_schema=new_events_schema)
+
+        assert (re.search(r"FROM flag_evaluations\b", sql) is not None) is reads_flag_evaluations
+
+    @parameterized.expand([("mode_0", EVENTS), ("mode_1", READ)])
+    def test_flag_call_scan_on_the_native_events_schema_prints_what_mode_2_prints(
+        self, _name: str, mode: FlagEvaluationsMode
+    ):
+        sql = self._sql(FLAG_CALLS, mode=mode, union=False, new_events_schema=True)
+
+        assert sql == self._sql(FLAG_CALLS, mode=ONLY, union=False, new_events_schema=True)
+
+    @parameterized.expand(
+        [
+            ("mode_0_native_select_star", f"SELECT * {FLAG_CALLS_FROM}", EVENTS, True, "it selects \\* or COLUMNS"),
+            ("mode_1_native_select_star", f"SELECT * {FLAG_CALLS_FROM}", READ, True, "it selects \\* or COLUMNS"),
+            ("mode_2_native_select_star", f"SELECT * {FLAG_CALLS_FROM}", ONLY, True, "it selects \\* or COLUMNS"),
+            ("mode_0_native_sample", SAMPLED_FLAG_CALLS, EVENTS, True, "it uses SAMPLE"),
+            ("mode_2_native_sample", SAMPLED_FLAG_CALLS, ONLY, True, "it uses SAMPLE"),
+            ("mode_0_legacy_select_star", f"SELECT * {FLAG_CALLS_FROM}", EVENTS, False, None),
+            ("mode_1_legacy_select_star", f"SELECT * {FLAG_CALLS_FROM}", READ, False, None),
+        ]
+    )
+    def test_flag_call_shape_flag_evaluations_cannot_answer_raises_on_the_native_events_schema(
+        self, _name: str, query: str, mode: FlagEvaluationsMode, new_events_schema: bool, reason: str | None
+    ):
+        if reason is None:
+            assert "flag_evaluations" not in self._sql(
+                query, mode=mode, union=False, new_events_schema=new_events_schema
+            )
+            return
+        with pytest.raises(QueryError, match=reason):
+            self._sql(query, mode=mode, union=False, new_events_schema=new_events_schema)
+
+    @parameterized.expand(
+        [
+            ("mode_0_native", EVENTS, True),
+            ("mode_1_native", READ, True),
+            ("mode_2_native", ONLY, True),
+            ("mode_2_legacy", ONLY, False),
+        ]
+    )
+    def test_context_without_the_flag_call_rewrite_reads_flag_calls_from_events(
+        self, _name: str, mode: FlagEvaluationsMode, new_events_schema: bool
+    ):
+        sql = self._sql(
+            FLAG_CALLS, mode=mode, union=False, new_events_schema=new_events_schema, rewrite_flag_calls=False
+        )
+
+        assert "flag_evaluations" not in sql
+
     @parameterized.expand([("dotted", UNION), ("quoted", f"`{UNION}`")])
     def test_query_cannot_name_the_union_table(self, _name: str, table: str):
         with pytest.raises(QueryError, match="Unknown table `posthog.events_with_flag_calls`"):
@@ -886,12 +1159,13 @@ class TestReadFlagCallsWithUnion(BaseTest):
             ("restricted_on_mode_1", READ, None, False, False),
             # Mode 2 reads every flag call from flag_evaluations, so it never asks events for the flag key.
             ("restricted_on_mode_2", ONLY, None, False, True),
-            ("boolean_on_native_json_on_mode_1", READ, "Boolean", True, False),
-            ("numeric_on_native_json_on_mode_1", READ, "Numeric", True, False),
+            ("boolean_on_native_json_on_mode_1", READ, "Boolean", True, True),
+            ("numeric_on_native_json_on_mode_1", READ, "Numeric", True, True),
+            ("boolean_on_native_json_on_mode_0", EVENTS, "Boolean", True, True),
             ("boolean_on_native_json_on_mode_2", ONLY, "Boolean", True, True),
         ]
     )
-    def test_flag_key_that_events_cannot_read_raw_keeps_mode_1_on_events(
+    def test_flag_key_that_events_cannot_read_raw_keeps_legacy_mode_1_on_events(
         self, _name: str, mode: FlagEvaluationsMode, flag_key_type: str | None, new_events_schema: bool, expected: bool
     ):
         if flag_key_type is None:
@@ -1356,6 +1630,19 @@ class TestFlagCallsUnionRows(ClickhouseTestMixin, APIBaseTest):
                 ),
             )
 
+    def _flag_calls_read_at_each_execution(
+        self, query: str, mode: FlagEvaluationsMode, **modifiers: Any
+    ) -> list[list[str] | None]:
+        tagged: list[list[str] | None] = []
+
+        def record_tag(*args: Any, **kwargs: Any):
+            tagged.append(json.loads(get_query_tags().to_json()).get("flag_calls_read"))
+            return sync_execute(*args, **kwargs)
+
+        with patch("posthog.hogql.query.sync_execute", side_effect=record_tag):
+            self._run(query, mode, **modifiers)
+        return tagged
+
     @parameterized.expand(
         [
             *(
@@ -1373,6 +1660,13 @@ class TestFlagCallsUnionRows(ClickhouseTestMixin, APIBaseTest):
                 event="event AS name",
                 event_filter="name IN ('$pageview', '$feature_flag_called')",
             ),
+            param(
+                "filter_on_a_with_constant",
+                ONLY,
+                PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS,
+                ctes="WITH '$feature_flag_called' AS fc",
+                event_filter="event IN ('$pageview', fc)",
+            ),
         ]
     )
     def test_each_flag_call_comes_from_one_table(
@@ -1382,9 +1676,11 @@ class TestFlagCallsUnionRows(ClickhouseTestMixin, APIBaseTest):
         poe: PersonsOnEventsMode,
         event: str = "event",
         event_filter: str = MIXED,
+        ctes: str = "",
     ):
         response = self._run(
             f"""
+            {ctes}
             SELECT distinct_id, {event}, properties.source, person_id, person.properties.email
             FROM events
             WHERE {event_filter} AND timestamp >= now() - INTERVAL 120 DAY
@@ -1456,6 +1752,57 @@ class TestFlagCallsUnionRows(ClickhouseTestMixin, APIBaseTest):
             )
 
         assert [str(row[0]) for row in response.results] == [str(fresh.uuid)]
+
+    @parameterized.expand(
+        [
+            ("union", READ, f"SELECT count() FROM events WHERE {MIXED}", ["union"]),
+            ("swap", ONLY, "SELECT count() FROM events WHERE event = '$feature_flag_called'", ["flag_evaluations"]),
+            (
+                "union_and_swap",
+                ONLY,
+                "SELECT count() FROM events AS a JOIN events AS b ON a.uuid = b.uuid "
+                f"WHERE a.{MIXED} AND b.event = '$feature_flag_called'",
+                ["flag_evaluations", "union"],
+            ),
+            ("inline_cohort", ONLY, "SELECT id FROM persons WHERE id IN COHORT {cohort}", ["union"]),
+            ("no_flag_calls", ONLY, "SELECT count() FROM events WHERE event = '$pageview'", None),
+            (
+                "declined_union",
+                READ,
+                f"SELECT properties.a.b, properties.a___b FROM events WHERE {MIXED}",
+                None,
+            ),
+            (
+                "declined_swap",
+                READ,
+                "SELECT count() FROM posthog.events "
+                "JOIN (SELECT distinct_id AS d, properties AS posthog FROM events) AS s ON distinct_id = s.d "
+                "WHERE posthog.events.event = '$feature_flag_called' "
+                "AND posthog.events.properties.$feature_flag = 'probe-flag' "
+                "AND posthog__events.timestamp >= now() - INTERVAL 7 DAY",
+                None,
+            ),
+        ]
+    )
+    def test_log_comment_names_the_rewrites_that_read_flag_calls(
+        self, _name: str, mode: FlagEvaluationsMode, query: str, expected: list[str] | None
+    ):
+        cohort = _performed_flag_call_cohort(self.team, "probe-flag")
+
+        tagged = self._flag_calls_read_at_each_execution(
+            query.format(cohort=cohort.pk), mode, inlineCohortCalculation=InlineCohortCalculation.ALWAYS
+        )
+
+        assert tagged == [expected]
+
+    @override_settings(AI_GATEWAY_URL="https://gateway.example.com/v1", AI_GATEWAY_API_KEY="test-key")
+    def test_jev_source_query_keeps_its_tag_out_of_the_query_that_reads_its_rows(self):
+        with patch("httpx.AsyncClient.post", side_effect=gateway_response):
+            tagged = self._flag_calls_read_at_each_execution(
+                "SELECT jev(event, 'Flag call?') AS p FROM events WHERE event = '$feature_flag_called'", ONLY
+            )
+
+        assert tagged == [["flag_evaluations"], None]
 
     def test_ratio_sample_keeps_the_same_distinct_ids_in_both_tables(self):
         now = datetime.now(UTC)
@@ -1918,7 +2265,7 @@ class TestFlagCallsUnionRows(ClickhouseTestMixin, APIBaseTest):
     def test_every_events_field_reads_the_same_type_or_keeps_events(
         self, _name: str, poe: PersonsOnEventsMode, new_schema: bool
     ):
-        # Mode 1 keeps reading events on the native JSON table, so only mode 2 reads the union there.
+        # The native JSON table reads flag calls as mode 2 does on every mode.
         _set_mode(self.organization, ONLY if new_schema else READ)
         create_group_type_mapping(team=self.team, group_type="organization", group_type_index=0)
         # A typed property reads as a number, which the union keeps only when it converts the read above the branches.
@@ -1979,7 +2326,7 @@ class TestFlagCallsUnionRows(ClickhouseTestMixin, APIBaseTest):
 
 
 def _events_schema_for(mode: FlagEvaluationsMode, new_events_schema: bool | None) -> bool | None:
-    # Mode 1 keeps reading events on the native JSON table, so a mode 1 case reads the legacy table unless it asks.
+    # The native JSON table reads flag calls as mode 2 does, so a mode 1 case reads the legacy table unless it asks.
     if new_events_schema is None and mode == READ:
         return False
     return new_events_schema

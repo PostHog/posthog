@@ -58,12 +58,14 @@ def _format_slack_user_info_payload(
     is_admin: bool,
     is_owner: bool,
     is_bot: bool,
+    tz: str,
 ) -> dict[str, Any]:
     return {
         "user": {
             "is_admin": is_admin,
             "is_owner": is_owner,
             "is_bot": is_bot,
+            "tz": tz,
             "profile": {
                 "email": email,
                 "display_name": display_name,
@@ -102,6 +104,7 @@ def _get_slack_user_info_from_db(integration: IntegrationRecord, slack_user_id: 
         is_admin=profile.is_admin,
         is_owner=profile.is_owner,
         is_bot=profile.is_bot,
+        tz=profile.tz,
     )
 
 
@@ -119,6 +122,7 @@ def persist_slack_user_info(integration: IntegrationRecord, slack_user_id: str, 
                 "is_admin": bool(user.get("is_admin")),
                 "is_owner": bool(user.get("is_owner")),
                 "is_bot": bool(user.get("is_bot")),
+                "tz": str(user.get("tz") or "")[:64],
                 "refreshed_at": timezone.now(),
             },
         )
