@@ -4,13 +4,12 @@ import { Form } from 'kea-forms'
 import { isProjectGroupTag } from 'lib/components/Account/projectGroupTags'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { useRestrictedArea, RestrictionScope } from 'lib/components/RestrictedArea'
+import { useTagSourceExcluding } from 'lib/components/useTagPages'
 import { TeamMembershipLevel } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-
-import { tagsModel } from '~/models/tagsModel'
 
 import { projectTagsLogic } from './projectTagsLogic'
 
@@ -28,7 +27,7 @@ export function ProjectTags(): JSX.Element {
         isProjectGroupSubmitting,
     } = useValues(projectTagsLogic)
     const { updateTags, setProjectGroupValue } = useActions(projectTagsLogic)
-    const { tags: tagsAvailable } = useValues(tagsModel)
+    const regularTagSource = useTagSourceExcluding(isProjectGroupTag)
 
     // Regular project tags use project access; the API also restricts group changes to organization admins.
     const restrictionReason = useRestrictedArea({
@@ -48,7 +47,7 @@ export function ProjectTags(): JSX.Element {
         <div className="flex flex-col gap-3">
             <ObjectTags
                 tags={regularTags}
-                tagsAvailable={tagsAvailable.filter((tag) => !isProjectGroupTag(tag))}
+                loadTags={regularTagSource}
                 onChange={updateTags}
                 saving={currentProjectLoading}
                 data-attr="project-tags"

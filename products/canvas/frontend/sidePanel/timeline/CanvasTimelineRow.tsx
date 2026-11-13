@@ -1,6 +1,6 @@
 import { ReactNode, useEffect, useRef } from 'react'
 
-import { Item, ItemActions, ItemContent, ItemDescription, ItemTitle, Text, cn } from '@posthog/quill'
+import { Item, ItemContent, ItemDescription, ItemTitle, Text, cn } from '@posthog/quill'
 
 export interface CanvasTimelineRowProps {
     title: string
@@ -14,7 +14,6 @@ export interface CanvasTimelineRowProps {
     live?: boolean
     draft?: boolean
     onOpen: () => void
-    action?: ReactNode
     dataAttr: string
 }
 
@@ -29,7 +28,6 @@ export function CanvasTimelineRow({
     live = false,
     draft = false,
     onOpen,
-    action,
     dataAttr,
 }: CanvasTimelineRowProps): JSX.Element {
     const rowRef = useRef<HTMLDivElement>(null)
@@ -59,7 +57,7 @@ export function CanvasTimelineRow({
             <Item
                 size="xs"
                 data-selected={viewing || undefined}
-                // The open button stretches over the whole row, so the row is one target and the action stays separate.
+                // The open button stretches over the whole row, so the row is one target.
                 // The app compiles fill tokens as plain classes only, so the selected fill is toggled, not a variant.
                 className={cn(
                     'relative mb-1 min-w-0 flex-1 items-start',
@@ -90,17 +88,6 @@ export function CanvasTimelineRow({
                     </ItemTitle>
                     <ItemDescription className="truncate">{meta}</ItemDescription>
                 </ItemContent>
-                {action && (
-                    <ItemActions
-                        className={cn(
-                            'relative z-10 transition-opacity motion-reduce:transition-none',
-                            !viewing &&
-                                'opacity-0 group-hover/timeline-row:opacity-100 group-focus-within/timeline-row:opacity-100'
-                        )}
-                    >
-                        {action}
-                    </ItemActions>
-                )}
             </Item>
         </div>
     )

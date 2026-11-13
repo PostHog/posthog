@@ -38,6 +38,7 @@ from products.experiments.backend.health.skips import (
     NEEDS_VARIANTS,
     NOT_AFTER_END,
     NOT_ON_ARCHIVED,
+    REPORTED_BY_FLAG_STATE,
     SPLIT_CHANGED_AFTER_END,
     CheckSkip,
     not_applicable,
@@ -52,6 +53,12 @@ FIRST_CHANGE = "September 12, 2026 at 3:04 PM CEST"
 SECOND_CHANGE = "September 12, 2026 at 3:21 PM CEST"
 THIRD_CHANGE = "September 12, 2026 at 3:38 PM CEST"
 MIXED_ASSIGNMENTS = "A sample ratio mismatch or users in more than one variant can come from this change."
+
+MOVE_START_DATE = (
+    ExperimentHealthFindingActionKind.MOVE_START_DATE,
+    ExperimentHealthFindingActionKind.OPEN_FEATURE_FLAG_HISTORY,
+)
+HISTORY_ONLY = (ExperimentHealthFindingActionKind.OPEN_FEATURE_FLAG_HISTORY,)
 
 EVERYONE = [{"properties": [], "rollout_percentage": 100}]
 TARGETED = [{"properties": [{"key": "plan", "value": "pro", "type": "person"}], "rollout_percentage": 100}]
@@ -167,6 +174,7 @@ class TestSplitChangedMidRun(TestCase):
                 ("rebalanced", ExperimentHealthFindingSeverity.INFO, "E3"),
                 f"The split changed from control 50% / test 50% to control 80% / test 20% on {FIRST_CHANGE}. "
                 "The change came 3 hours after the start date, when no group had been exposed.",
+                HISTORY_ONLY,
             ),
             (
                 "variant_zeroed_before_4_groups",
@@ -184,6 +192,10 @@ class TestSplitChangedMidRun(TestCase):
                 f'Variant "test" was set to 100% of the split on {FIRST_CHANGE}, while the experiment is still '
                 'running. From then on, the split assigns everyone to variant "test". End the experiment with a '
                 f"conclusion, or restore the split. {MIXED_ASSIGNMENTS}",
+                (
+                    ExperimentHealthFindingActionKind.END_EXPERIMENT,
+                    ExperimentHealthFindingActionKind.OPEN_FEATURE_FLAG_HISTORY,
+                ),
             ),
             (
                 "variant_removed",
@@ -227,6 +239,10 @@ class TestSplitChangedMidRun(TestCase):
                 f'Variant "test" was set to 100% of the split on {FIRST_CHANGE}, while the experiment is still '
                 'running. From then on, the split assigns everyone to variant "test". End the experiment with a '
                 f"conclusion, or restore the split. {MIXED_ASSIGNMENTS}",
+                (
+                    ExperimentHealthFindingActionKind.END_EXPERIMENT,
+                    ExperimentHealthFindingActionKind.OPEN_FEATURE_FLAG_HISTORY,
+                ),
             ),
             (
                 "several_changes_days_after_launch",
@@ -277,6 +293,7 @@ class TestSplitChangedMidRun(TestCase):
                 ("reverted", ExperimentHealthFindingSeverity.INFO, "E3"),
                 f"The split was set to control 0% / test 100% on {FIRST_CHANGE} and set back 17 minutes later. "
                 "Nobody was exposed in between.",
+                HISTORY_ONLY,
             ),
             (
                 "reverted_through_a_flag_without_variants",
@@ -295,6 +312,7 @@ class TestSplitChangedMidRun(TestCase):
         ctx: HealthContext,
         expected: tuple[str, ExperimentHealthFindingSeverity, str],
         expected_detail: str,
+        expected_actions: tuple[ExperimentHealthFindingActionKind, ...] = MOVE_START_DATE,
     ) -> None:
         finding = split_changed_mid_run(ctx)
 
@@ -302,7 +320,7 @@ class TestSplitChangedMidRun(TestCase):
         self.assertEqual(finding.code, ExperimentHealthFindingCode.SPLIT_CHANGED_MID_RUN)
         self.assertEqual((finding.subcode, finding.severity, finding.diagnostic_ref), expected)
         self.assertEqual(finding.detail, expected_detail)
-        self.assertEqual(finding.actions, (ExperimentHealthFindingActionKind.OPEN_FEATURE_FLAG_HISTORY,))
+        self.assertEqual(finding.actions, expected_actions)
 
     @parameterized.expand(
         [
@@ -318,7 +336,40 @@ class TestSplitChangedMidRun(TestCase):
                     "to": "control 80% / test 20%",
                     "exposed_before_change": None,
                     "seconds_after_start": 11040,
-                    "units_exposed_before_last_change": None,
+                    "min_units_exposed_before_last_change": None,
+                    "suggested_start_date": "2026-09-12T13:04:00+00:00",
+                },
+            ),
+            (
+                "suggested_start_rounded_up_to_the_next_minute",
+                _context(EVEN, UNEVEN, first_change_at=FIRST_CHANGE_AT + timedelta(seconds=45)),
+                None,
+                {
+                    "change_count": 1,
+                    "first_changed_at": "2026-09-12T13:04:45+00:00",
+                    "last_changed_at": "2026-09-12T13:04:45+00:00",
+                    "from": "control 50% / test 50%",
+                    "to": "control 80% / test 20%",
+                    "exposed_before_change": True,
+                    "seconds_after_start": 11085,
+                    "min_units_exposed_before_last_change": None,
+                    "suggested_start_date": "2026-09-12T13:05:00+00:00",
+                },
+            ),
+            (
+                "suggested_start_after_the_last_change",
+                _context(EVEN, _split(("control", 70), ("test", 30)), UNEVEN),
+                None,
+                {
+                    "change_count": 2,
+                    "first_changed_at": "2026-09-12T13:04:00+00:00",
+                    "last_changed_at": "2026-09-12T13:21:00+00:00",
+                    "from": "control 50% / test 50%",
+                    "to": "control 80% / test 20%",
+                    "exposed_before_change": True,
+                    "seconds_after_start": 11040,
+                    "min_units_exposed_before_last_change": None,
+                    "suggested_start_date": "2026-09-12T13:21:00+00:00",
                 },
             ),
             (
@@ -333,7 +384,8 @@ class TestSplitChangedMidRun(TestCase):
                     "to": "control 80% / test 20%",
                     "exposed_before_change": True,
                     "seconds_after_start": 11040,
-                    "units_exposed_before_last_change": 4,
+                    "min_units_exposed_before_last_change": 4,
+                    "suggested_start_date": "2026-09-12T13:04:00+00:00",
                 },
             ),
             (
@@ -487,7 +539,7 @@ class TestSplitChangedMidRun(TestCase):
     ) -> None:
         shipped = flag_state(ctx)
 
-        self.assertIsNone(split_changed_mid_run(ctx))
+        self.assertEqual(split_changed_mid_run(ctx), not_applicable(REPORTED_BY_FLAG_STATE))
         assert isinstance(shipped, ExperimentHealthFinding)
         self.assertEqual(shipped.code, ExperimentHealthFindingCode.VARIANT_SHIPPED_WHILE_RUNNING)
         self.assertEqual(
@@ -831,6 +883,13 @@ class TestSrmAfterSplitChange(TestCase):
             outcome.detail,
             "The distribution of users across variants doesn't match your current rollout percentages (p < 0.001). "
             f"{cause} The users first exposed after the day of the change match the current split (p = 1).{next_step}",
+        )
+        names_start_date = "Move the start date" in next_step
+        self.assertEqual(
+            (outcome.actions, outcome.evidence.get("suggested_start_date")),
+            ((ExperimentHealthFindingActionKind.MOVE_START_DATE,), "2026-09-12T13:04:00+00:00")
+            if names_start_date
+            else ((), None),
         )
 
     def test_leaves_out_a_split_that_changed_after_the_end(self) -> None:

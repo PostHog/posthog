@@ -1,8 +1,9 @@
 """Manual promotion: a person chooses the model key the scoring sweep serves.
 
 The daily serving publish already moves `served.json` to the newest passing version of the served
-recipe every `INBOX_RANKING_AUTO_PROMOTE_INTERVAL_DAYS`. A person runs this job for what the
-automatic step never does: a first promotion, a switch to another `model_name`, and a rollback.
+recipe once per auto-promotion interval (the `inbox-ranking-auto-promotion` flag payload, else
+`INBOX_RANKING_AUTO_PROMOTE_INTERVAL_DAYS`). A person runs this job for what the automatic step never
+does: a first promotion, a switch to another `model_name`, and a rollback.
 
 `inbox_ranking_promote_job` writes `inbox_ranking_models/v1/served.json`, then publishes the serving
 manifest for the newest dataset partition, so the change reaches the sweep without waiting for the

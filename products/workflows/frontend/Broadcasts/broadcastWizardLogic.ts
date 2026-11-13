@@ -87,6 +87,7 @@ import {
     keepOnlyRealtimeCohort,
 } from '../Workflows/hogflows/steps/realtimeCohortStatus'
 import { recipientEmailProperty } from '../Workflows/hogflows/steps/recipientEmail'
+import { isRejectedAudience } from '../Workflows/hogflows/steps/rejectedAudience'
 import { getTemplatingError } from '../Workflows/hogflows/steps/templatingError'
 import { ResourceSaveQueue } from '../Workflows/resourceSaveQueue'
 import {
@@ -188,6 +189,8 @@ export interface BroadcastEmailSettings {
     messageCategoryType: string | null
     trackingEnabled: boolean
     utmTagsEnabled: boolean
+    /** Sends a marketing email past the team's frequency cap, for time-sensitive email. */
+    skipFrequencyCap: boolean
     utmParams: UtmTagValues
     /** The utmParams keys that still follow the team default. Absent on broadcasts saved before team defaults. */
     utmParamsFromDefault?: UtmTagKey[]
@@ -198,6 +201,7 @@ export const DEFAULT_BROADCAST_EMAIL_SETTINGS: BroadcastEmailSettings = {
     messageCategoryType: null,
     trackingEnabled: true,
     utmTagsEnabled: false,
+    skipFrequencyCap: false,
     utmParams: {},
 }
 
@@ -322,6 +326,7 @@ function readEmailSettings(broadcast: HogFlowApi): BroadcastEmailSettings | null
         messageCategoryType: config.message_category_type ?? null,
         trackingEnabled: config.tracking_enabled !== false,
         utmTagsEnabled: config.utm_tags_enabled === true,
+        skipFrequencyCap: config.skip_frequency_cap === true,
         utmParams: config.utm_params ?? {},
         utmParamsFromDefault: config.utm_params_from_default,
     }
@@ -336,6 +341,7 @@ function emailSettingsConfig(settings: BroadcastEmailSettings | undefined): Reco
         message_category_type: settings.messageCategoryType ?? undefined,
         tracking_enabled: settings.trackingEnabled,
         utm_tags_enabled: settings.utmTagsEnabled,
+        skip_frequency_cap: settings.skipFrequencyCap,
         utm_params: settings.utmParams,
         utm_params_from_default: settings.utmParamsFromDefault,
     }
@@ -372,6 +378,17 @@ function changedElsewhere<T>(latest: HogFlowApi, base: HogFlowApi | null, read: 
 
 export type BroadcastSummaryTab = 'overview' | 'content' | 'runs'
 
+/** About how long `remaining` emails take at `limit`. Empty when nothing is left or no limit applies. */
+export function remainingSendDuration(remaining: number | null, limit: HogFlowEmailSendingRateLimitApi | null): string {
+    if (!limit || !remaining) {
+        return ''
+    }
+    // An estimate: the worker holds sends under the limit by rescheduling them, and it
+    // retries on a jittered delay, so the real send runs a little longer than this.
+    const perSecond = limit.count / (limit.period === 'hour' ? 3600 : 60)
+    return humanFriendlyDuration(Math.ceil(remaining / perSecond), { maxUnits: 2 })
+}
+
 export interface BroadcastWizardLogicProps {
     id: string // 'new' for new broadcasts, or a UUID for editing/viewing
 }
@@ -387,10 +404,12 @@ export interface broadcastWizardLogicValues {
     aiEmailDraftLoading: boolean
     aiEmailDraftStatus: AiEmailDraftStatusProps | null
     audienceCohortLaunchErrors: AudienceCohortLaunchError[]
+    audienceLimit: number | null
     audienceProperties: AnyPropertyFilter[]
     batchJobs: HogFlowBatchJobApi[]
     batchJobsLoading: boolean
     blastRadius: BlastRadiusApi | null
+    blastRadiusError: string | null
     blastRadiusLoading: boolean
     breadcrumbs: Breadcrumb[]
     broadcast: HogFlowApi | null
@@ -429,6 +448,12 @@ export interface broadcastWizardLogicValues {
     name: string
     push: BroadcastPushValue
     pushUnavailableReason: "Couldn't check your push setup" | "Your project doesn't have push set up yet" | null
+    rateLimitErrors: {
+        review: string | null
+        schedule: string | null
+    }
+    rateLimitMessage: string | null
+    rateLimitNeeded: RateLimitNeeded | null
     rateLimitedSendDuration: string
     recipientEmailProperty: string | null
     recipientsWithoutEmail: number | null
@@ -468,6 +493,9 @@ export interface broadcastWizardLogicActions {
     ) => {
         base: HogFlowApi | null
         broadcast: HogFlowApi
+    }
+    applySuggestedRateLimit: () => {
+        value: true
     }
     archiveBroadcast: () => {
         value: true
@@ -550,7 +578,9 @@ export interface broadcastWizardLogicActions {
         batchJobs: HogFlowBatchJobApi[]
         payload?: any
     }
-    loadBlastRadius: () => any
+    loadBlastRadius: () => {
+        value: true
+    }
     loadBlastRadiusFailure: (
         error: string,
         errorObject?: any
@@ -560,10 +590,14 @@ export interface broadcastWizardLogicActions {
     }
     loadBlastRadiusSuccess: (
         blastRadius: BlastRadiusApi | null,
-        payload?: any
+        payload?: {
+            value: true
+        }
     ) => {
         blastRadius: BlastRadiusApi | null
-        payload?: any
+        payload?: {
+            value: true
+        }
     }
     loadBroadcast: () => any
     loadBroadcastFailure: (
@@ -691,6 +725,9 @@ export interface broadcastWizardLogicActions {
     }
     setAudienceProperties: (properties: AnyPropertyFilter[]) => {
         properties: AnyPropertyFilter[]
+    }
+    setBlastRadiusError: (error: string | null) => {
+        error: string | null
     }
     setChannel: (channel: BroadcastChannel) => {
         channel: BroadcastChannel
@@ -827,6 +864,27 @@ export interface broadcastWizardLogicMeta {
             push: BroadcastPushValue,
             broadcast: HogFlowApi | null
         ) => BroadcastTemplatingErrors
+        audienceLimit: (
+            blastRadius: BlastRadiusApi | null,
+            channel: BroadcastChannel,
+            emailRateLimit: HogFlowEmailSendingRateLimitApi | null
+        ) => number | null
+        rateLimitNeeded: (
+            blastRadius: BlastRadiusApi | null,
+            channel: BroadcastChannel,
+            emailRateLimit: HogFlowEmailSendingRateLimitApi | null
+        ) => RateLimitNeeded | null
+        rateLimitMessage: (
+            rateLimitNeeded: RateLimitNeeded | null,
+            emailRateLimit: HogFlowEmailSendingRateLimitApi | null
+        ) => string | null
+        rateLimitErrors: (
+            rateLimitMessage: string | null,
+            emailRateLimit: HogFlowEmailSendingRateLimitApi | null
+        ) => {
+            review: string | null
+            schedule: string | null
+        }
         stepValidationErrors: (
             goalEnabled: boolean,
             conversion: HogFlowConversionApi,
@@ -842,7 +900,11 @@ export interface broadcastWizardLogicMeta {
             blastRadius: BlastRadiusApi | null,
             channel: BroadcastChannel,
             push: BroadcastPushValue,
-            templatingErrors: Partial<Record<'body' | 'message' | 'preheader' | 'subject' | 'title' | 'to', string>>
+            templatingErrors: Partial<Record<'body' | 'message' | 'preheader' | 'subject' | 'title' | 'to', string>>,
+            rateLimitErrors: {
+                review: string | null
+                schedule: string | null
+            }
         ) => Record<BroadcastWizardStep, string[]>
         currentStepHasErrors: (
             stepValidationErrors: Record<BroadcastWizardStep, string[]>,
@@ -904,11 +966,14 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         saveName: true,
         setAudienceProperties: (properties: AnyPropertyFilter[]) => ({ properties }),
         setAudienceCohortLaunchErrors: (errors: AudienceCohortLaunchError[]) => ({ errors }),
+        loadBlastRadius: true,
+        setBlastRadiusError: (error: string | null) => ({ error }),
         rejectLinkAudience: true,
         sendToEveryoneAfterRejectedLink: true,
         setGoalEnabled: (enabled: boolean) => ({ enabled }),
         setConversion: (conversion: HogFlowConversionApi) => ({ conversion }),
         setEmailRateLimit: (emailRateLimit: HogFlowEmailSendingRateLimitApi | null) => ({ emailRateLimit }),
+        applySuggestedRateLimit: true,
         setEmailSettings: (settings: Partial<BroadcastEmailSettings>) => ({ settings }),
         seedTeamUtmDefaults: (
             settings: Pick<BroadcastEmailSettings, 'utmTagsEnabled' | 'utmParams' | 'utmParamsFromDefault'>
@@ -959,7 +1024,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         duplicateBroadcastFinished: true,
     }),
 
-    loaders(({ props, values, cache }) => ({
+    loaders(({ actions, props, values, cache }) => ({
         broadcast: [
             null as HogFlowApi | null,
             {
@@ -974,14 +1039,23 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         blastRadius: [
             null as BlastRadiusApi | null,
             {
-                loadBlastRadius: async () => {
+                loadBlastRadius: async (_, breakpoint) => {
                     if (!values.currentProjectId) {
                         return null
                     }
-                    return await hogFlowsUserBlastRadiusCreate(
-                        String(values.currentProjectId),
-                        audiencePreviewRequest(values.audienceProperties, values.channel)
-                    )
+                    try {
+                        return await hogFlowsUserBlastRadiusCreate(
+                            String(values.currentProjectId),
+                            audiencePreviewRequest(values.audienceProperties, values.channel)
+                        )
+                    } catch (error) {
+                        if (!isRejectedAudience(error)) {
+                            throw error
+                        }
+                        breakpoint()
+                        actions.setBlastRadiusError(error.detail)
+                        return null
+                    }
                 },
             },
         ],
@@ -1100,6 +1174,13 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             // A stale result would keep a realtime cohort's restrictions on an audience that no longer has one.
             loadBlastRadiusFailure: () => null,
         },
+        blastRadiusError: [
+            null as string | null,
+            {
+                loadBlastRadius: () => null,
+                setBlastRadiusError: (_, { error }) => error,
+            },
+        ],
         broadcast: {
             saveBroadcastFinished: (state: HogFlowApi | null, { broadcast }: { broadcast: HogFlowApi | null }) =>
                 broadcast ?? state,
@@ -1570,6 +1651,45 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 broadcast: HogFlowApi | null
             ): BroadcastTemplatingErrors => getBroadcastTemplatingErrors(channel, email, push, broadcast),
         ],
+        audienceLimit: [
+            (s) => [s.blastRadius, s.channel, s.emailRateLimit],
+            (
+                blastRadius: BlastRadiusApi | null,
+                channel: BroadcastChannel,
+                emailRateLimit: HogFlowEmailSendingRateLimitApi | null
+            ): number | null =>
+                blastRadius
+                    ? audienceLimitWithRateLimit(blastRadius, channel === 'email' ? emailRateLimit : null)
+                    : null,
+        ],
+        rateLimitNeeded: [
+            (s) => [s.blastRadius, s.channel, s.emailRateLimit],
+            (
+                blastRadius: BlastRadiusApi | null,
+                channel: BroadcastChannel,
+                emailRateLimit: HogFlowEmailSendingRateLimitApi | null
+            ): RateLimitNeeded | null =>
+                channel === 'email' ? rateLimitNeededForAudience(blastRadius, emailRateLimit) : null,
+        ],
+        rateLimitMessage: [
+            (s) => [s.rateLimitNeeded, s.emailRateLimit],
+            (
+                rateLimitNeeded: RateLimitNeeded | null,
+                emailRateLimit: HogFlowEmailSendingRateLimitApi | null
+            ): string | null => (rateLimitNeeded ? rateLimitNeededMessage(rateLimitNeeded, emailRateLimit) : null),
+        ],
+        rateLimitErrors: [
+            (s) => [s.rateLimitMessage, s.emailRateLimit],
+            (
+                rateLimitMessage: string | null,
+                emailRateLimit: HogFlowEmailSendingRateLimitApi | null
+            ): { schedule: string | null; review: string | null } => ({
+                // A rate limit that is set and still can't reach everyone is the schedule step's to fix. With no
+                // rate limit at all the schedule step only suggests one, and launch is what waits for it.
+                schedule: emailRateLimit ? rateLimitMessage : null,
+                review: rateLimitMessage,
+            }),
+        ],
         stepValidationErrors: [
             (s) => [
                 s.goalEnabled,
@@ -1587,6 +1707,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 s.channel,
                 s.push,
                 s.templatingErrors,
+                s.rateLimitErrors,
             ],
             (
                 goalEnabled: boolean,
@@ -1603,7 +1724,8 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 blastRadius: BlastRadiusApi | null,
                 channel: BroadcastChannel,
                 push: BroadcastPushValue,
-                templatingErrors: BroadcastTemplatingErrors
+                templatingErrors: BroadcastTemplatingErrors,
+                rateLimitErrors: { schedule: string | null; review: string | null }
             ): Record<BroadcastWizardStep, string[]> => {
                 const errors: Record<BroadcastWizardStep, string[]> = {
                     recipients: [],
@@ -1663,12 +1785,18 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 if (scheduleMode === 'recurring' && !recurringStartsAt) {
                     errors.schedule.push('Pick a start date and time')
                 }
+                if (rateLimitErrors.schedule) {
+                    errors.schedule.push(rateLimitErrors.schedule)
+                }
 
                 errors.review = [...errors.recipients, ...errors.goal, ...errors.content, ...errors.schedule]
                 const senderError =
                     channel === 'email' ? getSenderLaunchError(email.from, integrations, integrationsLoading) : null
                 if (senderError && !errors.review.includes(senderError)) {
                     errors.review.push(senderError)
+                }
+                if (rateLimitErrors.review && !errors.review.includes(rateLimitErrors.review)) {
+                    errors.review.push(rateLimitErrors.review)
                 }
                 // Only launch waits for a list to match. Editing the other steps can go on meanwhile.
                 errors.review.push(
@@ -1729,14 +1857,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 blastRadius: BlastRadiusApi | null,
                 channel: BroadcastChannel
             ): string => {
-                const recipients = blastRadius?.affected
-                if (!emailRateLimit || !recipients || channel !== 'email') {
-                    return ''
-                }
-                // An estimate: the worker holds sends under the limit by rescheduling them, and it
-                // retries on a jittered delay, so the real send runs a little longer than this.
-                const perSecond = emailRateLimit.count / (emailRateLimit.period === 'hour' ? 3600 : 60)
-                return humanFriendlyDuration(Math.ceil(recipients / perSecond), { maxUnits: 2 })
+                return channel === 'email' ? remainingSendDuration(blastRadius?.affected ?? null, emailRateLimit) : ''
             },
         ],
         breadcrumbs: [
@@ -1890,6 +2011,11 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             // Debounce so each filter keystroke doesn't fire a preview query.
             await breakpoint(500)
             actions.loadBlastRadius()
+        },
+        applySuggestedRateLimit: () => {
+            if (values.rateLimitNeeded) {
+                actions.setEmailRateLimit({ count: values.rateLimitNeeded.maxPerHour, period: 'hour' })
+            }
         },
         editEmailContent: async () => {
             if (props.id !== 'new') {
@@ -2352,22 +2478,30 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                     // A fresh audience preview mints the confirm token the batch dispatch expects.
                     const blastRadius = await hogFlowsUserBlastRadiusCreate(
                         projectId,
-                        audiencePreviewRequest(values.audienceProperties, values.channel)
+                        audiencePreviewRequest(values.audienceProperties, values.channel, values.emailRateLimit)
                     )
 
                     // The resolver silently caps the batch at this limit, so dispatching an audience over
                     // it would confirm N recipients and deliver to the first slice. Stop at the step that
                     // can fix it. Mirrors the guard on the workflow editor's manual trigger.
                     if (blastRadius.limit != null && blastRadius.affected > blastRadius.limit) {
+                        const rateLimitNeeded =
+                            values.channel === 'email'
+                                ? rateLimitNeededForAudience(blastRadius, values.emailRateLimit)
+                                : null
                         captureLaunchFailed(broadcastId, 'audience_over_limit')
                         actions.launchBroadcastFinished()
-                        actions.setStep('recipients')
+                        actions.setStep(rateLimitNeeded ? 'schedule' : 'recipients')
                         actions.showSavedDraftUrl()
+                        if (rateLimitNeeded) {
+                            lemonToast.error(rateLimitNeededMessage(rateLimitNeeded, values.emailRateLimit))
+                            return
+                        }
                         lemonToast.error(
                             `This project can send a broadcast to up to ${humanFriendlyNumber(
                                 blastRadius.limit
                             )} people right now.${
-                                values.channel === 'email' ? ' A slower sending rate does not raise this limit.' : ''
+                                values.channel === 'email' ? rateLimitedReachSentence(blastRadius.rate_limited) : ''
                             } Add filters to narrow the audience, then launch again.`,
                             {
                                 button: {
@@ -2466,7 +2600,12 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                     path: broadcastPath(broadcastId),
                     schedule_mode: values.scheduleMode,
                     audience_filter_count: values.audienceProperties.length,
+                    excluded_cohort_count: values.audienceProperties.filter(
+                        (filter) =>
+                            filter.type === PropertyFilterType.Cohort && filter.operator === PropertyOperator.NotIn
+                    ).length,
                     has_goal: values.goalEnabled,
+                    skip_frequency_cap: values.emailSettings.skipFrequencyCap,
                     entry_source: values.entrySource ?? loadEntrySource(broadcastId),
                     ...(cache.prefilledEmail
                         ? {
@@ -2656,10 +2795,14 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 // What the agent drafted, so the launch can report which fields the person changed.
                 saveComposerDraft(broadcast.id, { agentDraft: snapshotBroadcast(broadcast), agentEdits: 0 })
             }
-            if (BROADCAST_WIZARD_STEPS.includes(step)) {
-                actions.setStep(step)
-            } else {
-                actions.setStep(values.firstInvalidStep ?? 'review')
+            const landingStep: BroadcastWizardStep = BROADCAST_WIZARD_STEPS.includes(step)
+                ? step
+                : (values.firstInvalidStep ?? 'review')
+            actions.setStep(landingStep)
+            if (landingStep !== 'review') {
+                // Only the review step previews the audience on its own, and the recipients size and the
+                // schedule step's rate limit check both need it.
+                actions.loadBlastRadius()
             }
             if (step !== undefined || from !== undefined) {
                 router.actions.replace(router.values.location.pathname, searchParams, router.values.hashParams)
@@ -2935,11 +3078,98 @@ export const DELETED_PUSH_CHANNEL_ERROR = 'A chosen push channel was deleted. Ch
 /** The email channel counts each address once and is held to the email sending limit. Push is not. */
 function audiencePreviewRequest(
     audienceProperties: AnyPropertyFilter[],
-    channel: BroadcastChannel
+    channel: BroadcastChannel,
+    emailRateLimit: HogFlowEmailSendingRateLimitApi | null = null
 ): BlastRadiusRequestApi {
     return channel === 'push'
         ? { filters: { properties: audienceProperties }, sends_email: false }
-        : { filters: { properties: audienceProperties }, dedupe_key: 'email', sends_email: true }
+        : {
+              filters: { properties: audienceProperties },
+              dedupe_key: 'email',
+              sends_email: true,
+              email_sending_rate_limit: emailRateLimit,
+          }
+}
+
+export interface RateLimitNeeded {
+    affected: number
+    minPerHour: number
+    maxPerHour: number
+    /** Days a send at maxPerHour takes to reach everyone. */
+    days: number
+}
+
+/**
+ * The hourly sending rate limits that let an audience over the normal limit go out, or null when the
+ * audience fits already or is too large for any rate. A slower rate takes too many days to reach everyone,
+ * and a faster one uses too much of the project's daily email allowance.
+ */
+const RATE_LIMIT_PERIODS_PER_DAY: Record<HogFlowEmailSendingRateLimitApi['period'], number> = {
+    minute: 24 * 60,
+    hour: 24,
+}
+
+/**
+ * The audience limit with this sending rate limit, mirroring resolve_batch_audience_limit on the server. Worked
+ * out here so editing the rate doesn't recount the audience.
+ */
+export function audienceLimitWithRateLimit(
+    blastRadius: BlastRadiusApi,
+    emailRateLimit: HogFlowEmailSendingRateLimitApi | null
+): number {
+    const rateLimited = blastRadius.rate_limited
+    if (!rateLimited || !emailRateLimit) {
+        return blastRadius.limit
+    }
+    const perDay = emailRateLimit.count * RATE_LIMIT_PERIODS_PER_DAY[emailRateLimit.period]
+    if (perDay > rateLimited.max_emails_per_hour * 24) {
+        return blastRadius.limit
+    }
+    return Math.max(blastRadius.limit, perDay * rateLimited.max_days)
+}
+
+export function rateLimitNeededForAudience(
+    blastRadius: BlastRadiusApi | null,
+    emailRateLimit: HogFlowEmailSendingRateLimitApi | null
+): RateLimitNeeded | null {
+    const rateLimited = blastRadius?.rate_limited
+    if (
+        !blastRadius ||
+        !rateLimited ||
+        blastRadius.affected <= audienceLimitWithRateLimit(blastRadius, emailRateLimit)
+    ) {
+        return null
+    }
+    if (blastRadius.affected > rateLimited.limit) {
+        return null
+    }
+    const maxPerHour = rateLimited.max_emails_per_hour
+    return {
+        affected: blastRadius.affected,
+        minPerHour: Math.ceil(blastRadius.affected / (24 * rateLimited.max_days)),
+        maxPerHour,
+        days: Math.ceil(blastRadius.affected / (24 * maxPerHour)),
+    }
+}
+
+/** What a sending rate limit can do for an email audience that is too large even for it. */
+export function rateLimitedReachSentence(rateLimited: BlastRadiusApi['rate_limited']): string {
+    return rateLimited
+        ? ` With a sending rate limit, a broadcast can reach up to ${humanFriendlyNumber(rateLimited.limit)} people over ${rateLimited.max_days} days.`
+        : ' A slower sending rate does not raise this limit.'
+}
+
+export function rateLimitNeededMessage(
+    needed: RateLimitNeeded,
+    emailRateLimit: HogFlowEmailSendingRateLimitApi | null
+): string {
+    const range =
+        needed.minPerHour === needed.maxPerHour
+            ? humanFriendlyNumber(needed.maxPerHour)
+            : `between ${humanFriendlyNumber(needed.minPerHour)} and ${humanFriendlyNumber(needed.maxPerHour)}`
+    return emailRateLimit
+        ? `At ${humanFriendlyNumber(emailRateLimit.count)} emails per ${emailRateLimit.period}, this broadcast can't reach all ${humanFriendlyNumber(needed.affected)} people. Use ${range} emails per hour.`
+        : `To reach all ${humanFriendlyNumber(needed.affected)} people, limit the sending rate to ${range} emails per hour.`
 }
 
 /**

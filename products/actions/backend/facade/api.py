@@ -21,10 +21,12 @@ from django.db import router
 import structlog
 
 from posthog.exceptions_capture import capture_exception
+from posthog.paging import Page
 
 from products.actions.backend.facade import contracts
 from products.actions.backend.logic import (
     actions as logic,
+    details,
     saved_handlers,
 )
 from products.actions.backend.models.action import Action as ActionModel
@@ -42,6 +44,7 @@ __all__ = [
     "acount_actions_to_summarize",
     "action_filter_conditions",
     "action_read_db_alias",
+    "add_action",
     "aget_action",
     "alist_actions",
     "alist_actions_to_embed",
@@ -49,21 +52,79 @@ __all__ = [
     "amark_actions_embedded",
     "asave_action_summaries",
     "accessible_action_ids",
+    "change_action_tags",
+    "count_action_references",
+    "count_live_actions",
     "create_action",
+    "edit_action",
     "existing_action_ids",
+    "find_action_id_by_name",
+    "find_action_references",
     "find_actions_by_name",
     "find_action_team_id",
     "get_action",
+    "get_action_detail",
+    "get_action_details",
     "get_action_inventory",
     "get_action_names",
     "get_actions",
     "list_action_catalog",
+    "list_action_details",
     "list_actions",
+    "list_actions_in_list_order",
     "list_top_actions",
     "on_action_saved",
     "readable_action_ids",
     "search_actions",
 ]
+
+
+def _to_creator(user: User | None) -> contracts.ActionCreator | None:
+    if user is None:
+        return None
+    return contracts.ActionCreator(
+        id=user.id,
+        uuid=user.uuid,
+        distinct_id=user.distinct_id,
+        first_name=user.first_name,
+        last_name=user.last_name,
+        email=user.email,
+        is_email_verified=user.is_email_verified,
+        hedgehog_config=user.hedgehog_config,
+        role_at_organization=user.role_at_organization,
+    )
+
+
+def _to_detail(action: ActionModel) -> contracts.ActionDetail:
+    tagged_items = getattr(action, "prefetched_tags", None)
+    tags = (
+        tuple(tagged_item.tag.name for tagged_item in tagged_items)
+        if tagged_items is not None
+        else tuple(action.tagged_items.values_list("tag__name", flat=True))
+    )
+    return contracts.ActionDetail(
+        id=action.id,
+        team_id=action.team_id,
+        name=action.name,
+        description=action.description,
+        tags=tags,
+        post_to_slack=action.post_to_slack,
+        slack_message_format=action.slack_message_format,
+        steps=tuple(action.steps),
+        created_at=action.created_at,
+        created_by_id=action.created_by_id,
+        created_by=_to_creator(action.created_by),
+        deleted=action.deleted,
+        last_calculated_at=action.last_calculated_at,
+        bytecode_error=action.bytecode_error,
+        pinned_at=action.pinned_at,
+    )
+
+
+def _to_write_result(action: ActionModel) -> contracts.ActionWriteResult:
+    return contracts.ActionWriteResult(
+        action=_to_detail(action), analytics=contracts.ActionAnalytics(**action.get_analytics_metadata())
+    )
 
 
 def _to_contract(action: ActionModel) -> contracts.Action:
@@ -279,6 +340,111 @@ def search_actions(
             result["user_access_level"] = access_levels.get(str(row["id"]))
         results.append(result)
     return results, total_count
+
+
+def list_action_details(
+    *,
+    team_id: int,
+    filters: contracts.ActionListFilters,
+    access: contracts.ActionListAccess | None,
+    offset: int = 0,
+    limit: int | None = None,
+) -> Page[contracts.ActionDetail]:
+    """The team's live actions that pass the filters, from `offset` on, at most `limit` of them.
+
+    `access` narrows the list and its count to what the viewer's access control rules allow. Without a
+    limit the list holds every action from `offset` on, and its count is `offset` plus the actions
+    returned, which saves a count query on the path the taxonomic filter shares.
+    """
+    page = details.list_details(team_id=team_id, filters=filters, access=access, offset=offset, limit=limit)
+    return page.map(_to_detail)
+
+
+def get_action_detail(*, team_id: int, action_id: int) -> contracts.ActionDetail:
+    """One action of the team, deleted or not. Raises `ActionNotFound` when the team has none with that id."""
+    return _to_detail(details.get_detail(team_id=team_id, action_id=action_id))
+
+
+def get_action_details(*, team_id: int, action_ids: Sequence[int]) -> list[contracts.ActionDetail]:
+    """The team's actions among `action_ids`, deleted ones included, in the order of `action_ids`.
+
+    A missing id is left out, not an error.
+    """
+    by_id = {
+        action.id: _to_detail(action)
+        for action in details.with_relations(logic.scoped(project_id=None, team_id=team_id)).filter(
+            pk__in=list(action_ids)
+        )
+    }
+    return [by_id[action_id] for action_id in action_ids if action_id in by_id]
+
+
+def count_live_actions(*, team_id: int) -> int:
+    return details.count_live(team_id=team_id)
+
+
+def find_action_id_by_name(*, team_id: int, name: str, exclude_action_id: int | None = None) -> int | None:
+    """The id of a live action of the team with exactly this name, other than `exclude_action_id`."""
+    return details.colliding_action_id(team_id=team_id, name=name, exclude_action_id=exclude_action_id)
+
+
+def add_action(*, team_id: int, created_by: User | None, write: contracts.ActionWrite) -> contracts.ActionWriteResult:
+    """Create an action in the team with the fields the write names. Saving compiles its bytecode.
+
+    A child environment's team is swapped for its project's root team, where actions live. Tags the write
+    names are set after the action is saved.
+    """
+    return _to_write_result(details.create(team_id=team_id, created_by=created_by, write=write))
+
+
+def edit_action(*, team_id: int, action_id: int, write: contracts.ActionWrite) -> contracts.ActionWriteResult:
+    """Change the fields the write names on one action of the team, deleted or not.
+
+    Raises `ActionNotFound` when the team has no action with that id. Tags the write names are replaced
+    after the action is saved.
+    """
+    action = details.get_detail(team_id=team_id, action_id=action_id)
+    return _to_write_result(details.update(action=action, write=write))
+
+
+def find_action_references(*, team_id: int, project_id: int, action_id: int) -> list[contracts.ActionReference]:
+    """The insights, experiments, cohorts and hog functions that use the action, 50 at most.
+
+    Deleted resources are left out. Cohorts are read across the project, the other resources in the team.
+    """
+    # Those products' facades import this one, and every caller of this module would load them.
+    from products.actions.backend.logic import references  # noqa: PLC0415
+
+    return references.find(team_id=team_id, project_id=project_id, action_id=action_id)
+
+
+def count_action_references(*, team_id: int, project_id: int, action_ids: Sequence[int]) -> dict[int, int]:
+    """For each action, how many resources `find_action_references` would count, without its cap.
+
+    An action without a reference is absent from the result.
+    """
+    from products.actions.backend.logic import references  # noqa: PLC0415 — see find_action_references
+
+    return references.count(team_id=team_id, project_id=project_id, action_ids=action_ids)
+
+
+def list_actions_in_list_order(*, team_id: int, action_ids: Collection[int]) -> list[contracts.Action]:
+    """The team's actions among `action_ids`, deleted ones included, in the order of the actions list."""
+    queryset = logic.scoped(project_id=None, team_id=team_id).filter(pk__in=list(action_ids))
+    return [_to_contract(action) for action in queryset.order_by(*details.DEFAULT_ORDERING)]
+
+
+def change_action_tags(
+    *, team_id: int, action_ids: Sequence[int], tag_action: str, tags: Sequence[str]
+) -> list[contracts.ActionTagChange]:
+    """Add, remove or set tags on the team's actions among `action_ids`, in the order of `action_ids`.
+
+    `tag_action` is `add`, `remove` or `set`. Tags no other object uses any more are deleted.
+    """
+    return [
+        contracts.ActionTagChange(id=change["id"], tags=tuple(change["tags"]))
+        for change in details.change_tags(team_id=team_id, action_ids=action_ids, tag_action=tag_action, tags=tags)
+    ]
 
 
 # HogQL

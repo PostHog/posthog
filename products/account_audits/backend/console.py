@@ -107,3 +107,10 @@ class AccountAuditCredentialsTool(ConsoleTool):
                 ),
             )
         ]
+
+
+console.register_moved_page(
+    old_path="admin/account_audits/accountauditcredential/add/",
+    title="Creating an account audit credential",
+    url="/admin/console/tools/account-audit-credentials/create/",
+)

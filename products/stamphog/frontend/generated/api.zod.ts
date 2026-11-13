@@ -16,8 +16,15 @@ export const stamphogRepoConfigsCreateBodyRoutingForkLabelsMaxOne = 50
 
 export const StamphogRepoConfigsCreateBody = /* @__PURE__ */ zod
     .object({
-        provider: zod.string().optional().describe("SCM provider this config talks to. Defaults to 'github'."),
-        repository: zod.string().describe("Repository full name, e.g. 'PostHog\/posthog'."),
+        provider: zod
+            .string()
+            .optional()
+            .describe(
+                "SCM provider this config talks to. Defaults to 'github'. Set on create only, an update ignores it."
+            ),
+        repository: zod
+            .string()
+            .describe("Repository full name, e.g. 'PostHog\/posthog'. Set on create only, an update ignores it."),
         enabled: zod.boolean().optional().describe('Whether stamphog actively reviews pull requests for this repo.'),
         digest_enabled: zod
             .boolean()
@@ -51,7 +58,7 @@ export const StamphogRepoConfigsCreateBody = /* @__PURE__ */ zod
             .boolean()
             .optional()
             .describe(
-                'Whether a clean PostHog Review run on a pull request that opened or was marked ready starts a silent stamphog review of that head, whatever review_mode says. A silent review posts only an approval: any other verdict is stored and nothing is written to the pull request. Defaults to false.'
+                "Whether a clean PostHog Review run on a pull request that opened or was marked ready starts a silent stamphog review of that head, whatever review_mode says. A silent review posts only an approval: any other verdict is stored and nothing is written to the pull request. Only for review_mode 'label' in a repository where PostHog Review runs automatic reviews: 'all' refuses it, and setting review_mode to 'all' turns it off. With routing_mode 'fallback', a head waits for that silent review before routing. Defaults to false."
             ),
     })
     .describe(
@@ -65,8 +72,15 @@ export const stamphogRepoConfigsUpdateBodyRoutingForkLabelsMaxOne = 50
 
 export const StamphogRepoConfigsUpdateBody = /* @__PURE__ */ zod
     .object({
-        provider: zod.string().optional().describe("SCM provider this config talks to. Defaults to 'github'."),
-        repository: zod.string().describe("Repository full name, e.g. 'PostHog\/posthog'."),
+        provider: zod
+            .string()
+            .optional()
+            .describe(
+                "SCM provider this config talks to. Defaults to 'github'. Set on create only, an update ignores it."
+            ),
+        repository: zod
+            .string()
+            .describe("Repository full name, e.g. 'PostHog\/posthog'. Set on create only, an update ignores it."),
         enabled: zod.boolean().optional().describe('Whether stamphog actively reviews pull requests for this repo.'),
         digest_enabled: zod
             .boolean()
@@ -100,7 +114,7 @@ export const StamphogRepoConfigsUpdateBody = /* @__PURE__ */ zod
             .boolean()
             .optional()
             .describe(
-                'Whether a clean PostHog Review run on a pull request that opened or was marked ready starts a silent stamphog review of that head, whatever review_mode says. A silent review posts only an approval: any other verdict is stored and nothing is written to the pull request. Defaults to false.'
+                "Whether a clean PostHog Review run on a pull request that opened or was marked ready starts a silent stamphog review of that head, whatever review_mode says. A silent review posts only an approval: any other verdict is stored and nothing is written to the pull request. Only for review_mode 'label' in a repository where PostHog Review runs automatic reviews: 'all' refuses it, and setting review_mode to 'all' turns it off. With routing_mode 'fallback', a head waits for that silent review before routing. Defaults to false."
             ),
     })
     .describe(
@@ -114,8 +128,16 @@ export const stamphogRepoConfigsPartialUpdateBodyRoutingForkLabelsMaxOne = 50
 
 export const StamphogRepoConfigsPartialUpdateBody = /* @__PURE__ */ zod
     .object({
-        provider: zod.string().optional().describe("SCM provider this config talks to. Defaults to 'github'."),
-        repository: zod.string().optional().describe("Repository full name, e.g. 'PostHog\/posthog'."),
+        provider: zod
+            .string()
+            .optional()
+            .describe(
+                "SCM provider this config talks to. Defaults to 'github'. Set on create only, an update ignores it."
+            ),
+        repository: zod
+            .string()
+            .optional()
+            .describe("Repository full name, e.g. 'PostHog\/posthog'. Set on create only, an update ignores it."),
         enabled: zod.boolean().optional().describe('Whether stamphog actively reviews pull requests for this repo.'),
         digest_enabled: zod
             .boolean()
@@ -149,7 +171,7 @@ export const StamphogRepoConfigsPartialUpdateBody = /* @__PURE__ */ zod
             .boolean()
             .optional()
             .describe(
-                'Whether a clean PostHog Review run on a pull request that opened or was marked ready starts a silent stamphog review of that head, whatever review_mode says. A silent review posts only an approval: any other verdict is stored and nothing is written to the pull request. Defaults to false.'
+                "Whether a clean PostHog Review run on a pull request that opened or was marked ready starts a silent stamphog review of that head, whatever review_mode says. A silent review posts only an approval: any other verdict is stored and nothing is written to the pull request. Only for review_mode 'label' in a repository where PostHog Review runs automatic reviews: 'all' refuses it, and setting review_mode to 'all' turns it off. With routing_mode 'fallback', a head waits for that silent review before routing. Defaults to false."
             ),
     })
     .describe(

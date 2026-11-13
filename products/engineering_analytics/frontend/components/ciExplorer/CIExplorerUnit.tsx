@@ -22,7 +22,6 @@ function duration(seconds: number | null): string {
     return seconds === null ? '' : humanFriendlyDuration(seconds, { maxUnits: 2 })
 }
 
-/** One node of a workflow's graph: a job, or a matrix job with its shards inside it. A focused job lists its steps. */
 export function CIExplorerUnit({ item, x, y }: { item: CIExplorerItem; x: number; y: number }): JSX.Element {
     const { focusedNodeId, focusedBadgedSteps } = useValues(ciExplorerLogic)
     const { setFocus } = useActions(ciExplorerLogic)

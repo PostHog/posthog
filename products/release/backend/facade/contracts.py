@@ -21,6 +21,84 @@ class UnknownFeatureFlagsError(Exception):
         self.flag_ids = flag_ids
 
 
+class UnknownBroadcastsError(Exception):
+    def __init__(self, broadcast_ids: list[UUID]) -> None:
+        super().__init__(broadcast_ids)
+        self.broadcast_ids = broadcast_ids
+
+
+@dataclass(frozen=True)
+class LinkedSendDTO:
+    id: UUID
+    status: str
+    created_at: datetime
+
+
+@dataclass(frozen=True)
+class LinkedBroadcastDTO:
+    id: UUID
+    name: str
+    status: str
+    recent_sends: list[LinkedSendDTO]
+
+
+@dataclass(frozen=True)
+class BroadcastVisibility:
+    existing: frozenset[UUID]
+    visible: frozenset[UUID]
+    linkable: frozenset[UUID]
+    summaries: tuple[LinkedBroadcastDTO, ...] = ()
+
+    @property
+    def hidden(self) -> frozenset[UUID]:
+        return self.existing - self.visible
+
+
+class UnknownSurveysError(Exception):
+    def __init__(self, survey_ids: list[UUID]) -> None:
+        super().__init__(survey_ids)
+        self.survey_ids = survey_ids
+
+
+class UnknownInsightsError(Exception):
+    def __init__(self, insight_ids: list[int]) -> None:
+        super().__init__(insight_ids)
+        self.insight_ids = insight_ids
+
+
+@dataclass(frozen=True)
+class SurveyVisibility:
+    existing: frozenset[UUID]
+    visible: frozenset[UUID]
+    linkable: frozenset[UUID]
+
+    @property
+    def hidden(self) -> frozenset[UUID]:
+        return self.existing - self.visible
+
+
+@dataclass(frozen=True)
+class LinkedInsightDTO:
+    id: int
+    short_id: str
+    name: str
+    created_at: datetime | None
+    last_modified_at: datetime | None
+    deleted: bool
+
+
+@dataclass(frozen=True)
+class InsightVisibility:
+    existing: frozenset[int]
+    visible: frozenset[int]
+    linkable: frozenset[int]
+    summaries: tuple[LinkedInsightDTO, ...] = ()
+
+    @property
+    def hidden(self) -> frozenset[int]:
+        return self.existing - self.visible
+
+
 @dataclass(frozen=True)
 class FlagVisibility:
     existing: frozenset[int]
@@ -46,6 +124,11 @@ class ReleaseDTO:
     owner: ReleaseOwnerDTO | None
     feature_flag_ids: list[int]
     has_hidden_flags: bool
+    broadcast_ids: list[UUID]
+    broadcasts: list[LinkedBroadcastDTO]
+    survey_ids: list[UUID]
+    insight_ids: list[int]
+    insights: list[LinkedInsightDTO]
     created_at: datetime
 
 
@@ -56,3 +139,12 @@ class CreateReleaseInput:
     description: str = ""
     owner_id: int | None = None
     feature_flag_ids: tuple[int, ...] = ()
+    broadcast_ids: tuple[UUID, ...] = ()
+    survey_ids: tuple[UUID, ...] = ()
+    insight_ids: tuple[int, ...] = ()
+
+
+@dataclass(frozen=True)
+class ImportFlag:
+    id: int
+    key: str

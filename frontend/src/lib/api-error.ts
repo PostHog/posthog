@@ -1,5 +1,15 @@
 import { dayjs } from 'lib/dayjs'
 import { humanFriendlyDuration } from 'lib/utils/durations'
+import { isUUIDLike } from 'lib/utils/guards'
+
+/**
+ * The backend's request UUID from a response's `X-Request-ID` header, lowercased so it equals the
+ * `request_id` on that request's backend log lines. Null when the header is missing or not a UUID.
+ */
+export function requestIdFromHeaders(headers: Headers | undefined): string | null {
+    const requestId = headers?.get('X-Request-ID')
+    return requestId && isUUIDLike(requestId) ? requestId.toLowerCase() : null
+}
 
 /** A 403 with DRF's `permission_denied` code — the user lacks access to the resource itself. */
 export function isAccessDeniedError(error: { status?: number; code?: string | null }): boolean {
@@ -40,6 +50,9 @@ export function isRollbackReasonRequiredError(
 ): boolean {
     return error?.status === 409 && error?.code === 'rollback_reason_required'
 }
+
+/** DRF code of the 400 `_ensure_oauth_token_valid` raises (posthog/api/integration.py). Keep in sync with the backend. */
+export const INTEGRATION_TOKEN_REFRESH_FAILED_ERROR_CODE = 'integration_token_refresh_failed'
 
 /** Potentially transient failures; a gateway error does not prove that the backend did no work. */
 const TRANSIENT_GATEWAY_STATUSES: ReadonlySet<number> = new Set([502, 503, 504])
@@ -188,6 +201,8 @@ export function isBrowserNetworkFailure(error: unknown): boolean {
  * - 409 carrying a `change_request_id` — the approvals UI shows the change request it created.
  * - 409 carrying a `current_version` — an optimistic-concurrency conflict (experiments). The
  *   editing surface toasts, reloads the fresh state, and keeps the user's unsaved edits.
+ * - 400 `integration_token_refresh_failed`: an OAuth integration needs reconnecting, and the
+ *   loader's toast tells the user to reconnect or disconnect it.
  * - 404 `Project not found.` / `Organization not found.` — the scope in the URL is gone, so every
  *   request under it fails the same way. The scene routing takes the user off that URL, and until
  *   it does, a poll on the dead scope would otherwise file one exception per tick.
@@ -247,6 +262,9 @@ export function shouldReportApiFailure(error: unknown): boolean {
     if (isRollbackReasonRequiredError(failure)) {
         return false
     }
+    if (status === 400 && failure.code === INTEGRATION_TOKEN_REFRESH_FAILED_ERROR_CODE) {
+        return false
+    }
     return !isApprovalRequiredError(failure)
 }
 
@@ -285,6 +303,9 @@ export class ApiError extends Error {
     /** Link to external resources, e.g. stripe invoices */
     link: string | null
 
+    /** Backend request UUID, which joins this failure to the request's backend logs. */
+    readonly requestId: string | null
+
     constructor(
         message?: string,
         public status?: number,
@@ -298,6 +319,7 @@ export class ApiError extends Error {
         this.code = data?.code || null
         this.link = data?.link || null
         this.attr = data?.attr || null
+        this.requestId = requestIdFromHeaders(headers)
         const retryAfter = status === 503 ? headers?.get('Retry-After') : null
         const seconds = retryAfter && /^\d+$/.test(retryAfter) ? Number(retryAfter) : NaN
         this.retryAfterSeconds = Number.isSafeInteger(seconds) ? seconds : null

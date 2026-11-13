@@ -11,7 +11,7 @@ Saved query variables and insight-view tracking cross as data: callers pass a te
 project's root team, because that is the team ``RootTeamMixin.save()`` writes the rows against.
 """
 
-from collections.abc import Collection, Mapping
+from collections.abc import Collection, Mapping, Sequence
 from datetime import date, datetime
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
@@ -28,8 +28,10 @@ from products.product_analytics.backend.facade.contracts import (
     AgentInsightRead,
     ChartExplanation,
     ChartExplanationAuthor,
+    InsightActionReference,
     InsightDashboardContext,
     InsightSeries,
+    InsightSummary,
     InsightVariableDefinition,
     SavedInsightDefinition,
     SavedTrendsInsight,
@@ -226,6 +228,65 @@ def insights_including_soft_deleted_for_team(*, team_id: int, insight_ids: Colle
     return logic.insights_including_soft_deleted_for_team(team_id=team_id, insight_ids=insight_ids)
 
 
+def _visible_insight_rows(
+    insight_ids: Collection[int],
+    *,
+    project_id: int,
+    access_control: UserAccessControl | None,
+    include_deleted: bool,
+    fields: tuple[str, ...],
+) -> list[dict[str, Any]]:
+    manager = Insight.objects_including_soft_deleted if include_deleted else Insight.objects
+    queryset = manager.filter(team__project_id=project_id, id__in=list(insight_ids))
+    if not include_deleted:
+        queryset = queryset.filter(deleted=False)
+    rows = list(queryset.values("id", "team_id", "created_by_id", *fields))
+    if access_control is None:
+        return rows
+    denied = set(
+        access_control.denied_object_ids(
+            "insight", [(str(row["id"]), row["team_id"], row["created_by_id"]) for row in rows], "viewer"
+        )
+    )
+    return [row for row in rows if str(row["id"]) not in denied]
+
+
+def existing_insight_ids(
+    insight_ids: Collection[int],
+    *,
+    project_id: int,
+    access_control: UserAccessControl | None = None,
+    include_deleted: bool = False,
+) -> set[int]:
+    rows = _visible_insight_rows(
+        insight_ids, project_id=project_id, access_control=access_control, include_deleted=include_deleted, fields=()
+    )
+    return {row["id"] for row in rows}
+
+
+def insight_summaries(
+    insight_ids: Collection[int], *, project_id: int, access_control: UserAccessControl
+) -> list[InsightSummary]:
+    rows = _visible_insight_rows(
+        insight_ids,
+        project_id=project_id,
+        access_control=access_control,
+        include_deleted=True,
+        fields=("short_id", "name", "derived_name", "created_at", "last_modified_at", "deleted"),
+    )
+    return [
+        InsightSummary(
+            id=row["id"],
+            short_id=row["short_id"],
+            name=row["name"] or row["derived_name"] or "Untitled insight",
+            created_at=row["created_at"],
+            last_modified_at=row["last_modified_at"],
+            deleted=row["deleted"],
+        )
+        for row in rows
+    ]
+
+
 def saved_trends_insights(
     *,
     team_ids: Collection[int],
@@ -273,6 +334,16 @@ def viewer_counts_by_insight(*, team_id: int, insight_ids: Collection[int], sinc
     Shared and embedded views have no viewer, so they are not counted. Insights nobody viewed are left out.
     """
     return logic.viewer_counts_by_insight(team_id=team_id, insight_ids=insight_ids, since=since)
+
+
+def insights_referencing_action(*, team_id: int, action_id: int, limit: int) -> list[InsightActionReference]:
+    """Up to `limit` live saved insights of the team whose query or filters reference the action."""
+    return logic.insights_referencing_action(team_id=team_id, action_id=action_id, limit=limit)
+
+
+def count_insights_referencing_actions(*, team_id: int, action_ids: Sequence[int]) -> dict[int, int]:
+    """For each action, how many live saved insights of the team reference it. An action without one is absent."""
+    return logic.count_insights_referencing_actions(team_id=team_id, action_ids=action_ids)
 
 
 def map_stale_to_latest(stale_variables: dict, latest_variables: list[InsightVariableDefinition]) -> dict:

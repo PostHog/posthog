@@ -81,7 +81,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.ip_restrictions import ip_restrictions_exempt_for_secret_keys
 from posthog.models import Team, User
-from posthog.models.activity_logging.activity_log import Detail, load_activity, log_activity
+from posthog.models.activity_logging.activity_log import Detail, Trigger, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import ActivityLogPaginatedResponseSerializer, activity_page_response
 from posthog.models.activity_logging.model_activity import ImpersonatedContext
 from posthog.models.person.point_in_time_properties import (
@@ -119,7 +119,7 @@ from products.approvals.backend.policies import lock_approval_policies
 from products.approvals.backend.presentation.mixins import ApprovalHandlingMixin
 from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.util import get_all_cohort_dependencies
-from products.dashboards.backend.api.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard import Dashboard
 from products.experiments.backend.facade.contracts import LinkedExperiment
 from products.feature_flags.backend.api.code_analysis import FeatureFlagCodeAnalysisMixin
 from products.feature_flags.backend.api.filters_schema import (
@@ -164,6 +164,7 @@ from products.feature_flags.backend.facade.config import (
     require_v1_config,
 )
 from products.feature_flags.backend.facade.config_validation import ConfigValidationError, ValidationLimits
+from products.feature_flags.backend.facade.enums import VERSION_RESTORE_JOB_TYPE
 from products.feature_flags.backend.facade.references import InvalidIds, references
 from products.feature_flags.backend.filters_validation import collect_cross_field_violations, flatten_structural_errors
 from products.feature_flags.backend.flag_analytics import (
@@ -198,6 +199,7 @@ from products.feature_flags.backend.user_blast_radius import (
 from products.feature_flags.backend.version_history import (
     VersionHistoryIncomplete,
     VersionNotFound,
+    build_restore_write,
     reconstruct_flag_at_timestamp,
     reconstruct_flag_at_version,
 )
@@ -1032,6 +1034,58 @@ class EvaluationContextSerializerMixin(serializers.Serializer):
 # entire cached flag set. person_metadata is here because Rust accepts it — the narrower
 # four-type set the structural tier enforces is a policy choice, not a serde limit.
 _RUST_PROPERTY_TYPES: frozenset[str] = frozenset({*FEATURE_FLAG_PROPERTY_TYPES, "person_metadata"})
+
+
+def _iter_raw_condition_properties(properties: object) -> Iterator[object]:
+    # Classifies each node the way parse_property_group_data does at that position, but yields each property
+    # as sent. The parser drops a property it can't build, so a check over its output never sees an unknown or
+    # missing type. A node that this walk reads as a group but the parser builds as a property skips the check.
+    if isinstance(properties, dict) and "type" in properties and "values" in properties:
+        yield from _iter_raw_group_values(properties["values"])
+    elif isinstance(properties, list):
+        # The parser builds every item of a top-level list as a property, even an item with a "values" key.
+        yield from properties
+    elif isinstance(properties, dict):
+        # The parser reads any other dict as legacy {key: value} filters and builds each key as an event property.
+        yield from ({"key": key, "type": "event"} for key in properties)
+    elif properties:
+        yield properties
+
+
+def _iter_raw_group_values(values: object) -> Iterator[object]:
+    if not isinstance(values, list):
+        if values:
+            yield values
+        return
+    for item in values:
+        # Inside a group, the parser reads an item with "type" and "values" as a nested group, and it rejects
+        # a group type other than AND or OR.
+        if isinstance(item, dict) and "type" in item and "values" in item:
+            yield from _iter_raw_group_values(item["values"])
+        else:
+            yield item
+
+
+def _validate_blast_radius_property_types(condition: object) -> None:
+    # Sizing runs the caller's condition as a query, so it accepts only the property types a saved flag accepts.
+    # The check sits here and not in user_blast_radius.py, because workflows size event and hogql filters
+    # through those helpers.
+    if not isinstance(condition, dict):
+        raise exceptions.ValidationError({"condition": "The condition must be an object."})
+    supported = ", ".join(sorted(_RUST_PROPERTY_TYPES))
+    for prop in _iter_raw_condition_properties(condition.get("properties")):
+        prop_type = prop.get("type") if isinstance(prop, dict) else None
+        if not isinstance(prop_type, str):
+            raise exceptions.ValidationError(
+                {"filters": f"Each release condition property needs a type. Use one of: {supported}."}
+            )
+        if prop_type not in _RUST_PROPERTY_TYPES:
+            raise exceptions.ValidationError(
+                {
+                    "filters": f"Property type '{prop_type}' isn't supported in release conditions. "
+                    f"Use one of: {supported}."
+                }
+            )
 
 
 def _variant_keys(filters: Mapping[str, Any]) -> Iterator[str]:
@@ -3788,6 +3842,7 @@ class FeatureFlagVersionResponseSerializer(serializers.ModelSerializer):
             "filters",
             "active",
             "deleted",
+            "archived",
             "version",
             "ensure_experience_continuity",
             "has_enriched_analytics",
@@ -3891,7 +3946,7 @@ class EvaluationFeatureFlagSerializer(MinimalFeatureFlagSerializer):
         fields = [*MinimalFeatureFlagSerializer.Meta.fields, "has_experiment"]
 
     def get_has_experiment(self, feature_flag: FeatureFlag) -> bool:
-        # The evaluation/cache batch queries annotate `_has_experiment` via a bulk Exists,
+        # The evaluation/cache batch queries set `_has_experiment` from one bulk read,
         # so this avoids an N+1. The exists() fallback only fires for unannotated callers.
         cached = getattr(feature_flag, "_has_experiment", None)
         if cached is not None:
@@ -4207,6 +4262,18 @@ class FeatureFlagSetActiveRequestSerializer(serializers.Serializer):
             "The `version` from your most recent read of this flag. Required when the flag's `filters.version` is "
             "2, optional otherwise. When sent, the change is refused with 409 if anyone else changed the flag after "
             "that version. Null is the same as leaving it out."
+        ),
+    )
+
+
+class FeatureFlagRestoreVersionRequestSerializer(FeatureFlagRollbackReasonSerializer):
+    version = serializers.IntegerField(
+        min_value=0,
+        allow_null=True,
+        help_text=(
+            "The flag's current `version`, from your most recent read of it. This is not the version to restore, "
+            "which goes in the URL. The restore is refused with 409 if anyone changed the flag after this version. "
+            "A flag written before versioning reads as `null`; send that back unchanged and it is read as 0."
         ),
     )
 
@@ -5151,6 +5218,98 @@ class FeatureFlagViewSet(
         return Response(FeatureFlagVersionResponseSerializer(instance=result).data)
 
     @validated_request(
+        FeatureFlagRestoreVersionRequestSerializer,
+        parameters=[
+            OpenApiParameter(
+                "version_number",
+                OpenApiTypes.INT,
+                location=OpenApiParameter.PATH,
+                required=True,
+                description="The past version to restore.",
+            ),
+        ],
+        responses={
+            **flag_lifecycle_responses(
+                "The flag is archived, has encrypted payloads, or uses a configuration format other than 1, or the "
+                "past version no longer passes validation, for example because it targets a deleted cohort.",
+                version_precondition=True,
+            ),
+            404: OpenApiResponse(description="Version not found."),
+            422: OpenApiResponse(description="Activity log incomplete; cannot reconstruct this version."),
+        },
+    )
+    @action(
+        methods=["POST"],
+        detail=True,
+        url_path=r"versions/(?P<version_number>[0-9]+)/restore",
+        required_scopes=["feature_flag:write"],
+    )
+    def restore_version(self, request: ValidatedRequest, version_number: str, **kwargs) -> Response:
+        """
+        Restore a past version of a feature flag.
+
+        Sets the flag's release conditions, variants, payloads, name and evaluation options back to
+        what they were at `version_number`. Read that version first with the versions endpoint to see
+        what will change. The flag's key, its enabled state, and its archived state stay as they are,
+        as do tags, evaluation contexts and how its cohorts are defined. The restore is saved as a new
+        version, so it can be undone by restoring the version before it.
+
+        Send the flag's current `version`. A change after that version is refused with 409. An
+        approval policy that gates the change opens a change request instead. A restore to a version
+        that matches the current configuration writes nothing and returns the flag.
+        """
+        from products.feature_flags.backend.facade.api import update_flag
+
+        deleted_hint = "restoring a past version"
+        feature_flag: FeatureFlag = self.get_object()
+        rejection = self._deleted_flag_rejection(feature_flag, deleted_hint)
+        if rejection is not None:
+            return rejection
+        version = request.validated_data["version"] or 0
+        # Runs before the approval gate so a stale caller never opens a change request for a
+        # write the serializer would then refuse under its row lock.
+        self._version_precondition(feature_flag, version)
+        target_version = int(version_number)
+
+        try:
+            with transaction.atomic():
+                # The same sequence as `_rollout_action`: the write is computed from the locked row,
+                # so a change landing after the read is refused rather than answered as a no-op, and
+                # a bulk delete, which leaves `version` untouched, is refused rather than rewritten.
+                locked_flag = FeatureFlag.objects_including_soft_deleted.select_for_update().get(pk=feature_flag.pk)
+                _carry_loaded_state(feature_flag, locked_flag)
+                rejection = self._deleted_flag_rejection(locked_flag, deleted_hint)
+                if rejection is not None:
+                    return rejection
+                self._version_precondition(locked_flag, version)
+                restore_write = build_restore_write(locked_flag, target_version)
+        except VersionNotFound as e:
+            return Response({"detail": str(e)}, status=status.HTTP_404_NOT_FOUND)
+        except VersionHistoryIncomplete as e:
+            return Response({"detail": str(e)}, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
+
+        # The write leaves the transaction for the reasons `_rollout_action` gives, and takes the
+        # row lock again with the same version check.
+        if not restore_write:
+            return self._lifecycle_response(locked_flag)
+        rollback_reason = {
+            field: request.validated_data[field] for field in ROLLBACK_REASON_FIELDS if field in request.validated_data
+        }
+        locked_flag._activity_trigger = Trigger(
+            job_type=VERSION_RESTORE_JOB_TYPE,
+            job_id=str(target_version),
+            payload={"restored_from_version": target_version},
+        )
+        restored = update_flag(
+            locked_flag,
+            {**rollback_reason, **restore_write},
+            team=self.team,
+            user=request.user,
+            request=FlagVersionCheckedWriteRequest(request, version=version),
+        )
+        return self._lifecycle_response(restored)
+
+    @validated_request(
         query_serializer=MyFlagsQuerySerializer,
         responses={
             200: OpenApiResponse(response=MyFlagsResponseListSerializer),
@@ -5902,6 +6061,10 @@ class FeatureFlagViewSet(
             raise exceptions.ValidationError("Missing condition for which to get blast radius")
 
         condition = request.data.get("condition") or {}
+        _validate_blast_radius_property_types(condition)
+        # The query also reads filter_test_accounts, which adds the team's test account filters,
+        # and the check above doesn't see those.
+        condition = {"properties": condition.get("properties")}
         group_type_index = request.data.get("group_type_index", None)
 
         if group_type_index is None and use_blast_radius_query_v2(self.team):

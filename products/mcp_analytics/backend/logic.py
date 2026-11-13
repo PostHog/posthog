@@ -1,3 +1,4 @@
+import re
 import json
 import hashlib
 import dataclasses
@@ -14,10 +15,13 @@ from posthog.schema import AnyPropertyFilterDiscriminated, DateRange, EventPrope
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
+from posthog.hogql.errors import BaseHogQLError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr, parse_select
+from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.property_access_types import RestrictedProperty
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.visitor import clone_expr
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.hogql_queries.utils.caller_context import map_in_caller_context
@@ -444,10 +448,14 @@ def _query_mcp_sessions(
         if pages_before_reading_properties
         else (_SESSIONS_IN_WINDOW_SQL, _PAGE_SQL)
     )
-    # A filter can read properties, and the page query would read them across the whole scan. Narrowing
-    # to sessions that match inside the window first costs less. Without filters, the narrowing costs more.
+    context = _sessions_query_context(team, user, properties, filter_test_accounts)
+    # The page query evaluates the filters on every event in the scan. When they read a JSON blob, narrowing to
+    # sessions that match inside the window first reads less of it. Otherwise the narrowing is one more sequential
+    # pass over events, which costs more than it saves.
     candidates_text = (
-        "" if isinstance(shared_filters, ast.Constant) else f"AND $session_id IN ({_SESSIONS_IN_WINDOW_SQL})"
+        f"AND $session_id IN ({_SESSIONS_IN_WINDOW_SQL})"
+        if pages_before_reading_properties and _filters_read_event_json(team, user, shared_filters, context.database)
+        else ""
     )
     sql = (
         _MCP_SESSIONS_SQL.replace("__SESSIONS__", sessions_text)
@@ -468,7 +476,7 @@ def _query_mcp_sessions(
             query=query,
             team=team,
             user=user,
-            context=_sessions_query_context(team, user, properties, filter_test_accounts),
+            context=context,
         )
 
     rows = [_row_to_session_dict(row) for row in (response.results or [])]
@@ -495,6 +503,32 @@ def _sessions_query_context(
         else None
     )
     return HogQLContext(team_id=team.pk, team=team, user=user, database=database)
+
+
+_EVENT_JSON_COLUMN = re.compile(r"\bevents\.(?:person_)?properties\b")
+
+
+def _filters_read_event_json(team: Team, user: User | None, filters: ast.Expr, database: Database | None) -> bool:
+    if isinstance(filters, ast.Constant):
+        return False
+    query = ast.SelectQuery(
+        select=[ast.Constant(value=1)],
+        select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+        where=clone_expr(filters),
+    )
+    context = HogQLContext(
+        team_id=team.pk,
+        team=team,
+        user=user,
+        database=database or Database.create_for_posthog_tables(team),
+        modifiers=create_default_modifiers_for_team(team),
+        enable_select_queries=True,
+    )
+    try:
+        sql, _ = prepare_and_print_ast(query, context, dialect="clickhouse")
+    except BaseHogQLError:
+        return True
+    return _EVENT_JSON_COLUMN.search(sql) is not None
 
 
 def _row_to_session_dict(row: tuple[Any, ...]) -> dict[str, Any]:

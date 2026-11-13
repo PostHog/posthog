@@ -39,7 +39,11 @@ def _campaign(uuid: str) -> dict[str, Any]:
 
 
 def _segments(start: int, stop: int) -> ScriptedResponse:
-    return ScriptedResponse(json={"segments": [{"uuid": f"s{i}"} for i in range(start, stop)]})
+    return ScriptedResponse(json=[{"uuid": f"s{i}"} for i in range(start, stop)])
+
+
+def _paged_envelope(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    return {"page": 0, "per_page": 100, "results": rows, "total_count": len(rows), "total_pages": 1}
 
 
 class TestBlueshiftLists:
@@ -81,7 +85,13 @@ class TestBlueshiftLists:
         def answer(request: Any) -> ScriptedResponse:
             rows = [("a", False), ("b", True)] if request.param("archived") == "false" else [("b", True), ("c", True)]
             return ScriptedResponse(
-                json=[{"uuid": uuid, **({"archived": flag} if with_flag else {})} for uuid, flag in rows]
+                json={
+                    "page": 0,
+                    "per_page": 100,
+                    "results": [{"uuid": uuid, **({"archived": flag} if with_flag else {})} for uuid, flag in rows],
+                    "total_count": len(rows),
+                    "total_pages": 1,
+                }
             )
 
         result = _driver().run("campaigns", answer, resume_state=resume_state)
@@ -93,12 +103,19 @@ class TestBlueshiftLists:
 
     @parameterized.expand(
         [
-            ("object_body_without_selector", "campaigns", {"campaigns": [{"uuid": "a"}], "total": 1}, "'campaigns'"),
-            ("selector_key_missing", "email_templates", {"templates": [{"uuid": "a"}]}, "'templates'"),
+            (
+                "object_body_without_selector",
+                "sms_templates",
+                {"templates": [{"uuid": "a"}], "total": 1},
+                "'templates'",
+            ),
+            ("campaigns_bare_list", "campaigns", [{"uuid": "a"}], "'results'"),
+            ("selector_key_missing", "email_templates", {"template": [{"uuid": "a"}]}, "'template'"),
+            ("segments_wrapped", "segments", {"segments": [{"uuid": "a"}]}, "'segments'"),
         ]
     )
     def test_an_unexpected_body_fails_on_the_first_page_and_names_its_keys(
-        self, _name: str, schema: str, body: dict[str, Any], key: str
+        self, _name: str, schema: str, body: Any, key: str
     ) -> None:
         result = _driver().run(schema, always(ScriptedResponse(json=body)))
 
@@ -149,9 +166,27 @@ class TestBlueshiftLists:
             ),
             (
                 "bare_list_paginated",
-                "sms_templates",
+                "segments",
                 [ScriptedResponse(json=[{"uuid": "a"}, {"uuid": "b"}])],
+                "/api/v1/segments/list",
+            ),
+            (
+                "sms_templates_paged_envelope",
+                "sms_templates",
+                [ScriptedResponse(json=_paged_envelope([{"uuid": "a"}, {"uuid": "b"}]))],
                 "/api/v1/sms_templates.json",
+            ),
+            (
+                "push_templates_paged_envelope",
+                "push_templates",
+                [ScriptedResponse(json=_paged_envelope([{"uuid": "a"}, {"uuid": "b"}]))],
+                "/api/v1/push_templates.json",
+            ),
+            (
+                "email_templates_wrapped",
+                "email_templates",
+                [ScriptedResponse(json={"templates": [{"uuid": "a"}, {"uuid": "b"}]})],
+                "/api/v1/email_templates.json",
             ),
         ]
     )

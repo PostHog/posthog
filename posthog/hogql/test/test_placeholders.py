@@ -31,16 +31,50 @@ class TestParser(SimpleTestCase):
         finder = find_placeholders(expr)
         self.assertTrue(finder.has_filters)
         self.assertTrue(finder.has_date_filters)
+        self.assertTrue(finder.has_predicate_filters)
         self.assertEqual(finder.placeholder_fields, [["foo"]])
         self.assertEqual(len(finder.placeholder_expressions), 1)
 
     @parameterized.expand(
-        [("filters",), ("filters.native(timestamp)",), ("filters.previous",), ("filters.previous.native(timestamp)",)]
+        [
+            ("filters", True),
+            ("filters.native(timestamp)", True),
+            ("filters.previous", True),
+            ("filters.previous.native(timestamp)", True),
+            ("filters.previous(timestamp AS timestamp)", True),
+            ("filters.dateRange.from", False),
+            ("filters.dateRange.to", False),
+            ("filters.previous.dateRange.from", False),
+            ("filters.previous.dateRange.to", False),
+        ]
     )
-    def test_find_placeholders_chain_filters(self, placeholder: str) -> None:
+    def test_find_placeholders_chain_filters(self, placeholder: str, is_predicate: bool) -> None:
         finder = find_placeholders(parse_select("select 1 from events where {" + placeholder + "}"))
         self.assertTrue(finder.has_filters)
         self.assertTrue(finder.has_date_filters)
+        self.assertEqual(finder.has_predicate_filters, is_predicate)
+
+    @parameterized.expand([("filters.interval",), ("filters.interval('week')",), ("filters.breakdown(a AS 'plan')",)])
+    def test_filter_values_do_not_apply_date_or_property_predicates(self, placeholder: str) -> None:
+        finder = find_placeholders(parse_select("SELECT {" + placeholder + "} FROM events"))
+        self.assertTrue(finder.has_filters)
+        self.assertFalse(finder.has_date_filters)
+        self.assertFalse(finder.has_predicate_filters)
+
+    @parameterized.expand(
+        [
+            ("filters",),
+            ("filters.dateRange.from",),
+            ("filters(event AS 'event')",),
+            ("filters.interval('day')",),
+        ]
+    )
+    def test_replace_placeholders_leaves_filters_for_replace_filters(self, placeholder: str) -> None:
+        query = cast(ast.SelectQuery, parse_select("select {foo} from events where {" + placeholder + "}"))
+        replaced = cast(ast.SelectQuery, replace_placeholders(query, {"foo": ast.Constant(value=1)}))
+        self.assertEqual(cast(ast.Constant, replaced.select[0]).value, 1)
+        assert replaced.where is not None and query.where is not None
+        self.assertEqual(clear_locations(replaced.where), clear_locations(query.where))
 
     def test_find_placeholders_dotted_filters_calls(self):
         # The dotted call forms must count as filters usage too; the Hog VM has no `filters` global.

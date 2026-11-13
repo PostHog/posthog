@@ -70,6 +70,7 @@ from products.stamphog.backend.facade.review_evidence import (
     get_review_evidence_providers,
 )
 from products.stamphog.backend.logic.approvals import dismiss_stale_approvals_for_head
+from products.stamphog.backend.logic.attestation_pins import get_check_runs_with_pins
 from products.stamphog.backend.logic.audiences import resolve_audiences
 from products.stamphog.backend.logic.decision_fingerprint import (
     DECISION_FINGERPRINT_OUTPUT_KEY,
@@ -518,7 +519,7 @@ def _read_review_context(run: ReviewRun) -> dict[str, Any]:
         # top-level discussion misses; fails closed on truncation/errors, same as get_pr_discussion.
         review_threads_future = submit("review_threads", client.get_pr_review_threads, repo, number)
         # Head-commit check runs let the engine's migration gate see a passing "Migration risk" check.
-        check_runs_future = submit("check_runs", client.get_check_runs, repo, run.head_sha)
+        check_runs_future = submit("check_runs", get_check_runs_with_pins, client, repo, run.head_sha)
         commit_messages_future = submit("commit_messages", _pr_commit_messages, client, repo, number, run.head_sha)
         reactions_future = submit("pr_reactions", client.get_pr_reactions, repo, number)
         policy_futures = {
@@ -988,6 +989,14 @@ def _attest_gates(run: ReviewRun, client: StamphogGitHubClient) -> GateAttestati
             return GateAttestation(attested=False, reason="file_list_moved", gates=[])
         context, policy_files = _engine_gate_inputs(run)
         context["files"] = pinned_files
+        # A newer run of the check behind a deny lift may have failed since the context fetch, so
+        # the check runs are read again. A failed read lifts nothing, which refuses only the
+        # approvals that need a lift.
+        try:
+            context["check_runs"] = get_check_runs_with_pins(client, repo, run.head_sha)
+        except Exception:
+            activity.logger.exception(f"Run {run.id}: check runs unreadable for the gate attestation")
+            context["check_runs"] = []
         attestation = run_engine_attest(context, policy_files)
         if attestation.reason == "dependency_manifest" and 0 < len(attestation.manifests) <= _MAX_ATTESTED_MANIFESTS:
             manifest_contents = fetch_manifest_contents(
@@ -1839,6 +1848,23 @@ def reuse_withheld_verdict(input: StamphogReviewInput) -> dict:
     return {"reused": reused}
 
 
+def _route_after_moved_head(run: ReviewRun) -> None:
+    """Hand a run that a push superseded to FALLBACK routing, which decides on the live head.
+
+    In label mode a push to an unlabeled PR queues no review of the new head, so a FALLBACK head that
+    waits for this run would otherwise wait for the safety net.
+    """
+    pull_request = run.pull_request
+    queue_routing_after_verdict(
+        pull_request.repo_config,
+        pr_number=pull_request.pr_number,
+        head_sha=run.head_sha,
+        status=ReviewRunStatus.FAILED,
+        verdict=ReviewVerdict.NONE,
+        silent=run.is_silent,
+    )
+
+
 @activity.defn
 @asyncify
 def post_verdict(input: StamphogReviewInput) -> dict:
@@ -1892,9 +1918,14 @@ def post_verdict(input: StamphogReviewInput) -> dict:
         # Conditional: a retry after the terminal save already committed (e.g. the trailing digest
         # stamp crashed) must not rewrite a delivered COMPLETED outcome to SUPERSEDED — terminal
         # states are history. The stale-approval sweep retires that approval on the next delivery.
-        ReviewRun.objects.for_team(input.team_id).filter(id=run.id).exclude(status__in=TERMINAL_STATUSES).update(
-            status=ReviewRunStatus.SUPERSEDED, completed_at=timezone.now(), updated_at=timezone.now()
+        superseded = (
+            ReviewRun.objects.for_team(input.team_id)
+            .filter(id=run.id)
+            .exclude(status__in=TERMINAL_STATUSES)
+            .update(status=ReviewRunStatus.SUPERSEDED, completed_at=timezone.now(), updated_at=timezone.now())
         )
+        if superseded and kind == "head_moved":
+            _route_after_moved_head(run)
         if run.verdict != ReviewVerdict.APPROVED:
             _dismiss_orphaned_approval(client, run, input.team_id)
         activity.logger.info(f"Skipping verdict for run {run.id}: {detail}")
@@ -1939,11 +1970,12 @@ def post_verdict(input: StamphogReviewInput) -> dict:
     # A retry after the approval posted skips this, because the gates attested before that post.
     if parsed.verdict == ReviewVerdict.APPROVED and not parsed.gate_blocked and run.posted_review_id is None:
         stored = output.get("gate_attestation")
-        if isinstance(stored, dict):
-            # A retry reuses the first answer. Another check could attest where the first did not,
-            # and post an approval over the escalation that the first attempt already delivered.
+        if isinstance(stored, dict) and stored.get("attested") is not True:
+            # A retry reuses a first answer that did not attest, because a second check that attests
+            # would post an approval over the escalation the first attempt delivered. A retry checks
+            # an answer that attested again, because a deny lift can stop holding between attempts.
             attestation = GateAttestation(
-                attested=stored.get("attested") is True,
+                attested=False,
                 reason=str(stored.get("reason") or ""),
                 gates=list(stored.get("gates") or []),
             )
@@ -1956,6 +1988,7 @@ def post_verdict(input: StamphogReviewInput) -> dict:
                         "attested": attestation.attested,
                         "reason": attestation.reason,
                         "gates": attestation.gates,
+                        "lifted": attestation.lifted,
                     }
                 },
             )
@@ -2132,10 +2165,10 @@ def _notify_finished_review(
             hook(finished)
         except Exception:
             activity.logger.exception(f"stamphog: finished-review callback failed for run {run.id}")
-    # Routing requests reviewers and can comment on the PR, which a silent run may only do for an
-    # approval. The callbacks above still hear every outcome.
-    if not run.may_publish(finished.verdict):
-        return
+    # A silent run routes on a withheld verdict too. FALLBACK routing exists for the heads stamphog does
+    # not approve, and with the clean-review switch on the head waits for this run. The routing comment
+    # never names the verdict, so the verdict itself stays off the PR.
+    #
     # Stamphog's own follow-up, called directly rather than registered, because registering it at
     # app-ready would pull the task module onto the django.setup() path. It only queues a task.
     queue_routing_after_verdict(
@@ -2144,6 +2177,7 @@ def _notify_finished_review(
         head_sha=run.head_sha,
         status=finished.status,
         verdict=finished.verdict,
+        silent=run.is_silent,
     )
 
 
@@ -2177,9 +2211,14 @@ def mark_review_failed(input: MarkReviewFailedInput) -> None:
     # ask the author to push again for a review that is already queued.
     if (run.output or {}).get(_HEAD_MOVED_OUTPUT_KEY):
         now = timezone.now()
-        ReviewRun.objects.for_team(input.team_id).filter(id=run.id).exclude(status__in=TERMINAL_STATUSES).update(
-            status=ReviewRunStatus.SUPERSEDED, completed_at=now, updated_at=now
+        superseded = (
+            ReviewRun.objects.for_team(input.team_id)
+            .filter(id=run.id)
+            .exclude(status__in=TERMINAL_STATUSES)
+            .update(status=ReviewRunStatus.SUPERSEDED, completed_at=now, updated_at=now)
         )
+        if superseded:
+            _route_after_moved_head(run)
         _remove_own_eyes_reaction(client, run)
         _sweep_orphan_approvals_at_terminal(client, run, input.team_id)
         return

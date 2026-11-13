@@ -1,11 +1,10 @@
 import './MissingCapabilitiesPreview.scss'
 
+import { BrandMark } from 'lib/components/BrandMark/BrandMark'
+import { type BrandMarkName } from 'lib/components/BrandMark/brandMarks'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { cn } from 'lib/utils/css-classes'
 import { inStorybook } from 'lib/utils/dom'
-
-import { type BrandMarkName } from '../brandMarks'
-import { BrandMark } from '../components/BrandMark'
 
 interface PreviewReport {
     /** The ask in the agent's own words. */

@@ -4,6 +4,7 @@ import { useMemo, useRef, useState } from 'react'
 import { IconChat, IconSparkles } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { cn } from 'lib/utils/css-classes'
 
 import { Composer } from 'products/posthog_ai/frontend/api/composer'
@@ -30,7 +31,8 @@ export function ReportDiscussionComposer({
 }: {
     report: SignalReport
     reportUrl: string
-}): JSX.Element {
+}): JSX.Element | null {
+    const hasPostHogAiAccess = useFeatureFlag('PHAI_SANDBOX_MODE')
     const {
         isDiscussing,
         isCreatingPr,
@@ -111,6 +113,10 @@ export function ReportDiscussionComposer({
         }
         captureInboxReportAction({ report, actionType: 'resume_discussion', surface: 'detail_pane' })
         openReportTask(report, lastRun.taskId, lastRun.runId)
+    }
+
+    if (!hasPostHogAiAccess) {
+        return null
     }
 
     return (

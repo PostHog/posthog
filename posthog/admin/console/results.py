@@ -11,7 +11,22 @@ from django.urls import reverse
 
 from cryptography.fernet import Fernet, InvalidToken
 
-from posthog.admin.console.tools import Cell, GroupRow, Live, Notice, Output, Page, Paging, Row, Secret, Table
+from posthog.admin.console.tools import (
+    Cell,
+    GroupRow,
+    Link,
+    Links,
+    Live,
+    Notice,
+    Output,
+    Page,
+    Paging,
+    Row,
+    Secret,
+    Stat,
+    Stats,
+    Table,
+)
 from posthog.dataclasses import frozen
 
 if TYPE_CHECKING:
@@ -61,7 +76,7 @@ class ResultCodec:
         from posthog.admin.console.views import OperationTarget  # noqa: PLC0415
 
         types = (OperationResult, OperationTarget, RecordLink, Page, Notice, Table, Row, GroupRow, Cell, Paging)
-        return {cls.__name__: cls for cls in (*types, Output, Secret)}
+        return {cls.__name__: cls for cls in (*types, Output, Secret, Stats, Stat, Links, Link)}
 
     @classmethod
     def _encode(cls, value: object) -> object:
