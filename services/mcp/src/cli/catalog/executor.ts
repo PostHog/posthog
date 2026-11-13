@@ -7,6 +7,7 @@ import {
     castBooleanToString,
     castObjectToJsonString,
     castStringToInt,
+    castSyncFrequency,
     normalizeParamAliases,
     registerAliasPreprocess,
 } from '@/tools/cast-helpers'
@@ -30,6 +31,7 @@ const CASTS: Record<CatalogHttpTool['input']['casts'][string], (value: unknown) 
     castStringToInt,
     castBooleanToString,
     castObjectToJsonString,
+    castSyncFrequency,
 }
 
 type Params = Record<string, unknown>

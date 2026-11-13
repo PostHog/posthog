@@ -10,7 +10,7 @@ export const CATALOG_SCHEMA_VERSION = 1
 // way older CLIs can't detect from the entries themselves.
 export const CATALOG_MIN_HOG_VERSION = '0.0.0'
 
-const CAST_HELPERS = ['castStringToInt', 'castBooleanToString', 'castObjectToJsonString'] as const
+const CAST_HELPERS = ['castStringToInt', 'castBooleanToString', 'castObjectToJsonString', 'castSyncFrequency'] as const
 
 const HTTP_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'] as const
 

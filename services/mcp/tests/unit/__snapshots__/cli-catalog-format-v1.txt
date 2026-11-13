@@ -438,7 +438,8 @@
                             "enum": [
                                 "castStringToInt",
                                 "castBooleanToString",
-                                "castObjectToJsonString"
+                                "castObjectToJsonString",
+                                "castSyncFrequency"
                             ]
                         }
                     },
