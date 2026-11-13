@@ -1,6 +1,6 @@
 import uuid
 import threading
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import ClassVar, cast
 
 from posthog.test.base import BaseTest
@@ -64,7 +64,7 @@ BLOCKS_CHECKOUT = IssueTagDefinition(
     label="Blocks checkout",
     description="The error stops a user from paying.",
     question_version=2,
-    enabled_flag="error-tracking-issue-tags",
+    enabled_flag=ISSUE_TAGS_FLAG,
     taggers=(JevTaggerConfig(instructions="Does this error stop a user from paying?", yes_at=0.8, no_at=0.2),),
 )
 RETRIES_ITSELF = IssueTagDefinition(
@@ -72,7 +72,7 @@ RETRIES_ITSELF = IssueTagDefinition(
     label="Retries itself",
     description="The application retries the failed call by itself.",
     question_version=1,
-    enabled_flag="error-tracking-issue-tags",
+    enabled_flag=ISSUE_TAGS_FLAG,
     taggers=(
         JevTaggerConfig(instructions="Does the application retry the failed call by itself?", yes_at=0.6, no_at=0.4),
     ),
@@ -101,6 +101,10 @@ class _FailingTagger:
 
 def _decision(answers: dict[str, NoulAnswer]) -> DecisionResult:
     return DecisionResult(model="jev-model", answers=dict(answers), input_tokens=10)
+
+
+def _flags_on(*flags: str) -> Callable[..., bool]:
+    return lambda flag, *args, **kwargs: flag in flags
 
 
 class TestJevTagger(SimpleTestCase):
@@ -150,11 +154,7 @@ class TestRunIssueTaggers(BaseTest):
         issue = ErrorTrackingIssue.objects.create(team=self.team)
 
         with (
-            patch.object(
-                team_flags,
-                "feature_enabled_or_false",
-                new=lambda flag, *args, **kwargs: flag in {ISSUE_TAGS_FLAG, JEV_ISSUE_TAGS_FLAG},
-            ),
+            patch.object(team_flags, "feature_enabled_or_false", new=_flags_on(ISSUE_TAGS_FLAG, JEV_ISSUE_TAGS_FLAG)),
             patch(DECIDE, return_value=_decision({"cause_in_trace": NoulAnswer(probability=0.9)})) as decide,
         ):
             result = run_issue_taggers(self.team.id, issue.id, lambda team: EVENT_PROPERTIES)
@@ -193,7 +193,7 @@ class TestRunIssueTaggers(BaseTest):
         load_event_properties = MagicMock(return_value=EVENT_PROPERTIES)
 
         with (
-            patch.object(team_flags, "feature_enabled_or_false", new=lambda flag, *args, **kwargs: flag in flags_on),
+            patch.object(team_flags, "feature_enabled_or_false", new=_flags_on(*flags_on)),
             patch(DECIDE) as decide,
         ):
             result = run_issue_taggers(self.team.id, issue.id, load_event_properties)
@@ -210,7 +210,7 @@ class TestRunIssueTaggers(BaseTest):
             label="Cause in trace",
             description="The stack trace shows where in your code the error starts.",
             question_version=1,
-            enabled_flag="error-tracking-issue-tags",
+            enabled_flag=ISSUE_TAGS_FLAG,
             taggers=(
                 _NewTaggerConfig(),
                 JevTaggerConfig(instructions="Is the cause in the trace?", yes_at=0.7, no_at=0.3),

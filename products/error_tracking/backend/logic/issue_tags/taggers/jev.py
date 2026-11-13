@@ -46,7 +46,6 @@ class JevTagger:
                     answer=repr(answer),
                 )
                 continue
-            # Below yes_at, the label does not apply. The Tagger.answer docstring tells why Jev omits this tag.
             if answer.probability < configs[definition.key].yes_at:
                 continue
             answers[definition.key] = TagAnswer(
