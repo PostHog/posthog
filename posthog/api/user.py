@@ -133,6 +133,8 @@ from posthog.permissions import (
     TimeSensitiveActionPermission,
     UserNoOrgMembershipDeletePermission,
     credential_admits_organization,
+    credential_admits_team,
+    get_authenticator_scoped_team_ids,
 )
 from posthog.rate_limit import (
     OnboardingSkipThrottle,
@@ -730,7 +732,7 @@ class UserSerializer(serializers.ModelSerializer):
             team = Team.objects.get(pk=value)
             request = self.context["request"]
             if (
-                credential_admits_organization(request, team.organization_id)
+                credential_admits_team(request, team.id, team.organization_id)
                 and request.user.teams.filter(pk=team.pk).exists()
             ):
                 return team
@@ -818,7 +820,15 @@ class UserSerializer(serializers.ModelSerializer):
                 )
 
             validated_data["current_organization"] = current_organization
-            validated_data["current_team"] = current_team if current_team else current_organization.teams.first()
+            if not current_team:
+                candidate_teams = current_organization.teams.all()
+                scoped_teams = get_authenticator_scoped_team_ids(
+                    getattr(self.context.get("request"), "successful_authenticator", None)
+                )
+                if scoped_teams:
+                    candidate_teams = candidate_teams.filter(id__in=scoped_teams)
+                current_team = candidate_teams.first()
+            validated_data["current_team"] = current_team
         elif current_team:
             validated_data["current_team"] = current_team
             validated_data["current_organization"] = current_team.organization
@@ -928,7 +938,9 @@ class UserSerializer(serializers.ModelSerializer):
 
         # `/api/users/@me/` has no tenant target, so `APIScopePermission` leaves a credential confined to
         # some organizations free to read the user's current project and organization in any other one.
-        if data.get("team") is not None and not credential_admits_organization(request, data["team"]["organization"]):
+        if data.get("team") is not None and not credential_admits_team(
+            request, data["team"]["id"], data["team"]["organization"]
+        ):
             data["team"] = None
         if data.get("organization") is not None and not credential_admits_organization(
             request, data["organization"]["id"]

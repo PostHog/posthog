@@ -1,7 +1,7 @@
 """A base for settings the requesting user keeps for themselves, under `/api/<route>/@me/`.
 
 Staff may name another user by UUID. A subclass reaches the user's current project only through
-`_current_team_id`, which refuses a credential confined to other organizations, because
+`_current_team_id`, which refuses a credential that cannot reach that project, because
 `APIScopePermission` skips the tenant check for `scope_object = "user"`.
 
 `CurrentUserLookupMixin` resolves `@me`, and `UserViewSet` shares it. Neither class carries a
@@ -24,7 +24,11 @@ from posthog.auth import (
     SessionAuthentication,
 )
 from posthog.models import User
-from posthog.permissions import APIScopePermission, check_team_within_credential_organizations
+from posthog.permissions import (
+    APIScopePermission,
+    check_team_within_credential_scope,
+    get_request_reachable_organization_ids,
+)
 from posthog.rate_limit import UserAuthenticationThrottle
 
 if TYPE_CHECKING:
@@ -46,14 +50,22 @@ class CurrentUserLookupMixin(_LookupBase):
             raise exceptions.PermissionDenied(
                 "As a non-staff user you're only allowed to access the `@me` user instance."
             )
+        if self._credential_is_confined():
+            raise exceptions.PermissionDenied(
+                "A token limited to some organizations or projects can only access the `@me` user instance."
+            )
 
         return super().get_object()
 
     def get_queryset(self) -> QuerySet[User]:
         queryset = super().get_queryset()
-        if not self.request.user.is_staff:
+        if not self.request.user.is_staff or self._credential_is_confined():
             queryset = queryset.filter(id=self.request.user.id)
         return queryset
+
+    def _credential_is_confined(self) -> bool:
+        # Staff reach every user, which no credential limited to some organizations or projects may do.
+        return get_request_reachable_organization_ids(self.request) is not None
 
 
 class UserSettingsViewSet(CurrentUserLookupMixin, viewsets.GenericViewSet):
@@ -73,5 +85,5 @@ class UserSettingsViewSet(CurrentUserLookupMixin, viewsets.GenericViewSet):
         team_id = instance.current_team_id
         if not team_id:
             raise serializers.ValidationError(missing_message)
-        check_team_within_credential_organizations(self.request, team_id)
+        check_team_within_credential_scope(self.request, team_id)
         return team_id

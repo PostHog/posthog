@@ -450,6 +450,44 @@ class TestUserAPI(APIBaseTest):
         assert body["organization"] is None
         assert [organization["id"] for organization in body["organizations"]] == [str(self.organization.id)]
 
+    def _authenticate_with_scoped_key(self, **scope: list) -> None:
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="Scoped key",
+            secure_value=hash_key_value(token),
+            scopes=["user:read", "user:write"],
+            **scope,
+        )
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+    def test_team_scoped_key_cannot_reach_a_sibling_project(self) -> None:
+        sibling_team = Team.objects.create(organization=self.organization, name="Sibling")
+        self._authenticate_with_scoped_key(scoped_teams=[self.team.id])
+
+        switch = self.client.patch("/api/users/@me/", {"set_current_team": sibling_team.id}, format="json")
+        self.user.current_team = sibling_team
+        self.user.save()
+        me = self.client.get("/api/users/@me/")
+
+        assert switch.status_code == 400, switch.content
+        assert me.status_code == 200, me.content
+        assert me.json()["team"] is None
+
+    def test_scoped_key_of_a_staff_user_reaches_only_itself(self) -> None:
+        self.user.is_staff = True
+        self.user.save()
+        other_user = create_user("other@example.com", "password12345", self.new_org)
+        self._authenticate_with_scoped_key(scoped_organizations=[str(self.organization.id)])
+
+        other = self.client.get(f"/api/users/{other_user.uuid}/")
+        listed = self.client.get("/api/users/")
+
+        assert other.status_code == 403, other.content
+        assert listed.status_code == 200, listed.content
+        assert [user["uuid"] for user in listed.json()["results"]] == [str(self.user.uuid)]
+
     def test_requires_credential_review_unverified_passkey(self):
         # Unverified passkeys are the realistic pre-claim attack artifact - a partner
         # session can register a credential without ever completing verification.
