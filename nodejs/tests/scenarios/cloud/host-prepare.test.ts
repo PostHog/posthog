@@ -43,15 +43,20 @@ jq -n --arg database "$database" --arg source "$(realpath "$source")" '{$databas
 `
 
 const FAKE_PNPM = `#!/usr/bin/env bash
-for arg in "$@"; do
-    [ "\${previous:-}" = --profile ] && profile=$arg
-    [ "$arg" = seed-backlog ] && command=$arg
-    previous=$arg
+while [ $# -gt 0 ]; do
+    case $1 in
+    --dir) dir=$2 && shift ;;
+    exec) [ "$2" = tsx ] && entry=$3 && shift 2 ;;
+    --profile) profile=$2 && shift ;;
+    seed-backlog) command=$1 ;;
+    esac
+    shift
 done
 echo 'seed step output'
 [ "\${FAKE_SEED_EXIT:-0}" = 0 ] || exit "$FAKE_SEED_EXIT"
-jq -n --arg database "$CYCLOTRON_NODE_DATABASE_URL" --arg manifest "$SCENARIO_RUN_MANIFEST" \\
-    --arg command "\${command:-}" --arg profile "\${profile:-}" '{$database, $manifest, $command, $profile}' >"$FAKE_CALLS/seeded"
+program=$(cd "\${dir:-.}" && realpath -e "\${entry:-}") || exit 2
+jq -n --arg database "$CYCLOTRON_NODE_DATABASE_URL" --arg manifest "$SCENARIO_RUN_MANIFEST" --arg program "$program" \\
+    --arg command "\${command:-}" --arg profile "\${profile:-}" '{$database, $manifest, $program, $command, $profile}' >"$FAKE_CALLS/seeded"
 `
 
 describe('host-prepare.sh', () => {
@@ -101,6 +106,7 @@ describe('host-prepare.sh', () => {
         expect(recorded('seeded')).toEqual({
             database: URL,
             manifest: path.join(dir, 'host', 'input', 'manifest.json'),
+            program: path.join(REPO, 'nodejs', 'tests', 'scenarios', 'main.ts'),
             command: 'seed-backlog',
             profile: path.join(dir, 'host', 'input', 'runner-profile.yaml'),
         })
