@@ -4,7 +4,7 @@ import { useId, useState } from 'react'
 import { IconChevronRight, IconLock, IconWarning } from '@posthog/icons'
 import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 
-import { type ScopePickerGroup, type ScopeAccessLevel, countScopeRowsByLevel } from 'lib/scopes'
+import { type ScopePickerGroup, type ScopePickerRow, type ScopeAccessLevel, countScopeRowsByLevel } from 'lib/scopes'
 
 import { ScopeAccessRow } from './ScopeAccessRow'
 import { ScopeRowsLevelControl } from './ScopeRowsLevelControl'
@@ -19,6 +19,23 @@ interface ScopeAccessGroupProps {
     dataAttrPrefix: string
 }
 
+function HiddenRowMarkers({ rows }: { rows: ScopePickerRow[] }): JSX.Element {
+    return (
+        <>
+            {rows.some((row) => row.disabledReasons.none) && (
+                <Tooltip title="Some of these permissions can't be removed">
+                    <IconLock className="shrink-0 text-muted" />
+                </Tooltip>
+            )}
+            {rows.some((row) => row.warning) && (
+                <Tooltip title="Some of these permissions have a warning">
+                    <IconWarning className="shrink-0 text-warning" />
+                </Tooltip>
+            )}
+        </>
+    )
+}
+
 /** A collapsible group of scope rows with a control that sets every row at once. */
 export function ScopeAccessGroup({
     group,
@@ -31,8 +48,6 @@ export function ScopeAccessGroup({
     const [open, setOpen] = useState(defaultOpen)
     const panelId = useId()
     const counts = countScopeRowsByLevel(rows)
-    const hasRequiredRow = rows.some((row) => row.disabledReasons.none)
-    const hasWarning = rows.some((row) => row.warning)
     const groupSlug = label.toLowerCase().replace(/[^a-z0-9]+/g, '-')
 
     return (
@@ -57,16 +72,7 @@ export function ScopeAccessGroup({
                     <span className="truncate">{label}</span>
                 </button>
                 {/* A closed group hides its rows, so it shows that some of them are locked or carry a warning. */}
-                {!open && hasRequiredRow && (
-                    <Tooltip title="Some of these permissions can't be removed">
-                        <IconLock className="shrink-0 text-muted" />
-                    </Tooltip>
-                )}
-                {!open && hasWarning && (
-                    <Tooltip title="Some of these permissions have a warning">
-                        <IconWarning className="shrink-0 text-warning" />
-                    </Tooltip>
-                )}
+                {!open && <HiddenRowMarkers rows={rows} />}
                 <div className="flex items-center gap-2 ml-auto shrink-0">
                     <span className="hidden @min-[36rem]/scope-group:flex items-center gap-2">
                         <span className="text-xs text-muted whitespace-nowrap">
