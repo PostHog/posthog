@@ -148,6 +148,10 @@ export class LiveController<T> {
         return this.readNow()
     }
 
+    checkRecovery(): Promise<void> {
+        return this.running ? this.readNow() : Promise.resolve()
+    }
+
     dispose(): void {
         this.stop()
         if (this.graceTimer !== null) {

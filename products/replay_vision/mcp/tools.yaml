@@ -666,7 +666,7 @@ tools:
             Draft a full scanner configuration from a natural-language `goal` (e.g. "find where users get stuck during
             onboarding"). First ask the person how much it should use, and offer both choices: free, which sets
             `free_only: true` so the scanner runs only on the organization's free monthly credits, never adds to the
-            bill and pauses when they run out; or a set `monthly_credit_budget` in credits a month (1 credit = $0.01),
+            bill and stops when they run out; or a set `monthly_credit_budget` in credits a month (1 credit = $0.01),
             which becomes the scanner's `credit_limit`. Pass exactly one of the two, and never guess a budget. Check
             `vision-quota-get` first and skip the free choice when `credits_used` has reached `free_monthly_credits`.
             Nothing is saved. Returns `name`, `description`, `scanner_type`, `scanner_config`, `query`, a `rationale`

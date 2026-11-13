@@ -16,6 +16,7 @@ import {
 } from '@posthog/quill'
 
 import { getVideoExportDisabledReason } from 'lib/components/ExportButton/exportStatus'
+import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
 import { LemonMenuItems } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
@@ -72,6 +73,7 @@ export function QuillPlayerActionsMenu({
     const { skipInactivitySetting } = useValues(playerSettingsLogic)
     const { setSkipInactivitySetting } = useActions(playerSettingsLogic)
     const [confirmDelete, setConfirmDelete] = useState(false)
+    const floatingContainer = useFloatingContainer()
 
     const exportAccessControlDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.Export,
@@ -147,7 +149,7 @@ export function QuillPlayerActionsMenu({
                 >
                     <IconEllipsis />
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
+                <DropdownMenuContent align="end" container={floatingContainer}>
                     <QuillMenuItems items={items} />
                 </DropdownMenuContent>
             </DropdownMenu>

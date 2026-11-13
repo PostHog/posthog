@@ -809,22 +809,25 @@ describe('ToolExecutor metrics', () => {
 
         it.each(['gated_tool', 'tool_not_granted'] as const)('stamps the target tool on %s', async (reason) => {
             const state = execState()
-            state.allTools = state.allTools.filter((tool) => tool.name !== 'notebooks-create')
+            state.allTools = state.allTools.filter((tool) => tool.name !== 'notebooks-partial-update')
             if (reason === 'gated_tool') {
-                state.flagGatedTools = [{ name: 'notebooks-create', supersededBy: ['notebooks-create-markdown'] }]
+                state.flagGatedTools = [{ name: 'notebooks-partial-update', supersededBy: ['notebooks-update-cell'] }]
             } else {
                 state.scopeGatedTools = []
                 state.flagGatedTools = []
                 state.heldTools = new Set(['docs-search'])
             }
 
-            await executor.handleToolCall({ name: 'exec', arguments: { command: 'call notebooks-create {}' } }, state)
+            await executor.handleToolCall(
+                { name: 'exec', arguments: { command: 'call notebooks-partial-update {}' } },
+                state
+            )
 
             const [toolName, , , , extras] = mockTrackToolCall.mock.calls.at(-1) ?? []
-            expect(toolName).toBe('notebooks-create')
+            expect(toolName).toBe('notebooks-partial-update')
             expect(extras).toMatchObject({
                 $mcp_exec_verb: 'call',
-                $mcp_exec_target_tool: 'notebooks-create',
+                $mcp_exec_target_tool: 'notebooks-partial-update',
                 $mcp_error_code: reason,
             })
         })

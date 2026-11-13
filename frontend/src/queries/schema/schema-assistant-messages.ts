@@ -544,8 +544,6 @@ export enum AgentMode {
     Flags = 'flags',
     AIObservability = 'llm_analytics',
     Sandbox = 'sandbox',
-    /** Retired. Kept so stored conversations in this mode still load. */
-    UserInterview = 'user_interview',
     CustomerAnalytics = 'customer_analytics',
 }
 

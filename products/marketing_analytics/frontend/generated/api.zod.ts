@@ -65,7 +65,7 @@ export const MarketingAnalyticsConversionRecordingsListBody = /* @__PURE__ */ zo
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
 /**
- * Dismisses a recommendation or marks it as applied. Resolving it again replaces the earlier resolution. Returns 400 when the identity's rule never produces that combination of ids.
+ * Dismisses a recommendation or marks it as applied. Resolving it again replaces the earlier resolution. Returns 400 when the identity's rule never produces that combination of ids, and 403 without access to every Google Ads and Search Console source of the project.
  * @summary Resolve a recommendation
  */
 export const marketingAnalyticsRecommendationResolutionsCreateBodyIdentityOneCustomerIdMax = 64
@@ -73,9 +73,6 @@ export const marketingAnalyticsRecommendationResolutionsCreateBodyIdentityOneCus
 export const marketingAnalyticsRecommendationResolutionsCreateBodyIdentityOneCampaignIdMax = 64
 
 export const marketingAnalyticsRecommendationResolutionsCreateBodyIdentityOneSubjectMax = 10000
-
-export const marketingAnalyticsRecommendationResolutionsCreateBodyNameDefault = ``
-export const marketingAnalyticsRecommendationResolutionsCreateBodyNameMax = 400
 
 export const MarketingAnalyticsRecommendationResolutionsCreateBody = /* @__PURE__ */ zod.object({
     identity: zod
@@ -120,13 +117,6 @@ export const MarketingAnalyticsRecommendationResolutionsCreateBody = /* @__PURE_
                 ),
         })
         .describe("The recommendation's `identity` from the recommendations query, sent as is."),
-    name: zod
-        .string()
-        .max(marketingAnalyticsRecommendationResolutionsCreateBodyNameMax)
-        .default(marketingAnalyticsRecommendationResolutionsCreateBodyNameDefault)
-        .describe(
-            'A display label for the recommendation, such as the campaign name or the search term. The activity log shows it. It is not part of the identity.'
-        ),
     resolution: zod
         .enum(['dismissed', 'applied'])
         .describe('\* `dismissed` - Dismissed\n\* `applied` - Applied')

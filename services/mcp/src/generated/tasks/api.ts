@@ -422,13 +422,21 @@ export const TasksCreateBody = () => zod.object({
         .string()
         .max(tasksCreateBodyRepositoryMax)
         .nullish()
-        .describe('Target GitHub repository in `organization\/repo` format (e.g. `posthog\/posthog-js`).'),
+        .describe(
+            'Target repository. For GitHub, use `organization\/repo` (e.g. `posthog\/posthog-js`). For GitLab, set `repository_integration` and use the full project path, which can include nested groups (e.g. `acme\/platform\/api`).'
+        ),
     repositories: zod
         .array(zod.string().max(tasksCreateBodyRepositoriesItemMax))
         .max(tasksCreateBodyRepositoriesMax)
         .optional()
         .describe('GitHub repositories available to this task, each in `organization\/repo` format.'),
     github_integration: zod.number().nullish().describe('GitHub integration for this task.'),
+    repository_integration: zod
+        .number()
+        .nullish()
+        .describe(
+            'GitLab integration for a task in a GitLab project on gitlab.com. Requires `repository`. Leave `github_integration` and `github_user_integration` empty.'
+        ),
     github_user_integration: zod
         .string()
         .nullish()

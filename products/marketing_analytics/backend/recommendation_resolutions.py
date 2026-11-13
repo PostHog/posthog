@@ -1,12 +1,10 @@
-from django.db.models import QuerySet
+from collections.abc import Iterable
 
 from posthog.schema import (
     MarketingAnalyticsRecommendationIdentity,
     MarketingAnalyticsRecommendationResolution,
     MarketingAnalyticsRecommendationResolutionState as ResolutionState,
 )
-
-from posthog.models.utils import strict_fetch
 
 from products.marketing_analytics.backend.hogql_queries.recommendation_identity import (
     RecommendationKey,
@@ -15,17 +13,27 @@ from products.marketing_analytics.backend.hogql_queries.recommendation_identity 
 from products.marketing_analytics.backend.models.recommendation_resolution import RecommendationResolution, subject_hash
 
 
-def resolutions_by_key(team_id: int) -> dict[str, MarketingAnalyticsRecommendationResolution]:
-    rows = RecommendationResolution.objects.for_team(team_id).values_list(
-        "id",
-        "rule",
-        "source_type",
-        "customer_id",
-        "campaign_id",
-        "subject",
-        "resolution",
-        "resolved_at",
-        named=True,
+def resolutions_by_key(
+    team_id: int, identities: Iterable[MarketingAnalyticsRecommendationIdentity]
+) -> dict[str, MarketingAnalyticsRecommendationResolution]:
+    hashes = {subject_hash(identity.subject) for identity in identities}
+    if not hashes:
+        return {}
+    # Resolved search terms that are no longer candidates stay unread. Campaign rules share the empty subject.
+    rows = (
+        RecommendationResolution.objects.for_team(team_id)
+        .filter(subject_hash__in=hashes)
+        .values_list(
+            "id",
+            "rule",
+            "source_type",
+            "customer_id",
+            "campaign_id",
+            "subject",
+            "resolution",
+            "resolved_at",
+            named=True,
+        )
     )
     return {
         RecommendationKey.from_fields(row).encoded: MarketingAnalyticsRecommendationResolution(
@@ -40,7 +48,6 @@ def resolve(
     identity: MarketingAnalyticsRecommendationIdentity,
     resolution: ResolutionState,
     user_id: int,
-    name: str,
 ) -> tuple[RecommendationResolution, bool]:
     validate_identity(identity)
     # Resolving a recommendation again, for example from another tab, replaces the earlier resolution.
@@ -51,13 +58,8 @@ def resolve(
         customer_id=identity.customer_id,
         campaign_id=identity.campaign_id,
         subject_hash=subject_hash(identity.subject),
-        defaults={"name": name, "resolution": resolution, "resolved_by_id": user_id},
-        create_defaults={
-            "subject": identity.subject,
-            "name": name,
-            "resolution": resolution,
-            "resolved_by_id": user_id,
-        },
+        defaults={"resolution": resolution, "resolved_by_id": user_id},
+        create_defaults={"subject": identity.subject, "resolution": resolution, "resolved_by_id": user_id},
     )
 
 
@@ -68,10 +70,3 @@ def restore(team_id: int, resolution_id: str) -> bool:
     # A hard delete through the instance, so the activity log records the restore.
     resolution.delete()
     return True
-
-
-def resolutions_page(team_id: int, *, limit: int, offset: int) -> tuple[list[RecommendationResolution], int]:
-    rows: QuerySet[RecommendationResolution] = strict_fetch(
-        RecommendationResolution.objects.for_team(team_id).select_related("resolved_by")
-    )
-    return list(rows.order_by("-resolved_at", "id")[offset : offset + limit]), rows.count()

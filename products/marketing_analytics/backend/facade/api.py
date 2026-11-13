@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from posthog.schema import (
     MarketingAnalyticsRecommendationIdentity,
@@ -9,20 +10,30 @@ from posthog.schema import (
 
 from posthog.dataclasses import frozen
 
-from products.marketing_analytics.backend import recommendation_resolutions
+from products.marketing_analytics.backend import recommendation_access, recommendation_resolutions
 from products.marketing_analytics.backend.hogql_queries.recommendation_identity import (
     InvalidRecommendationIdentity,
     RecommendationKey,
 )
-from products.marketing_analytics.backend.models.recommendation_resolution import RecommendationResolution
+from products.marketing_analytics.backend.models.recommendation_resolution import (
+    RecommendationResolution,
+    RecommendationResolutionState,
+    RecommendationRule,
+    RecommendationSourceType,
+)
+
+if TYPE_CHECKING:
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 __all__ = [
     "InvalidRecommendationIdentity",
+    "RecommendationResolutionState",
     "RecommendationResolver",
+    "RecommendationRule",
+    "RecommendationSourceType",
     "ResolveOutcome",
     "ResolvedRecommendation",
-    "ResolvedRecommendationsPage",
-    "list_recommendation_resolutions",
+    "can_resolve_recommendations",
     "resolve_recommendation",
     "restore_recommendation",
 ]
@@ -43,7 +54,6 @@ class ResolvedRecommendation:
     id: str
     identity: MarketingAnalyticsRecommendationIdentity
     key: str
-    name: str
     resolution: MarketingAnalyticsRecommendationResolutionState
     resolved_by: RecommendationResolver | None
     resolved_at: datetime
@@ -56,23 +66,15 @@ class ResolveOutcome:
     created: bool
 
 
-@frozen
-class ResolvedRecommendationsPage:
-    results: tuple[ResolvedRecommendation, ...]
-    count: int
-
-
 def resolve_recommendation(
     team_id: int,
     identity: MarketingAnalyticsRecommendationIdentity,
     resolution: MarketingAnalyticsRecommendationResolutionState,
     user_id: int,
-    *,
-    name: str,
 ) -> ResolveOutcome:
     """Dismiss a recommendation or mark it as applied. Raises InvalidRecommendationIdentity for an identity its rule
     cannot produce."""
-    row, created = recommendation_resolutions.resolve(team_id, identity, resolution, user_id, name)
+    row, created = recommendation_resolutions.resolve(team_id, identity, resolution, user_id)
     return ResolveOutcome(resolution=_to_contract(row), created=created)
 
 
@@ -81,9 +83,9 @@ def restore_recommendation(team_id: int, resolution_id: str) -> bool:
     return recommendation_resolutions.restore(team_id, resolution_id)
 
 
-def list_recommendation_resolutions(team_id: int, *, limit: int, offset: int) -> ResolvedRecommendationsPage:
-    rows, count = recommendation_resolutions.resolutions_page(team_id, limit=limit, offset=offset)
-    return ResolvedRecommendationsPage(results=tuple(_to_contract(row) for row in rows), count=count)
+def can_resolve_recommendations(team_id: int, user_access_control: "UserAccessControl") -> bool:
+    """Whether the user may read every Google Ads and Search Console table of the team, which resolving needs."""
+    return recommendation_access.can_resolve(team_id, user_access_control)
 
 
 def _to_contract(row: RecommendationResolution) -> ResolvedRecommendation:
@@ -99,7 +101,6 @@ def _to_contract(row: RecommendationResolution) -> ResolvedRecommendation:
         id=str(row.id),
         identity=identity,
         key=RecommendationKey.from_identity(identity).encoded,
-        name=row.name,
         resolution=MarketingAnalyticsRecommendationResolutionState(row.resolution),
         resolved_by=RecommendationResolver(
             id=user.id,
