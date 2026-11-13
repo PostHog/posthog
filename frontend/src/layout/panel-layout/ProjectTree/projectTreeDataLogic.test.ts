@@ -16,10 +16,55 @@ import { initKeaTests } from '~/test/init'
 
 import { panelLayoutLogic } from '../panelLayoutLogic'
 import { MovedItem, projectTreeDataLogic } from './projectTreeDataLogic'
-import { projectTreeLogic } from './projectTreeLogic'
+import { projectTreeLogic, refreshTreeItem } from './projectTreeLogic'
 
 // pluralize() joins the count to the unit with a non-breaking space, which no reader can see in an assertion.
 const toastText = (message: unknown): string => String(message).replace(/\u00a0/g, ' ')
+
+class FakeFileSystemServer {
+    private heldRefRead: (() => void) | null = null
+    private holdingNextRefRead = false
+
+    constructor(private rows: FileSystemEntry[]) {
+        jest.spyOn(api.fileSystem, 'list').mockImplementation(async (params) => this.list(params ?? {}))
+        jest.spyOn(api.fileSystem, 'move').mockImplementation(async (id: string, newPath: string) => {
+            this.rename(id, newPath)
+            return {} as any
+        })
+        jest.spyOn(api.fileSystem, 'delete').mockImplementation(async (id: string) => {
+            this.rows = this.rows.filter((row) => row.id !== id)
+            return { deleted: [] } as any
+        })
+    }
+
+    rename(id: string, path: string): void {
+        this.rows = this.rows.map((row) => (row.id === id ? { ...row, path } : row))
+    }
+
+    holdNextRefRead(): void {
+        this.holdingNextRefRead = true
+    }
+
+    releaseHeldRefRead(): void {
+        this.heldRefRead?.()
+    }
+
+    private list(params: { ref?: string; parent?: string }): Promise<any> {
+        const results = params.ref
+            ? this.rows.filter((row) => row.ref === params.ref)
+            : params.parent
+              ? this.rows.filter((row) => row.path.startsWith(`${params.parent}/`))
+              : []
+        const response = { count: results.length, users: [], results, has_more: false }
+        if (params.ref && this.holdingNextRefRead) {
+            this.holdingNextRefRead = false
+            return new Promise((resolve) => {
+                this.heldRefRead = () => resolve(response)
+            })
+        }
+        return Promise.resolve(response)
+    }
+}
 
 describe('projectTreeDataLogic', () => {
     let logic: ReturnType<typeof projectTreeDataLogic.build>
@@ -628,36 +673,29 @@ describe('projectTreeDataLogic', () => {
     it.each([
         {
             change: 'deleted',
-            apply: (entry: FileSystemEntry): void => logic.actions.deleteSavedItem(entry),
-            serverAfter: [] as FileSystemEntry[],
+            act: (entry: FileSystemEntry): void => logic.actions.deleteItem(entry, 'test'),
+            settles: 'deleteSavedItem',
             expectedPaths: [] as string[],
         },
         {
             change: 'moved',
-            apply: (entry: FileSystemEntry): void => logic.actions.movedItem(entry, entry.path, 'Archive/Flow'),
-            serverAfter: [{ id: 'file1', ref: 'flow1', type: 'hog_flow', path: 'Archive/Flow' }] as FileSystemEntry[],
+            act: (entry: FileSystemEntry): void => logic.actions.moveItem(entry, 'Archive/Flow', true, 'test'),
+            settles: 'movedItem',
             expectedPaths: ['Archive/Flow'],
         },
     ])('shows a file $change while its save refresh is in flight only where it now is', async (testCase) => {
-        const file = { id: 'file1', ref: 'flow1', type: 'hog_flow', path: 'Reports/Flow' } as FileSystemEntry
-        logic.actions.loadFolderSuccess('Reports', [file], false, 0)
-        let releaseStaleRefresh!: () => void
-        jest.mocked(api.fileSystem.list).mockImplementationOnce(
-            () =>
-                new Promise((resolve) => {
-                    releaseStaleRefresh = () =>
-                        resolve({ count: 1, users: [], results: [{ ...file, path: 'Reports/Flow two' }] })
-                })
-        )
-        jest.mocked(api.fileSystem.list).mockResolvedValue({
-            count: testCase.serverAfter.length,
-            users: [],
-            results: testCase.serverAfter,
-        })
+        jest.spyOn(lemonToast, 'success').mockReturnValue('' as any)
+        const server = new FakeFileSystemServer([
+            { id: 'file1', ref: 'flow1', type: 'hog_flow', path: 'Reports/Flow' } as FileSystemEntry,
+        ])
+        await expectLogic(logic, () => logic.actions.loadFolder('Reports')).toFinishAllListeners()
+        const shownFile = logic.values.folders['Reports'].find((entry) => entry.id === 'file1') as FileSystemEntry
 
-        logic.actions.syncTypeAndRef('hog_flow', 'flow1', true)
-        testCase.apply(file)
-        releaseStaleRefresh()
+        server.rename('file1', 'Reports/Flow two')
+        server.holdNextRefRead()
+        refreshTreeItem('hog_flow', 'flow1')
+        await expectLogic(logic, () => testCase.act(shownFile)).toDispatchActions([testCase.settles])
+        server.releaseHeldRefRead()
         await expectLogic(logic).toFinishAllListeners()
 
         const shownPaths = Object.values(logic.values.folders)
