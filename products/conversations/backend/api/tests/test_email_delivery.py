@@ -25,7 +25,7 @@ from products.conversations.backend.services.email_delivery import (
     stop_email_delivery,
 )
 from products.conversations.backend.services.messages import is_private_message
-from products.conversations.backend.tasks.email import send_email_reply
+from products.conversations.backend.tasks.email import _process_outbox_row, send_email_reply
 
 CUSTOMER_EMAIL = "locked-out@customer.example"
 INBOUND_TOKEN = "ab01cd23ef45"
@@ -251,6 +251,20 @@ class TestWidgetTicketEmailDelivery(MailgunWebhookTestMixin, BaseTest):
         with self.assertRaises(EmailDeliveryUnavailable):
             request_on_a_new_ticket()
         assert self._patch({"email_delivery": True}).status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_reply_claimed_by_a_worker_is_not_sent_after_delivery_is_turned_off(self):
+        confirmation = self._request_and_send_confirmation()
+        self._email_from(CUSTOMER_EMAIL, in_reply_to=confirmation.message_id)
+        queued = EmailOutboxMessage.objects.get(comment=self._team_reply("Queued while delivery was active"))
+        claimed = EmailOutboxMessage.objects.select_related("ticket__team", "ticket__email_config", "comment").get(
+            id=queued.id
+        )
+        Ticket.objects.filter(id=self.ticket.id).update(email_delivery=None)
+
+        with patch("products.conversations.backend.tasks.email.send_mime") as send_mime:
+            _process_outbox_row(claimed)
+
+        send_mime.assert_not_called()
 
     def test_queued_reply_is_not_sent_after_delivery_is_turned_off(self):
         confirmation = self._request_and_send_confirmation()

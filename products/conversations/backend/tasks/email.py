@@ -147,14 +147,27 @@ def _threading_headers(ticket_id: UUID, team_id: int) -> dict[str, str]:
 
 
 def _email_delivery_blocked_reason(ticket: Ticket, is_confirmation: bool) -> str | None:
-    """Why this ticket's email delivery state does not allow the send, or None when it does."""
+    """Why this ticket's email delivery state does not allow the send, or None when it does.
+
+    The state and the address are read again here. The ticket on the outbox row was loaded when
+    the row was claimed, and a sweep claims a whole batch before it sends the first row. So
+    without this read, turning delivery off would not stop the rest of a claimed batch.
+    """
     if ticket.channel_source == Channel.EMAIL:
         return None
+    current = (
+        Ticket.all_objects.filter(id=ticket.id, team_id=ticket.team_id)
+        .values_list("email_delivery", "email_from")
+        .first()
+    )
+    state, address = current or (None, None)
     # Until the customer confirms the address, only the confirmation email may go to it.
     required_state = EmailDelivery.PENDING if is_confirmation else EmailDelivery.ACTIVE
-    if ticket.email_delivery == required_state:
-        return None
-    return f"email delivery is not {required_state.value}"
+    if state != required_state:
+        return f"email delivery is not {required_state.value}"
+    if (address or "").lower() != (ticket.email_from or "").lower():
+        return "the customer email changed after this email was queued"
+    return None
 
 
 def _process_outbox_row(outbox: EmailOutboxMessage) -> None:
@@ -186,9 +199,6 @@ def _process_outbox_row(outbox: EmailOutboxMessage) -> None:
         return
 
     is_confirmation = is_email_confirmation(comment.item_context)
-    if blocked_reason := _email_delivery_blocked_reason(ticket, is_confirmation):
-        _mark_outbox_failed(outbox, blocked_reason)
-        return
 
     # Defense-in-depth: never send out a comment that itself arrived via inbound
     # email — mirrors the from_email signal guard at the last mile, so a future
@@ -255,6 +265,9 @@ def _process_outbox_row(outbox: EmailOutboxMessage) -> None:
     # and a row lock held across the Mailgun call would block every write to the ticket.
     if Ticket.all_objects.filter(id=ticket.id, deleted_at__isnull=False).exists():
         _mark_outbox_failed(outbox, "ticket deleted")
+        return
+    if blocked_reason := _email_delivery_blocked_reason(ticket, is_confirmation):
+        _mark_outbox_failed(outbox, blocked_reason)
         return
 
     try:
