@@ -81,6 +81,7 @@ jobs:
                         - Dockerfile
                         - docker-compose.base.yml
                         - docker-compose.hobby.yml
+                        - .env.services
                         # Hobby-specific scripts
                         - 'bin/deploy-hobby'
                         - 'bin/hobby-ci-setup-user.py'
@@ -138,6 +139,9 @@ jobs:
                   sparse-checkout: |
                       bin/helpers/render-hobby-compose.sh
                       bin/test/test_render_hobby_compose.py
+                      docker-compose.hobby.yml
+                      docker-compose.base.yml
+                      .env.services
                   sparse-checkout-cone-mode: false
             - name: Install envsubst
               run: sudo apt-get update && sudo apt-get install -y gettext-base
