@@ -48,8 +48,8 @@ from products.data_modeling.backend.models.datawarehouse_saved_query import Data
 from products.data_modeling.backend.models.datawarehouse_saved_query_column_annotation import (
     DataWarehouseSavedQueryColumnAnnotation,
 )
-from products.data_modeling.backend.models.modeling import ParentReference, get_parent_references
-from products.warehouse_sources.backend.facade.models import WarehouseColumnAnnotation
+from products.data_modeling.backend.models.modeling import get_parents_from_model_query
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable, WarehouseColumnAnnotation
 
 logger = structlog.get_logger(__name__)
 
@@ -121,41 +121,54 @@ def _gather_lineage(team: Team, saved_query: DataWarehouseSavedQuery, query_str:
     Best-effort: any parsing/resolution failure degrades to no lineage rather than failing enrichment.
     """
     try:
-        parents = get_parent_references(team, saved_query.name, query_str)
+        parent_names = get_parents_from_model_query(team, saved_query.name, query_str)
     except Exception as e:
         capture_exception(e)
         return []
-    parents = {parent for parent in parents if parent.name and parent.name != saved_query.name}
-    if not parents:
+    parent_names = {name for name in parent_names if name and name != saved_query.name}
+    if not parent_names:
         return []
 
+    descriptions: dict[str, str] = {}
+
     # Parent saved queries (other views this one reads from) → their view-level description.
-    view_descriptions = {
-        str(saved_query_id): description
-        for saved_query_id, description in DataWarehouseSavedQueryColumnAnnotation.objects.for_team(team.id)
-        .filter(saved_query_id__in={parent.saved_query_id for parent in parents} - {None}, column_name="")
-        .values_list("saved_query_id", "description")
+    stored_names = parent_names | {name.removeprefix("models.") for name in parent_names}
+    parent_views = {
+        sq.id: sq.name
+        for sq in DataWarehouseSavedQuery.objects.filter(team=team, deleted=False, name__in=stored_names).only(
+            "id", "name"
+        )
     }
-    # Physical warehouse tables → their table-level description.
-    table_descriptions = {
-        str(table_id): description
-        for table_id, description in WarehouseColumnAnnotation.objects.for_team(team.id)
-        .filter(table_id__in={parent.warehouse_table_id for parent in parents} - {None}, column_name="")
-        .values_list("table_id", "description")
-    }
+    if parent_views:
+        view_descriptions = {
+            parent_views[annotation.saved_query_id]: annotation.description
+            for annotation in DataWarehouseSavedQueryColumnAnnotation.objects.for_team(team.id).filter(
+                saved_query_id__in=list(parent_views), column_name=""
+            )
+        }
+        stored_view_names = set(parent_views.values())
+        for name in parent_names:
+            # A view stored under the exact name wins, as in HogQL. Otherwise `models.<name>` reads the view `<name>`.
+            stored_name = name if name in stored_view_names else name.removeprefix("models.")
+            if stored_name in view_descriptions:
+                descriptions[name] = view_descriptions[stored_name]
 
-    def description(parent: ParentReference) -> str | None:
-        if parent.saved_query_id in view_descriptions:
-            return view_descriptions[parent.saved_query_id]
-        if parent.warehouse_table_id in table_descriptions:
-            return table_descriptions[parent.warehouse_table_id]
-        # Everything else (PostHog core tables, unresolved names) contributes its name only.
-        return None
+    # Physical warehouse tables → their table-level description. Use values_list rather than .only():
+    # the default manager eager-loads created_by/external_data_source via select_related, which conflicts
+    # with deferring those fields; values_list drops the joins entirely and we only need id + name.
+    tables = dict(
+        DataWarehouseTable.objects.filter(team=team, name__in=parent_names)
+        .exclude(deleted=True)
+        .values_list("id", "name")
+    )
+    if tables:
+        for table_annotation in WarehouseColumnAnnotation.objects.for_team(team.id).filter(
+            table_id__in=list(tables), column_name=""
+        ):
+            descriptions.setdefault(tables[table_annotation.table_id], table_annotation.description)
 
-    return [
-        {"name": parent.name, "description": description(parent)}
-        for parent in sorted(parents, key=lambda parent: (parent.name, parent.kind))
-    ]
+    # Everything else (PostHog core tables, unresolved names) contributes its name only.
+    return [{"name": name, "description": descriptions.get(name)} for name in sorted(parent_names)]
 
 
 def _get_row_sample(saved_query: DataWarehouseSavedQuery) -> list[dict[str, str]]:
