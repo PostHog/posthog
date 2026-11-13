@@ -5,6 +5,7 @@ import { resolveEmailSendingAppSourceVersion } from '../messaging/email-tracking
 type HogFlowBillingMetricData = {
     invocation: CyclotronJobInvocationHogFunction
     billingMetricType: 'fetch' | 'email' | 'sms' | 'push'
+    count?: number
 }
 
 /**
@@ -25,7 +26,7 @@ export const trackHogFlowBillableInvocation = (
         instance_id: data.invocation.state.actionId || data.invocation.id,
         metric_kind: data.billingMetricType,
         metric_name: 'billable_invocation',
-        count: 1,
+        count: data.count ?? 1,
         ...(appSourceVersion ? { app_source_version: appSourceVersion } : {}),
     })
 }
