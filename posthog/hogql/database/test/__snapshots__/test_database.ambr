@@ -2602,6 +2602,17 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "integer"
+              },
+              "warehouse_table_ids": {
+                  "chain": null,
+                  "description": null,
+                  "fields": null,
+                  "hogql_value": "warehouse_table_ids",
+                  "id": null,
+                  "name": "warehouse_table_ids",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "array"
               }
           },
           "id": "query_log",
@@ -19412,6 +19423,17 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "integer"
+              },
+              "warehouse_table_ids": {
+                  "chain": null,
+                  "description": null,
+                  "fields": null,
+                  "hogql_value": "warehouse_table_ids",
+                  "id": null,
+                  "name": "warehouse_table_ids",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "array"
               }
           },
           "id": "query_log",

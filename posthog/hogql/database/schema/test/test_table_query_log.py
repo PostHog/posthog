@@ -1,6 +1,8 @@
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
 
+from parameterized import parameterized
+
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.cost.accuracy import cost_estimate_accuracy_hogql
 from posthog.hogql.database.database import Database
@@ -50,6 +52,30 @@ LIMIT 10 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_t
             external_tables=None,
         )
         assert response.results is not None
+
+    @parameterized.expand(
+        [
+            ("has_one_id", "has(warehouse_table_ids, 'table_a')", "has(query_log.warehouse_table_ids, %(", {"table_a"}),
+            (
+                "has_any_of_ids",
+                "hasAny(warehouse_table_ids, ['table_a', 'table_b'])",
+                "hasAny(query_log.warehouse_table_ids, [%(",
+                {"table_a", "table_b"},
+            ),
+            ("read_any_table", "notEmpty(warehouse_table_ids)", "notEmpty(query_log.warehouse_table_ids)", set()),
+        ]
+    )
+    @patch("posthog.hogql.query.sync_execute", wraps=sync_execute)
+    def test_filter_on_warehouse_table_ids(
+        self, _name: str, condition: str, expected_filter: str, expected_values: set[str], mock_sync_execute: MagicMock
+    ):
+        response = execute_hogql_query(f"select query_id from query_log where {condition}", self.team)
+
+        ch_query, params = mock_sync_execute.call_args.args
+        assert "query_log_archive.lc_warehouse_table_ids AS warehouse_table_ids" in ch_query
+        assert expected_filter in ch_query
+        assert expected_values <= set(params.values())
+        assert response.results == []
 
     def test_cost_estimate_accuracy_query_runs_against_the_archive(self):
         response = execute_hogql_query(cost_estimate_accuracy_hogql(days=7), self.team)
