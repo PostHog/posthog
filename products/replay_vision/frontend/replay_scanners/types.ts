@@ -481,27 +481,6 @@ export type ScannerConfig =
     | ScorerScannerConfig
     | ExperimentScannerConfig
 
-export type SamplingMode = 'focused' | 'balanced' | 'comprehensive'
-
-// Ordered broadest to narrowest so the labels read as a ladder.
-export const SAMPLING_MODE_OPTIONS: { value: SamplingMode; label: string; description: string }[] = [
-    {
-        value: 'comprehensive',
-        label: 'All recordings',
-        description: 'Scans everything that matches your filters, whatever happens in the recording.',
-    },
-    {
-        value: 'balanced',
-        label: 'Medium and high activity recordings',
-        description: 'Skips recordings where almost nothing happens.',
-    },
-    {
-        value: 'focused',
-        label: 'High activity recordings only',
-        description: 'Scans just the busiest recordings. The fewest, and the most likely to be interesting.',
-    },
-]
-
 // hedgehog_config's nullable index-signature type trips DeepPartial and ProfilePicture; the UI never reads it.
 export type ScannerCreatedBy = Omit<UserBasicApi, 'hedgehog_config'>
 
@@ -515,7 +494,6 @@ export type BaseReplayScanner = Omit<
     > & {
         query: RecordingsQuery | null
         created_by: ScannerCreatedBy | null
-        sampling_mode: SamplingMode
         user_access_level: AccessControlLevel | null
     }
 

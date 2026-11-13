@@ -275,8 +275,7 @@ export function ScannerTriggers({ scannerId }: { scannerId: string }): JSX.Eleme
                                 <LemonBanner type="warning">
                                     <span className="text-xs">
                                         No recordings from the last {noMatchWindowDays} days match these conditions, so
-                                        this scanner has nothing to scan. Widen the filters, or pick a broader option
-                                        under Session coverage.
+                                        this scanner has nothing to scan. Widen the filters.
                                     </span>
                                 </LemonBanner>
                             ) : (

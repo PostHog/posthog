@@ -268,7 +268,6 @@ def find_scanner_candidates(inputs: FindScannerCandidatesInputs) -> FindScannerC
         last_swept_at=scanner.last_swept_at,
         sampling_rate=scanner.sampling_rate,
         sampling_salt=str(scanner.id),
-        sampling_mode=scanner.sampling_mode,
         last_seen_session_id=scanner.last_seen_session_id or None,
         candidate_limit=limit,
         events_lookback=SWEEP_EVENTS_LOOKBACK,
@@ -405,8 +404,7 @@ _DEEP_SWEEP_MAX_EXCLUSIONS = 20_000
 def _priming_pass(scanner: ReplayScanner, query: RecordingsQuery, limit: int) -> list[CandidateSession]:
     """A few of the freshest already-settled recordings from before the fast walk's range.
 
-    Ignores the scanner's sampling rate (priming exists to produce examples now) but keeps its
-    sampling mode, so a surfacing-scored scanner still primes on the sessions it would surface.
+    Ignores the scanner's sampling rate, since priming exists to produce examples now.
     Never raises: priming is advisory and must not fail the tick that carries the real sweep.
     """
     window_start = timezone.now() - PRIMING_LOOKBACK
@@ -423,7 +421,6 @@ def _priming_pass(scanner: ReplayScanner, query: RecordingsQuery, limit: int) ->
             query_type="ReplayVisionPrimingCandidateQuery",
             sampling_rate=1.0,
             sampling_salt=str(scanner.id),
-            sampling_mode=scanner.sampling_mode,
             candidate_limit=limit,
             max_execution_time_seconds=PRIMING_MAX_EXECUTION_SECONDS,
             scanner_id=str(scanner.id),
@@ -526,7 +523,6 @@ def _deep_sweep(
         query_type=DEEP_SWEEP_CANDIDATE_QUERY_TYPE,
         sampling_rate=scanner.sampling_rate,
         sampling_salt=str(scanner.id),
-        sampling_mode=scanner.sampling_mode,
         exclude_session_ids=observed_session_ids,
         candidate_limit=limit,
         max_execution_time_seconds=budget,

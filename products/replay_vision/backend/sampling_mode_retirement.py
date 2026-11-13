@@ -13,12 +13,7 @@ from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
 
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, SamplingMode
-from products.replay_vision.backend.queries.scanner_candidate_query import (
-    BALANCED_SURFACING_THRESHOLD,
-    FOCUSED_SURFACING_THRESHOLD,
-    MIN_SAMPLING_RATE,
-    SAMPLE_RATE_PRECISION,
-)
+from products.replay_vision.backend.queries.scanner_candidate_query import MIN_SAMPLING_RATE, SAMPLE_RATE_PRECISION
 from products.replay_vision.backend.session_limits import (
     MAX_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S,
     MIN_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S,
@@ -27,6 +22,8 @@ from products.replay_vision.backend.session_limits import (
 
 # The candidate query read an unscored session as this mid-pack score, so the filter kept it.
 UNSCORED_SURFACING_SCORE = 0.36
+FOCUSED_SURFACING_THRESHOLD = 0.30
+BALANCED_SURFACING_THRESHOLD = 0.10
 
 # Scores only exist for sessions from the last seven days, so a longer window adds unscored sessions.
 PASS_SHARE_LOOKBACK_DAYS = 7

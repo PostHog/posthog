@@ -107,7 +107,6 @@ import {
     MAX_CREDIT_LIMIT,
     OBSERVATION_CREDITS_BY_MODEL,
     OBSERVATION_LIST_URL_PARAM_KEYS,
-    SamplingMode,
     ScannerConfig,
     defaultScannerName,
     ScannerFormValues,
@@ -2485,8 +2484,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                                   : draftQuery,
                           }
                         : {}),
-                    // The budget dials the draft solved; a draft whose costing failed keeps the wizard defaults.
-                    ...(goalDraft.sampling_mode ? { sampling_mode: goalDraft.sampling_mode as SamplingMode } : {}),
+                    // The sampling rate the draft solved; a draft whose costing failed keeps the wizard default.
                     ...(goalDraft.sampling_rate != null ? { sampling_rate: goalDraft.sampling_rate } : {}),
                     // The model the draft chose for the goal, and the credit cap set to the stated
                     // budget. credit_limit_enabled is UI-only form state, so turn it on alongside.
@@ -2635,7 +2633,6 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                         sampling_rate: scanner.sampling_rate,
                         // The proposed model prices the credit estimate.
                         model: scanner.model,
-                        sampling_mode: scanner.sampling_mode,
                         // Exclude the edited scanner from the others-sum so the forecast doesn't double-count it.
                         scanner_id: props.id !== 'new' ? props.id : null,
                     })

@@ -235,11 +235,6 @@
             },
             "type": "object"
         },
-        "sampling_mode": {
-            "description": "Quality pre-filter applied before random sampling. focused = top sessions only, balanced = drops the lowest-quality, comprehensive = no filter (default).\n\n* `focused` - Focused\n* `balanced` - Balanced\n* `comprehensive` - Comprehensive",
-            "enum": ["focused", "balanced", "comprehensive"],
-            "type": "string"
-        },
         "sampling_rate": {
             "description": "0..1 random downsample applied after the query matches. Defaults to 1.0 (no downsampling). Use exactly 0 to pause scanning; non-zero rates below 0.0001 (0.01%) are rejected as below the sampling precision.",
             "maximum": 1,

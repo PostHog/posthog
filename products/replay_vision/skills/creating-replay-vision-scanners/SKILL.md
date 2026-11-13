@@ -1,6 +1,6 @@
 ---
 name: creating-replay-vision-scanners
-description: "Guides agents through creating and safely sizing a Replay Vision scanner: choosing the scanner type (monitor/classifier/scorer/summarizer), shaping the RecordingsQuery that selects sessions, and — crucially — estimating the credits it will spend and checking the org's remaining budget before creating, so a broad scanner doesn't exhaust the budget on its first scheduled sweep.\nTRIGGER when: user asks to create, set up, or configure a Replay Vision scanner, OR when you are about to call vision-scanners-create, OR when widening an existing scanner's query, sampling_rate, or sampling_mode (or moving it to a pricier model) via vision-scanners-update.\nDO NOT TRIGGER when: only reading scanners or observations, deleting a scanner, or running an existing scanner against sessions on demand (vision-scanners-scan-session/-scan-sessions). For a one-off question about sessions you already have, use vision-scanners-inline-scan rather than creating a scanner — the skill's first section covers when that applies."
+description: "Guides agents through creating and safely sizing a Replay Vision scanner: choosing the scanner type (monitor/classifier/scorer/summarizer), shaping the RecordingsQuery that selects sessions, and — crucially — estimating the credits it will spend and checking the org's remaining budget before creating, so a broad scanner doesn't exhaust the budget on its first scheduled sweep.\nTRIGGER when: user asks to create, set up, or configure a Replay Vision scanner, OR when you are about to call vision-scanners-create, OR when widening an existing scanner's query or sampling_rate (or moving it to a pricier model) via vision-scanners-update.\nDO NOT TRIGGER when: only reading scanners or observations, deleting a scanner, or running an existing scanner against sessions on demand (vision-scanners-scan-session/-scan-sessions). For a one-off question about sessions you already have, use vision-scanners-inline-scan rather than creating a scanner — the skill's first section covers when that applies."
 ---
 
 # Creating Replay Vision scanners
@@ -74,13 +74,8 @@ When the target is one experiment's exposed population, that's its own job — u
 `scanning-experiments-with-replay-vision` skill, which derives this query from the experiment's exposure
 criteria instead of hand-building it.
 
-Two levers narrow it further, applied in this order:
-
-- `sampling_mode` (default `comprehensive`) is a quality pre-filter on the matched sessions: `focused` keeps
-  only the top sessions by surfacing score, `balanced` drops the lowest-quality ones, `comprehensive` keeps
-  everything. Use it to spend the budget on sessions worth watching rather than shrinking coverage at random.
-- `sampling_rate` (0..1, default 1.0) is a random downsample applied after that. Lower it to trade coverage
-  for budget. Exactly 0 pauses scanning; non-zero rates below 0.0001 are rejected.
+`sampling_rate` (0..1, default 1.0) narrows it further with a random downsample of the matched sessions.
+Lower it to trade coverage for budget. Exactly 0 pauses scanning; non-zero rates below 0.0001 are rejected.
 
 #### Which model?
 
@@ -93,8 +88,8 @@ miss what the scanner is looking for.
 
 Before creating, run both checks and reason about them together:
 
-1. **Estimate spend** — call `vision-scanners-estimate` with the proposed `query`, `sampling_rate`,
-   `sampling_mode` and `model`. It returns `matched_sessions_in_window`, the `window_days` measured,
+1. **Estimate spend** — call `vision-scanners-estimate` with the proposed `query`, `sampling_rate`
+   and `model`. It returns `matched_sessions_in_window`, the `window_days` measured,
    `estimated_observations_per_month`, `credits_per_observation`, `estimated_credits_per_month`, and
    `other_enabled_scanners_monthly_credits` (what the org's other enabled scanners are already projected to
    spend). When editing an existing scanner, pass its `scanner_id` so its own estimate isn't counted twice.
@@ -121,7 +116,7 @@ Then decide on `rest_of_period` against `remaining`:
 - If it's a large fraction of (or exceeds) `remaining`, **stop and tell the user the concrete numbers**
   (e.g. "This scanner is projected to spend ~X credits/month, about $Y; over the N days left this period
   that's ~R credits against the Z you have left."), then confirm before creating. Tightening the `query`,
-  switching `sampling_mode` to `focused`, lowering `sampling_rate`, or picking a cheaper `model` are all
+  lowering `sampling_rate`, or picking a cheaper `model` are all
   ways to bring it down.
 - Quote `estimated_credits_per_month` too, since it's what the scanner costs in a full period once this
   one resets. Mid-period a scanner can fit in `remaining` and still blow the next period's budget.
@@ -151,7 +146,6 @@ Call `vision-scanners-create`. Minimal example:
   "scanner_config": { "prompt": "Flag sessions where the user repeatedly clicks the same element in frustration." },
   "query": { "kind": "RecordingsQuery", "events": [{ "id": "$rageclick", "type": "events" }] },
   "sampling_rate": 1.0,
-  "sampling_mode": "comprehensive",
   "model": "gemini-3-flash-preview",
   "enabled": true
 }
@@ -189,8 +183,8 @@ observations they have to go read.
 ## Updating an existing scanner
 
 `vision-scanners-update` is a partial update — send only changed fields. **Re-run the Step 3 gut-check
-whenever you widen scope or raise the price**: a broader `query`, a higher `sampling_rate`, a looser
-`sampling_mode`, or a pricier `model` all raise the monthly spend just like a fresh broad scanner would.
+whenever you widen scope or raise the price**: a broader `query`, a higher `sampling_rate`, or a pricier
+`model` all raise the monthly spend just like a fresh broad scanner would.
 Toggling `enabled`, tweaking the prompt, or narrowing the query don't need a re-estimate.
 Changing the `model` of a scanner with a `credit_limit` leaves the credits as they are, so the cap covers a
 different number of observations. Tell the user the new count, and offer to change `credit_limit` if they
