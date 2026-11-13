@@ -128,7 +128,9 @@ export function TodaySupportPanel(): JSX.Element {
                                         </ItemMedia>
                                         <ItemContent>
                                             <ItemTitle>{SUPPORT_MESSAGE_OVERRIDE_TITLE}</ItemTitle>
-                                            <ItemDescription>{SUPPORT_MESSAGE_OVERRIDE_BODY}</ItemDescription>
+                                            <ItemDescription className="line-clamp-none">
+                                                {SUPPORT_MESSAGE_OVERRIDE_BODY}
+                                            </ItemDescription>
                                         </ItemContent>
                                     </Item>
                                 )}
