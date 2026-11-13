@@ -9,15 +9,42 @@ import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { getFiltersFromSubTemplateId } from 'scenes/hog-functions/list/LinkedHogFunctions'
 import { projectLogic } from 'scenes/projectLogic'
 
-import { CyclotronJobFiltersType, HogFunctionSubTemplateIdType, HogFunctionType } from '~/types'
+import {
+    CyclotronJobFiltersType,
+    HogFunctionSubTemplateIdType,
+    HogFunctionType,
+    PropertyFilterType,
+    PropertyOperator,
+} from '~/types'
 
 const MCP_NOTIFICATION_LIST_LIMIT = 500
 const MCP_NOTIFICATION_SUB_TEMPLATE_IDS: HogFunctionSubTemplateIdType[] = ['mcp-tool-error']
 
+// Tool-error alerts created before the expected-error rule stored their failure check on the event
+// instead of as a HogQL filter. The API matches filter groups by JSON containment, so the list asks
+// for this shape too, or those alerts would vanish from the page while still running.
+const PRE_EXPECTED_ERROR_TOOL_ERROR_FILTERS: CyclotronJobFiltersType = {
+    events: [
+        {
+            id: '$mcp_tool_call',
+            type: 'events',
+            properties: [
+                {
+                    key: '$mcp_is_error',
+                    type: PropertyFilterType.Event,
+                    value: ['true', true, 1],
+                    operator: PropertyOperator.Exact,
+                },
+            ],
+        },
+    ],
+}
+
 function getMCPNotificationFilterGroups(): CyclotronJobFiltersType[] {
-    return MCP_NOTIFICATION_SUB_TEMPLATE_IDS.map((id) => getFiltersFromSubTemplateId(id)).filter(
+    const current = MCP_NOTIFICATION_SUB_TEMPLATE_IDS.map((id) => getFiltersFromSubTemplateId(id)).filter(
         (filters): filters is CyclotronJobFiltersType => !!filters
     )
+    return [...current, PRE_EXPECTED_ERROR_TOOL_ERROR_FILTERS]
 }
 
 export type MCPNotificationUseCase = 'tool-error'

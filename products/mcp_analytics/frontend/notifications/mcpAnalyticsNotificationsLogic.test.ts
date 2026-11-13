@@ -8,6 +8,7 @@ import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { initKeaTests } from '~/test/init'
 import { HogFunctionType } from '~/types'
 
+import { MCP_IS_FAILURE_HOGQL } from '../failurePredicate'
 import { getMCPNotificationUseCase, mcpAnalyticsNotificationsLogic } from './mcpAnalyticsNotificationsLogic'
 
 jest.mock('lib/utils/deleteWithUndo', () => ({
@@ -27,6 +28,27 @@ function makeNotification(id: string, overrides: Partial<HogFunctionType> = {}):
         icon_url: null,
         ...overrides,
     } as HogFunctionType
+}
+
+// Postgres `@>` for JSON values, which is how the hog functions API matches `filter_groups`.
+function jsonbContains(container: unknown, contained: unknown): boolean {
+    if (Array.isArray(contained)) {
+        return (
+            Array.isArray(container) &&
+            contained.every((item) => container.some((candidate) => jsonbContains(candidate, item)))
+        )
+    }
+    if (contained !== null && typeof contained === 'object') {
+        return (
+            container !== null &&
+            typeof container === 'object' &&
+            !Array.isArray(container) &&
+            Object.entries(contained).every(([key, value]) =>
+                jsonbContains((container as Record<string, unknown>)[key], value)
+            )
+        )
+    }
+    return container === contained
 }
 
 function createDeferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
@@ -85,6 +107,35 @@ describe('mcpAnalyticsNotificationsLogic', () => {
             })
         )
         expect(listSpy.mock.calls[0][0]).not.toHaveProperty('full')
+    })
+
+    test.each([
+        [
+            'before the expected-error rule',
+            {
+                events: [
+                    {
+                        id: '$mcp_tool_call',
+                        type: 'events',
+                        properties: [
+                            { key: '$mcp_is_error', type: 'event', value: ['true', true, 1], operator: 'exact' },
+                        ],
+                    },
+                ],
+                bytecode: ['_H', 1],
+            },
+        ],
+        [
+            'with the expected-error rule',
+            {
+                events: [{ id: '$mcp_tool_call', type: 'events' }],
+                properties: [{ key: MCP_IS_FAILURE_HOGQL, type: 'hogql' }],
+                bytecode: ['_H', 1],
+            },
+        ],
+    ])('asks for a filter group that a tool-error alert saved %s contains', (_, storedFilters) => {
+        const filterGroups: unknown[] = listSpy.mock.calls[0][0].filter_groups
+        expect(filterGroups.some((group) => jsonbContains(storedFilters, group))).toBe(true)
     })
 
     it('groups notifications by use case and keeps unclassified ones', async () => {
