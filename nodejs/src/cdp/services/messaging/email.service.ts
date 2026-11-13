@@ -204,6 +204,7 @@ const EMAIL_ATTACHMENT_UNAVAILABLE = 'attachment_unavailable'
 const EMAIL_MESSAGE_TOO_LARGE = 'message_too_large'
 const MAX_ATTACHMENT_LOAD_RETRIES = 10
 const MAX_OWNERSHIP_CHECK_RETRIES = 5
+const MAX_SES_UNAVAILABLE_RETRIES = 10
 export const ATTACHMENT_SEND_DEADLINE_MS = 17_000
 const OWNERSHIP_CHECK_TIMEOUT_MS = 5_000
 
@@ -215,6 +216,13 @@ class EmailSendDeadlineError extends Error {
 }
 
 export type JobOwnershipCheck = (invocation: CyclotronJobInvocation) => Promise<boolean>
+
+class SesUnavailableError extends Error {
+    constructor(message: string) {
+        super(`Failed to send email via SES: ${message}`)
+        this.name = 'SesUnavailableError'
+    }
+}
 
 class MessageTooLargeError extends Error {
     constructor() {
@@ -232,20 +240,40 @@ const sesRefused = (response: unknown): boolean => {
     return statusCode !== undefined && (statusCode < 200 || statusCode >= 300)
 }
 
-function trackAttemptsSesMayHaveAccepted(command: SendEmailCommand): () => boolean {
+// Each of these fails before a connection exists, so SES never saw the request.
+const SES_UNREACHED_ERROR_CODES = ['ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN']
+
+const sesNeverReached = (error: unknown): boolean =>
+    SES_UNREACHED_ERROR_CODES.includes((error as { code?: string } | undefined)?.code ?? '')
+
+type SesAttempts = { mayHaveAccepted: () => boolean; unavailableBeforeAccepting: () => boolean }
+
+function trackSesAttempts(command: SendEmailCommand): SesAttempts {
     let attemptsSesMayHaveAccepted = 0
+    let lastAttemptFoundSesUnavailable = false
     command.middlewareStack.add(
         (next) => async (args) => {
             attemptsSesMayHaveAccepted++
-            const httpAnswer = await next(args)
+            const httpAnswer = await next(args).catch((error: unknown) => {
+                lastAttemptFoundSesUnavailable = sesNeverReached(error)
+                if (lastAttemptFoundSesUnavailable) {
+                    attemptsSesMayHaveAccepted--
+                }
+                throw error
+            })
+            lastAttemptFoundSesUnavailable =
+                ((httpAnswer.response as { statusCode?: number } | undefined)?.statusCode ?? 0) >= 500
             if (sesRefused(httpAnswer.response)) {
                 attemptsSesMayHaveAccepted--
             }
             return httpAnswer
         },
-        { step: FIRST_STEP_AFTER_SIGNING, priority: BENEATH_THE_DESERIALIZER, name: 'trackAttemptsSesMayHaveAccepted' }
+        { step: FIRST_STEP_AFTER_SIGNING, priority: BENEATH_THE_DESERIALIZER, name: 'trackSesAttempts' }
     )
-    return () => attemptsSesMayHaveAccepted > 0
+    return {
+        mayHaveAccepted: () => attemptsSesMayHaveAccepted > 0,
+        unavailableBeforeAccepting: () => attemptsSesMayHaveAccepted === 0 && lastAttemptFoundSesUnavailable,
+    }
 }
 
 const isAttachmentLoadFailure = (error: unknown): boolean =>
@@ -256,6 +284,13 @@ const attachmentLoadRetries = (invocation: CyclotronJobInvocationHogFunction): n
 
 function pickAttachmentLoadRetryDelayMs(retries: number): number {
     return Math.min(1_000 * retries + Math.floor(Math.random() * 1_000), 60_000)
+}
+
+const sesUnavailableRetries = (invocation: CyclotronJobInvocationHogFunction): number =>
+    invocation.queueMetadata?.sesUnavailableRetries ?? 0
+
+function pickSesUnavailableRetryDelayMs(retries: number): number {
+    return Math.min(2_000 * 2 ** (retries - 1), 300_000) + Math.floor(Math.random() * 1_000)
 }
 
 function describeAttachmentFailure(
@@ -1069,6 +1104,26 @@ export class EmailService {
                     'warn',
                     `${error.message}; retry ${retries} of ${MAX_ATTACHMENT_LOAD_RETRIES} in ${Math.round(retryDelayMs / 1000)}s`
                 )
+            } else if (
+                error instanceof SesUnavailableError &&
+                !isTest &&
+                sesUnavailableRetries(invocation) < MAX_SES_UNAVAILABLE_RETRIES
+            ) {
+                const retries = sesUnavailableRetries(invocation) + 1
+                const retryDelayMs = pickSesUnavailableRetryDelayMs(retries)
+                rescheduled = true
+                result.finished = false
+                result.invocation.queueParameters = params
+                result.invocation.queueMetadata = {
+                    ...invocation.queueMetadata,
+                    sesUnavailableRetries: retries,
+                    ...(teamBudgetCharged ? { teamBudgetClaimed: true } : {}),
+                }
+                result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: retryDelayMs })
+                addLog(
+                    'warn',
+                    `${error.message}; retry ${retries} of ${MAX_SES_UNAVAILABLE_RETRIES} in ${Math.round(retryDelayMs / 1000)}s`
+                )
             } else if (error instanceof SuppressionLookupError && !isTest) {
                 // A test send runs in process and cannot wait for a retry, so it fails in the branch below.
                 const attempt = (invocation.queueMetadata?.suppressionLookupAttempts ?? 0) + 1
@@ -1698,7 +1753,7 @@ export class EmailService {
         }
 
         const command = new SendEmailCommand(sendEmailParams)
-        const anAttemptSesMayHaveAccepted = trackAttemptsSesMayHaveAccepted(command)
+        const sesAttempts = trackSesAttempts(command)
         const sendStartedAt = performance.now()
         try {
             const response = deadline
@@ -1717,7 +1772,7 @@ export class EmailService {
             sesSendDurationMs.labels({ result: 'error' }).observe(performance.now() - sendStartedAt)
             sesSendResultsTotal.labels({ result: classifySesSendError(error) }).inc()
             if (deadline?.aborted) {
-                if (!anAttemptSesMayHaveAccepted()) {
+                if (!sesAttempts.mayHaveAccepted()) {
                     throw new EmailSendDeadlineError(error)
                 }
                 throw new Error(
@@ -1729,6 +1784,10 @@ export class EmailService {
                 throw new SESThrottleError(error.name, pickThrottleRetryDelayMs(), error.message)
             }
             const message = error instanceof Error ? error.message : String(error)
+            // A timeout or dropped connection after the request went out stays failed, because SES may have sent it.
+            if (sesAttempts.unavailableBeforeAccepting()) {
+                throw new SesUnavailableError(message)
+            }
             throw new Error(`Failed to send email via SES: ${message}`)
         }
     }

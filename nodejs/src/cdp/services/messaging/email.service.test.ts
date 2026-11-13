@@ -829,6 +829,57 @@ describe('EmailService', () => {
             })
         })
 
+        describe('SES outage handling', () => {
+            const unavailable: FakeSesFault = {
+                status: 503,
+                type: 'ServiceUnavailable',
+                message: 'Service unavailable',
+            }
+
+            it.each<[string, () => EmailService]>([
+                [
+                    'answers 503',
+                    () => {
+                        ses.failWith(unavailable)
+                        return service
+                    },
+                ],
+                ['refuses the connection', () => createService({ sesEndpoint: 'http://127.0.0.1:1' })],
+            ])('reschedules the email when SES %s, and sends it once SES is back', async (_name, outage) => {
+                const now = Date.now()
+                const result = await outage().executeSendEmail(invocation)
+
+                expect(result.finished).toBe(false)
+                expect(result.metrics ?? []).toEqual([])
+                expect(result.invocation.queueMetadata).toEqual({
+                    ...invocation.queueMetadata,
+                    sesUnavailableRetries: 1,
+                })
+                expect(result.invocation.queueScheduledAt!.toMillis()).toBeGreaterThanOrEqual(now + 2_000)
+
+                ses.failWith(null)
+                const retried = await service.executeSendEmail(result.invocation)
+
+                expect(retried.finished).toBe(true)
+                expect(retried.error).toBeUndefined()
+                expect(ses.sent.map((email) => email.subject)).toEqual(['Test Subject'])
+            })
+
+            it.each<[string, Record<string, number>, FakeSesFault]>([
+                ['SES stays down past the last retry', { sesUnavailableRetries: 10 }, unavailable],
+                ['the connection drops after the request went out, so SES may have taken it', {}, 'drop-connection'],
+            ])('fails the email when %s', async (_name, metadata, fault) => {
+                invocation.queueMetadata = { ...invocation.queueMetadata, ...metadata }
+                ses.failWith(fault)
+
+                const result = await service.executeSendEmail(invocation)
+
+                expect(result.finished).toBe(true)
+                expect(result.error).toMatch(/^Failed to send email via SES: /)
+                expect(result.metrics).toEqual([expect.objectContaining({ metric_name: 'email_failed' })])
+            })
+        })
+
         describe('queue-to-send latency', () => {
             // The job was created a minute ago and rescheduled after a throttle, so it became due again 5 seconds ago.
             // Running the email step clones the invocation, which resets queueScheduledAt before the send.
