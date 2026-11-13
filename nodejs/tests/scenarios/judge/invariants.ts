@@ -3,7 +3,7 @@ import { z } from 'zod'
 
 import { RETRIABLE_STATUS_CODES } from '~/cdp/utils/cdp-fetch'
 
-import type { ResidentBacklog } from '../backlog/backlog'
+import type { ResidentBacklog, ResidentRows } from '../backlog/backlog'
 import type { Definition } from '../cards/definitions'
 import type { TruthRecord } from '../provider-edge'
 import type { FollowUpAnswer, InvariantResult, JournalEntry } from './judge'
@@ -160,21 +160,40 @@ export const residentBacklogIntact: InvariantDefinition = {
                 unitIds: [],
             }
         }
-        const keyOf = ({ teamId, status }: { teamId: number; status: string }): string => `team ${teamId} ${status}`
-        const seeded = new Map(resident.seeded.rows.map((row) => [keyOf(row), row.rows]))
-        const found = new Map(resident.found.map((row) => [keyOf(row), row.rows]))
+        const keyOf = ({ teamId, queue, status }: ResidentRows): string => `team ${teamId} ${queue} ${status}`
+        const seeded = new Map(resident.seeded.rows.map((row) => [keyOf(row), row]))
+        const found = new Map(resident.found.map((row) => [keyOf(row), row]))
+        const none = { rows: 0, transitions: 0, stateBytes: 0 }
         const changed = [...new Set([...seeded.keys(), ...found.keys()])]
             .sort()
-            .map((key) => ({ key, expected: seeded.get(key) ?? 0, actual: found.get(key) ?? 0 }))
-            .filter(({ expected, actual }) => expected !== actual)
+            .map((key) => ({ key, expected: seeded.get(key) ?? none, actual: found.get(key) ?? none }))
+            .map(({ key, expected, actual }) => ({
+                key,
+                expected,
+                actual,
+                touched: Math.max(
+                    Math.abs(expected.rows - actual.rows),
+                    Math.abs(expected.transitions - actual.transitions),
+                    expected.stateBytes === actual.stateBytes ? 0 : 1
+                ),
+            }))
+            .filter(({ touched }) => touched > 0)
         const [first] = changed
         return {
             passed: changed.length === 0,
-            observed: changed.reduce((sum, { expected, actual }) => sum + Math.abs(expected - actual), 0),
-            violation: first && `${first.key}: expected ${first.expected} rows, found ${first.actual}`,
+            observed: changed.reduce((sum, { touched }) => sum + touched, 0),
+            violation: first && residentViolation(first.key, first.expected, first.actual),
             unitIds: [],
         }
     },
+}
+
+type ResidentContent = Pick<ResidentRows, 'rows' | 'transitions' | 'stateBytes'>
+
+function residentViolation(key: string, expected: ResidentContent, actual: ResidentContent): string {
+    return expected.rows !== actual.rows
+        ? `${key}: expected ${expected.rows} rows, found ${actual.rows}`
+        : `${key}: the rows changed in place, expected ${expected.transitions} transitions and ${expected.stateBytes} state bytes, found ${actual.transitions} and ${actual.stateBytes}`
 }
 
 const SUPPRESSED = { status: 422, outcome: 'recipient_suppressed' }

@@ -10,7 +10,14 @@ import type { Backlog, Profile } from '../cards'
 import { durationMs } from '../duration'
 import { RESIDENT_TEAMS_FROM, withPostgres } from '../environment/stack'
 
-export type ResidentRows = { teamId: number; status: string; rows: number }
+export type ResidentRows = {
+    teamId: number
+    queue: string
+    status: string
+    rows: number
+    transitions: number
+    stateBytes: number
+}
 
 export type Footprint = { table: number; indexes: number; toast: number }
 
@@ -92,8 +99,10 @@ function* batchesOf(jobs: Iterable<CyclotronV2JobInit>): Generator<CyclotronV2Jo
 export async function residentRows(cyclotronUrl: string): Promise<ResidentRows[]> {
     return await withPostgres(async (client) => {
         const { rows } = await client.query<ResidentRows>(
-            `SELECT team_id AS "teamId", status::text AS status, count(*)::int AS rows
-             FROM cyclotron_jobs WHERE team_id >= $1 GROUP BY 1, 2 ORDER BY 1, 2`,
+            `SELECT team_id AS "teamId", queue_name AS queue, status::text AS status, count(*)::int AS rows,
+                    sum(transition_count)::int AS transitions,
+                    COALESCE(sum(octet_length(state)), 0)::float8 AS "stateBytes"
+             FROM cyclotron_jobs WHERE team_id >= $1 GROUP BY 1, 2, 3 ORDER BY 1, 2, 3`,
             [RESIDENT_TEAMS_FROM]
         )
         return rows
