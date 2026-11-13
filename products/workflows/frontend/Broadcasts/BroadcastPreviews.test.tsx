@@ -5,8 +5,6 @@ import '@testing-library/jest-dom'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { BindLogic, Provider } from 'kea'
 
-import { dayjs } from 'lib/dayjs'
-
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, AccessControlResourceType, AppContext } from '~/types'
@@ -31,13 +29,8 @@ const READY_EMAIL: BroadcastEmailValue = {
     html: '<p>Hello {{ person.properties.name }}</p>',
 }
 type LogEntry = NonNullable<HogflowTestResult['logs']>[number]
-const log = (message: string, level: LogEntry['level'] = 'INFO'): LogEntry => ({
-    message,
-    level,
-    instanceId: 'test-invocation',
-    timestamp: dayjs('2026-01-01T00:00:00Z'),
-    rawTimestamp: '2026-01-01T00:00:00Z',
-})
+const log = (message: string, level: 'info' | 'warn' = 'info'): LogEntry =>
+    ({ message, level, timestamp: '2026-01-01T00:00:00Z' }) as unknown as LogEntry
 type Lookup = unknown[][] | 'pending' | 'failed'
 type SentInvocation = {
     configuration: { actions: { id: string; config: { inputs: Record<string, { value: unknown }> } }[] }
@@ -106,11 +99,10 @@ describe('broadcast previews', () => {
         initKeaTests()
         mountedWizard = broadcastWizardLogic({ id: 'new' })
         mountedWizard.mount()
+        mountedWizard.actions.setEmail(email)
         if (channel === 'push') {
             mountedWizard.actions.setChannel('push')
             mountedWizard.actions.setPush({ channels: [7], title: 'New release', body: 'Open the app' })
-        } else {
-            mountedWizard.actions.setEmail(email)
         }
     }
 
@@ -128,20 +120,20 @@ describe('broadcast previews', () => {
         )
     }
 
-    const el = (dataAttr: string): HTMLElement => document.querySelector(`[data-attr="${dataAttr}"]`) as HTMLElement
-    const click = (dataAttr: string): void => {
-        act(() => {
-            fireEvent.click(el(dataAttr))
-        })
+    const el = (dataAttr: string): HTMLElement | null => document.querySelector(`[data-attr="${dataAttr}"]`)
+    const fire = (dataAttr: string, event: (target: HTMLElement) => void): void => {
+        const target = el(dataAttr)
+        if (!target) {
+            throw new Error(`Nothing on the page has data-attr="${dataAttr}"`)
+        }
+        act(() => event(target))
     }
-    const type = (dataAttr: string, value: string): void => {
-        act(() => {
-            fireEvent.change(el(dataAttr), { target: { value } })
-        })
-    }
+    const click = (dataAttr: string): void => fire(dataAttr, (target) => fireEvent.click(target))
+    const type = (dataAttr: string, value: string): void =>
+        fire(dataAttr, (target) => fireEvent.change(target, { target: { value } }))
     const reviewCard = (selector: string): Element | null =>
         document.querySelector(`[data-attr="broadcast-review-test-email"] ${selector}`)
-    const toRow = (): Element | null | undefined => screen.getByText('To').parentElement
+    const toRow = (): HTMLElement | null => screen.getByText('To').parentElement
     const iframeHtml = (): string | null | undefined =>
         document.querySelector('iframe[title="Email preview"]')?.getAttribute('srcdoc')
 
@@ -221,7 +213,7 @@ describe('broadcast previews', () => {
         expect(screen.getByText('Hi Ada')).toBeInTheDocument()
         expect(toRow()).toHaveTextContent(/^ToAdaada@example\.com$/)
         expect(iframeHtml()).toBe('<p>Hello Ada</p>')
-        expect(document.querySelector('[data-attr="broadcast-review-modify-content"]')).toBeNull()
+        expect(el('broadcast-review-modify-content')).toBeNull()
 
         click('broadcast-preview-person')
         act(() => {
@@ -261,7 +253,7 @@ describe('broadcast previews', () => {
             expect(await screen.findByText(text)).toBeInTheDocument()
         }
         expect(iframeHtml()).toBeUndefined()
-        expect(document.querySelector('[data-attr="broadcast-preview-person"]')).toHaveTextContent('Ada')
+        expect(el('broadcast-preview-person')).toHaveTextContent('Ada')
         expect(screen.getByText('Preview and test before this reaches the audience.')).toBeInTheDocument()
     })
 
@@ -279,7 +271,7 @@ describe('broadcast previews', () => {
             fireEvent.click(document.querySelector('[aria-label="close"]') as HTMLElement)
         })
 
-        await waitFor(() => expect(document.querySelector('[data-attr="broadcast-send-test-email"]')).toBeNull())
+        await waitFor(() => expect(el('broadcast-send-test-email')).toBeNull())
     })
 
     it('sends a test email to a valid address only, then vouches for it on the review step', async () => {
@@ -289,7 +281,7 @@ describe('broadcast previews', () => {
         expect(screen.getByText('Send yourself a test first')).toBeInTheDocument()
         expect(reviewCard('.text-success')).toBeNull()
         expect(reviewCard('[data-attr="broadcast-review-send-test"]')).toHaveClass('LemonButton--primary')
-        expect(document.querySelector('[data-attr="broadcast-open-test-email"]')).toBeNull()
+        expect(el('broadcast-open-test-email')).toBeNull()
         expect(screen.getByText(/^Read the email in a real inbox/)).toBeInTheDocument()
 
         click('broadcast-review-send-test')
@@ -349,7 +341,7 @@ describe('broadcast previews', () => {
         expect(action?.config.inputs.distinctId.value).toBe('{% raw %}user-1{% endraw %}')
     })
 
-    it.each<['email' | 'push', string, Partial<HogflowTestResult>]>([
+    it.each<['email' | 'push', string, Partial<HogflowTestResult>, string?]>([
         ['email', 'Unsubscribed', { emailSendResult: { status: 'skipped', reason: 'Unsubscribed' } }],
         ['email', 'No address. Step skipped.', { status: 'skipped', logs: [log('No address.'), log('Step skipped.')] }],
         ['email', 'The email step was skipped, so nothing was sent.', { status: 'skipped' }],
@@ -360,21 +352,26 @@ describe('broadcast previews', () => {
             'push',
             'Some apps took the notification, but at least one failed: APNs: bad token',
             { logs: [log('Push accepted by FCM'), log('APNs: bad token')] },
+            `Test sent to ${MOCK_DEFAULT_USER.distinct_id}'s devices`,
         ],
         ['push', 'The push step was skipped, so nothing was sent.', { status: 'skipped' }],
         ['push', 'Could not send the test notification.', { status: 'error' }],
-    ])('keeps the %s test modal open and says "%s"', async (channel, banner, result) => {
-        sendResult = { status: 'success', ...result }
-        renderReview(channel)
-        click('broadcast-review-send-test')
-        click('broadcast-send-test-email')
+    ])(
+        'keeps the %s test modal open and says "%s"',
+        async (channel, banner, result, card = 'Send yourself a test first') => {
+            sendResult = { status: 'success', ...result }
+            renderReview(channel)
+            click('broadcast-review-send-test')
+            click('broadcast-send-test-email')
 
-        expect(await screen.findByText(banner)).toBeInTheDocument()
+            expect(await screen.findByText(banner)).toBeInTheDocument()
+            expect(screen.getByText(card)).toBeInTheDocument()
 
-        act(() => {
-            fireEvent.click(screen.getByText('Cancel'))
-        })
+            act(() => {
+                fireEvent.click(screen.getByText('Cancel'))
+            })
 
-        await waitFor(() => expect(document.querySelector('[data-attr="broadcast-send-test-email"]')).toBeNull())
-    })
+            await waitFor(() => expect(el('broadcast-send-test-email')).toBeNull())
+        }
+    )
 })
