@@ -73,20 +73,11 @@ def _payloads_are_secret(change_request: ChangeRequest, data: dict[str, Any]) ->
     if PAYLOADS_ENCRYPTED_KEY in intent:
         return intent[PAYLOADS_ENCRYPTED_KEY] is not False
 
-    # A change request stored before the gate recorded its answer.
+    # A change request stored before the gate recorded its answer. The flag's current setting cannot answer for it,
+    # because turning encryption off later would reveal a payload that was secret when it was stored. So it is
+    # secret unless the change itself turned encryption off.
     change = intent.get("full_request_data") or {}
-    if "has_encrypted_payloads" in change:
-        return change["has_encrypted_payloads"] is not False
-    flag_id = intent.get("flag_id")
-    if not flag_id:
-        return False
-    encrypted = (
-        FeatureFlag.objects_including_soft_deleted.filter(team_id=change_request.team_id, pk=flag_id)
-        .values_list("has_encrypted_payloads", flat=True)
-        .first()
-    )
-    # A flag that is gone counts as secret, so deleting it cannot reveal a withheld payload.
-    return encrypted is not False
+    return change.get("has_encrypted_payloads") is not False
 
 
 def _payload_maps(value: Any) -> Iterator[dict[str, Any]]:

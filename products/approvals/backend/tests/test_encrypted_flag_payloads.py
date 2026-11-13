@@ -132,17 +132,15 @@ class TestGatedWritesWithholdEncryptedPayloads(_ApprovalsTestBase):
 class TestServingChangeRequestsStoredInTheClear(_ApprovalsTestBase):
     @parameterized.expand(
         [
-            ("encrypted_flag", True, "kept", {}, True),
-            ("plain_flag", False, "kept", {}, False),
-            ("soft_deleted_encrypted_flag", True, "soft_deleted", {}, True),
-            ("missing_flag", True, "missing", {}, True),
-            ("change_that_turns_encryption_off", True, "kept", {"has_encrypted_payloads": False}, False),
+            ("encrypted_flag", False, {}, True),
+            ("flag_that_turns_encryption_off_afterwards", True, {}, True),
+            ("change_that_turns_encryption_off", False, {"has_encrypted_payloads": False}, False),
         ]
     )
     def test_a_payload_stored_before_the_fix_is_served_only_when_it_is_not_secret(
-        self, _name: str, encrypted: bool, flag_state: str, change_extra: dict[str, Any], hidden: bool
+        self, _name: str, downgrade_flag: bool, change_extra: dict[str, Any], hidden: bool
     ) -> None:
-        flag = self._flag(encrypted=encrypted, active=False)
+        flag = self._flag(encrypted=True, active=False)
         change = {
             "active": True,
             **change_extra,
@@ -162,10 +160,13 @@ class TestServingChangeRequestsStoredInTheClear(_ApprovalsTestBase):
             expires_at=timezone.now() + timedelta(days=7),
         )
         stored_intent = change_request.intent
-        if flag_state == "soft_deleted":
-            FeatureFlag.objects.filter(id=flag.id).update(deleted=True)
-        elif flag_state == "missing":
-            FeatureFlag.objects_including_soft_deleted.filter(id=flag.id).delete()
+        if downgrade_flag:
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
+                {"has_encrypted_payloads": False},
+                format="json",
+            )
+            assert response.status_code == 200, response.json()
 
         served = self._served(change_request)
 
