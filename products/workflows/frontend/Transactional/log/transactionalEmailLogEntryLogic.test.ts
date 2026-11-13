@@ -26,6 +26,7 @@ const OTHERS = [
     { message_id: 'msg-2', recipient: 'ada@example.com', created_at: '2026-03-12T00:00:00Z' },
 ] as TransactionalEmailLogEntryApi[]
 
+const PERSON_ROWS = [['person-1', '{"email":"ada@example.com"}', '2025-01-01T00:00:00Z']]
 const ACTIVITY = { before: [{ uuid: 'ev-1' }], after: [], has_more_before: true, has_more_after: false }
 
 type Endpoint = 'detail' | 'person' | 'activity' | 'others'
@@ -33,7 +34,6 @@ type Endpoint = 'detail' | 'person' | 'activity' | 'others'
 describe('transactionalEmailLogEntryLogic', () => {
     let logic: ReturnType<typeof transactionalEmailLogEntryLogic.build>
     let sends: Record<string, TransactionalEmailLogDetailApi>
-    let personRows: unknown[][]
     let failing: Set<Endpoint>
     let served: Endpoint[]
     let otherEmailsSearch: string | null
@@ -51,7 +51,6 @@ describe('transactionalEmailLogEntryLogic', () => {
 
     beforeEach(() => {
         sends = { [SEND.message_id]: SEND }
-        personRows = [['person-1', '{"email":"ada@example.com"}', '2025-01-01T00:00:00Z']]
         failing = new Set()
         served = []
         otherEmailsSearch = null
@@ -67,7 +66,10 @@ describe('transactionalEmailLogEntryLogic', () => {
                 },
             },
             post: {
-                '/api/environments/:team_id/query/:kind/': () => serve('person', () => [200, { results: personRows }]),
+                '/api/environments/:team_id/query/:kind/': async ({ request }) => {
+                    const rows = (await request.json()).query.query.includes("'user-1'") ? PERSON_ROWS : []
+                    return serve('person', () => [200, { results: rows }])
+                },
             },
         })
         initKeaTests()
@@ -122,14 +124,13 @@ describe('transactionalEmailLogEntryLogic', () => {
         expect(logic.values).toMatchObject({ personFailed: true, activityFailed: true, otherEmailsFailed: true })
 
         failing.clear()
-        personRows = []
         logic.actions.loadPerson('user-1')
         logic.actions.loadActivity()
         logic.actions.loadOtherEmails(SEND)
         expect(logic.values).toMatchObject({ personFailed: false, activityFailed: false, otherEmailsFailed: false })
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(logic.values.person).toBeNull()
+        expect(logic.values.person).toMatchObject({ id: 'person-1' })
         expect(logic.values.activity?.hasMoreBefore).toBe(true)
         expect(logic.values.otherEmails).toHaveLength(1)
     })
