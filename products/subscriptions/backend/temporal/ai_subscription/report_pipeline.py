@@ -558,7 +558,8 @@ async def _synthesize(
     trace_correlation_id: Optional[Union[int, str]],
     source_urls: tuple[str, ...] = (),
 ) -> str:
-    posthog_properties, llm_config = ai_subscription_llm_tracing(
+    # The privacy-mode flag check can make a blocking HTTP request.
+    posthog_properties, llm_config = await database_sync_to_async(ai_subscription_llm_tracing, thread_sensitive=False)(
         team=team, user=user, stage="synthesis", trace_correlation_id=trace_correlation_id
     )
 
@@ -820,7 +821,8 @@ async def _arequest_hogql_fix(
     user: User,
     trace_correlation_id: Optional[Union[int, str]],
 ) -> Optional[str]:
-    posthog_properties, llm_config = ai_subscription_llm_tracing(
+    # The privacy-mode flag check can make a blocking HTTP request.
+    posthog_properties, llm_config = await database_sync_to_async(ai_subscription_llm_tracing, thread_sensitive=False)(
         team=team, user=user, stage="query_fix", trace_correlation_id=trace_correlation_id
     )
 
