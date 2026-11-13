@@ -52,7 +52,10 @@ class TestHasDistinctIdHashingTransformation(BaseTest):
             template_id=template_id,
             enabled=enabled,
             deleted=deleted,
-            inputs_schema=[{"key": key, "type": "string", "secret": False} for key in inputs],
+            inputs_schema=[
+                {"key": key, "type": "boolean" if isinstance(value, bool) else "string", "secret": False}
+                for key, value in inputs.items()
+            ],
             inputs={key: {"value": value} for key, value in inputs.items()},
         )
 

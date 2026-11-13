@@ -106,7 +106,8 @@ def has_distinct_id_hashing_transformation(*, team_id: int) -> bool:
 
     Such a team stores persons under hashed distinct IDs, and every event it captures is hashed again,
     so an event sent with a stored distinct ID lands on a new person. Only the built-in hashing
-    templates are recognized; a custom transformation that hashes distinct_id is not.
+    templates with literal input values are recognized; a custom transformation, or an input written
+    as a template expression such as "{true}", that hashes distinct_id is not.
     """
     transformations = HogFunction.objects.filter(
         team_id=team_id,

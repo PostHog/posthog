@@ -1726,8 +1726,8 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
 
     def _set_properties(self, properties, user):
-        self._refuse_when_distinct_ids_are_hashed()
         instance = self.get_object()
+        self._refuse_when_distinct_ids_are_hashed()
         distinct_id = instance.distinct_ids[0]
         event_name = "$set"
         timestamp = datetime.now(UTC)
