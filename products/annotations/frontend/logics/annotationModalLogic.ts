@@ -1,7 +1,7 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
-import { urlToAction } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import '@posthog/lemon-ui'
@@ -368,7 +368,10 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
         },
     })),
     urlToAction(({ values, actions, cache }) => ({
-        [urls.annotation(':id')]: ({ id }) => {
+        [urls.annotation(':id')]: ({ id }, _search, _hash, { initial }, previousLocation) => {
+            if (!initial && previousLocation?.pathname === router.values.location.pathname) {
+                return
+            }
             cache.annotationToShowId = parseInt(id as string)
             const annotation = values.annotations.find((a) => a.id === cache.annotationToShowId)
             if (!annotation) {

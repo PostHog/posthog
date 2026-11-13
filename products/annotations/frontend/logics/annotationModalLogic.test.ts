@@ -1,11 +1,14 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { dayjs } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { annotationsModel } from '~/models/annotationsModel'
 import { initKeaTests } from '~/test/init'
-import { AnnotationScope, AnnotationType, SidePanelTab } from '~/types'
+import { AnnotationScope, AnnotationType, RawAnnotationType, SidePanelTab } from '~/types'
 
 import * as generatedApi from '../generated/api'
 import type { AnnotationApi } from '../generated/api.schemas'
@@ -55,6 +58,29 @@ describe('annotationModalLogic', () => {
         expect(logic.values.isModalOpen).toBe(false)
         expect(logic.values.annotationModal.content).toBe('')
         expect(sidePanelStateLogic.values.sidePanelOpen).toBe(false)
+    })
+
+    it('preserves edits from an annotation link when another panel changes the URL hash', async () => {
+        const logic = annotationModalLogic()
+        logic.mount()
+        annotationsModel.actions.loadAnnotationsSuccess([
+            {
+                id: 1,
+                content: 'Saved note',
+                scope: AnnotationScope.Project,
+                date_marker: '2024-01-01T00:00:00Z',
+                created_at: '2024-01-01T00:00:00Z',
+            } as RawAnnotationType,
+        ])
+        await expectLogic(logic, () => router.actions.push(urls.annotation(1))).toMatchValues({ isModalOpen: true })
+        logic.actions.setAnnotationModalValue('content', 'Unsaved edits')
+
+        await expectLogic(sidePanelStateLogic, () =>
+            sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Max)
+        ).toFinishAllListeners()
+
+        expect(sidePanelStateLogic.values.selectedTab).toBe(SidePanelTab.Max)
+        expect(logic.values.annotationModal.content).toBe('Unsaved edits')
     })
 
     it('keeps a newer draft open when an earlier save completes', async () => {
