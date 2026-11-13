@@ -1,5 +1,9 @@
+import '@testing-library/jest-dom'
+
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import { createElement } from 'react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
@@ -52,102 +56,168 @@ describe('findCreatedWorkflowId', () => {
 })
 
 describe('AI workflow folder handoff', () => {
-    it.each([
-        { status: 200, expectedMove: '007/Welcome', treePath: '007/Welcome', warnings: 0 },
-        { status: 500, expectedMove: '', treePath: 'Unfiled/Workflows/Welcome', warnings: 1 },
-        { status: 'stalled', expectedMove: '', treePath: 'Unfiled/Workflows/Welcome', warnings: 0 },
-    ] as const)(
-        'waits for folder persistence, then opens the created workflow ($status)',
-        async ({ status, expectedMove, treePath, warnings }) => {
-            let movedPath = ''
-            let releaseMove = (): void => {}
-            const stalledMove = new Promise<void>((resolve) => {
-                releaseMove = resolve
-            })
-            const toast = jest.spyOn(lemonToast, 'warning')
-            useMocks({
-                ...maxMocks,
-                get: {
-                    ...maxMocks.get,
-                    '/api/projects/:team_id/file_system/': ({ request }) => ({
-                        results: new URL(request.url).searchParams.has('ref')
-                            ? [
-                                  {
-                                      id: 'workflow-file',
-                                      path: 'Unfiled/Workflows/Welcome',
-                                      type: 'hog_flow',
-                                      ref: WORKFLOW_ID,
-                                  },
-                              ]
-                            : [],
-                        count: new URL(request.url).searchParams.has('ref') ? 1 : 0,
-                    }),
-                },
-                post: {
-                    ...maxMocks.post,
-                    '/api/projects/:team_id/file_system/workflow-file/move/': async ({ request }) => {
-                        expect(router.values.location.pathname).toContain('/new/workflow')
-                        if (status === 'stalled') {
-                            await stalledMove
-                            return [500, { detail: 'Could not move workflow' }]
-                        }
-                        if (status !== 200) {
-                            return [status, { detail: 'Could not move workflow' }]
-                        }
-                        movedPath = ((await request.json()) as { new_path: string }).new_path
-                        return [200, { id: 'workflow-file', path: movedPath, type: 'hog_flow', ref: WORKFLOW_ID }]
-                    },
-                },
-            })
-            initKeaTests()
-            // The folder handoff exists only behind this flag, and the tree shows workflow files only with it on.
-            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true })
-            const unmountTree = projectTreeDataLogic.mount()
-            projectTreeDataLogic.actions.loadFolderSuccess(
-                'Unfiled/Workflows',
-                [{ id: 'workflow-file', path: 'Unfiled/Workflows/Welcome', type: 'hog_flow', ref: WORKFLOW_ID }],
-                false,
-                1
-            )
-            router.actions.push(urls.workflowNew(), newWorkflowFolderParam('007'))
-            const logic = aiFirstHandoffLogic(workflowHandoffInFolder('007', 50))
-            logic.mount()
-            runnerPanelLogic({ panelId: MAX_SIDE_PANEL_ID }).actions.setActiveCreation({ streamKey: 'folder-create' })
-            try {
-                await expectLogic(logic, () =>
-                    toolStreamEventsLogic.actions.emitToolEvent({
-                        streamKey: 'folder-create',
-                        toolCallId: 'call-folder',
-                        toolName: 'workflows-create',
-                        rawToolName: 'exec',
-                        phase: 'completed',
-                        source: 'live',
-                        invocation: {
-                            toolCallId: 'call-folder',
-                            rawServerName: 'posthog',
-                            rawToolName: 'exec',
-                            input: { command: 'call workflows-create {}' },
-                            output: {
-                                content: [{ type: 'text', text: 'Created' }],
-                                _meta: { 'com.posthog.mcp/app_data': { id: WORKFLOW_ID } },
-                            },
-                            status: 'completed',
-                            contentBlocks: [],
-                        },
-                    })
-                ).toFinishAllListeners()
-                expect(router.values.location.pathname).toContain(WORKFLOW_ID)
-                expect(movedPath).toBe(expectedMove)
-                expect(projectTreeDataLogic.values.itemsByRef[`hog_flow::${WORKFLOW_ID}`].path).toBe(treePath)
-                expect(toast.mock.calls.map(([message]) => message)).toEqual(
-                    Array(warnings).fill(expect.stringContaining("couldn't be moved into 007"))
-                )
-            } finally {
-                releaseMove()
-                logic.unmount()
-                unmountTree()
-                toast.mockRestore()
-            }
+    const MOVE_WARNING = "Your workflow was created, but it couldn't be moved into 007. It's in Unfiled / Workflows."
+    const WITH_ID = {
+        content: [{ type: 'text', text: 'Created' }],
+        _meta: { 'com.posthog.mcp/app_data': { id: WORKFLOW_ID } },
+    }
+    // A large create comes back as a notice, so the workflow is found by name.
+    const WITHOUT_ID = { content: 'Error: result exceeds maximum allowed tokens.', isError: false }
+    let moves: { path: string; pageAtMove: string }[]
+    let logic: ReturnType<typeof aiFirstHandoffLogic.build> | null
+    let unmountTree: (() => void) | null
+
+    const flush = async (): Promise<void> => {
+        for (let i = 0; i < 5; i++) {
+            await new Promise((resolve) => setTimeout(resolve, 0))
         }
-    )
+    }
+
+    // Passed to useMocks in each test: a helper that calls useMocks itself trips the rules-of-hooks lint.
+    function handoffMocks({
+        lookup = async () => 'Unfiled/Workflows/Welcome',
+        move = async () => 200,
+    }: {
+        lookup?: () => Promise<string>
+        move?: () => Promise<number>
+    }): Parameters<typeof useMocks>[0] {
+        return {
+            ...maxMocks,
+            get: {
+                ...maxMocks.get,
+                '/api/environments/:team_id/hog_flows/': {
+                    results: [{ id: WORKFLOW_ID, name: NAME, created_at: '2026-09-15T00:00:00Z' }],
+                    count: 1,
+                },
+                '/api/projects/:team_id/file_system/': async ({ request }) => {
+                    if (!new URL(request.url).searchParams.has('ref')) {
+                        return { results: [], count: 0 }
+                    }
+                    const path = await lookup()
+                    return { results: [{ id: 'workflow-file', path, type: 'hog_flow', ref: WORKFLOW_ID }], count: 1 }
+                },
+            },
+            post: {
+                ...maxMocks.post,
+                '/api/projects/:team_id/file_system/workflow-file/move/': async ({ request }) => {
+                    const path = ((await request.json()) as { new_path: string }).new_path
+                    moves.push({ path, pageAtMove: router.values.location.pathname })
+                    const status = await move()
+                    return status === 200
+                        ? [200, { id: 'workflow-file', path, type: 'hog_flow', ref: WORKFLOW_ID }]
+                        : [status, { detail: 'Could not move workflow' }]
+                },
+            },
+        }
+    }
+
+    function startHandoff(): void {
+        moves = []
+        initKeaTests()
+        lemonToast.dismiss()
+        render(createElement(jest.requireActual('react-toastify').ToastContainer))
+        // The folder handoff exists only behind this flag, and the tree shows workflow files only with it on.
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true })
+        unmountTree = projectTreeDataLogic.mount()
+        projectTreeDataLogic.actions.loadFolderSuccess(
+            'Unfiled/Workflows',
+            [{ id: 'workflow-file', path: 'Unfiled/Workflows/Welcome', type: 'hog_flow', ref: WORKFLOW_ID }],
+            false,
+            1
+        )
+        router.actions.push(urls.workflowNew(), newWorkflowFolderParam('007'))
+        logic = aiFirstHandoffLogic(workflowHandoffInFolder('007', 50))
+        logic.mount()
+        runnerPanelLogic({ panelId: MAX_SIDE_PANEL_ID }).actions.setActiveCreation({ streamKey: 'folder-create' })
+    }
+
+    const completeCreate = (output: Record<string, unknown>): void =>
+        toolStreamEventsLogic.actions.emitToolEvent({
+            streamKey: 'folder-create',
+            toolCallId: 'call-folder',
+            toolName: 'workflows-create',
+            rawToolName: 'exec',
+            phase: 'completed',
+            source: 'live',
+            invocation: {
+                toolCallId: 'call-folder',
+                rawServerName: 'posthog',
+                rawToolName: 'exec',
+                input: { command: `call workflows-create ${JSON.stringify({ name: NAME })}` },
+                output,
+                status: 'completed',
+                contentBlocks: [],
+            },
+        })
+
+    const openedWorkflow = (): boolean => router.values.location.pathname.includes(WORKFLOW_ID)
+    const placedAt = (): string => projectTreeDataLogic.values.itemsByRef[`hog_flow::${WORKFLOW_ID}`].path
+
+    afterEach(() => {
+        logic?.unmount()
+        unmountTree?.()
+        logic = null
+        unmountTree = null
+        cleanup()
+    })
+
+    it.each([
+        { name: 'files it, then opens it', status: 200, placed: '007/Welcome', warned: false },
+        {
+            name: 'warns and opens it unfiled when the move fails',
+            status: 500,
+            placed: 'Unfiled/Workflows/Welcome',
+            warned: true,
+        },
+    ])('$name', async ({ status, placed, warned }) => {
+        useMocks(handoffMocks({ move: async () => status }))
+        startHandoff()
+
+        await act(async () => {
+            await expectLogic(logic!, () => completeCreate(WITH_ID)).toFinishAllListeners()
+        })
+
+        expect(openedWorkflow()).toBe(true)
+        expect(moves).toEqual([{ path: '007/Welcome', pageAtMove: expect.stringContaining('/new/workflow') }])
+        expect(placedAt()).toBe(placed)
+        await waitFor(() => expect(screen.queryByText(MOVE_WARNING) !== null).toBe(warned))
+    })
+
+    it('opens the workflow when filing stalls past the deadline', async () => {
+        let releaseMove = (): void => {}
+        useMocks(handoffMocks({ move: () => new Promise((resolve) => (releaseMove = () => resolve(500))) }))
+        startHandoff()
+
+        await expectLogic(logic!, () => completeCreate(WITH_ID)).toFinishAllListeners()
+
+        expect(openedWorkflow()).toBe(true)
+        expect(placedAt()).toBe('Unfiled/Workflows/Welcome')
+        releaseMove()
+    })
+
+    // Names are not unique, so a workflow found by name may be someone else's.
+    it('opens a workflow found by name without moving it', async () => {
+        useMocks(handoffMocks({}))
+        startHandoff()
+
+        await expectLogic(logic!, () => completeCreate(WITHOUT_ID)).toFinishAllListeners()
+
+        expect(openedWorkflow()).toBe(true)
+        await flush()
+        expect(moves).toEqual([])
+    })
+
+    it('leaves a workflow where it was put after the deadline opened it', async () => {
+        let answerLookup = (_path: string): void => {}
+        useMocks(handoffMocks({ lookup: () => new Promise((resolve) => (answerLookup = resolve)) }))
+        startHandoff()
+
+        await expectLogic(logic!, () => completeCreate(WITH_ID)).toFinishAllListeners()
+        expect(openedWorkflow()).toBe(true)
+
+        answerLookup('Elsewhere/Welcome')
+        await flush()
+        expect(moves).toEqual([])
+        expect(screen.queryByText(MOVE_WARNING)).toBeNull()
+    })
 })

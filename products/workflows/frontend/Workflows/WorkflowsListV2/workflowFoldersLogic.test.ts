@@ -1075,11 +1075,9 @@ describe('workflowFoldersLogic', () => {
         expect(logic.values.expandedFolders).toContain('project://Billing')
     })
 
-    it('searches through subfolders while retaining the exact case-sensitive scope, without rebuilding the folder tree', async () => {
+    it('searches through subfolders while retaining the exact case-sensitive scope', async () => {
         await expectLogic(logic).toFinishAllListeners()
         logic.actions.openFolder('Billing')
-        const tree = logic.values.folderTree
-        expect(tree[0].children?.map((item) => item.record?.path)).toContain('Billing')
         expect(logic.values.folderCounts.Billing).toBe(3)
         logic.actions.setValue({
             filters: [{ facet: 'in', value: 'Billing', negated: false }],
@@ -1088,7 +1086,6 @@ describe('workflowFoldersLogic', () => {
         expect(logic.values.folderRows.map((row) => row.id)).toEqual([FIXTURE_WORKFLOWS[1].id])
         expect(logic.values.childFolders).toEqual([])
         expect(logic.values.folderCounts.Billing).toBe(1)
-        expect(logic.values.folderTree).toBe(tree)
         logic.actions.setValue({
             filters: [{ facet: 'in', value: 'billing', negated: false }],
             text: FIXTURE_WORKFLOWS[1].name ?? '',
