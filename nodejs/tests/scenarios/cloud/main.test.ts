@@ -887,7 +887,7 @@ describe('cloud controller', () => {
             'AWS::SecretsManager::Secret',
             ', even when the run stops before its cluster is visible',
             (fake) => {
-                fake.hideClustersWhile(
+                fake.hideCreationWhile(
                     () => ![...fake.stacks.values()].some(({ status }) => status.startsWith('DELETE'))
                 )
                 onSleep = () => {

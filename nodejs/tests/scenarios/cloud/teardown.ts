@@ -150,12 +150,14 @@ async function discover(
     const failures: string[] = []
     const list = (source: string, read: () => Promise<Resource[]>): Promise<Resource[]> =>
         listInto(inventory, failures, source, read)
-    const stacked = await list(`the resources of stack ${manifest.stackName}`, async () => {
+    let stacked = false
+    await list(`the resources of stack ${manifest.stackName}`, async () => {
         const listed = await orGone(
             aws.call(['cloudformation', 'describe-stack-resources', '--stack-name', manifest.stackName]),
             ({ StackResources }) => StackResources as { ResourceType: string; PhysicalResourceId?: string }[],
             'ValidationError'
         )
+        stacked = listed !== GONE
         return listed === GONE
             ? []
             : listed
@@ -184,7 +186,7 @@ async function discover(
         await list(`the retained backups of cluster ${id}`, () => retainedBackupsOf(aws, id))
         await list(`the snapshots of cluster ${id}`, () => snapshotsOf(aws, id))
     }
-    return { failures, tagged: new Set(tagged.map(keyOfResource)), blind: blind && stacked.length > 0 }
+    return { failures, tagged: new Set(tagged.map(keyOfResource)), blind: blind && stacked }
 }
 
 async function receiptsOf(evidence: ReturnType<typeof evidenceOf>, manifest: Manifest): Promise<Receipt[]> {
