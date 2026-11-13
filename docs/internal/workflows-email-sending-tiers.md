@@ -60,8 +60,8 @@ The blast radius preview takes the rate limit as `email_sending_rate_limit` and 
 The broadcast wizard uses it to suggest a qualifying rate, with a one-click button on the recipients, schedule, and review steps.
 The reputation endpoint returns the largest rate-limited batch as `rate_limited_max_batch_audience`, which the Reputation tab shows under the batch cap.
 Batch dispatch reads the rate limit stored on the workflow.
-The worker paces each send with the workflow's live rate limit, so an owner can loosen it after dispatch.
-The worker's daily cap then bounds the batch, which is why `EMAIL_TEAM_SENDING_CAP_MODE` must be `enforce` wherever `WORKFLOWS_EMAIL_TIER_MODE` is.
+The worker paces each send with the workflow's live rate limit.
+So while a batch that a rate limit raised may still be sending (`WORKFLOWS_RATE_LIMITED_BATCH_MAX_DAYS` plus one day, unless canceled or failed), the API rejects any change to that rate limit.
 
 ## Decision rules the sweep applies
 
@@ -115,7 +115,7 @@ The sandbox has its own controls: recipients limited to verified organization me
 ## Known limits
 
 - The batch audience cap is decided when the batch is dispatched. Adding an email step to the workflow while a batch is queued does not re-cap it; the send-time bucket still caps every email at execution. This is why enforcement requires the worker caps to be deployed (see the rollout order).
-- A rate-limited batch is capped at dispatch from the rate limit at that time. Loosening or removing the rate limit while the batch sends does not re-cap it. The send-time bucket still holds the batch to the daily cap, so the project's other workflows can then wait until it finishes.
+- A rate-limited batch is capped at dispatch from the rate limit at that time, and the rate limit is then locked for a fixed window rather than until the last send. A send that SES throttling pushes past the window is held only by the send-time bucket.
 - Test-panel sends bypass the team bucket on purpose, matching the per-workflow rate limit.
 - Rescheduled emails keep their email queue priority while waiting. After a team-cap, workflow-pacing, or SES-throttle retry, the workflow restores its origin queue and priority when it next leaves the email queue. A push notification retried while the workflow is on the email queue behaves the same way and waits at the priority of its own message category.
 - Transactional sends are charged but never delayed, so a team whose transactional volume alone exceeds its tier can hold its own marketing at zero (see Transactional email below).

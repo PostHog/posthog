@@ -81,9 +81,8 @@ def resolve_batch_audience_limit(
     The tier's daily cap is one allowance that all of the team's workflows share. A batch with a
     slow enough sending rate limit leaves part of each day's allowance to the other workflows, so it
     may reach as many people as its rate sends to in WORKFLOWS_RATE_LIMITED_BATCH_MAX_DAYS. The worker
-    reads the rate limit from the live workflow, so the owner can loosen or remove it after dispatch.
-    The worker's daily bucket then keeps the batch inside the daily cap, but only when the worker's
-    EMAIL_TEAM_SENDING_CAP_MODE is also "enforce". Set it together with WORKFLOWS_EMAIL_TIER_MODE.
+    reads the rate limit from the live workflow, so the workflow serializer locks it while such a run
+    may still be sending (rate_limit_change_unpaces_batch).
     """
     if team_id in settings.HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS:
         return BatchAudienceLimit(limit=settings.HOGFLOW_BATCH_TRIGGER_LIMIT_ELEVATED, rate_limited=None)

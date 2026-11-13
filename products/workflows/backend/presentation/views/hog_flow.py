@@ -172,6 +172,7 @@ from products.workflows.backend.facade.batch_jobs import (
     get_audience_snapshot_page,
     get_batch_job,
     list_batch_jobs,
+    rate_limit_change_unpaces_batch,
     request_audience_snapshot,
     set_batch_job_status,
 )
@@ -3997,6 +3998,25 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             {"actions": submitted_actions, "conversion": data.get("conversion")},
             {"actions": stored.actions, "conversion": stored.conversion} if stored else None,
         )
+        if (
+            instance is not None
+            and "email_sending_rate_limit" in data
+            and rate_limit_change_unpaces_batch(
+                team_id=instance.team_id,
+                hog_flow_id=instance.id,
+                actions=instance.actions,
+                current=instance.email_sending_rate_limit,
+                new=data["email_sending_rate_limit"],
+            )
+        ):
+            raise serializers.ValidationError(
+                {
+                    "email_sending_rate_limit": (
+                        "A broadcast sent at this rate limit may still be sending. You can change the rate "
+                        f"limit {settings.WORKFLOWS_RATE_LIMITED_BATCH_MAX_DAYS + 1} days after it started."
+                    )
+                }
+            )
 
         get_team = self.context.get("get_team")
         # The bulk apply writes the defaults it read once, so a newer team default must not mark them as custom edits.
