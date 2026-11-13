@@ -7,10 +7,11 @@ from posthog.run_mode import run_mode
 
 DB = settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE
 
-# `signature_status` is 'verified' on a log row whose batch carried a valid signature made with the
-# team's logs signing secret, and '' otherwise. The ingestion consumer sets the `signature-status`
-# Kafka header only after it verifies that signature, and the Kafka MV copies the header into the
-# column, the same way as `internal_source` in 0361.
+# `signature_status` is for marking a log row whose batch carried a valid signature made with the
+# team's logs signing secret. The Kafka MV copies the `signature-status` Kafka header into the column,
+# the same way as `internal_source` in 0361. No code sets that header yet. The logs consumers must
+# remove any incoming copy of it before they set it, as they do for `internal-source`, because they
+# copy other input headers to their output.
 #
 # The rollups do not get the column, so the volume and pattern views cannot filter on it.
 #

@@ -307,7 +307,7 @@ _SIGNATURE_STATUS_TYPE = "    `signature_status` LowCardinality(String)"
 
 def KAFKA_LOGS34_AVRO_MV_SELECT(*, internal_source: bool = True, signature_status: bool = True):
     db = settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE
-    # The logs consumer removes any incoming `internal-source` or `signature-status` header and sets each only on a batch whose signature it verified.
+    # The logs consumer removes any incoming `internal-source` header and sets it only on a batch whose signature it verified.
     internal_source_column = (
         ",\n    _headers.value[indexOf(_headers.name, 'internal-source')] AS internal_source" if internal_source else ""
     )
