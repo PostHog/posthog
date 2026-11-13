@@ -26,6 +26,7 @@ from posthog.hogql.constants import EXCEPTION_STRING_ARRAY_PROPERTIES
 from posthog.hogql.property import operator_is_negative
 
 from posthog.dataclasses import frozen
+from posthog.exceptions_capture import capture_exception
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.team.team import Team
 
@@ -230,6 +231,9 @@ class ConditionSetTraffic:
     # SDK, from the start of the flag-state check's grace period after `since`. Such a call comes from a bootstrap or
     # from the customer's own code, so it can serve a variant that the flag's release conditions don't.
     people_assigned_outside: int
+    # Whether the counts leave out the calls that the project's filter for internal and test users excludes, because
+    # the experiment applies that filter.
+    filters_test_accounts: bool = False
 
 
 @frozen
@@ -614,6 +618,10 @@ class HealthContext:
     # Whether the team has an active flag, which posthog-js needs to request flags on page load. None when not read:
     # it is read only for a draft whose flag has no recorded call.
     team_has_active_flag: bool | None
+    # Whether capture drops the project's events now, because the organization reached its billing limit for events.
+    # None when not read: it is read only for a running experiment without exposures, because a limit in force now
+    # says nothing about an earlier run. Also None when the read fails.
+    events_billing_limited: bool | None
     # The baseline set in the experiment's settings. None when unset: the analysis then picks a variant of the flag.
     baseline_variant_key: str | None
     primary_metric_count: int
@@ -840,6 +848,24 @@ def _flag_called_after_end(experiment: Experiment) -> bool | None:
     if now - end_date < ENDED_FLAG_QUIET_PERIOD + LAST_CALLED_AT_LAG_DURATION:
         return None
     return None if _flag_calls_unrecorded(experiment) else False
+
+
+def _events_billing_limited(experiment: Experiment) -> bool | None:
+    # Deferred because ee is optional, and the billing module imports the usage report stack. A build without ee has
+    # no billing limits.
+    try:
+        from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited  # noqa: PLC0415
+    except ImportError:
+        return False
+    try:
+        return is_team_limited(
+            experiment.team.api_token, QuotaResource.EVENTS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
+        )
+    except Exception as error:
+        # The exposure query builds this context, so a Redis error here would fail the exposure answer for a read
+        # that only explains one finding.
+        capture_exception(error)
+        return None
 
 
 def _other_experiments_on_flag(experiment: Experiment) -> tuple[ExperimentOnFlag, ...]:
@@ -1168,6 +1194,11 @@ def load_health_context(
         other_experiments_on_flag=_other_experiments_on_flag(experiment),
         team_has_active_flag=(
             has_active_flags(experiment.team) if flag_called is False and not experiment.is_launched else None
+        ),
+        events_billing_limited=(
+            _events_billing_limited(experiment)
+            if experiment.is_running and exposures is not None and exposures.total == 0
+            else None
         ),
         baseline_variant_key=_configured_baseline_variant_key(experiment.stats_config),
         primary_metric_count=len(experiment.metrics or []) + shared_metric_roles.count("primary"),

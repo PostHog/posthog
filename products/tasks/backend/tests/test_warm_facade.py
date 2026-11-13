@@ -1,6 +1,7 @@
 from dataclasses import replace
 from datetime import timedelta
 from typing import Any
+from uuid import uuid4
 
 import time_machine
 from posthog.test.base import APIBaseTest
@@ -30,6 +31,7 @@ from products.tasks.backend.facade import (
     contracts,
 )
 from products.tasks.backend.facade.profiles import get_task_profile
+from products.tasks.backend.logic.services.agent_command import CommandResult
 from products.tasks.backend.logic.services.staged_artifacts import (
     build_task_artifact_entry,
     build_task_staged_artifact_cache_key,
@@ -183,6 +185,7 @@ class TestWarmTaskSandbox(APIBaseTest):
             ("default_origin", {}, "user"),
             ("code_app", {"origin_product": "user_created"}, "user"),
             ("posthog_ai", {"origin_product": "posthog_ai"}, "posthog_ai"),
+            ("signal_report", {"origin_product": "signal_report"}, "signals.inbox"),
         ]
     )
     @patch("products.tasks.backend.presentation.views.api.TaskViewSet._warm_enabled", return_value=True)
@@ -190,14 +193,20 @@ class TestWarmTaskSandbox(APIBaseTest):
     def test_warm_endpoint_warms_under_the_public_profile_of_the_origin(
         self, _name: str, origin: dict[str, str], profile_key: str, mock_warm, _mock_warm_enabled
     ):
+        mock_warm.return_value = contracts.WarmTaskDTO(task_id=uuid4(), run_id=uuid4())
+        selection = {"repository": "posthog/posthog", "github_integration": self.integration.id, "branch": "main"}
+        if origin.get("origin_product") == "signal_report":
+            origin = {**origin, "signal_report": str(SignalReport.objects.create(team=self.team).id)}
+            selection = {}
         response = self.client.post(
             "/api/projects/@current/tasks/warm/",
-            {"repository": "posthog/posthog", "github_integration": self.integration.id, "branch": "main", **origin},
+            {**selection, **origin},
             format="json",
         )
 
         assert response.status_code == 200, response.content
         assert mock_warm.call_args.kwargs["profile"].key == profile_key
+        assert response.json()["permission_mode_mutable"] is (profile_key in ("user", "posthog_ai"))
 
     @patch("products.tasks.backend.presentation.views.api.TaskViewSet._warm_enabled", return_value=True)
     @patch("products.tasks.backend.facade.api.warm_task_sandbox")
@@ -1049,6 +1058,217 @@ class TestCreateTaskWarmReuse(APIBaseTest):
 
         assert followup.status_code == 200, followup.content
         assert mock_signal.call_count == 2
+
+    @parameterized.expand(
+        [
+            (origin, previous, requested)
+            for origin in ("user_created", "posthog_ai")
+            for previous, requested in (("plan", "default"), ("default", "plan"))
+        ]
+    )
+    def test_targeted_warm_acknowledges_mode_before_delivering(
+        self, origin: str, previous: str, requested: str
+    ) -> None:
+        warm_task, run = self._warm_run(origin_product=origin, extra_state={"initial_permission_mode": previous})
+        events: list[str] = []
+
+        def acknowledge(*args: object, **kwargs: object) -> CommandResult:
+            events.append("mode")
+            outcome, _ = cancellation_facade.cancel_task_run(
+                run.id, warm_task.id, self.team.id, only_if_awaiting_first_message=True
+            )
+            assert outcome == "already_activated"
+            with self.assertRaises(facade.WarmRunActivationUnavailable):
+                facade._deliver_warm_run_message(run, message="competing prompt", artifact_ids=[])
+            return CommandResult(True, 200, {"result": {"configOptions": [{"id": "mode", "currentValue": requested}]}})
+
+        def deliver(*args: object, **kwargs: object) -> bool:
+            run.refresh_from_db()
+            assert run.state["initial_permission_mode"] == requested
+            events.append("prompt")
+            return True
+
+        with (
+            patch(f"{FACADE}.create_sandbox_connection_token", return_value="test-token"),
+            patch(f"{FACADE}.send_set_config_option", side_effect=acknowledge) as command,
+            patch(f"{FACADE}.signal_task_run_user_message", side_effect=deliver),
+        ):
+            result = self._create(origin_product=origin, warm_run_id=run.id, initial_permission_mode=requested)
+
+        assert str(result.id) == str(warm_task.id)
+        assert events == ["mode", "prompt"]
+        assert command.call_args.args[1:] == ("mode", requested)
+
+    @parameterized.expand(
+        [
+            ("unsupported", CommandResult(False, 400)),
+            ("timeout", CommandResult(False, 504, turn_in_flight=True)),
+            ("no_acknowledgement", CommandResult(True, 200, {"result": {}})),
+            (
+                "wrong_mode",
+                CommandResult(True, 200, {"result": {"configOptions": [{"id": "mode", "currentValue": "default"}]}}),
+            ),
+        ]
+    )
+    def test_unacknowledged_mode_falls_back_before_prompt_delivery(self, _name: str, response: CommandResult) -> None:
+        warm_task, run = self._warm_run(extra_state={"initial_permission_mode": "default"})
+        with (
+            patch(f"{FACADE}.create_sandbox_connection_token", return_value="test-token"),
+            patch(f"{FACADE}.send_set_config_option", return_value=response),
+            patch(f"{FACADE}.signal_task_run_user_message") as deliver,
+            patch("products.tasks.backend.facade.cancellation.cancel_task_run") as cancel,
+        ):
+            result = self._create(warm_run_id=run.id, initial_permission_mode="plan")
+        assert str(result.id) != str(warm_task.id)
+        deliver.assert_not_called()
+        cancel.assert_called_once_with(run.id, warm_task.id, self.team.id, only_if_awaiting_first_message=True)
+        run.refresh_from_db()
+        assert run.state["warm_permission_mode_failed"] is True
+        assert "warm_activation_started" not in run.state
+        listed = self.client.get("/api/projects/@current/tasks/").json()["results"]
+        assert {task["id"] for task in listed} == {str(result.id)}
+
+    @parameterized.expand([("not_found", RPCStatusCode.NOT_FOUND), ("ambiguous", RPCStatusCode.UNAVAILABLE)])
+    def test_direct_warm_message_without_id_can_retry(self, _name: str, error_code: RPCStatusCode) -> None:
+        task, run = self._warm_run()
+        url = f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/command/"
+        payload = {"jsonrpc": "2.0", "method": "user_message", "params": {"content": "Start the example task"}}
+        with patch(
+            "products.tasks.backend.temporal.client.signal_task_followup_message",
+            side_effect=[RPCError("unavailable", error_code, b""), None],
+        ):
+            first = self.client.post(url, payload, format="json")
+            assert first.status_code == 502, first.content
+            state = self.client.get(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/").json()["state"]
+            if error_code == RPCStatusCode.NOT_FOUND:
+                assert "warm_activation_message_id" not in state
+            else:
+                payload["id"] = first.json()["id"]
+            second = self.client.post(url, payload, format="json")
+            assert second.status_code == 200, second.content
+        run.refresh_from_db()
+        assert len(run.state["pending_followup_messages"]) == 1
+        assert run.state["pending_followup_messages"][0]["content"] == "Start the example task"
+
+    @parameterized.expand(
+        [
+            ("branch", {"branch": "feature"}),
+            ("model", {"model": "other-model"}),
+            ("runtime", {"runtime_adapter": "codex"}),
+            ("repository", {"repository": "example/other"}),
+        ]
+    )
+    def test_targeted_warm_keeps_other_selection_checks(self, _name: str, change: dict[str, object]) -> None:
+        warm_task, run = self._warm_run(extra_state={"initial_permission_mode": "default"})
+        with (
+            patch(f"{FACADE}.send_set_config_option") as command,
+            patch(f"{FACADE}.signal_task_run_user_message") as deliver,
+        ):
+            result = facade.create_task(
+                self.team.id,
+                self.user.id,
+                validated_data={
+                    "description": "Inspect the example task",
+                    "repository": "posthog/posthog",
+                    "github_integration": self.integration,
+                    "branch": "main",
+                    "warm_run_id": run.id,
+                    "initial_permission_mode": "plan",
+                    **change,
+                },
+            )
+        assert str(result.id) != str(warm_task.id)
+        command.assert_not_called()
+        deliver.assert_not_called()
+
+    def test_direct_message_cannot_bypass_a_permission_change_claim(self) -> None:
+        warm_task, run = self._warm_run(
+            extra_state={
+                "initial_permission_mode": "default",
+                "warm_activation_started": True,
+                "warm_activation_message_id": "activation-message",
+            }
+        )
+        with patch("products.tasks.backend.temporal.client.signal_task_followup_message") as signal:
+            result = facade.signal_task_run_user_message(
+                run.id,
+                warm_task.id,
+                self.team.id,
+                content="competing prompt",
+                artifact_ids=[],
+                message_id="other-message",
+            )
+        assert result is False
+        signal.assert_not_called()
+
+    @parameterized.expand([None, "11111111-1111-4111-8111-111111111111"])
+    def test_targeted_warm_never_falls_back_after_ambiguous_prompt_delivery(self, submission_id: str | None) -> None:
+        warm_task, run = self._warm_run(extra_state={"initial_permission_mode": "default"})
+        response = CommandResult(True, 200, {"result": {"configOptions": [{"id": "mode", "currentValue": "plan"}]}})
+        with (
+            patch(f"{FACADE}.create_sandbox_connection_token", return_value="test-token"),
+            patch(f"{FACADE}.send_set_config_option", return_value=response),
+            patch(
+                f"{FACADE}.signal_task_run_user_message",
+                side_effect=RPCError("unknown delivery", RPCStatusCode.UNAVAILABLE, b""),
+            ),
+            self.assertRaises(RPCError),
+        ):
+            self._create(warm_run_id=run.id, warm_submission_id=submission_id, initial_permission_mode="plan")
+        assert Task.objects.filter(team=self.team).count() == 1
+        run.refresh_from_db()
+        assert run.state["warm_activation_started"] is True
+        assert run.state["initial_permission_mode"] == "plan"
+        with self.assertRaises(facade.WarmRunActivationUnavailable):
+            self._create(warm_run_id=run.id, warm_submission_id=submission_id, initial_permission_mode="plan")
+        assert Task.objects.filter(team=self.team).count() == 1
+
+    def test_shared_warm_lease_falls_back_for_another_submission(self) -> None:
+        warm_task, run = self._warm_run(origin_product="posthog_ai", extra_state={"initial_permission_mode": "plan"})
+        with patch(f"{FACADE}.signal_task_run_user_message", return_value=True) as signal:
+            first = self._create(
+                origin_product="posthog_ai",
+                warm_run_id=run.id,
+                warm_submission_id="11111111-1111-4111-8111-111111111111",
+                initial_permission_mode="plan",
+            )
+            second = self._create(
+                origin_product="posthog_ai",
+                warm_run_id=run.id,
+                warm_submission_id="22222222-2222-4222-8222-222222222222",
+                initial_permission_mode="plan",
+            )
+        assert str(first.id) == str(warm_task.id)
+        assert second.id != first.id
+        assert second.latest_run is None
+        assert signal.call_count == 1
+
+    def test_create_retry_uses_original_run_when_a_newer_warm_exists(self) -> None:
+        warm_task, run = self._warm_run(extra_state={"initial_permission_mode": "default"})
+        payload = {"description": "Inspect the example", "repository": "posthog/posthog", "branch": "main"}
+        with patch(
+            "products.tasks.backend.temporal.client.signal_task_followup_message",
+            side_effect=[RPCError("starting", RPCStatusCode.NOT_FOUND, b""), None],
+        ):
+            first = self.client.post("/api/projects/@current/tasks/", payload, format="json")
+            assert first.status_code == 503, first.content
+            _, newer_run = self._warm_run(extra_state={"initial_permission_mode": "default"})
+            TaskRun.objects.filter(id=newer_run.id).update(created_at=run.created_at + timedelta(seconds=1))
+            retry = self.client.post(
+                "/api/projects/@current/tasks/",
+                payload,
+                format="json",
+                HTTP_X_POSTHOG_WARM_RETRY=first.json()["retry_token"],
+            )
+        assert retry.status_code == 201, retry.content
+        assert retry.json()["id"] == str(warm_task.id)
+        assert retry.json()["latest_run"]["id"] == str(run.id)
+        assert Task.objects.filter(team=self.team).count() == 2
+        run.refresh_from_db()
+        newer_run.refresh_from_db()
+        assert len(run.state["pending_followup_messages"]) == 1
+        assert newer_run.state["await_user_message"] is True
+        assert not newer_run.state.get("warm_activation_started")
 
     def test_desktop_create_without_permission_mode_still_reuses_warm(self):
         # A warm Run's state always carries a concrete permission mode, but the Code app never sends one

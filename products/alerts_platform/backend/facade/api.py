@@ -20,6 +20,7 @@ from products.alerts_platform.backend.facade.contracts import (
     AlertReceiverEdit,
     AlertRouteEdit,
     ControlChangeKind,
+    DeletedSourceDestinations,
     DestinationSend,
     DestinationType,
     EnabledNativeConfiguration,
@@ -252,6 +253,24 @@ def native_configuration_keys(
     `list_configurations`. With `created_by_uuid`, only the ones that user created."""
     return platform_reads.native_configuration_keys(
         team_id=team_id, source_kind=source_kind.value, created_by_uuid=created_by_uuid
+    )
+
+
+def owned_copy_ids(*, team_id: int, source_kind: SourceKind, created_by_uuid: UUID | None = None) -> tuple[UUID, ...]:
+    """The source row id of every copy of a kind the platform owns, for a source that lists those
+    alerts from the platform. With `created_by_uuid`, only the ones that user created."""
+    return platform_reads.owned_copy_ids(
+        team_id=team_id, source_kind=source_kind.value, created_by_uuid=created_by_uuid
+    )
+
+
+def owned_copies(
+    *, team_id: int, source_kind: SourceKind, legacy_configuration_ids: Collection[UUID]
+) -> dict[UUID, PlatformAlertConfigurationView]:
+    """The copies the platform owns of these source rows, keyed by source row id, for a source that
+    shows such an alert's settings from its copy. Each view carries no instances."""
+    return platform_reads.owned_copies(
+        team_id=team_id, source_kind=source_kind.value, legacy_configuration_ids=legacy_configuration_ids
     )
 
 
@@ -757,8 +776,8 @@ def list_source_destinations(
 
 def delete_source_destination_rows(
     *, team_id: int, public_id: UUID, destination_ids: Collection[UUID], hog_function_ids: Collection[UUID]
-) -> frozenset[UUID]:
-    """Deletes the alert's rows named or copying `hog_function_ids`, and returns the HogFunctions they copied."""
+) -> DeletedSourceDestinations:
+    """Deletes the alert's rows named or copying `hog_function_ids`, and returns what went."""
     return alert_destinations.delete_source_destination_rows(
         team_id=team_id, public_id=public_id, destination_ids=destination_ids, hog_function_ids=hog_function_ids
     )
@@ -809,6 +828,16 @@ def destination_types_by_configuration(
     return alert_destinations.destination_types_by_configuration(team_id=team_id, configuration_ids=configuration_ids)
 
 
+def delete_rows_copying(*, team_id: int, hog_function_ids: Collection[UUID]) -> int:
+    """Deletes the `AlertDestination` rows that copy any of these HogFunctions, and returns how many."""
+    return alert_destinations.delete_rows_copying(team_id=team_id, hog_function_ids=hog_function_ids)
+
+
+def validate_destination_data(data: AlertDestinationData) -> None:
+    """Raises `AlertDestinationValidationError` when the platform would refuse to send to this destination."""
+    alert_destinations.validate_destination_data(data)
+
+
 def redact_destination_data(data: AlertDestinationData) -> AlertDestinationData:
     """A destination's configuration without the parts that are a credential, for showing it."""
     return alert_destinations.redact_destination_data(data)
@@ -828,8 +857,11 @@ def destination_hears_kind(
     )
 
 
-def delete_alert_destinations(*, team_id: int, configuration_id: UUID, destination_ids: Collection[UUID]) -> int:
-    """Deletes the named destinations of one alert. An id of another alert is left alone."""
+def delete_alert_destinations(
+    *, team_id: int, configuration_id: UUID, destination_ids: Collection[UUID]
+) -> dict[UUID, str]:
+    """Deletes the named destinations of one alert, and returns the type of each one it deleted, by id.
+    An id of another alert is left alone."""
     return alert_destinations.delete_alert_destinations(
         team_id=team_id, configuration_id=configuration_id, destination_ids=destination_ids
     )
@@ -842,8 +874,9 @@ def recent_destination_sends(
     return destination_sends.recent_destination_sends(team_id=team_id, destination_ids=destination_ids, limit=limit)
 
 
-def list_alert_receivers(*, team_id: int) -> tuple[StoredAlertReceiver, ...]:
-    return alert_routing.list_receivers(team_id=team_id)
+def list_alert_receivers(*, team_id: int, ids: Collection[UUID] | None = None) -> tuple[StoredAlertReceiver, ...]:
+    """Every receiver on the team, or only those with these ids."""
+    return alert_routing.list_receivers(team_id=team_id, ids=ids)
 
 
 def create_alert_receiver(*, team_id: int, edit: AlertReceiverEdit) -> StoredAlertReceiver:
@@ -863,6 +896,11 @@ def delete_alert_receiver(*, team_id: int, receiver_id: UUID) -> None:
 
 def list_alert_routes(*, team_id: int) -> tuple[StoredAlertRoute, ...]:
     return alert_routing.list_routes(team_id=team_id)
+
+
+def matching_alert_routes(*, team_id: int, labels: Mapping[str, str]) -> tuple[StoredAlertRoute, ...]:
+    """The routes delivery would send an alert with these labels through, in the order it reads them."""
+    return alert_routing.matching_routes(team_id=team_id, labels=labels)
 
 
 def create_alert_route(*, team_id: int, edit: AlertRouteEdit) -> StoredAlertRoute:

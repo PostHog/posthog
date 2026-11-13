@@ -23,6 +23,8 @@ from products.warehouse_sources.sources.trustradius.settings import (
     API_DOCS_URL,
     API_VERSION,
     ENDPOINTS,
+    INCREMENTAL_FIELDS,
+    INCREMENTAL_LOOKBACK_SECONDS,
     NON_RETRYABLE_ERRORS,
 )
 from products.warehouse_sources.sources.trustradius.trustradius import trustradius_source, validate_credentials
@@ -56,7 +58,14 @@ class TrustradiusSource(SimpleSource[TrustradiusSourceConfig]):
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, {}, names)
+        # Incremental runs read the last stored day again, so append would duplicate its rows.
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            merge_only=INCREMENTAL_FIELDS.keys(),
+            default_incremental_lookback_seconds=INCREMENTAL_LOOKBACK_SECONDS,
+        )
 
     def validate_credentials(
         self,
@@ -68,7 +77,15 @@ class TrustradiusSource(SimpleSource[TrustradiusSourceConfig]):
         return validate_credentials(config.api_key)
 
     def source_for_pipeline(self, config: TrustradiusSourceConfig, inputs: SourceInputs) -> SourceResponse:
-        return trustradius_source(config.api_key, inputs.schema_name, inputs.team_id, inputs.job_id)
+        return trustradius_source(
+            config.api_key,
+            inputs.schema_name,
+            inputs.team_id,
+            inputs.job_id,
+            should_use_incremental_field=inputs.should_use_incremental_field,
+            last_value=inputs.db_incremental_field_last_value,
+            logger=inputs.logger,
+        )
 
     @property
     def get_source_config(self) -> SourceConfig:
