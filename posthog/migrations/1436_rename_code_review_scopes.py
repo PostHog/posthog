@@ -11,8 +11,10 @@ RENAMED_SCOPES = {
     "stamphog:read": "code_review_approval:read",
     "stamphog:write": "code_review_approval:write",
 }
-OLD_RESOURCE = "stamphog"
-NEW_RESOURCE = "code_review_approval"
+RENAMED_RESOURCES = {
+    "review_hog": "code_review",
+    "stamphog": "code_review_approval",
+}
 
 BATCH_SIZE = 5000
 
@@ -49,9 +51,12 @@ SAME_TARGET = """
 
 def _update_in_batches(cursor, table: str, set_clause: str, where_clause: str) -> None:
     # Each batch commits on its own (the migration is not atomic), so no row lock outlives one batch.
+    # The outer WHERE repeats the condition: PostgreSQL checks it again on the locked row, so a row that
+    # a concurrent write changed while this batch waited for its lock (a revoked scope) is skipped.
     while True:
         cursor.execute(
-            f"UPDATE {table} SET {set_clause} WHERE id IN (SELECT id FROM {table} WHERE {where_clause} LIMIT %s)",
+            f"UPDATE {table} SET {set_clause} "
+            f"WHERE id IN (SELECT id FROM {table} WHERE {where_clause} LIMIT %s) AND {where_clause}",
             [BATCH_SIZE],
         )
         if cursor.rowcount < BATCH_SIZE:
@@ -97,6 +102,7 @@ def _remove_scope(cursor, removed: str) -> None:
 
 def _copy_access_rows(cursor, from_resource: str, to_resource: str) -> None:
     """Copy every access control row of `from_resource` to `to_resource`, unless the target already has one."""
+    # FOR SHARE re-checks each source row once its lock is free, so a rule deleted meanwhile is not copied.
     cursor.execute(
         f"""
         INSERT INTO ee_accesscontrol (
@@ -111,7 +117,23 @@ def _copy_access_rows(cursor, from_resource: str, to_resource: str) -> None:
             AND NOT EXISTS (
                 SELECT 1 FROM ee_accesscontrol duplicate WHERE duplicate.resource = '{to_resource}' AND {SAME_TARGET}
             )
+        FOR SHARE OF original
         ON CONFLICT DO NOTHING
+        """
+    )
+
+
+def _sync_access_levels(cursor, from_resource: str, to_resource: str) -> None:
+    """Set each `to_resource` row's level to the level of its `from_resource` row for the same target."""
+    cursor.execute(
+        f"""
+        UPDATE ee_accesscontrol duplicate
+        SET access_level = original.access_level, updated_at = now()
+        FROM ee_accesscontrol original
+        WHERE duplicate.resource = '{to_resource}'
+            AND original.resource = '{from_resource}'
+            AND {SAME_TARGET}
+            AND duplicate.access_level <> original.access_level
         """
     )
 
@@ -120,18 +142,22 @@ def forwards(apps, schema_editor):
     with schema_editor.connection.cursor() as cursor:
         for old, new in RENAMED_SCOPES.items():
             _add_scope_next_to(cursor, present=old, added=new)
-        _copy_access_rows(cursor, from_resource=OLD_RESOURCE, to_resource=NEW_RESOURCE)
+        for old, new in RENAMED_RESOURCES.items():
+            _copy_access_rows(cursor, from_resource=old, to_resource=new)
 
 
 def backwards(apps, schema_editor):
-    # New code issues new names on their own (refreshed tokens, new keys, new access rows), so the
-    # old name goes back on first. Only then are the new names removed, and old code keeps working.
+    # New code issues new names on their own (refreshed tokens, new keys, new access rows), and admins
+    # may change a level under the new name. So the old names and levels come back first, and only then
+    # are the new names and rows removed, which leaves old code with what new code last saw.
     with schema_editor.connection.cursor() as cursor:
         for old, new in RENAMED_SCOPES.items():
             _add_scope_next_to(cursor, present=new, added=old)
             _remove_scope(cursor, new)
-        _copy_access_rows(cursor, from_resource=NEW_RESOURCE, to_resource=OLD_RESOURCE)
-        cursor.execute(f"DELETE FROM ee_accesscontrol WHERE resource = '{NEW_RESOURCE}'")
+        for old, new in RENAMED_RESOURCES.items():
+            _sync_access_levels(cursor, from_resource=new, to_resource=old)
+            _copy_access_rows(cursor, from_resource=new, to_resource=old)
+            cursor.execute(f"DELETE FROM ee_accesscontrol WHERE resource = '{new}'")
 
 
 class Migration(migrations.Migration):
