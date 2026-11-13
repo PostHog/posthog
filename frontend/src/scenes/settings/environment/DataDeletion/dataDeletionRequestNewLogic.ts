@@ -255,8 +255,8 @@ export const dataDeletionRequestNewLogic = kea<dataDeletionRequestNewLogicType>(
             (): Breadcrumb[] => [
                 {
                     key: Scene.Settings,
-                    name: 'Settings - Data deletion',
-                    path: urls.settings('environment-data-deletion'),
+                    name: 'Settings - Danger zone',
+                    path: urls.settings('environment-danger-zone', 'data-deletion-requests'),
                     iconType: 'settings',
                 },
                 {
@@ -287,7 +287,7 @@ export const dataDeletionRequestNewLogic = kea<dataDeletionRequestNewLogicType>(
             // pinned: analytics event name and properties, renaming breaks dashboards
             posthog.capture('data deletion request submitted', { matched_count: values.currentPreview?.count ?? null })
             lemonToast.success('Deletion request submitted. PostHog reviews it before any events are deleted.')
-            router.actions.push(urls.settings('environment-data-deletion'))
+            router.actions.push(urls.settings('environment-danger-zone', 'data-deletion-requests'))
         },
     })),
 

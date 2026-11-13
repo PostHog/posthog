@@ -8,4 +8,4 @@ rules:
     - match: ['/proxyLogic.test.ts', '/proxyLogic.ts']
       owners: team-platform-features
     - match: '/DataDeletion/'
-      owners: clickhouse
+      owners: team-growth

@@ -146,7 +146,7 @@ export function DataDeletionRequestNewScene(): JSX.Element {
                 >
                     Submit deletion request
                 </LemonButton>
-                <LemonButton type="secondary" to={urls.settings('environment-data-deletion')}>
+                <LemonButton type="secondary" to={urls.settings('environment-danger-zone', 'data-deletion-requests')}>
                     Cancel
                 </LemonButton>
             </div>

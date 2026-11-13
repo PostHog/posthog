@@ -20,6 +20,7 @@ import { FeaturePreviews, FeaturePreviewsComingSoon } from 'lib/components/Featu
 import { FEATURE_SUPPORT } from 'lib/components/SupportedPlatforms/featureSupport'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { PersonalPosthogConnections } from 'lib/integrations/PosthogConnect'
+import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { DefaultMinimumDetectableEffect } from 'scenes/experiments/DefaultMinimumDetectableEffect'
 import { GitHub, GitLab, Linear, Slack } from 'scenes/integrations/definitions'
 import { AgentPersonalInstructionsSettings } from 'scenes/settings/environment/AgentPersonalInstructionsSettings'
@@ -2282,26 +2283,6 @@ export const SETTINGS_MAP: SettingSection[] = [
     },
     {
         level: 'environment',
-        id: 'environment-data-deletion',
-        title: 'Data deletion',
-        flag: 'SELF_SERVICE_DATA_DELETION',
-        accessControl: {
-            resourceType: AccessControlResourceType.DataDeletion,
-            minimumAccessLevel: AccessControlLevel.Editor,
-        },
-        settings: [
-            {
-                id: 'data-deletion-requests',
-                title: 'Deletion requests',
-                description:
-                    'Delete events that a SQL query selects. PostHog reviews each request before any events are deleted.',
-                component: <DataDeletionRequests />,
-                keywords: ['delete', 'remove', 'erase', 'gdpr', 'events'],
-            },
-        ],
-    },
-    {
-        level: 'environment',
         id: 'environment-danger-zone',
         title: 'Danger zone',
         settings: [
@@ -2311,6 +2292,18 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description: 'Move this project to a different organization.',
                 component: <ProjectMove />,
                 keywords: ['transfer', 'move', 'organization'],
+            },
+            {
+                id: 'data-deletion-requests',
+                title: 'Deletion requests',
+                description:
+                    'Delete events that a SQL query selects. PostHog reviews each request before any events are deleted.',
+                component: <DataDeletionRequests />,
+                flag: 'SELF_SERVICE_DATA_DELETION',
+                // A setting has no accessControl field, so hide it here. Without this, a member without
+                // data_deletion access sees the list load and fail with a 403.
+                allowForTeam: () => userHasAccess(AccessControlResourceType.DataDeletion, AccessControlLevel.Editor),
+                keywords: ['delete', 'remove', 'erase', 'gdpr', 'events'],
             },
             {
                 id: 'environment-delete',

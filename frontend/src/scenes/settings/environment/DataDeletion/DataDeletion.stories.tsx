@@ -93,5 +93,5 @@ const meta: Meta<(props: StoryProps) => JSX.Element> = {
 }
 export default meta
 
-export const RequestList: Story = { args: { url: urls.settings('environment-data-deletion') } }
+export const RequestList: Story = { args: { url: urls.settings('environment-danger-zone', 'data-deletion-requests') } }
 export const NewRequest: Story = { args: { url: urls.dataDeletionRequestNew() } }

@@ -610,7 +610,7 @@
         "scope": "project"
     },
     "dataDeletionRequestNew": {
-        "template": "/settings/environment-data-deletion/new",
+        "template": "/settings/environment-danger-zone/data-deletion/new",
         "params": [],
         "scope": "project"
     },

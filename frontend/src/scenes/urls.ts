@@ -218,7 +218,7 @@ export const urls = {
         feature: 'saml' | 'oidc' | 'scim' | 'xaa' | ':feature',
         configId: string | ':configId'
     ): string => `/settings/organization-authentication/${feature}/${configId}`,
-    dataDeletionRequestNew: (): string => '/settings/environment-data-deletion/new',
+    dataDeletionRequestNew: (): string => '/settings/environment-danger-zone/data-deletion/new',
     featurePreview: (flagKey: string): string => combineUrl('/settings/user-feature-previews', {}, flagKey).url,
     organizationCreationConfirm: (): string => '/organization/confirm-creation',
     toolbarLaunch: (): string => '/toolbar',

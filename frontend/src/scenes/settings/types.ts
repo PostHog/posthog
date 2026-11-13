@@ -71,7 +71,6 @@ export type SettingSectionId =
     | 'environment-tracing'
     | 'environment-web-analytics'
     | 'environment-workflows'
-    | 'environment-data-deletion'
     | 'environment-danger-zone'
     // Project (backward compat – remove when Environments are rolled out)
     | 'project-details'
