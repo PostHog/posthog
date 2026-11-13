@@ -5,12 +5,15 @@ The send API writes `queued`, the email worker `sent` or `failed`, and the SES w
 """
 
 from datetime import UTC, datetime, timedelta
-from typing import cast
+from typing import Any, cast
 from uuid import UUID
+
+from posthog.schema import HogQLQueryModifiers
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.models.event.new_events_schema import events_route_scope
 
 from products.messaging.backend.facade.contracts import EmailDeliveryStatus, EmailStatus
 from products.messaging.backend.models.email_status_sql import EMAIL_STATUS_RETENTION_DAYS, EMAIL_STATUS_TABLE
@@ -74,17 +77,20 @@ def message_created_at(
 def _keyed_created_at(
     team_id: int, message_id: UUID, workload: Workload, table: str, since: datetime
 ) -> datetime | None:
-    tag_queries(product=Product.MESSAGING, feature=Feature.QUERY)
-    rows = cast(
-        list,
-        sync_execute(
-            _KEYED_CREATED_AT_QUERY.format(table=table),
-            {"team_id": team_id, "message_id": str(message_id), "start": since},
-            workload=workload,
-            team_id=team_id,
-        ),
+    rows = _execute(
+        _KEYED_CREATED_AT_QUERY.format(table=table),
+        {"team_id": team_id, "message_id": str(message_id), "start": since},
+        workload,
+        team_id,
     )
     return rows[0][0].replace(tzinfo=UTC) if rows else None
+
+
+def _execute(query: str, params: dict[str, Any], workload: Workload, team_id: int) -> list:
+    tag_queries(product=Product.MESSAGING, feature=Feature.QUERY)
+    # A project on the native events table has its queries sent to the events cluster, which has no email tables.
+    with events_route_scope(HogQLQueryModifiers(useNewEventsSchema=False)):
+        return cast(list, sync_execute(query, params, workload=workload, team_id=team_id))
 
 
 def queued_at(message_id: UUID) -> datetime | None:
@@ -103,21 +109,17 @@ def get_email_status(team_id: int, message_id: UUID) -> EmailStatus | None:
     created_at = message_created_at(team_id, message_id, Workload.OFFLINE)
     if created_at is None:
         return None
-    tag_queries(product=Product.MESSAGING, feature=Feature.QUERY)
-    rows = cast(
-        list,
-        sync_execute(
-            _EMAIL_STATUS_QUERY,
-            {
-                "team_id": team_id,
-                "message_id": str(message_id),
-                "start": created_at - _CLOCK_SKEW,
-                "end": created_at + _CLOCK_SKEW,
-            },
-            # A server holding a project secret API key polls this. No person waits on screen.
-            workload=Workload.OFFLINE,
-            team_id=team_id,
-        ),
+    rows = _execute(
+        _EMAIL_STATUS_QUERY,
+        {
+            "team_id": team_id,
+            "message_id": str(message_id),
+            "start": created_at - _CLOCK_SKEW,
+            "end": created_at + _CLOCK_SKEW,
+        },
+        # A server holding a project secret API key polls this. No person waits on screen.
+        Workload.OFFLINE,
+        team_id,
     )
     if not rows:
         return None
