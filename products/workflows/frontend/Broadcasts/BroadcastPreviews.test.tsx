@@ -33,12 +33,14 @@ describe('broadcast previews', () => {
     let people: unknown[][] | 'pending' | 'failed'
     let sendResult: Partial<HogflowTestResult>
     let sent: any[]
+    let sendGate: Promise<void>
     let mounted: { unmount: () => void }[]
 
     beforeEach(() => {
         people = []
         sendResult = { status: 'success' }
         sent = []
+        sendGate = Promise.resolve()
         mounted = []
         useMocks({
             get: { '/api/projects/:team_id/integrations/': { results: [], count: 0 } },
@@ -52,6 +54,7 @@ describe('broadcast previews', () => {
                 '/api/projects/:team_id/hog_flows/user_blast_radius/': () => [200, { affected: 0, total: 0 }],
                 '/api/projects/:team_id/hog_flows/new/invocations/': async ({ request }) => {
                     sent.push(await request.json())
+                    await sendGate
                     return [200, { nextActionId: null, ...sendResult }]
                 },
             },
@@ -239,6 +242,7 @@ describe('broadcast previews', () => {
         renderReview({})
         await screen.findByText(/^Values come from Ada\./)
         expect(screen.getByText('Send yourself a test first')).toBeInTheDocument()
+        expect(document.querySelector('[data-attr="broadcast-open-test-email"]')).toBeNull()
         expect(screen.getByText(/^Read the email in a real inbox/)).toBeInTheDocument()
 
         click('broadcast-review-send-test')
@@ -254,7 +258,15 @@ describe('broadcast previews', () => {
             'true'
         )
         type('broadcast-test-email-recipient', 'reviewer@example.com')
+        let release = (): void => {}
+        sendGate = new Promise((resolve) => (release = resolve))
         click('broadcast-send-test-email')
+        await waitFor(() => expect(sent).toHaveLength(1))
+        expect(document.querySelector('[data-attr="broadcast-send-test-email"]')).toHaveAttribute(
+            'aria-disabled',
+            'true'
+        )
+        release()
 
         expect(await screen.findByText('Test sent to reviewer@example.com')).toBeInTheDocument()
         expect(screen.getByText('Check it in your inbox, on desktop and mobile, before you send.')).toBeInTheDocument()
