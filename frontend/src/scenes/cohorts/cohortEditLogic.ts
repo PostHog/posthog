@@ -590,7 +590,7 @@ export interface cohortEditLogicMeta {
         csvMaxBytes: (preflight: PreflightStatus | null) => number
         hasAddUsersMenu: (cohort: CohortType, staticCohortMode: StaticCohortMode) => boolean
         isCalculatingOrPending: (cohort: CohortType, isPendingCalculation: boolean) => boolean
-        realtimeSwitchAction: (cohort: CohortType, featureFlags: any) => CohortRealtimeSwitchAction | null
+        realtimeSwitchAction: (cohort: CohortType, featureFlags: FeatureFlagsSet) => CohortRealtimeSwitchAction | null
     }
 }
 
