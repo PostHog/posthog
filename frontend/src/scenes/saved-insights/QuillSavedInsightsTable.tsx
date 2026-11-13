@@ -2,34 +2,19 @@ import type { ColumnDef } from '@tanstack/react-table'
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { IconCheck, IconPlus, IconSearch } from '@posthog/icons'
-import {
-    Badge,
-    Button,
-    Card,
-    DataTable,
-    Empty,
-    EmptyContent,
-    EmptyDescription,
-    EmptyHeader,
-    EmptyMedia,
-    EmptyTitle,
-    Skeleton,
-    Text,
-    cn,
-} from '@posthog/quill'
+import { IconCheck, IconPlus } from '@posthog/icons'
+import { Badge, Button, Card, DataTable, Skeleton, Text, cn } from '@posthog/quill'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { AnalyticsOwner } from 'scenes/analytics/AnalyticsOwner'
 import { AnalyticsSearchInput } from 'scenes/analytics/AnalyticsSearchInput'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
-import { urls } from 'scenes/urls'
 
 import { InsightModel } from '~/types'
 
 import { addSavedInsightsModalLogic } from './addSavedInsightsModalLogic'
 import { InsightIcon } from './InsightIcon'
+import { QuillSavedInsightsEmptyState } from './QuillSavedInsightsEmptyState'
 import { QuillSavedInsightsFilterMenu } from './QuillSavedInsightsFilterMenu'
 import { QuillSavedInsightsPagination } from './QuillSavedInsightsPagination'
 import { SavedInsightsTableProps } from './SavedInsightsTable'
@@ -188,52 +173,13 @@ export function QuillSavedInsightsTable({
         }
         if (!insightsLoading && insights.count < 1) {
             const searchString = filters.search || null
-            const usingFilters = !!searchString || hasNonSearchFilters
             return (
-                <Empty data-attr="insight-empty-state">
-                    <EmptyHeader>
-                        {usingFilters && (
-                            <EmptyMedia variant="icon">
-                                <IconSearch />
-                            </EmptyMedia>
-                        )}
-                        <EmptyTitle>
-                            {usingFilters
-                                ? searchString
-                                    ? `There are no insights matching "${searchString}".`
-                                    : 'There are no insights matching these filters.'
-                                : 'There are no insights for this project.'}
-                        </EmptyTitle>
-                        <EmptyDescription>
-                            {usingFilters
-                                ? 'Refine your keyword search, or try using other filters such as type, last modified or created by.'
-                                : 'Once you create an insight, it will show up here.'}
-                        </EmptyDescription>
-                    </EmptyHeader>
-                    <EmptyContent className="flex-row justify-center">
-                        {hasFilteredUI && searchString && (
-                            <Button variant="outline" onClick={() => setModalFilters({ search: '' })}>
-                                Clear search
-                            </Button>
-                        )}
-                        {hasFilteredUI && hasNonSearchFilters && (
-                            <Button variant="outline" onClick={clearFilters}>
-                                Clear filters
-                            </Button>
-                        )}
-                        {!usingFilters && (
-                            <Button
-                                variant="primary"
-                                nativeButton={false}
-                                render={<LinkPrimitive to={urls.insightNew()} />}
-                                data-attr="add-insight-button-empty-state"
-                            >
-                                <IconPlus />
-                                New insight
-                            </Button>
-                        )}
-                    </EmptyContent>
-                </Empty>
+                <QuillSavedInsightsEmptyState
+                    searchString={searchString}
+                    usingFilters={!!searchString || hasNonSearchFilters}
+                    onClearSearch={hasFilteredUI && searchString ? () => setModalFilters({ search: '' }) : undefined}
+                    onClearFilters={hasFilteredUI && hasNonSearchFilters ? clearFilters : undefined}
+                />
             )
         }
         return (
