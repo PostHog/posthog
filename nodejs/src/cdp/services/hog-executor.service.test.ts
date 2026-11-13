@@ -2181,16 +2181,19 @@ describe('Hog Executor', () => {
             const runHog = async (code: string) => {
                 const hogFunction = createHogFunction({ bytecode: await compileHog(code) })
                 hogFunction.encrypted_inputs = { signing_secret: { value: SECRET } } as any
-                return executor.executeWithAsyncFunctions(createExampleInvocation(hogFunction, { inputs: {} }), {
-                    maxAsyncFunctions: 2,
-                })
+                return executor.executeWithAsyncFunctions(
+                    createExampleInvocation(hogFunction, { inputs: { url: baseUrl } }),
+                    {
+                        maxAsyncFunctions: 2,
+                    }
+                )
             }
 
             it('sends one delivery id that both signers of a fetch call sign', async () => {
                 const received = receiveRequests()
 
                 const result = await runHog(`
-                    fetch('${baseUrl}/', {
+                    fetch(inputs.url, {
                         'body': {'a': 1},
                         'standard_webhooks': {'secret_input': 'signing_secret'},
                         'hmac_sha256': {'secret_input': 'signing_secret'}
@@ -2216,8 +2219,8 @@ describe('Hog Executor', () => {
                     const options = `{'body': 'x', '${signer}': {'secret_input': 'signing_secret'}}`
 
                     const result = await runHog(`
-                        fetch('${baseUrl}/', ${options})
-                        fetch('${baseUrl}/', ${options})
+                        fetch(inputs.url, ${options})
+                        fetch(inputs.url, ${options})
                     `)
 
                     expect(result.error).toBeUndefined()
