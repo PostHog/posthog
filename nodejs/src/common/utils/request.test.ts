@@ -504,6 +504,13 @@ describe('fetch', () => {
                 expectedConnections: 2,
             },
             {
+                name: 'charges the IPv4 fallback it keeps',
+                enforced: 'true',
+                addresses: deadIpv4First,
+                expected: [200, 200, 'ConnectionRateLimitError'],
+                expectedConnections: 2,
+            },
+            {
                 name: 'keeps every IPv4 fallback when not enforced',
                 enforced: 'false',
                 addresses: deadIpv4First,
