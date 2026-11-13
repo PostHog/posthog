@@ -1,7 +1,7 @@
 import { Message } from 'node-rdkafka'
 
 import { QuotaLimiting } from '~/common/services/quota-limiting.service'
-import type { UnknownTokenRecorder } from '~/common/services/unknown-token-recorder'
+import type { UnknownTokenRecorder } from '~/logs/services/unknown-token-recorder'
 import { TeamManager } from '~/common/utils/team-manager'
 import { isOkResult } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'

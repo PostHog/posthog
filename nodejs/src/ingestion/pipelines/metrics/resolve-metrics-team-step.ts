@@ -1,9 +1,9 @@
-import type { UnknownTokenRecorder } from '~/common/services/unknown-token-recorder'
 import { isDevEnv } from '~/common/utils/env-utils'
 import { logger } from '~/common/utils/logger'
 import { TeamManager } from '~/common/utils/team-manager'
 import { dlq, drop, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
+import type { UnknownTokenRecorder } from '~/logs/services/unknown-token-recorder'
 
 import { metricMessageDlqCounter, metricMessageDroppedCounter } from './metrics'
 

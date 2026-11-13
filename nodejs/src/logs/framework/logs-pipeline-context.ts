@@ -5,7 +5,7 @@ import { parseKafkaHeaders } from '~/common/kafka/consumer'
 import { retryOnDependencyUnavailableError } from '~/common/kafka/error-handling'
 import { AppMetricsAggregator } from '~/common/services/app-metrics-aggregator'
 import { QuotaResource } from '~/common/services/quota-limiting.service'
-import type { UnknownTokenRecorder } from '~/common/services/unknown-token-recorder'
+import type { UnknownTokenRecorder } from '~/logs/services/unknown-token-recorder'
 import { logger } from '~/common/utils/logger'
 import type { LogsSettings } from '~/types'
 
