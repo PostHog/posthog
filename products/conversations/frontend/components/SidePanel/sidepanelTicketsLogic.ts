@@ -117,6 +117,7 @@ export interface sidepanelTicketsLogicValues {
     hasMoreMessages: boolean
     hasSupportExemption: boolean
     isBillingResolved: boolean
+    latestCurrentTicket: ConversationTicket | null
     messageSending: boolean
     messages: ChatMessage[]
     messagesLoading: boolean
@@ -268,6 +269,10 @@ export interface sidepanelTicketsLogicMeta {
             currentTicket: ConversationTicket | null,
             view: SidePanelViewState
         ) => ConversationTicket[]
+        latestCurrentTicket: (
+            tickets: ConversationTicket[],
+            currentTicket: ConversationTicket | null
+        ) => ConversationTicket | null
         canCreateTicket: (
             billing: BillingType | null,
             isCurrentOrganizationNew: boolean,
@@ -506,8 +511,8 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 return counts
             },
         ],
-        // Unread threads float to the top, then most recent activity. The open thread counts as
-        // unread while it is being read: opening it marks it read, and the full-screen scene keeps
+        // Unread threads float to the top, then most recent activity. An open thread that was unread
+        // counts as unread while it is being read: opening it marks it read, and the full-screen scene keeps
         // the list beside the thread, so without the pin the row would drop or vanish on click.
         filteredTickets: [
             (s) => [s.tickets, s.effectiveStatusFilter, s.currentTicket, s.view],
@@ -518,8 +523,9 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 view: SidePanelViewState
             ): ConversationTicket[] => {
                 const pinnedId = view === 'ticket' ? (currentTicket?.id ?? null) : null
+                const pinnedWasUnread = (currentTicket?.unread_count ?? 0) > 0
                 const surfaces = (ticket: ConversationTicket): boolean =>
-                    ticket.id === pinnedId || (ticket.unread_count ?? 0) > 0
+                    (ticket.id === pinnedId && pinnedWasUnread) || (ticket.unread_count ?? 0) > 0
                 return tickets
                     .filter((ticket) => ticket.id === pinnedId || ticketMatchesFilter(ticket, effectiveStatusFilter))
                     .sort((a, b) => {
@@ -527,6 +533,13 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                         return surfaceDelta !== 0 ? surfaceDelta : ticketActivityTime(b) - ticketActivityTime(a)
                     })
             },
+        ],
+        // Polls refresh the list but not currentTicket, so a thread header that read currentTicket would
+        // keep the status from the click while the list beside it shows the one support set since
+        latestCurrentTicket: [
+            (s) => [s.tickets, s.currentTicket],
+            (tickets: ConversationTicket[], currentTicket: ConversationTicket | null): ConversationTicket | null =>
+                tickets.find((ticket) => ticket.id === currentTicket?.id) ?? currentTicket,
         ],
         // Opening a ticket is the paid part of support. Reading and replying to tickets already in
         // the account isn't — free plans can end up with tickets via billing questions or PostHog AI

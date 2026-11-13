@@ -10,7 +10,12 @@ import { QuillTicketMessages } from './QuillTicketMessages'
 import { ticketStatusBadgeVariant } from './ticketStatusBadgeVariant'
 
 export function QuillTicket(): JSX.Element {
-    const { messages, messagesLoading, messageSending, currentTicket } = useValues(sidepanelTicketsLogic)
+    const {
+        messages,
+        messagesLoading,
+        messageSending,
+        latestCurrentTicket: currentTicket,
+    } = useValues(sidepanelTicketsLogic)
     const { sendMessage, setView } = useActions(sidepanelTicketsLogic)
 
     return (
