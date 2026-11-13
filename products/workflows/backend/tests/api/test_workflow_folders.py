@@ -1063,6 +1063,26 @@ class TestWorkflowFolders(APIBaseTest):
             response = self.client.get(f"/api/projects/{self.team.id}/file_system/", {"path": "Unfiled"})
         self.assertEqual([entry["path"] for entry in response.json()["results"]], ["Unfiled"])
 
+    def test_reads_with_the_flag_off_match_paths_only_against_constant_prefixes(self) -> None:
+        self.client.post(
+            f"/api/projects/{self.team.id}/messaging_templates/",
+            {"name": "Synthetic email", "type": "email"},
+            format="json",
+        )
+        for path in ("Unfiled", "Unfiled/Email templates"):
+            FileSystem.objects.create(team=self.team, path=path, depth=len(path.split("/")), type="folder")
+
+        with (
+            patch("posthoganalytics.feature_enabled", return_value=False),
+            CaptureQueriesContext(connection) as queries,
+        ):
+            unfiled = self.client.get(f"/api/projects/{self.team.id}/file_system/unfiled/")
+            listed = self.client.get(f"/api/projects/{self.team.id}/file_system/", {"search": "Unfiled"})
+
+        self.assertEqual((unfiled.status_code, listed.json()["results"]), (200, []), unfiled.content)
+        row_built_patterns = [query["sql"] for query in queries.captured_queries if "LIKE REPLACE(" in query["sql"]]
+        self.assertEqual(row_built_patterns, [])
+
     def test_unfiled_for_the_template_type_with_the_flag_off_files_no_template(self) -> None:
         self.client.post(
             f"/api/projects/{self.team.id}/messaging_templates/",
