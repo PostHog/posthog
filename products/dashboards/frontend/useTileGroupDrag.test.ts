@@ -1,6 +1,7 @@
 import { act, renderHook } from '@testing-library/react'
 import type { Layout, LayoutItem } from 'react-grid-layout'
 
+import type { DashboardSection } from './dashboardTileSections'
 import { TAKE_OUT_DROP_ZONE_KEY, useTileGroupDrag } from './useTileGroupDrag'
 
 const box = (id: number, y: number): LayoutItem => ({ i: String(id), x: 0, y, w: 6, h: 2 })
@@ -201,5 +202,37 @@ describe('useTileGroupDrag', () => {
 
         expect(moveTileToSection).not.toHaveBeenCalled()
         expect(restoreLayout).not.toHaveBeenCalled()
+    })
+
+    it('shows the take-out drop zone only while a tile is carried', async () => {
+        const sourceBand = band('group-plans')
+        dashboardRoot(sourceBand)
+        const tileElement = document.createElement('div')
+        sourceBand.append(tileElement)
+        const groupSection = {
+            kind: 'group',
+            key: 'group-plans',
+            groupKey: 'plans',
+            group: {},
+            tiles: [],
+        } as unknown as DashboardSection
+        const { result } = renderHook(() =>
+            useTileGroupDrag({
+                enabled: true,
+                sections: [groupSection],
+                rowHeight: 80,
+                margin: [0, 0],
+                layout,
+                moveTileToSection: jest.fn(),
+                restoreLayout: jest.fn(),
+            })
+        )
+
+        expect(result.current.showTakeOutDropZone).toBe(false)
+        act(() => result.current.startTileDrag(draggedItem, tileElement))
+        expect(result.current.showTakeOutDropZone).toBe(true)
+        pointerAt(sourceBand)
+        await drop(result, tileElement)
+        expect(result.current.showTakeOutDropZone).toBe(false)
     })
 })
