@@ -80,8 +80,9 @@ class TestHogFlowBatchJob(TestCase):
 
     @parameterized.expand(
         [
-            ("without_a_rate_limit", None, 3000),
-            ("with_a_qualifying_rate_limit", {"count": 60, "period": "hour"}, 60 * 24 * 7),
+            ("without_a_rate_limit", None, 3000, None),
+            ("with_a_qualifying_rate_limit", {"count": 60, "period": "hour"}, 60 * 24 * 7, None),
+            ("when_the_call_times_out", {"count": 60, "period": "hour"}, 60 * 24 * 7, requests.ReadTimeout()),
         ]
     )
     @override_settings(
@@ -96,16 +97,20 @@ class TestHogFlowBatchJob(TestCase):
         "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
     )
     def test_dispatch_caps_the_audience_with_the_workflows_rate_limit(
-        self, _name, email_rate_limit, expected_cap, mock_create_invocation
+        self, _name, email_rate_limit, expected_cap, invocation_error, mock_create_invocation
     ):
         TeamWorkflowsConfig.objects.update_or_create(team=self.team, defaults={"email_sending_tier": 2})
         self.hog_flow.actions = [*self.hog_flow.actions, {"id": "email", "type": "function_email", "config": {}}]
         self.hog_flow.email_sending_rate_limit = email_rate_limit
         self.hog_flow.save()
+        mock_create_invocation.side_effect = invocation_error
 
-        HogFlowBatchJob.objects.create(team=self.team, hog_flow=self.hog_flow)
+        with pytest.raises(type(invocation_error)) if invocation_error else nullcontext():
+            HogFlowBatchJob.objects.create(team=self.team, hog_flow=self.hog_flow)
 
         assert mock_create_invocation.call_args.kwargs["max_audience_size"] == expected_cap
+        # A timed-out call may still have queued the resolver, so the cap that locks the rate limit stays recorded.
+        assert HogFlowBatchJob.objects.get(hog_flow=self.hog_flow).max_audience_size == expected_cap
 
     @patch(
         "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"

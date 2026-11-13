@@ -100,8 +100,10 @@ def dispatch_batch_job(
         if wait_for_cohort:
             # The resolver parks until a resume wakes it, and fails the run at this instant otherwise.
             cohort_target["wait_until"] = (job.created_at + REALTIME_COHORT_WAIT_LIMIT).isoformat()
+    error: Exception | None = None
+    # The resolver is enqueued under the workflow's row lock, so a rate limit edit's locked re-check either
+    # lands before the cap is read here or finds the cap recorded and the resolver already in flight.
     with transaction.atomic():
-        # Under the workflow's row lock, a rate limit edit either lands before this read or sees the cap recorded here.
         hog_flow = HogFlow.objects.select_for_update().get(pk=job.hog_flow_id)
         max_audience_size = get_hogflow_batch_trigger_limit(
             job.team.id,
@@ -113,21 +115,30 @@ def dispatch_batch_job(
             email_rate_limit=hog_flow.email_sending_rate_limit,
         )
         HogFlowBatchJob.objects.filter(pk=job.pk).update(max_audience_size=max_audience_size)
-    return create_batch_hog_flow_job_invocation(
-        team_id=job.team.id,
-        hog_flow_id=job.hog_flow.id,
-        batch_job_id=job.id,
-        max_audience_size=max_audience_size,
-        # The audience snapshot the confirm check validated - the resolver dispatches from
-        # this, not the live trigger, so a trigger edit racing the dispatch can't widen it.
-        filters=job.filters,
-        realtime_cohort=cohort_target,
-        # The resolver pages a stored audience instead of the live query, and fails the run at this instant
-        # if the audience never resolves.
-        audience_snapshot=(
-            {"wait_until": (job.created_at + AUDIENCE_SNAPSHOT_WAIT_LIMIT).isoformat()} if snapshot_audience else None
-        ),
-    )
+        try:
+            response = create_batch_hog_flow_job_invocation(
+                team_id=job.team.id,
+                hog_flow_id=job.hog_flow.id,
+                batch_job_id=job.id,
+                max_audience_size=max_audience_size,
+                # The audience snapshot the confirm check validated - the resolver dispatches from
+                # this, not the live trigger, so a trigger edit racing the dispatch can't widen it.
+                filters=job.filters,
+                realtime_cohort=cohort_target,
+                # The resolver pages a stored audience instead of the live query, and fails the run at this instant
+                # if the audience never resolves.
+                audience_snapshot=(
+                    {"wait_until": (job.created_at + AUDIENCE_SNAPSHOT_WAIT_LIMIT).isoformat()}
+                    if snapshot_audience
+                    else None
+                ),
+            )
+        except Exception as e:
+            # Commit the recorded cap anyway: a call that failed after sending may still have queued the resolver.
+            error = e
+    if error is not None:
+        raise error
+    return response
 
 
 @receiver(post_save, sender=HogFlowBatchJob)
