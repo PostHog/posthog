@@ -661,7 +661,7 @@ describe('hog api tool catalog', () => {
     test.each([
         ['HOG_SKIP_SSL_VERIFICATION', { HOG_SKIP_SSL_VERIFICATION: '1' }, 'TLS verification is off'],
         [
-            'NODE_TLS_REJECT_UNAUTHORIZED=0',
+            'NODE_TLS_REJECT_UNAUTHORIZED set to 0',
             { NODE_TLS_REJECT_UNAUTHORIZED: '0' },
             'NODE_TLS_REJECT_UNAUTHORIZED turns TLS verification off',
         ],
