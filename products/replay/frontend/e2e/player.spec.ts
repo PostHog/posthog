@@ -201,7 +201,7 @@ test.describe.configure({ mode: 'serial' })
 let workspace: PlaywrightWorkspaceSetupResult | null = null
 
 test.beforeAll(async ({ playwrightSetup }) => {
-    workspace = await playwrightSetup.createWorkspace({ skip_onboarding: true })
+    workspace = await playwrightSetup.createWorkspace({ skip_onboarding: true, no_demo_data: true })
 })
 
 test.describe('Session replay player', () => {

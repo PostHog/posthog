@@ -6,6 +6,7 @@ import { expect, Page } from '@playwright/test'
 
 import { InsightVizNode, NodeKind, TrendsQuery } from '../../frontend/src/queries/schema/schema-general'
 import { SharingConfigurationType } from '../../frontend/src/types'
+import { createEvent } from '../utils/event-data'
 import { PlaywrightSetup } from '../utils/playwright-setup'
 import { test } from '../utils/workspace-test-base'
 
@@ -14,7 +15,11 @@ async function createSharedInsight(
     playwrightSetup: PlaywrightSetup,
     orgName: string
 ): Promise<{ sharingData: SharingConfigurationType }> {
-    const workspace = await playwrightSetup.createWorkspace(orgName)
+    const workspace = await playwrightSetup.createWorkspace({
+        organization_name: orgName,
+        no_demo_data: true,
+        events: createEvent({ timestamp: '2024-10-20T12:00:00.000Z' }).repeat(3),
+    })
 
     const payload: { name: string; query: InsightVizNode<TrendsQuery> } = {
         name: 'Shared Styling Test Insight',
