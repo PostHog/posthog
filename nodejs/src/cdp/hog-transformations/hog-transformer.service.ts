@@ -41,7 +41,6 @@ export interface HogTransformerConfig {
     siteUrl: string
     hogRustVmExecutionEnabled: boolean
     hogRustVmBatchExecutionEnabled: boolean
-    mmdbFileLocation: string | undefined
 }
 
 export const hogTransformationDroppedEvents = new Counter({
@@ -132,7 +131,7 @@ export class HogTransformerService implements HogTransformer {
         private config: HogTransformerConfig
     ) {
         this.rustVmExecutor = config.hogRustVmExecutionEnabled
-            ? new RustVmExecutor({ mmdbPath: config.mmdbFileLocation })
+            ? new RustVmExecutor({ mmdb: geoipService.mmdbSource })
             : null
     }
 
@@ -467,7 +466,6 @@ export function createHogTransformerService(
             siteUrl: config.SITE_URL,
             hogRustVmExecutionEnabled: config.CDP_HOG_RUST_VM_EXECUTION_ENABLED,
             hogRustVmBatchExecutionEnabled: config.CDP_HOG_RUST_VM_BATCH_EXECUTION_ENABLED,
-            mmdbFileLocation: deps.geoipService.mmdbPath,
         }
     )
 }

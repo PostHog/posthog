@@ -80,7 +80,7 @@ describe('GeoIp', () => {
             const geoip = await service.get()
 
             expect(geoip.city('216.160.83.56')).toBeNull()
-            expect(service.mmdbPath).toBeUndefined()
+            expect(service.mmdbSource).toEqual({ kind: 'disabled' })
             expect(openSpy).not.toHaveBeenCalled()
             expect(warnSpy).not.toHaveBeenCalled()
         })

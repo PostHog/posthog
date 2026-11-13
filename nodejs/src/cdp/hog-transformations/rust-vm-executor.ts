@@ -2,6 +2,7 @@ import { LRUCache } from 'lru-cache'
 import { DateTime } from 'luxon'
 import { Counter, Histogram } from 'prom-client'
 
+import { MmdbSource } from '~/common/utils/geoip'
 import { logger } from '~/common/utils/logger'
 
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '../types'
@@ -66,7 +67,7 @@ export class RustVmExecutor {
      */
     private handles: LRUCache<string, number>
 
-    constructor(private options: { mmdbPath: string | undefined }) {
+    constructor(private options: { mmdb: MmdbSource }) {
         this.scheduler = new RustVmBatchScheduler(async (bytecode, events) => {
             const module_ = this.getModule()
             if (!module_) {
@@ -89,7 +90,7 @@ export class RustVmExecutor {
     }
 
     private getModule(): HogvmNodeModule | null {
-        return loadHogvmNodeModule({ mmdbPath: this.options.mmdbPath })
+        return loadHogvmNodeModule({ mmdb: this.options.mmdb })
     }
 
     /**

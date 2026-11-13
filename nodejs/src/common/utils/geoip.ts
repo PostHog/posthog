@@ -77,6 +77,8 @@ export function geoipServerDefaultMode(cloudDeployment: string | null): MmdbMode
     return isHostedCloud(cloudDeployment) ? 'required' : 'optional'
 }
 
+export type MmdbSource = { kind: 'file'; path: string } | { kind: 'disabled' }
+
 export class GeoIPService {
     private _initialMmdbPromise?: Promise<void>
     private _mmdb?: ReaderModel
@@ -98,8 +100,9 @@ export class GeoIPService {
         }
     }
 
-    get mmdbPath(): string | undefined {
-        return this.mode === 'disabled' ? undefined : this.mmdbFileLocation
+    /** For readers that open the MMDB themselves, such as the Rust HogVM. */
+    get mmdbSource(): MmdbSource {
+        return this.mode === 'disabled' ? { kind: 'disabled' } : { kind: 'file', path: this.mmdbFileLocation }
     }
 
     private ensureMmdbLoaded() {
