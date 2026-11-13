@@ -8,7 +8,12 @@ const BUCKET_TTL_SECONDS = 2 * SECONDS_PER_DAY
 export type SandboxCaps = { team: number; recipient: number }
 
 export type SandboxCapClaim =
-    | { ok: true; markSending: () => Promise<boolean>; releaseUnsent: () => Promise<boolean> }
+    | {
+          ok: true
+          markSending: () => Promise<boolean>
+          releaseUnsent: () => Promise<boolean>
+          refundUnsent: () => Promise<boolean>
+      }
     | { ok: false; reason: 'daily_cap_reached' | 'cap_storage_unavailable' }
 
 export type SandboxCapClaimRequest = {
@@ -39,18 +44,21 @@ export async function claimSandboxCaps(
         refillPerSecond: cap / SECONDS_PER_DAY,
         ttlSeconds: BUCKET_TTL_SECONDS,
     })
-    const claim = await limiter.claimAllOrNothingAcross(
-        [
-            bucket(`${keyPrefix}/recipient/${recipientDigest}`, caps.recipient),
-            bucket(`${keyPrefix}/project/${teamId}`, caps.team),
-        ],
-        { key: claimKey, attempt, ttlSeconds: BUCKET_TTL_SECONDS }
-    )
+    const buckets = [
+        bucket(`${keyPrefix}/recipient/${recipientDigest}`, caps.recipient),
+        bucket(`${keyPrefix}/project/${teamId}`, caps.team),
+    ]
+    const claim = await limiter.claimAllOrNothingAcross(buckets, {
+        key: claimKey,
+        attempt,
+        ttlSeconds: BUCKET_TTL_SECONDS,
+    })
     if (claim === 'granted') {
         return {
             ok: true,
             markSending: () => limiter.markClaimSpent({ key: claimKey, attempt }),
             releaseUnsent: () => limiter.releaseClaimSpend({ key: claimKey, attempt }),
+            refundUnsent: () => limiter.refundClaimSpend({ key: claimKey, attempt }, buckets),
         }
     }
     return { ok: false, reason: claim === 'denied' ? 'daily_cap_reached' : 'cap_storage_unavailable' }

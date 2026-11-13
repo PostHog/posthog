@@ -21,6 +21,7 @@ from products.warehouse_sources.sources.ticketmaster._config import Ticketmaster
 from products.warehouse_sources.sources.ticketmaster.settings import (
     AUTH_ERRORS,
     ENDPOINTS,
+    KEYWORD_ENDPOINTS,
     KEYWORD_ERROR,
     MAX_RESULTS,
     PAGE_SIZE,
@@ -52,11 +53,29 @@ class TicketmasterPaginator(PageNumberPaginator):
         super().update_state(response, data)
 
 
+def _search_params(config: TicketmasterSourceConfig, endpoint: str) -> dict[str, str | int]:
+    if endpoint not in KEYWORD_ENDPOINTS:
+        return {}
+    if not config.keyword.strip():
+        raise ValueError(KEYWORD_ERROR)
+    return {"keyword": config.keyword.strip()}
+
+
+def _add_classification_id(row: dict[str, Any]) -> dict[str, Any]:
+    # A classification item has no `id` of its own: it wraps either a segment or a type.
+    for key in ("segment", "type"):
+        node = row.get(key)
+        if isinstance(node, dict) and node.get("id"):
+            return {**row, "id": node["id"]}
+    raise ValueError("Ticketmaster returned a classification without a segment or type ID. Try the sync again.")
+
+
 def validate_credentials(config: TicketmasterSourceConfig, endpoint: str, api_version: str) -> tuple[bool, str | None]:
     path = schema_for_resource(ENDPOINTS, endpoint)
-    if not config.keyword.strip():
-        return False, KEYWORD_ERROR
-    params: dict[str, str | int] = {"size": 1, "keyword": config.keyword.strip()}
+    try:
+        params = {"size": 1, **_search_params(config, endpoint)}
+    except ValueError as error:
+        return False, str(error)
     # The API key travels in the query string, and a `requests` error repeats the full URL, so the
     # probe returns a message instead of the error.
     response: Response | None = None
@@ -89,8 +108,7 @@ def ticketmaster_source(
     resumable_source_manager: ResumableSourceManager[TicketmasterResumeConfig],
 ) -> SourceResponse:
     path = schema_for_resource(ENDPOINTS, endpoint)
-    if not config.keyword.strip():
-        raise ValueError(KEYWORD_ERROR)
+    search_params = _search_params(config, endpoint)
     response_actions: list[ResponseAction] = []
     for status, message in AUTH_ERRORS.items():
         response_actions.append({"status_code": status, "action": "raise", "message": message})
@@ -105,7 +123,7 @@ def ticketmaster_source(
             )
     endpoint_config: Endpoint = {
         "path": path,
-        "params": {"size": PAGE_SIZE, "keyword": config.keyword.strip(), "sort": "name,asc"},
+        "params": {"size": PAGE_SIZE, **search_params, "sort": "name,asc"},
         "data_selector": f"_embedded.{endpoint}",
         "response_actions": response_actions,
     }
@@ -117,7 +135,13 @@ def ticketmaster_source(
             "request_timeout": 30,
             "allow_redirects": False,
         },
-        "resources": [{"name": endpoint, "endpoint": endpoint_config}],
+        "resources": [
+            {
+                "name": endpoint,
+                "endpoint": endpoint_config,
+                **({"data_map": _add_classification_id} if endpoint == "classifications" else {}),
+            }
+        ],
     }
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
 

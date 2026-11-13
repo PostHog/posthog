@@ -770,7 +770,13 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
             raise NotFound()
         return Response(self._serialized(updated))
 
-    @extend_schema(request=PLATFORM_ALERT_CONFIGURATION_CREATE, responses=CREATE_RESPONSES)
+    @extend_schema(
+        request=PLATFORM_ALERT_CONFIGURATION_CREATE,
+        responses=CREATE_RESPONSES,
+        summary="Create an alert",
+        description="Create an alert on the platform. The request body depends on source_kind, which picks the "
+        "source product and the shape of source_config. The alert notifies nobody until a destination is added.",
+    )
     def create(self, request: Request, **kwargs) -> Response:
         # The rows live on the project, so an alert made here would count the project's data rather
         # than the environment's that the URL names.
@@ -833,21 +839,34 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
             request=self.request,
         )
 
-    @extend_schema(request=PLATFORM_ALERT_CONFIGURATION_EDIT, responses=EDIT_RESPONSES)
+    @extend_schema(
+        request=PLATFORM_ALERT_CONFIGURATION_EDIT,
+        responses=EDIT_RESPONSES,
+        summary="Replace an alert's settings",
+        description="Replace every setting of an alert the platform owns. source_kind must match the stored value.",
+    )
     def update(self, request: Request, pk: str, **kwargs) -> Response:
         return self._edit(request, pk, partial=False)
 
-    @extend_schema(request=PLATFORM_ALERT_CONFIGURATION_EDIT, responses=EDIT_RESPONSES)
+    @extend_schema(
+        request=PLATFORM_ALERT_CONFIGURATION_EDIT,
+        responses=EDIT_RESPONSES,
+        summary="Change an alert",
+        description="Change some settings of an alert the platform owns. Settings left out keep their stored value. "
+        "A source_kind that is sent must match the stored value.",
+    )
     def partial_update(self, request: Request, pk: str, **kwargs) -> Response:
         return self._edit(request, pk, partial=True)
 
     @extend_schema(
+        summary="Delete an alert",
+        description="Delete an alert the platform owns, with its destinations.",
         responses={
             204: OpenApiResponse(description="The alert, its source's own row and its destinations are deleted."),
             403: OpenApiResponse(description="The caller cannot write alerts of this source kind."),
             404: OpenApiResponse(description="No alert with this id that the caller can read."),
             409: OpenApiResponse(description="The source product owns this alert, so only its own API deletes it."),
-        }
+        },
     )
     def destroy(self, request: Request, pk: str, **kwargs) -> Response:
         configuration_id = serializers.UUIDField().run_validation(pk)
@@ -1210,7 +1229,11 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
             request=self.request,
         )
 
-    @extend_schema(parameters=[PlatformAlertConfigurationListQuerySerializer])
+    @extend_schema(
+        parameters=[PlatformAlertConfigurationListQuerySerializer],
+        summary="List alerts",
+        description="List the alerts of the project that the caller can read.",
+    )
     def list(self, request: Request, **kwargs) -> Response:
         query = PlatformAlertConfigurationListQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)
@@ -1235,7 +1258,14 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
             PlatformAlertConfigurationSerializer(configurations, many=True, context={"extras": extras}).data
         )
 
-    @extend_schema(responses=PlatformAlertConfigurationSerializer)
+    @extend_schema(
+        summary="Get an alert",
+        description="Get one alert with the runtime state of each of its groups.",
+        responses={
+            200: PlatformAlertConfigurationSerializer,
+            404: OpenApiResponse(description="No alert with this id that the caller can read."),
+        },
+    )
     def retrieve(self, request: Request, pk: str, **kwargs) -> Response:
         # The route accepts any non-slash value, and an unparseable one reaching the UUID filter
         # raises rather than missing, which would answer a bad id with a 500.

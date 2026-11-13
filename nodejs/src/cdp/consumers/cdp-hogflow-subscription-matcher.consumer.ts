@@ -1,3 +1,4 @@
+import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 import { Pool } from 'pg'
 import { Counter, Gauge, Histogram } from 'prom-client'
@@ -41,7 +42,13 @@ import {
     matchesWaitUntilCondition,
     runFilterBytecode,
 } from '../services/hogflows/hogflow-utils'
-import { CyclotronPerson, HogFlowInvocationContext, HogFunctionInvocationGlobals, PinnedConversionGoal } from '../types'
+import {
+    CyclotronPerson,
+    HogFlowInvocationContext,
+    HogFunctionInvocationGlobals,
+    MinimalAppMetric,
+    PinnedConversionGoal,
+} from '../types'
 import {
     convertInternalEventToHogFunctionInvocationGlobals,
     convertToHogFunctionInvocationGlobals,
@@ -699,12 +706,12 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         let found
         try {
             found = await this.cyclotronPool.query(
-                `SELECT id, team_id, function_id, run_id, parent_run_id, distinct_id, person_id, flow_version, goal
+                `SELECT id, team_id, function_id, run_id, parent_run_id, distinct_id, person_id, flow_version, goal, created_at
                  FROM conversion_watchers
                  WHERE expires_at > NOW()
                    AND (team_id, distinct_id) IN (SELECT * FROM unnest($1::int[], $2::text[]))
                  UNION
-                 SELECT id, team_id, function_id, run_id, parent_run_id, distinct_id, person_id, flow_version, goal
+                 SELECT id, team_id, function_id, run_id, parent_run_id, distinct_id, person_id, flow_version, goal, created_at
                  FROM conversion_watchers
                  WHERE expires_at > NOW()
                    AND (team_id, person_id) IN (SELECT * FROM unnest($3::int[], $4::text[]))`,
@@ -774,17 +781,22 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             if (!claimedIds.has(row.id)) {
                 continue
             }
+            const conversionMetric: MinimalAppMetric = {
+                team_id: row.team_id,
+                app_source_id: row.parent_run_id ?? row.function_id,
+                instance_id: row.function_id,
+                metric_kind: 'other',
+                metric_name: 'conversion',
+                count: 1,
+                app_source_version:
+                    row.flow_version !== null ? { id: row.function_id, version: row.flow_version } : undefined,
+            }
+            this.hogFunctionMonitoringService.queueAppMetric(conversionMetric, 'hog_flow')
             this.hogFunctionMonitoringService.queueAppMetric(
                 {
-                    team_id: row.team_id,
-                    // Batch children attribute to the parent batch job, matching every other run metric.
-                    app_source_id: row.parent_run_id ?? row.function_id,
-                    instance_id: row.function_id,
-                    metric_kind: 'other',
-                    metric_name: 'conversion',
-                    count: 1,
-                    app_source_version:
-                        row.flow_version !== null ? { id: row.function_id, version: row.flow_version } : undefined,
+                    ...conversionMetric,
+                    metric_name: 'conversion_by_start',
+                    timestamp: DateTime.fromJSDate(new Date(row.created_at)),
                 },
                 'hog_flow'
             )

@@ -836,10 +836,10 @@ function EmailContentPreview({ buttonsAt }: { buttonsAt: 'bottom' | 'center' }):
                 <>
                     <div
                         className={clsx(
-                            'flex absolute inset-0 justify-center p-2 transition-opacity pointer-events-none',
+                            'EmailTemplater__preview-overlay flex absolute inset-0 justify-center p-2 transition-opacity pointer-events-none',
                             buttonsAt === 'bottom' ? 'items-end' : 'items-center',
                             // Persistent start buttons while empty; hover-reveal once there is content
-                            value
+                            value || emailTemplate.text
                                 ? 'opacity-0 group-hover/email-preview:opacity-100 focus-within:opacity-100'
                                 : 'opacity-100'
                         )}
@@ -851,17 +851,23 @@ function EmailContentPreview({ buttonsAt }: { buttonsAt: 'bottom' | 'center' }):
                         />
                     </div>
 
-                    {/* The floor keeps the preview readable where the host gives it no
-                        spare height to grow into */}
-                    <iframe
-                        srcDoc={withInertLinks(value)}
-                        sandbox=""
-                        title="Email template preview"
-                        className="flex-1 min-h-80"
-                    />
+                    <EmailBodyPreview html={value} text={emailTemplate.text} />
                 </>
             )}
         </LemonField>
+    )
+}
+
+function EmailBodyPreview({ html, text }: { html: string | undefined; text: string | undefined }): JSX.Element {
+    if (!html && text) {
+        return (
+            <pre className="ph-no-capture flex-1 min-h-80 m-0 p-4 font-sans text-sm whitespace-pre-wrap wrap-anywhere bg-surface-primary">
+                {text}
+            </pre>
+        )
+    }
+    return (
+        <iframe srcDoc={withInertLinks(html)} sandbox="" title="Email template preview" className="flex-1 min-h-80" />
     )
 }
 

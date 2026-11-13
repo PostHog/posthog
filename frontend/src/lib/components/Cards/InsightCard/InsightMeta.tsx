@@ -9,9 +9,12 @@ import { CardMeta } from 'lib/components/Cards/CardMeta'
 import { CardMetaRefreshButton } from 'lib/components/Cards/CardMetaRefreshButton'
 import { CompactInfoPopover } from 'lib/components/Cards/InsightCard/CompactInfoPopover'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
+import { QuillCardMeta } from 'lib/components/Cards/QuillCardMeta'
+import { QuillCardMetaRefreshButton } from 'lib/components/Cards/QuillCardMetaRefreshButton'
 import type { DisplayOptionTab } from 'lib/components/ChartOptions/displayOptions'
 import { useDisplayOptions } from 'lib/components/ChartOptions/useDisplayOptions'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
+import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { captureImageLogic } from 'lib/components/Scenes/InsightOrDashboard/captureImageLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
@@ -82,6 +85,9 @@ import { insightCardCaptureTarget } from './insightCardImageCapture'
 import type { InsightCardMenu } from './insightCardMenu'
 import { InsightCardMoreButtons } from './InsightCardMoreButtons'
 import { InsightDetails } from './InsightDetails'
+import { QuillCompactInfoPopover } from './QuillCompactInfoPopover'
+import { QuillInsightCardMenuItems } from './QuillInsightCardMenuItems'
+import { QuillInsightMetaContent } from './QuillInsightMetaContent'
 
 interface InsightMetaProps extends Pick<
     InsightCardProps,
@@ -235,6 +241,7 @@ function InsightMetaBody({
     const { updateInsightDirect } = useActions(insightsModel)
     const { reportInsightResultsCopiedToClipboard } = useActions(eventUsageLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const quillSurface = useQuillSurface()
 
     const showCompactTile =
         placement === DashboardPlacement.Dashboard ||
@@ -368,8 +375,26 @@ function InsightMetaBody({
         !!insight.id &&
         !!onCreateAnomalyAlert
 
+    const showQuillCard = quillSurface && showCompactTile
+
     // If user can't view the insight, show minimal interface
     if (!canViewInsight) {
+        if (showQuillCard) {
+            return (
+                <QuillCardMeta
+                    ribbonColor={ribbonColor}
+                    onMouseDown={onDragHandleMouseDown}
+                    content={
+                        <QuillInsightMetaContent
+                            title="Access denied"
+                            fallbackTitle={summary}
+                            loading={loading}
+                            loadingQueued={loadingQueued}
+                        />
+                    }
+                />
+            )
+        }
         return (
             <CardMeta
                 compact={showCompactTile}
@@ -425,15 +450,22 @@ function InsightMetaBody({
 
     // Gate the hover icon on `showEditingControls` so it doesn't appear on public/export
     // dashboards, matching the "⋯" menu (which is already gated there).
-    const refreshControl =
-        refresh && showEditingControls && !tileRefreshing ? (
-            <CardMetaRefreshButton
-                onRefresh={() => refresh()}
-                lastRefresh={insight.last_refresh}
-                disabledReason={refreshDisabledReason}
-                dataAttr="insight-card-refresh"
-            />
-        ) : null
+    const showRefreshControl = refresh && showEditingControls && !tileRefreshing
+    const refreshControl = !showRefreshControl ? null : showQuillCard ? (
+        <QuillCardMetaRefreshButton
+            onRefresh={() => refresh()}
+            lastRefresh={insight.last_refresh}
+            disabledReason={refreshDisabledReason}
+            dataAttr="insight-card-refresh"
+        />
+    ) : (
+        <CardMetaRefreshButton
+            onRefresh={() => refresh()}
+            lastRefresh={insight.last_refresh}
+            disabledReason={refreshDisabledReason}
+            dataAttr="insight-card-refresh"
+        />
+    )
 
     // On compact dashboard tiles the date just mirrors the dashboard's own range unless the
     // tile overrides it, so suppress the redundant label and only keep it for tile-level overrides.
@@ -652,6 +684,29 @@ function InsightMetaBody({
                 deferInitialAlertsLoad
             />
         ) : null
+
+    if (showQuillCard) {
+        return (
+            <>
+                <QuillCardMeta
+                    headerStatus={headerStatus}
+                    ribbonColor={ribbonColor}
+                    onMouseDown={onDragHandleMouseDown}
+                    topHeading={topHeading}
+                    content={
+                        <QuillInsightMetaContent
+                            {...metaContentProps}
+                            infoPopover={<QuillCompactInfoPopover {...infoPopoverProps} />}
+                        />
+                    }
+                    menuItems={showEditingControls ? <QuillInsightCardMenuItems menu={menu} /> : null}
+                    menuTooltip={menuTooltip}
+                    refreshControl={refreshControl}
+                />
+                {manageAlertsModal}
+            </>
+        )
+    }
 
     return (
         <>

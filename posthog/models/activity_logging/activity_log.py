@@ -821,6 +821,9 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "last_run_at",
         "source_insight_query_hash",
         "referenced_table_names",
+        "embedding",
+        "embedding_model",
+        "embedding_text_hash",
     ],
     "DataQualityCheck": [
         # Written by the runner, not by a person editing the check.

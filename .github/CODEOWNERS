@@ -21,6 +21,8 @@ posthog/hogql/** @PostHog/hogql
 posthog/hogql/database/schema/**
 # ...and the generated schema snapshot, which changes when those definitions are regenerated
 posthog/hogql/database/test/__snapshots__/test_database.ambr
+# ...and documentation, which does not change HogQL behavior
+posthog/hogql/**/*.md
 
 # Being open source brings us unwanted problems because Github Actions are untrusted and inherently unsafe
 # so we have to be extra careful with changes here. Let's have the security team own these checks.

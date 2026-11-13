@@ -106,6 +106,10 @@ export type SandboxRecipientCheck =
     | { ok: true }
     | { ok: false; reason: 'suppressed' | 'opted_out' | 'frequency_capped' | 'authorization_unavailable' }
 
+export function canonicalRecipient(address: string): string {
+    return address.trim().toLowerCase()
+}
+
 export async function checkSandboxRecipient(
     { suppression, recipients, frequencyCapBeforeDeadline }: SandboxRecipientCheckDependencies,
     { teamId, address, categoryId, categoryType, optOuts, isTest, frequencyCap }: SandboxRecipientCheckRequest
@@ -140,9 +144,12 @@ async function isOptedOut(
         optOuts,
     }: { teamId: number; address: string; categoryId: string; optOuts: MessageOptOutRecord[] }
 ): Promise<boolean> {
-    const identifier = address.trim()
+    const identifier = canonicalRecipient(address)
     if (
-        optOuts.some((optOut) => optOut.identifier === identifier && [categoryId, '$all'].includes(optOut.categoryId))
+        optOuts.some(
+            (optOut) =>
+                canonicalRecipient(optOut.identifier) === identifier && [categoryId, '$all'].includes(optOut.categoryId)
+        )
     ) {
         return true
     }

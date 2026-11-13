@@ -13,6 +13,7 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingCode,
     ExperimentHealthFindingSeverity,
     ExperimentHealthFlagChangeKind,
+    ExperimentHealthValueKey,
 )
 from products.experiments.backend.health.checks.change_wording import (
     delay,
@@ -24,6 +25,7 @@ from products.experiments.backend.health.checks.change_wording import (
 )
 from products.experiments.backend.health.context import (
     MIN_EXPOSED_UNITS_TO_WARN,
+    FlagChange,
     FlagHistory,
     FlagHistoryNotChecked,
     FlagHistoryNotCheckedReason,
@@ -32,6 +34,7 @@ from products.experiments.backend.health.context import (
 from products.experiments.backend.health.skips import (
     NEEDS_VARIANTS,
     CheckOutcome,
+    CheckRows,
     CheckSkip,
     flag_to_check,
     not_applicable,
@@ -95,6 +98,32 @@ def changes_to_check(ctx: HealthContext) -> FlagHistory | FlagHistoryNotChecked 
     if isinstance(history, FlagHistoryNotChecked) and history.reason in _HISTORY_NOT_READ:
         return not_checked(f"Couldn't check because {not_checked_because(history.reason)}")
     return history
+
+
+def change_rows(ctx: HealthContext, kind: type[FlagChange]) -> CheckRows:
+    """The changes of one kind since the start date, each with whether anyone was exposed before it."""
+    history = changes_to_check(ctx)
+    if isinstance(history, CheckSkip):
+        return ()
+    return tuple(
+        {
+            ExperimentHealthValueKey.CHANGED_AT: change.changed_at.astimezone(UTC).isoformat(),
+            ExperimentHealthValueKey.BEFORE_EXPOSURE: _before_exposure(history, change.changed_at),
+        }
+        for change in history.of_kind(kind)
+    )
+
+
+def _before_exposure(history: FlagHistory | FlagHistoryNotChecked, changed_at: datetime) -> bool | None:
+    """Whether nobody was exposed before the change. None when unknown."""
+    # A history that wasn't compared with the exposures can't tell.
+    if isinstance(history, FlagHistoryNotChecked):
+        return None
+    if history.counted_since is None or changed_at < history.counted_since:
+        return True
+    # The counting starts at the first change with an exposure before it, or with an unknown answer. After an unknown
+    # answer, nobody may have been exposed before any of the changes that follow.
+    return None if history.exposed_before_first is None else False
 
 
 def flag_history_not_readable(ctx: HealthContext) -> CheckOutcome:

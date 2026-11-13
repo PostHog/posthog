@@ -82,7 +82,7 @@ function TablesContent(): JSX.Element {
             <ModelsOverviewErrorCallout
                 message="Your tables could not be loaded. Try again, and if it keeps failing, refresh the page."
                 onRetry={() => {
-                    loadDatabase()
+                    loadDatabase({ shallow: true })
                     loadOverview()
                 }}
                 dataAttr="data-catalog-tables-error"

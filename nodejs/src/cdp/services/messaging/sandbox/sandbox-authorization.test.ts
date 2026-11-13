@@ -13,52 +13,12 @@ import {
 } from '~/tests/helpers/sql'
 import { Team } from '~/types'
 
+import { createMissingSandboxSenderTables } from './_tests/sandbox-world'
 import {
     MAX_PENDING_AUTHORIZATION_CONNECTIONS,
     readSandboxAuthorization,
     sandboxReadRouter,
 } from './sandbox-authorization'
-
-const SANDBOX_SENDER_TABLES = `
-    CREATE TABLE workflows_sandboxsendertenantstate (
-        id bigserial PRIMARY KEY,
-        tenant_name varchar(64) NOT NULL UNIQUE,
-        sending_status varchar(32) NOT NULL DEFAULT '',
-        synced_at timestamptz NULL
-    );
-    CREATE TABLE workflows_sandboxsenderorganizationblock (
-        id bigserial PRIMARY KEY,
-        organization_id uuid NOT NULL UNIQUE,
-        reason text NOT NULL,
-        created_by_id integer NULL,
-        created_at timestamptz NOT NULL
-    )`
-
-const createMissingSandboxSenderTables = async (postgres: PostgresRouter): Promise<() => Promise<void>> => {
-    const { rows } = await postgres.query(
-        PostgresUse.COMMON_WRITE,
-        `SELECT to_regclass('workflows_sandboxsendertenantstate') IS NOT NULL AS present`,
-        undefined,
-        'test:find-sandbox-sender-tables'
-    )
-    if (rows[0].present) {
-        return () => Promise.resolve()
-    }
-    await postgres.query(
-        PostgresUse.COMMON_WRITE,
-        SANDBOX_SENDER_TABLES,
-        undefined,
-        'test:create-sandbox-sender-tables'
-    )
-    return async () => {
-        await postgres.query(
-            PostgresUse.COMMON_WRITE,
-            'DROP TABLE workflows_sandboxsendertenantstate, workflows_sandboxsenderorganizationblock',
-            undefined,
-            'test:drop-sandbox-sender-tables'
-        )
-    }
-}
 
 describe('readSandboxAuthorization', () => {
     let postgres: PostgresRouter

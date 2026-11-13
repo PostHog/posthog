@@ -124,7 +124,7 @@ candidates for cleanup via `external-data-sources-destroy`.
 
 **Broken webhooks on webhook-type schemas:**
 Iterate the sources that have any schema with `sync_type: "webhook"` (visible via `external-data-schemas-list`). For
-each, call `external-data-sources-webhook-info-retrieve({source_id})`:
+each, call `external-data-sources-webhook-info-retrieve({id})`:
 
 - `exists: false` while a schema is `sync_type: "webhook"` → webhook was never registered, or was deleted. Push
   channel is dead; only the bulk fallback is ingesting.

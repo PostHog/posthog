@@ -5,6 +5,7 @@ import { expectLogic } from 'kea-test-utils'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { initKeaTests } from '~/test/init'
+import { AccessControlLevel } from '~/types'
 
 import { EXIT_NODE_ID, NEW_WORKFLOW, TRIGGER_NODE_ID, workflowLogic } from '../workflowLogic'
 import { computeInsertEdges, computeMoveEdges, hogFlowEditorLogic } from './hogFlowEditorLogic'
@@ -381,6 +382,59 @@ describe('hogFlowEditorLogic', () => {
             expect(byId('exit')).toBe(initialNodes.find((node) => node.id === 'exit'))
             expect(byId('branch')).not.toBe(initialNodes.find((node) => node.id === 'branch'))
             expect(byId('branch')?.data.name).toBe('Renamed branch')
+        })
+    })
+
+    describe('access level', () => {
+        const delay: HogFlowAction = {
+            id: 'delay',
+            name: 'Delay',
+            description: '',
+            type: 'delay',
+            created_at: 0,
+            updated_at: 0,
+            config: { delay_duration: '1d' },
+        }
+        const flowWithDelay = (userAccessLevel: AccessControlLevel): HogFlow => ({
+            ...NEW_WORKFLOW,
+            id: 'access-flow',
+            actions: [NEW_WORKFLOW.actions[0], delay, NEW_WORKFLOW.actions[1]],
+            edges: [edge(TRIGGER_NODE_ID, delay.id, 'continue'), edge(delay.id, EXIT_NODE_ID, 'continue')],
+            user_access_level: userAccessLevel,
+        })
+
+        beforeEach(async () => {
+            await expectLogic(logic).toDispatchActions(['setNodesRaw'])
+        })
+
+        it.each([
+            [AccessControlLevel.Editor, true],
+            [AccessControlLevel.Viewer, false],
+        ])('lets a user with %s access delete steps: %s', async (userAccessLevel, canDelete) => {
+            await expectLogic(logic, () =>
+                workflowLogic().actions.loadWorkflowSuccess(flowWithDelay(userAccessLevel))
+            ).toDispatchActions(['setNodesRaw'])
+
+            expect(logic.values.nodes.find((node) => node.id === delay.id)?.deletable).toBe(canDelete)
+            logic.actions.setSelectedNodeId(delay.id)
+            expect(logic.values.selectedNode?.deletable).toBe(canDelete)
+        })
+
+        it.each([
+            ['deleting a step', (): void => logic.actions.onNodesDelete([logic.values.nodesById[delay.id]])],
+            [
+                "changing a step's settings",
+                (): void => workflowLogic().actions.partialSetWorkflowActionConfig(delay.id, { delay_duration: '2d' }),
+            ],
+        ])('leaves the workflow unchanged when a viewer tries %s', async (_label, edit) => {
+            await expectLogic(logic, () =>
+                workflowLogic().actions.loadWorkflowSuccess(flowWithDelay(AccessControlLevel.Viewer))
+            ).toDispatchActions(['setNodesRaw'])
+            const loaded = workflowLogic().values.workflow
+
+            edit()
+
+            expect(workflowLogic().values.workflow).toEqual(loaded)
         })
     })
 

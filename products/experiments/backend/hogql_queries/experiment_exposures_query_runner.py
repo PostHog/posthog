@@ -197,7 +197,22 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             raise ValidationError(
                 "Exposures can't be calculated for an end date in the future. Clear the end date to see exposures while the experiment runs."
             )
-        self.as_of = self.window_end_date or datetime.now(UTC)
+        try:
+            query_as_of = datetime.fromisoformat(self.query.as_of) if self.query.as_of else None
+        except ValueError:
+            raise ValidationError("as_of must be an ISO 8601 timestamp")
+        if query_as_of is not None:
+            # as_of is compared with start_date and end_date, and a naive value on either side raises a TypeError.
+            if query_as_of.tzinfo is None:
+                raise ValidationError("as_of must include a timezone offset")
+            if any(d is not None and d.tzinfo is None for d in (self.window_start, self.window_end_date)):
+                raise ValidationError("start_date and end_date must include a timezone offset when as_of is set")
+            # An as_of before start_date belongs to a recalculation of an earlier start date.
+            if self.window_start is not None and query_as_of < self.window_start:
+                query_as_of = None
+        now = datetime.now(UTC)
+        # _fill_date_gaps emits one row per day up to the window end, so a far-future as_of would allocate millions.
+        self.as_of = min(query_as_of, now) if query_as_of else self.window_end_date or now
 
         # Holdout is intentionally not appended: holdout users were never exposed to
         # the experiment, so they don't belong in the exposure chart. self.query.holdout

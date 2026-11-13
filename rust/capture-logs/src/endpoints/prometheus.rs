@@ -253,6 +253,7 @@ pub fn write_timeseries_to_kafka_rows(
                 series_fingerprint,
                 has_labels: true,
                 retention_days: None,
+                start_timestamp: None,
             });
         }
     }

@@ -31,7 +31,7 @@ from posthog.api.mixins import PydanticModelMixin
 from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.query import CONCURRENCY_LIMIT_USER_MESSAGE
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.auth import PersonalAPIKeyAuthentication
+from posthog.auth import PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthentication
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, ConcurrencySlot, get_logs_api_team_rate_limiter
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.errors import ExposedCHQueryError
@@ -40,7 +40,11 @@ from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.hogql_queries.utils.time_sliced_query import time_sliced_results
 from posthog.models import User
 from posthog.models.property.property import STRING_PREFIX_SUFFIX_OPERATORS
-from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
+from posthog.rate_limit import (
+    ClickHouseBurstRateThrottle,
+    ClickHouseSustainedRateThrottle,
+    ProjectSecretApiKeyTeamRateThrottle,
+)
 from posthog.tasks.exporter import export_asset
 
 from products.exports.backend.models.exported_asset import ExportedAsset
@@ -1477,22 +1481,59 @@ class _LogsValuesResponseSerializer(serializers.Serializer):
     )
 
 
+class LogsProjectSecretApiKeyTeamBurstThrottle(ProjectSecretApiKeyTeamRateThrottle):
+    scope = "logs_psak_team_burst"
+    rate = "240/minute"
+
+
+class LogsProjectSecretApiKeyTeamSustainedThrottle(ProjectSecretApiKeyTeamRateThrottle):
+    scope = "logs_psak_team_sustained"
+    rate = "1200/hour"
+
+
 class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     scope_object = "logs"
     serializer_class = _FallbackSerializer
+    authentication_classes = [ProjectSecretAPIKeyAuthentication]
+    # The read actions a service needs. `export` stays out because an export belongs to the user who made it.
+    psak_allowed_actions = [
+        "query",
+        "sparkline",
+        "facet_values",
+        "count",
+        "impact",
+        "count_ranges",
+        "services",
+        "patterns",
+        "patterns_diff",
+        "group_by",
+        "attributes",
+        "values",
+        "has_logs",
+    ]
     _logs_api_slot: ConcurrencySlot | None = None
 
     def get_throttles(self) -> list[BaseThrottle]:
         # patterns_diff mines two windows per request (current + baseline), roughly doubling the
         # ClickHouse work of a single patterns query, so it uses the tighter ClickHouse-specific
         # throttles rather than the default per-project request limits.
-        if self.action == "patterns_diff":
-            return [ClickHouseBurstRateThrottle(), ClickHouseSustainedRateThrottle()]
-        return super().get_throttles()
+        throttles = (
+            [ClickHouseBurstRateThrottle(), ClickHouseSustainedRateThrottle()]
+            if self.action == "patterns_diff"
+            else super().get_throttles()
+        )
+        # The throttles above pass a project secret API key request without counting it.
+        return [
+            *throttles,
+            LogsProjectSecretApiKeyTeamBurstThrottle(),
+            LogsProjectSecretApiKeyTeamSustainedThrottle(),
+        ]
 
     def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
         super().initial(request, *args, **kwargs)
-        if not isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
+        if not isinstance(
+            request.successful_authenticator, PersonalAPIKeyAuthentication | ProjectSecretAPIKeyAuthentication
+        ):
             return
         try:
             self._logs_api_slot = get_logs_api_team_rate_limiter().use(team_id=self.team_id)

@@ -2968,7 +2968,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$mcp_error_status": {
             "label": "MCP error status",
-            "description": "Upstream HTTP status code when an MCP tool call failed against a PostHog API (e.g. 429, 500). Only set for API-originated failures.",
+            "description": "HTTP status code behind a failed MCP tool call (e.g. 429, 503). PostHog's own MCP server sets the status of the PostHog API request that failed. Servers using the MCP Analytics SDKs get the first status found on the thrown error or its cause chain. Only set when a status was found.",
             "type": "Numeric",
             "examples": [429, 500, 403],
         },
