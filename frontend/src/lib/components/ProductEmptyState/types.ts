@@ -223,8 +223,8 @@ export interface SceneProductEmptyState {
      * sibling-tab nav here so those surfaces stay reachable before the product has data.
      */
     SceneNav?: ComponentType
-    /** Replaces the setup layout once configured but still waiting for the first results. */
-    WaitingState?: ComponentType
+    /** Override the layout for individual modes; omitted modes use the standard empty state. */
+    components?: Partial<Record<ProductEmptyStateMode, ComponentType>>
 }
 
 /**

@@ -15,7 +15,7 @@ const HedgehogScientist = pngHoggie(scientistPng)
 
 export const clustersEmptyState: SceneProductEmptyState = {
     statusLogic: clustersSetupLogic,
-    WaitingState: ClustersWaitingState,
+    components: { 'waiting-for-data': ClustersWaitingState },
     config: {
         productKey: ProductKey.LLM_CLUSTERS,
         productName: 'Clusters',
