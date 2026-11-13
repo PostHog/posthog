@@ -566,11 +566,14 @@ export function ValueLabels({
     }
 
     const borderColor = theme.backgroundColor ?? 'white'
+    const outerBackground = background && resolvedRotation === 0
+    const innerBackground = background && resolvedRotation !== 0
 
     return (
         <>
             {visible.map((c) => {
                 const isHovered = c.dataIndex === hoverIndex && liftableIndices.has(c.dataIndex)
+                const badgeColor = backgroundColor ?? c.color
                 return (
                     <div
                         key={c.key}
@@ -580,10 +583,9 @@ export function ValueLabels({
                             width: c.width,
                             height: c.height,
                             padding: 0,
-                            backgroundColor:
-                                background && resolvedRotation === 0 ? (backgroundColor ?? c.color) : 'transparent',
-                            borderColor: background && resolvedRotation === 0 ? borderColor : 'transparent',
-                            borderWidth: background && resolvedRotation === 0 ? LABEL_BORDER : 0,
+                            backgroundColor: outerBackground ? badgeColor : 'transparent',
+                            borderColor: outerBackground ? borderColor : 'transparent',
+                            borderWidth: outerBackground ? LABEL_BORDER : 0,
                             left: Math.round(c.x),
                             top: Math.round(c.y),
                             transform: transformFor(c, isHorizontal, isHovered, offset),
@@ -600,13 +602,12 @@ export function ValueLabels({
                                 color:
                                     color ??
                                     (background || c.centerAnchor
-                                        ? prefersLightText(background ? (backgroundColor ?? c.color) : c.color)
+                                        ? prefersLightText(background ? badgeColor : c.color)
                                             ? 'white'
                                             : 'black'
                                         : theme.axisColor),
-                                backgroundColor:
-                                    background && resolvedRotation !== 0 ? (backgroundColor ?? c.color) : 'transparent',
-                                borderColor: background && resolvedRotation !== 0 ? borderColor : 'transparent',
+                                backgroundColor: innerBackground ? badgeColor : 'transparent',
+                                borderColor: innerBackground ? borderColor : 'transparent',
                                 transform: `rotate(${resolvedRotation}deg)`,
                             }}
                         >
