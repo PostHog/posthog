@@ -243,8 +243,6 @@ def test_a_delta_prompt_shows_only_the_changed_blocks_and_names_the_baseline(
 def test_a_whole_pr_follow_up_prompt_names_the_lines_changed_since_the_last_review(
     pr_metadata: PRMetadata, changed_code_only: bool, discarded: str
 ) -> None:
-    # Dedup drops a follow-up finding below must-fix that is not near these lines, so a wrong range or a level
-    # that disagrees with the filter makes every session spend output on findings that never post.
     change = ChangedSinceReview(
         lines={"a.py": {10, 11, 12, 41}, "b.py": set()},
         files_without_patch={"data.json"},

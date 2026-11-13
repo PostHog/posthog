@@ -590,21 +590,18 @@ class ReviewFindingLineRangeSerializer(serializers.Serializer):
     end = serializers.IntegerField(allow_null=True, help_text="Last affected line; null for a single line.")
 
 
-# Mirrors `FindingOutcome`.
 class ReviewFindingOutcomeKind(models.TextChoices):
     ADDRESSED = "addressed", "Addressed"
     REACTED = "reacted", "Reacted"
     IGNORED = "ignored", "Ignored"
 
 
-# Mirrors `FindingReactionSentiment`.
 class ReviewFindingReactionSentiment(models.TextChoices):
     POSITIVE = "positive", "Positive"
     NEGATIVE = "negative", "Negative"
     MIXED = "mixed", "Mixed"
 
 
-# Mirrors `FindingOutcomeMethod`.
 class ReviewFindingOutcomeMethod(models.TextChoices):
     JUDGE_CONFIRMED = "judge_confirmed", "A judge confirmed the fix"
     JUDGE_REJECTED = "judge_rejected", "A judge found no fix"

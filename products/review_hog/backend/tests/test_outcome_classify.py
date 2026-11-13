@@ -503,8 +503,6 @@ class TestClassifyReportDecision:
         assert [call.kwargs["report"] for call in classify.await_args_list] == [failing, healthy]
 
     def test_comment_signals_are_persisted_and_only_their_tone_reaches_the_event(self):
-        # A reaction settles the finding as `reacted`, so the tone, the reply and the outdated flag are the only record
-        # of whether the author took the fix. The reply is the team's repository content, so it stays off the event.
         comment = {"id": 1, "path": "f.py", "body": "### Off-by-one", "line": None, "reactions": {"total_count": 1}}
         reply = {"id": 2, "in_reply_to_id": 1, "user": {"login": "alice", "type": "User"}, "body": "Fixed in abc123"}
         inputs = replace(

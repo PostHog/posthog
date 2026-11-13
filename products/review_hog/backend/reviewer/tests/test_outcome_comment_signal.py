@@ -161,7 +161,6 @@ class TestResponseSignals:
     def test_reaction_sentiment_reads_the_tone_without_our_own(
         self, _name: str, reactions: list[tuple[str, dict[str, Any]]], expected: str | None
     ):
-        # The tone separates a fixed finding from a rejected one, which `reacted` alone cannot.
         listed = [{"content": content, "user": user} for content, user in reactions]
         assert reaction_sentiment(reactions=listed, app_login="reviewhog[bot]") == expected
 
