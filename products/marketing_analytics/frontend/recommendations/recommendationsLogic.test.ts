@@ -118,7 +118,7 @@ describe('recommendationsLogic', () => {
                 ),
             ])
             await expectLogic(logic).toDispatchActions(['loadData'])
-            expect(posted).toEqual({ identity: RECOMMENDATION.identity, resolution, name: RECOMMENDATION.subject })
+            expect(posted).toEqual({ identity: RECOMMENDATION.identity, resolution })
             expect(logic.values.resolutionOverrides[RECOMMENDATION.key]?.resolution).toBe(resolution)
             expect(logic.values.pendingKeys).toEqual([])
 
@@ -177,15 +177,27 @@ describe('recommendationsLogic', () => {
         expect(logic.values.groups.map((group) => group.rule)).toEqual(['keyword_gap'])
     })
 
-    it('clears the pending state and reports nothing when resolving fails', async () => {
-        useMocks({ post: { [RESOLUTIONS_URL]: () => [500, { detail: 'nope' }] } })
+    it.each([
+        { status: 500, body: { detail: 'nope' }, toast: "Couldn't dismiss the recommendation. Try again." },
+        {
+            status: 403,
+            body: { type: 'authentication_error', code: 'permission_denied', detail: 'No access to the sources.' },
+            toast: 'No access to the sources.',
+        },
+    ])(
+        'clears the pending state and reports nothing when resolving fails with $status',
+        async ({ status, body, toast }) => {
+            useMocks({ post: { [RESOLUTIONS_URL]: () => [status, body] } })
+            const error = jest.spyOn(lemonToast, 'error')
 
-        await expectLogic(logic, () => logic.actions.resolveRecommendation(RECOMMENDATION, 'dismissed'))
-            .toDispatchActions(['resolutionRequestFailed'])
-            .toNotHaveDispatchedActions(['resolutionSaved'])
-        expect(logic.values.resolutionOverrides).toEqual({})
-        expect(logic.values.pendingKeys).toEqual([])
-    })
+            await expectLogic(logic, () => logic.actions.resolveRecommendation(RECOMMENDATION, 'dismissed'))
+                .toDispatchActions(['resolutionRequestFailed'])
+                .toNotHaveDispatchedActions(['resolutionSaved'])
+            expect(logic.values.resolutionOverrides).toEqual({})
+            expect(logic.values.pendingKeys).toEqual([])
+            expect(error).toHaveBeenLastCalledWith(toast)
+        }
+    )
 
     it('drops the local resolution when someone else already restored it', async () => {
         useMocks({ delete: { [`${RESOLUTIONS_URL}:id/`]: () => [404, { detail: 'Not found.' }] } })

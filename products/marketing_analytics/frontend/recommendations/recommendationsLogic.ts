@@ -1,6 +1,6 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 
-import { ApiError } from 'lib/api-error'
+import { ApiError, isAccessDeniedError } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 import {
@@ -161,6 +161,11 @@ export interface recommendationsLogicActions
 }
 
 export type recommendationsLogicType = MakeLogicType<recommendationsLogicValues, recommendationsLogicActions>
+
+// Retrying never helps without access to every recommendation source, so the toast says why instead.
+function accessDeniedDetail(error: unknown): string | null {
+    return error instanceof ApiError && isAccessDeniedError(error) ? error.detail : null
+}
 
 export const recommendationsLogic = kea<recommendationsLogicType>([
     path(['products', 'marketingAnalytics', 'recommendationsLogic']),
@@ -426,7 +431,6 @@ export const recommendationsLogic = kea<recommendationsLogicType>([
                 const saved = await marketingAnalyticsRecommendationResolutionsCreate(String(values.currentTeamId), {
                     identity: recommendation.identity,
                     resolution,
-                    name: recommendation.subject,
                 })
                 actions.resolutionSaved(recommendation.key, saved)
                 actions.reportRecommendationResolved(recommendation.rule, recommendation.level, resolution)
@@ -443,12 +447,13 @@ export const recommendationsLogic = kea<recommendationsLogicType>([
                 )
                 // The freed slot of the rule fills with its next recommendation.
                 actions.loadData()
-            } catch {
+            } catch (error) {
                 actions.resolutionRequestFailed(recommendation.key)
                 lemonToast.error(
-                    resolution === 'applied'
-                        ? "Couldn't mark the recommendation as applied. Try again."
-                        : "Couldn't dismiss the recommendation. Try again."
+                    accessDeniedDetail(error) ??
+                        (resolution === 'applied'
+                            ? "Couldn't mark the recommendation as applied. Try again."
+                            : "Couldn't dismiss the recommendation. Try again.")
                 )
             }
         },
@@ -471,7 +476,7 @@ export const recommendationsLogic = kea<recommendationsLogicType>([
                     return
                 }
                 actions.resolutionRequestFailed(recommendation.key)
-                lemonToast.error("Couldn't restore the recommendation. Try again.")
+                lemonToast.error(accessDeniedDetail(error) ?? "Couldn't restore the recommendation. Try again.")
             }
         },
         resolutionRemoved: () => {
