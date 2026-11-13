@@ -7,7 +7,6 @@ import {
     LemonCard,
     LemonSegmentedButton,
     LemonSelect,
-    LemonSkeleton,
     LemonSwitch,
     LemonTable,
     LemonTag,
@@ -78,6 +77,8 @@ const PromptSearchesLine = ({ prompt }: { prompt: AEOPromptApi }): JSX.Element |
         </Tooltip>
     )
 }
+
+const LOADING_ROWS = 6
 
 export const ContentAutopilotPrompts = (): JSX.Element => {
     const {
@@ -212,11 +213,8 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
                 </LemonBanner>
             ) : null}
 
-            {prompts === null ? (
-                promptsError ? null : (
-                    <LemonSkeleton className="h-40 w-full" />
-                )
-            ) : count === 0 &&
+            {prompts === null && promptsError ? null : prompts !== null &&
+              count === 0 &&
               promptsTopic === null &&
               promptsBranded === null &&
               !showArchived &&
@@ -224,7 +222,7 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
                 <LemonCard hoverEffect={false} className="p-6 text-center">
                     <h3 className="m-0">No prompts yet</h3>
                     <p className="m-0 mt-2 text-muted max-w-xl mx-auto">
-                        Add the questions your buyers ask AI assistants. Claude can suggest them from your site, or you
+                        Add the questions your buyers ask AI assistants. PostHog can suggest them from your site, or you
                         can write your own. You can also import prompts with the API (
                         <code>POST /api/projects/:project_id/aeo_prompts/bulk_import/</code>) or the PostHog MCP tools.
                     </p>
@@ -234,9 +232,11 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
                 </LemonCard>
             ) : (
                 <LemonTable
-                    dataSource={prompts.results}
+                    dataSource={prompts?.results ?? []}
                     rowKey="id"
-                    loading={promptsLoading}
+                    // Before the first page arrives, placeholder rows hold the table's shape.
+                    loading={promptsLoading || prompts === null}
+                    loadingSkeletonRows={LOADING_ROWS}
                     emptyState={
                         needsImprovement
                             ? 'No prompts need improvement. A prompt shows here when an AI assistant answered it in the last 30 days without citing your site.'

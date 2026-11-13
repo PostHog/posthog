@@ -96,7 +96,7 @@ class StepUpGrant:
     scopes: list[str]
     """What the grant carries, which the consent screen lists in full."""
     already_granted_scopes: list[str]
-    """Scopes of the grant this user granted the app before, which the screen shows as granted."""
+    """Scopes of the grant this user granted the app before for `earlier_access`, which the screen shows as granted."""
     earlier_access: GrantAccess | None
     """Where the newest earlier grant applies. The consent screen pre-selects it, so a step-up keeps the token's projects."""
 
@@ -111,8 +111,8 @@ def resolve_step_up_grant(
     re-authorize with only the challenged scopes, and they must not lose what they had.
     """
     requested = list(requested)
-    granted = live_granted_scopes(application=application, user_id=user_id)
-    if granted is None:
+    grants = _live_grants(application=application, user_id=user_id)
+    if not grants:
         narrowed = narrow_to_step_up_default(requested)
         # A request with nothing in the default set is already narrow. Narrowing it to identity
         # scopes alone would only force a second consent for the scope it asked for.
@@ -120,15 +120,24 @@ def resolve_step_up_grant(
             narrowed = requested
         return StepUpGrant(scopes=sorted(_union(narrowed, required)), already_granted_scopes=[], earlier_access=None)
 
+    # The screen hides already granted scopes and pre-selects the newest grant's projects. A scope
+    # from a live grant for other projects was never granted there, so it stays in `scopes` for
+    # the person to review instead of counting as already granted.
+    earlier_access = grants[0].access
+    granted = _clamp_to_ceiling(application, (scope for grant in grants for scope in grant.scopes))
+    granted_there = _clamp_to_ceiling(
+        application, (scope for grant in grants if grant.access == earlier_access for scope in grant.scopes)
+    )
+    scopes = sorted(_union(granted, requested, required))
+    already_granted = [scope for scope in scopes if not scopes_not_covered(granted_there, [scope])]
+    return StepUpGrant(scopes=scopes, already_granted_scopes=already_granted, earlier_access=earlier_access)
+
+
+def _clamp_to_ceiling(application: OAuthApplication, scopes: Iterable[str]) -> set[str]:
     # The ceiling may have shrunk since an older grant. Clamp as `validate_scopes` does, so the
     # screen never promises a scope the new grant cannot carry.
-    granted = set(clamp_scopes_to_ceiling(granted, application.ceiling_scopes, allow_wildcard_under_empty_ceiling=True))
-    scopes = sorted(_union(granted, requested, required))
-    already_granted = [scope for scope in scopes if not scopes_not_covered(granted, [scope])]
-    return StepUpGrant(
-        scopes=scopes,
-        already_granted_scopes=already_granted,
-        earlier_access=newest_live_grant_access(application=application, user_id=user_id),
+    return set(
+        clamp_scopes_to_ceiling(set(scopes), application.ceiling_scopes, allow_wildcard_under_empty_ceiling=True)
     )
 
 
@@ -146,33 +155,35 @@ def narrow_to_step_up_default(requested: Iterable[str]) -> list[str]:
     return _union(narrowed)
 
 
-def live_granted_scopes(*, application: OAuthApplication, user_id: int) -> set[str] | None:
-    """Every scope this user granted this app on a grant that still works, or None when there is none.
+@frozen
+class _LiveGrant:
+    scopes: list[str]
+    access: GrantAccess
+
+
+def _live_grants(*, application: OAuthApplication, user_id: int) -> list[_LiveGrant]:
+    """Every grant this user gave this app that still works, newest first.
 
     A grant works while its access token is unexpired or its refresh token is unrevoked. The refresh
     token outlives the access token, so a client whose access token expired still counts as
     connected and keeps its scopes. Tokens minted during staff impersonation are left out, because
     the user did not grant those.
     """
-    granted: set[str] | None = None
-    for scope_string in _live_access_tokens(application, user_id).values_list("scope", flat=True):
-        granted = (granted or set()) | set((scope_string or "").split())
-    return granted
-
-
-def newest_live_grant_access(*, application: OAuthApplication, user_id: int) -> GrantAccess | None:
-    newest = (
+    tokens = (
         _live_access_tokens(application, user_id)
         .order_by("-created")
-        .values("scoped_teams", "scoped_organizations")
-        .first()
+        .values("scope", "scoped_teams", "scoped_organizations")
     )
-    if newest is None:
-        return None
-    return GrantAccess(
-        scoped_teams=list(newest["scoped_teams"] or []),
-        scoped_organizations=[str(org) for org in newest["scoped_organizations"] or []],
-    )
+    return [
+        _LiveGrant(
+            scopes=(token["scope"] or "").split(),
+            access=GrantAccess(
+                scoped_teams=sorted(token["scoped_teams"] or []),
+                scoped_organizations=sorted(str(org) for org in token["scoped_organizations"] or []),
+            ),
+        )
+        for token in tokens
+    ]
 
 
 def _live_access_tokens(application: OAuthApplication, user_id: int) -> QuerySet[OAuthAccessToken]:

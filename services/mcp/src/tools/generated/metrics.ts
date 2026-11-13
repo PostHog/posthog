@@ -3,7 +3,7 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/metrics/api'
-import { pickResponseFields } from '@/tools/tool-utils'
+import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const CharacterizeMetricAnomalySchema = () => {
@@ -174,7 +174,10 @@ const QueryMetricsSchema = () => {
     return MetricsQueryCreateBody
 }
 
-const queryMetrics = (): ToolBase<ReturnType<typeof QueryMetricsSchema>, Schemas._MetricQueryResponse> => ({
+const queryMetrics = (): ToolBase<
+    ReturnType<typeof QueryMetricsSchema>,
+    WithPostHogUrl<Schemas._MetricQueryResponse>
+> => ({
     name: 'query-metrics',
     schema: QueryMetricsSchema(),
     handler: async (context: Context, params: z.infer<ReturnType<typeof QueryMetricsSchema>>) => {
@@ -193,8 +196,9 @@ const queryMetrics = (): ToolBase<ReturnType<typeof QueryMetricsSchema>, Schemas
             'hint',
             'omitted_empty_series',
             'omitted_by_limit',
+            'url_params',
         ]) as typeof result
-        return filtered
+        return await withPostHogUrl(context, filtered, `/metrics?${filtered.url_params}`)
     },
 })
 

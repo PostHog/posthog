@@ -32,7 +32,7 @@ jobs:
             contents: write
             actions: write
             checks: read
-        runs-on: depot-ubuntu-24.04
+        runs-on: ubuntu-24.04
         timeout-minutes: 60
         steps:
             - name: Get app token

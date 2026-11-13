@@ -74,9 +74,15 @@ export class Output {
         this.runtime.writeStdout(`${text}\n`)
     }
 
-    json(value: unknown): void {
+    // `first` names top-level keys to print before the sorted rest, so a reader that only sees the
+    // start of a long answer, like an agent whose tool output is truncated, still sees them.
+    json(value: unknown, { first = [] }: { first?: readonly string[] } = {}): void {
         const sorted = sortKeys(value)
-        this.line(this.mode.format === 'json' ? JSON.stringify(sorted) : JSON.stringify(sorted, null, 2))
+        const ordered =
+            first.length > 0 && sorted !== null && typeof sorted === 'object' && !Array.isArray(sorted)
+                ? withKeysFirst(sorted as Record<string, unknown>, first)
+                : sorted
+        this.line(this.mode.format === 'json' ? JSON.stringify(ordered) : JSON.stringify(ordered, null, 2))
     }
 
     // One JSON value per line, so a caller can stream and parse the lines one at a time.
@@ -205,6 +211,12 @@ function sortKeys(value: unknown): unknown {
         )
     }
     return value
+}
+
+function withKeysFirst(value: Record<string, unknown>, first: readonly string[]): Record<string, unknown> {
+    const leading = first.filter((key) => Object.hasOwn(value, key))
+    const rest = Object.keys(value).filter((key) => !leading.includes(key))
+    return Object.fromEntries([...leading, ...rest].map((key) => [key, value[key]]))
 }
 
 function cellText(value: unknown): string {

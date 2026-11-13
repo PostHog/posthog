@@ -1,6 +1,7 @@
 import { z } from 'zod'
 
 import { getDefaultCdpConfig } from '~/cdp/config'
+import { overrideConfigWithEnv } from '~/common/config/config'
 
 import { CdpRole, Profile } from '../cards'
 import { MARKER_KEY } from './processes'
@@ -13,7 +14,10 @@ export const ROLE_PORTS: Record<Role, number> = {
     'cdp-cyclotron-worker-hogflow': 6761,
     'cdp-cyclotron-worker-email': 6762,
     'cdp-cyclotron-v2-janitor': 6763,
+    'cdp-ses-webhooks': 6764,
 }
+
+export const SES_WEBHOOKS_GROUP = 'cdp-ses-webhooks-consumer'
 
 export const PERSONHOG_ADDR = '127.0.0.1:50052'
 
@@ -22,6 +26,8 @@ export const SES_RATE_LIMITER_VALKEY = { host: '127.0.0.1', port: 6390 }
 export type Secrets = { encryptionSaltKeys: string; transactionalEmailJwtSecret: string }
 
 export type RoleSpec = { role: Role; env: NodeJS.ProcessEnv }
+
+export type EdgeAddress = { url: string; caCertPath?: string }
 
 export type ConsumerGroup = { group: string; topics: string[] }
 
@@ -35,14 +41,18 @@ export function secretsOf(env: NodeJS.ProcessEnv): Secrets {
 
 export function roleSpecs(
     base: NodeJS.ProcessEnv,
-    edgeUrl: string,
+    edge: EdgeAddress,
     secrets: Secrets,
     stateDir: string,
     settings: Profile['settings'] = {},
     sesValkey: { host: string; port: number } = SES_RATE_LIMITER_VALKEY
 ): RoleSpec[] {
     const { AWS_PROFILE: _profile, ...inherited } = base
-    const { KAFKA_CONSUMER_GROUP_ID: _group, ...configured }: NodeJS.ProcessEnv = {
+    const {
+        KAFKA_CONSUMER_GROUP_ID: _group,
+        EXTERNAL_REQUEST_PROXY_TEAMS: _proxyTeams,
+        ...configured
+    }: NodeJS.ProcessEnv = {
         ...inherited,
         NODE_ENV: 'dev',
         SES_REGION: 'us-east-1',
@@ -55,7 +65,9 @@ export function roleSpecs(
         role,
         env: {
             ...configured,
-            SES_ENDPOINT: edgeUrl,
+            SES_ENDPOINT: edge.url,
+            HTTPS_PROXY: edge.url,
+            ...(edge.caCertPath ? { NODE_EXTRA_CA_CERTS: edge.caCertPath } : {}),
             PERSONHOG_ADDR,
             SES_RATE_LIMITER_VALKEY_HOST: sesValkey.host,
             SES_RATE_LIMITER_VALKEY_PORT: String(sesValkey.port),
@@ -69,12 +81,34 @@ export function roleSpecs(
     }))
 }
 
+export function fetchRetriesOf({ env }: RoleSpec): number {
+    const retries = overrideConfigWithEnv(getDefaultCdpConfig(), env).CDP_FETCH_RETRIES
+    if (!Number.isFinite(retries)) {
+        throw new Error(`CDP_FETCH_RETRIES ${env.CDP_FETCH_RETRIES} is not a number of retries`)
+    }
+    return retries
+}
+
 export function consumerGroupsOf(specs: RoleSpec[]): ConsumerGroup[] {
     const defaults = getDefaultCdpConfig()
-    return specs
-        .filter(({ role }) => role === 'cdp-processed-events')
-        .map(({ env }) => ({
-            group: env.CDP_EVENTS_CONSUMER_GROUP_ID || defaults.CDP_EVENTS_CONSUMER_GROUP_ID,
-            topics: [env.CDP_EVENTS_CONSUMER_TOPIC || `${env.KAFKA_PREFIX || ''}clickhouse_events_json`],
-        }))
+    return specs.flatMap(({ role, env }): ConsumerGroup[] => {
+        switch (role) {
+            case 'cdp-processed-events':
+                return [
+                    {
+                        group: env.CDP_EVENTS_CONSUMER_GROUP_ID || defaults.CDP_EVENTS_CONSUMER_GROUP_ID,
+                        topics: [env.CDP_EVENTS_CONSUMER_TOPIC || `${env.KAFKA_PREFIX || ''}clickhouse_events_json`],
+                    },
+                ]
+            case 'cdp-ses-webhooks':
+                return [
+                    {
+                        group: SES_WEBHOOKS_GROUP,
+                        topics: [env.CDP_SES_WEBHOOKS_TOPIC || `${env.KAFKA_PREFIX || ''}cdp_ses_webhooks`],
+                    },
+                ]
+            default:
+                return []
+        }
+    })
 }

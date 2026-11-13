@@ -4,8 +4,11 @@ import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
 import {
     BehavioralEventType,
     BehavioralLifecycleType,
+    CohortCriteriaGroupFilter,
     CohortCriteriaType,
+    CohortType,
     EventPropertyFilter,
+    FilterLogicalOperator,
     PropertyFilterType,
     PropertyOperator,
     TimeUnitType,
@@ -13,6 +16,7 @@ import {
 
 import {
     FlagCallCriterionProblem,
+    cohortFlagCallProblem,
     flagCallCriterionProblem,
     moveNoticeProblem,
 } from 'products/cohorts/frontend/criteria/flagCallCriterionProblem'
@@ -77,10 +81,10 @@ describe('flagCallCriterionProblem', () => {
 })
 
 describe('moveNoticeProblem', () => {
-    it.each<[string, Partial<CohortCriteriaType>, string[], FlagCallCriterionProblem | null]>([
-        ['a criterion that keeps counting every call', {}, ['$feature_flag_called'], null],
-        ['a range past the limit', { time_value: 180 }, ['$feature_flag_called'], 'window'],
-        ['a range past the limit once nothing is moving', { time_value: 180 }, [], null],
+    it.each<[string, Partial<CohortCriteriaType>, FlagCallCriterionProblem | null]>([
+        ['a criterion that keeps counting every call', {}, null],
+        ['a range past the limit', { time_value: 180 }, 'window'],
+        ['a range past the limit on another event', { time_value: 180, key: '$pageview' }, null],
         [
             'a sequence step on the moving event',
             {
@@ -89,10 +93,68 @@ describe('moveNoticeProblem', () => {
                 seq_event: '$feature_flag_called',
                 seq_event_type: TaxonomicFilterGroupType.Events,
             },
-            ['$feature_flag_called'],
             'type',
         ],
-    ])('%s', (_, overrides, movingEvents, expected) => {
-        expect(moveNoticeProblem(flagCallCriterion(overrides), movingEvents)).toBe(expected)
+    ])('%s', (_, overrides, expected) => {
+        expect(moveNoticeProblem(flagCallCriterion(overrides))).toBe(expected)
+    })
+})
+
+describe('cohortFlagCallProblem', () => {
+    const and = (values: CohortCriteriaType[] | CohortCriteriaGroupFilter[]): CohortCriteriaGroupFilter => ({
+        type: FilterLogicalOperator.And,
+        values,
+    })
+    const dynamicCohort = (...groups: CohortCriteriaGroupFilter[]): CohortType => ({
+        id: 1,
+        is_static: false,
+        groups: [],
+        filters: { properties: { type: FilterLogicalOperator.Or, values: groups } },
+    })
+    const LONG_RANGE = flagCallCriterion({ time_value: 180 })
+
+    it.each<[string, CohortType, FlagCallCriterionProblem | null]>([
+        // flag_evaluations serves these, so the cohort keeps working after the move.
+        ['a criterion flag_evaluations can serve', dynamicCohort(and([flagCallCriterion({})])), null],
+        [
+            'a range past the limit on another event',
+            dynamicCohort(and([flagCallCriterion({ key: '$pageview', time_value: 180 })])),
+            null,
+        ],
+        // These stop counting every call once new flag calls stop going to events.
+        ['a range past the limit', dynamicCohort(and([LONG_RANGE])), 'window'],
+        [
+            'a sequence followed by $feature_flag_called',
+            dynamicCohort(
+                and([
+                    flagCallCriterion({
+                        key: '$pageview',
+                        value: BehavioralEventType.PerformSequenceEvents,
+                        seq_event: '$feature_flag_called',
+                        seq_event_type: TaxonomicFilterGroupType.Events,
+                    }),
+                ])
+            ),
+            'type',
+        ],
+        [
+            'a HogQL filter',
+            dynamicCohort(
+                and([flagCallCriterion({ event_filters: [{ key: '1 = 1', type: PropertyFilterType.HogQL }] })])
+            ),
+            'filters',
+        ],
+        // The API accepts groups nested deeper than the editor builds them.
+        [
+            'a problem in a nested group after a group without one',
+            dynamicCohort(and([flagCallCriterion({})]), and([and([LONG_RANGE])])),
+            'window',
+        ],
+        // A static cohort keeps the people it already has.
+        ['static membership', { ...dynamicCohort(and([LONG_RANGE])), is_static: true }, null],
+        // An experiment's exposure cohort counts the event on purpose. Its criterion belongs to the experiment.
+        ['experiment exposure management', { ...dynamicCohort(and([LONG_RANGE])), experiment_set: [7] }, null],
+    ])('%s', (_, cohort, expected) => {
+        expect(cohortFlagCallProblem(cohort)).toBe(expected)
     })
 })
