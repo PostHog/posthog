@@ -131,8 +131,8 @@ def _shares(sessions: int, focused_kept: int, balanced_kept: int) -> PassShares:
     return PassShares(focused=focused_kept / sessions, balanced=balanced_kept / sessions)
 
 
-def team_pass_shares(team_ids: Sequence[int]) -> tuple[dict[int, PassShares], PassShares]:
-    """Per-team pass shares for teams with enough sessions, and the pooled share of all teams for the rest."""
+def team_pass_shares(team_ids: Sequence[int]) -> tuple[dict[int, PassShares], PassShares | None]:
+    """Per-team pass shares for teams with enough sessions, and the pooled share of all teams when any team lacks one."""
     by_team: dict[int, PassShares] = {}
     for start in range(0, len(team_ids), _TEAMS_PER_QUERY):
         batch = list(team_ids[start : start + _TEAMS_PER_QUERY])
@@ -141,6 +141,8 @@ def team_pass_shares(team_ids: Sequence[int]) -> tuple[dict[int, PassShares], Pa
         ):
             if sessions >= MIN_TEAM_SESSIONS:
                 by_team[int(team_id)] = _shares(int(sessions), int(focused_kept), int(balanced_kept))
+    if all(team_id in by_team for team_id in team_ids):
+        return by_team, None
     [(sessions, focused_kept, balanced_kept)] = _query(_POOLED_PASS_SHARES_SQL, {}, POOLED_SHARE_LOOKBACK_DAYS)
     return by_team, _shares(int(sessions), int(focused_kept), int(balanced_kept))
 
@@ -151,6 +153,8 @@ def retire_sampling_modes(*, apply: bool, team_ids: Sequence[int] | None = None)
     if team_ids is not None:
         scanners = scanners.filter(team_id__in=team_ids)
     scanners_list = list(scanners)
+    if not scanners_list:
+        return []
     by_team, pooled = team_pass_shares(sorted({s.team_id for s in scanners_list}))
 
     retired: list[RetiredScanner] = []
@@ -172,13 +176,16 @@ def retire_sampling_modes(*, apply: bool, team_ids: Sequence[int] | None = None)
     return retired
 
 
-def _retire(scanner: ReplayScanner, by_team: dict[int, PassShares], pooled: PassShares) -> RetiredScanner:
+def _retire(scanner: ReplayScanner, by_team: dict[int, PassShares], pooled: PassShares | None) -> RetiredScanner:
     shares = by_team.get(scanner.team_id)
+    applied = shares if shares is not None else pooled
+    # team_pass_shares only skips the pooled query when every selected team has its own share.
+    assert applied is not None
     return RetiredScanner(
         scanner_id=str(scanner.id),
         team_id=scanner.team_id,
         sampling_mode=scanner.sampling_mode,
         old_rate=scanner.sampling_rate,
-        new_rate=retired_sampling_rate(scanner.sampling_rate, (shares or pooled).for_mode(scanner.sampling_mode)),
+        new_rate=retired_sampling_rate(scanner.sampling_rate, applied.for_mode(scanner.sampling_mode)),
         pooled_share=shares is None,
     )
