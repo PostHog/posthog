@@ -1,14 +1,11 @@
-import { createHash } from 'node:crypto'
 import { z } from 'zod'
 
 import { HogError } from '@/core/errors'
-import { parseJsonOrUndefined } from '@/core/json'
-import { hogFile } from '@/core/paths'
 import type { Runtime } from '@/core/runtime'
 import { parseOrThrow } from '@/core/schema'
 
-import type { AccessKey } from './access-key'
 import { ApiError, type PostHogApi } from './api'
+import { QueryIdSchema, type QueryId } from './ids'
 
 // HogQLQueryResponse declares `columns` and `types` optional.
 const HogQLResponse = z.looseObject({
@@ -32,7 +29,7 @@ export function runHogQL(
 }
 
 const QueryStatus = z.looseObject({
-    id: z.string(),
+    id: QueryIdSchema,
     complete: z.boolean().nullish(),
     error: z.boolean().nullish(),
     error_code: z.string().nullish(),
@@ -47,7 +44,7 @@ const StatusAnswer = z.object({ query_status: QueryStatus })
 
 export type QueryState =
     | { state: 'done'; response: HogQLResponse }
-    | { state: 'running'; id: string }
+    | { state: 'running'; id: QueryId }
     | { state: 'failed'; error: HogError }
 
 const FIRST_POLL_MS = 500
@@ -75,7 +72,7 @@ export async function startHogQL(api: PostHogApi, query: string): Promise<QueryS
 }
 
 // A failure to reach PostHog throws instead of returning `failed`, because the query can still finish.
-export async function queryState(api: PostHogApi, id: string): Promise<QueryState> {
+export async function queryState(api: PostHogApi, id: QueryId): Promise<QueryState> {
     let status: z.output<typeof QueryStatus>
     try {
         // PostHog answers a failed query with its status: HTTP 400 when the query is at fault, 500 otherwise.
@@ -121,7 +118,7 @@ export async function queryState(api: PostHogApi, id: string): Promise<QueryStat
 export async function waitForQuery(
     runtime: Runtime,
     api: PostHogApi,
-    id: string,
+    id: QueryId,
     deadline: number | undefined
 ): Promise<QueryState> {
     let intervalMs = FIRST_POLL_MS
@@ -137,39 +134,5 @@ export async function waitForQuery(
             return state
         }
         intervalMs = Math.min(intervalMs * 1.5, MAX_POLL_MS)
-    }
-}
-
-const PendingQuery = z.object({ id: z.string() })
-
-function pendingQueryPath(runtime: Runtime, key: Pick<AccessKey, 'host' | 'projectId'>): string {
-    const scope = createHash('sha256').update(`${key.host}\n${key.projectId}`).digest('hex').slice(0, 16)
-    return hogFile(runtime, `pending-query-${scope}.json`)
-}
-
-export async function readPendingQuery(
-    runtime: Runtime,
-    key: Pick<AccessKey, 'host' | 'projectId'>
-): Promise<string | undefined> {
-    const text = await runtime.readFile(pendingQueryPath(runtime, key)).catch(() => undefined)
-    return text === undefined ? undefined : parseJsonOrUndefined(text, PendingQuery)?.id
-}
-
-export async function savePendingQuery(
-    runtime: Runtime,
-    key: Pick<AccessKey, 'host' | 'projectId'>,
-    id: string
-): Promise<void> {
-    await runtime.writePrivateFile(pendingQueryPath(runtime, key), JSON.stringify({ id }))
-}
-
-// Leaves the file alone when another run has since saved a newer query there.
-export async function clearPendingQuery(
-    runtime: Runtime,
-    key: Pick<AccessKey, 'host' | 'projectId'>,
-    id: string
-): Promise<void> {
-    if ((await readPendingQuery(runtime, key)) === id) {
-        await runtime.removeFile(pendingQueryPath(runtime, key))
     }
 }

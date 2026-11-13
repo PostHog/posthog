@@ -25,6 +25,25 @@ export const OrganizationIdSchema = z
 
 export type OrganizationId = z.output<typeof OrganizationIdSchema>
 
+// The forms of query ID PostHog makes, as `set_query_id_on_span` in posthog/api/query.py lists them:
+// a UUID as 32 hex digits from the API, or with dashes from the web app, which a query can join.
+export const QueryIdSchema = z
+    .string()
+    .regex(/^(?:[0-9a-fA-F]{32}|[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12})$/, {
+        error: 'The query ID must be the `queryId` that `hog query run` returned, 32 hex digits or a UUID.',
+    })
+    .brand<'QueryId'>()
+
+export type QueryId = z.output<typeof QueryIdSchema>
+
+export function parseQueryId(raw: unknown, failure?: Partial<ParseFailure>): QueryId {
+    return parseOrThrow(QueryIdSchema, raw, {
+        code: 'invalid_query_id',
+        hint: 'Pass the `queryId` from the answer that said the query is still running.',
+        ...failure,
+    })
+}
+
 export function parseProjectId(raw: unknown, failure?: Partial<ParseFailure>): ProjectId {
     return parseOrThrow(ProjectIdSchema, raw, {
         code: 'invalid_project_id',

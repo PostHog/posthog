@@ -5,15 +5,8 @@ import { EXIT_PENDING, EXIT_USAGE, HogError } from '@/core/errors'
 import type { ColumnKind } from '@/core/output'
 import { plural } from '@/core/text'
 import { ApiError } from '@/posthog/api'
-import {
-    clearPendingQuery,
-    readPendingQuery,
-    savePendingQuery,
-    startHogQL,
-    waitForQuery,
-    type HogQLResponse,
-    type QueryState,
-} from '@/posthog/query'
+import { parseQueryId, type QueryId } from '@/posthog/ids'
+import { startHogQL, waitForQuery, type HogQLResponse, type QueryState } from '@/posthog/query'
 
 // ClickHouse returns 64-bit integers as JSON numbers and dates as strings, so the declared type
 // colors a column better than its values do.
@@ -36,7 +29,9 @@ function moreRowsHint(count: number): string {
     return `Only the first ${plural(count, 'row')} came back. Add a LIMIT to the query to get more, up to 50000, or filter or aggregate it to need fewer.`
 }
 
-const RESUME = 'hog query run --wait'
+function resumeCommand(id: QueryId): string {
+    return `hog query run --wait ${id}`
+}
 
 // Agent shells often stop a command after about two minutes. Waiting half of that leaves time for
 // hog to start, for the last status request, and for the agent's other commands in the same call.
@@ -72,34 +67,28 @@ function done(response: HogQLResponse): RunResult {
     }
 }
 
-// The query is saved first, so `--wait` can resume it after the budget, a lost connection or Ctrl-C.
 // A person and a CI job without an agent never run `--wait`, so they wait until the query ends.
-async function follow(ctx: Context, id: string): Promise<RunResult> {
+async function follow(ctx: Context, id: QueryId): Promise<RunResult> {
     const { runtime } = ctx
-    const { key } = await ctx.credentials()
-    await savePendingQuery(runtime, key, id)
-
     const waitsToTheEnd = ctx.prompts !== undefined || inCIWithoutAPerson(ctx)
     const deadline = waitsToTheEnd ? undefined : runtime.now() + AGENT_WAIT_MS
-    const spinner = ctx.prompts?.spinner('Waiting for the query to finish')
+    const spinner = ctx.prompts?.spinner(`Waiting for query ${id} to finish`)
     let state: QueryState
     try {
         state = await waitForQuery(runtime, await ctx.posthog(), id, deadline)
     } catch (error) {
         spinner?.error("The query didn't finish")
-        throw isTransient(error) ? error.withHint(`Run \`${RESUME}\` to keep waiting for the query.`) : error
+        throw isTransient(error) ? error.withHint(`Run \`${resumeCommand(id)}\` to keep waiting for the query.`) : error
     }
 
     switch (state.state) {
         case 'running':
-            return { status: 'running', queryId: id, next: RESUME }
+            return { status: 'running', queryId: id, next: resumeCommand(id) }
         case 'failed':
             spinner?.error("The query didn't finish")
-            await clearPendingQuery(runtime, key, id)
             throw state.error
         case 'done':
             spinner?.stop('Query finished')
-            await clearPendingQuery(runtime, key, id)
             return done(state.response)
     }
 }
@@ -111,42 +100,36 @@ export default defineCommand({
     },
     options: {
         wait: {
-            type: 'boolean',
-            description: 'Wait for the query an earlier run left running, and print its results',
+            type: 'string',
+            placeholder: 'query-id',
+            parse: parseQueryId,
+            description: 'Wait for a query that is still running, by the `queryId` an earlier run returned',
         },
     },
     scopes: ['query:read'],
     notes: [
         'Prints a table in a terminal. Agents and pipes get one JSON object: `columns` with the name and ClickHouse type of each, `rows` as arrays in column order, and `hasMore`.',
         'When `hasMore` is true, PostHog cut the results off, and `hint` says how to get the rest. --raw prints the full response.',
-        'Agents and pipes wait up to a minute. A query still running then returns `status` "running" with its `queryId`, and exits with code 4. `hog query run --wait` waits for it again.',
+        'Agents and pipes wait up to a minute. A query still running then returns `status` "running", its `queryId`, and in `next` the `hog query run --wait <query-id>` command that waits for it again. It exits with code 4.',
         'A person at a terminal and a CI job wait until the query finishes.',
     ].join('\n'),
     examples: [
         'hog query run "select event, count() from events group by event"',
         'cat query.sql | hog query run -',
-        'hog query run --wait',
+        'hog query run --wait 0190f5b41d2a7000a8c13f6e2b9c7d10',
     ],
 
     async run({ args, options, ctx }): Promise<RunResult> {
-        if (options.wait) {
+        if (options.wait !== undefined) {
             if (args.query !== undefined) {
                 throw new HogError(
                     'query_with_wait',
-                    '`--wait` takes no query. It waits for the query an earlier run left running.',
-                    `Run \`${RESUME}\` on its own, or \`hog query run <query>\` to run another query.`,
+                    '`--wait` takes a query ID, not a query.',
+                    `Run \`${resumeCommand(options.wait)}\` on its own, or \`hog query run <query>\` to run another query.`,
                     EXIT_USAGE
                 )
             }
-            const id = await readPendingQuery(ctx.runtime, (await ctx.credentials()).key)
-            if (id === undefined) {
-                throw new HogError(
-                    'no_pending_query',
-                    'No query is running for this project.',
-                    'Run `hog query run <query>` to start one.'
-                )
-            }
-            return follow(ctx, id)
+            return follow(ctx, options.wait)
         }
 
         if (args.query === undefined) {
@@ -223,10 +206,10 @@ export default defineCommand({
 
     telemetry: ({ options, result }) =>
         result.status === 'running'
-            ? { query_status: result.status, resumed: options.wait === true }
+            ? { query_status: result.status, resumed: options.wait !== undefined }
             : {
                   query_status: result.status,
-                  resumed: options.wait === true,
+                  resumed: options.wait !== undefined,
                   row_count: result.rows.length,
                   column_count: result.columns.length,
                   has_more: result.hasMore,

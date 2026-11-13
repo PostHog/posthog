@@ -17,19 +17,30 @@ const ROWS = {
     clickhouse: 'SELECT 1',
 }
 
-const STATUS_URL = 'https://ph.example.com/api/environments/7/query/q1/'
-const RUNNING = { status: 202, body: { query_status: { id: 'q1', complete: false } } }
-const FINISHED = { status: 200, body: { query_status: { id: 'q1', complete: true, results: ROWS } } }
+const FIRST_ID = '0190f5b41d2a7000a8c13f6e2b9c7d10'
+const SECOND_ID = '0190f5b4-1d2a-7000-8a1c-3f6e2b9c7d11'
+const SECOND_QUERY = 'select 2'
+const RESULTS: Record<string, unknown> = { [FIRST_ID]: ROWS, [SECOND_ID]: { ...ROWS, results: [['second', 1]] } }
 
-// PostHog starts the query, and answers status check number `polls` with `final`.
-function slowQuery(polls: number, final: { status: number; body: unknown } = FINISHED) {
-    let checks = 0
-    return (url: string) => {
-        if (url !== STATUS_URL) {
-            return RUNNING
+const statusUrl = (id: string): string => `https://ph.example.com/api/environments/7/query/${id}/`
+type Reply = { status: number; body: unknown }
+
+const running = (id: string): Reply => ({ status: 202, body: { query_status: { id, complete: false } } })
+
+function slowQueries(polls: number, final?: Reply): (url: string, body: unknown) => Reply {
+    const checks = new Map<string, number>()
+    return (url: string, body: unknown) => {
+        const id = [FIRST_ID, SECOND_ID].find((candidate) => url === statusUrl(candidate))
+        if (id === undefined) {
+            return running(JSON.stringify(body).includes(SECOND_QUERY) ? SECOND_ID : FIRST_ID)
         }
-        checks += 1
-        return checks < polls ? RUNNING : final
+
+        const count = (checks.get(id) ?? 0) + 1
+        checks.set(id, count)
+        if (count < polls) {
+            return running(id)
+        }
+        return final ?? { status: 200, body: { query_status: { id, complete: true, results: RESULTS[id] } } }
     }
 }
 
@@ -107,44 +118,57 @@ describe('hog query', () => {
         const result = await runHog(['query', 'run', 'select 1'], {
             env: TEST_CREDENTIALS,
             stdoutIsTTY: tty,
-            respond: slowQuery(polls),
+            respond: slowQueries(polls),
         })
 
         expect(result.exitCode).toBe(0)
         expect(result.stdout).toContain(expected)
-        expect(result.requests.at(-1)?.url).toBe(STATUS_URL)
-        expect(Object.keys(result.files).filter((path) => path.includes('pending-query'))).toEqual([])
+        expect(result.requests.at(-1)?.url).toBe(statusUrl(FIRST_ID))
     })
 
-    test('run returns a query still running after a minute with the command that resumes it', async () => {
-        const started = await runHog(['query', 'run', 'select 1'], {
+    test('run returns a query still running after a minute, and --wait resumes it by its ID while another runs', async () => {
+        const first = await runHog(['query', 'run', 'select 1'], {
             env: TEST_CREDENTIALS,
-            respond: slowQuery(Infinity),
+            respond: slowQueries(Infinity),
         })
 
-        expect(started.exitCode).toBe(4)
-        expect(started.json()).toEqual({
+        expect(first.exitCode).toBe(4)
+        expect(first.json()).toEqual({
             status: 'running',
-            queryId: 'q1',
-            next: 'hog query run --wait',
-            hint: expect.stringContaining('hog query run --wait'),
+            queryId: FIRST_ID,
+            next: `hog query run --wait ${FIRST_ID}`,
+            hint: expect.stringContaining(`hog query run --wait ${FIRST_ID}`),
         })
-        expect(started.elapsedMs).toBeLessThan(120_000)
+        expect(first.elapsedMs).toBeLessThan(120_000)
 
-        const resumed = await runHog(['query', 'run', '--wait'], {
+        const second = await runHog(['query', 'run', SECOND_QUERY], {
             env: TEST_CREDENTIALS,
-            files: started.files,
-            respond: slowQuery(2),
+            respond: slowQueries(Infinity),
+        })
+
+        expect(second.exitCode).toBe(4)
+        expect(second.json()).toMatchObject({ queryId: SECOND_ID, next: `hog query run --wait ${SECOND_ID}` })
+
+        const resumed = await runHog(['query', 'run', '--wait', FIRST_ID], {
+            env: TEST_CREDENTIALS,
+            respond: slowQueries(2),
         })
 
         expect(resumed.exitCode).toBe(0)
         expect(resumed.json()).toMatchObject({ rows: ROWS.results, hasMore: false })
-        expect(resumed.requests.map((request) => request.url)).toEqual([STATUS_URL, STATUS_URL])
+        expect(resumed.requests.map((request) => request.url)).toEqual([statusUrl(FIRST_ID), statusUrl(FIRST_ID)])
+    })
 
-        const again = await runHog(['query', 'run', '--wait'], { env: TEST_CREDENTIALS, files: resumed.files })
+    test.each([
+        ['without an ID', ['--wait'], { code: 'usage_error', hint: expect.stringContaining('--wait <query-id>') }],
+        ['with an ID PostHog never makes', ['--wait', '../../users/@me'], { code: 'invalid_input' }],
+        ['with a query as well', ['select 1', '--wait', FIRST_ID], { code: 'query_with_wait' }],
+    ])('run --wait %s is a usage error that sends nothing', async (_name, flags, error) => {
+        const result = await runHog(['query', 'run', ...flags], { env: TEST_CREDENTIALS, respond: slowQueries(1) })
 
-        expect(again.exitCode).toBe(1)
-        expect(again.error()).toMatchObject({ code: 'no_pending_query' })
+        expect(result.exitCode).toBe(2)
+        expect(result.error()).toMatchObject(error)
+        expect(result.requests).toEqual([])
     })
 
     test.each([
@@ -154,7 +178,7 @@ describe('hog query', () => {
                 status: 400,
                 body: {
                     query_status: {
-                        id: 'q1',
+                        id: FIRST_ID,
                         complete: true,
                         error: true,
                         error_code: 'hogql_query_error',
@@ -166,23 +190,17 @@ describe('hog query', () => {
         ],
         [
             'a query PostHog no longer has says to run it again',
-            { status: 404, body: { type: 'invalid_request', code: 'not_found', detail: 'Query q1 not found' } },
+            { status: 404, body: { type: 'invalid_request', code: 'not_found', detail: 'Query not found' } },
             { code: 'query_expired', hint: expect.stringContaining('hog query run <query>') },
         ],
     ])('run --wait: %s', async (_name, final, error) => {
-        const started = await runHog(['query', 'run', 'select nope'], {
+        const resumed = await runHog(['query', 'run', '--wait', FIRST_ID], {
             env: TEST_CREDENTIALS,
-            respond: slowQuery(Infinity),
-        })
-        const resumed = await runHog(['query', 'run', '--wait'], {
-            env: TEST_CREDENTIALS,
-            files: started.files,
-            respond: slowQuery(1, final),
+            respond: slowQueries(1, final),
         })
 
         expect(resumed.exitCode).toBe(1)
         expect(resumed.error()).toMatchObject(error)
-        expect(Object.keys(resumed.files).filter((path) => path.includes('pending-query'))).toEqual([])
     })
 
     test.each([
