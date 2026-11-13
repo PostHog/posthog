@@ -141,7 +141,9 @@ def _is_published(record: EmailDomainStatusRecord, answers: list[str]) -> bool:
         case Kind.DMARC, _:
             return any(answer.lower().startswith("v=dmarc1") for answer in answers)
         case Kind.SPF | Kind.MAIL_FROM_SPF, _:
-            return any(_spf_includes(answer, record.value) for answer in answers)
+            # A second SPF record at the same name makes SPF fail for all mail from it (RFC 7208, 4.5).
+            spf_records = [answer for answer in answers if _is_spf(answer)]
+            return len(spf_records) == 1 and _spf_includes(spf_records[0], record.value)
         case _, RecordType.CNAME:
             return _normalized_hostname(record.value) in answers
         case _, RecordType.MX if record.priority is None:
@@ -152,11 +154,13 @@ def _is_published(record: EmailDomainStatusRecord, answers: list[str]) -> bool:
             return record.value in answers
 
 
+def _is_spf(answer: str) -> bool:
+    terms = answer.lower().split()
+    return bool(terms) and terms[0] == "v=spf1"
+
+
 # A domain can publish only one SPF record, so SES's mechanism usually sits next to another
 # sender's. The record counts as published when it carries every include the expected one does.
 def _spf_includes(published: str, expected: str) -> bool:
-    published_terms = published.lower().split()
-    if not published_terms or published_terms[0] != "v=spf1":
-        return False
     expected_includes = {term for term in expected.lower().split() if term.startswith("include:")}
-    return expected_includes.issubset(published_terms)
+    return expected_includes.issubset(published.lower().split())

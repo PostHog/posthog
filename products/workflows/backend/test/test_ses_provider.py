@@ -20,6 +20,8 @@ from products.workflows.backend.providers.ses import (
     METRIC_QUERY_BUDGET_SECONDS,
     SESProvider,
 )
+from products.workflows.backend.services.email_domain_dns import PublishedRecords
+from products.workflows.backend.tests.fakes.world import EmailDomainWorld
 
 TEST_DOMAIN = "test.posthog.com"
 
@@ -36,6 +38,14 @@ class TestSESProvider(TestCase):
         cls.boto3_client_patcher = patcher
         cls.mock_boto3_client = patcher.start()
         cls.addClassCleanup(patcher.stop)
+
+        # These tests fake DNS by replacing `Resolver`, which the zone lookup behind the apex SPF check cannot run against.
+        spf_patcher = patch(
+            "products.workflows.backend.providers.ses.find_published_records",
+            return_value=PublishedRecords(records=frozenset()),
+        )
+        spf_patcher.start()
+        cls.addClassCleanup(spf_patcher.stop)
 
         # Set up a default mock client with safe return values
         mock_client_instance = cls.mock_boto3_client.return_value
@@ -970,3 +980,35 @@ class TestGetIdentityIspMetrics(TestCase):
         rows = self.provider.get_identity_isp_metrics([TEST_DOMAIN], window_days=30, isps=["Gmail", "Yahoo"])
 
         assert [row.isp for row in rows] == ["Yahoo", "Gmail"]
+
+
+class TestVerifyEmailDomainApexSpf(TestCase):
+    @parameterized.expand(
+        [
+            (
+                "merged_into_one_record",
+                ("v=spf1 include:_spf.google.com include:amazonses.com ~all", "site-verification=abc"),
+                "success",
+            ),
+            (
+                "split_across_two_records",
+                ("v=spf1 include:_spf.google.com ~all", "v=spf1 include:amazonses.com ~all"),
+                "pending",
+            ),
+        ]
+    )
+    def test_apex_spf_status_follows_the_published_spf(
+        self, _name: str, spf_values: tuple[str, ...], expected_status: str
+    ) -> None:
+        domain = "mail.example.com"
+        world = EmailDomainWorld()
+        world.dns.add_zone("example.com", nameservers={"ns1.example-dns.net": "34.120.0.1"})
+        world.ses.add_identity(domain, verification_token="token")
+        world.dns.publish_txt(f"_amazonses.{domain}", "token")
+        world.dns.publish_txt(domain, *spf_values)
+
+        with world.installed():
+            result = SESProvider().verify_email_domain(domain, mail_from_subdomain="feedback", team_id=1)
+
+        [apex_spf] = [record for record in result["dnsRecords"] if record["recordHostname"] == "@"]
+        assert apex_spf["status"] == expected_status

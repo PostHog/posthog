@@ -63,6 +63,14 @@ class TestFindPublishedRecords(SimpleTestCase):
         with world.installed():
             assert (record in find_published_records(DOMAIN, [record]).records) is expected
 
+    def test_spf_split_across_two_records_is_not_published(self) -> None:
+        world = EmailDomainWorld()
+        world.dns.add_zone("example.com", nameservers={"ns1.example-dns.net": "34.120.0.1"})
+        world.dns.publish_txt(DOMAIN, "v=spf1 include:_spf.google.com ~all", "v=spf1 include:amazonses.com ~all")
+
+        with world.installed():
+            assert SPF not in find_published_records(DOMAIN, [SPF]).records
+
     def test_finds_every_record_while_holding_at_most_the_lookup_limit_in_flight(self) -> None:
         records = [
             _record(Kind.DKIM, RecordType.CNAME, f"dk{index}._domainkey.{DOMAIN}", f"dk{index}.dkim.amazonses.com")
