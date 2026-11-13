@@ -26,7 +26,6 @@
     'posthog.tasks.comment_slack_sync.backfill_comment_slack_thread',
     'posthog.tasks.comment_slack_sync.ingest_slack_discussion_reply',
     'posthog.tasks.comment_slack_sync.mirror_comment_reply_to_slack',
-    'posthog.tasks.data_catalog.backfill_metric_embeddings',
     'posthog.tasks.data_catalog.refresh_metric_embedding',
     'posthog.tasks.data_catalog.sync_metric_lineage',
     'posthog.tasks.delete_persons.delete_persons_async',
