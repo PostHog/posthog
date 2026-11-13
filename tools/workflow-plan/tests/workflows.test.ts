@@ -1155,6 +1155,18 @@ describe('CI workflow run plans', () => {
     })
 
     it.each([
+        ['ready PR', pullRequest(), false],
+        ['merge queue', mergeQueue(), false],
+        ['hourly schedule', schedule(), true],
+        ['manual dispatch', workflowDispatch(), true],
+    ] as const)('the persons-on-events legacy-mode leg on %s', (_name, github, runs) => {
+        const depot = workflow(DEPOT_BACKEND)
+        const step = depot.jobs.build_django_matrix?.steps?.find((step) => step.id === 'build')
+        const functions = planFunctions({ dependenciesSucceeded: true, dependenciesFailed: false, cancelled: false })
+        expect(evaluateValue(step?.env?.RUN_LEGACY_MODE_LEG, { github }, functions)).toBe(runs)
+    })
+
+    it.each([
         ['unrelated PR', pullRequest(), 'false', false],
         ['schema PR', pullRequest(), 'true', true],
         ['missing filter output', pullRequest(), '', true],

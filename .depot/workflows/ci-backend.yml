@@ -15,9 +15,9 @@
 #   token before the SQL and risk steps and skips report writes if token creation fails.
 #   It creates a separate checks:write token for the Migration risk check after those steps.
 # - The hourly schedule skips path filtering and per-commit checks. It controls the events_json
-#   cadence in build_django_matrix, events schema recording and upload, and POSTHOG_PYTEST_HARD_EXIT.
-#   Master pushes run per-commit checks and dump the schema. Test matrices run on pull requests,
-#   manual runs, and the hourly schedule.
+#   cadence and the persons-on-events legacy-mode leg in build_django_matrix, events schema
+#   recording and upload, and POSTHOG_PYTEST_HARD_EXIT. Master pushes run per-commit checks and
+#   dump the schema. Test matrices run on pull requests, manual runs, and the hourly schedule.
 # - Master schema dumps go to Depot artifacts and Depot Cache, which GitHub-hosted
 #   runners and fork PRs cannot read. .github/workflows/ci-backend-schema-mirror.yml copies the
 #   newest dump into a GitHub artifact and GitHub Actions cache every ten minutes.
@@ -2751,7 +2751,7 @@ jobs:
                   # at all. Not-draft makes the empty MODE fall through to the full
                   # matrix, which is what the queue has to run.
                   IS_DRAFT: ${{ github.event.pull_request.draft && !startsWith(github.head_ref, 'trunk-merge/') }}
-                  IS_PR_RUN: ${{ github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/') }}
+                  RUN_LEGACY_MODE_LEG: ${{ github.event_name != 'pull_request' }}
                   FORCE_FULL: ${{ contains(github.event.pull_request.labels.*.name, 'run-ci-backend') }}
                   # The new-events-schema variants double the matrix, so they run only on
                   # opted-in PRs. Every other run takes the events_json rows, which cover
@@ -2839,7 +2839,7 @@ jobs:
                         }]
                       ')
                       poe_count=0
-                      [[ "$IS_PR_RUN" != "true" && "$RUN_POE" == "true" ]] && poe_count=$(jq -r '.poe' <<< "$segment_shards")
+                      [[ "$RUN_LEGACY_MODE_LEG" == "true" && "$RUN_POE" == "true" ]] && poe_count=$(jq -r '.poe' <<< "$segment_shards")
                       core_persons_on_events=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson n "$poe_count" '
                         [range(1; $n + 1) | {
                           segment: "Core",
@@ -2948,13 +2948,15 @@ jobs:
                           echo "::notice::Discovery shortened the events_json list to $json_targets_count shard(s)"
                       fi
 
-                      # The legacy-mode safeguard leg runs only where a regression must not
-                      # land: merge queue and master. Ordinary PR lanes run the
-                      # customer-default mode only, so a PR pays no shards for the legacy
-                      # mode. The queue's trunk-merge/** run is a pull_request event as well,
-                      # so it is exempted by branch. Compat keeps its own legacy-mode rows in
-                      # every lane, because it guards old servers, not this.
-                      if [[ "$IS_PR_RUN" == "true" ]]; then
+                      # The legacy-mode safeguard leg runs on the hourly master schedule and
+                      # on manual runs. Pull requests and the merge queue, whose
+                      # trunk-merge/** run is also a pull_request event, run the
+                      # customer-default mode only. A regression that only the legacy mode
+                      # catches therefore turns the hourly master run red, not the queue.
+                      # The leg runs with --snapshot-update and ships no snapshot patch, so
+                      # no snapshot file depends on it. Compat keeps its own legacy-mode rows
+                      # in every lane, because it guards old servers, not this.
+                      if [[ "$RUN_LEGACY_MODE_LEG" != "true" ]]; then
                           CORE_POE_SHARDS=0
                       fi
 
