@@ -131,11 +131,19 @@ describe('ToolExecutor metrics', () => {
         { tool: 'execute-sql', useSingleExec: true, type: 'internal', filtered: true },
         { tool: 'posthog-connection-call', useSingleExec: false, type: 'internal', filtered: true },
         { tool: 'posthog-connection-call', useSingleExec: true, type: 'internal', filtered: true },
+        { tool: 'posthog-connection-call', useSingleExec: false, type: 'internal', filtered: true, nesting: 'payload' },
+        {
+            tool: 'posthog-connection-call',
+            useSingleExec: false,
+            type: 'internal',
+            filtered: true,
+            nesting: 'arguments',
+        },
         { tool: 'read-data-schema', useSingleExec: false, type: 'permission' },
         { tool: 'read-data-schema', useSingleExec: true, type: 'api_5xx' },
     ])(
         'classifies backend result errors without capturing caller content: %j',
-        async ({ tool, useSingleExec, type, filtered }) => {
+        async ({ tool, useSingleExec, type, filtered, nesting }) => {
             const captureException = vi.spyOn(getPostHogClient(), 'captureException').mockImplementation(() => {})
             const capture = vi.spyOn(getPostHogClient(), 'capture').mockImplementation(() => {})
             if (filtered && tool === 'execute-sql') {
@@ -190,7 +198,7 @@ describe('ToolExecutor metrics', () => {
             }
             const callArgs =
                 tool === 'posthog-connection-call'
-                    ? { connection_id: '99', tool: 'execute-sql', arguments: args }
+                    ? { connection_id: '99', tool: 'execute-sql', arguments: nesting ? { [nesting]: args } : args }
                     : args
             const result = await executor.handleToolCall(
                 useSingleExec

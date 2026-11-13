@@ -3,16 +3,11 @@ export function isPrivateScoutTrialTool(toolName: unknown): boolean {
 }
 
 export function hasSqlFilters(toolName: string, input: unknown): boolean {
-    const sqlInput = input as
-        | { filters?: unknown; command?: unknown; tool?: unknown; arguments?: { filters?: unknown } }
-        | null
-        | undefined
-    // Exec embeds arguments in text, so treat every SQL exec command as potentially filtered.
+    const sqlInput = input as { filters?: unknown; command?: unknown; tool?: unknown } | null | undefined
+    // Wrappers can repair or embed arguments, so treat their SQL calls as potentially filtered.
     return (
         (toolName === 'execute-sql' && sqlInput?.filters != null) ||
-        (toolName === 'posthog-connection-call' &&
-            sqlInput?.tool === 'execute-sql' &&
-            sqlInput.arguments?.filters != null) ||
+        (toolName === 'posthog-connection-call' && sqlInput?.tool === 'execute-sql') ||
         (toolName === 'exec' && typeof sqlInput?.command === 'string' && sqlInput.command.includes('execute-sql'))
     )
 }
