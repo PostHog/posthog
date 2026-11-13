@@ -944,9 +944,10 @@ class TestCanvasObjectAccessControl(CanvasAPIBaseTest):
             canvas = Canvas.objects.create(team_id=self.team.id, channel=channel, name="Shared", created_by=self.user)
         base = f"/api/projects/{self.team.id}/canvases/{canvas.id}"
         if subject == "role":
-            self.organization.available_product_features.append(
-                {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS}
-            )
+            self.organization.available_product_features = [
+                *(self.organization.available_product_features or []),
+                {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+            ]
             self.organization.save(update_fields=["available_product_features"])
             role = Role.objects.create(organization=self.organization, name="Editors")
             RoleMembership.objects.create(role=role, user=self.member, organization_member=self.member_membership)
@@ -967,7 +968,7 @@ class TestCanvasObjectAccessControl(CanvasAPIBaseTest):
                 origin_product=Task.OriginProduct.USER_CREATED,
             )
             client = self._sandbox_client(task.id, user=self.member)
-            headers = {"HTTP_X_POSTHOG_TASK_ID": str(task.id)}
+            headers: dict[str, Any] = {"HTTP_X_POSTHOG_TASK_ID": str(task.id)}
         else:
             self.client.force_login(self.member)
             client, headers = self.client, {}
