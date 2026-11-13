@@ -1,64 +1,152 @@
-import { createExampleInvocation } from '../_tests/fixtures'
+import { mockInternalFetch } from '~/tests/helpers/mocks/request.mock'
+
+import { DateTime } from 'luxon'
+import { Pool } from 'pg'
+
+import {
+    APP_METRICS_OUTPUT,
+    HOG_INVOCATION_RESULTS_OUTPUT,
+    LOG_ENTRIES_OUTPUT,
+    MESSAGE_ASSETS_OUTPUT,
+} from '~/common/outputs'
+import { InternalCaptureService } from '~/common/services/internal-capture'
+import { parseJSON } from '~/common/utils/json-parse'
+import { TeamManager } from '~/common/utils/team-manager'
+import { UUIDT } from '~/common/utils/utils'
+import { createRecordingIngestionOutputs } from '~/tests/helpers/recording-ingestion-outputs'
+
+import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
+import { createHogExecutionGlobals } from '../_tests/fixtures'
+import { createExampleHogFlowInvocation } from '../_tests/fixtures-hogflows'
+import { EMAIL_STATUS_OUTPUT, WAREHOUSE_SOURCE_WEBHOOKS_OUTPUT } from '../outputs/outputs'
 import { CyclotronJobInvocationResult } from '../types'
 import { createInvocationResult } from '../utils/invocation-utils'
 import { CapturedEventsService } from './captured-events/captured-events.service'
 import { ConversionWatchersService } from './conversion-watchers/conversion-watchers.service'
-import { InvocationResultsService, ResultSink } from './invocation-results.service'
+import { TRANSACTIONAL_EMAIL_EVENT } from './hogflows/hogflow-sensitivity'
+import { InvocationResultsService } from './invocation-results.service'
 import { EmailStatusService } from './messaging/email-status.service'
 import { MessageAssetsService } from './messaging/message-assets.service'
 import { HogFunctionMonitoringService } from './monitoring/hog-function-monitoring.service'
 import { HogInvocationResultsService } from './monitoring/hog-invocation-results.service'
 import { WarehouseWebhooksService } from './warehouse/warehouse-webhooks.service'
 
-class RecordingSink implements ResultSink {
-    pending: CyclotronJobInvocationResult[] = []
-    delivered: CyclotronJobInvocationResult[] = []
+const CYCLOTRON_DATABASE_URL = 'postgres://posthog:posthog@localhost:5432/test_cyclotron_node'
 
-    queueInvocationResults(batch: CyclotronJobInvocationResult[]): void {
-        this.pending.push(...batch)
-    }
+const team = { id: 2, api_token: 'phc_invocation_results_test' }
 
-    flush(): Promise<void> {
-        this.delivered.push(...this.pending)
-        this.pending = []
-        return Promise.resolve()
-    }
-
-    stop(): Promise<void> {
-        return Promise.resolve()
-    }
+const failedTransactionalEmailRun = (): CyclotronJobInvocationResult => {
+    const hogFlow = new FixtureHogFlowBuilder().withTeamId(team.id).build()
+    const invocation = createExampleHogFlowInvocation(hogFlow, {
+        event: { ...createHogExecutionGlobals().event, event: TRANSACTIONAL_EMAIL_EVENT },
+    })
+    const now = DateTime.utc()
+    return createInvocationResult(
+        invocation,
+        {},
+        {
+            finished: true,
+            error: 'Template not found',
+            logs: [{ level: 'error', timestamp: now, message: 'Template not found' }],
+            capturedPostHogEvents: [
+                {
+                    team_id: team.id,
+                    event: 'workflow event',
+                    distinct_id: 'person-1',
+                    timestamp: now.toISO()!,
+                    properties: {},
+                },
+            ],
+            warehouseWebhookPayloads: [{ team_id: team.id, schema_id: 'schema-1', payload: { id: 1 } }],
+            messageAssets: [
+                {
+                    team_id: team.id,
+                    function_kind: 'hog_flow',
+                    function_id: hogFlow.id,
+                    parent_run_id: invocation.id,
+                    invocation_id: invocation.id,
+                    action_id: 'action-1',
+                    kind: 'email',
+                    distinct_id: 'person-1',
+                    person_id: 'person_id',
+                    recipient: 'person@example.com',
+                    subject: 'Hello',
+                    status: 'sent',
+                    sent_at: '2026-01-02 03:04:05.678000',
+                    version: '1',
+                    is_deleted: 0,
+                    html: '<p>Hello</p>',
+                },
+            ],
+            conversionWatchers: [
+                {
+                    id: new UUIDT().toString(),
+                    team_id: team.id,
+                    function_id: hogFlow.id,
+                    run_id: invocation.id,
+                    parent_run_id: null,
+                    distinct_id: 'person-1',
+                    person_id: null,
+                    flow_version: 1,
+                    goal: { events: [] },
+                    created_at: now.toJSDate(),
+                    expires_at: now.plus({ days: 1 }).toJSDate(),
+                },
+            ],
+        }
+    )
 }
 
-type SinkState = Pick<RecordingSink, 'pending' | 'delivered'>
-
-const serviceWithRecordingSinks = (): {
-    recordingService: InvocationResultsService
-    sinkStates: () => Record<string, SinkState>
-    everySink: (state: SinkState) => Record<string, SinkState>
+const realSinks = (): {
+    service: InvocationResultsService
+    delivered: (runId: string) => Promise<Record<string, unknown[]>>
+    cleanup: (runId: string) => Promise<void>
 } => {
-    const sinks = Array.from({ length: InvocationResultsService.length }, () => new RecordingSink())
-    const recordingService = new InvocationResultsService(
-        ...(sinks as unknown as ConstructorParameters<typeof InvocationResultsService>)
+    const recording = createRecordingIngestionOutputs([
+        APP_METRICS_OUTPUT,
+        LOG_ENTRIES_OUTPUT,
+        HOG_INVOCATION_RESULTS_OUTPUT,
+        WAREHOUSE_SOURCE_WEBHOOKS_OUTPUT,
+        MESSAGE_ASSETS_OUTPUT,
+        EMAIL_STATUS_OUTPUT,
+    ])
+    const outputs = recording.outputs as any
+    const teamManager = {
+        getTeam: (teamId: number) => Promise.resolve(teamId === team.id ? team : null),
+    } as unknown as TeamManager
+    const service = new InvocationResultsService(
+        new HogFunctionMonitoringService(outputs),
+        new HogInvocationResultsService(outputs, { HOG_INVOCATION_RESULTS_ENABLED: true }),
+        new WarehouseWebhooksService(outputs),
+        new CapturedEventsService(
+            new InternalCaptureService({ CAPTURE_INTERNAL_URL: 'http://capture.example.com/i/v0/e' }),
+            teamManager
+        ),
+        new MessageAssetsService(outputs),
+        new ConversionWatchersService(CYCLOTRON_DATABASE_URL),
+        new EmailStatusService(outputs, { EMAIL_STATUS_ENABLED: true })
     )
-    const names = sinks.map(
-        (sink, index) =>
-            Object.entries(recordingService).find(([, field]) => field === sink)?.[0] ??
-            `constructor parameter ${index}`
-    )
-    return {
-        recordingService,
-        sinkStates: () =>
-            Object.fromEntries(
-                sinks.map((sink, index) => [names[index], { pending: sink.pending, delivered: sink.delivered }])
-            ),
-        everySink: (state) => Object.fromEntries(names.map((name) => [name, state])),
+    const pool = new Pool({ connectionString: CYCLOTRON_DATABASE_URL })
+    const delivered = async (runId: string): Promise<Record<string, unknown[]>> => {
+        const watchers = await pool.query('SELECT run_id FROM conversion_watchers WHERE run_id = $1', [runId])
+        return {
+            [APP_METRICS_OUTPUT]: recording.produced(APP_METRICS_OUTPUT),
+            [LOG_ENTRIES_OUTPUT]: recording.produced(LOG_ENTRIES_OUTPUT),
+            [HOG_INVOCATION_RESULTS_OUTPUT]: recording.produced(HOG_INVOCATION_RESULTS_OUTPUT),
+            [WAREHOUSE_SOURCE_WEBHOOKS_OUTPUT]: recording.produced(WAREHOUSE_SOURCE_WEBHOOKS_OUTPUT),
+            [MESSAGE_ASSETS_OUTPUT]: recording.produced(MESSAGE_ASSETS_OUTPUT),
+            [EMAIL_STATUS_OUTPUT]: recording.produced(EMAIL_STATUS_OUTPUT),
+            capture: mockInternalFetch.mock.calls.map(([, init]) => parseJSON(String(init?.body))),
+            conversion_watchers: watchers.rows,
+        }
     }
+    const cleanup = async (runId: string): Promise<void> => {
+        await service.stop()
+        await pool.query('DELETE FROM conversion_watchers WHERE run_id = $1', [runId])
+        await pool.end()
+    }
+    return { service, delivered, cleanup }
 }
-
-const invocationResults = [
-    createInvocationResult(createExampleInvocation()),
-    createInvocationResult(createExampleInvocation()),
-]
 
 describe('InvocationResultsService', () => {
     let monitoringService: jest.Mocked<HogFunctionMonitoringService>
@@ -123,12 +211,26 @@ describe('InvocationResultsService', () => {
     })
 
     describe('queueInvocationResults', () => {
-        it('fans the same results out to every sink without flushing them', async () => {
-            const { recordingService, sinkStates, everySink } = serviceWithRecordingSinks()
+        it('delivers nothing through any sink until flush', async () => {
+            const { service: realService, delivered, cleanup } = realSinks()
+            const run = failedTransactionalEmailRun()
 
-            await recordingService.queueInvocationResults(invocationResults)
+            try {
+                await realService.queueInvocationResults([run])
 
-            expect(sinkStates()).toEqual(everySink({ pending: invocationResults, delivered: [] }))
+                expect(await delivered(run.invocation.id)).toEqual({
+                    [APP_METRICS_OUTPUT]: [],
+                    [LOG_ENTRIES_OUTPUT]: [],
+                    [HOG_INVOCATION_RESULTS_OUTPUT]: [],
+                    [WAREHOUSE_SOURCE_WEBHOOKS_OUTPUT]: [],
+                    [MESSAGE_ASSETS_OUTPUT]: [],
+                    [EMAIL_STATUS_OUTPUT]: [],
+                    capture: [],
+                    conversion_watchers: [],
+                })
+            } finally {
+                await cleanup(run.invocation.id)
+            }
         })
 
         it('awaits the captured-events service (which is async)', async () => {
@@ -159,13 +261,36 @@ describe('InvocationResultsService', () => {
     })
 
     describe('flush', () => {
-        it('flushes every sink', async () => {
-            const { recordingService, sinkStates, everySink } = serviceWithRecordingSinks()
-            await recordingService.queueInvocationResults(invocationResults)
+        it('delivers the queued batch through every sink', async () => {
+            const { service: realService, delivered, cleanup } = realSinks()
+            const run = failedTransactionalEmailRun()
+            const runId = run.invocation.id
 
-            await recordingService.flush()
+            try {
+                await realService.queueInvocationResults([run])
+                await realService.flush()
 
-            expect(sinkStates()).toEqual(everySink({ pending: [], delivered: invocationResults }))
+                expect(await delivered(runId)).toEqual({
+                    [APP_METRICS_OUTPUT]: expect.arrayContaining([
+                        expect.objectContaining({ app_source_id: run.invocation.functionId, metric_name: 'failed' }),
+                    ]),
+                    [LOG_ENTRIES_OUTPUT]: [
+                        expect.objectContaining({ instance_id: runId, message: 'Template not found' }),
+                    ],
+                    [HOG_INVOCATION_RESULTS_OUTPUT]: [
+                        expect.objectContaining({ invocation_id: runId, status: 'failed' }),
+                    ],
+                    [WAREHOUSE_SOURCE_WEBHOOKS_OUTPUT]: [
+                        { team_id: team.id, schema_id: 'schema-1', payload: JSON.stringify({ id: 1 }) },
+                    ],
+                    [MESSAGE_ASSETS_OUTPUT]: [expect.objectContaining({ invocation_id: runId, subject: 'Hello' })],
+                    [EMAIL_STATUS_OUTPUT]: [expect.objectContaining({ message_id: runId, status: 'failed' })],
+                    capture: [expect.objectContaining({ api_key: team.api_token, event: 'workflow event' })],
+                    conversion_watchers: [{ run_id: runId }],
+                })
+            } finally {
+                await cleanup(runId)
+            }
         })
 
         it('flushes all in parallel (all start before any finish)', async () => {
