@@ -1,13 +1,19 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
-from posthog.models import Team
 
 from products.mcp_analytics.backend.facade.clickhouse_schema import MCP_INTENT_ASSIGNMENTS_WRITABLE_TABLE
+
+# ClickHouse applies the table TTL with its own clock, so fixtures stay relative to now.
+OTHER_TEAM_ID = 10**9
+
+
+def _now() -> datetime:
+    return datetime.now(tz=UTC).replace(microsecond=0)
 
 
 def _insert_assignment(team_id: int, intent_hash: str, topic_id: str | None, **overrides) -> None:
@@ -22,7 +28,7 @@ def _insert_assignment(team_id: int, intent_hash: str, topic_id: str | None, **o
         "is_outlier": 0,
         "intent_text": "list feature flags",
         "calls_in_run": 3,
-        "timestamp": datetime(2026, 10, 19, 12, 0, 0, tzinfo=UTC),
+        "timestamp": _now() - timedelta(days=1),
         **overrides,
     }
     sync_execute(
@@ -54,28 +60,35 @@ class TestMCPIntentAssignmentsTable(ClickhouseTestMixin, APIBaseTest):
             ("b" * 64, None, 1, 0.9, 1.0, -1.0, "list feature flags", 3),
         ]
 
-    def test_latest_run_wins_for_the_same_intent(self) -> None:
-        _insert_assignment(self.team.pk, "a" * 64, "topic-1", run_id="run-1")
-        _insert_assignment(
-            self.team.pk,
-            "a" * 64,
-            "topic-2",
-            run_id="run-2",
-            timestamp=datetime(2026, 10, 20, 12, 0, 0, tzinfo=UTC),
+    def test_returns_only_the_latest_assignment_per_intent_across_partitions(self) -> None:
+        # Rows in different monthly partitions never merge, so the read itself must dedupe.
+        _insert_assignment(self.team.pk, "a" * 64, "topic-1", run_id="run-1", timestamp=_now() - timedelta(days=40))
+        _insert_assignment(self.team.pk, "a" * 64, "topic-2", run_id="run-2", timestamp=_now() - timedelta(days=1))
+
+        deduped = execute_hogql_query(
+            query="SELECT intent_hash, topic_id, run_id FROM mcp_intent_assignments", team=self.team
         )
+        raw = execute_hogql_query(query="SELECT count() FROM posthog.raw_mcp_intent_assignments", team=self.team)
+
+        assert deduped.results == [("a" * 64, "topic-2", "run-2")]
+        assert raw.results == [(2,)]
+
+    def test_filters_apply_after_the_latest_assignment_is_chosen(self) -> None:
+        _insert_assignment(self.team.pk, "a" * 64, "topic-1", run_id="run-1", timestamp=_now() - timedelta(days=2))
+        _insert_assignment(self.team.pk, "a" * 64, "topic-2", run_id="run-2", timestamp=_now() - timedelta(days=1))
 
         response = execute_hogql_query(
-            query="SELECT argMax(topic_id, timestamp), count() FROM mcp_intent_assignments GROUP BY intent_hash",
-            team=self.team,
+            query="SELECT intent_hash FROM mcp_intent_assignments WHERE topic_id = 'topic-1'", team=self.team
         )
 
-        assert response.results == [("topic-2", 2)]
+        assert response.results == []
 
     def test_other_teams_rows_are_invisible(self) -> None:
-        other_team = Team.objects.create(organization=self.organization, name="other")
-        _insert_assignment(other_team.pk, "c" * 64, "topic-9")
+        _insert_assignment(OTHER_TEAM_ID, "c" * 64, "topic-9")
         _insert_assignment(self.team.pk, "a" * 64, "topic-1")
 
         response = execute_hogql_query(query="SELECT intent_hash FROM mcp_intent_assignments", team=self.team)
+        raw = execute_hogql_query(query="SELECT intent_hash FROM posthog.raw_mcp_intent_assignments", team=self.team)
 
         assert response.results == [("a" * 64,)]
+        assert raw.results == [("a" * 64,)]
