@@ -44,6 +44,7 @@ from products.alerts_platform.backend.delivery.transport import (
     DeliveryError,
     DeliveryTransport,
     DestinationMisconfigured,
+    RefusedEverywhere,
     RootImageEditor,
 )
 from products.alerts_platform.backend.delivery.webhook import WebhookTransport
@@ -264,6 +265,7 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
     busy: list[str] = []
     failures: list[str] = []
     first_refusal: DeliveryError | None = None
+    retryable = False
     # Per subscription rather than per destination. A destination subscribes to some of the
     # kinds an alert can announce, so one that asked for firings must not be handed the resolve
     # that another group produced in the same evaluation.
@@ -326,6 +328,7 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
                 )
                 failures.append(str(error))
                 first_refusal = first_refusal or error
+                retryable = True
                 continue
             try:
                 deliver(
@@ -356,8 +359,10 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
             except DeliveryError as error:
                 failures.append(str(error))
                 first_refusal = first_refusal or error
+                retryable = retryable or not isinstance(error, DestinationMisconfigured)
             except Exception as error:
                 failures.append(type(error).__name__)
+                retryable = True
             else:
                 sent += 1
     # Emitted last and only without a held thread, because the workflow runs a held delivery again
@@ -395,6 +400,7 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
                     exc_info=True,
                 )
                 failures.append(f"legacy events: {type(error).__name__}")
+                retryable = True
                 _count_emissions(request, "failed", len(emissions))
             else:
                 thread_store.delivered(emission, None)
@@ -407,7 +413,8 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
         # The failures ride along, so a wait that ends still says which destinations refused.
         raise ThreadBusy("; ".join([*busy, *failures]))
     if failures:
-        raise DeliveryError(f"{len(failures)} destination(s) failed: " + "; ".join(failures)) from first_refusal
+        failed = DeliveryError if retryable else RefusedEverywhere
+        raise failed(f"{len(failures)} destination(s) failed: " + "; ".join(failures)) from first_refusal
     return DeliveryOutcome(
         live=True,
         sent=sent,
