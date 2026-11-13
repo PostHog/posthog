@@ -33,6 +33,10 @@ class ImportCredentialsInvalid(ImportStepError):
     """The provider rejected the API key. A retry does not fix this."""
 
 
+class ImportTooLarge(ImportStepError):
+    """The account holds more than one import takes. Another try reads the same data and stops at the same limit."""
+
+
 class ImportProviderUnavailable(ImportStepError):
     """The provider did not respond or returned a server error. A later retry can succeed."""
 

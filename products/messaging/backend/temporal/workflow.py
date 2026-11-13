@@ -30,6 +30,7 @@ STEP_RETRY_POLICY = RetryPolicy(
     non_retryable_error_types=[
         "ImportCredentialsMissing",
         "ImportCredentialsInvalid",
+        "ImportTooLarge",
         "ImportRunClosed",
         "StaleImportAttempt",
         "UnknownImportStep",
