@@ -37,6 +37,10 @@ class ImportTooLarge(ImportStepError):
     """The account holds more than one import takes. Another try reads the same data and stops at the same limit."""
 
 
+class ImportStepBlocked(ImportStepError):
+    """A step the run needs first didn't complete, so this one doesn't run. Another try finds the same result."""
+
+
 class ImportProviderUnavailable(ImportStepError):
     """The provider did not respond or returned a server error. A later retry can succeed."""
 
@@ -52,6 +56,8 @@ class ImportStepSpec:
     description: str
     # What the step counts in its summary, as (key, label) pairs in display order.
     count_labels: tuple[tuple[str, str], ...] = ()
+    # Steps that must complete first when the run includes them, such as opt-outs before contacts become people.
+    requires: tuple[str, ...] = ()
 
 
 @frozen
