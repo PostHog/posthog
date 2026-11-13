@@ -201,7 +201,7 @@ describe('measurements', () => {
         await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
         const { port } = server.address() as AddressInfo
         try {
-            const procStat = ['cpu  100 0 50 800 50 0 0 0 0 0', 'cpu  400 0 150 1300 150 0 0 0 0 0']
+            const procStat = ['cpu  100 0 50 800 50 0 0 0 40 0', 'cpu  400 20 130 1300 150 0 0 0 200 20']
             const sampler = await startSampler(
                 [{ role: ROLE, replica: 0, metricsUrl: `http://127.0.0.1:${port}/_metrics` }],
                 { readHostStat: () => procStat.shift() ?? 'cpu  oops' }

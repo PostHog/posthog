@@ -484,13 +484,15 @@ export function sampleOf({ role, replica }: Target, at: number, text: string): M
           }
 }
 
+const FIRST_GUEST_FIELD = 8
+
 export function hostSampleOf(at: number, procStat: string): HostSample | undefined {
     const line = procStat.split('\n').find((candidate) => /^cpu\s/.test(candidate))
     const ticks = line?.trim().split(/\s+/).slice(1).map(Number) ?? []
     if (ticks.length < 5 || ticks.some((tick) => !Number.isFinite(tick))) {
         return undefined
     }
-    const totalTicks = ticks.reduce((sum, tick) => sum + tick, 0)
+    const totalTicks = ticks.slice(0, FIRST_GUEST_FIELD).reduce((sum, tick) => sum + tick, 0)
     return { at, busyTicks: totalTicks - ticks[3] - ticks[4], totalTicks }
 }
 
