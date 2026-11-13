@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useMemo, useRef, useState } from 'react'
 
+import { IconChevronDown } from '@posthog/icons'
 import {
     Button,
     Combobox,
@@ -23,7 +24,7 @@ import { EDIT_ACCESS_REASON, SuggestionAssigneeSelectProps } from './SuggestionA
 
 const UNASSIGNED = 'unassigned'
 
-function ColumnTriggerContent({ assignee }: Pick<SuggestionAssigneeSelectProps, 'assignee'>): JSX.Element {
+function ColumnTriggerLabel({ assignee }: Pick<SuggestionAssigneeSelectProps, 'assignee'>): JSX.Element {
     if (!assignee) {
         return <span className="text-muted-foreground">Unassigned</span>
     }
@@ -32,6 +33,15 @@ function ColumnTriggerContent({ assignee }: Pick<SuggestionAssigneeSelectProps, 
             <QuillPersonAvatar name={fullName(assignee)} email={assignee.email} size="xs" />
             <span className="truncate">{assignee.first_name || assignee.email}</span>
         </span>
+    )
+}
+
+function ColumnTriggerContent({ assignee }: Pick<SuggestionAssigneeSelectProps, 'assignee'>): JSX.Element {
+    return (
+        <>
+            <ColumnTriggerLabel assignee={assignee} />
+            <IconChevronDown className="shrink-0 text-muted-foreground" />
+        </>
     )
 }
 
@@ -87,6 +97,7 @@ export function QuillSuggestionAssigneeSelect({
                 className={column ? 'max-w-full justify-start font-normal' : 'text-xs font-normal'}
                 loading={!!actionsInFlight[suggestionId]}
                 disabledReason={canAct ? undefined : EDIT_ACCESS_REASON}
+                tooltip={column ? 'Change assignee' : undefined}
                 onClick={() => setPickerOpen(!open)}
                 data-attr="warehouse-suggestions-assign"
             >

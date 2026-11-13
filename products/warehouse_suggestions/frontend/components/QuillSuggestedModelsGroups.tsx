@@ -36,12 +36,13 @@ export function QuillSuggestedModelsGroups({
 }: QuillSuggestedModelsGroupsProps): JSX.Element {
     return (
         <>
-            {groups.map((group) => (
+            {groups.map((group, index) => (
                 <QuillSuggestedModelsSection
                     key={group.kind}
                     {...SUGGESTED_MODEL_SECTIONS[group.kind]}
                     selection={renderGroupSelection?.(group)}
                     assigneeColumn={assigneeColumn}
+                    showsAssigneeLabel={index === 0}
                 >
                     {group.suggestions.map((suggestion) => {
                         const RowComponent = ROW_FOR_KIND[group.kind] ?? QuillMaterializeSuggestionRow

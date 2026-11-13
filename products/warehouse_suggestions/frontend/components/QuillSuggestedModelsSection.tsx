@@ -15,7 +15,8 @@ export function QuillSuggestedModelsSection({
     children,
     selection,
     assigneeColumn,
-}: SuggestedModelsSectionProps & QuillRowSelectionProps): JSX.Element {
+    showsAssigneeLabel = false,
+}: SuggestedModelsSectionProps & QuillRowSelectionProps & { showsAssigneeLabel?: boolean }): JSX.Element {
     return (
         <section aria-label={title}>
             <div
@@ -44,7 +45,7 @@ export function QuillSuggestedModelsSection({
                         Main saving a month
                     </Text>
                 )}
-                {assigneeColumn && (
+                {assigneeColumn && showsAssigneeLabel && (
                     <Text size="xs" variant="muted" render={<span />} className={cn(QUILL_ASSIGNEE_CELL_CLASS, 'pl-2')}>
                         Assignee
                     </Text>
