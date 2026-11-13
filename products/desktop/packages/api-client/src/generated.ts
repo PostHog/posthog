@@ -11987,6 +11987,7 @@ export namespace Schemas {
             id: string;
             source_type: string;
             access_method: string;
+            direct_query_enabled: boolean;
             supports_column_selection: boolean;
             supports_row_filters: boolean;
             requires_exact_column_metadata: boolean;

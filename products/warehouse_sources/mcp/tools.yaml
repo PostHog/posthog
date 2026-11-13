@@ -244,8 +244,8 @@ tools:
             compact:
                 description: >
                     Return one short health row per table (id, name, source_id, should_sync, live_query_enabled,
-                    sync_type, status, last_synced_at, latest_error cut to 500 characters). Defaults to true. Set to false for the full
-                    sync configuration of each table.
+                    sync_type, status, last_synced_at, latest_error cut to 500 characters). Defaults to true. Set to
+                    false for the full sync configuration of each table.
                 default: true
         response:
             exclude:
@@ -346,8 +346,8 @@ tools:
             field, primary key columns, latest error, `incremental_sync_blocked`, and the associated source and table
             metadata. Read `incremental_sync_blocked` before diagnosing a table that stopped syncing: it names why the
             last run could not merge on the primary key, and its description lists the resolutions. For live queries,
-            read `live_query_enabled`, `live_query_unavailable_reason`, and `source.direct_query_enabled`, which is
-            true when the source serves live queries.
+            read `live_query_enabled`, `live_query_unavailable_reason`, and `source.direct_query_enabled`, which is true
+            when the source serves live queries.
         param_overrides:
             id:
                 aliases:
