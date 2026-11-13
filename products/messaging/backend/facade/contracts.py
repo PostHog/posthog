@@ -362,7 +362,6 @@ class EmailStatus:
 @frozen
 class ScheduledEmail:
     message_id: str
-    to: str
     scheduled_at: datetime
     created_at: datetime
 

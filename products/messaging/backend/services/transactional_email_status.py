@@ -88,7 +88,7 @@ def get_email_status(team_id: int, message_id: UUID) -> EmailStatus | None:
 
 _LONGEST_WAIT = timedelta(days=30)
 _SCHEDULED_EMAILS_QUERY = f"""
-SELECT toString(message_id) AS id, argMax(recipient, version), argMax(scheduled_at, version) AS due, any(created_at)
+SELECT toString(message_id) AS id, argMax(scheduled_at, version) AS due, any(created_at)
 FROM {EMAIL_STATUS_EVENTS_TABLE}
 WHERE team_id = %(team_id)s
   AND created_at >= %(start)s
@@ -139,8 +139,8 @@ def list_scheduled_emails(team_id: int, *, after: ScheduledEmailCursor | None, l
         ),
     )
     emails = tuple(
-        ScheduledEmail(message_id=message_id, to=to, scheduled_at=due, created_at=created_at)
-        for message_id, to, due, created_at in rows[:limit]
+        ScheduledEmail(message_id=message_id, scheduled_at=due, created_at=created_at)
+        for message_id, due, created_at in rows[:limit]
     )
     has_more = len(rows) > limit
     return ScheduledEmailPage(

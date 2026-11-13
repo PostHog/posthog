@@ -74,8 +74,6 @@ export interface AttachmentUploadsResponseApi {
 export interface ScheduledEmailApi {
     /** The `message_id` that the send returned. */
     id: string
-    /** The recipient's address. */
-    to: string
     /** When the email goes out, to the millisecond. */
     scheduled_at: string
     /** When the send was made. */
@@ -1583,6 +1581,7 @@ export type MessagingEmailsListParams = {
     /**
      * The `next` value of the page before. Leave it out for the first page.
      * @minLength 1
+     * @maxLength 128
      */
     cursor?: string
     /**

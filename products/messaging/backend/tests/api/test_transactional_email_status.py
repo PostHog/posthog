@@ -831,19 +831,16 @@ class TestListScheduledEmails(EmailsApiTestBase):
             "results": [
                 {
                     "id": sooner,
-                    "to": "sooner@example.com",
                     "scheduled_at": "2026-06-15T17:00:00Z",
                     "created_at": "2026-06-15T11:00:00Z",
                 },
                 {
                     "id": moved,
-                    "to": "moved@example.com",
                     "scheduled_at": "2026-06-16T12:00:00Z",
                     "created_at": "2026-06-15T09:00:00Z",
                 },
                 {
                     "id": later,
-                    "to": "later@example.com",
                     "scheduled_at": "2026-06-17T12:00:00Z",
                     "created_at": "2026-06-15T10:00:00Z",
                 },

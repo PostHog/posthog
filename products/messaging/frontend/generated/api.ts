@@ -125,7 +125,7 @@ export const getMessagingEmailsListUrl = (projectId: string, params: MessagingEm
 }
 
 /**
- * List the emails that wait for their time, soonest first, a page at a time. An email leaves the list when it goes out or is canceled. A new email, a cancel or a move usually shows in the list within a minute. Needs a project secret API key with the `transactional_email:read` scope. A key with `hog_flow:read` also works, but that scope reaches the rest of Workflows too.
+ * List the emails that wait for their time, soonest first, a page at a time. Each email shows the `message_id` its send returned, not its recipient. An email leaves the list when it goes out or is canceled. A new email, a cancel or a move usually shows in the list within a minute. Needs a project secret API key with the `transactional_email:read` scope. A key with `hog_flow:read` also works, but that scope reaches the rest of Workflows too.
  * @summary List scheduled emails
  */
 export const messagingEmailsList = async (
