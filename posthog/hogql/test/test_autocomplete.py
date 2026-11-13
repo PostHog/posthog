@@ -20,6 +20,7 @@ from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import FloatDatabaseField, StringDatabaseField, TableNode
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.persons import PERSONS_FIELDS
+from posthog.hogql.errors import TableAccessDeniedError
 
 from posthog.models.team import Team
 
@@ -88,13 +89,32 @@ class TestTableCatalogAutocomplete(TestCase):
         else:
             assert names == {"sample_table"}
 
+    @parameterized.expand([("events",), ("posthog.trace_spans",)])
+    def test_denied_warehouse_name_does_not_hide_a_resolvable_table(self, table_name: str) -> None:
+        database = Database()
+        table = database.get_table(table_name)
+        assert database._is_warehouse_table_denied(DataWarehouseTable(name=table_name))
+        assert database.get_table(table_name) is table
+        query = "SELECT * FROM "
+        response = get_hogql_autocomplete(
+            HogQLAutocomplete(
+                query=query, language=HogLanguage.HOG_QL, startPosition=len(query), endPosition=len(query)
+            ),
+            Team(id=1),
+            database_arg=database,
+        )
+        assert table_name in {item.insertText for item in response.suggestions}
+
     @parameterized.expand([("hidden",), ("denied",), ("direct",)])
     def test_unavailable_namespace_tables_are_not_suggested(self, restriction: str) -> None:
         database = Database()
         if restriction == "hidden":
             database.tables.children["posthog"].children["trace_spans"].hidden = True
         elif restriction == "denied":
-            database._denied_tables.add("posthog.trace_spans")
+            del database.tables.children["posthog"].children["trace_spans"]
+            assert database._is_warehouse_table_denied(DataWarehouseTable(name="posthog.trace_spans"))
+            with self.assertRaises(TableAccessDeniedError):
+                database.get_table("posthog.trace_spans")
         else:
             database._connection_id = "test-connection"
             database.apply_schema_scope()

@@ -334,10 +334,25 @@ class TestUnknownTableSuggestions(TestCase):
     def test_does_not_suggest_denied_or_hidden_namespaced_tables(self, table_name: str, denied: bool) -> None:
         database = Database()
         if denied:
-            database._denied_tables.add(f"posthog.{table_name}")
+            del database.tables.children["posthog"].children[table_name]
+            assert database._is_warehouse_table_denied(DataWarehouseTable(name=f"posthog.{table_name}"))
+            with self.assertRaises(TableAccessDeniedError):
+                database.get_table(f"posthog.{table_name}")
         with self.assertRaises(QueryError) as error:
             database.get_table(table_name)
         assert f"posthog.{table_name}" not in str(error.exception)
+
+    @parameterized.expand([("events", "evnts"), ("posthog.metrics", "metrics")])
+    def test_denied_warehouse_name_does_not_hide_a_resolvable_suggestion(
+        self, table_name: str, unknown_name: str
+    ) -> None:
+        database = Database()
+        table = database.get_table(table_name)
+        assert database._is_warehouse_table_denied(DataWarehouseTable(name=table_name))
+        assert database.get_table(table_name) is table
+        with self.assertRaises(QueryError) as error:
+            database.get_table(unknown_name)
+        assert str(error.exception) == f"Unknown table `{unknown_name}`. Did you mean: {table_name}?"
 
     @parameterized.expand(
         [

@@ -972,13 +972,7 @@ def _suggest_table_names(
             *(name for name in database.tables.resolve_visible_table_names() if "." in name),
         ]
     )
-    table_names = [
-        name
-        for name in candidates
-        if database.has_table(name)
-        and not database.is_table_access_denied(name)
-        and not database.get_table_node(name).hidden
-    ]
+    table_names = [name for name in candidates if database.has_table(name) and not database.get_table_node(name).hidden]
     posthog_table_names = [name for name in database.get_posthog_table_names() if database.has_table(name)]
 
     if len(node.chain) == 1:

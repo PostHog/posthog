@@ -1212,11 +1212,7 @@ class Database(BaseModel):
         # is noise, and on a direct connection the same name can exist in the broader
         # catalog without being available on the source we actually queried.
         lowered = name.casefold()
-        candidates = {
-            c
-            for c in candidates
-            if c.casefold() != lowered and not self.is_table_access_denied(c) and self.has_table(c)
-        }
+        candidates = {c for c in candidates if c.casefold() != lowered and self.has_table(c)}
         if "." not in name:
             qualified_name = f"posthog.{name}"
             try:
@@ -1224,11 +1220,7 @@ class Database(BaseModel):
             except ResolutionError:
                 pass
             else:
-                if (
-                    qualified_node.table is not None
-                    and not qualified_node.hidden
-                    and not self.is_table_access_denied(qualified_name)
-                ):
+                if qualified_node.table is not None and not qualified_node.hidden:
                     return [qualified_name]
         prefix, dot, _ = name.rpartition(".")
         if dot:
