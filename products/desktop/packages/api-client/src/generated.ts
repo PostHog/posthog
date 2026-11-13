@@ -5087,6 +5087,8 @@ export namespace Schemas {
         showYAxisBorder: boolean | null;
         stackBars100: boolean | null;
         valueLabelBackground: boolean | null;
+        valueLabelBackgroundColor: string | null;
+        valueLabelColor: string | null;
         valueLabelFontSize: number | null;
         valueLabelPosition: ValueLabelPosition | null;
         valueLabelRotation: number | null;
