@@ -320,6 +320,9 @@ const STEP_KIND_NAMES = new Map(ALL_CATALOG_STEPS.map((step) => [kindKey(step.ty
 
 /** The name the step picker gives this kind of step, so one kind of step has one name everywhere. */
 export function stepKindName(action: HogFlowAction): string | undefined {
+    if (action.type === 'email_sandbox') {
+        return STEP_KIND_NAMES.get(kindKey('function_email', 'template-email'))
+    }
     const templateId = 'template_id' in action.config ? (action.config.template_id as string | undefined) : undefined
     return STEP_KIND_NAMES.get(kindKey(action.type, templateId)) ?? STEP_KIND_NAMES.get(kindKey(action.type, undefined))
 }

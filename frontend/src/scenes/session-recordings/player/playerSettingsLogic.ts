@@ -16,7 +16,7 @@ import { urls } from 'scenes/urls'
 import { AutoplayDirection, ReplayTabs, SessionRecordingSidebarStacking } from '~/types'
 
 export type WatchPanelSection = 'overview' | 'observations' | 'debug'
-const WATCH_PANEL_OPEN_BY_DEFAULT: WatchPanelSection[] = ['observations', 'debug']
+const WATCH_PANEL_OPEN_BY_DEFAULT: WatchPanelSection[] = ['observations']
 export type WatchPanelLayout = Record<string, number>
 export type WatchDebugDock = 'bottom' | 'right'
 
@@ -166,7 +166,7 @@ export interface playerSettingsLogicMeta {
             canOverrideLayout: boolean
         ) => ReplayLayout
         debugMode: (debugModePreference: boolean, urlOverrideSidebarOpen: boolean | null) => boolean
-        debugHintShown: (replayLayout: ReplayLayout, debugMode: boolean, debugHintDismissed: boolean) => boolean
+        debugHintShown: (replayLayout: ReplayLayout, debugHintDismissed: boolean) => boolean
         sidebarOpen: (userPreferenceSidebarOpen: boolean, urlOverrideSidebarOpen: boolean | null) => boolean
         isVerticallyStacked: (preferredSidebarStacking: SessionRecordingSidebarStacking) => boolean
     }
@@ -330,7 +330,6 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             { persist: true },
             {
                 dismissDebugHint: () => true,
-                setDebugMode: (state, { open }) => state || open,
             },
         ],
         watchPanelOpenSections: [
@@ -338,7 +337,7 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             { persist: true },
             {
                 setWatchPanelOpenSections: (_, { sections }) => sections,
-                openWatchPanelSection: (state, { section }) => (state.includes(section) ? state : [...state, section]),
+                openWatchPanelSection: (_, { section }) => [section],
             },
         ],
         watchPanelFocusRequest: [
@@ -387,9 +386,9 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
                 urlOverrideSidebarOpen ?? debugModePreference,
         ],
         debugHintShown: [
-            (s) => [s.replayLayout, s.debugMode, s.debugHintDismissed],
-            (replayLayout: ReplayLayout, debugMode: boolean, debugHintDismissed: boolean): boolean =>
-                isNewReplayLayout(replayLayout) && !debugMode && !debugHintDismissed,
+            (s) => [s.replayLayout, s.debugHintDismissed],
+            (replayLayout: ReplayLayout, debugHintDismissed: boolean): boolean =>
+                isNewReplayLayout(replayLayout) && !debugHintDismissed,
         ],
         sidebarOpen: [
             (s) => [s.userPreferenceSidebarOpen, s.urlOverrideSidebarOpen],

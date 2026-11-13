@@ -436,9 +436,6 @@ function MetricMetadata({
                             content: (
                                 <div className="flex flex-col gap-1 text-sm">
                                     {metric.ai_model && <span>Model: {metric.ai_model}</span>}
-                                    {metric.confidence != null && (
-                                        <span>Confidence: {Math.round(metric.confidence * 100)}%</span>
-                                    )}
                                     {metric.reasoning && <span>{metric.reasoning}</span>}
                                 </div>
                             ),

@@ -3,12 +3,8 @@ import { FileSystemEntry } from '~/queries/schema/schema-general'
 
 import type { UserBasicApi } from 'products/workflows/frontend/generated/api.schemas'
 
-import {
-    createFacetMatcher,
-    type FacetDefinition,
-    type FacetSearchValue,
-    type MatchesText,
-} from './FacetSearchBar/facetQuery'
+import type { FacetDefinition, FacetFilter, FacetSearchValue, MatchesText } from './FacetSearchBar/facetQuery'
+import type { WorkflowFolderFileRow } from './workflowFoldersLogic'
 import { HEALTH_TAGS, STATUS_LABELS, TRIGGER_LABELS, TYPE_LABELS } from './workflowListLabels'
 import { WorkflowListRow, creatorHandle } from './workflowListRows'
 
@@ -31,88 +27,64 @@ export function displayedFolder(folder: string): string {
     return folder === 'Unfiled' || folder.startsWith('Unfiled/') ? 'Unfiled' : folder
 }
 
-export function folderScopes(parent: string, includeDescendants: boolean): string[] {
-    const folder = displayedFolder(parent)
-    if (folder === 'Unfiled' || !includeDescendants) {
-        return [folder]
-    }
-    const parts = splitPath(folder)
+export function ancestorFolders(path: string): string[] {
+    const parts = splitPath(path)
     return parts.map((_, index) => joinPath(parts.slice(0, index + 1)))
 }
 
-/** Every word of the text must appear in the name or description. */
-export function matchesWorkflowListText(row: WorkflowListRow, text: string): boolean {
-    return text
-        .toLowerCase()
-        .split(/\s+/)
-        .filter(Boolean)
-        .every((word) => row.searchText.includes(word))
+export function folderScopes(parent: string, includeDescendants: boolean): string[] {
+    const folder = displayedFolder(parent)
+    return folder === 'Unfiled' || !includeDescendants ? [folder] : ancestorFolders(folder)
 }
 
-export type WorkflowFolderFileRow = { id: string; name: string; path: string } & (
-    | { kind: 'workflow'; row: WorkflowListRow }
-    | { kind: 'email_template'; entry: FileSystemEntry }
-)
+/** A workflow has no folder while `placements` is unknown, so no folder pill matches it and none counts it as Unfiled. */
+export function workflowFolderFacet(
+    placements: Record<string, FileSystemEntry> | null,
+    includeDescendants: boolean
+): FacetDefinition<WorkflowListRow> {
+    return {
+        key: 'in',
+        aliases: ['path', 'folder'],
+        label: 'in',
+        description: 'Project folder',
+        caseSensitive: true,
+        formatValue: (value) => splitPath(value).join(' / '),
+        getValues: (row) => {
+            if (!placements) {
+                return []
+            }
+            const entry = placements[`hog_flow::${row.id}`]
+            return !entry || entry.shortcut ? ['Unfiled'] : folderScopes(parentPath(entry.path), includeDescendants)
+        },
+    }
+}
+
+export const isFolderScope = (filter: FacetFilter): boolean => filter.facet === 'in' && !filter.negated
+
+export function withoutFolderScope(value: FacetSearchValue): FacetSearchValue {
+    return { ...value, filters: value.filters.filter((filter) => !isFolderScope(filter)) }
+}
 
 /** Text or any filter other than an opened folder searches every folder, not only the opened one. */
 export function searchesAcrossFolders(value: FacetSearchValue): boolean {
-    return !!value.text.trim() || value.filters.some((filter) => filter.facet !== 'in' || filter.negated)
+    return !!value.text.trim() || value.filters.some((filter) => !isFolderScope(filter))
 }
 
-/** The workflows and email templates the folder view lists, each placed at its project tree path. */
-export function workflowFolderFiles(
-    rows: WorkflowListRow[],
-    entries: FileSystemEntry[],
-    filesByRef: Record<string, FileSystemEntry>,
-    currentTeamId: number | null
-): WorkflowFolderFileRow[] {
-    return [
-        ...rows.map(
-            (row): WorkflowFolderFileRow => ({
-                kind: 'workflow',
-                id: `workflow:${row.id}`,
-                name: row.name,
-                path: filesByRef[`hog_flow::${row.id}`]?.path ?? 'Unfiled/Workflows/',
-                row,
-            })
-        ),
-        ...entries
-            .filter(
-                (entry) =>
-                    entry.type === 'message_template' &&
-                    !entry.shortcut &&
-                    (entry.team_id ?? currentTeamId) === currentTeamId
-            )
-            .map(
-                (entry): WorkflowFolderFileRow => ({
-                    kind: 'email_template',
-                    id: `email_template:${entry.ref}`,
-                    name: splitPath(entry.path).at(-1) ?? '',
-                    path: entry.path,
-                    entry,
-                })
-            ),
-    ]
-}
-
+/** The list facets for the folder view, which also lists email templates. */
 export function folderFileFacets(
     facets: FacetDefinition<WorkflowListRow>[],
     searching: boolean
 ): FacetDefinition<WorkflowFolderFileRow>[] {
     return facets.map((facet) => ({
         ...facet,
-        getValues: (item: WorkflowFolderFileRow): string[] => {
-            if (item.kind === 'workflow') {
-                return facet.getValues(item.row)
-            }
-            if (facet.key === 'kind') {
-                return ['email-template']
-            }
-            if (facet.key !== 'in') {
-                return []
-            }
-            return folderScopes(parentPath(item.path), searching)
-        },
+        getValues: (item: WorkflowFolderFileRow): string[] =>
+            item.kind === 'workflow'
+                ? facet.getValues(item.row)
+                : facet.key === 'kind'
+                  ? ['email-template']
+                  : facet.key === 'in'
+                    ? folderScopes(parentPath(item.path), searching)
+                    : [],
     }))
 }
 
@@ -127,17 +99,13 @@ export function folderFileMatchesText(matchesText: MatchesText<WorkflowListRow>)
                   .every((word) => item.name.toLowerCase().includes(word))
 }
 
-/** Matches the files a query finds in every folder. The opened folder narrows them afterwards, so its scope is left out. */
-export function folderFileMatcher(
-    value: FacetSearchValue,
-    facets: FacetDefinition<WorkflowFolderFileRow>[],
-    matchesText: MatchesText<WorkflowFolderFileRow>
-): (item: WorkflowFolderFileRow) => boolean {
-    return createFacetMatcher(
-        { ...value, filters: value.filters.filter((filter) => filter.facet !== 'in' || filter.negated) },
-        facets,
-        matchesText
-    )
+/** Every word of the text must appear in the name or description. */
+export function matchesWorkflowListText(row: WorkflowListRow, text: string): boolean {
+    return text
+        .toLowerCase()
+        .split(/\s+/)
+        .filter(Boolean)
+        .every((word) => row.searchText.includes(word))
 }
 
 export type WorkflowListViewer = Pick<UserBasicApi, 'uuid' | 'first_name' | 'email'>
@@ -149,15 +117,7 @@ const isMe = (value: string): boolean => value.toLowerCase() === ME
 /** `rows` supplies the names shown for creator uuids. `me` stays `me` in the URL and resolves to `viewer`. */
 export function buildWorkflowListFacets(
     rows: WorkflowListRow[],
-    {
-        viewer = null,
-        filesByRef = {},
-        includeDescendants = false,
-    }: {
-        viewer?: WorkflowListViewer | null
-        filesByRef?: Record<string, FileSystemEntry>
-        includeDescendants?: boolean
-    } = {}
+    viewer: WorkflowListViewer | null = null
 ): FacetDefinition<WorkflowListRow>[] {
     const pinnedValues = viewer ? [ME] : undefined
     const creators = new Map(
@@ -181,18 +141,6 @@ export function buildWorkflowListFacets(
     }
 
     return [
-        {
-            key: 'in',
-            aliases: ['path', 'folder'],
-            label: 'in',
-            description: 'Project folder',
-            caseSensitive: true,
-            formatValue: (value) => splitPath(value).join(' / '),
-            getValues: (row) => {
-                const entry = filesByRef[`hog_flow::${row.id}`]
-                return !entry || entry.shortcut ? ['Unfiled'] : folderScopes(parentPath(entry.path), includeDescendants)
-            },
-        },
         {
             key: 'status',
             label: 'Status',

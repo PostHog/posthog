@@ -233,6 +233,11 @@ FLASH_LENSES: dict[str, FlashLens] = {
     ),
 }
 
+DEVEX_LENS_NAME = "devex"
+DEVEX_OWNER_TEAM = "team-devex"
+# Not in FLASH_LENSES, because that table feeds the fan-out and the fingerprint of every single-agent turn.
+DEVEX_LENS = FlashLens(pass_number=2003, prompt_file="lens_devex.md", source="flash-lens-devex")
+
 # One sub-agent per review unit: the main review and every lens part. Codex runs only 3 sub-agents
 # at once by default, so a larger PR would lose the lenses past that.
 COORDINATOR_MAX_SUBAGENTS = 1 + len(FLASH_LENSES) * FLASH_LENS_MAX_CHUNKS

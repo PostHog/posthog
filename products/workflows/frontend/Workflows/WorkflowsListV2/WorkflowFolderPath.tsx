@@ -15,13 +15,13 @@ export function WorkflowFolderPath({ path }: { path: string }): JSX.Element | nu
     const segments = splitPath(parentPath(path))
     const offset = splitPath(currentFolder ?? '').length
     return (
-        <span className="flex shrink-0 max-w-[50%] min-w-0 text-secondary overflow-hidden">
+        <span className="flex min-w-0 text-secondary overflow-hidden">
             {segments.slice(offset).map((segment, index) => (
-                <span className="flex min-w-10 items-center" key={index}>
+                <span className="flex min-w-0 items-center" key={index}>
                     <LemonButton
                         size="xsmall"
                         onClick={() => openFolder(joinPath(segments.slice(0, offset + index + 1)))}
-                        truncate
+                        className="truncate"
                     >
                         {segment}
                     </LemonButton>

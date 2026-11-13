@@ -1,0 +1,52 @@
+# MCP tool definitions. Tools are opt-in: an operation is exposed only when it has an entry here.
+# List operations without an entry: pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product warehouse_sources
+# Add one: pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product warehouse_sources --file ../../products/warehouse_sources/mcp/warehouse_alerts.yaml
+# To keep an operation off on purpose, set enabled: false and give a disabled_reason.
+category: Warehouse sync alerts
+feature: alerts_platform
+url_prefix: /data-management/sources
+feature_flag: platform-alerts-source-warehouse
+ui_apps: {}
+tools:
+    warehouse-alerts-destinations-create:
+        operation: warehouse_alerts_destinations_create
+        enabled: true
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Choose where a sync failure alert notifies
+        description: >
+            Add a notification destination to a warehouse sync failure alert, so the user hears about failed syncs
+            without opening PostHog. The id is the alert ID from platform-alerts-create or platform-alerts-list. An
+            alert has at most 5 destinations, and each one sends a message every time the alert fires or resolves. Set
+            type and the fields it needs. slack: slack_workspace_id (the Slack integration ID of the project) and
+            slack_channel_id, plus an optional slack_channel_name; the Slack workspace must already be connected under
+            the project's integrations. webhook, teams, or discord: webhook_url, an HTTPS endpoint. pagerduty:
+            pagerduty_routing_key (the 32-character Events API v2 integration key), with optional pagerduty_severity and
+            pagerduty_region; PagerDuty opens an incident when the alert fires and resolves it when the alert resolves.
+            Email is not a destination type: to email project members, set source_config.email_project_members=true on
+            the alert. event_kinds lists the transitions to send, firing and resolved; it defaults to both. Ask the user
+            which channel they want before you call this, because a wrong guess sends alerts to the wrong place.
+    warehouse-alerts-destinations-delete:
+        operation: warehouse_alerts_destinations_delete_create
+        enabled: true
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        title: Remove where a sync failure alert notifies
+        description: >
+            Delete notification destinations from a warehouse sync failure alert. The id is the alert ID, and
+            destination_ids are the destination IDs that warehouse-alerts-destinations-list returns. The call fails
+            without deleting anything when an ID does not belong to the alert. Confirm with the user first, because the
+            alert stops sending messages to those destinations.
+    warehouse-alerts-destinations-list:
+        operation: warehouse_alerts_destinations_list
+        enabled: true
+        title: List where a sync failure alert notifies
+        description: >
+            List the notification destinations of a warehouse sync failure alert: Slack channels, webhooks, Microsoft
+            Teams, Discord, and PagerDuty. The id is the alert ID from platform-alerts-list or platform-alerts-create,
+            not a source ID. Secrets are redacted: webhook URLs show only scheme and host, and PagerDuty keys show only
+            the last four characters. An alert with no destinations notifies nobody.

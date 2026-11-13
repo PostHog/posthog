@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { LemonButton, LemonTable } from '@posthog/lemon-ui'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { pluralize } from 'lib/utils/strings'
 
 import { AutomationEmptyState } from '../../setupGuide/AutomationEmptyState'
 import { AutomationSuggestionBanner } from '../../setupGuide/AutomationSuggestionBanner'
@@ -23,13 +24,15 @@ export function WorkflowsListV2(): JSX.Element {
     const { viewFilters, viewsResolving } = useValues(workflowsSavedViewsLogic)
     const {
         listLoaded,
+        listComplete,
+        loadingMoreWorkflows,
         workflowsLoading,
         loadFailed,
         loadErrorDetail,
-        metricsLoading,
         serverSearchStatus,
         hasHealthFilter,
-        metricsLoaded,
+        metricsStatus,
+        metricsLoading,
         shownColumns,
     } = useValues(workflowsListV2Logic)
     const { setValue, loadWorkflows, loadMetrics } = useActions(workflowsListV2Logic)
@@ -42,7 +45,8 @@ export function WorkflowsListV2(): JSX.Element {
         displayedValue,
         showsAutomationSetup,
         otherFilesScanFailed,
-        otherFilesReadyLoading,
+        otherFileCountsLoading,
+        selectedFiles,
     } = useValues(workflowFoldersLogic)
 
     useOnMountEffect(() => {
@@ -50,8 +54,23 @@ export function WorkflowsListV2(): JSX.Element {
         workflowLogic.findMounted({ id: 'new' })?.unmount()
     })
 
-    const { loadBrowser, loadOtherFiles } = useActions(workflowFoldersLogic)
-    const metricsFailed = listLoaded && hasHealthFilter && !metricsLoaded && !metricsLoading
+    const { loadBrowser, loadOtherFiles, moveSelectedFiles, clearSelectedFiles } = useActions(workflowFoldersLogic)
+    const metricsFailed = hasHealthFilter && metricsStatus === 'failed'
+    const renderWorkflowsLoadError = (title: string): JSX.Element => (
+        <div className="flex flex-col items-center gap-2 border rounded p-8 text-center">
+            <span className="font-semibold">{title}</span>
+            {loadErrorDetail && <span className="text-secondary">{loadErrorDetail}</span>}
+            <LemonButton
+                type="secondary"
+                size="small"
+                loading={workflowsLoading}
+                onClick={loadWorkflows}
+                data-attr="workflows-list-v2-retry"
+            >
+                Retry
+            </LemonButton>
+        </div>
+    )
     const renderLoadError = (): JSX.Element => {
         if (browserLoadFailed) {
             return (
@@ -64,34 +83,23 @@ export function WorkflowsListV2(): JSX.Element {
             )
         }
         if (loadFailed && !listLoaded) {
-            return (
+            return renderWorkflowsLoadError("Couldn't load workflows")
+        }
+        return (
+            <>
+                {loadFailed && !listComplete && renderWorkflowsLoadError("Couldn't load all workflows")}
                 <div className="flex flex-col items-center gap-2 border rounded p-8 text-center">
-                    <span className="font-semibold">Couldn't load workflows</span>
-                    {loadErrorDetail && <span className="text-secondary">{loadErrorDetail}</span>}
+                    <span>Couldn't load run metrics for these health filters</span>
                     <LemonButton
                         type="secondary"
                         size="small"
-                        loading={workflowsLoading}
-                        onClick={loadWorkflows}
-                        data-attr="workflows-list-v2-retry"
+                        onClick={loadMetrics}
+                        data-attr="workflows-list-v2-metrics-retry"
                     >
                         Retry
                     </LemonButton>
                 </div>
-            )
-        }
-        return (
-            <div className="flex flex-col items-center gap-2 border rounded p-8 text-center">
-                <span>Couldn't load run metrics for these health filters</span>
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    onClick={loadMetrics}
-                    data-attr="workflows-list-v2-metrics-retry"
-                >
-                    Retry
-                </LemonButton>
-            </div>
+            </>
         )
     }
 
@@ -120,6 +128,20 @@ export function WorkflowsListV2(): JSX.Element {
                 <WorkflowFolderSidebar />
                 <div className="min-w-0 flex-1 @container">
                     <WorkflowFolderDropMonitor />
+                    {selectedFiles.length > 0 && (
+                        <div
+                            className="flex flex-wrap gap-2 items-center border rounded px-2 py-1 mb-2 bg-surface-secondary"
+                            data-attr="workflows-folder-bulk-move"
+                        >
+                            <span translate="no">{`${pluralize(selectedFiles.length, 'item')} selected`}</span>
+                            <LemonButton size="small" type="secondary" onClick={moveSelectedFiles}>
+                                Move to…
+                            </LemonButton>
+                            <LemonButton size="small" onClick={clearSelectedFiles}>
+                                Clear selection
+                            </LemonButton>
+                        </div>
+                    )}
                     <WorkflowFolderToolbar />
                     {otherFilesScanFailed && !browserLoadFailed && (
                         <div
@@ -130,7 +152,7 @@ export function WorkflowsListV2(): JSX.Element {
                             <LemonButton
                                 type="secondary"
                                 size="xsmall"
-                                loading={otherFilesReadyLoading}
+                                loading={otherFileCountsLoading}
                                 onClick={() => loadOtherFiles()}
                                 data-attr="workflows-folder-names-retry"
                             >
@@ -152,7 +174,13 @@ export function WorkflowsListV2(): JSX.Element {
                     ) : showsAutomationSetup ? (
                         <AutomationEmptyState />
                     ) : (
-                        <WorkflowFolderContents />
+                        <>
+                            {loadFailed && !listComplete && renderWorkflowsLoadError("Couldn't load all workflows")}
+                            <WorkflowFolderContents />
+                            {loadingMoreWorkflows && (
+                                <div className="text-xs text-secondary mt-1">Loading more workflows…</div>
+                            )}
+                        </>
                     )}
                 </div>
             </div>

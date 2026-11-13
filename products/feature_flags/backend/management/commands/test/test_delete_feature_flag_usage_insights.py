@@ -146,15 +146,32 @@ class TestDeleteFeatureFlagUsageInsights(BaseTest):
     def test_orphan_sweep_needs_a_generated_dashboard_not_just_a_matching_name(self) -> None:
         # Pass 2 has no flag vouching for its candidates, so it anchors on the dashboard the generator
         # stamps. Drop that anchor and it goes back to sweeping the whole insight table on a name match.
+        # Batches of one with the lookalike first: a batch with nothing on a generated dashboard must not end the scan.
         dashboard = Dashboard.objects.create(team=self.team, name="Someone's own dashboard")
         lookalike = Insight.objects.create(
             team=self.team, name=FEATURE_FLAG_UNIQUE_USERS_INSIGHT_NAME, is_sample=True, saved=True
         )
         DashboardTile.objects.create(dashboard=dashboard, insight=lookalike)
+        flag = self._flag_with_usage_dashboard("orphan")
+        orphans = self._usage_insights(flag)
+        FeatureFlag.objects.filter(id=flag.id).update(usage_dashboard=None)
+
+        self._run("--include-orphaned", "--batch-size=1")
+
+        assert Insight.objects.filter(id=lookalike.id).exists()
+        assert Insight.objects.filter(id__in=[i.id for i in orphans]).count() == 0
+
+    def test_orphan_sweep_leaves_insights_on_a_soft_deleted_generated_dashboard(self) -> None:
+        flag = self._flag_with_usage_dashboard("orphan")
+        insights = self._usage_insights(flag)
+        dashboard_id = flag.usage_dashboard_id
+        assert dashboard_id is not None
+        FeatureFlag.objects.filter(id=flag.id).update(usage_dashboard=None)
+        Dashboard.objects_including_soft_deleted.filter(id=dashboard_id).update(deleted=True)
 
         self._run("--include-orphaned")
 
-        assert Insight.objects.filter(id=lookalike.id).exists()
+        assert Insight.objects.filter(id__in=[i.id for i in insights]).count() == len(insights)
 
     def test_limit_caps_how_many_are_deleted(self) -> None:
         # --limit is the operator's brake, and the truncation is hand-rolled arithmetic against a
@@ -314,9 +331,12 @@ class TestDeleteFeatureFlagUsageInsights(BaseTest):
         insights = self._usage_insights(flag)
         out = StringIO()
 
-        self._run("--dry-run", stdout=out)
+        self._run("--dry-run", "--include-orphaned", stdout=out)
 
         assert Insight.objects.filter(id__in=[i.id for i in insights]).count() == len(insights)
         flag.refresh_from_db()
         assert flag.usage_dashboard_id is not None
+        assert f"Would soft-delete {len(insights)} insights" in out.getvalue(), (
+            "a dry run leaves pass 1's insights in place, so pass 2 must not count them again"
+        )
         assert "nulled 1 flag usage_dashboard references" in out.getvalue()

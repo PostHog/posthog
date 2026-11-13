@@ -15,6 +15,16 @@ export interface ChecklistItem {
     todo: string
     /** What was chosen, shown once the item is done. */
     summary?: string
+    /** Something about a done item that deserves a second look. It does not block creating. */
+    warning?: string
+}
+
+export interface PreviewStep {
+    key: string
+    title: string
+    /** pinned: the `llma-evaluation-create-part-*` data-attr and analytics value, read by the creation funnel. */
+    part: string
+    checks: ChecklistKey[]
 }
 
 export interface ChecklistInput {
@@ -26,6 +36,11 @@ export interface ChecklistInput {
     /** False when no configured provider offers a model to pick. */
     hasAvailableModels: boolean
     hasUnsetSampling: boolean
+    /** Why the Hog code does not compile, from the preview's test, or null when it does. */
+    codeError: string | null
+    everyTestErrored: boolean
+    /** Set when the filters match traffic that the target can never run on, such as sessions with no session ID. */
+    wouldNotRun: string | null
 }
 
 const CRITERIA: Record<'llm_judge' | 'hog', { label: string; todo: string }> = {
@@ -60,20 +75,26 @@ export function creationChecklist(input: ChecklistInput): ChecklistItem[] {
         done: !input.hasUnsetSampling,
         todo: 'Set a sampling percentage between 0.1% and 100%',
         summary: capitalizeFirstLetter(triggerText(evaluation)),
+        warning: input.wouldNotRun ?? undefined,
     })
     if (evaluation.evaluation_type === 'llm_judge' || evaluation.evaluation_type === 'hog') {
         const content =
             evaluation.evaluation_type === 'llm_judge'
                 ? evaluation.evaluation_config.prompt
                 : evaluation.evaluation_config.source
+        // Code that does not compile cannot be saved, so it counts as missing until it is fixed.
+        const codeError = evaluation.evaluation_type === 'hog' ? input.codeError : null
         items.push({
             key: 'criteria',
-            done: content.trim().length > 0,
+            done: content.trim().length > 0 && !codeError,
             summary:
                 evaluation.evaluation_type === 'llm_judge'
                     ? content.trim().split('\n')[0]
                     : pluralize(content.trim().split('\n').length, 'line') + ' of code',
             ...CRITERIA[evaluation.evaluation_type],
+            ...(codeError ? { todo: 'Fix the code so it compiles' } : {}),
+            // The runs may fail for a reason outside the evaluation, so this asks for a look and does not block.
+            warning: input.everyTestErrored ? 'Every test run returned an error' : undefined,
         })
     }
     if (input.modelSelectionRequired) {

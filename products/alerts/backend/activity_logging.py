@@ -119,15 +119,8 @@ def handle_alert_subscription_change(
 
 
 @receiver(pre_delete, sender=AlertConfiguration)
-def cleanup_alert_hog_functions(sender, instance: AlertConfiguration, **kwargs) -> None:
-    from products.alerts.backend.logic.destinations import retire_alert_hog_functions
-
-    retire_alert_hog_functions(team_id=instance.team_id, alert_id=str(instance.id))
-
-
-@receiver(pre_delete, sender=AlertConfiguration)
 def delete_platform_shadow_copy(sender, instance: AlertConfiguration, **kwargs) -> None:
-    # A copy the platform owns is left to `delete_moved_alert_copy`, which ends its firings first.
+    # A copy the platform owns is left to `delete_alert_destinations_and_copy`, which ends its firings first.
     if instance.platform_owned:
         return
     from products.alerts.backend.platform_ownership import delete_shadow_alert_copy

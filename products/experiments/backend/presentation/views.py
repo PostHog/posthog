@@ -31,8 +31,9 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.tagged_item import TaggedItemViewSetMixin
-from posthog.api.utils import action
+from posthog.api.utils import MAX_LISTED_IDS, action
 from posthog.auth import ProjectSecretAPIKeyAuthentication
+from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import get_original_user_from_session
 from posthog.models.activity_logging.activity_log import ActivityLog, get_activity_page
 from posthog.models.activity_logging.activity_page import ActivityLogPaginatedResponseSerializer, activity_page_response
@@ -61,7 +62,6 @@ from posthog.rate_limit import (
 from posthog.scopes import scopes_not_covered
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.temporal.common.client import sync_connect
-from posthog.temporal.experiments.models import ExperimentTimeseriesRecalculationWorkflowInputs
 from posthog.user_permissions import UserPermissions
 
 from products.access_control.backend.facade.api import (
@@ -87,6 +87,7 @@ from products.experiments.backend.facade.contracts import (
 )
 from products.experiments.backend.facade.legacy_migration import migrate_experiment as migrate_legacy_experiment
 from products.experiments.backend.facade.replay import resolve_in_session_exposure_semantics
+from products.experiments.backend.facade.temporal import ExperimentTimeseriesRecalculationWorkflowInputs
 from products.experiments.backend.llm_metric_templates import build_template, list_templates
 
 # TODO: Route through facade instead of direct import
@@ -182,6 +183,8 @@ from products.experiments.backend.setup_context import (
     SetupContextInputs,
     build_setup_context,
 )
+from products.feature_flags.backend.facade.config import ConfigFormatError
+from products.feature_flags.backend.facade.rules import ExperimentRuleError
 from products.feature_flags.backend.models.evaluation_context import FeatureFlagEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.tasks.backend.facade import api as tasks_facade
@@ -336,6 +339,13 @@ EXPERIMENT_LIST_FILTER_PARAMETERS = [
         location=OpenApiParameter.QUERY,
         type=int,
         description="Filter to experiments linked to the given feature flag ID.",
+        required=False,
+    ),
+    OpenApiParameter(
+        name="feature_flag_ids",
+        location=OpenApiParameter.QUERY,
+        type=str,
+        description=f"Comma-separated feature flag IDs, at most {MAX_LISTED_IDS}. Returns experiments linked to any of them.",
         required=False,
     ),
     OpenApiParameter(
@@ -532,6 +542,17 @@ class EnterpriseExperimentsViewSet(
             return super().update(request, *args, **kwargs)
         except ExperimentVersionConflict as err:
             return Response(err.response_data(), status=err.status_code)
+
+    def handle_exception(self, exc: Exception) -> Response:
+        # An action that still reads the flag as a config version 1 document cannot serve an experiment on a
+        # feature flag rule yet. That is a refused request, and the capture keeps an action that should work visible.
+        if isinstance(exc, ConfigFormatError | ExperimentRuleError):
+            capture_exception(exc)
+            exc = ValidationError(
+                "This is not supported yet for an experiment on a feature flag that has rules.",
+                code="feature_flag_rules_not_supported",
+            )
+        return super().handle_exception(exc)
 
     def _check_scout_update(self, request: Request) -> None:
         # The API has no hard delete, so `deleted: true` on an update is the delete a scout must not make.
@@ -960,7 +981,10 @@ class EnterpriseExperimentsViewSet(
         it returns an info finding with the subcode `not_checked` and the cause in
         `reason`. A caller who can't view the linked flag's history (viewer access to the
         flag and, with an API key, `activity_log:read`) gets that finding for every running
-        experiment, because the changes are not read.
+        experiment, because the changes are not read. A split-change finding that tells the reader to
+        move the start date offers `move_start_date`, and `evidence.suggested_start_date` holds that
+        date in UTC: set the experiment's `start_date` to it. When one variant was set to 100% of the
+        split, the finding offers `end_experiment` instead.
 
         Two checks read whether the project received an event from its event definitions: a
         definition without `last_seen_at`, such as one Wizard wrote for a planned event, counts as
@@ -1040,6 +1064,11 @@ class EnterpriseExperimentsViewSet(
         `metric_N_cause`. It is a warning for a primary metric. After the end it stays a warning only
         for a cause that a setting fixes, because the calculation after the fix reads the events up
         to the end. It is info otherwise.
+
+        A launched experiment that has not ended gets the info `stale_experiment` more than 60 days
+        after its start date, when the daily calculation leaves it out, with `days_running` from the
+        start date in `evidence`.
+        It offers `freeze_exposure` next to `end_experiment` when the experiment can freeze exposure.
 
         The severity of the `some_conditions_pinned` finding follows the largest share that the
         users of the pinned release conditions make up among the users who got one variant from

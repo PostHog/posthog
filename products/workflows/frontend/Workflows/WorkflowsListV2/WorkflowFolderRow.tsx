@@ -4,15 +4,28 @@ import { HTMLAttributes, ReactNode } from 'react'
 import { IconDrag } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { TreeNodeDroppable } from 'lib/lemon-ui/LemonTree/LemonTreeUtils'
+
 import { WORKFLOW_FILES_DRAG_SCOPE } from './workflowFolderDragScopes'
 
 type WorkflowFolderRowProps = {
     icon: JSX.Element
     drag?: { id: string; label: string }
+    drop?: { id: string; scope: string }
     children: ReactNode
 } & Omit<HTMLAttributes<HTMLDivElement>, 'className'>
 
-export function WorkflowFolderRow({ icon, drag, children, ...props }: WorkflowFolderRowProps): JSX.Element {
+export function WorkflowFolderRow({ drop, ...props }: WorkflowFolderRowProps): JSX.Element {
+    return drop ? (
+        <TreeNodeDroppable id={drop.id} scope={drop.scope} isDroppable>
+            <FolderRow {...props} />
+        </TreeNodeDroppable>
+    ) : (
+        <FolderRow {...props} />
+    )
+}
+
+function FolderRow({ icon, drag, children, ...props }: Omit<WorkflowFolderRowProps, 'drop'>): JSX.Element {
     if (drag) {
         return (
             <DraggableRow icon={icon} drag={drag} {...props}>

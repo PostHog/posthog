@@ -812,6 +812,8 @@ describe('Hono MCP analytics contexts', () => {
             ['token', true],
             ['client_secret', true],
             ['connection_string', true],
+            ['webhook_url', true],
+            ['pagerduty_routing_key', true],
             ['client_certificate', true],
             ['app_id', true],
             ['api_id', true],

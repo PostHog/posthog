@@ -60,13 +60,24 @@ export async function sendRequest(fetchFn: RuntimeFetch, url: URL, request: Http
     } catch (error) {
         throw new HogError(
             'network_error',
-            `hog couldn't reach ${url.origin}: ${error instanceof Error ? error.message : String(error)}`,
+            `hog couldn't reach ${url.origin}${transportReason(error)}.`,
             'Check the host and your network connection.'
         )
     }
     // Callers check `json` against a schema of their own. A body that isn't JSON leaves it undefined.
     const json = text ? parseLosslessJson(text) : undefined
     return { status: response.status, ok: response.ok, json, text, headers: response.headers }
+}
+
+// Bun's fetch message can hold a request header value, such as the whole Authorization header when
+// the token has a character a header can't carry. So the reason comes only from the error's name or
+// its code, like ENOTFOUND or CERT_HAS_EXPIRED, never from its message.
+function transportReason(error: unknown): string {
+    if (error instanceof Error && error.name === 'TimeoutError') {
+        return ' (timed out)'
+    }
+    const code = error instanceof Error ? (error as Error & { code?: unknown }).code : undefined
+    return typeof code === 'string' && /^[A-Z][A-Za-z0-9_]*$/.test(code) ? ` (${code})` : ''
 }
 
 // A non-2xx answer from PostHog. `type` is the DRF error type, such as `validation_error`.
@@ -77,13 +88,14 @@ export class ApiError extends HogError {
         code: string,
         message: string,
         hint?: string,
-        details?: Readonly<Record<string, unknown>>
+        details?: Readonly<Record<string, unknown>>,
+        serverDetail?: string
     ) {
-        super(code, message, hint, undefined, details)
+        super(code, message, hint, undefined, details, serverDetail)
     }
 
     override withHint(hint: string): ApiError {
-        return new ApiError(this.status, this.type, this.code, this.message, hint, this.details)
+        return new ApiError(this.status, this.type, this.code, this.message, hint, this.details, this.serverDetail)
     }
 }
 
@@ -233,8 +245,10 @@ export class PostHogApi {
             status,
             error.type,
             error.code ?? `http_${status}`,
-            error.detail ?? `PostHog answered with HTTP ${status}.`,
-            hints[status]
+            `PostHog answered with HTTP ${status}.`,
+            hints[status],
+            undefined,
+            error.detail
         )
     }
 }

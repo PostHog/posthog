@@ -1,7 +1,6 @@
 import json
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
 
 from django.test import SimpleTestCase
 
@@ -99,7 +98,6 @@ class TestAccountViewContentValidation(SimpleTestCase):
 class TestAccountViews(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
-        self.enterContext(patch("posthoganalytics.feature_enabled", return_value=True))
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
             {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},

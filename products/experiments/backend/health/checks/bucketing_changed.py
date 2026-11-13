@@ -19,9 +19,15 @@ from products.experiments.backend.health.bucketing_changes import (
     bucketing_net_effect,
     describe_bucketing_value,
 )
-from products.experiments.backend.health.checks.change_wording import duration, suggested_start, the_change
+from products.experiments.backend.health.checks.change_wording import (
+    RESET_EFFECT,
+    duration,
+    suggested_start,
+    the_change,
+)
 from products.experiments.backend.health.checks.flag_change_findings import (
     change_finding,
+    change_rows,
     changes_to_check,
     delay_after_launch,
     exposed_when,
@@ -30,7 +36,7 @@ from products.experiments.backend.health.checks.flag_change_findings import (
     not_checked_finding,
 )
 from products.experiments.backend.health.context import FlagHistory, FlagHistoryNotChecked, HealthContext
-from products.experiments.backend.health.skips import CheckOutcome, CheckSkip
+from products.experiments.backend.health.skips import CheckOutcome, CheckRows, CheckSkip
 from products.experiments.backend.health.split_changes import format_change_time
 from products.feature_flags.backend.facade.edits import BucketingChange, BucketingSetting
 
@@ -45,6 +51,10 @@ _SETTING_NAMES = {
     BucketingSetting.BUCKETING_IDENTIFIER: 'the flag\'s "Match by" setting',
     BucketingSetting.EXPERIENCE_CONTINUITY: 'the flag\'s "Persist flag across authentication steps" setting',
 }
+
+
+def bucketing_changed_rows(ctx: HealthContext) -> CheckRows:
+    return change_rows(ctx, BucketingChange)
 
 
 def bucketing_changed_mid_run(ctx: HealthContext) -> CheckOutcome:
@@ -94,6 +104,7 @@ def bucketing_changed_mid_run(ctx: HealthContext) -> CheckOutcome:
                 "People exposed in between got a new variant draw, so they may have switched variants.",
                 f"Move the start date to {suggested_start(effect.last.changed_at, history.team_timezone)}, or "
                 "reset the experiment.",
+                RESET_EFFECT,
             ],
         )
 
@@ -137,6 +148,7 @@ def bucketing_changed_mid_run(ctx: HealthContext) -> CheckOutcome:
             *delay_after_launch(history, effect),
             *_consequence(effect),
             f"Reset the experiment, or move its start date to {start_at}.",
+            RESET_EFFECT,
         ],
     )
 

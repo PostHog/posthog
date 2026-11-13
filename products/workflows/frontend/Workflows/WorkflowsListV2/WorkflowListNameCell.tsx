@@ -12,14 +12,14 @@ import { getItemId } from '~/layout/panel-layout/ProjectTree/utils'
 import { workflowSuggestionsAvailabilityLogic } from '../suggestions/workflowSuggestionsAvailabilityLogic'
 import { WorkflowFolderPath } from './WorkflowFolderPath'
 import { WorkflowFolderRow } from './WorkflowFolderRow'
+import { workflowFoldersLogic } from './workflowFoldersLogic'
 import { WorkflowListRow } from './workflowListRows'
-import { workflowsListV2Logic } from './workflowsListV2Logic'
 
 export function WorkflowListNameCell({ row }: { row: WorkflowListRow }): JSX.Element {
     const { suggestionsAvailable } = useValues(workflowSuggestionsAvailabilityLogic)
-    const { filesByRef } = useValues(workflowsListV2Logic)
+    const { placements, pendingFileMoveIds } = useValues(workflowFoldersLogic)
     const { syncTypeAndRef } = useActions(projectTreeDataLogic)
-    const candidate = filesByRef[`hog_flow::${row.id}`]
+    const candidate = placements?.[`hog_flow::${row.id}`]
     const entry = candidate?.shortcut ? undefined : candidate
     const canMove = !['viewer', 'none'].includes(row.workflow.user_access_level ?? '')
     const archived = row.workflow.status === 'archived'
@@ -59,7 +59,11 @@ export function WorkflowListNameCell({ row }: { row: WorkflowListRow }): JSX.Ele
     return (
         <WorkflowFolderRow
             icon={<IconDecisionTree />}
-            drag={entry && canMove ? { id: getItemId(entry), label: `Drag workflow ${row.name}` } : undefined}
+            drag={
+                entry && canMove && !pendingFileMoveIds.includes(entry.id)
+                    ? { id: getItemId(entry), label: `Drag workflow ${row.name}` }
+                    : undefined
+            }
             onMouseEnter={() => !entry && canMove && syncTypeAndRef('hog_flow', row.id)}
             onFocus={() => !entry && canMove && syncTypeAndRef('hog_flow', row.id)}
         >

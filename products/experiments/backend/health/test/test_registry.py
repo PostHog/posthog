@@ -552,6 +552,20 @@ class TestEvaluate(TestCase):
                 Status.NOT_APPLICABLE,
                 {},
             ),
+            (
+                "stale_experiment_reads_when_the_daily_calculation_ends",
+                Key.STALE_EXPERIMENT,
+                {"hours_since_start": 72, "daily_calculation_ends_at": datetime(2026, 11, 30, 9, 0, tzinfo=UTC)},
+                Status.PASSED,
+                {Value.SINCE_START_HOURS: 72, Value.DAILY_CALCULATION_ENDS_AT: "2026-11-30T09:00:00+00:00"},
+            ),
+            (
+                "new_flag_reads_its_last_call_before_launch",
+                Key.NEW_FLAG_NO_TRAFFIC,
+                {**DRAFT, "flag_called": True, "flag_last_called_at": datetime(2026, 11, 11, 10, 42, tzinfo=UTC)},
+                Status.PASSED,
+                {Value.FLAG_LAST_CALLED_AT: "2026-11-11T10:42:00+00:00"},
+            ),
         ]
     )
     def test_a_check_reports_what_it_read(
@@ -572,16 +586,18 @@ class TestEvaluate(TestCase):
             (Key.TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES, {"exposures": _filtered_totals(400, 1000)}),
             (Key.ZERO_EXPOSURES, {}),
             (Key.UNSERVED_VARIANT_EXPOSURES, {"flag": UNSERVED_CONTROL_FLAG}),
+            (Key.STALE_EXPERIMENT, {}),
         ]
     )
     def test_a_rule_names_values_that_its_check_reads(self, key: Key, changes: dict[str, Any]) -> None:
-        health = evaluate(replace(RUNNING_UNEVEN_SPLIT, **changes), EXPOSURE_HEALTH_CHECKS)
+        health = evaluate(
+            replace(RUNNING_UNEVEN_SPLIT, **changes), (*EXPERIMENT_HEALTH_CHECKS, *EXPOSURE_HEALTH_CHECKS)
+        )
 
         check = next(check for check in health.checks if check.key == key)
-        assert check.rule is not None and check.rule.minimum is not None
-        self.assertEqual(
-            {check.rule.value, check.rule.minimum.value} - check.values.keys(), set(), (check.status, check.values)
-        )
+        assert check.rule is not None
+        rule_keys = {check.rule.value, *([check.rule.minimum.value] if check.rule.minimum else [])}
+        self.assertEqual(rule_keys - check.values.keys(), set(), (check.status, check.values))
 
     @parameterized.expand([(check.key.value, check) for check in EXPOSURE_HEALTH_CHECKS if check.rule])
     def test_an_exposure_rule_converts_to_the_exposure_schema(self, _name: str, check: HealthCheck) -> None:

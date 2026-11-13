@@ -1,4 +1,5 @@
 # posthog/models/file_system/unfiled_file_saver.py
+from collections.abc import Callable
 from datetime import datetime
 from typing import Optional
 
@@ -13,18 +14,16 @@ from posthog.session_recordings.models.session_recording_playlist import Session
 
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cohorts.backend.models.cohort import Cohort
-from products.dashboards.backend.models.dashboard import Dashboard
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
 from products.surveys.backend.models import Survey
 
-# Sealed products add their own models with `register_mixin_model` (actions, canvas, experiments).
+# Sealed products add their own models with `register_mixin_model` (actions, canvas, dashboards, experiments).
 MIXIN_MODELS: dict[str, type[FileSystemSyncMixin]] = {
     "feature_flag": FeatureFlag,
     "insight": Insight,
-    "dashboard": Dashboard,
     "notebook": Notebook,
     "early_access_feature": EarlyAccessFeature,
     "session_recording_playlist": SessionRecordingPlaylist,
@@ -52,10 +51,17 @@ class UnfiledFileSaver:
     haven't been put into FileSystem. Creates them with unique paths.
     """
 
-    def __init__(self, team: Team, user: User, surface: str = DEFAULT_SURFACE):
+    def __init__(
+        self,
+        team: Team,
+        user: User,
+        surface: str = DEFAULT_SURFACE,
+        authorize: Callable[[list[FileSystem]], list[FileSystem]] | None = None,
+    ):
         self.team = team
         self.user = user
         self.surface = surface
+        self.authorize = authorize
         self._in_memory_paths: set[str] = set()
 
     def save_unfiled_for_model(self, model_cls: type[FileSystemSyncMixin]) -> list[FileSystem]:
@@ -97,6 +103,8 @@ class UnfiledFileSaver:
                     surface=rep.surface,
                 )
             )
+        if self.authorize is not None:
+            new_files = self.authorize(new_files)
         FileSystem.objects.bulk_create(new_files)
         return new_files
 
@@ -111,9 +119,13 @@ class UnfiledFileSaver:
 
 
 def save_unfiled_files(
-    team: Team, user: User, file_type: Optional[str] = None, surface: str = DEFAULT_SURFACE
+    team: Team,
+    user: User,
+    file_type: Optional[str] = None,
+    surface: str = DEFAULT_SURFACE,
+    authorize: Callable[[list[FileSystem]], list[FileSystem]] | None = None,
 ) -> list[FileSystem]:
-    saver = UnfiledFileSaver(team, user, surface)
+    saver = UnfiledFileSaver(team, user, surface, authorize)
     if file_type is None:
         return saver.save_all_unfiled()
 

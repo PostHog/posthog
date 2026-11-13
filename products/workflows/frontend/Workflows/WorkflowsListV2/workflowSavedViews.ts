@@ -1,22 +1,27 @@
 import { ApiError } from 'lib/api-error'
 
+import type { FileSystemEntry } from '~/queries/schema/schema-general'
+
 import type { WorkflowViewApi, WorkflowViewFilterApi, WorkflowViewStateApi } from '../../generated/api.schemas'
 import { WorkflowViewFacetEnumApi } from '../../generated/api.schemas'
 import {
     FacetDefinition,
     FacetFilter,
     FacetSearchValue,
+    createFacetMatcher,
     facetFilterKey,
     resolvedFacetFilterKey,
     serializeFacetQuery,
 } from './FacetSearchBar/facetQuery'
 import type { MatchesText } from './FacetSearchBar/facetQuery'
+import type { WorkflowFolderFileRow } from './workflowFoldersLogic'
 import {
     folderFileFacets,
-    folderFileMatcher,
     folderFileMatchesText,
+    isFolderScope,
     searchesAcrossFolders,
-    type WorkflowFolderFileRow,
+    withoutFolderScope,
+    workflowFolderFacet,
 } from './workflowListFacets'
 import { DEFAULT_COLUMNS, OPTIONAL_COLUMNS, OptionalColumn } from './workflowListLabels'
 import type { WorkflowListRow } from './workflowListRows'
@@ -71,11 +76,7 @@ export function workflowViewValue(state: WorkflowViewStateApi): FacetSearchValue
     }
 }
 
-export function isFolderScope(filter: FacetFilter): boolean {
-    return filter.facet === 'in' && !filter.negated
-}
-
-export function withoutFolderScope(filters: FacetFilter[]): FacetFilter[] {
+export function filtersOutsideFolder(filters: FacetFilter[]): FacetFilter[] {
     return filters.filter((filter) => !isFolderScope(filter))
 }
 
@@ -85,7 +86,7 @@ export function savedViewChanges(
     columns: OptionalColumn[]
 ): string[] {
     const signature = (filters: FacetSearchValue['filters']): string =>
-        withoutFolderScope(filters)
+        filtersOutsideFolder(filters)
             .map((filter) => serializeFacetQuery([filter]))
             .sort()
             .join(' ')
@@ -104,7 +105,7 @@ export function savedViewChanges(
 
 export function workflowViewState(value: FacetSearchValue, columns: OptionalColumn[]): WorkflowViewStateApi {
     const allowed = Object.values(WorkflowViewFacetEnumApi)
-    const filters = withoutFolderScope(value.filters).filter(
+    const filters = filtersOutsideFolder(value.filters).filter(
         (filter): filter is FacetFilter & { facet: WorkflowViewFilterApi['facet'] } =>
             allowed.some((facet) => facet === filter.facet)
     )
@@ -155,12 +156,24 @@ export function filtersFromView<TItem>(
 export function savedViewFileCounts(
     views: WorkflowSavedView[],
     files: WorkflowFolderFileRow[],
-    facetsFor: (value: FacetSearchValue) => FacetDefinition<WorkflowListRow>[],
+    facets: FacetDefinition<WorkflowListRow>[],
+    placements: Record<string, FileSystemEntry> | null,
     matchesText: MatchesText<WorkflowListRow>,
     serverSearch: ServerSearchResult | null,
     metricsLoaded: boolean
 ): Record<string, number> {
     const fileMatchesText = folderFileMatchesText(matchesText)
+    // Building the facets walks every row. A view searches either the opened folder or every folder, so each of
+    // those two scopes is built once for all views.
+    const byScope = new Map<boolean, FacetDefinition<WorkflowFolderFileRow>[]>()
+    const facetsFor = (searching: boolean): FacetDefinition<WorkflowFolderFileRow>[] => {
+        let scoped = byScope.get(searching)
+        if (!scoped) {
+            scoped = folderFileFacets([workflowFolderFacet(placements, searching), ...facets], searching)
+            byScope.set(searching, scoped)
+        }
+        return scoped
+    }
     return Object.fromEntries(
         views.flatMap((view) => {
             if (!metricsLoaded && view.state.filters.some((filter) => filter.facet === 'health')) {
@@ -171,9 +184,9 @@ export function savedViewFileCounts(
                 return []
             }
             const value = workflowViewValue(view.state)
-            const matches = folderFileMatcher(
-                value,
-                folderFileFacets(facetsFor(value), searchesAcrossFolders(value)),
+            const matches = createFacetMatcher(
+                withoutFolderScope(value),
+                facetsFor(searchesAcrossFolders(value)),
                 fileMatchesText
             )
             return [[view.id, files.filter(matches).length]]

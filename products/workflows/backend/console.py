@@ -149,6 +149,7 @@ class EmailSendingPanel(Panel):
     key = "email-sending"
     title = "Email sending"
     owner = WORKFLOWS
+    operation_keys = frozenset({"set-tier", "recompute-tier", "suspend", "unsuspend"})
 
     def facts(self, obj: Model) -> list[Fact]:
         state = get_email_sending_state(obj.pk)
@@ -217,3 +218,13 @@ class EmailSendingPanel(Panel):
             ),
             *tier_operations,
         ]
+
+
+# Old Django admin URLs of team actions that moved. Staff keep bookmarks to them, query parameters included.
+for old, target in {
+    "set-email-sending-tier": "email-sending/set-tier/",
+    "recompute-email-sending-tier": "#panel-email-sending",
+    "suspend-email-sending": "email-sending/suspend/",
+    "unsuspend-email-sending": "#panel-email-sending",
+}.items():
+    console.register_moved_action(old_path=f"admin/posthog/team/<int:pk>/{old}/", record="team", target=target)

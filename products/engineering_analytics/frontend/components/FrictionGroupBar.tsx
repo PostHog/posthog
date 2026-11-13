@@ -4,7 +4,6 @@ import type { FrictionGroupShareApi } from '../generated/api.schemas'
 import { timesTypical } from '../lib/format'
 import { FRICTION_GROUP_COLORS, FRICTION_GROUP_LABELS, FRICTION_GROUP_ORDER } from '../lib/friction'
 
-/** A friction score split by group, as one stacked bar. Its length is the score against ``max``. */
 export function FrictionGroupBar({ groups, max }: { groups: FrictionGroupShareApi[]; max: number }): JSX.Element {
     const byGroup = new Map(groups.map((share) => [share.group, share.score]))
     const total = groups.reduce((sum, share) => sum + share.score, 0)

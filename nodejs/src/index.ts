@@ -1,3 +1,7 @@
+// Must stay the first import, so that no dependency runs before the prototypes are sealed. The import order in
+// .prettierrc keeps it first.
+import '~/common/utils/seal-intrinsics'
+
 // NOTE: Keep these as ~ imports as we can validate the build output this way
 import { PluginServerMode } from '~/common/config'
 import { defaultConfig, overrideConfigWithEnv } from '~/common/config/config'

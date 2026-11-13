@@ -13,7 +13,8 @@
                 "backend/scopes.py",
                 "backend/admin.py",
                 "backend/apps.py",
-                "backend/signals.py"
+                "backend/signals.py",
+                "backend/console.py"
             ],
             "outputs": [],
             "cache": true

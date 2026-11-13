@@ -6,6 +6,7 @@ import React from 'react'
 import 'lib/components/Cards/CardMeta.scss'
 import { Resizeable } from 'lib/components/Cards/CardMeta'
 import { DashboardResizeHandles } from 'lib/components/Cards/handles'
+import { QuillCardMoreMenu } from 'lib/components/Cards/QuillCardMoreMenu'
 import { LazyTextContent } from 'lib/components/RichContentEditor/LazyRichContent'
 import { More, MoreProps } from 'lib/lemon-ui/LemonButton/More'
 
@@ -16,6 +17,8 @@ interface TextCardProps extends React.HTMLAttributes<HTMLDivElement>, Resizeable
     placement: DashboardPlacement
     children?: JSX.Element
     moreButtonOverlay?: MoreProps['overlay']
+    /** Quill rows for the "more" menu, shown instead of `moreButtonOverlay`. */
+    quillMenuItems?: JSX.Element
     /** Whether editing controls (three-dots menu) should be shown. False hides them on template dashboards in view mode. */
     showEditingControls?: boolean
 }
@@ -27,6 +30,7 @@ function TextCardInternal(
         children,
         className,
         moreButtonOverlay,
+        quillMenuItems,
         placement,
         showEditingControls,
         ...divProps
@@ -54,9 +58,13 @@ function TextCardInternal(
             {...divProps}
             ref={ref}
         >
-            {moreButtonOverlay && !shouldHideMoreButton && (
+            {(quillMenuItems || moreButtonOverlay) && !shouldHideMoreButton && (
                 <div className="absolute right-4 top-4">
-                    <More overlay={moreButtonOverlay} />
+                    {quillMenuItems ? (
+                        <QuillCardMoreMenu items={quillMenuItems} />
+                    ) : (
+                        <More overlay={moreButtonOverlay} />
+                    )}
                 </div>
             )}
 

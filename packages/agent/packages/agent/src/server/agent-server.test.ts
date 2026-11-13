@@ -22,7 +22,7 @@ import * as localTools from "@posthog/harness/extensions/local-tools";
 import { zipSync } from "fflate";
 import jwt from "jsonwebtoken";
 import { HttpResponse, http } from "msw";
-import { type SetupServerApi, setupServer } from "msw/node";
+import { type SetupServer, setupServer } from "msw/node";
 import {
   afterAll,
   afterEach,
@@ -664,7 +664,7 @@ it.each([
 describe("AgentServer HTTP Mode", () => {
   let repo: TestRepo;
   let server: AgentServer | undefined;
-  let mswServer: SetupServerApi;
+  let mswServer: SetupServer;
   let appendLogCalls: unknown[][];
   let updateTaskRunCalls: unknown[];
   let port: number;

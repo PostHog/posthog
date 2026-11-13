@@ -8,11 +8,18 @@ creates the feature flag from a key and validates the metrics, and the outside s
 flag they made themselves.
 """
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import datetime
 from typing import Any
 
+from unittest.mock import patch
+
+from django.db.models import QuerySet
+
 from asgiref.sync import sync_to_async
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentHoldout,
@@ -91,6 +98,18 @@ def update_experiment(*, team_id: int, experiment_id: int, **fields: Any) -> Non
 def delete_experiment(*, team_id: int, experiment_id: int) -> None:
     """Remove the experiment row, which fires the delete signals."""
     Experiment.objects.get(team_id=team_id, id=experiment_id).delete()
+
+
+@contextmanager
+def hide_experiment_from_access_filter(experiment_id: int) -> Iterator[None]:
+    """Patch `UserAccessControl.filter_queryset_by_access_level` so that it drops this experiment from
+    experiment querysets, as for a viewer without access to it, and passes every other queryset through."""
+
+    def filter_queryset(queryset: QuerySet[Any], **_: Any) -> QuerySet[Any]:
+        return queryset.exclude(pk=experiment_id) if queryset.model is Experiment else queryset
+
+    with patch.object(UserAccessControl, "filter_queryset_by_access_level", side_effect=filter_queryset):
+        yield
 
 
 def create_holdout(

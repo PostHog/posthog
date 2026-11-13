@@ -25,7 +25,6 @@ import { objectsEqual } from 'lib/utils/objects'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import type { FileSystemEntry } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
@@ -39,8 +38,8 @@ import {
     serializeFacetQuery,
 } from './FacetSearchBar/facetQuery'
 import type { FacetDefinition, MatchesText } from './FacetSearchBar/facetQuery'
-import { workflowFolderFiles } from './workflowListFacets'
-import type { WorkflowFolderFileRow } from './workflowListFacets'
+import { workflowFoldersLogic, type WorkflowFolderFileRow } from './workflowFoldersLogic'
+import { isFolderScope } from './workflowListFacets'
 import { DEFAULT_COLUMNS } from './workflowListLabels'
 import type { OptionalColumn } from './workflowListLabels'
 import type { WorkflowListRow } from './workflowListRows'
@@ -56,8 +55,7 @@ import {
     savedViewChanges,
     savedViewFailureMessage,
     savedViewFileCounts,
-    isFolderScope,
-    withoutFolderScope,
+    filtersOutsideFolder,
     workflowViewState,
     workflowViewValue,
 } from './workflowSavedViews'
@@ -67,11 +65,11 @@ import { workflowsListV2Logic, type ServerSearchResult } from './workflowsListV2
 export interface workflowsSavedViewsLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     receivedFeatureFlags: boolean // featureFlagLogic
-    savedItems: FileSystemEntry[] // projectTreeDataLogic
+    folderSearchItems: WorkflowFolderFileRow[] // workflowFoldersLogic
+    placements: Record<string, FileSystemEntry> | null // workflowFoldersLogic
+    workflowFacets: FacetDefinition<WorkflowListRow>[] // workflowFoldersLogic
     currentTeamId: number | null // workflowsListV2Logic
     facets: FacetDefinition<WorkflowListRow>[] // workflowsListV2Logic
-    facetsFor: (value: FacetSearchValue) => FacetDefinition<WorkflowListRow>[] // workflowsListV2Logic
-    filesByRef: Record<string, FileSystemEntry> // workflowsListV2Logic
     listLoaded: boolean // workflowsListV2Logic
     matchesText: MatchesText<WorkflowListRow> // workflowsListV2Logic
     metricsLoaded: boolean // workflowsListV2Logic
@@ -100,7 +98,6 @@ export interface workflowsSavedViewsLogicValues {
     saving: boolean
     sharedSaveDisabledReason: string | undefined
     viewCounts: Record<string, number>
-    viewFiles: WorkflowFolderFileRow[]
     viewFilters: FacetFilter[]
     views: WorkflowSavedView[]
     viewsResolving: boolean
@@ -237,7 +234,7 @@ export interface workflowsSavedViewsLogicMeta {
             activeView: WorkflowSavedView,
             addedFilters: FacetFilter[],
             value: FacetSearchValue,
-            facets: FacetDefinition<WorkflowListRow>[]
+            workflowFacets: FacetDefinition<WorkflowListRow>[]
         ) => FacetFilter[]
         enabled: (featureFlags: FeatureFlagsSet, receivedFeatureFlags: boolean) => boolean
         available: (enabled: boolean, savedViews: WorkflowViewApi[] | null) => boolean
@@ -262,16 +259,11 @@ export interface workflowsSavedViewsLogicMeta {
         sharedSaveDisabledReason: (activeViewConflicted: boolean) => string | undefined
         myWorkflowsDeleted: (defaultView: WorkflowViewApi | null) => boolean
         saving: (pendingAction: SavedViewAction | null) => boolean
-        viewFiles: (
-            rows: WorkflowListRow[],
-            savedItems: FileSystemEntry[],
-            filesByRef: Record<string, FileSystemEntry>,
-            currentTeamId: number | null
-        ) => WorkflowFolderFileRow[]
         viewCounts: (
             views: WorkflowSavedView[],
-            viewFiles: WorkflowFolderFileRow[],
-            facetsFor: (value: FacetSearchValue) => FacetDefinition<WorkflowListRow>[],
+            folderSearchItems: WorkflowFolderFileRow[],
+            facets: FacetDefinition<WorkflowListRow>[],
+            placements: Record<string, FileSystemEntry> | null,
             matchesText: MatchesText<WorkflowListRow>,
             serverSearch: ServerSearchResult | null,
             metricsLoaded: boolean,
@@ -312,15 +304,13 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                 'shownColumns',
                 'rows',
                 'facets',
-                'facetsFor',
-                'filesByRef',
                 'matchesText',
                 'serverSearch',
                 'metricsLoaded',
                 'listLoaded',
             ],
-            projectTreeDataLogic,
-            ['savedItems'],
+            workflowFoldersLogic,
+            ['folderSearchItems', 'placements', 'workflowFacets'],
         ],
         actions: [
             featureFlagLogic,
@@ -431,7 +421,7 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
     reducers({
         addedFilters: [
             [] as FacetFilter[],
-            { setAddedFilters: (_, { filters }) => withoutFolderScope(filters), clearSavedViews: () => [] },
+            { setAddedFilters: (_, { filters }) => filtersOutsideFolder(filters), clearSavedViews: () => [] },
         ],
         addedText: [null as string | null, { setAddedText: (_, { text }) => text, clearSavedViews: () => null }],
         savedViewsLoadFailed: [
@@ -467,7 +457,7 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
     }),
     selectors({
         viewFilters: [
-            (s) => [s.available, s.activeView, s.addedFilters, s.value, s.facets],
+            (s) => [s.available, s.activeView, s.addedFilters, s.value, s.workflowFacets],
             (
                 available: boolean,
                 view: WorkflowSavedView,
@@ -546,28 +536,29 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
         myWorkflowsDeleted: [(s) => [s.defaultView], (view: WorkflowViewApi | null): boolean => view?.deleted === true],
         saving: [(s) => [s.pendingAction], (pendingAction: SavedViewAction | null): boolean => pendingAction !== null],
         // The list shows email templates beside workflows, so a view counts both.
-        viewFiles: [
-            (s) => [s.rows, s.savedItems, s.filesByRef, s.currentTeamId],
-            (
-                rows: WorkflowListRow[],
-                savedItems: FileSystemEntry[],
-                filesByRef: Record<string, FileSystemEntry>,
-                currentTeamId: number | null
-            ): WorkflowFolderFileRow[] => workflowFolderFiles(rows, savedItems, filesByRef, currentTeamId),
-        ],
         viewCounts: [
-            (s) => [s.views, s.viewFiles, s.facetsFor, s.matchesText, s.serverSearch, s.metricsLoaded, s.listLoaded],
+            (s) => [
+                s.views,
+                s.folderSearchItems,
+                s.facets,
+                s.placements,
+                s.matchesText,
+                s.serverSearch,
+                s.metricsLoaded,
+                s.listLoaded,
+            ],
             (
                 views: WorkflowSavedView[],
                 files: WorkflowFolderFileRow[],
-                facetsFor: (value: FacetSearchValue) => FacetDefinition<WorkflowListRow>[],
+                facets: FacetDefinition<WorkflowListRow>[],
+                placements: Record<string, FileSystemEntry> | null,
                 matchesText: MatchesText<WorkflowListRow>,
                 serverSearch: ServerSearchResult | null,
                 metricsLoaded: boolean,
                 listLoaded: boolean
             ): Record<string, number> =>
                 listLoaded
-                    ? savedViewFileCounts(views, files, facetsFor, matchesText, serverSearch, metricsLoaded)
+                    ? savedViewFileCounts(views, files, facets, placements, matchesText, serverSearch, metricsLoaded)
                     : {},
         ],
     }),
@@ -615,7 +606,7 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                 throw error
             }
         }
-        const pillKey = (filter: FacetFilter): string => facetFilterKey(filter, values.facets)
+        const pillKey = (filter: FacetFilter): string => facetFilterKey(filter, values.workflowFacets)
         const withFilters = (filters: FacetFilter[], more: FacetFilter[]): FacetFilter[] => {
             const keys = new Set(filters.map(pillKey))
             return [...filters, ...more.filter((filter) => !keys.has(pillKey(filter)))]
@@ -646,7 +637,7 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
             }
         }
         const filtersAddedWhileViewsLoaded = (before: FacetSearchValue | undefined): FacetFilter[] =>
-            before ? addedFiltersAfterEdit(before.filters, [], values.value.filters, values.facets) : []
+            before ? addedFiltersAfterEdit(before.filters, [], values.value.filters, values.workflowFacets) : []
         const additionTrackers = (): Set<Set<string>> => (cache.additionTrackers ??= new Set<Set<string>>())
         const trackAdditions = (): Set<string> => {
             const added = new Set<string>()
@@ -669,7 +660,7 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                     workflowViewValue(saved.state).filters,
                     values.value.filters.filter((filter) => added.has(pillKey(filter))),
                     values.value.filters,
-                    values.facets
+                    values.workflowFacets
                 )
             )
             actions.setAddedText(
@@ -825,7 +816,12 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                     if (values.available && !cache.applyingView && !cache.syncingUrl) {
                         const previous = workflowsListV2Logic.selectors.value(previousState)
                         actions.setAddedFilters(
-                            addedFiltersAfterEdit(previous.filters, values.addedFilters, value.filters, values.facets)
+                            addedFiltersAfterEdit(
+                                previous.filters,
+                                values.addedFilters,
+                                value.filters,
+                                values.workflowFacets
+                            )
                         )
                         rememberAddedFilters(previous.filters, value.filters)
                         if (value.text !== previous.text) {
@@ -851,7 +847,7 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                 cache.applyingView = true
                 const viewValue = workflowViewValue(view.state)
                 actions.setValue({
-                    filters: mergeAddedFilters(viewValue.filters, values.addedFilters, values.facets),
+                    filters: mergeAddedFilters(viewValue.filters, values.addedFilters, values.workflowFacets),
                     text: values.addedText ?? viewValue.text,
                 })
                 actions.setVisibleColumns(normalizeViewColumns(view.state.columns))
@@ -985,7 +981,7 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                 actions.setActiveViewId(view?.id ?? 'all')
                 if (explicit) {
                     const linkFilters = raw.has('q')
-                        ? parseFacetQuery(raw.get('q') ?? '', values.facets)
+                        ? parseFacetQuery(raw.get('q') ?? '', values.workflowFacets)
                         : view
                           ? workflowViewValue(view.state).filters
                           : []
@@ -1000,7 +996,7 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                     actions.setAddedFilters(
                         raw.has('added')
                             ? withFilters(
-                                  parseFacetQuery(raw.get('added') ?? '', values.facets).filter((filter) =>
+                                  parseFacetQuery(raw.get('added') ?? '', values.workflowFacets).filter((filter) =>
                                       effectiveKeys.has(pillKey(filter))
                                   ),
                                   addedWhileViewsLoaded
@@ -1009,7 +1005,7 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                                   view ? workflowViewValue(view.state).filters : [],
                                   [],
                                   value.filters,
-                                  values.facets
+                                  values.workflowFacets
                               )
                     )
                     actions.setVisibleColumns(

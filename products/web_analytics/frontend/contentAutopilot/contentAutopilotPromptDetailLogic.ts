@@ -11,6 +11,7 @@ import { urls } from 'scenes/urls'
 import type { DataTableNode, DataVisualizationNode } from '~/queries/schema/schema-general'
 
 import {
+    aeoBrandsList,
     aeoPromptsChecks,
     aeoPromptsPartialUpdate,
     aeoPromptsRetrieve,
@@ -18,6 +19,7 @@ import {
     aeoPromptsVersions,
 } from 'products/web_analytics/frontend/generated/api'
 import type {
+    AEOBrandApi,
     AEOPromptApi,
     AEOPromptCheckApi,
     AEOPromptStatsApi,
@@ -25,26 +27,34 @@ import type {
     PaginatedAEOPromptCheckListApi,
 } from 'products/web_analytics/frontend/generated/api.schemas'
 
+import { AnswerBrand, AnswerMentions, answerMentions } from './answerMentions'
 import { contentAutopilotLogic } from './contentAutopilotLogic'
 import { contentAutopilotPromptsLogic } from './contentAutopilotPromptsLogic'
 import {
     PromptConsensusMatrix,
     PromptReportKpis,
     PromptSentimentSummary,
-    PromptVisibilityMetric,
+    PromptOutcomeMetric,
     promptConsensusMatrix,
     promptReportKpis,
     promptSentimentSummary,
+    statsWindowDates,
 } from './promptReport'
 import {
     PromptReportWindow,
     promptCitationsQuery,
     promptSearchesQuery,
     promptSentimentQuery,
+    promptOutcomeQuery,
     promptSourcesQuery,
-    promptVisibilityQuery,
 } from './promptReportQueries'
 import { promptEditPatch, sortEngines } from './utils'
+import { type AnswerOutcomeChart, answerOutcomeChart } from './visibilityChart'
+
+// Confirmed competitors are a short, reviewed list; this only bounds a catalog that grew unexpectedly.
+const MAX_HIGHLIGHTED_COMPETITORS = 100
+
+export type PromptReportTab = 'overview' | 'answers' | 'sources' | 'sentiment' | 'searches' | 'history'
 
 export const PROMPT_CHECKS_PAGE_SIZE = 10
 
@@ -54,12 +64,16 @@ export type ContentAutopilotPromptDetailError = 'not_found' | 'failed'
 export interface contentAutopilotPromptDetailLogicValues {
     currentTeamIdStrict: number | string // teamLogic
     activeEngine: string | null
+    answerBrands: AnswerBrand[]
     archiveConfirming: boolean
     checks: PaginatedAEOPromptCheckListApi | null
     checksFailed: boolean
     checksLoading: boolean
     checksPage: number
     citationsQuery: DataTableNode | null
+    competitorBrands: AEOBrandApi[] | null
+    competitorBrandsFailed: boolean
+    competitorBrandsLoading: boolean
     consensusMatrix: PromptConsensusMatrix | null
     detailError: ContentAutopilotPromptDetailError | null
     engines: string[]
@@ -74,12 +88,14 @@ export interface contentAutopilotPromptDetailLogicValues {
     promptLoading: boolean
     promptSaving: boolean
     reportKpis: PromptReportKpis | null
+    reportTab: PromptReportTab
     reportWindow: PromptReportWindow | null
     searchesQuery: DataTableNode | null
     selectedCheck: AEOPromptCheckApi | null
     selectedEngine: string | null
     sentimentQuery: DataVisualizationNode | null
     sentimentSummary: PromptSentimentSummary | null
+    shownAnswerMentions: AnswerMentions | null
     shownCheck: AEOPromptCheckApi | null
     sourcesQuery: DataTableNode | null
     stats: AEOPromptStatsApi | null
@@ -87,7 +103,8 @@ export interface contentAutopilotPromptDetailLogicValues {
     versions: AEOPromptVersionApi[] | null
     versionsFailed: boolean
     versionsLoading: boolean
-    visibilityMetric: PromptVisibilityMetric
+    visibilityChart: AnswerOutcomeChart | null
+    visibilityMetric: PromptOutcomeMetric
     visibilityQuery: DataVisualizationNode | null
 }
 
@@ -208,6 +225,21 @@ export interface contentAutopilotPromptDetailLogicActions {
         versions: AEOPromptVersionApi[]
         payload?: string
     }
+    loadCompetitorBrands: () => any
+    loadCompetitorBrandsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadCompetitorBrandsSuccess: (
+        competitorBrands: AEOBrandApi[],
+        payload?: any
+    ) => {
+        competitorBrands: AEOBrandApi[]
+        payload?: any
+    }
     openPromptDetail: (promptId: string) => {
         promptId: string
     }
@@ -248,8 +280,11 @@ export interface contentAutopilotPromptDetailLogicActions {
     setPromptEditing: (editing: boolean) => {
         editing: boolean
     }
-    setVisibilityMetric: (metric: PromptVisibilityMetric) => {
-        metric: PromptVisibilityMetric
+    setReportTab: (tab: PromptReportTab) => {
+        tab: PromptReportTab
+    }
+    setVisibilityMetric: (metric: PromptOutcomeMetric) => {
+        metric: PromptOutcomeMetric
     }
 }
 
@@ -263,14 +298,23 @@ export interface contentAutopilotPromptDetailLogicMeta {
             activeEngine: string | null,
             latestChecks: Record<string, AEOPromptCheckApi>
         ) => AEOPromptCheckApi | null
+        answerBrands: (stats: AEOPromptStatsApi | null, competitorBrands: AEOBrandApi[] | null) => AnswerBrand[]
+        shownAnswerMentions: (
+            shownCheck: AEOPromptCheckApi | null,
+            answerBrands: AnswerBrand[]
+        ) => AnswerMentions | null
         lastCheckedAt: (stats: AEOPromptStatsApi | null) => string | null
         reportKpis: (stats: AEOPromptStatsApi | null) => PromptReportKpis | null
         consensusMatrix: (stats: AEOPromptStatsApi | null, engines: string[]) => PromptConsensusMatrix | null
         sentimentSummary: (stats: AEOPromptStatsApi | null, engines: string[]) => PromptSentimentSummary | null
         reportWindow: (promptId: string | null, stats: AEOPromptStatsApi | null) => PromptReportWindow | null
+        visibilityChart: (
+            stats: AEOPromptStatsApi | null,
+            visibilityMetric: PromptOutcomeMetric
+        ) => AnswerOutcomeChart | null
         visibilityQuery: (
             reportWindow: PromptReportWindow | null,
-            visibilityMetric: PromptVisibilityMetric
+            visibilityMetric: PromptOutcomeMetric
         ) => DataVisualizationNode | null
         sourcesQuery: (reportWindow: PromptReportWindow | null) => DataTableNode | null
         citationsQuery: (reportWindow: PromptReportWindow | null) => DataTableNode | null
@@ -317,7 +361,8 @@ export const contentAutopilotPromptDetailLogic = kea<contentAutopilotPromptDetai
         selectEngine: (engine: string) => ({ engine }),
         selectCheck: (check: AEOPromptCheckApi) => ({ check }),
         setChecksPage: (page: number) => ({ page }),
-        setVisibilityMetric: (metric: PromptVisibilityMetric) => ({ metric }),
+        setVisibilityMetric: (metric: PromptOutcomeMetric) => ({ metric }),
+        setReportTab: (tab: PromptReportTab) => ({ tab }),
     }),
     loaders(({ values }) => ({
         prompt: [
@@ -347,6 +392,20 @@ export const contentAutopilotPromptDetailLogic = kea<contentAutopilotPromptDetai
                     const stats = await aeoPromptsStats(String(values.currentTeamIdStrict), promptId)
                     breakpoint()
                     return stats
+                },
+            },
+        ],
+        // Null until the catalog answers, so "no competitors" never shows while it loads or after it fails.
+        competitorBrands: [
+            null as AEOBrandApi[] | null,
+            {
+                loadCompetitorBrands: async () => {
+                    const page = await aeoBrandsList(String(values.currentTeamIdStrict), {
+                        kind: 'competitor',
+                        status: 'confirmed',
+                        limit: MAX_HIGHLIGHTED_COMPETITORS,
+                    })
+                    return page.results
                 },
             },
         ],
@@ -387,6 +446,13 @@ export const contentAutopilotPromptDetailLogic = kea<contentAutopilotPromptDetai
         ],
     })),
     reducers({
+        competitorBrandsFailed: [
+            false,
+            {
+                loadCompetitorBrands: () => false,
+                loadCompetitorBrandsFailure: () => true,
+            },
+        ],
         promptId: [
             null as string | null,
             {
@@ -472,10 +538,19 @@ export const contentAutopilotPromptDetailLogic = kea<contentAutopilotPromptDetai
             },
         ],
         visibilityMetric: [
-            'cited' as PromptVisibilityMetric,
+            'cited' as PromptOutcomeMetric,
             {
                 openPromptDetail: () => 'cited',
                 setVisibilityMetric: (_, { metric }) => metric,
+            },
+        ],
+        reportTab: [
+            'overview' as PromptReportTab,
+            {
+                openPromptDetail: () => 'overview',
+                setReportTab: (_, { tab }) => tab,
+                // Picking a check in the history shows its answer.
+                selectCheck: () => 'answers',
             },
         ],
         detailError: [
@@ -520,6 +595,34 @@ export const contentAutopilotPromptDetailLogic = kea<contentAutopilotPromptDetai
             ): AEOPromptCheckApi | null =>
                 selectedCheck ?? (activeEngine ? (latestChecks[activeEngine] ?? null) : null),
         ],
+        answerBrands: [
+            (s) => [s.stats, s.competitorBrands],
+            (stats: AEOPromptStatsApi | null, competitorBrands: AEOBrandApi[] | null): AnswerBrand[] => [
+                // Own brand first, so a word both could claim highlights as ours.
+                ...(stats?.brand_names.length
+                    ? [{ key: 'own', name: stats.brand_names[0], domain: null, isOwn: true, terms: stats.brand_names }]
+                    : []),
+                ...(competitorBrands ?? []).map((brand) => ({
+                    key: brand.id,
+                    name: brand.name || brand.domain,
+                    domain: brand.domain,
+                    isOwn: false,
+                    terms: [brand.name, brand.domain, ...brand.aliases].filter(Boolean),
+                })),
+            ],
+        ],
+        shownAnswerMentions: [
+            (s) => [s.shownCheck, s.answerBrands],
+            (shownCheck: AEOPromptCheckApi | null, answerBrands: AnswerBrand[]): AnswerMentions | null =>
+                shownCheck && !shownCheck.check_failed
+                    ? answerMentions(
+                          shownCheck.answer_text ?? '',
+                          answerBrands,
+                          shownCheck.cited_urls,
+                          shownCheck.cited
+                      )
+                    : null,
+        ],
         lastCheckedAt: [
             (s) => [s.stats],
             (stats: AEOPromptStatsApi | null): string | null =>
@@ -548,10 +651,15 @@ export const contentAutopilotPromptDetailLogic = kea<contentAutopilotPromptDetai
             (promptId: string | null, stats: AEOPromptStatsApi | null): PromptReportWindow | null =>
                 promptId && stats ? { promptId, from: stats.daily_from, brandNames: stats.brand_names } : null,
         ],
+        visibilityChart: [
+            (s) => [s.stats, s.visibilityMetric],
+            (stats: AEOPromptStatsApi | null, visibilityMetric: PromptOutcomeMetric): AnswerOutcomeChart | null =>
+                stats ? answerOutcomeChart(stats.daily, statsWindowDates(stats), visibilityMetric) : null,
+        ],
         visibilityQuery: [
             (s) => [s.reportWindow, s.visibilityMetric],
-            (reportWindow: PromptReportWindow | null, visibilityMetric: PromptVisibilityMetric) =>
-                reportWindow ? promptVisibilityQuery(reportWindow, visibilityMetric) : null,
+            (reportWindow: PromptReportWindow | null, visibilityMetric: PromptOutcomeMetric) =>
+                reportWindow ? promptOutcomeQuery(reportWindow, visibilityMetric) : null,
         ],
         sourcesQuery: [
             (s) => [s.reportWindow],
@@ -587,6 +695,7 @@ export const contentAutopilotPromptDetailLogic = kea<contentAutopilotPromptDetai
             actions.loadAeoPrompt(promptId)
             actions.loadAeoPromptStats(promptId)
             actions.loadAeoPromptChecks()
+            actions.loadCompetitorBrands()
         },
         loadAeoPromptStatsSuccess: ({ stats, payload: promptId }) => {
             // Stats from a prompt the user already left must not drive the next prompt's answers.

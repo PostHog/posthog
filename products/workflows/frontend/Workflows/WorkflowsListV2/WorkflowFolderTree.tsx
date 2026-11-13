@@ -2,49 +2,19 @@ import { useActions, useValues } from 'kea'
 
 import { IconFolder } from '@posthog/icons'
 
-import { LemonTree, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
-
-import { convertFileSystemEntryToTreeDataItem } from '~/layout/panel-layout/ProjectTree/utils'
+import { LemonTree } from 'lib/lemon-ui/LemonTree/LemonTree'
 
 import { WORKFLOW_FILES_DRAG_SCOPE } from './workflowFolderDragScopes'
 import { workflowFoldersLogic } from './workflowFoldersLogic'
 import { WorkflowNewFolderButton } from './WorkflowNewFolderButton'
 
 export function WorkflowFolderTree(): JSX.Element {
-    const {
-        folderPaths,
-        folderTreeEntries,
-        folderCounts,
-        browserReady,
-        browserReadyLoading,
-        currentFolder,
-        expandedFolders,
-    } = useValues(workflowFoldersLogic)
+    const { folderTree, folderCounts, browserReady, browserReadyLoading, currentFolder, expandedFolders } =
+        useValues(workflowFoldersLogic)
     const { openFolder, selectTreeFolder, setExpandedFolders } = useActions(workflowFoldersLogic)
-    const children = convertFileSystemEntryToTreeDataItem({
-        imports: folderTreeEntries,
-        folderStates: Object.fromEntries(folderPaths.map((path) => [path, 'loaded'])),
-        checkedItems: {},
-        users: {},
-        root: 'project://',
-    })
-    const foldersOnly = (items: TreeDataItem[]): TreeDataItem[] =>
-        items
-            .filter((item) => item.record?.type === 'folder')
-            .map((item) => ({
-                ...item,
-                children: item.children ? foldersOnly(item.children) : undefined,
-            }))
     return (
         <LemonTree
-            data={[
-                {
-                    id: 'project://',
-                    name: 'Project files',
-                    record: { path: '', type: 'folder' },
-                    children: foldersOnly(children),
-                },
-            ]}
+            data={folderTree}
             expandedItemIds={expandedFolders}
             onSetExpandedItemIds={setExpandedFolders}
             isItemActive={(item) => (item.record?.path ?? '') === (currentFolder ?? '')}
@@ -65,7 +35,7 @@ export function WorkflowFolderTree(): JSX.Element {
                 </span>
             )}
             defaultNodeIcon={<IconFolder />}
-            disableScroll
+            virtualized
             enableDragAndDrop
             dragAndDropScope={WORKFLOW_FILES_DRAG_SCOPE}
             isItemDraggable={() => false}

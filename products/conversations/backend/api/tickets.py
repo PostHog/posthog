@@ -483,6 +483,7 @@ class TicketSerializer(UserAccessControlSerializerMixin, TaggedItemSerializerMix
             "github_repo",
             "github_issue_number",
             "zendesk_ticket_id",
+            "intercom_conversation_id",
             "organization_id",
             "organization_id_source",
             "person",
@@ -514,6 +515,7 @@ class TicketSerializer(UserAccessControlSerializerMixin, TaggedItemSerializerMix
             "github_repo",
             "github_issue_number",
             "zendesk_ticket_id",
+            "intercom_conversation_id",
             "organization_id",
             "organization_id_source",
             "person",
@@ -533,6 +535,9 @@ class TicketSerializer(UserAccessControlSerializerMixin, TaggedItemSerializerMix
             "priority": {"help_text": "Ticket priority: low, medium, high, or critical. Null if unset."},
             "sla_due_at": {"help_text": "SLA deadline set via workflows. Null means no SLA."},
             "anonymous_traits": {"help_text": "Customer-provided traits such as name and email"},
+            "intercom_conversation_id": {
+                "help_text": "Intercom conversation id when the ticket was imported from Intercom. Null otherwise."
+            },
             "organization_id": {
                 "help_text": "Customer's PostHog organization group key, resolved at ticket creation. Null when unknown."
             },

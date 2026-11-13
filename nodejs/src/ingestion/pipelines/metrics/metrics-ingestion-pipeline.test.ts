@@ -1,3 +1,4 @@
+import avro from 'avsc'
 import { Message } from 'node-rdkafka'
 
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
@@ -8,8 +9,11 @@ import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
 import { MessageSizeTooLarge } from '~/common/utils/db/error'
 import { parseJSON } from '~/common/utils/json-parse'
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
+import { PipelineResultType } from '~/ingestion/framework/results'
 import { createTestTeam } from '~/tests/helpers/team'
 
+import { createAggregateMetricsStep } from './aggregate-metrics-step'
+import { decodeMetricRecords, encodeMetricRecords, parseWriterSchema, unwrap } from './metric-record-avro'
 import {
     MetricsIngestionPipelineConfig,
     createMetricsIngestionPipeline,
@@ -25,6 +29,37 @@ jest.mock('~/common/utils/logger', () => ({
 const METRICS_TOPIC = 'clickhouse_metrics_test'
 const DLQ_TOPIC = 'metrics_ingestion_dlq_test'
 const APP_METRICS_TOPIC = 'clickhouse_app_metrics2_test'
+
+const NULLABLE_LONG = ['null', 'long']
+const METRIC_SCHEMA: avro.Schema = {
+    type: 'record',
+    name: 'MetricRecord',
+    fields: [
+        { name: 'timestamp', type: ['null', { type: 'long', logicalType: 'timestamp-micros' }] },
+        { name: 'metric_type', type: ['null', 'string'] },
+        { name: 'value', type: ['null', 'double'] },
+        { name: 'count', type: NULLABLE_LONG },
+        { name: 'aggregation_temporality', type: ['null', 'string'] },
+        { name: 'is_monotonic', type: ['null', 'boolean'] },
+        { name: 'series_fingerprint', type: NULLABLE_LONG, default: null },
+    ],
+}
+const METRIC_CONTAINER = {
+    type: parseWriterSchema(METRIC_SCHEMA),
+    meta: { 'avro.schema': Buffer.from(JSON.stringify(METRIC_SCHEMA)) },
+    codec: 'zstandard',
+}
+const FINGERPRINT = -6_000_000_000_000_000_123n
+
+const metricPoint = (metricType: string, value: number, microsIntoBucket: bigint) => ({
+    timestamp: { long: 1_700_000_010_000_000n + microsIntoBucket },
+    metric_type: { string: metricType },
+    value: { double: value },
+    count: { long: 1n },
+    aggregation_temporality: { string: 'delta' },
+    is_monotonic: { boolean: true },
+    series_fingerprint: { long: FINGERPRINT },
+})
 
 type ProducedMessage = { topic: string; value: Buffer | null; key: unknown; headers?: Record<string, string> }
 
@@ -124,6 +159,7 @@ describe('MetricsIngestionPipeline', () => {
                     .mockImplementation((token: string) => Promise.resolve(token === teamLimited.api_token)),
             },
             rateLimiter,
+            isAggregationEnabled: () => false,
         }
     })
 
@@ -224,5 +260,71 @@ describe('MetricsIngestionPipeline', () => {
             dlq_step: 'produceMetricsStep',
         })
         expect(usageRows()).toEqual(expect.arrayContaining([[1, 'bytes_ingested', 200]]))
+    })
+
+    it('merges the sum points of an enabled team into fewer messages and keeps the usage totals', async () => {
+        config.isAggregationEnabled = (teamId) => teamId === teamA.id
+        const first = createMessage(teamA.api_token, 2)
+        first.value = await encodeMetricRecords(METRIC_CONTAINER, [
+            metricPoint('gauge', 3, 1n),
+            metricPoint('sum', 10, 1n),
+        ])
+        const second = createMessage(teamA.api_token, 1)
+        second.value = await encodeMetricRecords(METRIC_CONTAINER, [metricPoint('sum', 10, 2n)])
+
+        await runPipeline([first, second])
+
+        const produced = producedTo(METRICS_TOPIC)
+        expect(produced).toHaveLength(1)
+        const decoded = await decodeMetricRecords(produced[0].value!)
+        expect(decoded.meta['avro.schema'].toString()).toEqual(JSON.stringify(METRIC_SCHEMA))
+        expect(
+            decoded.records.map((r) => [
+                unwrap(r.metric_type),
+                unwrap(r.value),
+                unwrap(r.count),
+                unwrap(r.series_fingerprint),
+            ])
+        ).toEqual([
+            ['gauge', 3, 1n, FINGERPRINT],
+            ['sum', 20, 2n, FINGERPRINT],
+        ])
+        expect(usageRows()).toEqual(
+            expect.arrayContaining([
+                [1, 'bytes_ingested', 300],
+                [1, 'records_ingested', 3],
+            ])
+        )
+    })
+
+    it('passes a message through unchanged when it would decode past the chunk budget', async () => {
+        const small = createMessage(teamA.api_token, 2)
+        small.value = await encodeMetricRecords(METRIC_CONTAINER, [
+            metricPoint('sum', 10, 1n),
+            metricPoint('sum', 10, 2n),
+        ])
+        const large = createMessage(teamA.api_token, 3)
+        large.value = await encodeMetricRecords(METRIC_CONTAINER, [
+            metricPoint('sum', 10, 1n),
+            metricPoint('sum', 10, 2n),
+            metricPoint('sum', 10, 3n),
+        ])
+        const budget = (await decodeMetricRecords(small.value)).decodedBytes + 1
+        const step = createAggregateMetricsStep<{
+            message: Message
+            teamId: number
+            bytesUncompressed: number
+            recordCount: number
+        }>(() => true, budget)
+
+        const results = await step(
+            [small, large].map((message) => ({ message, teamId: teamA.id, bytesUncompressed: 1, recordCount: 1 }))
+        )
+
+        const values = results.map((result) =>
+            result.type === PipelineResultType.OK ? result.value.message.value : null
+        )
+        expect((await decodeMetricRecords(values[0]!)).records.map((r) => unwrap(r.value))).toEqual([20])
+        expect(values[1]).toBe(large.value)
     })
 })

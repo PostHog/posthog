@@ -53,7 +53,6 @@ import {
     customPropertyAlias,
     relationshipAlias,
 } from './accountsColumnConfigLogic'
-import { DEFAULT_ACCOUNT_TAB, accountsExpansionLogic } from './accountsExpansionLogic'
 import {
     ACCOUNT_PRESENCE_REFRESH_INTERVAL_MS,
     accountsLogic,
@@ -1368,121 +1367,17 @@ describe('accountsLogic', () => {
         })
     })
 
-    describe('deep link (path route)', () => {
-        // `/customer_analytics/accounts/:accountId/:tab` filters the list to one account and opens a tab.
-        const ACCOUNT_ID = '0190da51-0b0e-7000-8000-000000000001'
+    it('opens an account detail route without changing list filters', () => {
+        logic.actions.setAccountFilters([ACCOUNT_FILTERS[0]])
+        logic.actions.setAccountFilterGroups([[ACCOUNT_FILTERS[0]]])
 
-        const accountIdFilterOf = (query: AccountsTableQuery | null): string | undefined =>
-            query?.filters?.find((filter) => filter.kind === 'account_id')?.accountId
+        logic.actions.openAccount('0190da51-0b0e-7000-8000-000000000001', 'usage')
 
-        it('filters the list to the account, expands it, and opens the requested tab', async () => {
-            router.actions.push(urls.customerAnalyticsAccount(ACCOUNT_ID, 'usage'))
-            await expectLogic(logic).toFinishAllListeners()
-
-            expect(logic.values.accountIdFilter).toBe(ACCOUNT_ID)
-            expect(accountIdFilterOf(logic.values.accountsQuerySource)).toBe(ACCOUNT_ID)
-            const expansion = accountsExpansionLogic.findMounted()
-            expect(expansion?.values.expandedAccountIds).toContain(ACCOUNT_ID)
-            expect(expansion?.values.activeTabByAccount[ACCOUNT_ID]).toBe('usage')
-        })
-
-        it('defaults the tab when the path omits it', async () => {
-            router.actions.push(urls.customerAnalyticsAccount(ACCOUNT_ID))
-            await expectLogic(logic).toFinishAllListeners()
-
-            const expansion = accountsExpansionLogic.findMounted()
-            expect(expansion?.values.activeTabByAccount[ACCOUNT_ID]).toBe(DEFAULT_ACCOUNT_TAB)
-        })
-
-        it('accepts the tasks tab from an account deep link', async () => {
-            router.actions.push(urls.customerAnalyticsAccount(ACCOUNT_ID, 'tasks'))
-            await expectLogic(logic).toFinishAllListeners()
-
-            const expansion = accountsExpansionLogic.findMounted()
-            expect(expansion?.values.activeTabByAccount[ACCOUNT_ID]).toBe('tasks')
-        })
-
-        it('falls back to the default tab for an unknown tab', async () => {
-            router.actions.push(urls.customerAnalyticsAccount(ACCOUNT_ID, 'bogus'))
-            await expectLogic(logic).toFinishAllListeners()
-
-            const expansion = accountsExpansionLogic.findMounted()
-            expect(expansion?.values.activeTabByAccount[ACCOUNT_ID]).toBe(DEFAULT_ACCOUNT_TAB)
-        })
-
-        it('ignores a non-UUID account id', async () => {
-            router.actions.push(urls.customerAnalyticsAccount('not-a-uuid', 'usage'))
-            await expectLogic(logic).toFinishAllListeners()
-
-            expect(logic.values.accountIdFilter).toBeNull()
-        })
-
-        it('resolves to the account even when the viewer has filters of their own', async () => {
-            logic.actions.setSearchQuery('something else')
-            logic.actions.setAssignedToFilter([99])
-            const customFilter = {
-                type: PropertyFilterType.AccountCustomProperty as const,
-                key: CSM_DEFINITION_ID,
-                operator: PropertyOperator.Exact,
-                value: 'saved filter',
-            }
-            logic.actions.setAccountFilters([customFilter])
-            logic.actions.setAccountFilterGroups([[customFilter]])
-
-            router.actions.push(urls.customerAnalyticsAccount(ACCOUNT_ID))
-            await expectLogic(logic).toFinishAllListeners()
-
-            expect(logic.values.accountsQuerySource?.filters).toEqual([{ kind: 'account_id', accountId: ACCOUNT_ID }])
-            logic.actions.listLoadData(undefined, 'deep-link-response')
-            logic.actions.listLoadDataSuccess(
-                {
-                    kind: NodeKind.AccountsTableQuery,
-                    results: [],
-                    hasMore: false,
-                    limit: 100,
-                    offset: 0,
-                    columns: [],
-                    customPropertyDefinitions: [],
-                    relationshipDefinitions: [],
-                },
-                { queryId: 'deep-link-response', overrideQuery: undefined, pollOnly: true, refresh: undefined }
-            )
-            expect(logic.values.accountFilters).toEqual([customFilter])
-            expect(logic.values.accountFilterGroups).toEqual([[customFilter]])
-        })
-
-        it('clears OR groups when opening an account hidden by the current filters', () => {
-            logic.actions.setAccountFilters([ACCOUNT_FILTERS[0]])
-            logic.actions.setAccountFilterGroups([[ACCOUNT_FILTERS[0]]])
-
-            logic.actions.openAccount(ACCOUNT_ID, 'target-account', 'Target account', DEFAULT_ACCOUNT_TAB)
-
-            expect(logic.values.accountFilters).toEqual([])
-            expect(logic.values.accountFilterGroups).toEqual([])
-        })
-
-        it('survives a view-state restore rewriting the URL', async () => {
-            router.actions.push(urls.customerAnalyticsAccount(ACCOUNT_ID, 'usage'))
-            await expectLogic(logic).toFinishAllListeners()
-            const deepLinkPath = router.values.location.pathname
-
-            // Column initialization must not send an account deep link back to the list.
-            accountsColumnConfigLogic.findMounted()!.actions.setSelectColumns([ACCOUNTS_NAME_COLUMN, CSM_COLUMN])
-            await expectLogic(logic).toFinishAllListeners()
-
-            expect(router.values.location.pathname).toBe(deepLinkPath)
-            expect(logic.values.accountIdFilter).toBe(ACCOUNT_ID)
-        })
-
-        it('clears the account filter when returning to the bare list', async () => {
-            router.actions.push(urls.customerAnalyticsAccount(ACCOUNT_ID, 'usage'))
-            await expectLogic(logic).toFinishAllListeners()
-            expect(logic.values.accountIdFilter).toBe(ACCOUNT_ID)
-
-            router.actions.push(urls.customerAnalyticsAccounts())
-            await expectLogic(logic).toFinishAllListeners()
-            expect(logic.values.accountIdFilter).toBeNull()
-        })
+        expect(router.values.location.pathname).toBe(
+            urls.currentProject(urls.customerAnalyticsAccount('0190da51-0b0e-7000-8000-000000000001', 'usage'))
+        )
+        expect(logic.values.accountFilters).toEqual([ACCOUNT_FILTERS[0]])
+        expect(logic.values.accountFilterGroups).toEqual([[ACCOUNT_FILTERS[0]]])
     })
 
     describe('updateAccountCustomProperty', () => {

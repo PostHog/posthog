@@ -1,9 +1,12 @@
-import posthog from 'posthog-js'
+import posthog, { CaptureResult } from 'posthog-js'
 
 import { initKeaTests } from '~/test/init'
 
 import { FacetDefinition, FacetSearchValue } from './facetQuery'
 import { facetSearchBarLogic } from './facetSearchBarLogic'
+
+// The real SDK, so the analytics cases read the events it would send rather than calls to a mock.
+jest.unmock('posthog-js')
 
 interface Item {
     name: string
@@ -64,6 +67,28 @@ const ITEMS: Item[] = [
 
 const matchesText = (item: Item, text: string): boolean => item.name.toLowerCase().includes(text.toLowerCase())
 
+/** Records the events posthog-js would send, and drops them before any request. The test setup opts capturing out. */
+function recordSentEvents(): { events: CaptureResult[]; stop: () => void } {
+    const events: CaptureResult[] = []
+    posthog.set_config({
+        capture_pageview: false,
+        before_send: (event) => {
+            if (event) {
+                events.push(event)
+            }
+            return null
+        },
+    })
+    posthog.opt_in_capturing({ captureEventName: false })
+    return {
+        events,
+        stop: () => {
+            posthog.opt_out_capturing()
+            posthog.set_config({ before_send: undefined })
+        },
+    }
+}
+
 describe('facetSearchBarLogic', () => {
     let onChange: jest.Mock
     let logic: ReturnType<typeof facetSearchBarLogic.build>
@@ -74,7 +99,7 @@ describe('facetSearchBarLogic', () => {
     }
 
     beforeEach(() => {
-        initKeaTests()
+        initKeaTests(false)
         onChange = jest.fn()
     })
 
@@ -138,6 +163,39 @@ describe('facetSearchBarLogic', () => {
 
         logic.actions.setInput('status:arch')
         expect(logic.values.suggestions.map((s) => s.label)).toEqual(['Archived'])
+    })
+
+    it('counts a case-sensitive pill apart from the same value in another case', () => {
+        const facets: FacetDefinition<Item>[] = [
+            ...FACETS,
+            {
+                key: 'team',
+                label: 'Team',
+                description: 'Exact team name',
+                caseSensitive: true,
+                getValues: (item) => [item.name === 'Welcome' ? 'Billing' : 'billing'],
+            },
+        ]
+        const draftCountsIn = (team: string): [string, number | undefined][] => {
+            logic = facetSearchBarLogic({
+                id: 'test',
+                facets,
+                items: ITEMS,
+                value: { filters: [{ facet: 'team', value: team, negated: false }], text: '' },
+                onChange,
+                matchesText,
+            })
+            logic.mount()
+            logic.actions.setInput('')
+            logic.actions.setInput('status:')
+            return logic.values.suggestions.map((s) => [s.label, s.count])
+        }
+
+        expect(draftCountsIn('Billing')).toEqual([['Active', 1]])
+        expect(draftCountsIn('billing')).toEqual([
+            ['Draft', 2],
+            ['Archived', 1],
+        ])
     })
 
     it('offers "Not" values with how many rows they hide for a negated draft', () => {
@@ -253,6 +311,24 @@ describe('facetSearchBarLogic', () => {
         expect(logic.values.input).toEqual(input)
     })
 
+    it.each([
+        ['pasted', (text: string) => logic.actions.setInput(text)],
+        [
+            'typed one character at a time',
+            (text: string) => [...text].forEach((character) => logic.actions.setInput(logic.values.input + character)),
+        ],
+    ])('keeps every space of an open quoted value when %s', (_, enter) => {
+        mountWith({ filters: [], text: '' })
+        enter('status:active sends:"hello  world')
+        expect(logic.values.input).toEqual('sends:"hello  world')
+
+        logic.actions.setInput(`${logic.values.input}"`)
+        expect(onChange).toHaveBeenLastCalledWith({
+            filters: [{ facet: 'sends', value: 'hello  world', negated: false }],
+            text: '',
+        })
+    })
+
     it('drops a typed token that a pill already resolves to', () => {
         mountWith({ filters: [{ facet: 'stageName', value: 'first', negated: false }], text: '' })
         logic.actions.setInput('stageName:one ')
@@ -298,12 +374,75 @@ describe('facetSearchBarLogic', () => {
             { change: 'removed', facet: 'sends', negated: true, source: 'backspace' },
         ],
     ])('reports a pill %s', (_, value, act, properties) => {
-        const capture = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
+        const sent = recordSentEvents()
         mountWith(value)
         act()
-        expect(capture.mock.calls).toEqual([['search bar filter changed', { search_bar: 'test', ...properties }]])
-        capture.mockRestore()
+        sent.stop()
+        expect(sent.events).toEqual([
+            expect.objectContaining({
+                event: 'search bar filter changed',
+                properties: expect.objectContaining({ search_bar: 'test', ...properties }),
+            }),
+        ])
     })
+
+    it.each([
+        ['a facet draft', ['tag:', 'tag:d', 'tag:de'], 50, 'deal0001'],
+        ['a bare word', ['de', 'dea', 'deal'], 8, 'Tag: deal0001'],
+    ])(
+        'reuses the counts of a scope and builds only the rows it shows, reading no later facet, while typing %s',
+        (_, keystrokes, rowCount, firstLabel) => {
+            let valueReads = 0
+            let laterFacetReads = 0
+            let formats = 0
+            const tag: FacetDefinition<number> = {
+                key: 'tag',
+                label: 'Tag',
+                description: 'Labels',
+                getValues: (item) => {
+                    valueReads++
+                    return [`deal${String(item).padStart(4, '0')}`]
+                },
+                formatValue: (value) => {
+                    formats++
+                    return value
+                },
+            }
+            const owner: FacetDefinition<number> = {
+                key: 'owner',
+                label: 'Owner',
+                description: 'Who made it',
+                getValues: () => {
+                    laterFacetReads++
+                    return ['deal-owner@example.com']
+                },
+            }
+            logic = facetSearchBarLogic({
+                id: 'test',
+                facets: [tag, owner],
+                items: Array.from({ length: 1000 }, (_, index) => index + 1),
+                value: { filters: [], text: '' },
+                onChange,
+                matchesText: () => true,
+            })
+            logic.mount()
+
+            logic.actions.setInput(keystrokes[0])
+            expect(logic.values.suggestions.length).toBeGreaterThan(0)
+            const readsForScope = valueReads
+            for (const keystroke of keystrokes.slice(1)) {
+                logic.actions.setInput(keystroke)
+            }
+            formats = 0
+            const rows = logic.values.suggestions.filter((suggestion) => suggestion.kind === 'value')
+
+            expect(rows).toHaveLength(rowCount)
+            expect(rows[0].label).toEqual(firstLabel)
+            expect(valueReads).toEqual(readsForScope)
+            expect(formats).toBeLessThanOrEqual(rowCount)
+            expect(laterFacetReads).toEqual(0)
+        }
+    )
 
     it('adds a pill from a value row and keeps the text before the draft', () => {
         mountWith({ filters: [], text: '' })
