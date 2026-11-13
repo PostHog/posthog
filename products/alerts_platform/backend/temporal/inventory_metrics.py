@@ -57,8 +57,39 @@ def push_inventory(inventories: Sequence[SourceInventory]) -> None:
             ["source", "state", "muted"],
             registry=registry,
         )
+        # By owner, because only a platform-owned configuration's due time is the platform's to keep.
+        overdue = Gauge(
+            "alerts_platform_configurations_overdue",
+            "Enabled, not broken configurations whose check is later than its grace period, whatever held it back",
+            ["source", "owner"],
+            registry=registry,
+        )
+        unscheduled = Gauge(
+            "alerts_platform_configurations_unscheduled",
+            "Enabled, not broken configurations with no due time",
+            ["source", "owner"],
+            registry=registry,
+        )
+        oldest_due = Gauge(
+            "alerts_platform_configurations_oldest_due_seconds",
+            "How long the longest-waiting due check of an enabled, not broken configuration has waited",
+            ["source", "owner"],
+            registry=registry,
+        )
+        broken = Gauge(
+            "alerts_platform_configurations_broken",
+            "Enabled configurations held back as broken, which discovery skips until they are reset",
+            ["source", "owner"],
+            registry=registry,
+        )
         for inventory in inventories:
             source = inventory.source.value
+            for count in inventory.overdue:
+                labels = {"source": source, "owner": count.owner.value}
+                overdue.labels(**labels).set(count.overdue)
+                unscheduled.labels(**labels).set(count.unscheduled)
+                oldest_due.labels(**labels).set(count.oldest_due_seconds)
+                broken.labels(**labels).set(count.broken)
             for configuration in inventory.configurations:
                 configurations.labels(
                     source=source, enabled=str(configuration.enabled).lower(), owner=configuration.owner.value
