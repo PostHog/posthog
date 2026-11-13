@@ -306,13 +306,29 @@ class TestTableNodeCaseInsensitiveLookup(TestCase):
 
 
 class TestUnknownTableSuggestions(TestCase):
-    @parameterized.expand(["ai_events", "trace_spans", "trace_attributes", "metrics", "metric_samples"])
-    def test_missing_posthog_namespace(self, table_name: str) -> None:
+    @parameterized.expand(
+        [
+            ("ai_events", False),
+            ("trace_spans", False),
+            ("trace_attributes", False),
+            ("metrics", False),
+            ("metric_samples", False),
+            ("trace_spans", True),
+            ("trace_attributes", True),
+        ]
+    )
+    def test_missing_posthog_namespace(self, table_name: str, direct_query: bool) -> None:
         database = Database()
+        if direct_query:
+            database._connection_id = "test-connection"
+            database.apply_schema_scope()
         with self.assertRaises(QueryError) as error:
             database.get_table(table_name)
-        assert str(error.exception) == f"Unknown table `{table_name}`. Did you mean: posthog.{table_name}?"
-        assert database.get_table(f"posthog.{table_name}") is not None
+        if direct_query:
+            assert str(error.exception) == f"Unknown table `{table_name}`."
+        else:
+            assert str(error.exception) == f"Unknown table `{table_name}`. Did you mean: posthog.{table_name}?"
+            assert database.get_table(f"posthog.{table_name}") is not None
 
     def test_default_catalog_exposes_user_facing_namespaced_tables(self) -> None:
         tables = Database().get_posthog_table_names()

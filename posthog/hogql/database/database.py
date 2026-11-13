@@ -1206,7 +1206,11 @@ class Database(BaseModel):
         # is noise, and on a direct connection the same name can exist in the broader
         # catalog without being available on the source we actually queried.
         lowered = name.casefold()
-        candidates = {c for c in candidates if c.casefold() != lowered and not self.is_table_access_denied(c)}
+        candidates = {
+            c
+            for c in candidates
+            if c.casefold() != lowered and not self.is_table_access_denied(c) and self.has_table(c)
+        }
         if "." not in name:
             qualified_name = f"posthog.{name}"
             try:
