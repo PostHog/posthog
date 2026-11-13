@@ -1,4 +1,14 @@
-import { TREE_MAX_DEPTH, TREE_MAX_ELEMENTS, TREE_MAX_LENGTH, TREE_MAX_SCANS, clickableHrefs } from './clickable-links'
+import { setFlagsFromString } from 'node:v8'
+import { runInNewContext } from 'node:vm'
+
+import {
+    TOKEN_MAX_LENGTH,
+    TREE_MAX_DEPTH,
+    TREE_MAX_ELEMENTS,
+    TREE_MAX_LENGTH,
+    TREE_MAX_SCANS,
+    clickableHrefs,
+} from './clickable-links'
 
 const manyAttributes = Array.from({ length: 1_000 }, (_, index) => `data-${index}="x"`).join(' ')
 
@@ -179,6 +189,7 @@ describe('clickableHrefs', () => {
     it.each([
         ['deeply nested markup', '<div>'.repeat(40_000)],
         ['an SVG drawing and a table it moves elements out of', '<svg></svg><table>' + '<i></i>'.repeat(1_000)],
+        ['an attribute value just under the scanner bound', `<img alt="${'x'.repeat(TOKEN_MAX_LENGTH - 20)}">`],
     ])('finds the anchor after %s', (_name, filler) => {
         expect(clickableHrefs(filler + '<a href="https://example.com/bye">Unsubscribe</a>')).toEqual([
             'https://example.com/bye',
@@ -189,5 +200,29 @@ describe('clickableHrefs', () => {
         expect(
             clickableHrefs(`<div ${manyAttributes}></div><a href="https://example.com/bye">Unsubscribe</a>`)
         ).toEqual([])
+    })
+
+    const longToken = 'x'.repeat(TOKEN_MAX_LENGTH)
+
+    it.each([
+        ['an attribute value', `<img alt="${longToken}">`],
+        ['an anchor href', `<a href="https://example.com/${longToken}">Unsubscribe</a>`],
+        ['an attribute name', `<img ${longToken}>`],
+        ['a tag name', `<i${longToken}>`],
+        ['a comment', `<!--${longToken}-->`],
+        ['a bogus comment', `<?${longToken}>`],
+        ['a doctype', `<!DOCTYPE ${longToken}>`],
+    ])('finds no anchor after %s longer than the scanner reads', (_name, filler) => {
+        expect(clickableHrefs(filler + '<a href="https://example.com/bye">Unsubscribe</a>')).toEqual([])
+    })
+
+    it('finds the anchor after a long text run without holding the text in memory', () => {
+        setFlagsFromString('--expose-gc')
+        const collectGarbage = runInNewContext('gc') as () => void
+        const body = 'x'.repeat(4_000_000) + '<a href="https://example.com/bye">Unsubscribe</a>'
+        collectGarbage()
+        const heapBefore = process.memoryUsage().heapUsed
+        expect(clickableHrefs(body)).toEqual(['https://example.com/bye'])
+        expect(process.memoryUsage().heapUsed - heapBefore).toBeLessThan(64_000_000)
     })
 })
