@@ -1,57 +1,70 @@
 import { useValues } from 'kea'
 
-import { LemonBanner, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
 
-import { urls } from 'scenes/urls'
-
+import type { AlertRouteMatchApi } from '../generated/api.schemas'
 import { platformAlertRoutedReceiversLogic } from './platformAlertRoutedReceiversLogic'
-import { ROUTE_EVENT_KIND_OPTIONS, receiverTarget, receiverTypeLabel } from './platformAlertRoutingFormat'
-
-const ROUTING_URL = `${urls.platformAlerts()}?tab=routing`
+import { receiverTarget, receiverTypeLabel, routeEventKindsLabel, routingUrl } from './platformAlertRoutingFormat'
+import { RouteMatcherTags } from './RouteMatcherTags'
 
 /** The team-wide receivers an alert with these labels also sends to, through the routes they match. */
 export function PlatformAlertRoutedReceivers({ labels }: { labels: Record<string, string> }): JSX.Element {
     const { matches, matchesLoading } = useValues(platformAlertRoutedReceiversLogic({ labels }))
 
-    if (matchesLoading && matches === null) {
-        return <Spinner />
-    }
-    if (matches === null) {
+    if (!matchesLoading && matches === null) {
         return (
             <LemonBanner type="warning">
                 Couldn't load routing. Reading it needs access to every alert source in this project.
             </LemonBanner>
         )
     }
-    if (matches.length === 0) {
-        return (
-            <p className="m-0 text-secondary">
-                No route matches this alert's labels. <Link to={ROUTING_URL}>Manage routing</Link>
-            </p>
-        )
-    }
+
+    const columns: LemonTableColumns<AlertRouteMatchApi> = [
+        {
+            title: 'Matches',
+            render: (_, { route }) => <RouteMatcherTags matchers={route.matchers} />,
+        },
+        {
+            title: 'Sends to',
+            render: (_, { receiver }) => (
+                <div className="flex flex-col">
+                    <Link to={routingUrl({ receiver: receiver.id })} data-attr="platform-alert-routed-receiver-link">
+                        {receiver.name}
+                    </Link>
+                    <span className="font-mono text-xs text-secondary break-all">
+                        {receiverTypeLabel(receiver.type)} · {receiverTarget(receiver)}
+                    </span>
+                </div>
+            ),
+        },
+        {
+            title: 'Events',
+            render: (_, { route }) => routeEventKindsLabel(route.event_kinds),
+        },
+        {
+            width: 0,
+            render: (_, { route }) => (
+                <LemonButton
+                    type="secondary"
+                    size="xsmall"
+                    className="whitespace-nowrap"
+                    to={routingUrl({ route: route.id })}
+                    data-attr="platform-alert-routed-route-link"
+                >
+                    View route
+                </LemonButton>
+            ),
+        },
+    ]
+
     return (
-        <ul className="flex flex-col gap-2 m-0 p-0 list-none" data-attr="platform-alert-routed-receivers">
-            {matches.map(({ route, receiver }) => (
-                <li key={route.id} className="flex flex-col gap-0.5">
-                    <span>
-                        <span className="font-semibold">{receiver.name}</span>
-                        <span className="text-secondary">
-                            {' '}
-                            · {receiverTypeLabel(receiver.type)} {receiverTarget(receiver)}
-                        </span>
-                    </span>
-                    <span className="text-secondary text-xs">
-                        {route.matchers.length === 0
-                            ? 'Matches every alert'
-                            : `Matches ${route.matchers.map((m) => `${m.label} = ${m.value}`).join(', ')}`}
-                        {' · '}
-                        {ROUTE_EVENT_KIND_OPTIONS.filter((o) => route.event_kinds.includes(o.value))
-                            .map((o) => o.label)
-                            .join(', ')}
-                    </span>
-                </li>
-            ))}
-        </ul>
+        <LemonTable
+            dataSource={matches ?? []}
+            columns={columns}
+            loading={matchesLoading}
+            rowKey={({ route }) => route.id}
+            emptyState="No route matches this alert's labels."
+            data-attr="platform-alert-routed-receivers"
+        />
     )
 }
