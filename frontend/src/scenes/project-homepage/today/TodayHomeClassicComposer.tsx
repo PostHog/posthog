@@ -13,24 +13,26 @@ export function TodayHomeClassicComposer(): JSX.Element {
     const textAreaRef = useRef<HTMLTextAreaElement>(null)
 
     return (
-        <Composer.Root
-            value={classicPrompt}
-            onChange={setClassicPrompt}
-            onSubmit={() => classicChatStarted(classicPrompt)}
-            textAreaRef={textAreaRef}
-        >
-            <QuillComposerLayout
-                groupRef={groupRef}
+        <div className="TodayHome__composer" data-attr="today-home-composer">
+            <Composer.Root
+                value={classicPrompt}
+                onChange={setClassicPrompt}
+                onSubmit={() => classicChatStarted(classicPrompt)}
                 textAreaRef={textAreaRef}
-                field={
-                    <Composer.Field>
-                        <Composer.Placeholder>Ask a question</Composer.Placeholder>
-                        <Composer.Textarea data-attr="today-home-chat-input" />
-                    </Composer.Field>
-                }
-                send={<QuillComposerSendButton data-attr="today-home-chat-send" />}
-                singleRow
-            />
-        </Composer.Root>
+            >
+                <QuillComposerLayout
+                    groupRef={groupRef}
+                    textAreaRef={textAreaRef}
+                    field={
+                        <Composer.Field>
+                            <Composer.Placeholder>Ask a question</Composer.Placeholder>
+                            <Composer.Textarea data-attr="today-home-chat-input" />
+                        </Composer.Field>
+                    }
+                    send={<QuillComposerSendButton data-attr="today-home-chat-send" />}
+                    singleRow
+                />
+            </Composer.Root>
+        </div>
     )
 }

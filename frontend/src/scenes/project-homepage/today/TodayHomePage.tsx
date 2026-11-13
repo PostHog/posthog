@@ -4,12 +4,14 @@ import { useLayoutEffect, useRef } from 'react'
 
 import { Text } from '@posthog/quill'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { organizationLogic } from 'scenes/organizationLogic'
 
 import { TodayExplore } from './TodayExplore'
 import { TodayFirstEventWatcher } from './TodayFirstEventWatcher'
 import { TodayForYou } from './TodayForYou'
 import { todayHighlightsLogic } from './todayHighlightsLogic'
+import { TodayHomeClassicComposer } from './TodayHomeClassicComposer'
 import { TodayHomeComposer } from './TodayHomeComposer'
 import { reportIdFromPath, todayLogic } from './todayLogic'
 import { TodayPromoBanner } from './TodayPromoBanner'
@@ -55,6 +57,7 @@ export function TodayHomePage(): JSX.Element {
     const { pulseViewMounted, pulseViewUpdated, pulseViewUnmounted } = useActions(todayHighlightsLogic)
     const rootRef = useRef<HTMLDivElement>(null)
     const { currentOrganization } = useValues(organizationLogic)
+    const postHogAiTasks = useFeatureFlag('PHAI_SANDBOX_MODE')
     const homeComposer = !!currentOrganization?.is_ai_data_processing_approved
 
     useLayoutEffect(() => {
@@ -112,7 +115,7 @@ export function TodayHomePage(): JSX.Element {
                     </Text>
                 </div>
                 <TodayMetaLine />
-                {homeComposer ? <TodayHomeComposer /> : null}
+                {!homeComposer ? null : postHogAiTasks ? <TodayHomeComposer /> : <TodayHomeClassicComposer />}
             </section>
             <div className="TodayHome__body">
                 {isNewProject ? <TodayFirstEventWatcher /> : <TodayPulseSection />}
