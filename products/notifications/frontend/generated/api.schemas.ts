@@ -115,6 +115,10 @@ export type NotificationsListParams = {
      */
     offset?: number
     /**
+     * Filter by whether the recipient has read the notification
+     */
+    read?: boolean
+    /**
      * Filter by the ID of the resource the notification refers to
      */
     resource_id?: string

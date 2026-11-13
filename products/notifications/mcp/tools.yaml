@@ -1,0 +1,41 @@
+# MCP tool definitions. Tools are opt-in: an operation is exposed only when it has an entry here.
+# List operations without an entry: pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product notifications
+# Add one: pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product notifications
+# To keep an operation off on purpose, set enabled: false and give a disabled_reason.
+category: Notifications
+feature: notifications
+url_prefix: /
+ui_apps: {}
+tools:
+    notifications-list:
+        operation: notifications_list
+        enabled: true
+        scopes:
+            - user:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List notifications
+        description: >
+            List notifications for the connected user. Returns unread notifications by default. Set read to true to
+            list notifications that the user has already handled.
+        param_overrides:
+            read:
+                default: false
+        feature_flag: real-time-notifications
+    notifications-mark-read:
+        operation: notifications_mark_read_bulk_create
+        enabled: true
+        scopes:
+            - user:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Mark notifications as read
+        description: >
+            Mark notifications as read after you handle them. Notifications that do not belong to the connected user
+            are ignored.
+        feature_flag: real-time-notifications

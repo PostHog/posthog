@@ -27,6 +27,8 @@ class NotificationType(str, Enum):
     FEATURE_FLAG_FAILURE = "feature_flag_failure"
     FIRST_REPORT_COMPLETED = "first_report_completed"
     REPORT_CLAIM_TAKEN_OVER = "report_claim_taken_over"
+    REPORT_ASSIGNED = "report_assigned"
+    REPORT_RUN_FINISHED = "report_run_finished"
     ALERT_DESTINATION_REFUSED = "alert_destination_refused"
 
 

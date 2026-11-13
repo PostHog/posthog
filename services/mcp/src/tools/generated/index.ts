@@ -45,6 +45,7 @@ import { GENERATED_TOOLS as mcp_store } from './mcp_store'
 import { GENERATED_TOOLS as messaging } from './messaging'
 import { GENERATED_TOOLS as metrics } from './metrics'
 import { GENERATED_TOOLS as notebooks } from './notebooks'
+import { GENERATED_TOOLS as notifications } from './notifications'
 import { GENERATED_TOOLS as persons } from './persons'
 import { GENERATED_TOOLS as platform_features } from './platform_features'
 import { GENERATED_TOOLS as posthog_ai } from './posthog_ai'
@@ -119,6 +120,7 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...messaging,
     ...metrics,
     ...notebooks,
+    ...notifications,
     ...persons,
     ...platform_features,
     ...posthog_ai,

@@ -12,6 +12,8 @@ from rest_framework.test import APIClient
 
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Team, User
+from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.utils import generate_random_token_personal
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.notifications.backend.cache import _unread_count_cache_key
@@ -48,12 +50,38 @@ class TestNotificationsAPI(BaseTest):
         self.feature_flag_patcher.stop()
         super().tearDown()
 
+    def _authenticate_with_personal_api_key(self, scopes: list[str]) -> None:
+        value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="notifications",
+            user=self.user,
+            secure_value=hash_key_value(value),
+            scopes=scopes,
+        )
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {value}")
+
     def test_list_notifications(self):
         resp = self.client.get(f"/api/environments/{self.team.id}/notifications/")
         assert resp.status_code == 200
         assert len(resp.json()["results"]) == 1
         assert resp.json()["results"][0]["title"] == "Test notification"
         assert resp.json()["results"][0]["read"] is False
+
+    def test_list_notifications_accepts_user_read_scope(self):
+        self._authenticate_with_personal_api_key(["user:read"])
+
+        resp = self.client.get(f"/api/environments/{self.team.id}/notifications/")
+
+        assert resp.status_code == 200
+        assert [row["id"] for row in resp.json()["results"]] == [str(self.event.id)]
+
+    def test_list_notifications_rejects_unrelated_scope(self):
+        self._authenticate_with_personal_api_key(["inbox:read"])
+
+        resp = self.client.get(f"/api/environments/{self.team.id}/notifications/")
+
+        assert resp.status_code == 403
 
     @parameterized.expand(
         [
@@ -109,6 +137,31 @@ class TestNotificationsAPI(BaseTest):
     def test_mark_read(self):
         resp = self.client.post(f"/api/environments/{self.team.id}/notifications/{self.event.id}/mark_read/")
         assert resp.status_code == 200
+        assert NotificationReadState.objects.filter(notification_event=self.event, user=self.user).exists()
+
+    def test_mark_read_bulk_requires_user_write_scope(self):
+        self._authenticate_with_personal_api_key(["user:read"])
+
+        resp = self.client.post(
+            f"/api/environments/{self.team.id}/notifications/mark_read_bulk/",
+            {"notification_ids": [str(self.event.id)]},
+            format="json",
+        )
+
+        assert resp.status_code == 403
+        assert not NotificationReadState.objects.filter(notification_event=self.event, user=self.user).exists()
+
+    def test_mark_read_bulk_accepts_user_write_scope(self):
+        self._authenticate_with_personal_api_key(["user:write"])
+
+        resp = self.client.post(
+            f"/api/environments/{self.team.id}/notifications/mark_read_bulk/",
+            {"notification_ids": [str(self.event.id)]},
+            format="json",
+        )
+
+        assert resp.status_code == 200
+        assert resp.json()["updated"] == 1
         assert NotificationReadState.objects.filter(notification_event=self.event, user=self.user).exists()
 
     def test_mark_unread(self):
@@ -249,6 +302,30 @@ class TestNotificationsAPI(BaseTest):
         results = resp.json()["results"]
         assert len(results) == 1
         assert results[0]["notification_type"] == "alert_firing"
+
+    def test_list_filter_by_read_state(self):
+        NotificationReadState.objects.create(notification_event=self.event, user=self.user)
+        unread = NotificationEvent.objects.create(
+            organization=self.organization,
+            team=self.team,
+            notification_type="alert_firing",
+            title="Unread",
+            body="",
+            target_type="user",
+            target_id=str(self.user.id),
+            resolved_user_ids=[self.user.id],
+        )
+
+        read_resp = self.client.get(f"/api/environments/{self.team.id}/notifications/?read=true")
+        unread_resp = self.client.get(f"/api/environments/{self.team.id}/notifications/?read=false")
+
+        assert [row["id"] for row in read_resp.json()["results"]] == [str(self.event.id)]
+        assert [row["id"] for row in unread_resp.json()["results"]] == [str(unread.id)]
+
+    def test_list_filter_rejects_invalid_read_state(self):
+        resp = self.client.get(f"/api/environments/{self.team.id}/notifications/?read=maybe")
+
+        assert resp.status_code == 400
 
     def test_list_filter_by_target(self):
         other_user = User.objects.create_and_join(self.organization, "other2@test.com", "password")

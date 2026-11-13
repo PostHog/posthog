@@ -38,6 +38,12 @@ from posthog.slack.formatting import (
 )
 from posthog.slack.markdown import slack_markdown_block as _markdown_block
 
+from products.notifications.backend.facade.api import (
+    NotificationData,
+    NotificationType,
+    TargetType,
+    create_notification,
+)
 from products.signals.backend.assignment_flags import assignment_side_effects_allowed
 from products.signals.backend.enums import ReportLinkKind
 from products.signals.backend.implementation_pr import fetch_implementation_prs_for_reports
@@ -907,9 +913,9 @@ def dispatch_reviewer_added_notifications(
     pipeline, when a report first becomes READY — this fires when someone manually adds
     reviewers afterwards, so a reviewer who wasn't on the report at generation time still
     hears about it. It targets only the given logins and only their own configured Slack
-    target: a manual add is a personal ping, so there's no team-default fallback (that
-    would ping the whole team for a one-person add) and a reviewer with no personal target
-    set up (or whose min-priority filters the report out) gets nothing.
+    target. Every resolved reviewer gets an in-app notification. Slack has no team-default
+    fallback because that would ping the whole team for a one-person add. A reviewer with no
+    personal target, or whose min-priority filters the report out, gets no Slack message.
 
     Gated on the same READY + actionable condition as the initial notification, so it only
     fires for reports that would themselves have notified. `exclude_user_id` drops the actor
@@ -944,6 +950,25 @@ def dispatch_reviewer_added_notifications(
     )
     if not user_ids:
         return 0
+
+    if not report_is_hidden_from_inbox(report.team_id, str(report.id)):
+        for user_id in sorted(user_ids):
+            try:
+                create_notification(
+                    NotificationData(
+                        team_id=report.team_id,
+                        notification_type=NotificationType.REPORT_ASSIGNED,
+                        title="You were assigned to a report",
+                        body=report.title or "",
+                        target_type=TargetType.USER,
+                        target_id=str(user_id),
+                        resource_type="inbox",
+                        resource_id=str(report.id),
+                        source_url=f"/project/{report.team_id}/inbox/reports/{report.id}",
+                    )
+                )
+            except Exception:
+                logger.exception("signals.report_assigned.in_app_failed", report_id=str(report.id), user_id=user_id)
 
     priority = _latest_priority(report)
     routes = _build_added_reviewer_routes(team_id, user_ids, priority)

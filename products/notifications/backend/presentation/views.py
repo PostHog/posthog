@@ -53,7 +53,8 @@ class NotificationPagination(BoundedLimitOffsetPagination):
 class NotificationsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     queryset = NotificationEvent.objects.all()
     serializer_class = NotificationEventSerializer
-    scope_object = "INTERNAL"
+    scope_object = "user"
+    scope_object_write_actions = ["mark_read_bulk"]
     pagination_class = NotificationPagination
 
     def _get_user(self) -> User:
@@ -150,6 +151,11 @@ class NotificationsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             queryset = queryset.filter(resource_type=value)
         if value := params.get("resource_id"):
             queryset = queryset.filter(resource_id=value)
+        if value := params.get("read"):
+            normalized = value.lower()
+            if normalized not in ("true", "false", "1", "0"):
+                raise ValidationError({"read": "Must be true or false"})
+            queryset = queryset.filter(read=normalized in ("true", "1"))
 
         def _parse_iso(raw: str, field: str) -> datetime:
             # Django decodes "+" timezone offsets in query strings as " "; restore before parsing.
@@ -214,6 +220,13 @@ class NotificationsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 location=OpenApiParameter.QUERY,
                 required=False,
                 description="ISO 8601 timestamp; only events strictly before this time",
+            ),
+            OpenApiParameter(
+                name="read",
+                type=bool,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Filter by whether the recipient has read the notification",
             ),
             OpenApiParameter(
                 name="archived",
