@@ -1671,6 +1671,34 @@ class TestTransactionalEmail(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("untracked", {"tracking": False}, "tracking"),
+            ("click_tracking", {"tracking": {"clicks": True}}, "tracking"),
+            ("clicks_off", {"tracking": {"clicks": False}}, "tracking"),
+            ("sensitive", {"sensitive": False}, "sensitive"),
+        ]
+    )
+    def test_a_code_send_with_a_contract_field_an_older_pipeline_does_not_take_is_refused_on_that_field(
+        self, mock_post, _flag, capture, _name, fields, field
+    ):
+        pipeline, analytics = FakeCdpApi(before_the_contract=True), FakeAnalytics()
+        mock_post.side_effect, capture.side_effect = pipeline.post, analytics.capture
+
+        response = self._psak_client(["hog_flow:write"]).post(
+            self.send_email_url, self._code_send(**fields), format="json"
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        body = response.json()
+        assert (body["code"], body["attr"]) == ("field_not_accepted", field)
+        assert body["why"] and body["fix"]
+        assert pipeline.queued == []
+        assert [
+            (event["error_code"], event["attachment_count"], event["attachment_bytes"])
+            for event in analytics.properties_of("transactional email api send")
+        ] == [("field_not_accepted", 0, 0)]
+
+    @parameterized.expand(
+        [
             ("attachments", {"attachments": TWO_FILES}, {"takes_attachments": False}, "attachments", "attachments", 2),
             ("category", MARKETING_SEND, {"takes_categories": False}, "category", "message_category", 0),
         ]
