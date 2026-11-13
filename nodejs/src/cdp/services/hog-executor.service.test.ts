@@ -1895,7 +1895,6 @@ describe('Hog Executor', () => {
                 expect(result.error).toBeUndefined()
                 expect(received!.body).toBe(sentBody)
                 const authorization = received!.headers.authorization
-                // AWS re-signs the request it received. The signer adds host and x-amz-date itself.
                 const signedHeaderNames = /SignedHeaders=([^,]+)/
                     .exec(authorization)![1]
                     .split(';')
@@ -2157,6 +2156,77 @@ describe('Hog Executor', () => {
                 expect(result.error.message).toContain('HMAC-SHA256 signing failed')
                 expect(result.error.message).toContain('signing_secret')
             })
+        })
+
+        describe('signers requested from hog', () => {
+            const SECRET = 'whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw'
+            const STANDARD_WEBHOOKS_KEY = Buffer.from('MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw', 'base64')
+
+            type ReceivedRequest = { headers: Record<string, any>; body: string }
+
+            const receiveRequests = (): ReceivedRequest[] => {
+                const received: ReceivedRequest[] = []
+                mockRequest.mockImplementation((req: any, res: any) => {
+                    let body = ''
+                    req.on('data', (chunk: Buffer) => (body += chunk.toString()))
+                    req.on('end', () => {
+                        received.push({ headers: req.headers, body })
+                        res.writeHead(200, { 'Content-Type': 'text/plain' })
+                        res.end('ok')
+                    })
+                })
+                return received
+            }
+
+            const runHog = async (code: string) => {
+                const hogFunction = createHogFunction({ bytecode: await compileHog(code) })
+                hogFunction.encrypted_inputs = { signing_secret: { value: SECRET } } as any
+                return executor.executeWithAsyncFunctions(createExampleInvocation(hogFunction, { inputs: {} }), {
+                    maxAsyncFunctions: 2,
+                })
+            }
+
+            it('sends one delivery id that both signers of a fetch call sign', async () => {
+                const received = receiveRequests()
+
+                const result = await runHog(`
+                    fetch('${baseUrl}/', {
+                        'body': {'a': 1},
+                        'standard_webhooks': {'secret_input': 'signing_secret'},
+                        'hmac_sha256': {'secret_input': 'signing_secret'}
+                    })
+                `)
+
+                expect(result.error).toBeUndefined()
+                expect(received).toHaveLength(1)
+                const [{ headers, body }] = received
+                const signedContent = `${headers['webhook-id']}.${headers['webhook-timestamp']}.${body}`
+                expect(headers['webhook-signature']).toBe(
+                    `v1,${createHmac('sha256', STANDARD_WEBHOOKS_KEY).update(signedContent).digest('base64')}`
+                )
+                expect(headers['x-hub-signature-256']).toBe(
+                    `sha256=${createHmac('sha256', SECRET).update(body).digest('hex')}`
+                )
+            })
+
+            it.each(['standard_webhooks', 'hmac_sha256'])(
+                'gives each %s signed fetch call of one run its own delivery id',
+                async (signer) => {
+                    const received = receiveRequests()
+                    const options = `{'body': 'x', '${signer}': {'secret_input': 'signing_secret'}}`
+
+                    const result = await runHog(`
+                        fetch('${baseUrl}/', ${options})
+                        fetch('${baseUrl}/', ${options})
+                    `)
+
+                    expect(result.error).toBeUndefined()
+                    const [first, second] = received.map(({ headers }) => headers['webhook-id'])
+                    expect(received).toHaveLength(2)
+                    expect(first).toEqual(expect.any(String))
+                    expect(second).not.toBe(first)
+                }
+            )
         })
 
         describe('secret_headers_input', () => {

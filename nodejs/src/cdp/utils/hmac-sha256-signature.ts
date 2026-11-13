@@ -4,7 +4,7 @@ import { CyclotronInvocationQueueParametersFetchHmacSha256Type } from '~/cdp/sch
 
 import { HogFunctionType } from '../types'
 import { resolveHogFunctionInputValue } from './hog-function-inputs'
-import { mergeSecretHeaders } from './secret-headers'
+import { overrideHeaders } from './secret-headers'
 
 export type ResolvedHmacSha256Secret = { ok: true; secret: string } | { ok: false; error: string }
 
@@ -39,7 +39,7 @@ export function signHmacSha256Request({
 }: SignHmacSha256RequestArgs): Record<string, string> {
     const signature = createHmac('sha256', secret).update(body).digest('hex')
 
-    return mergeSecretHeaders(headers, {
+    return overrideHeaders(headers, {
         'webhook-id': webhookId,
         'x-hub-signature-256': `sha256=${signature}`,
     })
