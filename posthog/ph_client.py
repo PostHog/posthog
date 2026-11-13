@@ -48,6 +48,28 @@ def suppress_last_seen_updates(message: dict[str, Any]) -> dict[str, Any]:
 BeforeSend = Callable[[dict[str, Any]], dict[str, Any] | None]
 
 
+def _query_without_sql_filters(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {
+            key: _query_without_sql_filters(item)
+            for key, item in value.items()
+            if not (value.get("kind") == "HogQLQuery" and key == "filters")
+        }
+    if isinstance(value, list):
+        return [_query_without_sql_filters(item) for item in value]
+    return value
+
+
+def omit_sql_query_filters(message: dict[str, Any]) -> dict[str, Any]:
+    properties = message.get("properties", {})
+    if isinstance(properties.get("query"), dict):
+        properties = {**properties, "query": _query_without_sql_filters(properties["query"])}
+    if properties.get("query_type") == "HogQLQuery":
+        # ClickHouse errors can embed the compiled SQL with filter values substituted.
+        properties = {key: value for key, value in properties.items() if key != "error_message"}
+    return {**message, "properties": properties}
+
+
 def self_hosted_capture_reaches_posthog() -> bool:
     return is_hobby() and not settings.TEST and not settings.SELF_CAPTURE
 
@@ -60,9 +82,8 @@ def default_before_send(*, private_scout_capture: bool, self_hosted: bool) -> Be
         hooks.append(filter_scout_experiment_capture)
     if self_hosted:
         hooks.append(drop_exception_capture)
+    hooks.append(omit_sql_query_filters)
     hooks.append(suppress_last_seen_updates)
-    if len(hooks) == 1:
-        return hooks[0]
 
     def chained(message: dict[str, Any]) -> dict[str, Any] | None:
         for hook in hooks:
@@ -284,7 +305,7 @@ def get_client(region: str = "US", **kwargs: Any):
             if next_message is None:
                 return None
             message = next_message
-        return suppress_last_seen_updates(message)
+        return suppress_last_seen_updates(omit_sql_query_filters(message))
 
     kwargs["before_send"] = capture_filter
 

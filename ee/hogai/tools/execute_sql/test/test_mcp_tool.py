@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, datetime, timedelta
 
 from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest, _create_event
@@ -5,13 +6,21 @@ from unittest.mock import AsyncMock, patch
 
 from django.test import SimpleTestCase
 
+import posthoganalytics
 from asgiref.sync import sync_to_async
 from parameterized import parameterized
 
 from posthog.schema import DateRange, EventPropertyFilter, HogQLFilters, HogQLNotice, HogQLQuery, PropertyOperator
 
+from posthog.hogql.constants import LimitContext
+
+from posthog.api.services.query import process_query_dict
+from posthog.clickhouse.query_tagging import tags_context
 from posthog.event_usage import EventSource
+from posthog.exceptions_capture import capture_exception
+from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Organization, Team, User
+from posthog.ph_client import default_before_send
 from posthog.sync import database_sync_to_async
 
 from products.event_definitions.backend.models import EventDefinition
@@ -19,7 +28,7 @@ from products.product_analytics.backend.facade.models import Insight, InsightVar
 
 from ee.hogai.context.insight.context import InsightContext
 from ee.hogai.context.insight.format.sql import SQLResultsFormatter
-from ee.hogai.tool_errors import MaxToolRetryableError
+from ee.hogai.tool_errors import MaxToolError, MaxToolRetryableError
 from ee.hogai.tools.execute_sql.compatibility_hints import ACCEPTED_CAST_TYPES
 from ee.hogai.tools.execute_sql.mcp_tool import (
     ExecuteSQLMCPTool,
@@ -71,6 +80,66 @@ class TestExecuteSQLMCPTool(ClickhouseTestMixin, NonAtomicBaseTest):
         )
 
         self.assertIn("test_event", result.content)
+
+    async def test_filters_stay_in_execution_but_not_backend_telemetry(self) -> None:
+        private_value = "private-filter@example.com"
+        _create_event(
+            team=self.team, distinct_id="example-user", event="example_event", properties={"email": private_value}
+        )
+        filters = HogQLFilters(properties=[EventPropertyFilter(key="email", value=[private_value])])
+        args = ExecuteSQLMCPToolArgs(query="SELECT count() AS n FROM events WHERE {filters}", filters=filters)
+        messages = []
+        before_send = default_before_send(private_scout_capture=False, self_hosted=False)
+
+        def record(message):
+            message = before_send(message)
+            if message is not None:
+                messages.append(message)
+            return message
+
+        client = posthoganalytics.Client("test-key", send=False, enable_local_evaluation=False, before_send=record)
+        try:
+            with patch.multiple(posthoganalytics, default_client=client, disabled=False, before_send=record):
+                result = await self.tool.execute(args)
+                replay = await self.tool.execute(args)
+                assert result.structured_content is not None
+                await database_sync_to_async(process_query_dict)(
+                    self.team,
+                    result.structured_content["query"],
+                    user=self.user,
+                    limit_context=LimitContext.POSTHOG_AI,
+                    execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+                )
+                other = await self.tool.execute(
+                    args.model_copy(
+                        update={
+                            "filters": HogQLFilters(
+                                properties=[EventPropertyFilter(key="email", value=["other@example.com"])]
+                            )
+                        }
+                    )
+                )
+                with self.assertRaises(MaxToolError):
+                    await self.tool.execute(
+                        args.model_copy(update={"query": "SELECT intDiv(1, 0) FROM events WHERE {filters}"})
+                    )
+                with tags_context(query=HogQLQuery(query=args.query, filters=filters).model_dump(mode="json")):
+                    capture_exception(ValueError("example failure"))
+        finally:
+            client.shutdown()
+
+        self.assertEqual(replay.content, result.content)
+        self.assertNotEqual(other.content, result.content)
+        assert result.structured_content is not None
+        self.assertEqual(HogQLQuery.model_validate(result.structured_content["query"]).filters, filters)
+        executed = [message for message in messages if message["event"] == "query executed"]
+        self.assertTrue(executed)
+        self.assertTrue(any(message["properties"]["cache_hit"] for message in executed))
+        self.assertTrue(any(message["event"] == "query execution failed" for message in messages))
+        self.assertTrue(
+            any(message["event"] == "$exception" and "query" in message["properties"] for message in messages)
+        )
+        self.assertNotIn(private_value, json.dumps(messages, default=str))
 
     async def test_saved_variables_survive_visualization_query_reexecution(self) -> None:
         variable = await database_sync_to_async(InsightVariable.objects.create)(

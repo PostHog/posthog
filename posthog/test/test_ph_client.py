@@ -1,3 +1,4 @@
+from copy import deepcopy
 from typing import Any
 
 from unittest.mock import MagicMock, patch
@@ -34,6 +35,48 @@ class TestAILaneOptIn(SimpleTestCase):
 
 
 class TestPrivateScoutCapture(SimpleTestCase):
+    @parameterized.expand([("default", None), ("US", "US"), ("EU", "EU")])
+    def test_sql_query_filters_are_not_captured(self, _name: str, region: str | None) -> None:
+        query = {
+            "kind": "DataVisualizationNode",
+            "source": {
+                "kind": "HogQLQuery",
+                "query": "SELECT count() FROM events WHERE {filters}",
+                "filters": {"properties": [{"key": "email", "value": ["private@example.com"]}]},
+            },
+        }
+        original = deepcopy(query)
+        client = (
+            get_client(region, send=False, disabled=False, enable_local_evaluation=False)
+            if region
+            else posthoganalytics.Client(
+                "test-key",
+                send=False,
+                enable_local_evaluation=False,
+                before_send=default_before_send(private_scout_capture=False, self_hosted=False),
+            )
+        )
+        assert client is not None
+        messages = []
+        before_send = client.before_send
+
+        def record(message):
+            result = before_send(message)
+            if result is not None:
+                messages.append(result)
+            return result
+
+        client.before_send = record
+        try:
+            for event in ("query executed", "query execution failed", "$exception"):
+                captured = client.capture(event, distinct_id="synthetic", properties={"query": query})
+                assert captured is not None
+                self.assertNotIn("filters", messages[-1]["properties"]["query"]["source"])
+                self.assertEqual(messages[-1]["properties"]["query"]["source"]["query"], query["source"]["query"])
+            self.assertEqual(query, original)
+        finally:
+            client.shutdown()
+
     def test_module_filter_matches_deployment_setting(self) -> None:
         with patch.multiple(
             posthoganalytics,
