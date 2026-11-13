@@ -56,7 +56,12 @@ export class IntakeProducer {
     ) {}
 
     async produce({ kind, invocation, fingerprint }: IntakeRun, mode: IntakeMode): Promise<IntakeProduceOutcome> {
-        const encoded = encodeIntakeMessage({ kind, fingerprint, job: { ...encodeJob(invocation), id: invocation.id } })
+        const encoded = encodeIntakeMessage({
+            kind,
+            fingerprint,
+            shadow: mode === 'shadow',
+            job: { ...encodeJob(invocation), id: invocation.id },
+        })
         if (encoded.status !== 'encoded') {
             launchesCounter.labels({ kind, mode, outcome: encoded.status }).inc()
             return encoded.status
