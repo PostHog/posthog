@@ -635,6 +635,12 @@ export const BatchExportsCreateBody = /* @__PURE__ */ zod
                         .optional(),
                     pushDownPredicates: zod.union([zod.boolean(), zod.null()]).optional(),
                     s3TableUseInvalidColumns: zod.union([zod.boolean(), zod.null()]).optional(),
+                    sessionFilterGlobalJoin: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Filter the sessions join of an events query by its session property filters and run it as a `GLOBAL LEFT JOIN`, so the sessions are read once instead of once per events shard. Applies only when every session filter is an equality or `IN` against non-empty strings, which are false for an event with no matching session.'
+                        ),
                     sessionIdPushdown: zod
                         .union([zod.boolean(), zod.null()])
                         .optional()
@@ -1609,6 +1615,12 @@ export const BatchExportsUpdateBody = /* @__PURE__ */ zod
                         .optional(),
                     pushDownPredicates: zod.union([zod.boolean(), zod.null()]).optional(),
                     s3TableUseInvalidColumns: zod.union([zod.boolean(), zod.null()]).optional(),
+                    sessionFilterGlobalJoin: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Filter the sessions join of an events query by its session property filters and run it as a `GLOBAL LEFT JOIN`, so the sessions are read once instead of once per events shard. Applies only when every session filter is an equality or `IN` against non-empty strings, which are false for an event with no matching session.'
+                        ),
                     sessionIdPushdown: zod
                         .union([zod.boolean(), zod.null()])
                         .optional()
@@ -2342,6 +2354,12 @@ export const BatchExportsPartialUpdateBody = /* @__PURE__ */ zod
                         .optional(),
                     pushDownPredicates: zod.union([zod.boolean(), zod.null()]).optional(),
                     s3TableUseInvalidColumns: zod.union([zod.boolean(), zod.null()]).optional(),
+                    sessionFilterGlobalJoin: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Filter the sessions join of an events query by its session property filters and run it as a `GLOBAL LEFT JOIN`, so the sessions are read once instead of once per events shard. Applies only when every session filter is an equality or `IN` against non-empty strings, which are false for an event with no matching session.'
+                        ),
                     sessionIdPushdown: zod
                         .union([zod.boolean(), zod.null()])
                         .optional()
@@ -3060,6 +3078,12 @@ export const BatchExportsRunTestStepCreateBody = /* @__PURE__ */ zod
                         .optional(),
                     pushDownPredicates: zod.union([zod.boolean(), zod.null()]).optional(),
                     s3TableUseInvalidColumns: zod.union([zod.boolean(), zod.null()]).optional(),
+                    sessionFilterGlobalJoin: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Filter the sessions join of an events query by its session property filters and run it as a `GLOBAL LEFT JOIN`, so the sessions are read once instead of once per events shard. Applies only when every session filter is an equality or `IN` against non-empty strings, which are false for an event with no matching session.'
+                        ),
                     sessionIdPushdown: zod
                         .union([zod.boolean(), zod.null()])
                         .optional()
@@ -3797,6 +3821,12 @@ export const BatchExportsRunTestStepNewCreateBody = /* @__PURE__ */ zod
                         .optional(),
                     pushDownPredicates: zod.union([zod.boolean(), zod.null()]).optional(),
                     s3TableUseInvalidColumns: zod.union([zod.boolean(), zod.null()]).optional(),
+                    sessionFilterGlobalJoin: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Filter the sessions join of an events query by its session property filters and run it as a `GLOBAL LEFT JOIN`, so the sessions are read once instead of once per events shard. Applies only when every session filter is an equality or `IN` against non-empty strings, which are false for an event with no matching session.'
+                        ),
                     sessionIdPushdown: zod
                         .union([zod.boolean(), zod.null()])
                         .optional()
@@ -4263,6 +4293,12 @@ export const FileDownloadBatchExportsCreateBody = /* @__PURE__ */ zod.union([
                         .optional(),
                     pushDownPredicates: zod.union([zod.boolean(), zod.null()]).optional(),
                     s3TableUseInvalidColumns: zod.union([zod.boolean(), zod.null()]).optional(),
+                    sessionFilterGlobalJoin: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Filter the sessions join of an events query by its session property filters and run it as a `GLOBAL LEFT JOIN`, so the sessions are read once instead of once per events shard. Applies only when every session filter is an equality or `IN` against non-empty strings, which are false for an event with no matching session.'
+                        ),
                     sessionIdPushdown: zod
                         .union([zod.boolean(), zod.null()])
                         .optional()
@@ -4533,6 +4569,12 @@ export const FileDownloadBatchExportsCountRowsCreateBody = /* @__PURE__ */ zod
                 propertyGroupsMode: zod.union([zod.enum(['enabled', 'disabled', 'optimized']), zod.null()]).optional(),
                 pushDownPredicates: zod.union([zod.boolean(), zod.null()]).optional(),
                 s3TableUseInvalidColumns: zod.union([zod.boolean(), zod.null()]).optional(),
+                sessionFilterGlobalJoin: zod
+                    .union([zod.boolean(), zod.null()])
+                    .optional()
+                    .describe(
+                        'Filter the sessions join of an events query by its session property filters and run it as a `GLOBAL LEFT JOIN`, so the sessions are read once instead of once per events shard. Applies only when every session filter is an equality or `IN` against non-empty strings, which are false for an event with no matching session.'
+                    ),
                 sessionIdPushdown: zod
                     .union([zod.boolean(), zod.null()])
                     .optional()

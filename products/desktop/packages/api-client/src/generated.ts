@@ -227,6 +227,7 @@ export namespace Schemas {
         propertyGroupsMode: PropertyGroupsMode | null;
         pushDownPredicates: boolean | null;
         s3TableUseInvalidColumns: boolean | null;
+        sessionFilterGlobalJoin: boolean | null;
         sessionIdPushdown: boolean | null;
         sessionPropertyPreAggregation: boolean | null;
         sessionTableVersion: SessionTableVersion | null;
