@@ -55,7 +55,7 @@ Only the `nn_with_prio_ml_features_v1` experiment reads them, and it leaves out 
 
 - The list lengths are computed in Postgres, so the job never loads chart or metric definitions. A stored value that is not a list counts as 0. A null counter is stored as 0.
 - `already_addressed` comes from the same actionability artefact as `actionability`, with the same cutoff rules. It is null when that artefact is missing, was edited after the cutoff, or holds no boolean.
-- Partitions written before these columns landed do not have them. A missing column means "not recorded", not zero, so a reader must not fill it with 0. They have no backfill, because a backfill would record the report as it is today.
+- Partitions written before these columns landed do not have them. A missing column means "not recorded", not zero, so a reader must not fill it with 0. They have no backfill, because a backfill would record the report as it is today. The opt-in [ML feature backfill](#ml-feature-backfill) writes a separate object with each value's provenance and leaves these partitions alone.
 - The columns do not bump `FEATURE_SCHEMA_VERSION`. A bump sets off the labels refresh sensor, which rewrites every labels partition in the lookback, and no label changed. A reader tells the partitions apart by the presence of the columns.
 
 `inbox_report_title_embeddings` is a report-grain leaf. It snapshots the `title_v1` rendering the same way `inbox_report_embeddings` snapshots `title_summary_v1`, and nothing joins it. No model family trains on it since `title_embeddings` was retired; the snapshot stays for offline reads. It carries its own `embedding_inserted_at`, because a summary-only edit re-emits only `title_summary_v1`. Its dependency on `inbox_report_model_data` is for ordering, not data — it holds a vector per live report, so it runs last and alone in the run pod. That edge has a cost: a failed join, or a run that hits the job's runtime cap, skips the title snapshot for the day, and the schedule never revisits a day. Repair such a gap with a single-asset backfill while the source rows are inside their 3-month TTL.
@@ -220,6 +220,43 @@ It holds the report facts the scoring sweep recorded when it scored each report 
 - **Missing is not zero.** A report scored only after D ended, or created before the facts were first recorded, has no row. There is no backfill from the state snapshot. History starts on the day the sweep began recording facts.
 - The `report_scored_facts` side input (`training/side_inputs.py`) reads the union of the partitions in the training lookback, with `scored_at` as its `as_of_column`, so a moment never reads a fact recorded after it. No feature set reads it yet.
 - **It is a leaf.** Nothing joins it, so a failure here does not fail the training table. A day of newborns is small, so it has no ordering dependency and no heavy tag. The metadata `newborn_coverage` is the share of the day's consenting newborns that got a row.
+
+### ML feature backfill
+
+`inbox_report_feature_backfill` (`dataset/feature_backfill.py`) is an opt-in, report-grain leaf with its own `FEATURE_BACKFILL_SCHEMA_VERSION`.
+It gives the ML-feature groups that older partitions never recorded a value for each report born on the partition day, and says where each value came from.
+It never writes to `inbox_report_state` or `inbox_report_scored_facts`, and nothing reads it yet.
+
+```text
+s3://<bucket>/<prefix>/inbox_report_feature_backfill/v1/batch=<batch_id>/dt=YYYY-MM-DD/part-00000.parquet
+```
+
+Which groups it covers:
+
+- **Reconstructed:** the content group (`chart_count`, `metric_count`, `suggested_prompt_count`, `tag_count`, `user_authored`) and `already_addressed`.
+- **Not reconstructed, because they already have history:** length, signal count and the priority and actionability judgments (every birth-day `inbox_report_state` snapshot), the sources (the `inbox_signal_embeddings` log), and the creation time (never changes).
+
+Each group carries `<group>_provenance`, `<group>_observed_at` (the moment the value was true in its source) and `<group>_source` (the object or table it came from). A row also carries `batch_id`, `reconstructed_at`, `backfill_schema_version` and `facts_schema_version`. Provenance, best first:
+
+| Provenance | Content group | `already_addressed` |
+|---|---|---|
+| `scoring_time` | the dt=D `inbox_report_scored_facts` row, when it holds every content column | the same row, when the flag is a boolean |
+| `historical` | the dt=D state row of a forward run, read within `HISTORICAL_LAG_LIMIT` of the cutoff | the actionability artefact at the dt=D cutoff, under the rules of `judgment_artefacts_as_of` |
+| `later_snapshot` | the earliest later state row that recorded the columns, up to `LATER_SNAPSHOT_MAX_DAYS`, or a dt=D row that a backfill wrote | not used |
+| `current_approximation` | the report row as it is when the batch is built | the latest actionability artefact when the batch is built, edits included |
+| `missing` | no source, for example a deleted report: every value is null | no usable artefact: null |
+
+- **Missing is not zero.** A real empty list is a known 0, counted in Postgres as in the state snapshot. A deleted report, or a source row that names another team than the spine, gives no value.
+- **`current_approximation` can leak the label.** The report can have gained a chart or a new judgment after its outcome, so a model fit on these values can look better offline than it serves. Keep it out of the main read, and report a sensitivity run without it.
+- **Spine and filters.** The rows are the dt=D `inbox_report_state` rows created on D, of a team in `training_consent_team_ids()` now, snapshotted in this region. The metadata counts `excluded_no_training_consent_reports` and `excluded_other_region_reports`. A missing dt=D state object fails the partition.
+- **Frozen batches.** A day already in the batch is never read or written again, so a repeat cannot pick up newer current state. A refresh is a new `batch_id`. A day written under another schema version fails the partition; start a new batch.
+- **Dry run by default.** The run config is `batch_id` (a lowercase slug, required) and `dry_run` (default `true`). A dry run builds every row and records the coverage, and writes nothing.
+- **Coverage.** Each partition records `<group>_<provenance>` counts for every pair, `rows` and `later_snapshot_days_read`. The partition is the birth day, so the materializations show coverage by birth date.
+- **Cost.** One partition reads the dt=D state and scored facts objects, at most `LATER_SNAPSHOT_MAX_DAYS` later state objects (the walk stops once every report has a value), and the day's reports and judgment artefacts from Postgres in chunks. It takes the heavy op tag and the `inbox_ranking_etl` pool, so it waits for the dataset job's steps.
+
+To run it, launch `inbox_ranking_feature_backfill_job` from the Dagster UI: no schedule runs it. Select the birth days, set the config, and run a dry run first. A failed day can be re-run alone, and the days already written are skipped, so a partial backfill resumes. To remove a batch, delete its `batch=<batch_id>/` prefix: no other object depends on it.
+
+A training reader selects one `batch_id` and joins it to the birth-grain examples on `report_id`. It takes a group's value only for the provenances it accepts, and it keeps the example's own state value where the snapshot recorded one. Nothing has to rebuild first: the examples and the existing partitions do not change.
 
 ## The training dag
 
@@ -627,6 +664,7 @@ The dags train only on reports from organizations whose `Organization.is_ai_trai
 - `inbox_report_state` keeps only the spine reports of those teams. A label event that names another team's report does not pull it back in. That report's labels still land in `inbox_report_model_data` as a label-only row, which training skips.
 - `inbox_report_embeddings`, `inbox_report_title_embeddings`, `inbox_signal_embeddings`, `inbox_activity_summary_vectors` and `inbox_activity_summary_profile_vectors` read only those teams, through `team_id IN (...)` in the ClickHouse query.
 - `inbox_report_scored_facts` writes a row only for a report of those teams, and records `excluded_no_training_consent_reports`.
+- `inbox_report_feature_backfill` writes a row only for a report of those teams, as of its run, and records `excluded_no_training_consent_reports`. A batch written before an opt-out keeps its rows, so a reader filters them again.
 - The `nn` examples asset drops every state row whose `report_team_id` is not in the current set, before it builds examples. The lookback window reaches partitions written before an organization opted out, so this filter is what makes an opt-out take effect on the next training run.
 
 The filter follows the current setting, so an organization that opts back in is trained on again.
