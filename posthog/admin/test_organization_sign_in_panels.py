@@ -218,22 +218,16 @@ class TestChangeMemberEmails(BaseTest):
         assert self.member.email == "i@new.example.com"
         assert grace.email == "grace@old.example.com"
 
-    def test_skips_a_member_on_a_domain_that_provisions_accounts_automatically(self, _send: MagicMock) -> None:
-        OrganizationDomain.objects.create(
-            organization=self.organization,
-            domain="jit.example.com",
-            verified_at=timezone.now(),
-            jit_provisioning_enabled=True,
-        )
-        grace = self._create_user("grace@jit.example.com")
+    @parameterized.expand([("provisioning_on", True), ("provisioning_off", False)])
+    def test_preview_warns_when_the_old_domain_provisions_accounts_automatically(
+        self, _send: MagicMock, _name: str, provisioning: bool
+    ) -> None:
+        OrganizationDomain.objects.filter(domain="old.example.com").update(jit_provisioning_enabled=provisioning)
 
-        response = self._change("ada@old.example.com\ngrace@jit.example.com")
+        response = self._preview("ada@old.example.com")
 
-        assert "Automatic provisioning is on for jit.example.com" in response.content.decode()
-        grace.refresh_from_db()
-        assert grace.email == "grace@jit.example.com"
-        self.member.refresh_from_db()
-        assert self.member.email == "ada@new.example.com"
+        assert response.status_code == 200
+        assert ("Automatic provisioning is on for old.example.com" in response.content.decode()) == provisioning
 
     def test_an_email_that_differs_only_by_case_is_not_a_change(self, _send: MagicMock) -> None:
         grace = self._create_user("grace@new.example.com")

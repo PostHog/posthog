@@ -11,6 +11,7 @@ from posthog.admin.console.records import RECORD_TYPES
 from posthog.admin.console.registry import console
 from posthog.admin.console.team_panels import DEV_EXPERIENCE
 from posthog.admin.console.tools import Cell, Notice, Page, Row, Table
+from posthog.helpers.email_utils import email_domain
 from posthog.models.organization import Organization
 from posthog.models.user import User
 from posthog.utils import pluralize
@@ -148,6 +149,19 @@ def preview_member_email_changes(request: HttpRequest, obj: Model, form: forms.F
                 text=(
                     "SCIM is on for this organization. The identity provider can change an email back on its "
                     "next sync, so check that it no longer sends the old address."
+                ),
+                tone=Tone.WARNING,
+            )
+        )
+    provisioning = MemberEmailMigration.provisioning_domains(obj)
+    old_domains = sorted({(email_domain(change.current_email) or "").lower() for change in changing} & provisioning)
+    if old_domains:
+        blocks.append(
+            Notice(
+                text=(
+                    f"Automatic provisioning is on for {', '.join(old_domains)}. The change removes each member's "
+                    "SSO links, so a later SSO sign-in with the old email creates a new, empty account. "
+                    "Turn automatic provisioning off for that domain, or make sure members stop using the old sign-in."
                 ),
                 tone=Tone.WARNING,
             )
