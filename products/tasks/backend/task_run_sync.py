@@ -46,6 +46,7 @@ REASONS: dict[str, frozenset[str | None]] = {
 RUN_SYNC_ACTOR = "task_run"
 BACKFILL_ACTOR = "backfill"
 STATUS_REPAIR_ACTOR = "status_repair"
+REOPEN_ACTOR = "reopen"
 SHADOW_ACTOR_PREFIX = "shadow:"
 DONE_FLAG = "tasks-task-done"
 DONE_MODE_CACHE_SECONDS = 60
@@ -373,6 +374,16 @@ def _keeps_stored_done(stored: StoredTaskStatus) -> bool:
         and stored.value.status == Task.Status.DONE
         and keeps_done(done_mode(stored.profile, stored.team_id))
     )
+
+
+def reopen_done_task(task_id: UUID | str) -> bool:
+    with transaction.atomic():
+        stored = _stored_task_status(task_id, lock=True)
+        if stored is None or stored.value is None or stored.value.status != Task.Status.DONE:
+            return False
+        run = _latest_run(task_id)
+        _write_status(stored, task_id, derive_task_status(run), run_id=run.id if run else None, changed_by=REOPEN_ACTOR)
+    return True
 
 
 def sync_task_status(task_id: UUID | str, *, changed_by: str = RUN_SYNC_ACTOR) -> bool:
