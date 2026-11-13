@@ -7552,10 +7552,6 @@ export namespace Schemas {
          */
         label: string;
         source?: (string | null) | undefined;
-        /**
-         * The answer: true for yes, false for no, null when the tagger was unsure.
-         */
-        value: boolean | null;
     };
     export type ErrorTrackingIssue = {
         aggregations?: (ErrorTrackingIssueAggregations | null) | undefined;
@@ -8860,16 +8856,15 @@ export namespace Schemas {
         version?: (number | null) | undefined;
         webQueryModifiers?: (WebAnalyticsQueryModifiers | null) | undefined;
     };
-    export type ErrorTrackingIssueTagFilterValue = "yes" | "no" | "unknown";
     export type ErrorTrackingIssueTagFilter = {
+        /**
+         * True matches the issues the tag is applied to. False matches every other issue.
+         */
+        applied: boolean;
         /**
          * Key of the tag definition.
          */
         key: string;
-        /**
-         * The answer to match. `unknown` matches issues where the tagger was unsure or never answered.
-         */
-        value: ErrorTrackingIssueTagFilterValue;
     };
     export type OrderDirection2 = "ASC" | "DESC";
     export type ErrorTrackingPendingFingerprintIssueStateUpdate = {
@@ -9444,11 +9439,7 @@ export namespace Schemas {
          */
         description: string;
         /**
-         * The answer: true for yes, false for no, null when the tagger was unsure.
-         */
-        value: boolean | null;
-        /**
-         * The tagger that wrote the answer: `jev` for AI, `manual` for a person.
+         * The tagger that applied the tag: `jev` for AI, `manual` for a person.
          */
         source: string;
     };
