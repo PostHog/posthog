@@ -33,6 +33,14 @@ class TrinoQueryWrapperLowerer(CloningVisitor):
 
     def visit_select_query(self, node: ast.SelectQuery) -> ast.SelectQuery:
         lowered = super().visit_select_query(node)
+        if self._orders_distinct_by_unselected_expression(lowered):
+            # ClickHouse sorts each distinct row by the values of one of its source rows. Keeping the first source
+            # row in that order, with the LIMIT BY lowering, is one such choice that Trino accepts.
+            lowered.distinct = False
+            lowered.limit_by = ast.LimitByExpr(
+                n=ast.Constant(value=1),
+                exprs=[ast.PositionalRef(index=index) for index in range(1, len(lowered.select) + 1)],
+            )
         if lowered.limit_by is not None:
             finder = _WindowFunctionFinder()
             for expr in lowered.limit_by.exprs:
@@ -48,6 +56,16 @@ class TrinoQueryWrapperLowerer(CloningVisitor):
         if lowered.limit_percent:
             lowered = self._lower_limit_percent(lowered)
         return lowered
+
+    def _orders_distinct_by_unselected_expression(self, node: ast.SelectQuery) -> bool:
+        if not node.distinct or not node.order_by or node.limit_by is not None:
+            return False
+        projections = {expression_key(self._input_expression(expr, node.select)) for expr in node.select}
+        return any(
+            positional_index(order.expr) is None
+            and expression_key(self._input_expression(order.expr, node.select)) not in projections
+            for order in node.order_by
+        )
 
     def _lower_limit_percent(self, node: ast.SelectQuery) -> ast.SelectQuery:
         if (

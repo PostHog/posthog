@@ -870,6 +870,12 @@ def test_regex_character_classes_keep_clickhouse_meaning(pattern: str, expected:
             "TRY_CAST(truncate(",
         ),
         ("SELECT toInt(toDecimal(id, 2)) FROM users", "TRY_CAST(truncate(CAST(", "__hogql_accurate_cast_value"),
+        # Trino rejects SELECT DISTINCT ordered by an unselected expression, so each distinct row keeps its first match.
+        (
+            "SELECT DISTINCT user_id FROM users ORDER BY created_at DESC",
+            'row_number() OVER (PARTITION BY "users"."user_id" ORDER BY "users"."created_at" DESC)',
+            "DISTINCT",
+        ),
         # Trino rejects an aggregate inside a lambda, so the aggregate is computed outside and passed in.
         (
             "SELECT groupArray(id) AS ids, arrayMap(i -> ids[i], range(1, 3)) AS r FROM users",
@@ -1956,6 +1962,17 @@ def test_percentage_limit_rounds_up(percentage: int, offset: int, expected: list
         (
             "SELECT 1 AS first, 2 AS second UNION ALL BY NAME SELECT 2 AS second, 1 AS first",
             [(1, 2), (1, 2)],
+        ),
+        (
+            "WITH rows AS (SELECT 3 AS id, 'a' AS name UNION ALL SELECT 1, 'b' UNION ALL SELECT 3, 'a' "
+            "UNION ALL SELECT 2, 'c') SELECT DISTINCT name AS label FROM rows ORDER BY id DESC LIMIT 2",
+            [("a",), ("c",)],
+        ),
+        (
+            "WITH rows AS (SELECT 1 AS id, 'a' AS name UNION ALL SELECT 2, 'a' UNION ALL SELECT 3, 'b') "
+            "SELECT DISTINCT name, row_number() OVER (ORDER BY id) AS position FROM rows QUALIFY position > 1 "
+            "ORDER BY id DESC",
+            [("b", 3), ("a", 2)],
         ),
     ],
 )
@@ -3280,18 +3297,8 @@ def test_wrapper_sort_projections_preserve_output(query: str, snapshot: Snapshot
             "SELECT user_id FROM users ORDER BY count() + 1 LIMIT 1 BY user_id",
             "TRINO_WRAPPER_ORDER_NOT_PROJECTED",
         ),
-        (
-            "SELECT DISTINCT user_id, row_number() OVER (ORDER BY user_id) AS position "
-            "FROM users QUALIFY position = 1 ORDER BY created_at",
-            "TRINO_WRAPPER_ORDER_NOT_PROJECTED",
-        ),
         ("SELECT user_id FROM users ORDER BY 2 LIMIT 1 BY user_id", "TRINO_POSITIONAL_REFERENCE_INVALID"),
         ("SELECT user_id FROM users LIMIT 1 BY 2", "TRINO_POSITIONAL_REFERENCE_INVALID"),
-        (
-            "SELECT DISTINCT user_id, user_id = toString(1) AS bucket, row_number() OVER (ORDER BY user_id) AS rn "
-            "FROM users QUALIFY rn > 0 ORDER BY user_id = toString(true)",
-            "TRINO_WRAPPER_ORDER_NOT_PROJECTED",
-        ),
     ],
 )
 def test_wrapper_rejects_unsafe_sort_or_partition(query: str, feature_code: str) -> None:
