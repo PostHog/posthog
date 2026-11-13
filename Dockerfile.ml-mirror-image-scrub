@@ -38,9 +38,6 @@ FROM node:26.13.1-bookworm-slim
 WORKDIR /code/app
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
-ARG COMMIT_HASH
-RUN echo ${COMMIT_HASH:-unknown} > /code/commit.txt
-
 # Production deps only (sharp/libvips and the ML natives ship prebuilt; prom-client/tsx are pure JS).
 # Only this package is copied (no root pnpm-workspace.yaml), so pnpm treats this dir as its own
 # project root.
@@ -101,5 +98,8 @@ RUN --network=none su posthog -c "node_modules/.bin/tsx src/smoke.ts"
 USER posthog
 
 ENV NODE_ENV=production
+
+ARG COMMIT_HASH
+RUN echo ${COMMIT_HASH:-unknown} > /code/commit.txt
 
 CMD ["node_modules/.bin/tsx", "src/main.ts"]
