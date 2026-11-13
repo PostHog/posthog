@@ -26,7 +26,11 @@ from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.models.provider_import_run import ProviderImportRun
 from products.messaging.backend.models.transactional_email_key import TransactionalEmailKey
 from products.messaging.backend.provider_imports import runs
-from products.messaging.backend.provider_imports.base import ImportCredentialsInvalid, ImportProviderUnavailable
+from products.messaging.backend.provider_imports.base import (
+    ImportCredentialsInvalid,
+    ImportProviderUnavailable,
+    ImportTooLarge,
+)
 from products.messaging.backend.provider_imports.sendgrid import (
     SENDERS_NEED_FULL_ACCESS,
     SendGridImportProvider,
@@ -305,6 +309,12 @@ class TestSendGridImport(BaseTest):
 
         with self.assertRaisesRegex(ImportCredentialsInvalid, "/v3/templates"):
             runs.run_step(self.team.id, run.id, "templates", attempt=1)
+
+    def test_a_group_too_large_for_one_import_stops_the_step_without_retrying(self) -> None:
+        run = self._start(["group_unsubscribes"])
+
+        with patch(f"{_CLIENT}.MAX_RESPONSE_BYTES", 10), self.assertRaises(ImportTooLarge):
+            runs.run_step(self.team.id, run.id, "group_unsubscribes", attempt=1)
 
     def test_a_passing_server_error_is_retried_inside_the_step(self) -> None:
         self.state.failures["/v3/suppression/bounces"] = [503]
