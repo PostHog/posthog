@@ -199,7 +199,9 @@ export function HighlightFeedGroupToggle(props: HighlightFeedGroupProps): JSX.El
                     <IconChevronDown className={open ? 'rotate-180 transition-transform' : 'transition-transform'} />
                 }
                 aria-expanded={open}
-                className="relative z-10 ml-auto"
+                // A three-across card is narrow, so the count shortens rather than pushing past the card's edge.
+                truncate
+                className="relative z-10 ml-auto min-w-0"
                 data-attr="vision-highlight-feed-group-toggle"
             >
                 {similarSessionsLabel(similarCount)}

@@ -17,10 +17,14 @@ import { FILLER_REASON_KINDS, HighlightFeedRow } from './HighlightFeedCard'
 import { HighlightFeedEmptyState } from './HighlightFeedEmptyState'
 import { HighlightFeedHeader } from './HighlightFeedHeader'
 
-/** Columns follow the scene's width, so cards stay a similar size and a wide window fills with them rather than empty margin. */
-const FEED_GRID = 'grid grid-cols-1 items-start gap-4 @[72rem]:grid-cols-2 @[120rem]:grid-cols-3 @[176rem]:grid-cols-4'
+/**
+ * Columns follow the scene's width, so cards stay a similar size and a wide window fills with them rather than empty margin.
+ * A laptop-width scene fits three cards, so a reader sees more than two sessions without scrolling.
+ */
+const FEED_GRID =
+    'grid grid-cols-1 items-start gap-4 @[44rem]:grid-cols-2 @[64rem]:grid-cols-3 @[100rem]:grid-cols-4 @[136rem]:grid-cols-5'
 /** A single column stays card-sized rather than stretching one poster across the whole scene. */
-const FEED_WIDTH = 'mx-auto w-full max-w-3xl @[72rem]:max-w-none'
+const FEED_WIDTH = 'mx-auto w-full max-w-3xl @[44rem]:max-w-none'
 
 const POSTER_WAIT_CAP_MS = 10000
 const SKIP_POSTER_WAIT = inStorybookTestRunner()
