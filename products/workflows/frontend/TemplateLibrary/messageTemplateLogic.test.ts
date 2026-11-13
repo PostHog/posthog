@@ -1,4 +1,4 @@
-import { waitFor } from '@testing-library/react'
+import { fireEvent, screen, waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
@@ -474,6 +474,17 @@ describe('messageTemplateLogic', () => {
             type: 'message_template',
             ref: 'existing-id',
         })
+        const treeDeleteBoundary = (deletedFileIds: string[]): Parameters<typeof useMocks>[0] => ({
+            post: {
+                '/api/projects/:team_id/file_system/:id/count/': { count: 1, entries: [], has_more: false },
+            },
+            delete: {
+                '/api/projects/:team_id/file_system/:id/': ({ params }) => {
+                    deletedFileIds.push(String(params.id))
+                    return [200, { deleted: [] }]
+                },
+            },
+        })
 
         beforeEach(async () => {
             useMocks({
@@ -634,6 +645,7 @@ describe('messageTemplateLogic', () => {
                 const treeHeld = new Promise<void>((resolve) => {
                     releaseTree = resolve
                 })
+                const deletedFileIds: string[] = []
                 useMocks({
                     get: {
                         '/api/environments/:team_id/file_system/': async () => {
@@ -641,6 +653,7 @@ describe('messageTemplateLogic', () => {
                             return [200, { results: [treeEntry('Renamed')], count: 1 }]
                         },
                     },
+                    ...treeDeleteBoundary(deletedFileIds),
                 })
 
                 await expectLogic(logic, () => {
@@ -649,13 +662,13 @@ describe('messageTemplateLogic', () => {
                 if (via === 'editor') {
                     logic.actions.deleteTemplate()
                 } else if (via === 'tree entry') {
-                    projectTreeDataLogic.actions.deleteSavedItem(treeEntry('Existing') as any)
+                    projectTreeDataLogic.actions.deleteItem(treeEntry('Existing') as any, 'project-tree')
                 } else {
-                    projectTreeDataLogic.actions.deleteSavedItem({
-                        id: 'folder-1',
-                        path: 'Unfiled/Email templates',
-                        type: 'folder',
-                    } as any)
+                    projectTreeDataLogic.actions.deleteItem(
+                        { id: 'folder-1', path: 'Unfiled/Email templates', type: 'folder' } as any,
+                        'project-tree'
+                    )
+                    fireEvent.click(await screen.findByText('Delete folder'))
                 }
                 await waitFor(() =>
                     expect(projectTreeDataLogic.values.itemsByRef['message_template::existing-id']).toBeUndefined()
@@ -663,8 +676,56 @@ describe('messageTemplateLogic', () => {
                 releaseTree()
                 await expectLogic(projectTreeDataLogic).toFinishAllListeners()
 
-                expect(projectTreeDataLogic.values.itemsByRef['message_template::existing-id']).toBeUndefined()
+                expect({
+                    inTree: projectTreeDataLogic.values.itemsByRef['message_template::existing-id'],
+                    deletedFileIds,
+                }).toEqual({
+                    inTree: undefined,
+                    deletedFileIds: { editor: [], 'tree entry': ['file-1'], 'tree folder': ['folder-1'] }[via],
+                })
             }
         )
+
+        it('keeps the late refresh of a placement that survives a tree delete of another placement', async () => {
+            const sharedEntry = (name: string): Record<string, unknown> => ({
+                ...treeEntry(name),
+                id: 'file-2',
+                path: `Shared/${name}`,
+            })
+            projectTreeDataLogic.actions.addLoadedResults({
+                results: [treeEntry('Existing'), sharedEntry('Existing')],
+            } as any)
+            let releaseTree: () => void = () => {}
+            const treeHeld = new Promise<void>((resolve) => {
+                releaseTree = resolve
+            })
+            const deletedFileIds: string[] = []
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/file_system/': async () => {
+                        await treeHeld
+                        return [200, { results: [treeEntry('Renamed'), sharedEntry('Renamed')], count: 2 }]
+                    },
+                },
+                ...treeDeleteBoundary(deletedFileIds),
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.saveTemplate({ id: 'existing-id', name: 'Renamed' })
+            }).toDispatchActions(['saveTemplateSuccess'])
+            projectTreeDataLogic.actions.deleteItem(treeEntry('Existing') as any, 'project-tree')
+            await waitFor(() =>
+                expect(
+                    projectTreeDataLogic.values.folders['Unfiled/Email templates']?.map((entry) => entry.id)
+                ).toEqual([])
+            )
+            releaseTree()
+            await expectLogic(projectTreeDataLogic).toFinishAllListeners()
+
+            expect({
+                unfiled: projectTreeDataLogic.values.folders['Unfiled/Email templates']?.map((entry) => entry.path),
+                shared: projectTreeDataLogic.values.folders['Shared']?.map((entry) => entry.path),
+            }).toEqual({ unfiled: [], shared: ['Shared/Renamed'] })
+        })
     })
 })

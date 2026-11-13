@@ -1732,7 +1732,7 @@ def _create_slack_user_integration(
             "slack_email_at_link": slack_email_at_link,
             "linked_at": int(time.time()),
         },
-        sensitive_config={},
+        sensitive_config={"user_access_token": "xoxp-test-token"},
     )
 
 
@@ -1793,10 +1793,15 @@ class TestUserIntegrationSlackEndpoints(APIBaseTest):
         response = self.client.get("/api/users/@me/integrations/?kind=slack")
         self.assertEqual(response.json()["results"], [])
 
-    def test_slack_destroy_removes_row(self):
+    @parameterized.expand([("slack_revokes", None), ("slack_is_down", ConnectionError("slack is down"))])
+    def test_slack_destroy_revokes_the_token_and_removes_row(self, _name: str, revoke_error: Exception | None):
         _create_slack_user_integration(self.user, slack_user_id="U999")
-        response = self.client.delete("/api/users/@me/integrations/slack/U999/")
+        with patch("posthog.models.user_integration.SlackWebClient") as slack_client:
+            slack_client.return_value.auth_revoke.side_effect = revoke_error
+            response = self.client.delete("/api/users/@me/integrations/slack/U999/")
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertEqual(slack_client.call_args.args, ("xoxp-test-token",))
+        slack_client.return_value.auth_revoke.assert_called_once()
         self.assertFalse(
             UserIntegration.objects.filter(
                 user=self.user, kind=UserIntegration.IntegrationKind.SLACK, integration_id="U999"
