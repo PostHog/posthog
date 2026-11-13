@@ -309,7 +309,7 @@ const CLUSTER_SNAPSHOT = {
         distance_threshold: 0.35,
         embedding_model: 'text-embedding-3-small',
         n_intents: 412,
-        n_clusters: 3,
+        n_clusters: 4,
     },
     clusters: [
         {
@@ -404,7 +404,48 @@ const CLUSTER_SNAPSHOT = {
             ],
             self_retries: [{ tool: 'read-data-schema', count: 4 }],
         },
+        {
+            // Below the five-session floor: listed and ranked, but left out of the scorecards.
+            id: 4,
+            label: 'Export a cohort to a CSV file',
+            intent_count: 3,
+            session_count: 3,
+            call_count: 40,
+            error_count: 6,
+            error_rate_pct: 15.0,
+            routing_entropy: 0.0,
+            tool_distribution: [{ tool: 'execute-sql', count: 40, pct: 100, errors: 6, error_rate_pct: 15.0 }],
+            sample_intents: ['Export the churned users cohort to CSV.'],
+            journey: null,
+            switches: [],
+            self_retries: [],
+        },
     ],
+    long_tail: {
+        intent_count: 37,
+        session_count: 41,
+        call_count: 260,
+        error_count: 9,
+        error_rate_pct: 3.5,
+        sample_intents: ['Rename the onboarding dashboard.'],
+    },
+    recurring: [
+        {
+            intent_text: 'Nightly: summarize yesterday’s signups and post to the growth channel.',
+            session_count: 30,
+            call_count: 240,
+            error_count: 0,
+            error_rate_pct: 0,
+        },
+        {
+            intent_text: 'Hourly health check of the ingestion lag insight.',
+            session_count: 24,
+            call_count: 96,
+            error_count: 12,
+            error_rate_pct: 12.5,
+        },
+    ],
+    intent_text_redacted: false,
     tools: [
         {
             tool: 'execute-sql',
@@ -1110,6 +1151,24 @@ export const IntentClustering: Story = {
     parameters: {
         pageUrl: urls.mcpAnalyticsIntentClustering(),
         featureFlags: [FEATURE_FLAGS.MCP_ANALYTICS_INTENT_ROUTING],
+    },
+}
+
+// Property access control hides $mcp_intent, so the API blanks every intent string.
+const REDACTED_CLUSTER_SNAPSHOT = {
+    ...CLUSTER_SNAPSHOT,
+    intent_text_redacted: true,
+    clusters: CLUSTER_SNAPSHOT.clusters.map((c) => ({ ...c, label: '', sample_intents: [] })),
+    recurring: CLUSTER_SNAPSHOT.recurring.map((r) => ({ ...r, intent_text: '' })),
+    long_tail: { ...CLUSTER_SNAPSHOT.long_tail, sample_intents: [] },
+}
+
+export const IntentClusteringRedacted: Story = {
+    parameters: {
+        pageUrl: urls.mcpAnalyticsIntentClustering(),
+        featureFlags: [FEATURE_FLAGS.MCP_ANALYTICS_INTENT_ROUTING],
+        msw: { mocks: { get: { '/api/projects/:team_id/mcp_analytics/intent_clusters/': REDACTED_CLUSTER_SNAPSHOT } } },
+        testOptions: { waitForSelector: '[data-attr=mcp-cluster-row]' },
     },
 }
 

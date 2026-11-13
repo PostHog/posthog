@@ -16,6 +16,7 @@ import type {
     MCPToolPivotApi,
     MCPToolPivotClusterEntryApi,
 } from '../generated/api.schemas'
+import { MIN_KPI_SESSIONS } from './clusterRanking'
 import {
     type ClusterFilter,
     type RouteShape,
@@ -42,7 +43,7 @@ function cluster(id: number, overrides: Partial<MCPIntentClusterApi> = {}): MCPI
         id,
         label: `intent ${id}`,
         intent_count: 1,
-        session_count: 1,
+        session_count: MIN_KPI_SESSIONS,
         call_count: 100 - id,
         error_count: 0,
         error_rate_pct: 0,
@@ -79,6 +80,8 @@ const SPREAD_ID = 3
 const MIXED_ID = 4
 const NO_TOOLS_ID = 5
 const FAILING_ID = 6
+// Concentrated and failing, but below the session floor: the list keeps it, the scorecards don't.
+const SMALL_ID = 7
 
 const SHAPED_CLUSTERS: MCPIntentClusterApi[] = [
     cluster(CONCENTRATED_ID, {
@@ -108,6 +111,12 @@ const SHAPED_CLUSTERS: MCPIntentClusterApi[] = [
     }),
     cluster(NO_TOOLS_ID, { tool_distribution: [] }),
     cluster(FAILING_ID, { tool_distribution: dist([['a', 100]], 30), error_count: 30, error_rate_pct: 30 }),
+    cluster(SMALL_ID, {
+        session_count: MIN_KPI_SESSIONS - 1,
+        tool_distribution: dist([['a', 100]], 10),
+        error_count: 10,
+        error_rate_pct: 10,
+    }),
 ]
 
 const SNAPSHOT: MCPIntentClusterSnapshotApi = {
@@ -206,6 +215,11 @@ describe('mcpClusteringLogic', () => {
 
         expect(counted).toBe(1)
         expect(logic.values.filteredClusters.map((c) => c.id)).toEqual([FAILING_ID])
+    })
+
+    it('keeps clusters below the session floor in the list but out of the scorecards', () => {
+        expect(logic.values.routeShapeCounts.total).toBe(SHAPED_CLUSTERS.length - 1)
+        expect(logic.values.filteredClusters.map((c) => c.id)).toContain(SMALL_ID)
     })
 
     // The counts also have to track the tool search, or a card reports a snapshot-wide

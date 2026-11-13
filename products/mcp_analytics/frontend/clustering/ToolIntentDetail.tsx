@@ -17,6 +17,7 @@ import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { urls } from '~/scenes/urls'
 
 import type { MCPClusterSwitchApi, MCPIntentClusterApi, MCPToolPivotApi } from '../generated/api.schemas'
+import { clusterLabel } from './clusterRanking'
 import { toolClusterRows } from './mcpClusteringLogic'
 
 interface ToolSwitchRow extends MCPClusterSwitchApi {
@@ -33,7 +34,7 @@ function collectSwitches(tool: string, clusters: readonly MCPIntentClusterApi[])
     for (const cluster of clusters) {
         for (const sw of cluster.switches ?? []) {
             if (sw.from_tool === tool || sw.to_tool === tool) {
-                rows.push({ ...sw, clusterLabel: cluster.label })
+                rows.push({ ...sw, clusterLabel: clusterLabel(cluster) })
             }
         }
     }
@@ -134,8 +135,8 @@ export function ToolIntentDetail({
                             <TableRow key={entry.cluster_id}>
                                 <TableCell expand>
                                     <div className="flex flex-col">
-                                        <span className="truncate max-w-[360px]" title={cluster.label}>
-                                            {cluster.label}
+                                        <span className="truncate max-w-[360px]" title={clusterLabel(cluster)}>
+                                            {clusterLabel(cluster)}
                                         </span>
                                         <span className="text-[10px] text-muted">
                                             {entry.rank === 1
