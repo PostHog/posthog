@@ -85,6 +85,7 @@ export const OAuthAuthorizeRedirecting = ({
 export const OAuthAuthorize = (): JSX.Element => {
     const {
         scopeGroups,
+        isStepUp,
         oauthApplication,
         oauthApplicationLoading,
         appName,
@@ -263,7 +264,11 @@ export const OAuthAuthorize = (): JSX.Element => {
                             <span>{appName}</span>
                         </>
                     }
-                    sub={`${appName} is requesting access to your data.`}
+                    sub={
+                        isStepUp
+                            ? `${appName} is requesting more access. What you granted before stays as it is.`
+                            : `${appName} is requesting access to your data.`
+                    }
                     className="mb-2"
                 />
                 {user && (

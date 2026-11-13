@@ -60,7 +60,6 @@ describe('oauthDeviceAuthorizeLogic', () => {
             ],
             false,
         ],
-        ['a step-up', [{ project_id: 42, organization_id: null, scopes: ['openid', 'insight:read'] }], true],
         [
             'a login after a grant in another organization',
             [{ project_id: null, organization_id: 'another-org', scopes: ['openid', 'insight:read'] }],
@@ -86,6 +85,34 @@ describe('oauthDeviceAuthorizeLogic', () => {
             ['insight', 'none'],
         ])
         await expectLogic(logic).toMatchValues({ isStepUp })
+    })
+
+    it('a step-up lists only what it adds and keeps what was granted before', async () => {
+        useGrantMocks({
+            ...GRANT,
+            granted_scopes: [{ project_id: 42, organization_id: null, scopes: ['openid', 'insight:read'] }],
+        })
+        const logic = oauthDeviceAuthorizeLogic()
+        logic.mount()
+        router.actions.push(urls.oauthDeviceAuthorize(), { code: 'bcdf-ghjk' })
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setProjectId(42)
+        logic.actions.setScopeAccess('insight', 'none')
+
+        expect(logic.values.isStepUp).toBe(true)
+        expect(
+            logic.values.scopeGroups.map((group) => [group.label, group.rows.map((row) => [row.key, row.minLevel])])
+        ).toEqual([
+            [
+                'Product analytics',
+                [
+                    ['dashboard', 'none'],
+                    ['insight', 'read'],
+                ],
+            ],
+        ])
+        expect(logic.values.keptScopes).toEqual(['openid', 'dashboard:write', 'insight:read'])
     })
 
     it.each([

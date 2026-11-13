@@ -154,29 +154,42 @@ const IDENTITY_SCOPE_LABELS: Record<string, string> = {
 }
 
 // Display-only: the grant takes identity scopes from the request, never from these rows.
-export function identityScopeRows(scopes: string[], appName: string): OAuthScopeRow[] {
+export function identityScopeRows(scopes: string[], appName: string, grantedScopes: string[] = []): OAuthScopeRow[] {
     return scopes
         .filter((scope) => IDENTITY_SCOPE_LABELS[scope])
-        .map((scope) => ({
-            key: scope,
-            label: IDENTITY_SCOPE_LABELS[scope],
-            info: getScopeDescription(scope),
-            value: 'read',
-            muted: false,
-            disabledReasons: { none: `${appName} needs this to identify you`, write: 'Account details are read-only' },
-            minLevel: 'read',
-            maxLevel: 'read',
-            alreadyGranted: false,
-        }))
+        .map((scope) => {
+            const alreadyGranted = grantedScopes.includes(scope)
+            return {
+                key: scope,
+                label: IDENTITY_SCOPE_LABELS[scope],
+                info: getScopeDescription(scope),
+                value: 'read',
+                muted: false,
+                disabledReasons: {
+                    none: alreadyGranted ? `Already granted to ${appName}` : `${appName} needs this to identify you`,
+                    write: 'Account details are read-only',
+                },
+                minLevel: 'read',
+                maxLevel: 'read',
+                alreadyGranted,
+            }
+        })
 }
 
+const addsAccess = (row: OAuthScopeRow): boolean => !row.alreadyGranted || row.minLevel !== row.maxLevel
+
+// On a step-up the list shows only what the request adds. A row granted before at the requested level
+// stays in the grant and leaves the list. A request that adds nothing lists every row.
 export function oauthScopeGroups(resourceRows: OAuthScopeRow[], identityRows: OAuthScopeRow[]): OAuthScopeGroup[] {
-    const wildcardRows = resourceRows.filter((row) => row.key === '*')
+    const allRows = [...identityRows, ...resourceRows]
+    const rows = allRows.some(addsAccess) ? allRows.filter(addsAccess) : allRows
     const identityKeys = new Set(identityRows.map((row) => row.key))
+    const wildcardRows = rows.filter((row) => row.key === '*')
     return [
         ...(wildcardRows.length > 0 ? [{ label: WILDCARD_GROUP_LABEL, rows: wildcardRows }] : []),
-        ...groupScopeRows([...identityRows, ...resourceRows.filter((row) => row.key !== '*')], (row) =>
-            getScopeGroupLabel(identityKeys.has(row.key) ? 'user' : row.key)
+        ...groupScopeRows(
+            rows.filter((row) => row.key !== '*'),
+            (row) => getScopeGroupLabel(identityKeys.has(row.key) ? 'user' : row.key)
         ),
     ]
 }

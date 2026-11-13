@@ -247,10 +247,12 @@ describe('oauthAuthorizeLogic', () => {
         expect(logic.values.effectiveScopes).toHaveLength(3)
     })
 
-    it('locks scopes granted before, labels them, and keeps them in the grant under list-wide picks', () => {
+    it('lists only what a step-up adds, and keeps what was granted before in the grant', () => {
         logic.actions.setScopes(['openid', 'insight:write', 'comment:write'])
         logic.actions.setAlreadyGrantedScopes(['openid', 'insight:write'])
         setAllScopeAccess('none')
+
+        expect(logic.values.scopeGroups.flatMap((group) => group.rows.map((row) => row.key))).toEqual(['comment'])
 
         expect(logic.values.scopeRows.find((r) => r.key === 'insight')).toMatchObject({
             minLevel: 'write',

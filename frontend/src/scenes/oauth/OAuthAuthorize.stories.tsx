@@ -35,11 +35,16 @@ function withOAuthApplication(overrides: Record<string, unknown>): Decorator {
 
 // Writes the scope resolution the server would have sent for the story's `oauthRequest`, before the scene mounts.
 const withScopeResolution: Decorator = function ScopeResolutionDecorator(Story, { parameters }): JSX.Element {
-    const { scope, resolvedScopes } = (parameters.oauthRequest ?? {}) as { scope?: string; resolvedScopes?: string[] }
+    const { scope, resolvedScopes, alreadyGrantedScopes } = (parameters.oauthRequest ?? {}) as {
+        scope?: string
+        resolvedScopes?: string[]
+        alreadyGrantedScopes?: string[]
+    }
     useAppContextOverride(['oauth_scope_resolution'], (appContext) => {
         appContext.oauth_scope_resolution = {
             scopes: resolvedScopes ?? (scope ? scope.split(' ') : []),
             was_defaulted: !scope,
+            already_granted_scopes: alreadyGrantedScopes ?? [],
         }
     })
     return <Story />
@@ -128,6 +133,20 @@ export const ManyPermissions: Story = {
                 'event_definition:write error_tracking:read logs:read'
         ),
         testOptions: { viewportWidths: ['narrow', 'wide'] },
+    },
+}
+
+// Insight and the identity scopes were granted before, so they leave the list. Dashboard was granted at
+// read, so its row stays with read locked and write left to pick.
+export const StepUp: Story = {
+    decorators: [withOAuthApplication({ required_scopes: [] })],
+    render: () => <App />,
+    parameters: {
+        ...authorizeParameters('openid email insight:read dashboard:write feature_flag:write'),
+        oauthRequest: {
+            scope: 'openid email insight:read dashboard:write feature_flag:write',
+            alreadyGrantedScopes: ['openid', 'email', 'insight:read', 'dashboard:read'],
+        },
     },
 }
 

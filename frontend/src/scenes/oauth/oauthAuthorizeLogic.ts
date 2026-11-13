@@ -161,6 +161,7 @@ export interface oauthAuthorizeLogicValues {
     isOauthAuthorizationSubmitting: boolean
     isOauthAuthorizationValid: boolean
     isRedirecting: boolean
+    isStepUp: boolean
     newOrganizationLoading: boolean
     newProjectLoading: boolean
     oauthApplication: OAuthApplicationPublicMetadata | null
@@ -337,7 +338,8 @@ export interface oauthAuthorizeLogicMeta {
             sortedTeams: TeamBasicType[] | null,
             selectedOrganization: string | null
         ) => TeamBasicType[] | null
-        identityScopeRows: (scopes: string[], appName: string) => OAuthScopeRow[]
+        identityScopeRows: (scopes: string[], appName: string, alreadyGrantedScopes: string[]) => OAuthScopeRow[]
+        isStepUp: (alreadyGrantedScopes: string[]) => boolean
         requiredScopeLevels: (oauthApplication: OAuthApplicationPublicMetadata | null) => Map<string, RequiredLevel>
         alreadyGrantedScopeLevels: (alreadyGrantedScopes: string[]) => Map<string, RequiredLevel>
         consentResourceScopes: (
@@ -796,8 +798,13 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
             },
         ],
         identityScopeRows: [
-            (s) => [s.scopes, s.appName],
-            (scopes: string[], appName: string): OAuthScopeRow[] => identityScopeRows(scopes, appName),
+            (s) => [s.scopes, s.appName, s.alreadyGrantedScopes],
+            (scopes: string[], appName: string, alreadyGrantedScopes: string[]): OAuthScopeRow[] =>
+                identityScopeRows(scopes, appName, alreadyGrantedScopes),
+        ],
+        isStepUp: [
+            (s) => [s.alreadyGrantedScopes],
+            (alreadyGrantedScopes: string[]): boolean => alreadyGrantedScopes.length > 0,
         ],
         requiredScopeLevels: [
             (s) => [s.oauthApplication],
