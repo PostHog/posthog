@@ -952,15 +952,6 @@ export interface AlertDestinationListItemApi {
     pagerduty_region?: PagerDutyRegionEnumApi
 }
 
-export interface PaginatedAlertDestinationListItemListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: AlertDestinationListItemApi[]
-}
-
 /**
  * * `slack` - slack
  */
@@ -1232,17 +1223,6 @@ export type AlertsRetrieveParams = {
      * Number of newest checks to skip (0-based). Use with checks_limit for pagination. Default 0.
      */
     checks_offset?: number
-}
-
-export type AlertsDestinationsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
 }
 
 export type AlertsPagerdutyAvailabilityRetrieveParams = {

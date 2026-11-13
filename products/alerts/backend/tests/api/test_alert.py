@@ -3186,6 +3186,22 @@ class TestAlertDestinations(APIBaseTest):
         assert destination["type"] == destination_type
         assert destination["webhook_url"] == url.split("/", 3)[0] + "//" + url.split("/", 3)[2]
 
+    @parameterized.expand(
+        [
+            ("discord_on_another_host", "discord", "https://example.com/api/webhooks/1/secret"),
+            ("plain_http_webhook", "webhook", "http://hooks.example.com/secret"),
+        ]
+    )
+    def test_a_url_the_provider_refuses_is_refused_without_a_platform_copy(
+        self, _name: str, destination_type: str, url: str
+    ) -> None:
+        response = self.client.post(
+            f"{self.url}webhook/", {"type": destination_type, "webhook_url": url}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert not HogFunction.objects.filter(team=self.team, deleted=False).exists()
+
     def test_destination_is_removed_again(self) -> None:
         created = self.client.post(self.url, self._slack_payload(), format="json")
         assert created.status_code == status.HTTP_201_CREATED, created.json()

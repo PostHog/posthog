@@ -827,6 +827,11 @@ def destination_types_by_configuration(
     return alert_destinations.destination_types_by_configuration(team_id=team_id, configuration_ids=configuration_ids)
 
 
+def validate_destination_data(data: AlertDestinationData) -> None:
+    """Raises `AlertDestinationValidationError` when the platform would refuse to send to this destination."""
+    alert_destinations.validate_destination_data(data)
+
+
 def redact_destination_data(data: AlertDestinationData) -> AlertDestinationData:
     """A destination's configuration without the parts that are a credential, for showing it."""
     return alert_destinations.redact_destination_data(data)

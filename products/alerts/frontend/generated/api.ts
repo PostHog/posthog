@@ -14,17 +14,16 @@ import type {
     AlertCreatePagerDutyDestinationApi,
     AlertCreateUrlDestinationApi,
     AlertDeleteDestinationApi,
+    AlertDestinationListItemApi,
     AlertDestinationResponseApi,
     AlertPagerDutyAvailabilityApi,
     AlertSimulateApi,
     AlertSimulateResponseApi,
     AlertTestDeliveryResponseApi,
-    AlertsDestinationsListParams,
     AlertsListParams,
     AlertsPagerdutyAvailabilityRetrieveParams,
     AlertsRetrieveParams,
     InsightsThresholdsListParams,
-    PaginatedAlertDestinationListItemListApi,
     PaginatedAlertListApi,
     PaginatedThresholdWithAlertListApi,
     PatchedAlertApi,
@@ -167,20 +166,8 @@ export const alertsDestroy = async (projectId: string, id: string, options?: Req
     })
 }
 
-export const getAlertsDestinationsListUrl = (projectId: string, id: string, params?: AlertsDestinationsListParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/alerts/${id}/destinations/?${stringifiedParams}`
-        : `/api/projects/${projectId}/alerts/${id}/destinations/`
+export const getAlertsDestinationsListUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/alerts/${id}/destinations/`
 }
 
 /**
@@ -189,10 +176,9 @@ export const getAlertsDestinationsListUrl = (projectId: string, id: string, para
 export const alertsDestinationsList = async (
     projectId: string,
     id: string,
-    params?: AlertsDestinationsListParams,
     options?: RequestInit
-): Promise<PaginatedAlertDestinationListItemListApi> => {
-    return apiMutator<PaginatedAlertDestinationListItemListApi>(getAlertsDestinationsListUrl(projectId, id, params), {
+): Promise<AlertDestinationListItemApi[]> => {
+    return apiMutator<AlertDestinationListItemApi[]>(getAlertsDestinationsListUrl(projectId, id), {
         ...options,
         method: 'GET',
     })

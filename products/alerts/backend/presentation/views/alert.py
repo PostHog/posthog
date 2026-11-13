@@ -179,6 +179,8 @@ from products.alerts_platform.backend.facade.api import (
     delete_source_destination_rows,
     list_source_destinations,
     record_source_destination,
+    redact_destination_data as redact_platform_destination_data,
+    validate_destination_data as validate_platform_destination_data,
 )
 from products.alerts_platform.backend.facade.contracts import (
     DEFAULT_PAGERDUTY_REGION,
@@ -1830,6 +1832,8 @@ class AlertCreateUrlDestinationSerializer(serializers.Serializer):
         data["type"] = DestinationType(attrs["type"])
         try:
             validate_destination_data(data, allowed_destination_types=INSIGHT_ALERT_URL_DESTINATION_TYPES)
+            # The provider's URL rules, which the platform row checks too, also for an alert with no row.
+            validate_platform_destination_data(data)
         except AlertDestinationValidationError as error:
             raise as_drf_validation_error(error)
         return attrs
@@ -2611,7 +2615,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "connected to the project. The returned IDs identify the destination."
         ),
     )
-    @action(detail=True, methods=["POST"], url_path="destinations")
+    @action(detail=True, methods=["POST"], url_path="destinations", pagination_class=None)
     def create_destination(self, request, *args, **kwargs):
         alert = self._alert_or_native()
         serializer = AlertCreateDestinationSerializer(data=request.data, context=self.get_serializer_context())
@@ -2652,7 +2656,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                         "hog_function_ids": list(destination.hog_function_ids),
                         "enabled": destination.enabled,
                         "message_customized": not customized.isdisjoint(destination.hog_function_ids),
-                        **redact_destination_data(destination.data),
+                        **redact_platform_destination_data(redact_destination_data(destination.data)),
                     }
                     for destination in destinations
                 ],
