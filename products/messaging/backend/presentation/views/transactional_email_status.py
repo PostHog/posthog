@@ -18,7 +18,7 @@ from posthog.event_usage import groups
 from posthog.permissions import is_authenticated_via_project_secret_api_key
 from posthog.rate_limit import PersonalOrProjectSecretApiKeyRateThrottle, ProjectSecretApiKeyTeamRateThrottle
 
-from products.messaging.backend.facade.transactional_email import EmailDeliveryStatus, EmailStatus, get_email_status
+from products.messaging.backend.facade.transactional_email import EmailSendStatus, EmailStatus, get_email_status
 from products.messaging.backend.presentation.views.message_templates import (
     TRANSACTIONAL_EMAIL_STATUS_SCOPE,
     require_email_status_read,
@@ -38,8 +38,9 @@ MESSAGE_ID_PARAMETER = OpenApiParameter(
 class EmailStatusSerializer(serializers.Serializer):
     id = serializers.CharField(source="message_id", help_text="The `message_id` that the send returned.")
     status = serializers.ChoiceField(
-        choices=EmailDeliveryStatus.choices,
-        help_text="What happened to the email. `queued` means it waits to go out. `sent` means PostHog handed it to "
+        choices=EmailSendStatus.choices,
+        help_text="What happened to the email. `scheduled` means it waits for the time it was scheduled for, and "
+        "`canceled` means it was canceled before it went out. `queued` means it waits to go out. `sent` means PostHog handed it to "
         "the email provider. `failed` means it was not sent, and `reason` says why. A rerun of the send can still move it to `sent`. `delivered` means the recipient's "
         "mail server accepted it. `bounced` and `complained` come later from the recipient's mail provider.",
     )
@@ -101,13 +102,13 @@ class MessagingEmailsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             200: EmailStatusSerializer,
             401: OpenApiResponse(description="The request has no project secret API key."),
             404: OpenApiResponse(
-                description="No email of this project has this ID, or it is older than 30 days. In the first "
+                description="No email of this project has this ID, or it is older than 60 days. In the first "
                 "seconds after a send, it means the email is queued but its first status isn't recorded yet."
             ),
         },
         summary="Get a transactional email's status",
         description=(
-            "Get the status of one transactional email by the `message_id` that the send returned, for 30 days after "
+            "Get the status of one transactional email by the `message_id` that the send returned, for 60 days after "
             "the send. Needs a project secret API key with the `transactional_email:read` scope. A key with "
             "`hog_flow:read` also works, but that scope reaches the rest of Workflows too. The first status is "
             "recorded a few seconds after the send, so a read right after a send can answer 404. Treat that 404 as "

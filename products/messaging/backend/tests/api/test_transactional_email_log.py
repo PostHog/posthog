@@ -256,6 +256,14 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
             ("failed", "provider_error"),
         ]
 
+    @parameterized.expand([("uuidt", False), ("keyed", True)])
+    def test_does_not_show_a_send_older_than_the_log_keeps(self, _flag, _name, keyed):
+        message_id = self._send(45 * 24 * 60, "jane@example.com", [("sent", 1, "")], keyed=keyed)
+
+        response = self.client.get(self._url(f"{message_id}/"))
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND, response.json()
+
     def test_looks_past_email_status_only_for_a_recent_keyed_send(self, _flag):
         # Missing from email_status hours after it was queued, a send is gone, not waiting on a lagging consumer.
         message_id = self._send(180, "jane@example.com", [("sent", 1, "")], keyed=True, status_consumer_behind=True)
