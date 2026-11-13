@@ -3,10 +3,20 @@ on:
     workflow_dispatch:
     push:
         branches: [master, main]
+    schedule:
+        # Where master's coverage for the Rust checks comes from. The merge queue's
+        # trunk-merge/** run gates every commit before it lands, so the push lane does
+        # not repeat them.
+        # Offset from the other hourly CI crons so the runs do not all fire at once.
+        - cron: '3 * * * *'
     pull_request:
 
 concurrency:
-    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    # The hourly run gets its own group so it queues behind other hourly runs, not
+    # behind master pushes. Sharing the ref group would let a slow hourly run hold
+    # the group while pushes pile up pending, and GitHub keeps only the newest
+    # pending run per group.
+    group: ${{ github.workflow }}-${{ github.event_name == 'schedule' && 'scheduled' || github.head_ref || github.ref }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
@@ -67,7 +77,10 @@ jobs:
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
             - uses: ./.github/actions/paths-filter
               id: filter
-              if: github.event_name != 'push' # Run all tests on master push
+              # Skipped on master push and on the hourly schedule. A cron has nothing to diff
+              # against, so the filter would narrow the hourly run to its last commit. Every
+              # output it feeds defaults below, which makes the hourly run test every crate.
+              if: github.event_name != 'push' && github.event_name != 'schedule'
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
                   filters: |
@@ -124,7 +137,8 @@ jobs:
     affected:
         name: Compute affected Rust crates
         needs: changes
-        if: needs.changes.outputs.rust == 'true'
+        # Not on master push — master coverage comes from the hourly run (see `schedule`).
+        if: needs.changes.outputs.rust == 'true' && github.event_name != 'push'
         runs-on: ubuntu-24.04
         timeout-minutes: 10
         permissions:
@@ -150,11 +164,12 @@ jobs:
 
             - name: Resolve the changed files
               id: changed-files
-              if: github.event_name != 'workflow_dispatch' && needs.changes.outputs.all_crates != 'true'
+              # A manual or hourly run has no base to diff against, so it rebuilds every crate.
+              if: github.event_name != 'workflow_dispatch' && github.event_name != 'schedule' && needs.changes.outputs.all_crates != 'true'
               env:
                   GH_TOKEN: ${{ github.token }}
                   REPOSITORY: ${{ github.repository }}
-                  MERGE_TARGET: ${{ github.event_name == 'push' && github.event.before || github.event.pull_request.base.ref }}
+                  MERGE_TARGET: ${{ github.event.pull_request.base.ref }}
               run: |
                   if [ -f .github/scripts/resolve-changed-files.sh ]; then
                       bash .github/scripts/resolve-changed-files.sh
@@ -174,7 +189,7 @@ jobs:
                   event-name: ${{ github.event_name }}
                   pr-base-sha: ${{ github.event.pull_request.base.sha }}
                   push-before-sha: ${{ github.event.before }}
-                  base-ref: ${{ github.event_name == 'push' && github.event.before || steps.changed-files.outputs.merge_base }}
+                  base-ref: ${{ steps.changed-files.outputs.merge_base }}
                   changed-files: ${{ runner.temp }}/changed-files.txt
                   rebuild-all: ${{ steps.changed-files.outputs.resolved != 'true' && 'true' || 'false' }}
 
@@ -190,7 +205,8 @@ jobs:
         strategy:
             matrix: ${{ fromJSON(needs.affected.outputs.matrix) }}
         needs: [changes, affected]
-        if: needs.changes.outputs.rust == 'true'
+        # Not on master push — master coverage comes from the hourly run (see `schedule`).
+        if: needs.changes.outputs.rust == 'true' && github.event_name != 'push'
         runs-on: depot-ubuntu-22.04-4
         timeout-minutes: 20
         permissions:
@@ -274,7 +290,8 @@ jobs:
         strategy:
             matrix: ${{ fromJSON(needs.affected.outputs.matrix) }}
         needs: [changes, affected]
-        if: needs.changes.outputs.rust == 'true'
+        # Not on master push — master coverage comes from the hourly run (see `schedule`).
+        if: needs.changes.outputs.rust == 'true' && github.event_name != 'push'
         runs-on: depot-ubuntu-24.04-4
         timeout-minutes: 20
         permissions:
@@ -576,7 +593,8 @@ jobs:
         # Gated on the affected computation: a determinator package-rule
         # marks the harness affected whenever a personhog service it spawns
         # changes, so unrelated rust PRs skip the job entirely.
-        if: needs.changes.outputs.rust == 'true' && contains(needs.affected.outputs.affected_crates, 'personhog-test-harness')
+        # Not on master push — master coverage comes from the hourly run (see `schedule`).
+        if: needs.changes.outputs.rust == 'true' && github.event_name != 'push' && contains(needs.affected.outputs.affected_crates, 'personhog-test-harness')
         runs-on: depot-ubuntu-24.04-4
         timeout-minutes: 35
         permissions:
@@ -862,7 +880,8 @@ jobs:
     linting:
         name: Lint Rust services (depot-ubuntu-22.04-4)
         needs: changes
-        if: needs.changes.outputs.rust == 'true'
+        # Not on master push — master coverage comes from the hourly run (see `schedule`).
+        if: needs.changes.outputs.rust == 'true' && github.event_name != 'push'
         runs-on: depot-ubuntu-22.04-4
         timeout-minutes: 15
         permissions:
