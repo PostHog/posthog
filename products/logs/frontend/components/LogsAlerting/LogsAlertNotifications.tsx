@@ -16,7 +16,6 @@ export function LogsAlertNotifications({ alertId }: { alertId?: string }): JSX.E
     const customization = !!featureFlags[FEATURE_FLAGS.ALERTS_DESTINATION_CUSTOMIZATION]
 
     const destinationView = (destination: AlertDestinationEntry): Partial<AlertNotificationDestinationView> => {
-        // The detail page opens a destination by any one of its HogFunctions.
         const hogFunctionId = destination.hog_function_ids?.[0]
         const detailUrl =
             alertId && hogFunctionId ? urls.logsAlertNotificationDetail(alertId, hogFunctionId) : undefined
