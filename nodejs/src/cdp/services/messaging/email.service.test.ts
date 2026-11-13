@@ -79,6 +79,7 @@ import {
     sanitizeEmailSubject,
     teamEmailCapBucket,
 } from './email.service'
+import { BODY_MAX_LENGTH } from './helpers/clickable-links'
 import { MailDevAPI, mailDevWebUrl } from './helpers/maildev'
 import { SesWebhookHandler } from './helpers/ses'
 import { EmailTrackingCodeSigner, MESSAGE_CREATED_HEADER_NAME } from './helpers/tracking-code'
@@ -4071,40 +4072,64 @@ describe('EmailService', () => {
         )
 
         it.each([
-            { body: 'many links', text: '{{ unsubscribe_url }} '.repeat(1_000_000) },
             {
-                body: 'multibyte text and links',
-                text: '界'.repeat(6_000_000) + '{{ unsubscribe_url }} '.repeat(90_000),
+                body: 'html exactly as long as PostHog checks',
+                content: (link: string) => ({ html: link.padEnd(BODY_MAX_LENGTH, 'x') }),
+                sent: true,
             },
-        ])(
-            'fails a marketing API send whose $body would pass the SES message limit once filled in, without sending it',
-            async ({ text }) => {
-                hub.SITE_URL = 'http://localhost:8000'
-                service = createService()
-                const html = '<a href="{{ unsubscribe_url }}">Unsubscribe</a>'
-                invocation.state.globals.event.event = TRANSACTIONAL_EMAIL_EVENT
-                invocation.state.messageCategory = { id: randomUUID(), type: 'marketing' }
-                invocation.state.send = {
-                    content: { subject: 'News', html, text },
-                    from: { integrationId: getIntegrationId(1) },
-                    tracking: { captureEngagement: true },
-                }
-                invocation.hogFunction.metadata = {
-                    ...invocation.hogFunction.metadata,
-                    message_category_type: 'marketing',
-                }
-                invocation.queueParameters = createEmailParams({ from: { integrationId: 1 }, html, text })
-
-                const result = await service.executeSendEmail(invocation)
-
-                expect(ses.sent).toEqual([])
-                expect(result.error).toEqual(
-                    expect.stringContaining(
-                        'Failed to send email: filling in each unsubscribe link would make it larger than the 40 MB that SES accepts.'
-                    )
-                )
+            {
+                body: 'html one character longer than PostHog checks',
+                content: (link: string) => ({ html: link.padEnd(BODY_MAX_LENGTH + 1, 'x') }),
+                sent: false,
+            },
+            {
+                body: 'text one character longer than PostHog checks',
+                content: (link: string) => ({ html: link, text: 'x'.repeat(BODY_MAX_LENGTH + 1) }),
+                sent: false,
+            },
+            {
+                body: 'html that its unsubscribe link fills in past the length PostHog checks',
+                content: () => ({
+                    html: '<a href="{{ unsubscribe_url }}">Unsubscribe</a>'.padEnd(BODY_MAX_LENGTH, 'x'),
+                }),
+                sent: false,
+            },
+        ])('a marketing API send with $body sends: $sent', async ({ content, sent }) => {
+            hub.SITE_URL = 'http://localhost:8000'
+            service = createService()
+            const kafka = createRecordingIngestionOutputs([EMAIL_STATUS_OUTPUT])
+            const emailStatusService = new EmailStatusService(kafka.outputs, { EMAIL_STATUS_ENABLED: true })
+            service['emailStatusService'] = emailStatusService
+            invocation.id = new UUIDT().toString()
+            const preferences = new RecipientTokensService(
+                hub.ENCRYPTION_SALT_KEYS,
+                hub.SITE_URL
+            ).generatePreferencesUrl({ team_id: invocation.teamId, identifier: 'test@example.com' })
+            const { html, text } = { text: undefined, ...content(`<a href="${preferences}">Unsubscribe</a>`) }
+            invocation.state.globals.event.event = TRANSACTIONAL_EMAIL_EVENT
+            invocation.state.messageCategory = { id: randomUUID(), type: 'marketing' }
+            invocation.state.send = {
+                content: { subject: 'News', html, text },
+                from: { integrationId: getIntegrationId(1) },
+                tracking: { captureEngagement: true },
             }
-        )
+            invocation.hogFunction.metadata = {
+                ...invocation.hogFunction.metadata,
+                message_category_type: 'marketing',
+            }
+            invocation.queueParameters = createEmailParams({ from: { integrationId: 1 }, html, text })
+
+            await service.executeSendEmail(invocation)
+            await emailStatusService.flush()
+
+            expect(ses.sent).toHaveLength(sent ? 1 : 0)
+            expect(
+                kafka
+                    .produced(EMAIL_STATUS_OUTPUT)
+                    .filter((row) => row.status === 'failed')
+                    .map((row) => row.reason)
+            ).toEqual(sent ? [] : ['content_too_large'])
+        })
 
         it.each([
             {

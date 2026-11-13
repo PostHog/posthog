@@ -9,7 +9,7 @@ import {
 import { HogFlow, HogFlowAction } from '~/cdp/schema/hogflow'
 import { SHA256_HEX } from '~/cdp/services/messaging/attachment-store'
 
-import { UNSUBSCRIBE_PLACEHOLDER, clickableHrefs } from '../messaging/helpers/clickable-links'
+import { UNSUBSCRIBE_PLACEHOLDER, clickableHrefs, isTooLargeToCheck } from '../messaging/helpers/clickable-links'
 
 export const MAX_COPY_RECIPIENTS = 10
 export const ATTACHMENT_FILENAME_MAX_LENGTH = 255
@@ -264,7 +264,7 @@ const marketingEmailInputs = (action: HogFlowAction, category: SendCategory | un
         ? (action.config.inputs.email?.value ?? {})
         : undefined
 
-export type MarketingSendRefusal = 'unsubscribe_link_required' | 'copies_not_allowed'
+export type MarketingSendRefusal = 'content_too_large' | 'unsubscribe_link_required' | 'copies_not_allowed'
 
 export const marketingCopiesRefusal = (
     action: HogFlowAction,
@@ -285,6 +285,9 @@ export const marketingSendRefusal = (
     const email = marketingEmailInputs(action, category)
     if (!email) {
         return undefined
+    }
+    if (isTooLargeToCheck(send?.content ?? email)) {
+        return 'content_too_large'
     }
     const linked = send?.content
         ? hasUnsubscribeLink(send.content, UNSUBSCRIBE_PLACEHOLDER)

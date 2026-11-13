@@ -94,6 +94,7 @@ import { EmailStatusService } from './services/messaging/email-status.service'
 import { EmailSuppressionService } from './services/messaging/email-suppression.service'
 import { EmailTrackingService } from './services/messaging/email-tracking.service'
 import { EmailValidationService } from './services/messaging/email-validation.service'
+import { BODY_MAX_LENGTH } from './services/messaging/helpers/clickable-links'
 import { utmTagsFor } from './services/messaging/helpers/email-html'
 import { sesHtmlMaxBytes } from './services/messaging/helpers/ses-html-max-bytes'
 import { EmailTrackingCodeSigner } from './services/messaging/helpers/tracking-code'
@@ -288,6 +289,7 @@ const TRANSACTIONAL_SEND_REFUSAL_STATUS: Record<TransactionalSendRefusal, number
     sending_paused: 422,
     recipient_suppressed: 422,
     recipient_opted_out: 422,
+    content_too_large: 400,
     unsubscribe_link_required: 400,
     copies_not_allowed: 400,
     quota_limited: 429,
@@ -1536,6 +1538,9 @@ export class CdpApi {
                 return reply(result.outcome, TRANSACTIONAL_SEND_REFUSAL_STATUS[result.outcome], {
                     error: result.outcome,
                     ...(result.outcome === 'invalid_scheduled_at' && { reason: 'too_far' }),
+                    ...(result.outcome === 'content_too_large' && {
+                        reason: `The html and the text of a marketing email can each be at most ${BODY_MAX_LENGTH.toLocaleString('en-US')} characters long.`,
+                    }),
                 })
             } catch (e) {
                 logger.error('Error queueing transactional email', {

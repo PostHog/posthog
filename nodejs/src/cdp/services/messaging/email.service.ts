@@ -49,7 +49,7 @@ import {
     resolveEmailSendingAppSourceVersion,
     resolveEmailTrackingDistinctId,
 } from './email-tracking.service'
-import { UNSUBSCRIBE_PLACEHOLDER, clickableHrefs } from './helpers/clickable-links'
+import { BODY_MAX_LENGTH, UNSUBSCRIBE_PLACEHOLDER, clickableHrefs } from './helpers/clickable-links'
 import { UtmTagging, htmlForSes, tagEmailLinks, utmTagsFor } from './helpers/email-html'
 import { escapeHtml } from './helpers/escape-html'
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
@@ -69,6 +69,7 @@ import { transactionalEmailIdentity, transactionalEmailIdentityTags } from './he
 import { callsSettledBefore, declaredFileBytes, exceedsLargestSend, settledBeforeAbort } from './in-flight-registry'
 import { MessageAssetsService } from './message-assets.service'
 import { MESSAGE_MAX_BYTES, estimateMessageBytes } from './message-estimate'
+import { RecipientPreferencesService } from './recipient-preferences.service'
 import {
     PreferencesTokenSource,
     RecipientTokensService,
@@ -580,6 +581,7 @@ export class EmailService {
     sesV2Client: SESv2Client | null
 
     private recipientTokensService: RecipientTokensService
+    private recipientPreferences: RecipientPreferencesService
     private workflowRunLinkTagTeams: ValueMatcher<number>
     private stillOwnsJob: JobOwnershipCheck = () => Promise.resolve(true)
     private templateTagsTeams: ValueMatcher<number>
@@ -609,6 +611,7 @@ export class EmailService {
               })
             : null
         this.recipientTokensService = new RecipientTokensService(encryptionSaltKeys, siteUrl)
+        this.recipientPreferences = new RecipientPreferencesService(recipientsManager, emailSuppressionService)
         this.workflowRunLinkTagTeams = buildIntegerMatcher(this.sesConfig.workflowRunLinkTagTeams, true)
         this.templateTagsTeams = buildIntegerMatcher(this.sesConfig.templateTagsTeams, true)
     }
@@ -853,8 +856,27 @@ export class EmailService {
                     `Not sending to ${suppression.removed.join(', ')} because ${suppression.removed.length === 1 ? 'it is' : 'they are'} on the suppression list.${promoted} The email still goes to the other recipients.`
                 )
             }
+            if (await this.optedOutOfMarketingApiSend(invocation, params.to?.email)) {
+                const skipReason = 'Skipping send: the recipient opted out of this marketing email before it was sent.'
+                addLog('info', skipReason)
+                result.emailSendResult = { status: 'skipped', reason: skipReason }
+                this.emailStatusService?.queueSkippedSend(invocation, 'recipient_opted_out', isTest)
+                if (!isTest) {
+                    result.metrics.push({
+                        team_id: invocation.teamId,
+                        app_source_id: invocation.parentRunId ?? invocation.functionId,
+                        instance_id: invocation.state.actionId || invocation.id,
+                        metric_kind: 'email',
+                        metric_name: 'email_opted_out',
+                        count: 1,
+                    })
+                }
+                result.skipped = true
+                result.invocation.state.vmState?.stack.push({ success: false })
+                return result
+            }
             // Always send the lists the suppression check parsed, so delivery uses the addresses it checked.
-            const deliverableParams = this.withCodeSendUnsubscribeUrl(invocation, {
+            const checked = this.checkedMarketingParams(invocation, {
                 ...params,
                 to:
                     suppression.promotedTo ??
@@ -864,16 +886,16 @@ export class EmailService {
                 cc: suppression.cc,
                 bcc: suppression.bcc,
             })
-            if (this.lacksMarketingUnsubscribeLink(invocation, deliverableParams)) {
-                const skipReason =
-                    'Skipping send: this marketing email has no unsubscribe link that readers can click after rendering.'
+            if ('refused' in checked) {
+                const skipReason = MARKETING_SKIP_MESSAGES[checked.refused]
                 addLog('warn', skipReason)
                 result.emailSendResult = { status: 'skipped', reason: skipReason }
-                this.emailStatusService?.queueSkippedSend(invocation, 'unsubscribe_link_required', isTest)
+                this.emailStatusService?.queueSkippedSend(invocation, checked.refused, isTest)
                 result.skipped = true
                 result.invocation.state.vmState?.stack.push({ success: false })
                 return result
             }
+            const deliverableParams = checked.params
 
             // Like suppression, the tracking decision lives at this choke point so every send path
             // (workflow action or email destination hog function) resolves it the same way.
@@ -1750,37 +1772,56 @@ export class EmailService {
         }
     }
 
-    private withCodeSendUnsubscribeUrl(
+    private async optedOutOfMarketingApiSend(
+        invocation: CyclotronJobInvocationHogFunction,
+        to: string | undefined
+    ): Promise<boolean> {
+        const category = invocation.state.messageCategory
+        if (!category || !to || !isMarketingApiSend(invocation)) {
+            return false
+        }
+        const identifier = unquoteMailbox(to)
+        this.recipientsManager.markForRefresh({ teamId: invocation.teamId, identifier })
+        return await this.recipientPreferences.isOptedOut(invocation.teamId, identifier, category.id)
+    }
+
+    private checkedMarketingParams(
         invocation: CyclotronJobInvocationHogFunction,
         params: CyclotronInvocationQueueParametersEmailType
-    ): CyclotronInvocationQueueParametersEmailType {
-        if (!invocation.state.send?.content || !isMarketingApiSend(invocation) || !params.to?.email) {
-            return params
+    ):
+        | { params: CyclotronInvocationQueueParametersEmailType }
+        | { refused: 'content_too_large' | 'unsubscribe_link_required' } {
+        if (!isMarketingApiSend(invocation)) {
+            return { params }
         }
-        const url = this.recipientTokensService.generatePreferencesUrl(
-            { team_id: invocation.teamId, identifier: unquoteMailbox(params.to.email) },
-            preferencesTokenSourceForInvocation(invocation)
-        )
-        const htmlUrl = escapeHtml(url)
-        if (filledBytes(params.html, htmlUrl) + filledBytes(params.text, url) > MESSAGE_MAX_BYTES) {
-            throw new Error(
-                'Failed to send email: filling in each unsubscribe link would make it larger than the 40 MB that SES accepts.'
-            )
+        const url =
+            invocation.state.send?.content && params.to?.email
+                ? this.recipientTokensService.generatePreferencesUrl(
+                      { team_id: invocation.teamId, identifier: unquoteMailbox(params.to.email) },
+                      preferencesTokenSourceForInvocation(invocation)
+                  )
+                : undefined
+        const htmlUrl = url && escapeHtml(url)
+        if (filledLength(params.html, htmlUrl) > BODY_MAX_LENGTH || filledLength(params.text, url) > BODY_MAX_LENGTH) {
+            return { refused: 'content_too_large' }
         }
-        return {
-            ...params,
-            html: params.html && replaceUnsubscribePlaceholder(params.html, htmlUrl),
-            text: params.text && replaceUnsubscribePlaceholder(params.text, url),
-        }
+        const filled =
+            url && htmlUrl
+                ? {
+                      ...params,
+                      html: params.html && replaceUnsubscribePlaceholder(params.html, htmlUrl),
+                      text: params.text && replaceUnsubscribePlaceholder(params.text, url),
+                  }
+                : params
+        return this.lacksMarketingUnsubscribeLink(invocation, filled)
+            ? { refused: 'unsubscribe_link_required' }
+            : { params: filled }
     }
 
     private lacksMarketingUnsubscribeLink(
         invocation: CyclotronJobInvocationHogFunction,
         params: CyclotronInvocationQueueParametersEmailType
     ): boolean {
-        if (!isMarketingApiSend(invocation)) {
-            return false
-        }
         const recipient = params.to?.email && unquoteMailbox(params.to.email)
         const preferencesPage = `${this.siteUrl}/messaging-preferences/`
         const paths = params.html
@@ -1828,16 +1869,21 @@ export class EmailService {
     }
 }
 
-const filledBytes = (body: string | undefined, url: string): number => {
-    if (!body) {
-        return 0
+const filledLength = (body: string | undefined, url: string | undefined): number => {
+    if (!body || !url) {
+        return body?.length ?? 0
     }
-    const urlBytes = Buffer.byteLength(url, 'utf8')
-    let bytes = Buffer.byteLength(body, 'utf8')
+    let length = body.length
     for (const placeholder of body.matchAll(UNSUBSCRIBE_PLACEHOLDER)) {
-        bytes += urlBytes - Buffer.byteLength(placeholder[0], 'utf8')
+        length += url.length - placeholder[0].length
     }
-    return bytes
+    return length
+}
+
+const MARKETING_SKIP_MESSAGES: Record<'content_too_large' | 'unsubscribe_link_required', string> = {
+    content_too_large: `Skipping send: after rendering, the html or the text of this marketing email is longer than the ${BODY_MAX_LENGTH.toLocaleString('en-US')} characters PostHog checks for an unsubscribe link.`,
+    unsubscribe_link_required:
+        'Skipping send: this marketing email has no unsubscribe link that readers can click after rendering.',
 }
 
 const replaceUnsubscribePlaceholder = (body: string, url: string): string =>

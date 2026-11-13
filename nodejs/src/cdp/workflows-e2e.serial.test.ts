@@ -95,6 +95,7 @@ import { CyclotronJobQueuePostgresV2 } from './services/job-queue/job-queue-post
 import { CyclotronJobQueueRateLimitedPostgresV2 } from './services/job-queue/job-queue-rate-limited-postgres-v2'
 import { JobQueue } from './services/job-queue/job-queue.interface'
 import { createFrequencyCapValkeyPool } from './services/messaging/frequency-cap-valkey-pool'
+import { BODY_MAX_LENGTH } from './services/messaging/helpers/clickable-links'
 import { mailDevWebUrl } from './services/messaging/helpers/maildev'
 import { RecipientTokensService } from './services/messaging/recipient-tokens.service'
 import { HogInvocationResultsService } from './services/monitoring/hog-invocation-results.service'
@@ -3823,7 +3824,30 @@ describe('Workflows E2E (email queue)', () => {
             })
         })
 
-        it.each<ApiSend & { status: number; error?: string; logged?: string }>([
+        it.each<ApiSend & { status: number; error?: string; reason?: unknown; logged?: string }>([
+            {
+                name: 'a code send in a marketing category whose html is 19 MB of text after its unsubscribe link',
+                kind: 'code',
+                payload: codeSendIn(newsletter, {
+                    content: {
+                        subject: 'News',
+                        html: '<a href="{{ unsubscribe_url }}">Unsubscribe</a>' + 'x'.repeat(19_000_000),
+                    },
+                }),
+                status: 400,
+                error: 'content_too_large',
+                reason: expect.stringContaining('1,500,000 characters'),
+            },
+            {
+                name: 'a code send in a marketing category whose text is longer than PostHog checks',
+                kind: 'code',
+                payload: codeSendIn(newsletter, {
+                    content: { subject: 'News', text: 'Bye: {{ unsubscribe_url }}'.padEnd(BODY_MAX_LENGTH + 1, 'x') },
+                }),
+                status: 400,
+                error: 'content_too_large',
+                reason: expect.stringContaining('1,500,000 characters'),
+            },
             {
                 name: 'a code send in a marketing category whose html has no unsubscribe link',
                 kind: 'code',
@@ -3931,7 +3955,7 @@ describe('Workflows E2E (email queue)', () => {
 
             expect(res.status).toEqual(row.status)
             if (row.error) {
-                expect(res.body).toEqual({ error: row.error })
+                expect(res.body).toEqual({ error: row.error, ...(row.reason !== undefined && { reason: row.reason }) })
             }
             expect(await queryCyclotronJobs()).toEqual([])
             if (row.logged) {
@@ -3943,6 +3967,26 @@ describe('Workflows E2E (email queue)', () => {
                 }, 15000)
             }
         })
+
+        it.each([
+            { length: BODY_MAX_LENGTH, status: 202 },
+            { length: BODY_MAX_LENGTH + 1, status: 400 },
+        ])(
+            'answers a code send in a marketing category whose html is $length characters long with $status',
+            async ({ length, status }) => {
+                const flow = await insertHogFlow(hub.postgres, sendFlow('code', 'transactional'))
+                const html = '<a href="{{ unsubscribe_url }}">Unsubscribe</a>'.padEnd(length, 'x')
+
+                const res = await post('code', flow, {
+                    to: `reader-${new UUIDT().toString()}@example.com`,
+                    distinct_id: 'reader',
+                    ...codeSendIn(newsletter, { content: { subject: 'News', html } }),
+                })
+
+                expect(res.status).toEqual(status)
+                expect(res.body.error).toEqual(status === 400 ? 'content_too_large' : undefined)
+            }
+        )
 
         it.each<ApiSend>([
             {
@@ -4093,6 +4137,59 @@ describe('Workflows E2E (email queue)', () => {
                         .map(({ properties }) => [properties.$email_to, properties.$email_transactional])
                 ).toEqual([[to, categoryOutsideSend || category.type !== 'marketing']])
             }, 15000)
+        })
+
+        it('skips a marketing code send whose recipient opts out while it waits for its sending rate limit', async () => {
+            const flow = await insertHogFlow(hub.postgres, sendFlow('code', 'transactional'))
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `UPDATE posthog_hogflow SET email_sending_rate_limit = $1 WHERE id = $2`,
+                [JSON.stringify({ count: 2, period: 'minute' }), flow.id],
+                'set-email-sending-rate-limit'
+            )
+            const rateValkey = createRedisV2PoolFromConfig({
+                connection: hub.CDP_REDIS_HOST
+                    ? {
+                          url: hub.CDP_REDIS_HOST,
+                          options: { port: hub.CDP_REDIS_PORT, password: hub.CDP_REDIS_PASSWORD },
+                      }
+                    : { url: hub.REDIS_URL },
+                poolMinSize: hub.REDIS_POOL_MIN_SIZE,
+                poolMaxSize: hub.REDIS_POOL_MAX_SIZE,
+            })
+            await deleteKeysWithPrefix(rateValkey, `@posthog/workflow-email-rate/${team.id}/`)
+            const first = `reader-${new UUIDT().toString()}@example.com`
+            const to = `reader-${new UUIDT().toString()}@example.com`
+            emailWorker = new CdpCyclotronWorkerEmail(
+                hub,
+                deps,
+                new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub)
+            )
+            await emailWorker.start()
+
+            expect(
+                (await post('code', flow, { to: first, distinct_id: 'first', ...codeSendIn(newsletter) })).status
+            ).toEqual(202)
+            await waitForExpect(async () => expect(await emailsTo(first)).toHaveLength(1), 15000)
+            const res = await post('code', flow, { to, distinct_id: 'reader', ...codeSendIn(newsletter) })
+            expect(res.status).toEqual(202)
+            await waitForExpect(async () => {
+                const job = (await queryCyclotronJobs()).find((j: any) => j.id === res.body.invocation_id)
+                expect(job).toMatchObject({ queue_name: 'email', status: 'available' })
+                expect(new Date(job.scheduled).getTime()).toBeGreaterThan(Date.now())
+            }, 15000)
+
+            await optOut(to, newsletterId)
+            await deleteKeysWithPrefix(rateValkey, `@posthog/workflow-email-rate/${team.id}/`)
+            await cyclotronPool.query(`UPDATE cyclotron_jobs SET scheduled = NOW() WHERE id = $1`, [
+                res.body.invocation_id,
+            ])
+            await waitForExpect(async () => {
+                expect((await queryCyclotronJobs()).filter((j: any) => j.status !== 'completed')).toEqual([])
+            }, 15000)
+
+            expect(await emailsTo(to)).toEqual([])
+            await expectStoredStatus(res.body.invocation_id, { status: 'failed', reason: 'recipient_opted_out' })
         })
 
         it.each<ApiSend & { delivered: number; copyDelivered?: boolean; skipped?: string }>([

@@ -26,11 +26,10 @@ const TEXT_MODES = new Map<string, Tokenizer['state']>([
 
 const TREE_ONLY_CONTENT = new Set(['svg', 'math', 'select', 'template', 'frameset'])
 
-export const TREE_MAX_LENGTH = 1_500_000
+export const BODY_MAX_LENGTH = 1_500_000
 export const TREE_MAX_DEPTH = 128
-export const TREE_MAX_ELEMENTS = 500_000
+export const TREE_MAX_ELEMENTS = 200_000
 export const TREE_MAX_SCANS = 4_000_000
-export const TOKEN_MAX_LENGTH = 1_000_000
 const TAG_MAX_ATTRIBUTES = 64
 
 type ParentNode = DefaultTreeAdapterMap['parentNode']
@@ -46,28 +45,6 @@ class BoundedTokenizer extends Tokenizer {
     }
 }
 
-const TEXT_STATES = new Set<Tokenizer['state']>([
-    TokenizerMode.DATA,
-    TokenizerMode.RCDATA,
-    TokenizerMode.RAWTEXT,
-    TokenizerMode.SCRIPT_DATA,
-    TokenizerMode.PLAINTEXT,
-])
-
-class ScanTokenizer extends BoundedTokenizer {
-    private tokenLength = 0
-
-    protected override _callState(cp: number): void {
-        this.tokenLength = TEXT_STATES.has(this.state) ? 0 : this.tokenLength + 1
-        if (this.tokenLength > TOKEN_MAX_LENGTH) {
-            throw new TooComplex()
-        }
-        super._callState(cp)
-    }
-
-    protected override _appendCharToCurrentCharacterToken(): void {}
-}
-
 class BoundedParser extends Parser<DefaultTreeAdapterMap> {
     constructor(options: ParserOptions<DefaultTreeAdapterMap>) {
         super(options)
@@ -80,7 +57,7 @@ const ignore = (): void => {}
 const scannedHrefs = (body: string): string[] | undefined => {
     const hrefs: string[] = []
     let followed = true
-    const tokenizer: Tokenizer = new ScanTokenizer(
+    const tokenizer: Tokenizer = new BoundedTokenizer(
         {},
         {
             onStartTag: (tag: Token.TagToken) => {
@@ -171,7 +148,7 @@ const boundedTree = (body: string): ParentNode | undefined => {
 }
 
 const treeHrefs = (body: string): string[] => {
-    const document = body.length <= TREE_MAX_LENGTH ? boundedTree(body) : undefined
+    const document = boundedTree(body)
     const hrefs: string[] = []
     const parents: ParentNode[] = document ? [document] : []
     for (let parent = parents.pop(); parent; parent = parents.pop()) {
@@ -193,4 +170,8 @@ const treeHrefs = (body: string): string[] => {
     return hrefs
 }
 
-export const clickableHrefs = (body: string): string[] => scannedHrefs(body) ?? treeHrefs(body)
+export const isTooLargeToCheck = ({ html, text }: { html?: string; text?: string }): boolean =>
+    (html?.length ?? 0) > BODY_MAX_LENGTH || (text?.length ?? 0) > BODY_MAX_LENGTH
+
+export const clickableHrefs = (body: string): string[] =>
+    body.length > BODY_MAX_LENGTH ? [] : (scannedHrefs(body) ?? treeHrefs(body))

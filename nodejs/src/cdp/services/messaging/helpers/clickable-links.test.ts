@@ -1,11 +1,4 @@
-import {
-    TOKEN_MAX_LENGTH,
-    TREE_MAX_DEPTH,
-    TREE_MAX_ELEMENTS,
-    TREE_MAX_LENGTH,
-    TREE_MAX_SCANS,
-    clickableHrefs,
-} from './clickable-links'
+import { BODY_MAX_LENGTH, TREE_MAX_DEPTH, TREE_MAX_ELEMENTS, TREE_MAX_SCANS, clickableHrefs } from './clickable-links'
 
 const manyAttributes = Array.from({ length: 1_000 }, (_, index) => `data-${index}="x"`).join(' ')
 
@@ -151,7 +144,7 @@ describe('clickableHrefs', () => {
 
     it.each([
         ['nested deeper than the parser follows', '<div>'.repeat(TREE_MAX_DEPTH)],
-        ['longer than the parser reads', ' '.repeat(TREE_MAX_LENGTH)],
+        ['longer than the parser reads', ' '.repeat(BODY_MAX_LENGTH)],
         ['with more attributes on one tag than the parser reads', `<div ${manyAttributes}></div>`],
         [
             'that rebuilds more elements than the parser keeps',
@@ -186,8 +179,6 @@ describe('clickableHrefs', () => {
     it.each([
         ['deeply nested markup', '<div>'.repeat(40_000)],
         ['an SVG drawing and a table it moves elements out of', '<svg></svg><table>' + '<i></i>'.repeat(1_000)],
-        ['an attribute value just under the scanner bound', `<img alt="${'x'.repeat(TOKEN_MAX_LENGTH - 20)}">`],
-        ['a text run longer than the scanner bound', 'x'.repeat(TOKEN_MAX_LENGTH * 2)],
     ])('finds the anchor after %s', (_name, filler) => {
         expect(clickableHrefs(filler + '<a href="https://example.com/bye">Unsubscribe</a>')).toEqual([
             'https://example.com/bye',
@@ -198,19 +189,5 @@ describe('clickableHrefs', () => {
         expect(
             clickableHrefs(`<div ${manyAttributes}></div><a href="https://example.com/bye">Unsubscribe</a>`)
         ).toEqual([])
-    })
-
-    const longToken = 'x'.repeat(TOKEN_MAX_LENGTH)
-
-    it.each([
-        ['an attribute value', `<img alt="${longToken}">`],
-        ['an anchor href', `<a href="https://example.com/${longToken}">Unsubscribe</a>`],
-        ['an attribute name', `<img ${longToken}>`],
-        ['a tag name', `<i${longToken}>`],
-        ['a comment', `<!--${longToken}-->`],
-        ['a bogus comment', `<?${longToken}>`],
-        ['a doctype', `<!DOCTYPE ${longToken}>`],
-    ])('finds no anchor after %s longer than the scanner reads', (_name, filler) => {
-        expect(clickableHrefs(filler + '<a href="https://example.com/bye">Unsubscribe</a>')).toEqual([])
     })
 })
