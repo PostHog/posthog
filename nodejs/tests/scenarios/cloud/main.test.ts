@@ -1419,8 +1419,12 @@ describe('cloud controller', () => {
         const { startedAt, endedAt } = cardOf(leasedRunId())
         const minuteIso = (at: number): string => new Date(at - (at % 60_000)).toISOString()
         const gaps = published().acu_gaps as string[]
-        expect(gaps[0]).toBe(minuteIso(startedAt))
-        expect(gaps.at(-1)).toBe(minuteIso(endedAt))
+        const cardMinutes = (Date.parse(minuteIso(endedAt)) - Date.parse(minuteIso(startedAt))) / 60_000 + 1
+        expect(gaps).toEqual(
+            Array.from({ length: cardMinutes }, (_, i) =>
+                new Date(Date.parse(minuteIso(startedAt)) + i * 60_000).toISOString()
+            )
+        )
         expect(published().cost_estimate_items).toContainEqual(
             expect.stringContaining(`reader, 0.00 ACU-hours, ${gaps.length} minutes missing`)
         )
