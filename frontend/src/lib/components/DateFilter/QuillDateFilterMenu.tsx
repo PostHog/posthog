@@ -277,7 +277,7 @@ export const QuillDateFilterMenu = forwardRef<HTMLButtonElement, QuillDateFilter
                                     </div>
                                 </div>
                             </ScrollArea>
-                            <DropdownMenuSeparator />
+                            <DropdownMenuSeparator className="mt-0" />
                             <DropdownMenuRadioItem value={DATE_TO_NOW_VALUE} onClick={openDateToNow}>
                                 From custom date until now…
                             </DropdownMenuRadioItem>
