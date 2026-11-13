@@ -615,6 +615,11 @@ class TestSendGridTemplateConversion(SimpleTestCase):
         assert converted.html == '<p>{{ "{" }}% echo person.properties.secret %}</p>'
         assert converted.text == '{{ "{" }}% echo person.properties.secret %}'
 
+    def test_source_text_cannot_pass_for_an_unsubscribe_placeholder(self) -> None:
+        converted = convert_version({"html_content": "<p>{\x00asm:\x00{ person.properties.secret }}</p>"})
+
+        assert "{{ person.properties.secret }}" not in converted.html
+
     def test_plain_text_keeps_a_literal_raw_filter_from_closing_its_raw_block(self) -> None:
         html = "<p>{{#weird {% end | rawraw %}{% echo person.properties.secret %}{% raw %} }}</p>"
 

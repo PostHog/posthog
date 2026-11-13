@@ -885,6 +885,8 @@ def _convert_asm_tags(text: str, is_html: bool, converter: _Converter) -> str:
 
 def _convert_handlebars(source: str | None, is_html: bool, contact_fields: bool) -> tuple[str, _Converter]:
     converter = _Converter(is_html, contact_fields)
+    # The placeholders below are marked with NUL, which an email can't hold, so a source with one can't fake them.
+    source = (source or "").replace("\x00", "")
     if not source:
         return "", converter
     with_asm = _convert_asm_placeholders(source)
