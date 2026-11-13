@@ -4,6 +4,7 @@ See https://www.twilio.com/docs/sendgrid/api-reference. The customer owns the ke
 this honors SendGrid's rate limit headers here rather than going through `posthog/egress/`.
 """
 
+import json
 import time
 from collections.abc import Iterator
 from typing import Any
@@ -28,6 +29,8 @@ MAX_RATE_LIMIT_WAIT_SECONDS = 120
 DEFAULT_RATE_LIMIT_WAIT_SECONDS = 5.0
 RELATIVE_RESET_LIMIT_SECONDS = 86_400
 DEFAULT_TIMEOUT_SECONDS = 30
+MAX_RESPONSE_BYTES = 100 * 1024 * 1024
+RESPONSE_CHUNK_BYTES = 1024 * 1024
 USER_AGENT = "posthog-messaging-import/1.0"
 
 
@@ -47,6 +50,10 @@ class SendGridScopeMissing(SendGridAPIError):
     def __init__(self, path: str):
         super().__init__(f"SendGrid refused to let this key read {path}.", status_code=403)
         self.path = path
+
+
+class SendGridResponseTooLarge(SendGridAPIError):
+    """A response past MAX_RESPONSE_BYTES, such as an unsubscribe group too large for one import."""
 
 
 class SendGridRateLimited(SendGridAPIError):
@@ -133,6 +140,7 @@ class SendGridClient:
                     },
                     timeout=self._timeout,
                     allow_redirects=False,
+                    stream=True,
                 )
             except requests.RequestException as e:
                 if retries_left:
@@ -141,6 +149,9 @@ class SendGridClient:
                     continue
                 # The exception text can hold the request's details, so only its type leaves this function.
                 raise SendGridAPIError(f"Couldn't reach SendGrid ({type(e).__name__}).") from None
+            if response.status_code == 429 or (response.status_code >= 500 and retries_left):
+                # A response that is retried is never read, so its connection goes back now.
+                response.close()
             if response.status_code == 429:
                 if waits >= self._max_rate_limit_waits:
                     raise SendGridRateLimited("SendGrid asked PostHog to slow down.", status_code=429)
@@ -152,7 +163,10 @@ class SendGridClient:
                 retries_left -= 1
                 continue
             self._respect_exhausted_limit(response)
-            return _parse(response, path)
+            try:
+                return _parse(response, path)
+            finally:
+                response.close()
 
     def _pace(self) -> None:
         now = time.monotonic()
@@ -208,7 +222,13 @@ def _parse(response: requests.Response, path: str) -> Any:
         raise SendGridScopeMissing(path)
     if not response.ok:
         raise SendGridAPIError(f"SendGrid returned HTTP {status}.", status_code=status)
+    body = bytearray()
+    # A group's unsubscribes come in one response with no paging, so its size is capped while it downloads.
+    for chunk in response.iter_content(RESPONSE_CHUNK_BYTES):
+        body += chunk
+        if len(body) > MAX_RESPONSE_BYTES:
+            raise SendGridResponseTooLarge(f"SendGrid's response for {path} is too large for one import.")
     try:
-        return response.json()
+        return json.loads(body)
     except ValueError:
         raise SendGridAPIError(f"SendGrid sent an unexpected response for {path}.") from None

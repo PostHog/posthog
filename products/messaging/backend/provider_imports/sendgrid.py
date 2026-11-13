@@ -35,6 +35,7 @@ from products.messaging.backend.provider_imports.base import (
     ImportProvider,
     ImportProviderUnavailable,
     ImportStepSpec,
+    ImportTooLarge,
     SavedPage,
     StepCheckpoint,
     UnknownImportStep,
@@ -58,6 +59,7 @@ from products.messaging.backend.services.sendgrid_client import (
     SendGridClient,
     SendGridKeyRejected,
     SendGridRateLimited,
+    SendGridResponseTooLarge,
     SendGridScopeMissing,
     connect,
 )
@@ -307,6 +309,8 @@ def _translated_errors() -> Iterator[None]:
         raise ImportCredentialsInvalid(INVALID_KEY_MESSAGE) from e
     except SendGridRateLimited as e:
         raise ImportProviderUnavailable(RATE_LIMITED_MESSAGE) from e
+    except SendGridResponseTooLarge as e:
+        raise ImportTooLarge(str(e)) from e
     except SendGridAPIError as e:
         raise ImportProviderUnavailable(str(e)) from e
 
