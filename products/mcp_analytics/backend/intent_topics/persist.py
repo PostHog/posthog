@@ -87,16 +87,18 @@ def finish_run(
 
 
 def latest_pca_basis(team: Team) -> PcaBasis | None:
+    """The basis of the registry in use. ``apply_fit`` writes both in one transaction, before the run finishes
+    labeling, so the basis is read by its presence rather than by the run's status."""
     run = (
         MCPIntentClusteringRun.objects.filter(
             team=project_team(team),
             kind=MCPIntentClusteringRun.Kind.REFIT,
-            status=MCPIntentClusteringRun.Status.SUCCEEDED,
+            params__has_key=PCA_BASIS_PARAM,
         )
         .order_by("-started_at")
         .first()
     )
-    if run is None or PCA_BASIS_PARAM not in run.params:
+    if run is None:
         return None
     stored = run.params[PCA_BASIS_PARAM]
     return PcaBasis(mean=stored["mean"], pc1=stored["pc1"], pc2=stored["pc2"])
