@@ -2353,6 +2353,7 @@ export namespace Schemas {
         color: DataColorToken | null;
         customColor: string | null;
         hidden: boolean | null;
+        label: string | null;
     }>;
     export type ResultCustomizationByPosition = Partial<{
         assignmentBy: string;
