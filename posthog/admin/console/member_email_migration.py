@@ -87,15 +87,17 @@ class MemberEmailMigration:
         return {domain.lower() for domain in domains.values_list("domain", flat=True)}
 
     @staticmethod
-    def eligible_emails(organization: Organization, limit: int) -> list[str]:
-        """Emails of members on a verified domain of the organization, in email order."""
+    def eligible_emails(organization: Organization, limit: int) -> tuple[list[str], int]:
+        """The first `limit` emails of members on a verified domain, in email order, and how many there are in all."""
         on_verified_domain = Q()
         for domain in MemberEmailMigration.verified_domains(organization):
             on_verified_domain |= Q(email__iendswith=f"@{domain}")
         if not on_verified_domain:
-            return []
+            return [], 0
         members = organization.members.filter(on_verified_domain, is_staff=False).order_by("email")
-        return list(members.values_list("email", flat=True)[:limit])
+        emails = list(members.values_list("email", flat=True)[: limit + 1])
+        total = len(emails) if len(emails) <= limit else members.count()
+        return emails[:limit], total
 
     def plan(self) -> list[MemberEmailChange]:
         verified = self.verified_domains(self.organization)

@@ -17,7 +17,8 @@ from posthog.utils import pluralize
 
 
 class ChangeMemberEmailsForm(forms.Form):
-    MAX_MEMBERS = 500
+    # One request changes every member on the list, and each change runs several queries.
+    MAX_MEMBERS = 100
     # A line holds the current email and, optionally, the new one. Staff paste lists from sheets and
     # chats, so spaces, commas, semicolons and arrows all separate the two.
     _SEPARATORS = re.compile(r"(?:\s|,|;|->|=>|→)+")
@@ -201,7 +202,14 @@ class OrganizationSignInPanel(Panel):
 
     def operations(self, obj: Model) -> list[Operation]:
         assert isinstance(obj, Organization)
-        emails = MemberEmailMigration.eligible_emails(obj, limit=ChangeMemberEmailsForm.MAX_MEMBERS)
+        limit = ChangeMemberEmailsForm.MAX_MEMBERS
+        emails, total = MemberEmailMigration.eligible_emails(obj, limit=limit)
+        description = "Changes members' emails in bulk."
+        if total > limit:
+            description += (
+                f" The form lists the first {limit} of {total} members on verified domains."
+                " Paste the others to change them in later runs."
+            )
         if not emails:
             return []
         return [
@@ -211,7 +219,7 @@ class OrganizationSignInPanel(Panel):
                 handler=change_member_emails,
                 preview=preview_member_email_changes,
                 danger=True,
-                description="Changes members' emails in bulk.",
+                description=description,
                 form_class=ChangeMemberEmailsForm,
                 form_initial={"members": "\n".join(emails)},
                 undo_hint=(

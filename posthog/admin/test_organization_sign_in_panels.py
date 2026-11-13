@@ -94,6 +94,15 @@ class TestChangeMemberEmails(BaseTest):
         assert response.status_code == 200
         assert response.context["form"].initial["members"] == "ada@old.example.com"
 
+    def test_form_says_when_it_lists_only_some_of_the_members(self, _send: MagicMock) -> None:
+        self._create_user("grace@old.example.com")
+
+        with patch.object(ChangeMemberEmailsForm, "MAX_MEMBERS", 1):
+            response = self.client.get(self.url)
+
+        assert response.context["form"].initial["members"] == "ada@old.example.com"
+        assert "the first 1 of 2 members" in response.context["operation"].description
+
     def test_preview_shows_the_change_without_making_it(self, send: MagicMock) -> None:
         response = self._preview("ada@old.example.com")
 
