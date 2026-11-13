@@ -1160,4 +1160,5 @@ def convert_version(
 
 
 def _as_text(value: object) -> str:
-    return value if isinstance(value, str) else ""
+    # NUL and \x01 mark the converter's own placeholders, and an email holds neither, so a source can't fake one.
+    return value.replace("\x00", "").replace("\x01", "") if isinstance(value, str) else ""
