@@ -204,7 +204,7 @@ wrappers:
         title: Top errors for one MCP tool
         description: >
             Return the most common failure buckets for a single MCP tool, each with the resolved client harness it came
-            from. Failures are the errored $mcp_tool_call events ($mcp_is_error = true) — the same source as the error
+            from. Failures are the errored $mcp_tool_call events ($mcp_is_error = true) that $mcp_error_expected does not mark expected — the same source as the error
             rate — grouped by $mcp_error_type, HTTP $mcp_error_status, and cause: the error message with ids and numbers
             masked, so repeats of one problem share a row. Each bucket carries the raw error_type, error_status and
             cause plus sample_message (the newest raw message); pass all three to query-mcp-tool-failure-occurrences to

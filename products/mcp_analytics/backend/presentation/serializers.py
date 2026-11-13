@@ -287,8 +287,9 @@ class MCPSessionListQuerySerializer(serializers.Serializer):
         allow_null=True,
         default=None,
         help_text=(
-            "Filter by session outcome. true keeps sessions with at least one errored tool call "
-            "($mcp_is_error), false keeps sessions with none. Omit to list both."
+            "Filter by session outcome. true keeps sessions with at least one failed tool call "
+            "($mcp_is_error, unless $mcp_error_expected marks it expected), false keeps sessions with none. "
+            "Omit to list both."
         ),
     )
     properties = PropertyFiltersField(
@@ -396,8 +397,8 @@ class MCPSessionSerializer(serializers.Serializer):
     error_calls = serializers.IntegerField(
         read_only=True,
         help_text=(
-            "Number of the session's $mcp_tool_call events with $mcp_is_error true, "
-            "counted over the same properties / filter_test_accounts matches as tool_calls."
+            "Number of the session's failed $mcp_tool_call events: $mcp_is_error true and not marked expected "
+            "by $mcp_error_expected, counted over the same properties / filter_test_accounts matches as tool_calls."
         ),
     )
     session_start = serializers.DateTimeField(
@@ -510,7 +511,8 @@ class MCPActivityStatsSerializer(serializers.Serializer):
         read_only=True, help_text="Tool calls that carried an $mcp_intent, for intent-coverage checks."
     )
     error_calls = serializers.IntegerField(
-        read_only=True, help_text="Tool calls flagged as errors ($mcp_is_error) in the window."
+        read_only=True,
+        help_text="Failed tool calls in the window: $mcp_is_error true and not marked expected by $mcp_error_expected.",
     )
     missing_capability_reports = serializers.IntegerField(
         read_only=True, help_text="$mcp_missing_capability events captured in the window."

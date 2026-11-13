@@ -515,7 +515,7 @@ export interface MCPSessionApi {
     readonly session_id: string
     /** Total number of $mcp_tool_call events in the session. */
     readonly tool_calls: number
-    /** Number of the session's $mcp_tool_call events with $mcp_is_error true, counted over the same properties / filter_test_accounts matches as tool_calls. */
+    /** Number of the session's failed $mcp_tool_call events: $mcp_is_error true and not marked expected by $mcp_error_expected, counted over the same properties / filter_test_accounts matches as tool_calls. */
     readonly error_calls: number
     /** Timestamp of the first $mcp_tool_call event in the session. */
     readonly session_start: string
@@ -627,7 +627,7 @@ export interface MCPActivityStatsApi {
     readonly distinct_clients: number
     /** Tool calls that carried an $mcp_intent, for intent-coverage checks. */
     readonly calls_with_intent: number
-    /** Tool calls flagged as errors ($mcp_is_error) in the window. */
+    /** Failed tool calls in the window: $mcp_is_error true and not marked expected by $mcp_error_expected. */
     readonly error_calls: number
     /** $mcp_missing_capability events captured in the window. */
     readonly missing_capability_reports: number
@@ -759,7 +759,7 @@ export type McpAnalyticsSessionsListParams = {
      */
     filter_test_accounts?: boolean
     /**
-     * Filter by session outcome. true keeps sessions with at least one errored tool call ($mcp_is_error), false keeps sessions with none. Omit to list both.
+     * Filter by session outcome. true keeps sessions with at least one failed tool call ($mcp_is_error, unless $mcp_error_expected marks it expected), false keeps sessions with none. Omit to list both.
      * @nullable
      */
     has_errors?: boolean | null
