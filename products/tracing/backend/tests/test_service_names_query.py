@@ -13,6 +13,7 @@ from products.tracing.backend.logic import run_service_names_query
 # 03:30 UTC on June 2 is still June 1 in Los Angeles, so the team's local day trails the UTC day.
 NOW = "2026-06-02T03:30:00Z"
 SPAN_TS = "2026-06-02 03:20:00.000000"
+EXPIRY_TS = "2099-01-01 00:00:00.000000"
 
 
 class TestServiceNamesQuery(ClickhouseTestMixin, APIBaseTest):
@@ -29,9 +30,9 @@ class TestServiceNamesQuery(ClickhouseTestMixin, APIBaseTest):
         sync_execute(TRACE_SPANS_DISTRIBUTED_TABLE_SQL())
         sync_execute(
             "INSERT INTO trace_spans (uuid, team_id, trace_id, span_id, parent_span_id, name, kind, "
-            "timestamp, end_time, observed_timestamp, status_code, service_name) VALUES "
+            "timestamp, end_time, observed_timestamp, status_code, service_name, original_expiry_timestamp) VALUES "
             f"('019e8754-0000-0000-0000-000000000001', {cls.team.id}, 'AAAAAAAAAAAAAAAAAAAAAQ==', "
-            f"'AAAAAAAAAAE=', '', 'root', 2, '{SPAN_TS}', '{SPAN_TS}', '{SPAN_TS}', 0, 'web')"
+            f"'AAAAAAAAAAE=', '', 'root', 2, '{SPAN_TS}', '{SPAN_TS}', '{SPAN_TS}', 0, 'web', '{EXPIRY_TS}')"
         )
 
     @classmethod
