@@ -80,11 +80,12 @@ type S3Command = PutObjectCommand | CopyObjectCommand | GetObjectCommand
 function packingStore(options: { maxPackImages?: number; packer?: boolean; failPuts?: boolean } = {}) {
     const objects = new Map<string, Buffer>()
     const commands: S3Command[] = []
+    const state = { failPuts: options.failPuts ?? false }
     const s3 = {
         send: jest.fn((command: S3Command) => {
             commands.push(command)
             if (command instanceof PutObjectCommand) {
-                if (options.failPuts) {
+                if (state.failPuts) {
                     return Promise.reject(new Error('SlowDown'))
                 }
                 objects.set(command.input.Key!, command.input.Body as Buffer)
@@ -116,7 +117,7 @@ function packingStore(options: { maxPackImages?: number; packer?: boolean; failP
     const sink = new RawImageStore({ get: () => Promise.resolve(STORED) }, s3 as any, 'images-v4', 10, packer)
     const puts = (): string[] =>
         commands.filter((command) => command instanceof PutObjectCommand).map((command) => command.input.Key!)
-    return { sink, objects, commands, puts, rows }
+    return { sink, objects, commands, puts, rows, state }
 }
 
 /** `null` for a job with no write days. */
@@ -369,7 +370,7 @@ describe('RawImageStore', () => {
         })
 
         it('sends only rows for a packed copy that needs no refresh, and unpacks it when the rows would be late', async () => {
-            const { sink, objects, puts, rows } = packingStore()
+            const { sink, objects, puts, rows, state } = packingStore()
             const stored = await sink.publishImage(job(REF), fetched())
             rows.length = 0
 
@@ -381,6 +382,12 @@ describe('RawImageStore', () => {
             expect(puts()[1]).toBe('images/url/month=2026-10/7/abcdefghijklmnopqrstuv')
             expect(open(objects.get(puts()[1])!).body).toEqual(PNG)
             expect(rows).toHaveLength(1)
+
+            // The caller retries a job whose copy it could not make readable.
+            state.failPuts = true
+            await expect(sink.indexStoredImage(job(REF, null), packedHistory(REF, stored.pack!))).rejects.toThrow(
+                'SlowDown'
+            )
         })
     })
 })

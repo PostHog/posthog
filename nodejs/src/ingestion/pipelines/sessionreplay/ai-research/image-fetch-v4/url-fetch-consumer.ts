@@ -216,11 +216,15 @@ export class UrlFetchConsumer {
                 }
             }
 
+            // A job whose copy could not be made readable fails the batch after the rest of its work, so the
+            // redelivery retries that job while the others come back as deduped.
+            let unindexed = 0
             const sink = this.options.refreshingSink
             if (sink?.indexStoredImage) {
-                await Promise.all(
+                const outcomes = await Promise.allSettled(
                     storedFresh.map(({ candidate, history }) => sink.indexStoredImage!(candidate, history))
                 )
+                unindexed = outcomes.filter((outcome) => outcome.status === 'rejected').length
             }
             const refreshed = await Promise.all(
                 refreshDue.map(async ({ candidate, history }): Promise<UrlCrawlHistoryItem> => {
@@ -288,7 +292,7 @@ export class UrlFetchConsumer {
                     ImageFetchRequestMetrics.incRetryCause(attempt.outcome)
                 }
             }
-            const lost = attempts.filter((attempt) => attempt.lost).length + republishResult.failedUrls
+            const lost = attempts.filter((attempt) => attempt.lost).length + republishResult.failedUrls + unindexed
             if (lost > 0) {
                 throw new Error(`the image fetch lane could not account for ${lost} URLs`)
             }

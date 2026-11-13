@@ -97,12 +97,13 @@ export class RawImageStore implements RefreshingImageSink {
         if (!ref || ref.scope !== 'team' || !pack) {
             return
         }
-        // The job stays handled when this fails: the batch has nothing to retry it with, and the copy is still stored.
+        // A failure rejects so that the caller retries the job, because until then its write days cannot read the copy.
         await ImageFetchProcessingMetrics.runLimited(this.writes, 'image_publish_admission', 'image_publish_delivery', {
             debugTag: candidate.registrableDomain,
             fn: () =>
-                this.makeReadable(candidate, ref, pack).catch(() => {
+                this.makeReadable(candidate, ref, pack).catch((error: unknown) => {
                     storedImages.labels(ref.asset, 'index_failed').inc()
+                    throw error
                 }),
         })
     }

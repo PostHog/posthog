@@ -68,6 +68,7 @@ interface Harness {
     createPass: jest.Mock
     republish: jest.Mock<Promise<RepublishResult>, any[]>
     publishImage: jest.Mock<Promise<StoredImage>, any[]>
+    indexStoredImage: jest.Mock<Promise<void>, any[]>
     topHogRecords: Map<string, RecordedTopHogMetric[]>
 }
 
@@ -94,6 +95,7 @@ function build(
     const republish = jest.fn(() => Promise.resolve(republishResult))
     const createRepublishBatch = jest.fn(() => ({ republish, flush: () => Promise.resolve({ failedUrls: 0 }) }))
     const publishImage = jest.fn((): Promise<StoredImage> => Promise.resolve({}))
+    const indexStoredImage = jest.fn((): Promise<void> => Promise.resolve())
     const scheduler = {
         runImage: async (_url: URL, _deadlineMs: number, request: () => Promise<ImageFetchResult>) => ({
             ran: true as const,
@@ -120,12 +122,22 @@ function build(
         { createPass } as unknown as ConfigurationPolicyService,
         options,
         { createRepublishBatch } as unknown as FrontierPublisher,
-        { publishImage, refreshImage: () => Promise.resolve({}) },
+        { publishImage, refreshImage: () => Promise.resolve({}), indexStoredImage },
         { bindingFor: () => Promise.resolve(bind) },
         new ImageFetchTopHogMetrics(recordingTopHog.registry)
     )
     builtRunners.push(runner)
-    return { runner, budget, fetch, check, createPass, republish, publishImage, topHogRecords: recordingTopHog.records }
+    return {
+        runner,
+        budget,
+        fetch,
+        check,
+        createPass,
+        republish,
+        publishImage,
+        indexStoredImage,
+        topHogRecords: recordingTopHog.records,
+    }
 }
 
 describe('FetchRunner', () => {
@@ -243,6 +255,34 @@ describe('FetchRunner', () => {
         const [attempt] = await harness.runner.run([candidate()], new Map([[previous.key, previous]]))
 
         expect(attempt.history).toMatchObject({ storedAtMs: pack.storedAtMs, pack })
+    })
+
+    it.each([
+        ['indexes the packed copy it keeps', 'ok'],
+        ['retries the job when that copy cannot be indexed', 'fails'],
+    ])('after a missing response, %s', async (_case, indexing) => {
+        const harness = build({ outcome: 'not_found' })
+        if (indexing === 'fails') {
+            harness.indexStoredImage.mockRejectedValue(new Error('index unavailable'))
+        }
+        const previous = {
+            kind: 'url' as const,
+            key: candidate().originalRef,
+            nextFetchAtMs: 0,
+            storageExpiresAtMs: NOW_MS,
+            outcome: 'ok',
+            storedAtMs: PACKED_EARLIER.storedAtMs,
+            pack: PACKED_EARLIER,
+        }
+
+        const [attempt] = await harness.runner.run([candidate()], new Map([[previous.key, previous]]))
+
+        expect(harness.indexStoredImage).toHaveBeenCalledWith(
+            expect.objectContaining({ originalRef: candidate().originalRef }),
+            previous
+        )
+        expect(attempt.finished).toBe(indexing === 'ok')
+        expect(harness.republish).toHaveBeenCalledTimes(indexing === 'ok' ? 0 : 1)
     })
 
     it('uses one worker limit across sibling origins', async () => {

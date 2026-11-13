@@ -769,6 +769,23 @@ export class FetchRunner implements FetchPass {
             }
             pack = stored.pack
             storedAtMs = stored.pack?.storedAtMs ?? Date.now()
+        } else if (pack && previousUrl && this.imageSink.indexStoredImage) {
+            // The job's write days read the copy it keeps only through their own index rows.
+            releaseRegistrableDomainSlot()
+            try {
+                await this.imageSink.indexStoredImage(attemptedCandidate, previousUrl)
+            } catch (error) {
+                this.logStorageFailure('index', error)
+                return await this.republish(
+                    republishBatch,
+                    attemptedCandidate,
+                    'publish_failed',
+                    'retry',
+                    ONE_MINUTE_MS,
+                    configurationUpdates,
+                    'transient_backoff'
+                )
+            }
         }
         const responseCache = result.redirects > 0 ? withoutValidators(result.cache) : result.cache
         const mergedCache =
@@ -944,7 +961,7 @@ export class FetchRunner implements FetchPass {
      * S3 and KMS fail in bursts, so this logs at most one failure per interval, with the count since the last one. The
      * error message can name the object key, so only the error name and status are logged, never the URL or the key.
      */
-    private logStorageFailure(operation: 'publish' | 'refresh', error: unknown): void {
+    private logStorageFailure(operation: 'publish' | 'refresh' | 'index', error: unknown): void {
         this.storageFailuresSinceLog += 1
         const nowMs = Date.now()
         if (nowMs - this.storageFailureLoggedAtMs < STORAGE_FAILURE_LOG_INTERVAL_MS) {

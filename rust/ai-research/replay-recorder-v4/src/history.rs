@@ -164,8 +164,9 @@ pub struct Fresh {
 
 /// Reads each reference that `sent_urls` does not hold for `day` once, and returns the ones the fetcher would still
 /// drop when `day` ends. So each day that a block references an image, either a job goes out or the stored copy is
-/// younger than the refresh interval, which the `images-v4` lifecycle allows for. The caller marks them in
-/// `sent_urls` once it has handed the rows to the producer, so a retried flush writes the rows again.
+/// younger than the refresh interval, which the `images-v4` lifecycle allows for. The caller marks a reference with a
+/// row in `sent_urls` once the row reaches the topic, and one without a row once the flush has written its blocks, so
+/// a later flush sends a lost row again.
 pub async fn fresh_urls<'a>(
     history: &dyn FetchHistory,
     sent_urls: &moka::sync::Cache<(String, String), ()>,
