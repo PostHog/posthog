@@ -602,7 +602,6 @@ path = "products.growth"
 depends_on = [
     "ee",
     "posthog", "products.access_control",
-    # Facade-only: SDK health reads flag calls from flag_evaluations where that table holds them.
     "products.feature_flags",
     "products.signals", "products.tasks",
     "products.warehouse_sources", "products.wizard",
