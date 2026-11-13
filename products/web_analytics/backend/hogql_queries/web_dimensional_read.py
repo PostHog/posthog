@@ -35,6 +35,7 @@ from products.web_analytics.backend.hogql_queries.web_dimensional_precompute imp
     DimensionalJobIds,
     dimensional_insert_modifiers,
     dimensional_job_ids,
+    dimensional_team_ids,
     sessions_coverage_floor,
 )
 from products.web_analytics.backend.hogql_queries.web_overview_pre_aggregated import (
@@ -159,11 +160,8 @@ def reads_dimensional(runner: Union["WebStatsTableQueryRunner", "WebOverviewQuer
 
 
 def _team_enrolled(runner: Union["WebStatsTableQueryRunner", "WebOverviewQueryRunner"]) -> bool:
-    # Read from the stored project settings, not `runner.modifiers`: a request can supply its own modifiers,
-    # and those must not enroll a project the rollout left out. The writer selects teams by the same stored
-    # value, so an enrolled team has its tables.
-    stored = runner.team.modifiers
-    return isinstance(stored, dict) and stored.get("useWebAnalyticsDimensionalTables") is True
+    # The writer fills the same teams, so an enrolled team has its tables.
+    return runner.team.pk in dimensional_team_ids()
 
 
 def _dimensional_reads_disabled(runner: Union["WebStatsTableQueryRunner", "WebOverviewQueryRunner"]) -> bool:

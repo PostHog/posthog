@@ -8,10 +8,15 @@ the heavy raw-table scan happens on a schedule for a known audience rather than
 lazily on every user query, while re-runs are cheap because already-fresh
 windows are skipped.
 
-The audience is every team whose `useWebAnalyticsDimensionalTables` modifier is on. The
-query runners read the same modifier, so a team that reads the tables by default is a team
-this job fills. The `WEB_DIMENSIONAL_PRECOMPUTE_TEAM_IDS` env var (comma-separated team
-IDs) overrides the modifier when set; set it to empty to stop the job.
+Rollout is intentionally decoupled from the v2 pre-aggregation pipeline and its
+team selection. The audience defaults to a small per-region built-in rollout list
+(`DEFAULT_ROLLOUT_TEAM_IDS_BY_REGION` in the backend module) on PostHog Cloud, and is fully overridable via the
+`WEB_DIMENSIONAL_PRECOMPUTE_TEAM_IDS` env var (comma-separated team IDs; set it
+to empty to disable the job). Self-hosted instances default to no teams so the
+job never precomputes for unrelated teams that happen to share those IDs. There
+is no dependency on the v2 team-selection dictionary or flag.
+
+The query runners read the same list, so a team this job fills reads the tables by default.
 
 After the writers, a coverage check reads the READY jobs back from Postgres and
 fails the run when a team has a day without a fresh job or a stale current day.
@@ -35,7 +40,9 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
 from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
 from products.web_analytics.backend.hogql_queries.web_dimensional_precompute import (
     DIMENSIONAL_TTL_SECONDS,
+    SELECTED_TEAM_IDS_ENV_VAR,
     dimensional_insert_modifiers,
+    dimensional_team_ids,
     dimensional_ttl_schedule,
     ensure_web_bounces_dimensional_precomputed,
     ensure_web_stats_dimensional_precomputed,
@@ -66,10 +73,6 @@ PRECOMPUTE_WINDOW_DAYS = int(os.getenv("WEB_DIMENSIONAL_PRECOMPUTE_WINDOW_DAYS",
 # trade more bytes/INSERT for fewer INSERTs on lower-volume teams.
 PRECOMPUTE_CHUNK_DAYS = int(os.getenv("WEB_DIMENSIONAL_PRECOMPUTE_CHUNK_DAYS", "1"))
 
-# Comma-separated team IDs to precompute. Overrides the team modifier;
-# set to empty to disable the job entirely.
-SELECTED_TEAM_IDS_ENV_VAR = "WEB_DIMENSIONAL_PRECOMPUTE_TEAM_IDS"
-
 SCHEDULE_INTERVAL_MINUTES = 20
 
 # A day counts as covered while its newest READY job is at most two runs past its expiry. The check
@@ -88,18 +91,6 @@ BOUNCES_TABLE = "web_bounces_dimensional_preaggregated"
 COVERAGE_METRICS_JOB = "web_dimensional_precompute_coverage"
 COVERAGE_MISSING_DAYS_GAUGE = "web_dimensional_precompute_coverage_missing_days"
 COVERAGE_TODAY_LAG_GAUGE = "web_dimensional_precompute_today_lag_seconds"
-
-
-def get_selected_team_ids() -> list[int]:
-    """The teams to precompute: the env var when set, even to empty, else every team with the modifier on."""
-    raw = os.getenv(SELECTED_TEAM_IDS_ENV_VAR)
-    if raw is not None:
-        return [int(part.strip()) for part in raw.split(",") if part.strip().isdigit()]
-    return list(
-        Team.objects.filter(modifiers__useWebAnalyticsDimensionalTables=True)
-        .order_by("pk")
-        .values_list("pk", flat=True)
-    )
 
 
 WEB_DIMENSIONAL_PRECOMPUTE_TEAM_DONE = Counter(
@@ -367,13 +358,13 @@ def ensure_web_dimensional_precompute_op(context: dagster.OpExecutionContext) ->
     window = precompute_window(started_at)
     current_day = started_at.date()
 
-    team_ids = get_selected_team_ids()
+    team_ids = dimensional_team_ids()
     context.log.info(
         f"web_dimensional_precompute_start teams={len(team_ids)} window=[{window.start}, {window.end}) "
         f"chunk_days={PRECOMPUTE_CHUNK_DAYS}"
     )
     if not team_ids:
-        context.log.info("web_dimensional_precompute_noop (no team selected)")
+        context.log.info(f"web_dimensional_precompute_noop ({SELECTED_TEAM_IDS_ENV_VAR} is empty)")
         context.add_output_metadata({"teams": 0, "failures": 0})
         return DimensionalPrecomputeRun(
             teams=0, failures=0, team_ids=(), sample_job_ids={}, window=window, current_day=current_day

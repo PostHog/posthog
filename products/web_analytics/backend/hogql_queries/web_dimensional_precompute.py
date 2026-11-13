@@ -22,6 +22,7 @@ Parity with v2 is intentional, with two deliberate deviations:
     NULL, so they fit the non-nullable Int64 columns deterministically.
 """
 
+import os
 import json
 from collections.abc import Collection
 from datetime import UTC, datetime
@@ -52,6 +53,36 @@ from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute 
 # Distributed read-table names as registered in the HogQL database schema.
 WEB_STATS_DIMENSIONAL_READ_TABLE = "web_stats_dimensional_preaggregated"
 WEB_BOUNCES_DIMENSIONAL_READ_TABLE = "web_bounces_dimensional_preaggregated"
+
+# The teams the dimensional writer fills, keyed by Cloud region. Their web analytics tiles also read the
+# dimensional tables by default, so one list decides both. Region-keyed because team IDs are not unique across
+# US and EU, so a flat list would enroll an unrelated same-ID team in the other region.
+DEFAULT_ROLLOUT_TEAM_IDS_BY_REGION: dict[str, list[int]] = {
+    "US": [2, 39058, 47074, 55348],
+    "EU": [1, 1589, 126918],
+}
+
+# Comma-separated team IDs that override the per-region list. Set to empty to stop the writer. A reader without
+# the variable keeps the per-region list, which is safe because reads use only jobs that are ready.
+SELECTED_TEAM_IDS_ENV_VAR = "WEB_DIMENSIONAL_PRECOMPUTE_TEAM_IDS"
+
+
+def dimensional_team_ids() -> list[int]:
+    """Resolve the teams the writer fills and whose tiles read the dimensional tables by default.
+
+    The env var wins if set (even to empty): a comma-separated list, blank/invalid
+    entries skipped. If unset, fall back to the current region's default — but only
+    on PostHog Cloud; self-hosted defaults to none so the job never runs for
+    unrelated teams that happen to share those IDs.
+    """
+    raw = os.getenv(SELECTED_TEAM_IDS_ENV_VAR)
+    if raw is not None:
+        return [int(part.strip()) for part in raw.split(",") if part.strip().isdigit()]
+    if not is_cloud():
+        return []
+    region = (settings.CLOUD_DEPLOYMENT or "").upper()
+    return list(DEFAULT_ROLLOUT_TEAM_IDS_BY_REGION.get(region, []))
+
 
 # Today's window refreshes hourly, the last two days daily, and older days are held for 90 to 97
 # days so a settled day is computed once. The scheduled job re-runs over the rolling window and the

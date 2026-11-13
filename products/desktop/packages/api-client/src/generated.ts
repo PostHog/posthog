@@ -238,7 +238,6 @@ export namespace Schemas {
         useNewEventsSchema: boolean | null;
         usePreaggregatedIntermediateResults: boolean | null;
         usePreaggregatedTableTransforms: boolean | null;
-        useWebAnalyticsDimensionalTables: boolean | null;
         useWebAnalyticsPreAggregatedTables: boolean | null;
         webAnalyticsFirstPageviewFilters: boolean | null;
     }>;

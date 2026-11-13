@@ -189,12 +189,16 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest):
         ]
     )
     def test_dimensional_read_kill_switch_changes_the_cache_key(self, _name, runner_class, query) -> None:
-        self.team.modifiers = {"useWebAnalyticsDimensionalTables": True}
-
         def cache_key(reads_disabled: bool) -> str:
-            with mock.patch(
-                "products.web_analytics.backend.hogql_queries.web_dimensional_read.feature_enabled_or_false",
-                return_value=reads_disabled,
+            with (
+                mock.patch(
+                    "products.web_analytics.backend.hogql_queries.web_dimensional_read.dimensional_team_ids",
+                    return_value=[self.team.pk],
+                ),
+                mock.patch(
+                    "products.web_analytics.backend.hogql_queries.web_dimensional_read.feature_enabled_or_false",
+                    return_value=reads_disabled,
+                ),
             ):
                 return runner_class(team=self.team, query=query).get_cache_key()
 
