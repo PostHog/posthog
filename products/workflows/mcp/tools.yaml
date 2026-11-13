@@ -510,11 +510,11 @@ tools:
             blocks by id from the step's config.inputs.email.value.design) to edit the design, and email_patch to change
             subject, preheader, text, or recipients. After design ops the HTML is re-rendered server-side, so the sent
             email always matches the design. Edits apply atomically: an invalid batch changes nothing. On an active
-            workflow or one disabled while active, edits stage a draft (composing with any staged graph edits) and nothing
-            reaches real people until workflows-publish. The updated workflow is returned without step inputs; read one
-            back with workflows-get. Prefer this over workflows-patch-graph update_action for email content - it's
-            smaller to send and keeps design and HTML in sync. For library templates use workflows-patch-email-template
-            instead.
+            workflow or one disabled while active, edits stage a draft (composing with any staged graph edits) and
+            nothing reaches real people until workflows-publish. The updated workflow is returned without step inputs;
+            read one back with workflows-get. Prefer this over workflows-patch-graph update_action for email content -
+            it's smaller to send and keeps design and HTML in sync. For library templates use
+            workflows-patch-email-template instead.
         response:
             exclude:
                 - actions.*.config.inputs
