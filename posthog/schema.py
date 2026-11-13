@@ -18125,6 +18125,8 @@ class ChartSettings(BaseModel):
     showYAxisBorder: bool | None = None
     stackBars100: bool | None = Field(default=None, description="Whether we fill the bars to 100% in stacked mode")
     valueLabelBackground: bool | None = None
+    valueLabelBackgroundColor: str | None = None
+    valueLabelColor: str | None = None
     valueLabelFontSize: float | None = None
     valueLabelPosition: ValueLabelPosition | None = None
     valueLabelRotation: float | None = None

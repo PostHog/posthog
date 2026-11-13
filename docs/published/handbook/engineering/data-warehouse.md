@@ -90,7 +90,7 @@ Panes share their value scale by default; **Independent value scales** lets each
 
 Use **Add calculated field** beneath Measures or **+ Field** on a shelf. The editor shows SQL validation progress and infers the return type; you can override the type of a dimension. Cmd+Space (Ctrl+Space on Windows or Linux) opens field autocomplete.
 
-The Series panel accepts custom colors for individual breakdown values. Display settings control value-label placement, background, size, and rotation, and bar spacing can be set to **None** for adjoining bars. The legend-position selector sits beside its label.
+The Series panel accepts custom colors for individual breakdown values. Display settings control value-label placement, background, size, and rotation, and bar spacing can be set to **None** for adjoining bars. Value text and background colors can be customized independently of the series color. Clearing a color restores automatic styling; turning off the value background preserves its color for later use. These label controls also work in the SQL editor. The legend-position selector sits beside its label.
 
 Single-value filters distinguish selecting **(empty string)** from clearing the input: the former matches an empty value, while the latter removes the condition.
 

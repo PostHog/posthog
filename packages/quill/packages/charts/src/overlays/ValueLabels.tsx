@@ -42,6 +42,10 @@ export interface ValueLabelsProps {
     position?: 'end' | 'center'
     /** Draw a series-colored badge behind the text. Defaults to true. */
     background?: boolean
+    /** Override automatic contrasting text color. */
+    color?: string
+    /** Override the series badge color when background is enabled. */
+    backgroundColor?: string
     /** Label size in pixels, clamped to 8..32. */
     fontSize?: number
     /** Label rotation in degrees, clamped to -90..90. */
@@ -471,6 +475,8 @@ export function ValueLabels({
     position = 'end',
     offset = 0,
     background = true,
+    color,
+    backgroundColor,
     fontSize = 12,
     rotation = 0,
 }: ValueLabelsProps): React.ReactElement | null {
@@ -574,7 +580,8 @@ export function ValueLabels({
                             width: c.width,
                             height: c.height,
                             padding: 0,
-                            backgroundColor: background && resolvedRotation === 0 ? c.color : 'transparent',
+                            backgroundColor:
+                                background && resolvedRotation === 0 ? (backgroundColor ?? c.color) : 'transparent',
                             borderColor: background && resolvedRotation === 0 ? borderColor : 'transparent',
                             borderWidth: background && resolvedRotation === 0 ? LABEL_BORDER : 0,
                             left: Math.round(c.x),
@@ -591,12 +598,14 @@ export function ValueLabels({
                                 height: labelHeight,
                                 fontSize: resolvedFontSize,
                                 color:
-                                    background || c.centerAnchor
-                                        ? prefersLightText(c.color)
+                                    color ??
+                                    (background || c.centerAnchor
+                                        ? prefersLightText(background ? (backgroundColor ?? c.color) : c.color)
                                             ? 'white'
                                             : 'black'
-                                        : theme.axisColor,
-                                backgroundColor: background && resolvedRotation !== 0 ? c.color : 'transparent',
+                                        : theme.axisColor),
+                                backgroundColor:
+                                    background && resolvedRotation !== 0 ? (backgroundColor ?? c.color) : 'transparent',
                                 borderColor: background && resolvedRotation !== 0 ? borderColor : 'transparent',
                                 transform: `rotate(${resolvedRotation}deg)`,
                             }}

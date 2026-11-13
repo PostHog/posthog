@@ -859,14 +859,24 @@ describe('sqlLineGraphAdapter', () => {
         it('formats each value label from its own series column when showValuesOnSeries is set', () => {
             const config = buildLineChartConfig({
                 xData: dateXData,
-                chartSettings: { showValuesOnSeries: true },
+                chartSettings: {
+                    showValuesOnSeries: true,
+                    valueLabelColor: '#111827',
+                    valueLabelBackgroundColor: '#fde68a',
+                },
                 timezone: 'UTC',
                 ySeriesData: [
                     ySeries('revenue', [1200], { formatting: { prefix: '$' } }),
                     ySeries('conversion', [12], { formatting: { suffix: '%' } }),
                 ],
             })
-            expect(config.valueLabels).toEqual(expect.objectContaining({ formatter: expect.any(Function) }))
+            expect(config.valueLabels).toEqual(
+                expect.objectContaining({
+                    formatter: expect.any(Function),
+                    color: '#111827',
+                    backgroundColor: '#fde68a',
+                })
+            )
             const formatter = (config.valueLabels as ValueLabelsConfig).formatter!
             const ctx = (rawValue: number): ValueLabelContext => ({
                 rawValue,
