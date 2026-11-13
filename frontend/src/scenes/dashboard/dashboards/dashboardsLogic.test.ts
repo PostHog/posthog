@@ -183,10 +183,14 @@ describe('dashboardsLogic', () => {
         logic.mount()
     })
 
-    it('restores list filters after navigating away and returning', async () => {
+    it('drops remembered filter chips on a bare visit, keeping the typed search', async () => {
         await expectLogic(logic, () => {
             logic.actions.setFilters({ createdBy: [OTHER_USER.id], pinned: true, shared: true, tags: ['finance'] })
         }).toFinishAllListeners()
+
+        await expectLogic(logic, () => {
+            logic.actions.setSearch('needle')
+        }).toDispatchActions(['loadSearchedDashboardsSuccess'])
 
         logic.unmount()
         router.actions.push('/settings')
@@ -197,12 +201,14 @@ describe('dashboardsLogic', () => {
 
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(logic.values.filters).toEqual(
-            expect.objectContaining({ createdBy: [OTHER_USER.id], pinned: true, shared: true, tags: ['finance'] })
-        )
-        expect(router.values.searchParams).toEqual(
-            expect.objectContaining({ created_by: [OTHER_USER.id], pinned: true, shared: true, tags: ['finance'] })
-        )
+        // Remembered chips are not resurrected into the state or the URL.
+        expect(logic.values.filters).toEqual({ ...DEFAULT_FILTERS, search: 'needle' })
+        expect(router.values.searchParams.pinned).toBeUndefined()
+        expect(router.values.searchParams.shared).toBeUndefined()
+        expect(router.values.searchParams.created_by).toBeUndefined()
+        expect(router.values.searchParams.tags).toBeUndefined()
+        // The typed search survives the visit.
+        expect(router.values.searchParams.search).toBe('needle')
     })
 
     it('does not restore filters saved by another user', async () => {
@@ -226,18 +232,32 @@ describe('dashboardsLogic', () => {
         expect(logic.values.filters).toEqual(DEFAULT_FILTERS)
     })
 
-    it('clears the created by filter when switching to my dashboards', async () => {
-        await expectLogic(logic, () => {
-            logic.actions.setFilters({ createdBy: [OTHER_USER.id] })
-        }).toFinishAllListeners()
+    // The All case is the dead click: that tab is usually already active on a filtered list,
+    // so without a reset the click leaves the page exactly as it was.
+    it.each([DashboardsTab.All, DashboardsTab.Yours])(
+        'clears the filter chips and their URL params when the %s tab is picked',
+        async (tab) => {
+            await expectLogic(logic, () => {
+                logic.actions.setFilters({ pinned: true, shared: true, createdBy: [OTHER_USER.id] })
+            }).toFinishAllListeners()
+            expect(router.values.searchParams.pinned).toBe(true)
 
-        await expectLogic(logic, () => {
-            logic.actions.setCurrentTab(DashboardsTab.Yours)
-        }).toFinishAllListeners()
+            await expectLogic(logic, () => {
+                logic.actions.setSearch('needle')
+            }).toDispatchActions(['loadSearchedDashboardsSuccess'])
 
-        expect(logic.values.filters.createdBy).toBe('All users')
-        expect(router.values.searchParams.created_by).toBeUndefined()
-    })
+            await expectLogic(logic, () => {
+                logic.actions.setCurrentTab(tab)
+            }).toFinishAllListeners()
+
+            // Chips are gone; the typed search survives.
+            expect(logic.values.filters).toEqual({ ...DEFAULT_FILTERS, search: 'needle' })
+            expect(router.values.searchParams.pinned).toBeUndefined()
+            expect(router.values.searchParams.shared).toBeUndefined()
+            expect(router.values.searchParams.created_by).toBeUndefined()
+            expect(router.values.searchParams.search).toBe('needle')
+        }
+    )
 
     it('replaces tag results for a new search and appends the next page', async () => {
         await expectLogic(logic, () => {

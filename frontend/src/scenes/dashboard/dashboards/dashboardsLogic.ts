@@ -249,7 +249,11 @@ export interface dashboardsLogicActions {
         method: 'bulk' | 'single'
         onStillSelected: ((ids: number[]) => void) | undefined
     }
-    setCurrentTab: (tab: DashboardsTab) => {
+    setCurrentTab: (
+        tab: DashboardsTab,
+        resetFilters?: boolean
+    ) => {
+        resetFilters: boolean
         tab: DashboardsTab
     }
     setFilters: (filters: Partial<DashboardsFilters>) => {
@@ -319,7 +323,7 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
             method: 'single' | 'bulk',
             onStillSelected?: (ids: number[]) => void
         ) => ({ ids, method, onStillSelected }),
-        setCurrentTab: (tab: DashboardsTab) => ({ tab }),
+        setCurrentTab: (tab: DashboardsTab, resetFilters: boolean = true) => ({ tab, resetFilters }),
         setSearch: (search: string) => ({ search }),
         setFilters: (filters: Partial<DashboardsFilters>) => ({
             filters,
@@ -358,8 +362,6 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
                             ...filters,
                         }),
                     setSearch: (state, { search }) => ({ ...state, search }),
-                    setCurrentTab: (state, { tab }) =>
-                        tab === DashboardsTab.Yours ? { ...state, createdBy: DEFAULT_FILTERS.createdBy } : state,
                 },
             ],
             tagSearch: [
@@ -569,8 +571,13 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
     }),
     trackedActionToUrl(({ values }) => ({
         setCurrentTab: () => {
-            const tab = values.currentTab === DashboardsTab.All ? undefined : values.currentTab
-            const searchParams: Record<string, any> = { ...router.values.searchParams, tab }
+            const searchParams: Record<string, any> = { ...router.values.searchParams }
+            // Deleting rather than setting undefined keeps the no-op comparison below honest.
+            if (values.currentTab === DashboardsTab.All) {
+                delete searchParams['tab']
+            } else {
+                searchParams['tab'] = values.currentTab
+            }
             if (values.currentTab === DashboardsTab.Yours) {
                 delete searchParams['created_by']
             }
@@ -653,7 +660,9 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
             const tabsFromUrl: DashboardsTab[] = [DashboardsTab.Yours, DashboardsTab.CrossProject]
             const tab = tabsFromUrl.includes(requestedTab) ? requestedTab : DashboardsTab.All
             if (values.currentTab !== tab) {
-                actions.setCurrentTab(tab)
+                // The URL drives the tab here, so a tab change must not clear the filters the
+                // same URL may be carrying (e.g. the "Pinned dashboards" sidebar link).
+                actions.setCurrentTab(tab, false)
             }
 
             const hasFilterParams =
@@ -663,21 +672,14 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
                 actions.setFilters({ createdBy: DEFAULT_FILTERS.createdBy })
             }
             if (!hasFilterParams) {
-                const { search: _search, ...filtersWithoutSearch } = values.filters
-                const { search: _defaultSearch, ...defaultsWithoutSearch } = DEFAULT_FILTERS
-                let filtersToRestore: Partial<DashboardsFilters> = filtersWithoutSearch
-                let defaultFilters: Partial<DashboardsFilters> = defaultsWithoutSearch
-                if (tab === DashboardsTab.Yours) {
-                    const { createdBy: _createdBy, ...filtersWithoutCreatedBy } = filtersToRestore
-                    const { createdBy: _defaultCreatedBy, ...defaultsWithoutCreatedBy } = defaultFilters
-                    filtersToRestore = filtersWithoutCreatedBy
-                    defaultFilters = defaultsWithoutCreatedBy
+                // A bare /dashboard visit is a clean slate (#129279): remembered filter chips are
+                // dropped instead of resurrected into the URL. Only the typed search survives.
+                const { search } = values.filters
+                if (hasDashboardFilters({ ...values.filters, search: '' })) {
+                    actions.setFilters({ ...DEFAULT_FILTERS, search })
                 }
-                if (!objectsEqual(filtersToRestore, defaultFilters)) {
-                    actions.setFilters(filtersToRestore)
-                }
-                if (values.filters.search) {
-                    actions.setSearch(values.filters.search)
+                if (search) {
+                    actions.setSearch(search)
                 }
                 return
             }
@@ -774,6 +776,13 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
         // on that one instead would drop the ticks before any move had landed.
         [moveToLogic.actionTypes.closeMoveToModal]: () => {
             cache.awaitingMove = undefined
+        },
+        setCurrentTab: ({ resetFilters }) => {
+            // Picking a tab has to visibly do something, even when that tab is already active.
+            // Going through setFilters keeps the URL and the server-side search in step.
+            if (resetFilters && hasDashboardFilters({ ...values.filters, search: '' })) {
+                actions.setFilters({ ...DEFAULT_FILTERS, search: values.filters.search })
+            }
         },
         setSearch: ({ search }) => {
             actions.loadSearchedDashboards({
