@@ -13,7 +13,7 @@ from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
 
-from posthog.hogql.errors import QueryError
+from posthog.hogql.errors import QueryError, TableAccessDeniedError
 
 from posthog.errors import wrap_clickhouse_query_error
 from posthog.models import Organization, Team, User
@@ -947,6 +947,7 @@ class TestFindScannerCandidatesActivity:
     @parameterized.expand(
         [
             ("hogql", QueryError("Unable to resolve field: event"), True),
+            ("table_access_denied", TableAccessDeniedError("warehouse_sessions"), True),
             ("regex", wrap_clickhouse_query_error(ServerException("bad regexp", code=427)), True),
             ("too_many_queries", wrap_clickhouse_query_error(ServerException("busy", code=202)), False),
             ("timeout", wrap_clickhouse_query_error(ServerException("slow", code=159)), False),
