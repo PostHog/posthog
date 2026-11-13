@@ -983,6 +983,31 @@ describe('broadcastWizardLogic', () => {
         }
     })
 
+    it.each([
+        {
+            answer: 'the rejection of an unfinished filter',
+            response: [400, { type: 'validation_error', code: 'invalid', detail: 'An audience filter is incomplete.' }],
+            settledBy: 'loadBlastRadiusSuccess',
+        },
+        {
+            answer: 'a server error',
+            response: [500, { detail: 'Simulated outage' }],
+            settledBy: 'loadBlastRadiusFailure',
+        },
+    ])('settles the audience size without a count on $answer', async ({ response, settledBy }) => {
+        await expectLogic(logic).toFinishAllListeners().clearHistory()
+        useMocks({ post: { '/api/projects/:team_id/hog_flows/user_blast_radius/': () => response } })
+        logic.actions.setAudienceProperties([
+            { type: PropertyFilterType.Person, key: 'plan', operator: PropertyOperator.Exact } as AnyPropertyFilter,
+        ])
+
+        await expectLogic(logic, () => {
+            logic.actions.loadBlastRadius()
+        })
+            .toDispatchActions([settledBy])
+            .toMatchValues({ blastRadius: null })
+    })
+
     const dynamicCohort = { id: 42, name: 'Upgraded', is_static: false, is_calculating: true }
     it.each([
         [

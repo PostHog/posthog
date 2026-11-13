@@ -205,5 +205,27 @@ describe('batchTriggerLogic', () => {
             await expectLogic(logic).toDispatchActions(['loadBlastRadiusFailure']).toMatchValues({ blastRadius: null })
             logic.unmount()
         })
+
+        it('shows the rejection of an unfinished audience filter inline, without failing the size check', async () => {
+            const rejection = 'An audience filter is incomplete. Finish it or remove it.'
+            useMocks({
+                post: {
+                    '/api/projects/:team_id/hog_flows/user_blast_radius/': () => [
+                        400,
+                        { type: 'validation_error', code: 'invalid', detail: rejection, attr: null },
+                    ],
+                },
+            })
+            initKeaTests()
+            const logic = batchTriggerLogic({
+                id: 'test-unfinished-filter',
+                filters: { properties: [{ key: 'plan', type: 'person', operator: 'exact' }] as any },
+            })
+            logic.mount()
+            await expectLogic(logic)
+                .toDispatchActions(['loadBlastRadiusSuccess'])
+                .toMatchValues({ blastRadius: null, blastRadiusError: rejection })
+            logic.unmount()
+        })
     })
 })
