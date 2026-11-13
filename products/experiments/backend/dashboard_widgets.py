@@ -121,11 +121,7 @@ def _compute_metric(
         metric = metric_builder.model_validate(metric_dict)
         # The runner checks the viewer's access to the metric's data sources before it serves a cached result.
         # Without the user that check does not run and the team-shared cache answers for everyone.
-        runner = ExperimentQueryRunner(
-            query=ExperimentQuery(experiment_id=experiment.id, metric=metric),
-            team=team,
-            user=user,
-        )
+        runner = ExperimentQueryRunner(query=ExperimentQuery(experiment_id=experiment.id, metric=metric), team=team)
         response = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE, user=user)
         result_dict = response.model_dump(mode="json")
         # Strip per-variant session payloads and debug SQL — the widget only renders the scorecard.
