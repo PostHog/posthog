@@ -3398,6 +3398,18 @@ export const HogFlowsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod
     })
     .describe('Variant of ``BulkUpdateTagsRequestSerializer`` for resources keyed by UUID (e.g. event definitions).')
 
+/**
+ * Checks Hog source for a workflow code step with the same rules a save applies, and returns any compile errors with their line and column. It saves nothing and returns no bytecode.
+ * @summary Compile a code step
+ */
+export const HogFlowsCompileCodeCreateBody = /* @__PURE__ */ zod.object({
+    hog: zod
+        .string()
+        .describe(
+            'Hog source for a code step (at most 100KB). It can call fetch and postHogCapture, and reads the globals event, person, groups, variables, inputs.params and inputs.secrets.'
+        ),
+})
+
 export const hogFlowsUserBlastRadiusCreateBodySendsEmailDefault = true
 
 export const HogFlowsUserBlastRadiusCreateBody = /* @__PURE__ */ zod.object({

@@ -18,6 +18,7 @@ from products.cdp.backend.flag_gated_templates import (
 from products.cdp.backend.validation import (
     COHORT_NOT_READY_CODE as COHORT_NOT_READY_CODE,
     MAX_HOG_CODE_SIZE_BYTES as MAX_HOG_CODE_SIZE_BYTES,
+    HogCompileError as HogCompileError,
     build_html_wrap_design as build_html_wrap_design,
     compile_hog as compile_hog,
     generate_template_bytecode as generate_template_bytecode,

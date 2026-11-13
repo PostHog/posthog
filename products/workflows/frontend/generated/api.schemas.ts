@@ -2073,6 +2073,27 @@ export interface BulkUpdateTagsUUIDResponseApi {
     skipped: BulkUpdateTagsUUIDErrorApi[]
 }
 
+export interface HogFlowCompileCodeRequestApi {
+    /** Hog source for a code step (at most 100KB). It can call fetch and postHogCapture, and reads the globals event, person, groups, variables, inputs.params and inputs.secrets. */
+    hog: string
+}
+
+export interface HogFlowCodeErrorApi {
+    /** What is wrong with the code. */
+    message: string
+    /** 1-based line of the error, when the compiler knows it. */
+    line?: number
+    /** 1-based column of the error, when the compiler knows it. */
+    column?: number
+}
+
+export interface HogFlowCompileCodeResponseApi {
+    /** True when the code compiles and can run in a code step. */
+    ok: boolean
+    /** Compile errors. Empty when ok is true. */
+    errors: HogFlowCodeErrorApi[]
+}
+
 /**
  * Cheap suspension-only read for the persistent scene-wide banner — no reputation computation.
  */

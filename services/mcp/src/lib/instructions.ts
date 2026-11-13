@@ -212,6 +212,7 @@ export class ToolDomainExtractor {
         'cancel',
         'check',
         'claim',
+        'compile',
         'complete',
         'compose',
         'copy',

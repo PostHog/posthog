@@ -127,6 +127,7 @@ describe('buildToolDomainsBlock', () => {
             'cancel',
             'check',
             'claim',
+            'compile',
             'complete',
             'compose',
             'copy',
