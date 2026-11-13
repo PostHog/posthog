@@ -18,7 +18,6 @@ import dagster
 from clickhouse_driver import Client
 from dagster import build_op_context
 
-from posthog.hogql.printer.events_json_document import EVENTS_PROPERTIES_DECLARED_STRING_PATHS, json_document_sql
 from posthog.hogql.test.utils import native_stored_document
 
 from posthog.clickhouse.adhoc_events_deletion import ADHOC_EVENTS_DELETION_TABLE
@@ -3695,26 +3694,30 @@ def test_json_property_presence_expr_treats_empty_values_as_absent(document: str
 
 
 @pytest.mark.parametrize(
-    "keys,expected",
+    "keys,changed",
     [
-        (["plain"], {"nested": {"secret": "s", "visible": "ok"}, "tags": ["a"]}),
-        (["nested.secret", "plain"], {"nested": {"visible": "ok"}, "tags": ["a"]}),
+        (["plain"], {"plain": None}),
+        (["nested.secret", "plain"], {"plain": None, "nested": '{"price":2.0,"visible":"ok"}'}),
+        (["nested.missing"], {}),
+        (["tags.secret"], {"tags": '[{"keep":2}]'}),
+        (["quoted.secret"], {"quoted": '{"z":1}'}),
+        (["$feature_flags.beta"], {"$feature_flags": {}}),
     ],
 )
-def test_json_drop_keys_expr_reaches_a_key_inside_a_stored_object(keys: list[str], expected: dict) -> None:
-    sent = {"plain": "x", "nested": {"visible": "ok", "secret": "s"}, "tags": ["a"], "$feature_flags": {"beta": "on"}}
-    [(stored, document)] = sync_execute(
-        f"""SELECT toJSONString(cleaned),
-            {json_document_sql("cleaned", declared_string_paths=EVENTS_PROPERTIES_DECLARED_STRING_PATHS)}
-        FROM (
-            SELECT CAST({_json_drop_keys_expr("properties", keys, "keys")}, %(json_type)s) AS cleaned
-            FROM (SELECT CAST(%(raw)s, %(json_type)s) AS properties)
-        )""",
-        {"raw": native_stored_document(json.dumps(sent)), "json_type": EVENTS_PROPERTIES_JSON_TYPE(), "keys": keys},
+def test_json_drop_keys_expr_changes_only_the_member_that_holds_the_key(keys: list[str], changed: dict) -> None:
+    sent = (
+        '{"plain": "x", "nested": {"visible": "ok", "secret": "s", "price": 2.0}, '
+        '"unrelated": {"big": 123456789012345678901234567890, "price": 2.0}, '
+        '"quoted": "{ \\"z\\": 1, \\"secret\\": 2 }", "tags": [{"secret": 1, "keep": 2}], '
+        '"$feature_flags": {"beta": "on"}}'
+    )
+    stored = native_stored_document(sent)
+    [(rewritten,)] = sync_execute(
+        f"""SELECT toJSONString(CAST({_json_drop_keys_expr("properties", keys, "keys")}, %(json_type)s))
+        FROM (SELECT CAST(%(raw)s, %(json_type)s) AS properties)""",
+        {"raw": stored, "json_type": EVENTS_PROPERTIES_JSON_TYPE(), "keys": keys},
     )
 
-    remaining = {**expected, "$feature_flags": {"beta": "on"}}
-    assert json.loads(document) == remaining
-    rewritten = json.loads(stored)
-    as_the_cleaner_stores_it = json.loads(native_stored_document(json.dumps(remaining)))
-    assert {key: rewritten[key] for key in as_the_cleaner_stores_it} == as_the_cleaner_stores_it
+    before = json.loads(stored)
+    after = json.loads(rewritten)
+    assert {key: after.get(key) for key in before} == {**before, **changed}

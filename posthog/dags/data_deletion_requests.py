@@ -26,7 +26,6 @@ from clickhouse_driver import Client
 # packages already get cached this way; common.hogvm is the only fresh import on the predicate
 # path, so it is the one that breaks without this.
 import posthog.hogql.compiler.bytecode  # noqa: F401
-from posthog.hogql.printer.events_json_document import json_document_sql, stored_document_sql
 
 from posthog.clickhouse.adhoc_events_deletion import ADHOC_EVENTS_DELETION_TABLE
 from posthog.clickhouse.client import sync_execute
@@ -1271,14 +1270,33 @@ def _drop_keys_expr(source: str, keys_param: str) -> str:
 def _json_drop_keys_expr(column: str, keys: list[str], keys_param: str) -> str:
     """A native JSON column without `keys`, as text that the cast turns back into the column.
 
-    A key at the top level is dropped from the serialized column. A key inside an object is out of reach there,
-    because the column stores the object as a string of its JSON text. For such a key the column is rebuilt with its
-    objects and arrays, the keys are dropped, and the top-level objects and arrays go back to strings.
+    A key at the top level is dropped from the serialized column. The column stores an object or array as a string
+    of its JSON text, and that drop cannot see into a string, so a key inside one is dropped from that string alone.
+    Every other member is copied as it is stored. A string is rewritten only when dropping the keys changes what
+    JSONDropKeysPool writes for it, and JSONDropKeysPool keeps the numbers, key order and nulls of what it leaves.
     """
+    dropped = _drop_keys_expr(f"toJSONString({column})", keys_param)
     if not any("." in key for key in keys):
-        return _drop_keys_expr(f"toJSONString({column})", keys_param)
-    dropped = _drop_keys_expr(json_document_sql(column), keys_param)
-    return stored_document_sql(dropped, object_key="$feature_flags" if column == "properties" else None)
+        return dropped
+    members = f"JSONExtractKeysAndValuesRaw({dropped})"
+    text = "JSONExtractString(kv.2)"
+    keys_below_member = (
+        "arrayMap(k -> substring(k, length(kv.1) + 2), "
+        f"arrayFilter(k -> startsWith(k, concat(kv.1, '.')), %({keys_param})s))"
+    )
+    # JSONDropKeysPool fails on text that is not JSON, so only a string that parses reaches it.
+    is_candidate = f"notEmpty({keys_below_member}) AND (startsWith(kv.2, '\"{{') OR startsWith(kv.2, '\"[')) AND isValidJSON({text})"
+    rewritten = (
+        f"arrayMap(kv -> (kv.1, JSONDropKeysPool({text}, {keys_below_member}), JSONDropKeysPool({text}, emptyArrayString())), "
+        f"arrayFilter(kv -> {is_candidate}, {members}))"
+    )
+    changed = f"arrayFilter(item -> item.2 != item.3, {rewritten})"
+    value = (
+        f"if(has(arrayMap(item -> item.1, {changed}), kv.1), "
+        f"toJSONString(arrayFirst(item -> item.1 = kv.1, {changed}).2), kv.2)"
+    )
+    pairs = f"arrayMap(kv -> concat(toJSONString(kv.1), ':', {value}), {members})"
+    return f"concat('{{', arrayStringConcat({pairs}, ','), '}}')"
 
 
 @frozen

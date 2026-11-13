@@ -77,28 +77,6 @@ def json_value_sql(path_sql: str) -> str:
     return f"if(isNull({path_sql}), NULL, if({is_container}, {text}, toJSONString({path_sql})))"
 
 
-def stored_document_sql(document_sql: str, *, object_key: str | None = None) -> str:
-    """Document text in the form the cleaner stores it, with every top-level object and array as a string.
-
-    A reader that edits a rebuilt document, where those values are objects and arrays again, casts the result back
-    into the JSON column through this. `object_key` names the one key the cleaner keeps as an object, the
-    `$feature_flags` map of event properties.
-
-    The cleaner (`parseNestedAsString` in clickhouse-udfs/util/cmd/json_clean_posthog_event_properties_udf/main.go)
-    stores each value compact, with sorted keys and with strings escaped the way ClickHouse prints them. A value
-    rebuilt from a stored string is already sorted, and `JSONExtractKeysAndValuesRaw` keeps its order, so the text
-    written here matches the cleaner's except for numbers: the cleaner copies a number as it was sent, and
-    ClickHouse prints `2.0` as `2` and quotes an integer that does not fit 64 bits. A value built any other way has
-    to be sorted before it reaches this function.
-    """
-    is_container = "(startsWith(kv.2, '[') or startsWith(kv.2, '{'))"
-    if object_key is not None:
-        is_container = f"kv.1 != {escape_clickhouse_string(object_key)} and {is_container}"
-    value = f"if({is_container}, toJSONString(kv.2), kv.2)"
-    pairs = f"arrayMap(kv -> concat(toJSONString(kv.1), ':', {value}), JSONExtractKeysAndValuesRaw({document_sql}))"
-    return f"concat('{{', arrayStringConcat({pairs}, ','), '}}')"
-
-
 def feature_flag_pairs_sql(feature_flags_sql: str) -> str:
     """`"$feature/<key>":<value>` pairs plus the `"$active_feature_flags":[...]` pair, from a `$feature_flags` map.
 
