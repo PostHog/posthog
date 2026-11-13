@@ -883,6 +883,10 @@ body.has-markdown-v2-notebook .TodayAppLayout .main-content-container > main,
             .MarkdownNotebook__row {
                 break-inside: avoid;
             }
+
+            .MarkdownNotebook__row:has([data-attr='notebook-node-python-v2']) {
+                break-inside: auto;
+            }
         }
     }
 }
