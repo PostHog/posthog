@@ -226,6 +226,7 @@ def test_an_eligible_update_is_attested_after_a_frozen_replay_of_renovates_comma
             ".github/actions/setup-uv/action.yml": None,
             ".github/scripts/dependency_proof/__init__.py": None,
             ".github/scripts/dependency_proof/__main__.py": None,
+            ".github/scripts/dependency_scan.py": None,
             ".github/scripts/dependency_proof/policy.py": None,
             PROVER: _fake_blob_sha(b"the prover"),
             ".github/workflows/dependency-proof-trigger.yml": None,
