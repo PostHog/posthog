@@ -1,9 +1,11 @@
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
+import { act, cleanup, render } from '@testing-library/react'
 import { decodeParams, router } from 'kea-router'
 import { getRouterContext } from 'kea-router/lib/router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
+import { createElement } from 'react'
 
 import { dayjs } from 'lib/dayjs'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
@@ -74,6 +76,8 @@ function savedBroadcast(overrides: { name: string; subject: string; updatedAt: s
         email_sending_resumed_at: null,
     }
 }
+
+const { ToastContainer, toast } = jest.requireActual('react-toastify')
 
 describe('broadcastWizardLogic', () => {
     let logic: ReturnType<typeof broadcastWizardLogic.build>
@@ -1008,6 +1012,109 @@ describe('broadcastWizardLogic', () => {
         } finally {
             jest.useRealTimers()
         }
+    })
+
+    it.each([
+        {
+            answer: 'the rejection of an unfinished filter',
+            response: [
+                400,
+                { type: 'validation_error', code: 'invalid_input', detail: 'An audience filter is incomplete.' },
+            ],
+            settledBy: 'loadBlastRadiusSuccess',
+            blastRadiusError: 'An audience filter is incomplete.',
+            toasts: [],
+            reportedStatuses: [],
+        },
+        {
+            answer: 'a query over its size limit',
+            response: [400, { type: 'validation_error', code: 'too_many_bytes', detail: 'Simulated query size limit' }],
+            settledBy: 'loadBlastRadiusFailure',
+            blastRadiusError: null,
+            toasts: [expect.stringContaining('Simulated query size limit')],
+            reportedStatuses: [400],
+        },
+        {
+            answer: 'a server error',
+            response: [500, { detail: 'Simulated outage' }],
+            settledBy: 'loadBlastRadiusFailure',
+            blastRadiusError: null,
+            toasts: [expect.stringContaining('Simulated outage')],
+            reportedStatuses: [500],
+        },
+    ])(
+        'settles the audience size without a count on $answer',
+        async ({ response, settledBy, blastRadiusError, toasts, reportedStatuses }) => {
+            const reportedExceptions: { status?: number }[] = []
+            const captureException = jest.spyOn(posthog, 'captureException').mockImplementation((error) => {
+                reportedExceptions.push(error as { status?: number })
+                return undefined as any
+            })
+            toast.dismiss()
+            render(createElement(ToastContainer))
+            try {
+                await expectLogic(logic).toFinishAllListeners().clearHistory()
+                useMocks({ post: { '/api/projects/:team_id/hog_flows/user_blast_radius/': () => response } })
+                logic.actions.setAudienceProperties([
+                    {
+                        type: PropertyFilterType.Person,
+                        key: 'plan',
+                        operator: PropertyOperator.Exact,
+                    } as AnyPropertyFilter,
+                ])
+
+                await expectLogic(logic, () => {
+                    logic.actions.loadBlastRadius()
+                })
+                    .toDispatchActions([settledBy])
+                    .toMatchValues({ blastRadius: null, blastRadiusError })
+                await act(async () => {})
+                expect({
+                    toasts: Array.from(document.querySelectorAll('.Toastify__toast'), (t) => t.textContent),
+                    reportedStatuses: [...new Set(reportedExceptions.map((error) => error.status))],
+                }).toEqual({ toasts, reportedStatuses })
+            } finally {
+                cleanup()
+                toast.dismiss()
+                captureException.mockRestore()
+            }
+        }
+    )
+
+    it('drops the rejection of an audience size check that a newer check replaced', async () => {
+        await expectLogic(logic).toFinishAllListeners().clearHistory()
+        let releaseFirst = (): void => {}
+        const firstHeld = new Promise<void>((resolve) => {
+            releaseFirst = resolve
+        })
+        let calls = 0
+        useMocks({
+            post: {
+                '/api/projects/:team_id/hog_flows/user_blast_radius/': async () => {
+                    if (calls++ === 0) {
+                        await firstHeld
+                        return [
+                            400,
+                            {
+                                type: 'validation_error',
+                                code: 'invalid_input',
+                                detail: 'An audience filter is incomplete.',
+                            },
+                        ]
+                    }
+                    return [500, { detail: 'Simulated outage' }]
+                },
+            },
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.loadBlastRadius()
+            logic.actions.loadBlastRadius()
+        }).toDispatchActions(['loadBlastRadiusFailure'])
+        releaseFirst()
+
+        await expectLogic(logic).toFinishAllListeners().toMatchValues({ blastRadius: null, blastRadiusError: null })
+        toast.dismiss()
     })
 
     const dynamicCohort = { id: 42, name: 'Upgraded', is_static: false, is_calculating: true }
