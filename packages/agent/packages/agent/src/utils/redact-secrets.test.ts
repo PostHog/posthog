@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   redactSecrets,
   SecretEventRedactor,
@@ -96,6 +96,33 @@ describe("redactSecrets", () => {
       }
     },
   );
+
+  it("redacts the resolved GitLab credential in output and across every stream split", () => {
+    for (const token of ["custom+gitlab/token", "phx_custom-secret"]) {
+      vi.stubEnv("GITLAB_TOKEN", token);
+      try {
+        for (const credential of [token, encodeURIComponent(token)]) {
+          const text = `remote https://oauth2:${credential}@gitlab.com/group/repo.git`;
+          const expected =
+            "remote https://oauth2:[REDACTED]@gitlab.com/group/repo.git";
+          expect(redactSecrets(text)).toBe(expected);
+          for (let cut = 1; cut < text.length; cut++) {
+            expect(streamText([text.slice(0, cut), text.slice(cut)])).toBe(
+              expected,
+            );
+          }
+        }
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    }
+  });
+
+  it("preserves generic token redaction when a GitLab prefix overlaps a chunk", () => {
+    vi.stubEnv("GITLAB_TOKEN", "glpat-example-secret");
+    expect(streamText(["phx_g", "Abc123 "])).toBe("[REDACTED] ");
+    vi.unstubAllEnvs();
+  });
 
   it("redacts every segment of a JWT", () => {
     const jwt = "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJhY2N0XzEifQ.c2lnbmF0dXJl";
@@ -246,6 +273,23 @@ describe("redactSecrets", () => {
       }
     },
   );
+
+  it("redacts a loopback token when a GitLab prefix is buffered", () => {
+    const previous = process.env.GITLAB_TOKEN;
+    process.env.GITLAB_TOKEN = "glpat-example-secret";
+    try {
+      expect(
+        streamText([
+          `http://127.0.0.1:53211/${"A".repeat(31)}`,
+          "g",
+          `${"Z".repeat(11)}/v1`,
+        ]),
+      ).toBe("http://127.0.0.1:53211/[REDACTED]/v1");
+    } finally {
+      if (previous === undefined) delete process.env.GITLAB_TOKEN;
+      else process.env.GITLAB_TOKEN = previous;
+    }
+  });
 
   it("redacts a proxy URL spread over many small chunks", () => {
     const text = `x http://127.0.0.1:53211/${"b".repeat(43)}/v1`;

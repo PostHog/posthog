@@ -6,6 +6,7 @@ import path from 'path'
 import { Client } from 'pg'
 import { promisify } from 'util'
 
+import { getDefaultConfig, overrideWithEnv } from '~/common/config/config'
 import { internalFetch } from '~/common/utils/request'
 
 import { ConsumerGroup, ROLE_PORTS, Role, RoleSpec, SES_RATE_LIMITER_VALKEY } from './roles'
@@ -190,6 +191,9 @@ export async function seekToEnd({ group, topics }: ConsumerGroup, docker: string
 }
 
 export const cyclotronUrlOf = (spec: RoleSpec): string => spec.env.CYCLOTRON_NODE_DATABASE_URL || STACK.cyclotronNodeUrl
+
+export const postgresUrlOf = (spec: RoleSpec): string =>
+    overrideWithEnv({ ...getDefaultConfig(), DATABASE_URL: STACK.postgresUrl }, spec.env).DATABASE_URL
 
 export async function deleteUnfinishedJobs(cyclotronUrl: string): Promise<void> {
     await withPostgres(

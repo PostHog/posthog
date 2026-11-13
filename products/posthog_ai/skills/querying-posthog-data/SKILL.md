@@ -93,7 +93,7 @@ When the user asks for a governed business or telemetry measure (MRR, activation
 
 3. For a requested drill-down, run the approved, non-drifted metric as the canonical headline first. You may then derive a label-level breakdown, but label the breakdown noncanonical. If materially different metrics fit, ask one clarifying question and end your turn without making a data-bearing call.
 
-4. If none fits, derive it yourself, but derive it well: prefer `certified` tables/views and avoid `deprecated` ones (the `certification` column on `system.information_schema.tables`), and use accepted joins from `system.information_schema.relationships` rather than guessing join keys.
+4. If none fits, derive it yourself, but derive it well: prefer `certified` tables/views and avoid `deprecated` ones (the `certification` column on `system.information_schema.tables`), and use accepted joins from `system.information_schema.relationships` rather than guessing join keys. A `certified` view can still be late. Read the sync warnings on its results before you trust its numbers, as the Late materialized views section of `references/guidelines.md` describes.
 
 5. If the catalog query succeeded but returned no match, and you settled on a reusable definition — especially one you reconstructed from a saved insight — end your answer by saying it looks like a reusable metric that is not in the catalog yet, and ask whether to add it as a proposed metric.
    Users don't know metric proposals exist, so they will not ask for one.

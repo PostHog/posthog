@@ -13,6 +13,16 @@ from products.conversations.backend.temporal.coordinator import (
     SupportReplyCoordinatorWorkflow,
     support_collect_eligible_tickets_activity,
 )
+from products.conversations.backend.temporal.intercom_import.activities import (
+    intercom_import_batch_activity,
+    intercom_import_enumerate_conversations_activity,
+    intercom_import_update_job_progress_activity,
+    intercom_import_update_job_status_activity,
+)
+from products.conversations.backend.temporal.intercom_import.workflows import (
+    IntercomImportBatchWorkflow,
+    IntercomImportCoordinatorWorkflow,
+)
 from products.conversations.backend.temporal.pipeline import (
     SupportReplyWorkflow,
     support_build_context_activity,
@@ -45,6 +55,8 @@ WORKFLOWS = [
     AccountChannelSummaryWorkflow,
     ZendeskImportCoordinatorWorkflow,
     ZendeskImportBatchWorkflow,
+    IntercomImportCoordinatorWorkflow,
+    IntercomImportBatchWorkflow,
 ]
 
 ACTIVITIES = [
@@ -67,4 +79,8 @@ ACTIVITIES = [
     zendesk_import_batch_activity,
     zendesk_import_update_job_status_activity,
     zendesk_import_update_job_progress_activity,
+    intercom_import_enumerate_conversations_activity,
+    intercom_import_batch_activity,
+    intercom_import_update_job_status_activity,
+    intercom_import_update_job_progress_activity,
 ]
