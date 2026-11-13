@@ -5,6 +5,7 @@ A metric on `ai_triage.human_outcome`, not a learning input.
 
 from __future__ import annotations
 
+import re
 from difflib import SequenceMatcher
 from typing import Literal
 
@@ -28,20 +29,35 @@ USED_RATIO = 0.85
 EDITED_RATIO = 0.4
 
 
-# SequenceMatcher is quadratic without autojunk. This runs under the ticket row lock while a
-# reply is being saved, so the compared text stays short enough to keep that write fast.
-MAX_COMPARED_CHARS = 2000
+# Matching is quadratic, so only this many words of each text are matched.
+MAX_COMPARED_WORDS = 800
+
+_WORD_PATTERN = re.compile(r"\w+")
 
 
 def classify_human_outcome(ai_draft: str, human_reply: str) -> HumanOutcome:
-    # autojunk treats every character that fills more than 1% of a 200+ character text as junk.
-    # In prose that is most letters, so a draft sent with a new greeting scored near zero.
-    ratio = SequenceMatcher(
-        None,
-        ai_draft.strip()[:MAX_COMPARED_CHARS],
-        human_reply.strip()[:MAX_COMPARED_CHARS],
-        autojunk=False,
-    ).ratio()
+    draft = ai_draft.strip()
+    reply = human_reply.strip()
+    if not draft or not reply:
+        return "ignored"
+    if draft == reply:
+        return "used"
+    draft_words = _WORD_PATTERN.findall(draft.lower())
+    reply_words = _WORD_PATTERN.findall(reply.lower())
+    if not draft_words or not reply_words:
+        return "ignored"
+    total_words = len(draft_words) + len(reply_words)
+    # Length alone caps how similar two texts can be. Settling that case without matching keeps
+    # the ticket row lock short on the common path, where the human wrote their own reply.
+    if 2 * min(len(draft_words), len(reply_words)) / total_words < EDITED_RATIO:
+        return "ignored"
+    # Words, not characters: matching characters cost about 700 ms for a 4000-character reply.
+    # autojunk is off because it drops common words, which scored a re-greeted draft near zero.
+    matcher = SequenceMatcher(None, draft_words[:MAX_COMPARED_WORDS], reply_words[:MAX_COMPARED_WORDS], autojunk=False)
+    matched = sum(block.size for block in matcher.get_matching_blocks())
+    # Dividing by the full word counts leaves everything past the cap unmatched, so a long draft
+    # the human kept only a part of cannot score as fully used.
+    ratio = 2 * matched / total_words
     if ratio >= USED_RATIO:
         return "used"
     if ratio >= EDITED_RATIO:
