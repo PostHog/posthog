@@ -4273,20 +4273,37 @@ describe('Workflows E2E (email queue)', () => {
             }
         )
 
-        it('refuses a retry of a code send that reuses its idempotency key in another category', async () => {
-            const flow = await insertHogFlow(hub.postgres, sendFlow('code', 'transactional'))
-            const to = `receipt-${new UUIDT().toString()}@example.com`
-            const send = { to, distinct_id: 'buyer', idempotency_key: new UUIDT().toString() }
+        it.each([
+            { name: 'a code send', moved: false },
+            { name: 'a scheduled code send moved to now', moved: true },
+        ])(
+            'refuses a retry of $name that reuses its idempotency key in another category and replays one in its own',
+            async ({ moved }) => {
+                const flow = await insertHogFlow(hub.postgres, sendFlow('code', 'transactional'))
+                const to = `receipt-${new UUIDT().toString()}@example.com`
+                const send = {
+                    to,
+                    distinct_id: 'buyer',
+                    idempotency_key: new UUIDT().toString(),
+                    ...(moved && { scheduled_at: tomorrow() }),
+                }
 
-            const first = await post('code', flow, { ...send, ...codeSendIn(receipts) })
-            const retry = await post('code', flow, { ...send, ...codeSendIn(newsletter) })
-            expect(first.status).toEqual(202)
-            expect(retry.status).toEqual(422)
-            expect(retry.body).toEqual({ error: 'idempotency_key_reused' })
-            await deliver()
+                const first = await post('code', flow, { ...send, ...codeSendIn(receipts) })
+                expect(first.status).toEqual(202)
+                if (moved) {
+                    await sendNow(first.body.invocation_id)
+                }
+                const otherCategory = await post('code', flow, { ...send, ...codeSendIn(newsletter) })
+                const sameCategory = await post('code', flow, { ...send, ...codeSendIn(receipts) })
+                expect(otherCategory.status).toEqual(422)
+                expect(otherCategory.body).toEqual({ error: 'idempotency_key_reused' })
+                expect(sameCategory.status).toEqual(202)
+                expect(sameCategory.body).toEqual({ ...first.body, replayed: true })
+                await deliver()
 
-            expect(await emailsTo(to)).toHaveLength(1)
-        })
+                expect(await emailsTo(to)).toHaveLength(1)
+            }
+        )
 
         it.each([
             {
