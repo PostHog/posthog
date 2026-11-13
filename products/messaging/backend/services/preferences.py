@@ -18,24 +18,23 @@ class CategoryNotFound(Exception):
     pass
 
 
-def _category(team_id: int, category_key: str, *, include_deleted: bool = False) -> MessageCategory:
-    categories = MessageCategory.objects.filter(key=category_key, team_id=team_id)
-    if not include_deleted:
-        categories = categories.filter(deleted=False)
-    category = categories.first()
+def _category(team_id: int, category_key: str) -> MessageCategory:
+    category = MessageCategory.objects.filter(key=category_key, team_id=team_id).first()
     if category is None:
         raise CategoryNotFound()
     return category
 
 
+def _live_category(team_id: int, category_key: str) -> MessageCategory:
+    category = _category(team_id, category_key)
+    if category.deleted:
+        raise CategoryNotFound()
+    return category
+
+
 def opted_out(team_id: int, category_key: str | None, search: str | None) -> QuerySet[MessageRecipientPreference]:
-    # Find recipients who have opted out of this specific category, or use the derived $all category if no specific category is provided.
-    # A deleted category still lists its stored opt-outs, because a read changes nobody's consent.
-    preference_key = (
-        str(_category(team_id, category_key, include_deleted=True).id)
-        if category_key
-        else ALL_MESSAGE_PREFERENCE_CATEGORY_ID
-    )
+    # Find recipients who have opted out of this specific category, or use the derived $all category if no specific category is provided
+    preference_key = str(_category(team_id, category_key).id) if category_key else ALL_MESSAGE_PREFERENCE_CATEGORY_ID
 
     opt_outs = MessageRecipientPreference.objects.filter(
         team_id=team_id,
@@ -55,7 +54,7 @@ def _sync_after_commit(team_id: int, identifier: str) -> None:
 def add_opt_out(
     team_id: int, identifier: str, category_key: str | None, created_by_id: int | None
 ) -> tuple[MessageRecipientPreference, bool]:
-    category = _category(team_id, category_key) if category_key else None
+    category = _live_category(team_id, category_key) if category_key else None
     category_id = str(category.id) if category else ALL_MESSAGE_PREFERENCE_CATEGORY_ID
 
     preference, created = MessageRecipientPreference.objects.get_or_create(
@@ -72,7 +71,7 @@ def add_opt_out(
 def remove_opt_out(
     team_id: int, identifier: str, category_key: str | None, created_by_id: int | None
 ) -> tuple[MessageRecipientPreference, bool]:
-    category = _category(team_id, category_key) if category_key else None
+    category = _live_category(team_id, category_key) if category_key else None
 
     preference, created = MessageRecipientPreference.objects.get_or_create(
         team_id=team_id,

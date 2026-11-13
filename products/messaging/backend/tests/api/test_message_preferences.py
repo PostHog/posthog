@@ -741,8 +741,12 @@ class TestMessagePreferencesAPIViewSet(APIBaseTest):
         self.assertIn("user2@example.com", identifiers)
         self.assertNotIn("user3@example.com", identifiers)
 
-    def test_opt_outs_with_specific_category(self):
+    @parameterized.expand([("live", False), ("deleted", True)])
+    def test_opt_outs_with_specific_category(self, _name, deleted):
         """Test opt_outs endpoint with a specific category"""
+        if deleted:
+            self.category.deleted = True
+            self.category.save()
         # Create recipients with various opt-out preferences
         MessageRecipientPreference.objects.create(
             team=self.team,
@@ -1045,23 +1049,18 @@ class TestMessagePreferencesAPIViewSet(APIBaseTest):
         self.assertEqual(prefs[ALL_MESSAGE_PREFERENCE_CATEGORY_ID], PreferenceStatus.OPTED_OUT)
 
     @parameterized.expand(
-        [
-            (endpoint, category)
-            for endpoint in ("add_opt_out", "remove_opt_out")
-            for category in ("unknown", "deleted_marketing")
-        ]
+        [(endpoint, deleted) for endpoint in ("add_opt_out", "remove_opt_out") for deleted in (False, True)]
     )
-    def test_opt_out_writes_refuse_a_category_that_does_not_exist(self, endpoint, category):
-        if category == "deleted_marketing":
-            category_key = MessageCategory.objects.create(
+    def test_opt_out_writes_refuse_an_unknown_or_deleted_category(self, endpoint, deleted):
+        category_key = "old_promotions"
+        if deleted:
+            MessageCategory.objects.create(
                 team=self.team,
-                key="old_promotions",
+                key=category_key,
                 name="Old promotions",
                 category_type=MessageCategoryType.MARKETING,
                 deleted=True,
-            ).key
-        else:
-            category_key = "does_not_exist"
+            )
         stored = {ALL_MESSAGE_PREFERENCE_CATEGORY_ID: PreferenceStatus.OPTED_OUT.value}
         recipient = MessageRecipientPreference.objects.create(
             team=self.team, identifier="user@example.com", preferences=stored
