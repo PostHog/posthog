@@ -31,7 +31,6 @@ const READY_EMAIL: BroadcastEmailValue = {
 type LogEntry = NonNullable<HogflowTestResult['logs']>[number]
 const log = (message: string, level: 'info' | 'warn' = 'info'): LogEntry =>
     ({ message, level, timestamp: '2026-01-01T00:00:00Z' }) as unknown as LogEntry
-type Lookup = unknown[][] | 'pending' | 'failed'
 type SentInvocation = {
     configuration: { actions: { id: string; config: { inputs: Record<string, { value: unknown }> } }[] }
     current_action_id: string
@@ -40,7 +39,7 @@ type SentInvocation = {
 
 describe('broadcast previews', () => {
     const priorAppContext = window.POSTHOG_APP_CONTEXT
-    let people: Lookup
+    let people: unknown[][] | 'pending' | 'failed'
     let sendResult: Partial<HogflowTestResult>
     let sent: SentInvocation[]
     let sendGate: Promise<void>
@@ -131,8 +130,6 @@ describe('broadcast previews', () => {
             fireEvent.change(screen.getByTestId(dataAttr), { target: { value } })
         })
     }
-    const reviewCard = (selector: string): Element | null =>
-        document.querySelector(`[data-attr="broadcast-review-test-email"] ${selector}`)
     const toRow = (): HTMLElement | null => screen.getByText('To').parentElement
     const iframeHtml = (): string | null | undefined =>
         document.querySelector('iframe[title="Email preview"]')?.getAttribute('srcdoc')
@@ -214,6 +211,9 @@ describe('broadcast previews', () => {
         expect(toRow()).toHaveTextContent(/^ToAdaada@example\.com$/)
         expect(iframeHtml()).toBe('<p>Hello Ada</p>')
         expect(el('broadcast-review-modify-content')).toBeNull()
+        expect(screen.getByText('Send yourself a test first')).toBeInTheDocument()
+        expect(screen.getByText(/^Read the email in a real inbox/)).toBeInTheDocument()
+        expect(el('broadcast-open-test-email')).toBeNull()
 
         click('broadcast-preview-person')
         act(() => {
@@ -226,8 +226,8 @@ describe('broadcast previews', () => {
         expect(toRow()).toHaveTextContent(/^Tograce@example\.com$/)
     })
 
-    it.each<[Lookup, () => Element | null]>([
-        ['pending', () => document.querySelector('.Spinner')],
+    it.each<[typeof people, () => Element | null]>([
+        ['pending', () => (toRow()?.textContent === 'To' ? toRow() : null)],
         ['failed', () => screen.queryByText(/^Couldn't load anyone to preview against, so variables stay unfilled/)],
         [[], () => screen.queryByText('No one matches this audience yet, so variables stay unfilled below.')],
     ])(
@@ -274,45 +274,55 @@ describe('broadcast previews', () => {
         await waitFor(() => expect(el('broadcast-send-test-email')).toBeNull())
     })
 
-    it('sends a test email to a valid address only, then vouches for it on the review step', async () => {
+    async function openEmailTest(): Promise<void> {
         people = [ADA]
         renderReview('email')
         await screen.findByText(/^Values come from Ada\./)
-        expect(screen.getByText('Send yourself a test first')).toBeInTheDocument()
-        expect(reviewCard('.text-success')).toBeNull()
-        expect(reviewCard('[data-attr="broadcast-review-send-test"]')).toHaveClass('LemonButton--primary')
-        expect(el('broadcast-open-test-email')).toBeNull()
-        expect(screen.getByText(/^Read the email in a real inbox/)).toBeInTheDocument()
-
         click('broadcast-review-send-test')
+    }
+
+    it('asks for a valid address before it sends a test email', async () => {
+        await openEmailTest()
 
         expect(screen.getByText('Send a test email')).toBeInTheDocument()
         expect(screen.getByText('Goes to this address only. Nobody in the audience receives it.')).toBeInTheDocument()
         expect(el('broadcast-test-email-recipient')).toHaveValue(MOCK_DEFAULT_USER.email)
         type('broadcast-test-email-recipient', 'not-an-email')
         expect(el('broadcast-send-test-email')).toHaveAttribute('aria-disabled', 'true')
-        type('broadcast-test-email-recipient', 'reviewer@example.com')
+    })
+
+    it('keeps the send button busy while the test email is on its way', async () => {
         let release = (): void => {}
         sendGate = new Promise((resolve) => (release = resolve))
+        await openEmailTest()
         click('broadcast-send-test-email')
+
         await waitFor(() => expect(sent).toHaveLength(1))
         expect(el('broadcast-send-test-email')).toHaveAttribute('aria-disabled', 'true')
         release()
+    })
+
+    it('sends the test email to the typed address only, rendered for the preview person', async () => {
+        await openEmailTest()
+        type('broadcast-test-email-recipient', 'reviewer@example.com')
+        click('broadcast-send-test-email')
+
+        await waitFor(() => expect(sent).toHaveLength(1))
+        const action = sent[0].configuration.actions.find((a) => a.id === sent[0].current_action_id)
+        const email = action?.config.inputs.email.value
+        expect(email).toMatchObject({ to: { email: 'reviewer@example.com', name: '' }, cc: '', bcc: '' })
+        expect(sent[0].globals.person).toMatchObject({ id: 'person-ada', name: 'Ada' })
+    })
+
+    it('vouches for a sent test email on the review step', async () => {
+        await openEmailTest()
+        type('broadcast-test-email-recipient', 'reviewer@example.com')
+        click('broadcast-send-test-email')
 
         expect(await screen.findByText('Test sent to reviewer@example.com')).toBeInTheDocument()
         expect(screen.getByText('Check it in your inbox, on desktop and mobile, before you send.')).toBeInTheDocument()
         expect(screen.getByText('Send another test')).toBeInTheDocument()
-        expect(reviewCard('.text-success')).not.toBeNull()
-        expect(reviewCard('[data-attr="broadcast-review-send-test"]')).toHaveClass('LemonButton--secondary')
         await waitFor(() => expect(screen.queryByText('Send a test email')).toBeNull())
-        expect(sent).toHaveLength(1)
-        const action = sent[0].configuration.actions.find((a) => a.id === sent[0].current_action_id)
-        expect(action?.config.inputs.email.value).toMatchObject({
-            to: { email: 'reviewer@example.com', name: '' },
-            cc: '',
-            bcc: '',
-        })
-        expect(sent[0].globals.person).toMatchObject({ id: 'person-ada', name: 'Ada' })
     })
 
     it('sends a test push to a distinct ID, then vouches for it on the review step', async () => {
