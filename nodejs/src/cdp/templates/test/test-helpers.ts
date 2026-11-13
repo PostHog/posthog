@@ -420,6 +420,12 @@ export class TemplateTester {
         return this.hogExecutor.execute(invocation)
     }
 
+    async executeFetch(
+        invocation: CyclotronJobInvocationHogFunction
+    ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
+        return this.hogExecutor.executeFetch(invocation)
+    }
+
     // Set before invoke(): the internal-route handler consumes it inline, then the VM
     // pauses — resume with resumeInvocation to run the Hog code after the call.
     mockInternalFetchResponse(response: { status: number; body: unknown }): void {
