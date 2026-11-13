@@ -2,6 +2,8 @@ export interface TraceListRow {
     traceId: string
     timestamp: string | null
     stepId: string | null
+    /** One line on why the row is in the list, which the drawer shows above the trace. */
+    label?: string
 }
 
 export function uniqueTraces(rows: TraceListRow[]): TraceListRow[] {

@@ -81,5 +81,9 @@ export const ALL_USAGE_TYPES: UsageTypeValue[] = USAGE_TYPES.map((opt) => opt.va
 // in sync with billing_end_date of data_pipelines in billing plans config
 export const DATA_PIPELINES_CUTOFF_DATE = '2025-09-10'
 
+// Last day of PR-based pricing on the legacy Inbox product, in sync with billing_end_date of the
+// inbox plans in billing plans config. Self-driving inbox (usage-based) bills from the next day.
+export const INBOX_PR_PRICING_END_DATE = '2026-12-09'
+
 /** The label billing gives the series that folds the projects beyond the cap; a count follows it. */
 export const FOLDED_SERIES_LABEL = 'All other projects'

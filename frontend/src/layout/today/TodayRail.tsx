@@ -55,7 +55,7 @@ export function TodayRail(): JSX.Element {
                     // ChunkLoadErrorBoundary, which reloads the whole app.
                     <PostHogErrorBoundary fallback={<></>}>
                         <Suspense fallback={null}>
-                            <WizardRailButton projectId={String(currentProjectId)} />
+                            <WizardRailButton key={currentProjectId} projectId={String(currentProjectId)} />
                         </Suspense>
                     </PostHogErrorBoundary>
                 )}

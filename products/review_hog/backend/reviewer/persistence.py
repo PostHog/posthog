@@ -516,6 +516,7 @@ def persist_pr_snapshot(
     review_design: str = REVIEW_DESIGN_PIPELINE,
     merge_base_sha: str | None = None,
     skipped_paths: Sequence[str] = (),
+    devex_lens_files: Sequence[str] = (),
 ) -> None:
     """Append this turn's fetched PR inputs as a `pr_snapshot` artefact (stored by reference).
 
@@ -534,6 +535,7 @@ def persist_pr_snapshot(
             review_design=review_design,
             merge_base_sha=merge_base_sha,
             skipped_paths=list(skipped_paths),
+            devex_lens_files=list(devex_lens_files),
         ),
         attribution=ArtefactAttribution.system(),
     )

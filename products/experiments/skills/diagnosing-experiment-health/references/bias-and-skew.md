@@ -6,8 +6,8 @@ appeared, or users are showing up under multiple variants.
 ## Before diagnosing
 
 Read three values first.
-The first two come from the exposure data of the Step 1.5 snapshot (`exposures` in `experiment-results-get`), the third from `experiment-get`.
-`experiment-results-get` runs queries: call it once, after the stored results and the change history of the snapshot, and reuse its `exposures` for every check in this file.
+The first two come from the exposure data of the Step 1.5 snapshot (`exposures` in `experiment-health-get`), the third from `experiment-get`.
+`experiment-health-get` runs the exposure query: call it once, after the stored results and the change history of the snapshot, and reuse its `exposures` for every check in this file.
 The first two are computed on the population the experiment analyzes, which a query of your own does not reproduce.
 
 1. **The sample ratio test: `exposures.sample_ratio_mismatch.p_value`.**

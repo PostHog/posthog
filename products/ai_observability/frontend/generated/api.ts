@@ -19,6 +19,8 @@ import type {
     AiObservabilityTracesClustersRetrieveParams,
     AiObservabilityTracesExportsContentRetrieveParams,
     AiObservabilityTracesFeedbackRetrieveParams,
+    AiObservabilityTracesNodesDatasetItemRetrieveParams,
+    AiObservabilityTracesNodesParserTestCreateParams,
     AiObservabilityTracesNodesRawRetrieveParams,
     AiObservabilityTracesNodesRetrieveParams,
     AiObservabilityTracesPullRequestRetrieveParams,
@@ -31,6 +33,8 @@ import type {
     ClusteringConfigSetEventFiltersApi,
     ClusteringJobApi,
     ClusteringRunRequestApi,
+    CompositeValidationApi,
+    CompositeValidationResponseApi,
     DatasetCreateApi,
     DatasetExportCreateApi,
     DatasetExportReadApi,
@@ -49,6 +53,11 @@ import type {
     DatasetsListParams,
     DatasetsRetentionRetrieveParams,
     DatasetsRevisionsListParams,
+    EvalSuggestionAcceptApi,
+    EvalSuggestionApi,
+    EvalSuggestionDismissApi,
+    EvalSuggestionEstimateApi,
+    EvalSuggestionListApi,
     EvaluationApi,
     EvaluationBackfillApi,
     EvaluationBackfillEstimateApi,
@@ -61,6 +70,9 @@ import type {
     EvaluationRunRequestApi,
     EvaluationRunResponseApi,
     EvaluationRunsApi,
+    EvaluationSampleTrafficRequestApi,
+    EvaluationSampleTrafficResponseApi,
+    EvaluationTestOnSampleRequestApi,
     EvaluationsBackfillsListParams,
     EvaluationsListParams,
     EvaluationsOverviewApi,
@@ -170,7 +182,10 @@ import type {
     TraceExportCreateApi,
     TraceExportFileApi,
     TraceFeedbackApi,
+    TraceNodeDatasetItemApi,
     TraceNodeDetailApi,
+    TraceNodeParserTestApi,
+    TraceNodeParserTestRequestApi,
     TraceNodeRawApi,
     TracePullRequestLookupApi,
     TraceReviewApi,
@@ -673,41 +688,6 @@ export const aiObservabilityOfflineScorersHistoryList = async (
     })
 }
 
-export const getAiObservabilityTracesRetrieveUrl = (
-    projectId: string,
-    id: string,
-    params?: AiObservabilityTracesRetrieveParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/ai_observability/traces/${id}/?${stringifiedParams}`
-        : `/api/projects/${projectId}/ai_observability/traces/${id}/`
-}
-
-/**
- * A trace ready to render: its tree with roll-ups, timeline, totals and person, without inputs or outputs.
- */
-export const aiObservabilityTracesRetrieve = async (
-    projectId: string,
-    id: string,
-    params?: AiObservabilityTracesRetrieveParams,
-    options?: RequestInit
-): Promise<TraceApi> => {
-    return apiMutator<TraceApi>(getAiObservabilityTracesRetrieveUrl(projectId, id, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
 export const getAiObservabilityTracesClustersRetrieveUrl = (
     projectId: string,
     id: string,
@@ -914,6 +894,89 @@ export const aiObservabilityTracesNodesRetrieve = async (
     })
 }
 
+export const getAiObservabilityTracesNodesDatasetItemRetrieveUrl = (
+    projectId: string,
+    id: string,
+    nodeId: string,
+    params: AiObservabilityTracesNodesDatasetItemRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/ai_observability/traces/${id}/nodes/${nodeId}/dataset_item/?${stringifiedParams}`
+        : `/api/projects/${projectId}/ai_observability/traces/${id}/nodes/${nodeId}/dataset_item/`
+}
+
+/**
+ * One node of a trace as a dataset item: its input and output as ingested, and its custom properties as metadata. The root node gives the trace's input and output state with no metadata.
+ */
+export const aiObservabilityTracesNodesDatasetItemRetrieve = async (
+    projectId: string,
+    id: string,
+    nodeId: string,
+    params: AiObservabilityTracesNodesDatasetItemRetrieveParams,
+    options?: RequestInit
+): Promise<TraceNodeDatasetItemApi> => {
+    return apiMutator<TraceNodeDatasetItemApi>(
+        getAiObservabilityTracesNodesDatasetItemRetrieveUrl(projectId, id, nodeId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getAiObservabilityTracesNodesParserTestCreateUrl = (
+    projectId: string,
+    id: string,
+    nodeId: string,
+    params?: AiObservabilityTracesNodesParserTestCreateParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/ai_observability/traces/${id}/nodes/${nodeId}/parser_test/?${stringifiedParams}`
+        : `/api/projects/${projectId}/ai_observability/traces/${id}/nodes/${nodeId}/parser_test/`
+}
+
+/**
+ * Tests a custom parser recipe against one node without saving it: the node's input and output as they would render with the parser saved, and whether it parses every side that the project's saved parsers leave unparsed.
+ */
+export const aiObservabilityTracesNodesParserTestCreate = async (
+    projectId: string,
+    id: string,
+    nodeId: string,
+    traceNodeParserTestRequestApi: TraceNodeParserTestRequestApi,
+    params?: AiObservabilityTracesNodesParserTestCreateParams,
+    options?: RequestInit
+): Promise<TraceNodeParserTestApi> => {
+    return apiMutator<TraceNodeParserTestApi>(
+        getAiObservabilityTracesNodesParserTestCreateUrl(projectId, id, nodeId, params),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(traceNodeParserTestRequestApi),
+        }
+    )
+}
+
 export const getAiObservabilityTracesNodesRawRetrieveUrl = (
     projectId: string,
     id: string,
@@ -1095,6 +1158,41 @@ export const aiObservabilityTracesSummaryCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(traceSummaryRequestApi),
+    })
+}
+
+export const getAiObservabilityTracesRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params?: AiObservabilityTracesRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/ai_observability/traces/${id}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/ai_observability/traces/${id}/`
+}
+
+/**
+ * A trace ready to render: its tree with roll-ups, timeline, totals and person, without inputs or outputs.
+ */
+export const aiObservabilityTracesRetrieve = async (
+    projectId: string,
+    id: string,
+    params?: AiObservabilityTracesRetrieveParams,
+    options?: RequestInit
+): Promise<TraceApi> => {
+    return apiMutator<TraceApi>(getAiObservabilityTracesRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
     })
 }
 
@@ -1669,6 +1767,116 @@ export const evaluationRunsCreate = async (
     })
 }
 
+export const getEvaluationSuggestionsListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/evaluation_suggestions/`
+}
+
+/**
+ * The latest suggestions. Loading them records the visit, and the first visit starts a run.
+ */
+export const evaluationSuggestionsList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<EvalSuggestionListApi> => {
+    return apiMutator<EvalSuggestionListApi>(getEvaluationSuggestionsListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEvaluationSuggestionsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/evaluation_suggestions/${id}/`
+}
+
+/**
+ * One suggestion, whatever its status. The evaluation page reads it to show a proposed fix.
+ */
+export const evaluationSuggestionsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<EvalSuggestionApi> => {
+    return apiMutator<EvalSuggestionApi>(getEvaluationSuggestionsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEvaluationSuggestionsAcceptCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/evaluation_suggestions/${id}/accept/`
+}
+
+/**
+ * Create the evaluation from the suggestion, enabled, and run it on recent data. Safe to repeat.
+ */
+export const evaluationSuggestionsAcceptCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<EvalSuggestionAcceptApi> => {
+    return apiMutator<EvalSuggestionAcceptApi>(getEvaluationSuggestionsAcceptCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getEvaluationSuggestionsAcceptEstimateRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/evaluation_suggestions/${id}/accept_estimate/`
+}
+
+/**
+ * What accepting would run on recent data, and what a judge would cost, for the confirm step.
+ */
+export const evaluationSuggestionsAcceptEstimateRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<EvalSuggestionEstimateApi> => {
+    return apiMutator<EvalSuggestionEstimateApi>(getEvaluationSuggestionsAcceptEstimateRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEvaluationSuggestionsApplyFixCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/evaluation_suggestions/${id}/apply_fix/`
+}
+
+/**
+ * Apply a fix_eval suggestion's change to the evaluation it repairs.
+ */
+export const evaluationSuggestionsApplyFixCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<EvalSuggestionApi> => {
+    return apiMutator<EvalSuggestionApi>(getEvaluationSuggestionsApplyFixCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getEvaluationSuggestionsDismissCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/evaluation_suggestions/${id}/dismiss/`
+}
+
+/**
+ * Hide the suggestion. The same suggestion stays hidden for 90 days.
+ */
+export const evaluationSuggestionsDismissCreate = async (
+    projectId: string,
+    id: string,
+    evalSuggestionDismissApi?: EvalSuggestionDismissApi,
+    options?: RequestInit
+): Promise<EvalSuggestionApi> => {
+    return apiMutator<EvalSuggestionApi>(getEvaluationSuggestionsDismissCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(evalSuggestionDismissApi),
+    })
+}
+
 export const getEvaluationsListUrl = (projectId: string, params?: EvaluationsListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -1999,6 +2207,26 @@ export const evaluationsOverviewRetrieve = async (
     })
 }
 
+export const getEvaluationsSampleTrafficCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/evaluations/sample_traffic/`
+}
+
+/**
+ * The latest units an unsaved evaluation would run on, newest first.
+ */
+export const evaluationsSampleTrafficCreate = async (
+    projectId: string,
+    evaluationSampleTrafficRequestApi?: EvaluationSampleTrafficRequestApi,
+    options?: RequestInit
+): Promise<EvaluationSampleTrafficResponseApi> => {
+    return apiMutator<EvaluationSampleTrafficResponseApi>(getEvaluationsSampleTrafficCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(evaluationSampleTrafficRequestApi),
+    })
+}
+
 export const getEvaluationsTestHogCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/evaluations/test_hog/`
 }
@@ -2016,6 +2244,26 @@ export const evaluationsTestHogCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(testHogRequestApi),
+    })
+}
+
+export const getEvaluationsTestOnSampleCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/evaluations/test_on_sample/`
+}
+
+/**
+ * Run an unsaved LLM judge on a few samples. Saves nothing and emits no results.
+ */
+export const evaluationsTestOnSampleCreate = async (
+    projectId: string,
+    evaluationTestOnSampleRequestApi: NonReadonly<EvaluationTestOnSampleRequestApi>,
+    options?: RequestInit
+): Promise<TestHogResponseApi> => {
+    return apiMutator<TestHogResponseApi>(getEvaluationsTestOnSampleCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(evaluationTestOnSampleRequestApi),
     })
 }
 
@@ -3086,6 +3334,26 @@ export const llmAnalyticsScoreDefinitionsVersionsRetrieve = async (
         {
             ...options,
             method: 'GET',
+        }
+    )
+}
+
+export const getLlmAnalyticsScoreDefinitionsValidateCompositionCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/llm_analytics/score_definitions/validate_composition/`
+}
+
+export const llmAnalyticsScoreDefinitionsValidateCompositionCreate = async (
+    projectId: string,
+    compositeValidationApi: CompositeValidationApi,
+    options?: RequestInit
+): Promise<CompositeValidationResponseApi> => {
+    return apiMutator<CompositeValidationResponseApi>(
+        getLlmAnalyticsScoreDefinitionsValidateCompositionCreateUrl(projectId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(compositeValidationApi),
         }
     )
 }

@@ -71,10 +71,201 @@ describe('SyncMethodForm', () => {
     })
 
     it.each([
-        ['key resolvable', true, 'incremental'],
-        ['keyless with columns known', false, 'append'],
-    ])('preselects incremental only when the key resolves: %s', (_, keyResolvable, expected) => {
-        expect(getInitialRadioState({ ...baseSchema, xmin_available: false }, true, true, keyResolvable)).toBe(expected)
+        ['key resolvable', {}, true, 'incremental'],
+        ['keyless with columns known', {}, false, 'append'],
+        ['CDC can be picked', { cdc_available: true }, true, 'cdc'],
+        ['CDC off for the source', { cdc_available: null }, true, 'incremental'],
+        ['CDC on, table has no primary key', { cdc_available: false }, true, 'incremental'],
+    ])('preselects the method the table can run: %s', (_, overrides, keyResolvable, expected) => {
+        expect(
+            getInitialRadioState({ ...baseSchema, xmin_available: false, ...overrides }, true, true, keyResolvable)
+        ).toBe(expected)
+    })
+
+    describe('CDC option', () => {
+        afterEach(cleanup)
+
+        const OFF_FOR_SOURCE = 'Turn on CDC for this source first, on its Configuration tab.'
+        const NO_PRIMARY_KEY = 'This table needs a primary key on the source to use CDC.'
+
+        it.each([
+            ['CDC can be picked', true, true, true, null, 'Choose CDC'],
+            ['CDC off for the source', null, true, true, OFF_FOR_SOURCE, 'Turn on CDC for this source'],
+            ['CDC on, table has no primary key', false, true, true, NO_PRIMARY_KEY, 'Choose CDC'],
+            ['source without CDC support', undefined, false, false, null, null],
+        ] as const)('%s', (_, cdcAvailable, sourceSupportsCdc, shown, disabledReasonText, xminDeletesLead) => {
+            const { container } = render(
+                <SyncMethodForm
+                    schema={{ ...baseSchema, cdc_available: cdcAvailable, xmin_available: sourceSupportsCdc }}
+                    sourceSupportsCdc={sourceSupportsCdc}
+                    sourceConfigurationUrl="/data-management/sources/managed-1/configuration"
+                    onClose={() => {}}
+                    onSave={() => {}}
+                />
+            )
+
+            const cdcRadio = container.querySelector<HTMLInputElement>('input[type="radio"][value="cdc"]')
+            expect(cdcRadio !== null).toBe(shown)
+            expect(cdcRadio?.disabled ?? false).toBe(disabledReasonText !== null)
+            const paragraphs = Array.from(container.querySelectorAll('p'), (p) => p.textContent ?? '')
+            expect(paragraphs.filter((text) => text === OFF_FOR_SOURCE || text === NO_PRIMARY_KEY)).toEqual(
+                disabledReasonText ? [disabledReasonText] : []
+            )
+            const xminDeletesMatch = container.textContent?.match(
+                /(Choose CDC|Turn on CDC for this source) if you need/
+            )
+            expect(xminDeletesMatch?.[1] ?? null).toBe(xminDeletesLead)
+        })
+
+        it('links to the source configuration when CDC is off for the source', () => {
+            render(
+                <SyncMethodForm
+                    schema={{ ...baseSchema, cdc_available: null }}
+                    sourceSupportsCdc
+                    sourceConfigurationUrl="/data-management/sources/managed-1/configuration"
+                    onClose={() => {}}
+                    onSave={() => {}}
+                />
+            )
+
+            expect(screen.getByText('Configuration tab').closest('a')).toHaveAttribute(
+                'href',
+                '/data-management/sources/managed-1/configuration'
+            )
+        })
+    })
+
+    it('defaults append-only to a field other than the model pick, which changes on update', () => {
+        const onSave = jest.fn()
+        render(
+            <SyncMethodForm
+                schema={{
+                    ...baseSchema,
+                    sync_type: 'append',
+                    incremental_available: true,
+                    append_available: true,
+                    incremental_fields: [
+                        {
+                            field: 'fecha_actualizacion',
+                            field_type: 'timestamp',
+                            label: 'fecha_actualizacion',
+                            type: 'timestamp',
+                            recommended: true,
+                            picked_by_model: true,
+                        },
+                        { field: 'created_at', field_type: 'timestamp', label: 'created_at', type: 'timestamp' },
+                    ],
+                    primary_key_columns: ['id'],
+                }}
+                availableColumns={[]}
+                onClose={() => {}}
+                onSave={onSave}
+            />
+        )
+
+        fireEvent.click(screen.getByText('Save'))
+
+        expect(onSave).toHaveBeenCalledWith('append', 'created_at', 'timestamp', null)
+        cleanup()
+    })
+
+    it.each([
+        ['incremental', true],
+        ['append', false],
+    ] as const)('shows the model note only while %s is the selected method', (syncType, shown) => {
+        render(
+            <SyncMethodForm
+                schema={{
+                    ...baseSchema,
+                    sync_type: syncType,
+                    incremental_available: true,
+                    append_available: true,
+                    incremental_field: 'fecha_actualizacion',
+                    incremental_fields: [
+                        {
+                            field: 'fecha_actualizacion',
+                            field_type: 'timestamp',
+                            label: 'fecha_actualizacion',
+                            type: 'timestamp',
+                            recommended: true,
+                            picked_by_model: true,
+                            notes: ['Picked by AI from the table and column names.'],
+                        },
+                        { field: 'created_at', field_type: 'timestamp', label: 'created_at', type: 'timestamp' },
+                    ],
+                    primary_key_columns: ['id'],
+                }}
+                availableColumns={[]}
+                onClose={() => {}}
+                onSave={() => {}}
+            />
+        )
+
+        expect(screen.queryByText('Picked by AI from the table and column names.') !== null).toBe(shown)
+        cleanup()
+    })
+
+    describe('shared settings of the keyed methods', () => {
+        afterEach(cleanup)
+
+        const renderForm = (
+            syncType: ExternalDataSourceSyncSchema['sync_type'],
+            { isNewSource = false, incrementalAvailable = true } = {}
+        ): HTMLElement =>
+            render(
+                <SyncMethodForm
+                    schema={{
+                        ...baseSchema,
+                        sync_type: syncType,
+                        cdc_available: true,
+                        incremental_available: incrementalAvailable,
+                        incremental_history_available: true,
+                        append_available: true,
+                        incremental_field: 'updated_at',
+                        incremental_fields: [
+                            { field: 'updated_at', field_type: 'datetime', label: 'updated_at', type: 'datetime' },
+                        ],
+                    }}
+                    availableColumns={[{ field: 'id', label: 'id', type: 'integer', nullable: false }]}
+                    detectedPrimaryKeys={['id']}
+                    primaryKeyDetectionSupported
+                    isNewSource={isNewSource}
+                    onClose={() => {}}
+                    onSave={() => {}}
+                />
+            ).container
+
+        it.each([
+            ['cdc', {}, true, true],
+            ['xmin', {}, true, false],
+            ['incremental', {}, true, true],
+            ['append', {}, false, false],
+            ['full_refresh', {}, false, false],
+            // New-source setup reads the CDC key from the source itself, so only the output tables show.
+            ['cdc', { isNewSource: true }, false, true],
+            // A saved incremental table whose source no longer supports incremental has nothing to configure.
+            ['incremental', { incrementalAvailable: false }, false, false],
+        ] as const)(
+            '%s with %o shows the primary key: %s, output tables: %s',
+            (syncType, options, showsKey, showsOutputTables) => {
+                renderForm(syncType, options)
+
+                expect(screen.queryByText('Primary key') !== null).toBe(showsKey)
+                expect(screen.queryByText('Output tables') !== null).toBe(showsOutputTables)
+            }
+        )
+
+        // The methods render in separate groups, so a per-group name would split them into several keyboard
+        // and screen reader groups.
+        it('keeps every sync method in one radio group', () => {
+            const container = renderForm('cdc')
+
+            const methodNames = ['cdc', 'xmin', 'incremental', 'append', 'full_refresh'].map(
+                (method) => container.querySelector<HTMLInputElement>(`input[type="radio"][value="${method}"]`)?.name
+            )
+            expect(methodNames.every(Boolean)).toBe(true)
+            expect(new Set(methodNames).size).toBe(1)
+        })
     })
 
     describe('output tables of an incremental table', () => {
@@ -158,6 +349,46 @@ describe('SyncMethodForm', () => {
 
             expect(screen.getByText(/select one or more columns to use as the primary key/i)).toBeInTheDocument()
         })
+
+        // The API refuses to replace a key once data has synced, so a synced key that differs from the source's
+        // must block saving in the form instead of failing after the request.
+        it.each([
+            ['cdc', ['order_key'], true],
+            ['xmin', ['order_key'], true],
+            ['cdc', ['id'], false],
+        ] as const)(
+            'switching a synced table to %s with synced key %s blocks saving: %s',
+            (syncType, syncedKey, blocked) => {
+                const onSaveDisabledReasonChange = jest.fn()
+                render(
+                    <SyncMethodForm
+                        schema={{
+                            ...baseSchema,
+                            sync_type: 'incremental',
+                            cdc_available: true,
+                            incremental_available: true,
+                            incremental_field: 'updated_at',
+                            incremental_fields: [
+                                { field: 'updated_at', field_type: 'datetime', label: 'updated_at', type: 'datetime' },
+                            ],
+                            primary_key_columns: [...syncedKey],
+                        }}
+                        availableColumns={[{ field: 'id', label: 'id', type: 'integer', nullable: false }]}
+                        detectedPrimaryKeys={['id']}
+                        primaryKeyDetectionSupported
+                        primaryKeyLocked
+                        onSaveDisabledReasonChange={onSaveDisabledReasonChange}
+                        onClose={() => {}}
+                        onSave={() => {}}
+                    />
+                )
+
+                fireEvent.click(screen.getByText(syncType === 'cdc' ? 'CDC (change data capture)' : 'xmin replication'))
+
+                const reason = onSaveDisabledReasonChange.mock.calls.at(-1)?.[0]
+                expect(reason?.includes('Delete the synced data first') ?? false).toBe(blocked)
+            }
+        )
 
         // A never-synced table has no stored key, and the API refuses CDC and xmin without one, so the
         // form has to send the key detection found.

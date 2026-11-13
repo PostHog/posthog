@@ -1566,7 +1566,8 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     //   Safari:      "Load failed"
                     //   handleFetch: ApiError with status === undefined (fetch itself threw)
                     const isNetworkError =
-                        (e instanceof Error && /failed to fetch|network\s*error|load failed/i.test(e.message)) ||
+                        (e instanceof Error &&
+                            /failed to fetch|network\s*error|load failed|error in input stream/i.test(e.message)) ||
                         (e instanceof ApiError && !e.status)
 
                     if (isNetworkError) {
@@ -1751,15 +1752,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             }
             // Sync agentMode from conversation only if user hasn't manually selected a mode after submission
             if (!values.agentModeLockedByUser && conversation?.agent_mode) {
-                const conversationAgentMode = conversation.agent_mode as AgentMode
-                // Older conversations can store the retired user interview mode, which has no selector
-                // option. Use the default mode, as ee/hogai/chat_agent/mode_manager.py does. Match the
-                // retired mode exactly, because live modes such as Research also have no MODE_DEFINITIONS entry.
-                actions.syncAgentModeFromConversation(
-                    conversationAgentMode === AgentMode.UserInterview
-                        ? AgentMode.ProductAnalytics
-                        : conversationAgentMode
-                )
+                actions.syncAgentModeFromConversation(conversation.agent_mode as AgentMode)
             }
             if (conversation?.is_sandbox) {
                 actions.setIsSandboxMode(true)

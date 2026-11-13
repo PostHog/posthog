@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import os
 import sys
+import zlib
 import errno
 import shlex
 import shutil
@@ -42,6 +43,7 @@ from .coder import (
     _diagnose_unreachable_coder,
     _fail,
     _ssh_host_alias,
+    app_url,
     clone_workspace,
     coder_authenticated,
     coder_installed,
@@ -2159,28 +2161,69 @@ def devbox_status(workspace: str | None) -> None:
             agent_status = agent.get("status", "unknown")
             click.echo(f"  Agent:   {agent_status}")
 
+    owner = str(ws.get("owner_name") or "").lower()
+    if owner and owner == get_username():
+        app_health = _app_health(resources)
+        click.echo(f"  App:     {app_url(name)}" + (f" ({app_health})" if app_health else ""))
+
     if status == "running":
         _print_connection_info(name)
 
 
+def _app_health(resources: list[dict[str, Any]]) -> str | None:
+    for resource in resources:
+        for agent in resource.get("agents", []):
+            for app in agent.get("apps", []):
+                if app.get("slug") == "app":
+                    return app.get("health")
+    return None
+
+
+_BOX_APP_PORT = 8010
+_FORWARD_PORT_RANGE = range(18000, 19000)
+
+
+def _forward_port_candidates(name: str) -> list[int]:
+    start = zlib.crc32(name.encode()) % len(_FORWARD_PORT_RANGE)
+    derived = [
+        _FORWARD_PORT_RANGE[(start + offset) % len(_FORWARD_PORT_RANGE)] for offset in range(len(_FORWARD_PORT_RANGE))
+    ]
+    return derived if extract_workspace_label(name) else [_BOX_APP_PORT, *derived]
+
+
+def _targets_own_box(workspace: str | None) -> bool:
+    return workspace is None or not workspace.startswith("@") or is_own_default_target(workspace)
+
+
 @click.command(name="devbox:forward", help="Forward PostHog UI to localhost")
 @workspace_argument
-@click.option("--port", default=8010, type=int, help="Local port to forward to")
-def devbox_forward(workspace: str | None, port: int) -> None:
+@click.option("--port", default=None, type=int, help="Local port to forward to. Defaults to a free port kept per box.")
+def devbox_forward(workspace: str | None, port: int | None) -> None:
     """Forward the PostHog UI port to localhost."""
     ensure_runtime_ready()
     name, _ = resolve_workspace_name(workspace)
-    if not _local_port_is_available(port):
+    if port is None:
+        port = next(
+            (candidate for candidate in _forward_port_candidates(name) if _local_port_is_available(candidate)), None
+        )
+        if port is None:
+            _fail(
+                f"No free local port in {_FORWARD_PORT_RANGE.start}-{_FORWARD_PORT_RANGE.stop - 1}. "
+                f"Rerun with `hogli devbox:forward{_workspace_arg_suffix(name)} --port <port>`."
+            )
+    elif not _local_port_is_available(port):
         _fail(
             f"Local port {port} is already in use.\n"
-            f"Stop the process using that port or rerun with `hogli devbox:forward{_workspace_arg_suffix(name)} --port {port + 1}`."
+            f"Stop the process using that port, or rerun without --port to pick a free one."
         )
 
-    click.echo(f"Forwarding {name}:8010 -> localhost:{port}")
+    click.echo(f"Forwarding {name}:{_BOX_APP_PORT} -> localhost:{port}")
     click.echo(f"PostHog UI at http://localhost:{port}")
+    if _targets_own_box(workspace):
+        click.echo(f"Without forwarding, open {app_url(name)}")
     click.echo("Ctrl+C to stop")
     click.echo()
-    port_forward_replace(name, port, 8010)
+    port_forward_replace(name, port, _BOX_APP_PORT)
 
 
 def _gib(nbytes: int) -> str:

@@ -453,6 +453,10 @@ DEBUG=1 python manage.py demo_mts_example --team-id <id> --user-id <id>
 
 See the [example README](https://github.com/PostHog/posthog/blob/master/products/tasks/backend/logic/services/mts_example/README.md) for details on adapting it to your own use case.
 
+Signals report research stops retrying when GitHub still rejects repository credentials after the clone activity exhausts its retries.
+Transient clone failures remain retryable.
+When GitHub access is optional, research falls back to project data without code access.
+
 ## Code execution
 
 Agents run inside an isolated sandbox with full code execution capabilities.
@@ -803,14 +807,15 @@ System One reranks up to 32 returned candidates in one request. Candidate conten
 Source APIs receive bounded natural-language query text and apply their existing query handling. The selector does not maintain a stop-word list.
 Search queries retain the end of the current request and reserve space for recent history within the source APIs' 200-character limit.
 References link to the retrieved sources; skill references fetch the latest published version by name.
+Each reference also carries a `url` the user can open: the fetched page for a URL-backed Business Knowledge document, or the in-app page for a skill or metric. Text and file documents, certifications, and relationships have none.
 At most five references and 8,000 characters survive into a hidden context block, identified by `selection_id`.
 Retrieved content is data to verify through existing tools, rather than instructions or approval.
 Skill references contain descriptions and bounded search excerpts, so the prompt requires `skill-get` with the referenced name before the agent relies on or follows a skill.
 Long catalog records retain their status, proposed status, and drift metadata while verbose content becomes a bounded excerpt.
 A general knowledge search does not replace that fetch. If the fetch fails or access is denied, the agent must not treat the description as a verified definition or instruction.
 This is a prompt requirement, rather than a runtime guarantee that the fetch occurs.
-The agent is instructed to use these references silently, including during progress updates, tool-call explanations, and task summaries.
-It can cite the underlying sources and explain verification failures, but must not mention selection, suggestions, injection, or the hidden block's metadata.
+When a reference informs the answer, the agent is instructed to cite it by title and link its `url` when one exists, as it would any document it read.
+It ignores references that do not apply without commenting on them, and must not mention selection, suggestions, injection, or the hidden block's metadata, including in progress updates, tool-call explanations, and task summaries.
 
 Control skips retrieval. Shadow computes the selected bundle without injecting it. Treatment injects the bundle.
 Selection has an eight-second budget by default, starting before worker submission and run/actor lookups. Expired lookups do not start source or model requests.

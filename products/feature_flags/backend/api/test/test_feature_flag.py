@@ -4599,6 +4599,26 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         assert {flag["key"] for flag in response.json()["results"]} == expected_keys
         assert response.json()["count"] == len(expected_keys)
 
+    def test_list_ids_returns_exactly_the_requested_flags(self):
+        listed = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="listed-flag")
+        archived = FeatureFlag.objects.create(
+            team=self.team, created_by=self.user, key="archived-flag", active=False, archived=True
+        )
+        deleted = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="deleted-flag", deleted=True)
+        FeatureFlag.objects.create(team=self.team, created_by=self.user, key="unrequested-flag")
+
+        ids = ",".join(str(flag.id) for flag in (listed, archived, deleted))
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/?ids={ids}&search=nothing")
+
+        assert response.status_code == 200, response.json()
+        assert {flag["key"] for flag in response.json()["results"]} == {"listed-flag", "archived-flag"}
+
+    def test_list_ids_rejects_more_than_the_limit(self):
+        ids = ",".join(str(flag_id) for flag_id in range(1, 202))
+        response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/?ids={ids}")
+
+        assert response.status_code == 400
+
     def test_list_excluded_tags_filtering(self):
         for key, tags in [
             ("deprecated-flag", ["deprecated"]),

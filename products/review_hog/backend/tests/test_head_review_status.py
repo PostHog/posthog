@@ -348,12 +348,11 @@ class TestHeadReviewStatus(BaseTest):
             ("turn_without_a_marker", "no_marker", 1, False, False),
             ("chunk_read_only_by_an_earlier_turn_on_the_head", "earlier_read", 2, False, False),
             ("newer_deep_turn_on_the_head", "newer_deep_turn", 1, False, True),
-            ("ready_event_of_the_turn_itself", "ready_at_finish", 1, False, True),
-            ("ready_event_of_a_turn_with_findings", "ready_at_finish_with_finding", 1, False, False),
             ("finding_without_a_verdict", "unjudged_finding", 1, False, False),
             ("delta_review", "delta_review", 1, False, False),
         ]
     )
+    @patch("products.review_hog.backend.silent_stamphog.queue_routing_after_external_review")
     @patch("products.review_hog.backend.silent_stamphog.queue_silent_review")
     def test_silent_stamphog_starts_only_for_a_head_whose_automatic_turn_recorded_clean_full_coverage(
         self,
@@ -363,6 +362,7 @@ class TestHeadReviewStatus(BaseTest):
         lens_chunks_capped: bool,
         expect_queued: bool,
         queue_silent_review: MagicMock,
+        queue_routing: MagicMock,
     ) -> None:
         if setup == "no_marker":
             report = self._report(run_count=1, head_sha=HEAD, completed_head_sha=HEAD)
@@ -372,7 +372,7 @@ class TestHeadReviewStatus(BaseTest):
             report = self._completed_turn(
                 REVIEW_MODE_FLASH, skipped_paths=("pnpm-lock.yaml",) if setup == "skipped_paths" else ()
             )
-        if setup in ("finding", "ready_at_finish_with_finding"):
+        if setup == "finding":
             self._finding(report, "1-a", is_valid=True, priority=IssuePriority.CONSIDER)
         if setup == "invalid_finding":
             self._finding(report, "1-a", is_valid=False)
@@ -393,7 +393,6 @@ class TestHeadReviewStatus(BaseTest):
                 attribution=ArtefactAttribution.system(),
             )
 
-        ready_at_finish = setup.startswith("ready_at_finish")
         finish_standard_automatic_turn(
             team_id=self.team.id,
             report_id=str(report.id),
@@ -403,17 +402,15 @@ class TestHeadReviewStatus(BaseTest):
             run_index=run_index,
             lens_chunks_capped=lens_chunks_capped,
             delta_review=setup == "delta_review",
-            marks_ready=ready_at_finish,
+            marks_ready=False,
         )
         if setup == "newer_deep_turn":
             self._add_marker(report, 2, REVIEW_MODE_FULL)
             ReviewReport.objects.for_team(self.team.id).filter(id=report.id).update(run_count=2)
-        if not ready_at_finish:
-            start_silent_stamphog(team_id=self.team.id, repository=REPOSITORY, pr_number=5, head_sha=HEAD)
+        start_silent_stamphog(team_id=self.team.id, repository=REPOSITORY, pr_number=5, head_sha=HEAD)
 
-        if expect_queued:
-            queue_silent_review.assert_called_once_with(
-                team_id=self.team.id, repository=REPOSITORY, pr_number=5, head_sha=HEAD
-            )
-        else:
-            queue_silent_review.assert_not_called()
+        queued, not_queued = (
+            (queue_silent_review, queue_routing) if expect_queued else (queue_routing, queue_silent_review)
+        )
+        queued.assert_called_once_with(team_id=self.team.id, repository=REPOSITORY, pr_number=5, head_sha=HEAD)
+        not_queued.assert_not_called()

@@ -7,7 +7,10 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { ReleaseAutoImport } from './ReleaseAutoImport'
 import { NewReleaseButton, NewReleaseDialog, ReleaseFilters } from './ReleaseFilters'
+import { ReleaseImportFailedNotice } from './ReleaseImportFailedNotice'
+import { releaseImportLogic } from './releaseImportLogic'
 import { ReleaseLoadError } from './ReleaseLoadError'
 import { releaseLogic } from './releaseLogic'
 import { ReleasePartialLoadWarning } from './ReleasePartialLoadWarning'
@@ -21,6 +24,7 @@ export const scene: SceneExport = {
 
 function ReleaseCalendarContent(): JSX.Element {
     const { loadFailed } = useValues(releaseLogic)
+    const { showAutoImport } = useValues(releaseImportLogic)
     return (
         <SceneContent>
             <SceneTitleSection
@@ -34,9 +38,16 @@ function ReleaseCalendarContent(): JSX.Element {
                 }
             />
             <div data-quill className="flex flex-col gap-3">
-                <ReleaseFilters />
+                {!showAutoImport && <ReleaseFilters />}
                 <ReleasePartialLoadWarning />
-                {loadFailed ? <ReleaseLoadError title="Releases could not load" /> : <ReleaseTimeline />}
+                <ReleaseImportFailedNotice />
+                {loadFailed ? (
+                    <ReleaseLoadError title="Releases could not load" />
+                ) : showAutoImport ? (
+                    <ReleaseAutoImport />
+                ) : (
+                    <ReleaseTimeline />
+                )}
                 <NewReleaseDialog />
             </div>
         </SceneContent>
