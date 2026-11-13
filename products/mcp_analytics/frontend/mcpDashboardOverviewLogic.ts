@@ -10,6 +10,7 @@ import {
     reducers,
     selectors,
 } from 'kea'
+import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 
@@ -50,6 +51,7 @@ import {
     MCPToolCallsAndErrorsItem,
     NodeKind,
 } from '~/queries/schema/schema-general'
+import type { MCPIntentTopicsQueryResponse } from '~/queries/schema/schema-general'
 import { AnyPropertyFilter, IntervalType } from '~/types'
 
 import { mcpClusteringLogic } from './clustering/mcpClusteringLogic'
@@ -481,6 +483,9 @@ export interface mcpDashboardOverviewLogicValues {
     hasProtocolVersionData: boolean
     headlineKpis: KPIData
     intentClusterCount: KPIMetric
+    intentTopics: MCPIntentTopicsQueryResponse | null
+    intentTopicsFailed: boolean
+    intentTopicsLoading: boolean
     interval: IntervalType
     kpiIncompleteTail: boolean
     kpis: KPIData
@@ -537,6 +542,21 @@ export interface mcpDashboardOverviewLogicActions {
     } // mcpAnalyticsFiltersLogic
     loadDashboard: () => {
         value: true
+    }
+    loadIntentTopics: (_: void) => void
+    loadIntentTopicsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadIntentTopicsSuccess: (
+        intentTopics: MCPIntentTopicsQueryResponse | null,
+        payload?: void
+    ) => {
+        intentTopics: MCPIntentTopicsQueryResponse | null
+        payload?: void
     }
     loadSections: (
         sections: MCPDashboardSection[],
@@ -657,6 +677,15 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
     }),
     reducers({
         hasFilterInteraction: [false, { markFilterInteraction: () => true }],
+        // The loader keeps the last topics on failure, so the card needs its own failure flag.
+        intentTopicsFailed: [
+            false,
+            {
+                loadIntentTopics: () => false,
+                loadIntentTopicsSuccess: () => false,
+                loadIntentTopicsFailure: () => true,
+            },
+        ],
         // A section keeps its rows while it reloads, like the per-card loaders did, but drops its error so a
         // retried card shows its loading state.
         sections: [
@@ -690,6 +719,22 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
             },
         ],
     }),
+    loaders(({ values }) => ({
+        intentTopics: [
+            null as MCPIntentTopicsQueryResponse | null,
+            {
+                loadIntentTopics: async (_: void, breakpoint): Promise<MCPIntentTopicsQueryResponse | null> => {
+                    const response = (await api.query({
+                        kind: NodeKind.MCPIntentTopicsQuery,
+                        dateRange: { date_from: values.dateFilter.dateFrom, date_to: values.dateFilter.dateTo },
+                        limit: 5,
+                    })) as MCPIntentTopicsQueryResponse
+                    breakpoint()
+                    return response ?? null
+                },
+            },
+        ],
+    })),
     selectors({
         dashboardLayout: [
             () => [featureFlagLogic.selectors.featureFlags],
@@ -909,6 +954,14 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
             // Flags can resolve after the first load. The layout decides which sections a load asks for, and a
             // load's time to see data must be reported under the batch arm that ran it.
             setFeatureFlags: () => {
+                // The scene can mount before /flags answers, so the first reload may have skipped the topics card.
+                if (
+                    cache.intentTopicsSkipped &&
+                    featureFlagLogic.values.featureFlags[FEATURE_FLAGS.MCP_ANALYTICS_INTENT_TOPICS]
+                ) {
+                    cache.intentTopicsSkipped = false
+                    actions.loadIntentTopics()
+                }
                 const { requestedArm } = cache
                 if (
                     requestedArm &&
@@ -919,6 +972,11 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
             },
             reloadAll: () => {
                 actions.loadDashboard()
+                cache.intentTopicsSkipped =
+                    !featureFlagLogic.values.featureFlags[FEATURE_FLAGS.MCP_ANALYTICS_INTENT_TOPICS]
+                if (!cache.intentTopicsSkipped) {
+                    actions.loadIntentTopics()
+                }
             },
             loadDashboard: () => {
                 cache.requestedArm = { layout: values.dashboardLayout, batched: values.dashboardBatched }

@@ -73,6 +73,7 @@ export interface mcpAnalyticsFiltersLogicValues {
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     filterTestAccounts: boolean
     filterTestAccountsOverride: boolean | null
+    hasActiveFilters: boolean
     propertyFilters: AnyPropertyFilter[]
     queryFilters: MCPSharedQueryFilters
 }
@@ -102,6 +103,7 @@ export interface mcpAnalyticsFiltersLogicMeta {
             currentTeam: TeamPublicType | TeamType | null
         ) => boolean
         queryFilters: (filterTestAccounts: boolean, propertyFilters: AnyPropertyFilter[]) => MCPSharedQueryFilters
+        hasActiveFilters: (queryFilters: Required<Pick<HogQLFilters, 'filterTestAccounts' | 'properties'>>) => boolean
     }
 }
 
@@ -153,6 +155,11 @@ export const mcpAnalyticsFiltersLogic = kea<mcpAnalyticsFiltersLogicType>([
                 filterTestAccounts,
                 properties: propertyFilters.filter(isValidPropertyFilter),
             }),
+        ],
+        hasActiveFilters: [
+            (s) => [s.queryFilters],
+            (queryFilters: MCPSharedQueryFilters): boolean =>
+                queryFilters.filterTestAccounts || queryFilters.properties.length > 0,
         ],
     }),
     actionToUrl(({ values }) => {

@@ -11,11 +11,11 @@ import {
     DropdownMenuTrigger,
 } from '@posthog/quill-primitives'
 
-import { MCP_DASHBOARD_CARDS, McpDashboardCardId } from './dashboardCards'
+import { McpDashboardCardId } from './dashboardCards'
 import { mcpDashboardCardsLogic } from './mcpDashboardCardsLogic'
 
 export function DashboardCardsMenu({ cardsWithoutData }: { cardsWithoutData: McpDashboardCardId[] }): JSX.Element {
-    const { hiddenCards, isCardVisible } = useValues(mcpDashboardCardsLogic)
+    const { availableCards, hiddenCards, isCardVisible } = useValues(mcpDashboardCardsLogic)
     const { toggleCard, showAllCards } = useActions(mcpDashboardCardsLogic)
 
     return (
@@ -27,7 +27,7 @@ export function DashboardCardsMenu({ cardsWithoutData }: { cardsWithoutData: Mcp
                 <IconChevronDown />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="min-w-56">
-                {MCP_DASHBOARD_CARDS.map(({ id, label }) => (
+                {availableCards.map(({ id, label }) => (
                     <DropdownMenuCheckboxItem
                         key={id}
                         checked={isCardVisible(id)}
