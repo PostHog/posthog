@@ -3,6 +3,7 @@ import { ProducerMessage } from '~/common/kafka/producer'
 
 import { HealthCheckResult } from '../../../types'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueueKind } from '../../types'
+import { CyclotronV2IdempotentClaim } from '../cyclotron-v2/types'
 import type { CrashGuard } from '../poison-batch/crash-guard'
 
 export type ConsumeBatchFn = (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>
@@ -33,4 +34,11 @@ export interface JobQueue {
     dequeueInvocations(invocations: CyclotronJobInvocation[]): Promise<void>
     heartbeatInvocations(invocations: CyclotronJobInvocation[]): Promise<void>
     deferInvocations(deferrals: { invocation: CyclotronJobInvocation; scheduledAt: Date }[]): Promise<void>
+}
+
+export type IdempotentInvocation = { invocation: CyclotronJobInvocation; fingerprint: string }
+
+export interface IdempotentJobQueue extends JobQueue {
+    queueInvocationsIdempotently(entries: IdempotentInvocation[]): Promise<CyclotronV2IdempotentClaim[]>
+    findIdempotencyKey(id: string): Promise<{ fingerprint: string } | null>
 }
