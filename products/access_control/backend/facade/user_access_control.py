@@ -88,7 +88,7 @@ ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
     "revenue_analytics",
     "session_recording",
     "sharing_configuration",
-    "stamphog",
+    "code_review_approval",
     "survey",
     "ticket",
     "web_analytics",
@@ -218,9 +218,9 @@ def resource_to_display_name(resource: APIScopeObject) -> str:
         return "LLM playground"
     if resource == "business_knowledge":
         return "business knowledge"
-    if resource == "stamphog":
-        # Product name: a proper noun, and it does not take a plural
-        return "Stamphog"
+    if resource == "code_review_approval":
+        # A feature name, not a collection of objects, so it takes no plural
+        return "code review auto-approval"
 
     name = resource.replace("_", " ")
     # Names such as "marketing analytics", "logs" and "metrics" are already plural

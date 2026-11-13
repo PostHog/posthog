@@ -106,7 +106,7 @@ class TestRecentReviewsAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.enterContext(patch("posthoganalytics.feature_enabled", return_value=True))
-        self.url = f"/api/projects/{self.team.id}/review_hog/reviews/"
+        self.url = f"/api/projects/{self.team.id}/code_review/reviews/"
 
     def _report(
         self,
@@ -387,12 +387,12 @@ class TestRecentReviewsAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("review_hog_read_allowed", ["review_hog:read"], 200),
+            ("code_review_read_allowed", ["code_review:read"], 200),
             ("unrelated_scope_denied", ["insight:read"], 403),
         ]
     )
-    def test_list_api_key_scope_is_review_hog(self, _name: str, scopes: list[str], expected_status: int) -> None:
-        # The list/get/trigger endpoints carry the `review_hog` scope so the MCP tools reach them with a
+    def test_list_api_key_scope_is_code_review(self, _name: str, scopes: list[str], expected_status: int) -> None:
+        # The list/get/trigger endpoints carry the `code_review` scope so the MCP tools reach them with a
         # personal API key or OAuth token — a revert to INTERNAL would reject the read-scoped key here and
         # take the MCP review tools down with it.
         self._report(pr_number=1, acting_user=self.user)

@@ -38,6 +38,8 @@ APIScopeObject = Literal[
     "business_knowledge",
     "canvas",
     "clickhouse_test_cluster_perf",
+    "code_review",
+    "code_review_approval",
     "cohort",
     "comment",
     "conversation",
@@ -118,7 +120,6 @@ APIScopeObject = Literal[
     "query",  # Covers query and events endpoints
     "query_performance",
     "replay_scanner",
-    "review_hog",
     "revenue_analytics",
     "session_recording",
     "session_recording_playlist",
@@ -131,7 +132,6 @@ APIScopeObject = Literal[
     "signal_scratchpad_internal",
     "signal_usage",
     "slack_run",
-    "stamphog",
     "streamlit_app",
     "subscription",
     "support_ticket",
@@ -729,6 +729,25 @@ def is_truncated_scope_request(requested: Sequence[str]) -> bool:
     return any(scope.startswith(tail) for scope in known)
 
 
+# PostHog desktop and agent builds already shipped request these scope objects by their old names.
+# Translating them keeps those builds' code review access when they authorize again.
+# Remove the mapping once builds that request the old names have aged out.
+RENAMED_OAUTH_SCOPE_OBJECTS: dict[str, str] = {
+    "review_hog": "code_review",
+    "stamphog": "code_review_approval",
+}
+
+
+def translate_renamed_scopes(requested: Sequence[str]) -> list[str]:
+    """`requested` with every scope of a renamed object written under its new name, order kept."""
+    translated = []
+    for scope in requested:
+        scope_object, separator, action = scope.partition(":")
+        new_object = RENAMED_OAUTH_SCOPE_OBJECTS.get(scope_object)
+        translated.append(f"{new_object}{separator}{action}" if new_object and separator else scope)
+    return translated
+
+
 def resolve_requested_scopes(
     requested: Sequence[str],
     app_scopes: Iterable[str],
@@ -741,6 +760,7 @@ def resolve_requested_scopes(
     `/oauth/authorize` and `/oauth/device-authorization` both resolve scopes here, so a client
     gets the same scopes from either.
     """
+    requested = translate_renamed_scopes(requested)
     if not requested or is_truncated_scope_request(requested):
         return sorted(effective_ceiling(app_scopes) | ALWAYS_ALLOWED_SCOPES)
     return clamp_scopes_to_ceiling(

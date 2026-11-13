@@ -235,7 +235,7 @@ class StamphogReviewWorkflow(PostHogWorkflow):
         except Exception as e:
             # Log the full error to the worker before marking the run failed: mark_review_failed
             # persists only the first line (raw exception text can embed repo file content, and run.error
-            # is exposed to stamphog:read), so the worker log is where full detail is kept.
+            # is exposed to code_review_approval:read), so the worker log is where full detail is kept.
             workflow.logger.error(f"stamphog_review_workflow_failed for run {input.review_run_id}: {e}")
             try:
                 await workflow.execute_activity(

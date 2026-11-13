@@ -1831,9 +1831,9 @@ def process_inbox_pr_review(
 
 
 _MANUAL_SKIP_MESSAGES = {
-    "draft": "Stamphog does not review draft pull requests. Mark the pull request as ready for review, then request again.",
-    "bot_author": "Stamphog does not review pull requests opened by bots. This change needs a human reviewer.",
-    "untrusted_author_association": "Stamphog only reviews pull requests from members and collaborators of the repository.",
+    "draft": "Auto-approval does not review draft pull requests. Mark the pull request as ready for review, then request again.",
+    "bot_author": "Auto-approval does not review pull requests opened by bots. This change needs a human reviewer.",
+    "untrusted_author_association": "Auto-approval only reviews pull requests from members and collaborators of the repository.",
 }
 
 # Transport-level GitHub failures. StamphogGitHubError is caught next to each call instead, because a
@@ -1845,7 +1845,7 @@ def _github_unavailable(repo: str, pr_number: int) -> ReviewRequestRefusedError:
     logger.warning("stamphog_manual_review_github_failed", repository=repo, pr_number=pr_number, exc_info=True)
     return ReviewRequestRefusedError(
         ReviewRequestRefusal.GITHUB_UNAVAILABLE,
-        "Stamphog could not reach GitHub to check this request. Try again in a minute.",
+        "Auto-approval could not reach GitHub to check this request. Try again in a minute.",
     )
 
 
@@ -1872,8 +1872,8 @@ def request_manual_review(team_id: int, user_id: int | None, repository: str, pr
     if repo_config is None:
         raise ReviewRequestRefusedError(
             ReviewRequestRefusal.NOT_FOUND,
-            f"Stamphog is not connected and enabled for {repository} in this project. "
-            "Connect the repository in Stamphog settings and turn on reviews first.",
+            f"Auto-approval is not connected and enabled for {repository} in this project. "
+            "Connect the repository in the auto-approval settings and turn on reviews first.",
         )
     repo = repo_config.repository
     try:
@@ -1889,7 +1889,7 @@ def request_manual_review(team_id: int, user_id: int | None, repository: str, pr
     if (pr.get("state") or "") != "open":
         raise ReviewRequestRefusedError(
             ReviewRequestRefusal.NOT_REVIEWABLE,
-            f"Pull request #{pr_number} is closed, so Stamphog will not review it.",
+            f"Pull request #{pr_number} is closed, so auto-approval will not review it.",
         )
     skip_reason = _review_skip_reason(pr)
     if skip_reason is not None:
@@ -1902,7 +1902,7 @@ def request_manual_review(team_id: int, user_id: int | None, repository: str, pr
         raise ReviewRequestRefusedError(
             ReviewRequestRefusal.NOT_REVIEWABLE,
             f"The author of pull request #{pr_number} does not have write access to {repo}, "
-            "so Stamphog will not review it.",
+            "so auto-approval will not review it.",
         )
 
     queued = _queue_review_at_head(

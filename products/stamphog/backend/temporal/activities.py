@@ -1400,7 +1400,7 @@ def review_in_sandbox(input: ReviewSandboxInput) -> dict:
             result = _run_reviewer(sandbox, run, input.merge_base_sha, gateway_token, [token], timer, deadline)
         except Exception as exc:
             # Give the type only. Every step in this phase touches the sandbox, and anyone with
-            # stamphog:read can read run.error without access to the repository.
+            # code_review_approval:read can read run.error without access to the repository.
             raise SandboxPhaseError(f"the sandbox phase failed with {type(exc).__name__}") from exc
         finally:
             # A destroy failure must not mask a completed review, because the verdict still has to be
@@ -1477,7 +1477,7 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
             raise
         except Exception as exc:
             # Give the type only. Every step in this phase touches the sandbox, and anyone with
-            # stamphog:read can read run.error without access to the repository. The setup phase above
+            # code_review_approval:read can read run.error without access to the repository. The setup phase above
             # keeps its text, because it fails on our own infrastructure and must stay diagnosable.
             raise SandboxPhaseError(f"the sandbox phase failed with {type(exc).__name__}") from exc
         finally:
@@ -2223,7 +2223,7 @@ def mark_review_failed(input: MarkReviewFailedInput) -> None:
         _sweep_orphan_approvals_at_terminal(client, run, input.team_id)
         return
     # Persist only the first line, truncated: run.error is returned by the serializer to anyone with
-    # stamphog:read, and raw exception text can embed repository file content (a yaml.YAMLError over
+    # code_review_approval:read, and raw exception text can embed repository file content (a yaml.YAMLError over
     # .stamphog/policy.yml echoes the offending source lines on its continuation lines). Full detail is
     # already in the worker logs — the workflow logs the complete error before calling this activity.
     # Conditional like every terminal save (the load-time guard above can race an in-flight
@@ -2483,7 +2483,7 @@ def _checked_repo_policy_yaml(repo: str, repo_text: str) -> str:
         overlay = yaml.safe_load(repo_text)
     except yaml.YAMLError as exc:
         # PyYAML puts the bad tag on the first line, and run.error keeps that line. Anyone with
-        # stamphog:read can read it without access to the repository, so log the parser text instead.
+        # code_review_approval:read can read it without access to the repository, so log the parser text instead.
         activity.logger.error(f"Malformed YAML in .stamphog/policy.yml for {repo}: {exc}")
         raise RuntimeError(f"repo {repo} has malformed YAML in .stamphog/policy.yml") from exc
     if not isinstance(overlay, dict):

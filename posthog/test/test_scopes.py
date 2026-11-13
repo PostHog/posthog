@@ -30,6 +30,7 @@ from posthog.scopes import (
     is_truncated_scope_request,
     narrow_scopes_to_ceiling,
     resolve_ceiling,
+    resolve_requested_scopes,
     scopes_outside_ceiling,
     scopes_within_ceiling,
 )
@@ -458,6 +459,24 @@ class TestClampScopesToCeiling(SimpleTestCase):
         for requested, app_scopes in cases:
             clamped = clamp_scopes_to_ceiling(requested, app_scopes, allow_wildcard_under_empty_ceiling=True)
             assert scopes_within_ceiling(clamped, app_scopes, allow_wildcard_under_empty_ceiling=True)
+
+
+class TestResolveRequestedScopes(SimpleTestCase):
+    @parameterized.expand(
+        [
+            # Shipped desktop builds still request the old object names. Clamping them would drop
+            # their code review access on the next sign-in.
+            (
+                "renamed_objects_translate_to_new_names",
+                ["query:read", "review_hog:write", "stamphog:read"],
+                ["query:read", "code_review:write", "code_review_approval:read"],
+                ["code_review:write", "code_review_approval:read", "query:read"],
+            ),
+            ("bare_old_object_name_is_not_a_scope", ["stamphog"], ["code_review_approval:read"], []),
+        ]
+    )
+    def test_resolution(self, _name: str, requested: list[str], app_scopes: list[str], expected: list[str]) -> None:
+        assert resolve_requested_scopes(requested, app_scopes) == expected
 
 
 def _real_scopes(count: int) -> list[str]:
