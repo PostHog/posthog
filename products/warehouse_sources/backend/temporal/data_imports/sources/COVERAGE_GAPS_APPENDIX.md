@@ -12747,14 +12747,14 @@ Note: Fetched the live OpenAPI (server https://api.twelvelabs.io/v1.3 — same v
 
 ## Twenty — gaps
 
-Today (6): `activities`, `companies`, `notes`, `opportunities`, `people`, `tasks`
+Today (9): `activities`, `companies`, `note_targets`, `notes`, `opportunities`, `people`, `task_targets`, `tasks`, `workspace_members`
 
 Diffed against: <https://raw.githubusercontent.com/twentyhq/twenty/main/packages/twenty-server/src/engine/workspace-manager/twenty-standard-application/utils/object-metadata/create-standard-flat-object-metadata.util.ts>
 
-- [ ] `Workspace members (GET /rest/workspaceMembers)` — resolve task assignee IDs into people for workload and completion analysis (high)
-- [ ] `Note targets (GET /rest/noteTargets)` — connect notes to the people, companies, and opportunities they describe (high)
-- [ ] `Task targets (GET /rest/taskTargets)` — connect tasks to customer and opportunity records for follow-up and sales activity analysis (high)
-- [ ] `Custom objects (GET /rest/{objectNamePlural})` — import workspace-specific business objects that the six fixed table definitions cannot discover (high)
+- [x] `Workspace members (GET /rest/workspaceMembers)` — resolve task assignee IDs into people for workload and completion analysis (high) → `workspace_members` (incremental on `updatedAt`/`createdAt`)
+- [x] `Note targets (GET /rest/noteTargets)` — connect notes to the people, companies, and opportunities they describe (high) → `note_targets` (incremental on `updatedAt`/`createdAt`)
+- [x] `Task targets (GET /rest/taskTargets)` — connect tasks to customer and opportunity records for follow-up and sales activity analysis (high) → `task_targets` (incremental on `updatedAt`/`createdAt`)
+- [ ] `Custom objects (GET /rest/{objectNamePlural})` — import workspace-specific business objects that the six fixed table definitions cannot discover (high) — skipped: needs per-workspace discovery through the metadata API, which the static table catalog does not support
 - [ ] `Messages (GET /rest/messages)` — analyze customer email volume, communication timing, and message content alongside CRM records (medium)
 - [ ] `Message participants (GET /rest/messageParticipants)` — connect email senders and recipients to people and workspace members (medium)
 - [ ] `Message threads (GET /rest/messageThreads)` — group emails into customer conversations for engagement analysis (medium)
