@@ -43316,6 +43316,19 @@ export namespace Schemas {
       reason: IssueSummaryUnavailableReasonEnum | null;
     }
 
+    export interface ErrorTrackingIssueTagCorrection {
+      /** Key of the tag. Pass it as `issueTag.key` to filter the issue list. */
+      key: string;
+      /** Short name of the tag. */
+      label: string;
+      /** What the tag means, for a tooltip. */
+      description: string;
+      /** The tagger that applied the tag: `jev` for AI, `manual` for a person. */
+      source: string;
+      /** Whether the tag is applied to the issue after the change. */
+      applied: boolean;
+    }
+
     export interface ErrorTrackingIssueTagDefinition {
       /** Key of the tag. Pass it as `issueTag.key` to filter the issue list. */
       key: string;
@@ -88486,6 +88499,16 @@ export namespace Schemas {
     export interface PatchedErrorTrackingIssueAssignRequest {
       /** Assignment target. Set to null or omit to remove the current assignment. */
       assignee?: ErrorTrackingIssueAssigneeWrite | null;
+    }
+
+    export interface PatchedErrorTrackingIssueTagWrite {
+      /**
+         * Key of the tag to apply or remove. The tag definitions endpoint lists the tags enabled for the project.
+         * @maxLength 64
+         */
+      key?: string;
+      /** True applies the tag. False removes it and stops automatic taggers from applying it again. */
+      applied?: boolean;
     }
 
     export interface PatchedErrorTrackingIssueWrite {
