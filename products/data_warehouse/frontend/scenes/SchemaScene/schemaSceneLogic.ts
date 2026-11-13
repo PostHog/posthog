@@ -25,6 +25,7 @@ import { confirmPendingSelfManagedSync } from 'products/data_warehouse/frontend/
 import { cleanSourceId } from 'products/data_warehouse/frontend/utils'
 import {
     externalDataSchemasHistoryTableDestroy,
+    externalDataSchemasPartialUpdate,
     externalDataSourcesWizardRetrieve,
 } from 'products/warehouse_sources/frontend/generated/api'
 import type { SourceConfigResponseApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
@@ -74,6 +75,7 @@ export interface schemaSceneLogicValues {
     isProjectTime: boolean
     refreshingSchemas: boolean
     resyncingSchema: boolean
+    savingLiveQuery: boolean
     schema: ExternalDataSourceSchema | null
     schemaData: ExternalDataSchemaWithSource | null
     schemaDataLoading: boolean
@@ -168,11 +170,17 @@ export interface schemaSceneLogicActions {
     setIsProjectTime: (isProjectTime: boolean) => {
         isProjectTime: boolean
     }
+    setLiveQueryEnabled: (enabled: boolean) => {
+        enabled: boolean
+    }
     setRefreshingSchemas: (refreshing: boolean) => {
         refreshing: boolean
     }
     setResyncingSchema: (resyncing: boolean) => {
         resyncing: boolean
+    }
+    setSavingLiveQuery: (saving: boolean) => {
+        saving: boolean
     }
     updateSchema: (schema: ExternalDataSourceSchema) => {
         schema: ExternalDataSourceSchema
@@ -219,6 +227,8 @@ export const schemaSceneLogic = kea<schemaSceneLogicType>([
         setIsProjectTime: (isProjectTime: boolean) => ({ isProjectTime }),
         setRefreshingSchemas: (refreshing: boolean) => ({ refreshing }),
         setResyncingSchema: (resyncing: boolean) => ({ resyncing }),
+        setLiveQueryEnabled: (enabled: boolean) => ({ enabled }),
+        setSavingLiveQuery: (saving: boolean) => ({ saving }),
         updateSchema: (schema: ExternalDataSourceSchema) => ({ schema }),
         reloadSchema: (schema: ExternalDataSourceSchema) => ({ schema }),
         resyncSchema: (schema: ExternalDataSourceSchema) => ({ schema }),
@@ -309,6 +319,12 @@ export const schemaSceneLogic = kea<schemaSceneLogicType>([
             {
                 resyncSchema: () => true,
                 setResyncingSchema: (_, { resyncing }) => resyncing,
+            },
+        ],
+        savingLiveQuery: [
+            false as boolean,
+            {
+                setSavingLiveQuery: (_, { saving }) => saving,
             },
         ],
     })),
@@ -407,6 +423,25 @@ export const schemaSceneLogic = kea<schemaSceneLogicType>([
                 return
             }
             await runUpdate()
+        },
+        // Sends only this field: updateSchema re-sends a fixed field list that leaves it out.
+        setLiveQueryEnabled: async ({ enabled }) => {
+            const schema = values.schemaData
+            if (!schema || values.savingLiveQuery) {
+                return
+            }
+            actions.setSavingLiveQuery(true)
+            try {
+                await externalDataSchemasPartialUpdate(String(ApiConfig.getCurrentTeamId()), schema.id, {
+                    live_query_enabled: enabled,
+                })
+                posthog.capture('schema live query toggled', { sourceType: values.source?.source_type, enabled })
+            } catch (e: any) {
+                lemonToast.error(e?.message || "Can't update live queries at this time")
+            } finally {
+                actions.setSavingLiveQuery(false)
+                actions.loadSchema()
+            }
         },
         reloadSchema: async ({ schema }) => {
             const runReload = async (): Promise<void> => {
