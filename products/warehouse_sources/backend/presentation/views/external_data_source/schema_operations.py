@@ -140,6 +140,11 @@ class IncrementalFieldRecommendationsResponseSerializer(serializers.Serializer):
 class ExternalDataSourceBulkUpdateSchemaSerializer(serializers.Serializer):
     id = serializers.UUIDField(help_text="Schema identifier to update.")
     should_sync = serializers.BooleanField(required=False, help_text="Whether the schema should be queryable/synced.")
+    live_query_enabled = serializers.BooleanField(
+        required=False,
+        help_text="Whether the table is queryable live without syncing it. Only for synced sources with live "
+        "queries on, and not for tables with row filters or masked columns.",
+    )
     sync_type = serializers.ChoiceField(
         required=False,
         allow_null=True,
