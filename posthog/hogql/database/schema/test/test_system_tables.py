@@ -1469,6 +1469,35 @@ class TestSystemAlertTablesReadPlatform(NonAtomicBaseTest):
             str(native): ("native alert", insight.id, "Snoozed", "weekly", "0"),
         }
 
+    def test_alerts_read_instances_only_for_runtime_columns_and_only_their_source(self):
+        insight = Insight.objects.create(team=self.team, name="watched")
+        insight_alert = self._platform_alert(
+            name="insight alert",
+            owner="platform",
+            source_kind="insight",
+            source_config={"insight_id": insight.id},
+            check_interval_minutes=60,
+        )
+        self._platform_alert(
+            name="logs alert",
+            owner="platform",
+            source_kind="logs",
+            source_config={"filters": {}, "condition": {"threshold_count": 1}},
+            check_interval_minutes=5,
+        )
+
+        def printed(sql: str) -> tuple[str, list]:
+            database = Database.create_for(team=self.team, user=self.user)
+            context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=database)
+            query, _ = prepare_and_print_ast(parse_select(sql), context, dialect="clickhouse")
+            return query, [value for value in context.values.values() if isinstance(value, tuple)]
+
+        metadata_query, _ = printed("SELECT id, name FROM system.alerts")
+        _, pushed_down = printed("SELECT id, state FROM system.alerts")
+
+        assert "system___platform_insight_alert_instances" not in metadata_query
+        assert pushed_down == [(str(insight_alert),)]
+
     def test_logs_alerts_shows_each_logs_alert_once_with_platform_settings_and_state(self):
         own = LogsAlertConfiguration.objects.create(team=self.team, name="row alert", threshold_count=10)
         moved = LogsAlertConfiguration.objects.create(

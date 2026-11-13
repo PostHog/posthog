@@ -424,16 +424,33 @@ def _platform_configuration_table(
     )
 
 
+class _PlatformInstancesTable(PostgresTable):
+    """The instance table holds every source's alerts. Its Postgres read keeps only those of one source, so a
+    query does not copy out the other sources' instances to drop them in ClickHouse."""
+
+    source_kind: str
+
+    def postgres_pushdown_in_values(self, context: HogQLContext) -> dict[str, tuple[str, ...]]:
+        from products.alerts_platform.backend.facade.api import held_configuration_ids  # noqa: PLC0415
+        from products.alerts_platform.backend.facade.contracts import SourceKind  # noqa: PLC0415
+
+        if context.team_id is None:
+            return {}
+        ids = held_configuration_ids(team_id=context.team_id, source_kind=SourceKind(self.source_kind))
+        return {"configuration_id": tuple(str(configuration_id) for configuration_id in ids)}
+
+
 def _platform_instances_table(
-    name: str, configurations_table: str, configurations_predicate: Expr, access_scope: APIScopeObject
+    name: str, configurations_table: str, configurations_predicate: Expr, source_kind: str, access_scope: APIScopeObject
 ) -> PostgresTable:
-    return PostgresTable(
+    return _PlatformInstancesTable(
         name=name,
+        source_kind=source_kind,
         postgres_table_name="alerts_platformalert",
         access_scope=access_scope,
         resource_level_access_only=True,
         push_team_guard_with_predicates=True,
-        # The instance table holds every source's alerts, so it reads only those of its own source's table.
+        # The pushed-down ids only prune the read. This predicate keeps the alerts the reader may see.
         predicates=[configurations_predicate],
         # The group's key holds raw breakdown values, which the insight's own access rules guard, so it stays out.
         description=f"Internal table of the runtime state of each group of the alerts in `system.{configurations_table}`; not for direct querying.",
@@ -447,6 +464,30 @@ def _platform_instances_table(
             "last_notified_at": DateTimeDatabaseField(name="last_notified_at", nullable=True),
         },
     )
+
+
+# The columns that read the instances. A query that reads none of them skips the instance read.
+_RUNTIME_COLUMNS = frozenset({"state", "last_notified_at"})
+
+
+def _without_runtime_reads(
+    rows: ast.SelectQuery | ast.SelectSetQuery, table_to_add: LazyTableToAdd
+) -> ast.SelectQuery | ast.SelectSetQuery:
+    """`rows` without the instance join of its platform branch, when the query reads no runtime column."""
+    accessed = {chain[0] for chain in table_to_add.fields_accessed.values()}
+    if accessed & _RUNTIME_COLUMNS or not isinstance(rows, ast.SelectSetQuery):
+        return rows
+    platform = rows.subsequent_select_queries[-1].select_query
+    if not isinstance(platform, ast.SelectQuery) or platform.select_from is None:
+        return rows
+    platform.select_from.next_join = None
+    platform.select = [
+        ast.Alias(alias=column.alias, expr=ast.Constant(value=None))
+        if isinstance(column, ast.Alias) and column.alias in _RUNTIME_COLUMNS
+        else column
+        for column in platform.select
+    ]
+    return rows
 
 
 insight_alert_rows: _InsightReadGatedTable = _InsightReadGatedTable(
@@ -493,6 +534,7 @@ platform_insight_alert_instances: PostgresTable = _platform_instances_table(
     "_platform_insight_alert_instances",
     "_platform_insight_alerts",
     parse_expr("configuration_id IN (SELECT id FROM system._platform_insight_alerts)"),
+    "insight",
     "alert",
 )
 
@@ -556,7 +598,7 @@ class _InsightAlertsTable(ScopedLazyTable):
     def lazy_select(
         self, table_to_add: LazyTableToAdd, context: HogQLContext, node: ast.SelectQuery
     ) -> ast.SelectQuery | ast.SelectSetQuery:
-        return self.with_nested_reads(_insight_alerts_select(), table_to_add)
+        return self.with_nested_reads(_without_runtime_reads(_insight_alerts_select(), table_to_add), table_to_add)
 
     def to_printed_clickhouse(self, context: HogQLContext) -> str:
         return "alerts"
@@ -2602,6 +2644,7 @@ platform_logs_alert_instances: PostgresTable = _platform_instances_table(
     "_platform_logs_alerts",
     parse_expr("configuration_id IN (SELECT id FROM system._platform_logs_alerts)"),
     "logs",
+    "logs",
 )
 
 
@@ -2657,7 +2700,7 @@ class _LogsAlertsTable(ScopedLazyTable):
     def lazy_select(
         self, table_to_add: LazyTableToAdd, context: HogQLContext, node: ast.SelectQuery
     ) -> ast.SelectQuery | ast.SelectSetQuery:
-        return self.with_nested_reads(_logs_alerts_select(), table_to_add)
+        return self.with_nested_reads(_without_runtime_reads(_logs_alerts_select(), table_to_add), table_to_add)
 
     def to_printed_clickhouse(self, context: HogQLContext) -> str:
         return "logs_alerts"

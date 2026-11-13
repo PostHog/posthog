@@ -265,6 +265,16 @@ def _unmuted_at(at: datetime) -> Q:
     return Q(snooze_until__isnull=True) | Q(snooze_until__lte=at)
 
 
+def held_configuration_ids(*, team_id: int, source_kind: str) -> list[UUID]:
+    """The ids of a team's alerts of a kind whose settings the platform holds: every alert with no source row,
+    and every copy the platform owns."""
+    return list(
+        PlatformAlertConfiguration.objects.for_team(team_id)
+        .filter(Q(legacy_configuration_id__isnull=True) | Q(owner=PlatformAlertOwner.PLATFORM), source_kind=source_kind)
+        .values_list("id", flat=True)
+    )
+
+
 def enabled_native_configurations(
     *,
     team_ids: Collection[int],
