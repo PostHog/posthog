@@ -8,7 +8,9 @@ from parameterized import parameterized
 
 from posthog.models import Team
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.organization import OrganizationMembership
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.marketing_analytics.backend.models.recommendation_resolution import RecommendationResolution
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.facade.testing import WarehouseAccessControlTestMixin
@@ -98,9 +100,9 @@ class TestRecommendationResolutions(APIBaseTest):
 class TestRecommendationResolutionsWarehouseAccess(WarehouseAccessControlTestMixin):
     resource = "external_data_source"
 
-    def _connect_google_ads(self, *, paused: bool) -> ExternalDataSource:
+    def _connect_google_ads(self, team: Team, *, paused: bool) -> ExternalDataSource:
         source = ExternalDataSource.objects.create(
-            team=self.team,
+            team=team,
             source_id="google-ads",
             connection_id="google-ads",
             status=ExternalDataSource.Status.COMPLETED,
@@ -108,7 +110,7 @@ class TestRecommendationResolutionsWarehouseAccess(WarehouseAccessControlTestMix
         )
         for schema in ("campaign", "campaign_stats"):
             table = DataWarehouseTable.objects.create(
-                team=self.team,
+                team=team,
                 name=f"googleads_{schema}",
                 format=DataWarehouseTable.TableFormat.CSVWithNames,
                 url_pattern="",
@@ -116,7 +118,7 @@ class TestRecommendationResolutionsWarehouseAccess(WarehouseAccessControlTestMix
                 columns={},
             )
             ExternalDataSchema.objects.create(
-                team=self.team,
+                team=team,
                 source=source,
                 name=schema,
                 table=table,
@@ -127,24 +129,36 @@ class TestRecommendationResolutionsWarehouseAccess(WarehouseAccessControlTestMix
 
     @parameterized.expand(
         [
-            ("allowed_member", "editor_user", False, False, (200, 204)),
-            ("denied_member", "no_access_user", False, False, (403, 403)),
-            ("denied_member_on_a_paused_source", "no_access_user", True, False, (403, 403)),
-            ("denied_member_from_another_environment", "no_access_user", False, True, (403, 403)),
+            ("allowed_member", "editor_user", "source", False, (200, 204)),
+            ("denied_member", "no_access_user", "source", False, (403, 403)),
+            ("denied_member_on_a_paused_source", "no_access_user", "source", True, (403, 403)),
+            ("denied_member_from_another_environment", "no_access_user", "request_from_environment", False, (403, 403)),
+            ("member_denied_the_environment_of_the_source", "editor_user", "environment", False, (403, 403)),
         ]
     )
     def test_resolving_needs_access_to_every_recommendation_source(
-        self, _name: str, user_attr: str, paused: bool, via_environment: bool, statuses: tuple[int, int]
+        self, _name: str, user_attr: str, denial: str, paused: bool, statuses: tuple[int, int]
     ) -> None:
-        team = (
-            Team.objects.create(organization=self.organization, parent_team=self.team) if via_environment else self.team
-        )
-        base = f"/api/projects/{team.pk}/marketing_analytics_recommendation_resolutions/"
+        environment = Team.objects.create(organization=self.organization, parent_team=self.team)
+        url_team = environment if denial == "request_from_environment" else self.team
+        base = f"/api/projects/{url_team.pk}/marketing_analytics_recommendation_resolutions/"
         existing = RecommendationResolution.objects.for_team(self.team.pk).create(
             team=self.team, **IDENTITY, resolution="dismissed"
         )
-        source = self._connect_google_ads(paused=paused)
-        self._create_access_control(self.no_access_user, resource_id=str(source.id), access_level="none")
+        if denial == "environment":
+            self._connect_google_ads(environment, paused=paused)
+            AccessControl.objects.create(
+                team=environment,
+                resource="project",
+                resource_id=str(environment.id),
+                access_level="none",
+                organization_member=OrganizationMembership.objects.get(
+                    user=getattr(self, user_attr), organization=self.organization
+                ),
+            )
+        else:
+            source = self._connect_google_ads(self.team, paused=paused)
+            self._create_access_control(self.no_access_user, resource_id=str(source.id), access_level="none")
         self.client.force_login(getattr(self, user_attr))
 
         created = self.client.post(base, {"identity": IDENTITY, "resolution": "applied"}, format="json")
