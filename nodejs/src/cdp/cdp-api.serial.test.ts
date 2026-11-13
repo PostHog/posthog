@@ -2765,6 +2765,14 @@ describe('CDP API', () => {
                 expect(producedTo('cdp_intake_transactional_email')).toHaveLength(1)
             })
 
+            it('inserts a sensitive send synchronously, so its secret never reaches Kafka', async () => {
+                const res = await sendAccepted(hogFlow.id, { ...body, send: { ...codeSend, sensitive: true } })
+
+                expect(res.status).toEqual(202)
+                expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
+                expect(producedTo('cdp_intake_')).toEqual([])
+            })
+
             it('produces a keyed send when its claim lookup does not answer in time', async () => {
                 jest.spyOn(api['hogflowQueue'], 'findIdempotencyKey').mockReturnValue(new Promise(() => {}))
 

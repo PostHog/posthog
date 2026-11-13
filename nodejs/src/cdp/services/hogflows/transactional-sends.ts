@@ -7,7 +7,16 @@ import { logger } from '~/common/utils/logger'
 import { UUID, UUIDT } from '~/common/utils/utils'
 import { Team } from '~/types'
 
-import { Claim, Committed, Produced, Recalled, Run, RunIntake, keyedRunId } from '../../intake/run-intake'
+import {
+    Claim,
+    Committed,
+    Produced,
+    Recalled,
+    Run,
+    RunIntake,
+    carriesSecret,
+    keyedRunId,
+} from '../../intake/run-intake'
 import { HogFlow } from '../../schema/hogflow'
 import {
     CyclotronJobInvocation,
@@ -318,8 +327,9 @@ export class TransactionalSends {
         const run: Run = claim
             ? { kind: 'transactional-email', invocation, claim: { fingerprint: claim.fingerprint } }
             : { kind: 'transactional-email', invocation }
-        // Async mode answers on the broker's ack and leaves the claim, the insert and the rows to the intake consumer.
-        const isAsync = this.deps.runIntake.modeOf(team.id) === 'async'
+        // Async mode answers on the broker's ack and leaves the claim, the insert and the rows to the intake consumer. A
+        // sensitive send stays synchronous, so its login code or reset link never reaches Kafka.
+        const isAsync = this.deps.runIntake.modeOf(team.id) === 'async' && !carriesSecret(invocation)
         const leaseToken = randomUUID()
         const releaseKey = async (): Promise<void> => {
             if (idempotencyKey) {

@@ -10,7 +10,7 @@ import { UUID, UUIDT } from '~/common/utils/utils'
 
 import { HealthCheckResult, HealthCheckResultOk, PluginsServerConfig } from '../../types'
 import { IntakeProducer, intakeModeOf } from '../intake/intake-producer'
-import { Claim, Committed, Produced, Recalled, Run, RunIntake, keyedRunId } from '../intake/run-intake'
+import { Claim, Committed, Produced, Recalled, Run, RunIntake, carriesSecret, keyedRunId } from '../intake/run-intake'
 import { createHogFlowInvocation } from '../services/hogflows/hogflow-executor.service'
 import { HOG_FLOW_QUOTA_LIMITED_MESSAGE } from '../services/hogflows/hogflow-quota-limiting'
 import { actionIdForLogging } from '../services/hogflows/hogflow-utils'
@@ -403,7 +403,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
                     return { result: functionResult, queuedInvocationId: null }
                 }
 
-                if (this.runIntake.modeOf(hogFlow.team_id) === 'async') {
+                if (this.runIntake.modeOf(hogFlow.team_id) === 'async' && !carriesSecret(run.invocation)) {
                     return await this.produceRun(run, functionResult, {
                         answerDuplicate,
                         answerQuotaLimited,
