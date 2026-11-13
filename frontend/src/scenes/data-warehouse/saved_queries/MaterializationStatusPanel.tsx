@@ -13,11 +13,12 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { LogsViewer } from 'scenes/hog-functions/logs/LogsViewer'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { AccessControlLevel, AccessControlResourceType, LogEntryLevel } from '~/types'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { SERVING_ENGINE, suspendedScheduleMessage } from 'products/data_modeling/frontend/suspension'
 import {
@@ -31,7 +32,14 @@ import { MaterializationRunError } from 'products/data_warehouse/frontend/shared
 import { IncrementalConfigOptions } from '../editor/IncrementalConfigFields'
 import { dataWarehouseViewsLogic } from './dataWarehouseViewsLogic'
 import { DEFAULT_JOBS_PAGE_SIZE, materializationJobsLogic } from './materializationJobsLogic'
-import { computeJobDuration, jobLogsWindow } from './materializationJobUtils'
+import {
+    MATERIALIZATION_LOG_LEVELS,
+    computeJobDuration,
+    formatWatermark,
+    getMaterializationStatusMessage,
+    jobLogsWindow,
+    refreshModeChange,
+} from './materializationJobUtils'
 import {
     SyncFrequencySelect,
     SyncFrequencyValue,
@@ -47,8 +55,6 @@ const STATUS_TAG_TYPES: Record<string, LemonTagType> = {
     Skipped: 'muted',
 }
 
-const LOG_LEVELS: LogEntryLevel[] = ['LOG', 'INFO', 'WARN', 'WARNING', 'ERROR']
-
 interface MaterializationStatusPanelProps {
     viewId: string
     /**
@@ -61,47 +67,6 @@ interface MaterializationStatusPanelProps {
     hideTitle?: boolean
     showRunActions?: boolean
     showStatusSummary?: boolean
-}
-
-// Watermarks are only ISO strings for date/datetime incremental keys. Numeric and arbitrary
-// string keys must render as-is: pushing them through a date formatter shows a bogus timestamp.
-const ISO_DATE_PREFIX = /^\d{4}-\d{2}-\d{2}([T ]|$)/
-
-function formatWatermark(watermark: string | null | undefined): string {
-    if (watermark == null || watermark === '') {
-        return 'the last run'
-    }
-    return ISO_DATE_PREFIX.test(watermark) ? humanFriendlyDetailedTime(watermark) : watermark
-}
-
-function getMaterializationStatusMessage(
-    rowsMaterialized: number,
-    progressPercentage: number,
-    rowsExpected: number
-): string {
-    const percentComplete = Math.round(Math.min(100, (rowsMaterialized / rowsExpected) * 100))
-    switch (true) {
-        case rowsMaterialized === 0:
-            return `Spinning up spikes — starting materialization job... ${percentComplete}% complete.`
-        case progressPercentage < 10:
-            return `Digging into SQL... executing your query now... ${percentComplete}% complete.`
-        case progressPercentage < 25:
-            return `First ${humanFriendlyNumber(rowsMaterialized)} rows tucked away... ${percentComplete}% complete.`
-        case progressPercentage < 50:
-            return `${humanFriendlyNumber(rowsMaterialized)} rows shipped to storage... ${percentComplete}% complete.`
-        case progressPercentage < 90:
-            return `Still going — ${humanFriendlyNumber(
-                rowsMaterialized
-            )} rows written... ${percentComplete}% complete.`
-        case progressPercentage === 100:
-            return `Wrapping up — ${humanFriendlyNumber(
-                rowsMaterialized
-            )} rows processed... ${percentComplete}% complete.`
-        default:
-            return `Almost there — ${humanFriendlyNumber(
-                rowsMaterialized
-            )} rows processed... ${percentComplete}% complete.`
-    }
 }
 
 function getMaterializationDisabledReasons(
@@ -149,6 +114,9 @@ export function MaterializationStatusPanel({
         incrementalDraft,
         syncFrequencyDraft,
         savingMaterialization,
+        cadencePin,
+        nodeFrequency,
+        nodeFrequencyLoading,
     } = useValues(jobsLogic)
     const {
         loadDataModelingJobs,
@@ -159,6 +127,7 @@ export function MaterializationStatusPanel({
         setInitialSyncFrequency,
         setIncrementalDraft,
         setSyncFrequencyDraft,
+        setPinDraft,
     } = useActions(jobsLogic)
 
     const { updatingDataWarehouseSavedQuery, materializationActionLoading } = useValues(dataWarehouseViewsLogic)
@@ -187,19 +156,7 @@ export function MaterializationStatusPanel({
     const supportsIncremental = kind !== 'endpoint'
     const showIncremental = supportsIncremental && !!savedQuery.incremental?.enabled
     const lastRunMode = savedQuery.incremental_state?.last_run_mode
-    const savedIncremental = savedQuery.incremental
-    // Key or unique-key edits change what the stored rows mean, so the next run rebuilds (via the
-    // definition fingerprint). A lookback-only change is operational and does not.
-    const structuralChange = savedIncremental?.enabled
-        ? !incrementalDraft.enabled ||
-          incrementalDraft.incrementalKey !== savedIncremental.incremental_key ||
-          [...incrementalDraft.uniqueKey].sort().join(',') !== [...savedIncremental.unique_key].sort().join(',')
-        : incrementalDraft.enabled
-    const lookbackChanged =
-        !!savedIncremental?.enabled &&
-        incrementalDraft.enabled &&
-        incrementalDraft.lookbackSeconds !== (savedIncremental.lookback_seconds ?? 0)
-    const refreshModeChanged = structuralChange || lookbackChanged
+    const { structuralChange, refreshModeChanged } = refreshModeChange(savedQuery.incremental, incrementalDraft)
     const startingFrequency = defaultCadenceWithin(savedQuery.sync_frequency_bounds, initialSyncFrequency)
     const cadenceOwnedElsewhere = modeDisabledReason(savedQuery.sync_frequency_bounds)
     const isPaused = !cadenceOwnedElsewhere && (!savedQuery.sync_frequency || savedQuery.sync_frequency === 'never')
@@ -278,7 +235,10 @@ export function MaterializationStatusPanel({
                                     </div>
                                 )}
                                 <div className="flex flex-col gap-2 items-start mt-2">
-                                    {kind !== 'endpoint' && (
+                                    {kind !== 'endpoint' && nodeFrequencyLoading && !nodeFrequency ? (
+                                        // Without the pin state the bar would first render as unpinned, then jump.
+                                        <LemonSkeleton className="h-8 w-80" />
+                                    ) : kind !== 'endpoint' ? (
                                         <SyncFrequencySelect
                                             bounds={savedQuery.sync_frequency_bounds}
                                             disabledReason={
@@ -295,9 +255,15 @@ export function MaterializationStatusPanel({
                                                 'never'
                                             }
                                             onChange={setSyncFrequencyDraft}
-                                            loading={updatingDataWarehouseSavedQuery || materializationActionLoading}
+                                            loading={
+                                                savingMaterialization ||
+                                                updatingDataWarehouseSavedQuery ||
+                                                materializationActionLoading
+                                            }
+                                            pin={cadencePin}
+                                            onUnpin={() => setPinDraft(false)}
                                         />
-                                    )}
+                                    ) : null}
                                     {showRunActions && (
                                         <div className="flex flex-wrap items-center gap-2">
                                             <MaterializationRunActions viewId={viewId} kind={kind} />
@@ -496,15 +462,17 @@ export function MaterializationStatusPanel({
                                 }
                                 if (run_mode === 'full_refresh') {
                                     return full_refresh_reason ? (
-                                        <Tooltip title={`Full refresh. Reason: ${full_refresh_reason}.`}>
-                                            <span
-                                                className="border-b border-dotted cursor-help"
-                                                tabIndex={0}
-                                                aria-label={`Full refresh. Reason: ${full_refresh_reason}.`}
-                                            >
-                                                Full refresh
-                                            </span>
-                                        </Tooltip>
+                                        <div className="max-w-28 @min-[48rem]/materialization:max-w-60">
+                                            <div>Full refresh</div>
+                                            <Tooltip title={capitalizeFirstLetter(full_refresh_reason)}>
+                                                <span
+                                                    className="block truncate text-xs text-secondary"
+                                                    data-attr="materialization-run-full-refresh-reason"
+                                                >
+                                                    {capitalizeFirstLetter(full_refresh_reason)}
+                                                </span>
+                                            </Tooltip>
+                                        </div>
                                     ) : (
                                         'Full refresh'
                                     )
@@ -580,7 +548,9 @@ export function MaterializationStatusPanel({
                                               defaultFilters={{
                                                   instanceId: job.workflow_run_id ?? undefined,
                                                   ...jobLogsWindow(job, timezone),
-                                                  levels: showDebugLogs ? ['DEBUG', ...LOG_LEVELS] : LOG_LEVELS,
+                                                  levels: showDebugLogs
+                                                      ? ['DEBUG', ...MATERIALIZATION_LOG_LEVELS]
+                                                      : MATERIALIZATION_LOG_LEVELS,
                                               }}
                                           />
                                       </div>

@@ -36,7 +36,7 @@ products/ai_observability/
   dags/                   # Dagster jobs + metrics
   skills/                 # Agent skills scoped to the product
   docs/                   # Product-level docs (architecture decision records)
-  shared/                 # Cross-frontend/backend constants, schemas
+  shared/                 # Constants and schemas shared across frontend, backend, capture and ingestion (crosslang/)
   manifest.tsx            # Scene + navigation registration
   package.json            # Turborepo package (@posthog/products-ai-observability)
 ```

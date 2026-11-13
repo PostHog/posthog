@@ -37,6 +37,8 @@ export const LimitTypeEnumApi = {
 } as const
 
 export interface TaskRunErrorResponseApi {
+    /** Message ID to reuse as the JSON-RPC id when retrying delivery */
+    id?: unknown
     /** Human-readable validation error */
     detail?: string
     /** Human-readable error message */
@@ -422,6 +424,16 @@ export interface TaskActivityPageDTOApi {
      * @nullable
      */
     next_before_id?: string | null
+    /**
+     * URL of the next page, with before and before_id set, or null on the final page.
+     * @nullable
+     */
+    readonly next: string | null
+    /**
+     * Always null: the feed pages forward only.
+     * @nullable
+     */
+    readonly previous: string | null
 }
 
 export interface TaskActivityReadMarkerApi {
@@ -490,14 +502,24 @@ export interface ChannelDTOApi {
     readonly system_role: ChannelSystemRoleEnumApi | null
 }
 
-export interface PaginatedChannelDTOListApi {
+export interface ChannelPageApi {
+    /** Number of channels the requester can access. */
     count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
+    /**
+     * URL of the next page, or null on the last page.
+     * @nullable
+     */
+    next: string | null
+    /**
+     * URL of the previous page, or null on the first page.
+     * @nullable
+     */
+    previous: string | null
+    /** Channels on this page. */
     results: ChannelDTOApi[]
 }
+
+export type ChannelListResponseApi = ChannelDTOApi[] | ChannelPageApi
 
 /**
  * * `public` - public
@@ -1287,6 +1309,65 @@ export const TaskClientProvenanceEnumApi = {
 } as const
 
 /**
+ * * `posthog_desktop` - PostHog Desktop
+ * * `posthog_mobile` - PostHog Mobile
+ * * `posthog_web` - PostHog Web
+ * * `slack` - Slack
+ */
+export type TaskClientEnumApi = (typeof TaskClientEnumApi)[keyof typeof TaskClientEnumApi]
+
+export const TaskClientEnumApi = {
+    PosthogDesktop: 'posthog_desktop',
+    PosthogMobile: 'posthog_mobile',
+    PosthogWeb: 'posthog_web',
+    Slack: 'slack',
+} as const
+
+/**
+ * * `queued` - Queued
+ * * `running` - Running
+ * * `idle` - Idle
+ * * `done` - Done
+ */
+export type TaskStatusEnumApi = (typeof TaskStatusEnumApi)[keyof typeof TaskStatusEnumApi]
+
+export const TaskStatusEnumApi = {
+    Queued: 'queued',
+    Running: 'running',
+    Idle: 'idle',
+    Done: 'done',
+} as const
+
+/**
+ * * `turn_closed` - Turn closed
+ * * `user_stopped` - User stopped
+ * * `provision_failed` - Provision failed
+ * * `unexpected_failure` - Unexpected failure
+ * * `timed_out` - Timed out
+ * * `budget_spent` - Budget spent
+ * * `credit_spent` - Credit spent
+ * * `access_changed` - Access changed
+ * * `finished` - Finished
+ * * `closed` - Closed
+ * * `cancelled` - Cancelled
+ */
+export type TaskStatusReasonEnumApi = (typeof TaskStatusReasonEnumApi)[keyof typeof TaskStatusReasonEnumApi]
+
+export const TaskStatusReasonEnumApi = {
+    TurnClosed: 'turn_closed',
+    UserStopped: 'user_stopped',
+    ProvisionFailed: 'provision_failed',
+    UnexpectedFailure: 'unexpected_failure',
+    TimedOut: 'timed_out',
+    BudgetSpent: 'budget_spent',
+    CreditSpent: 'credit_spent',
+    AccessChanged: 'access_changed',
+    Finished: 'finished',
+    Closed: 'closed',
+    Cancelled: 'cancelled',
+} as const
+
+/**
  * @nullable
  */
 export type TaskDetailDTOApiJsonSchema = { [key: string]: unknown } | null
@@ -1352,6 +1433,49 @@ export interface TaskDetailDTOApi {
      * * `posthog_mobile` - PostHog Mobile
      * * `posthog_web` - PostHog Web */
     client_provenance?: TaskClientProvenanceEnumApi | null
+    /** Client the latest person turn on this task came from. Null when no turn came from a known client.
+     *
+     * * `posthog_desktop` - PostHog Desktop
+     * * `posthog_mobile` - PostHog Mobile
+     * * `posthog_web` - PostHog Web
+     * * `slack` - Slack */
+    last_client?: TaskClientEnumApi | null
+    /**
+     * When the latest person turn from `last_client` arrived.
+     * @nullable
+     */
+    last_client_at?: string | null
+    /**
+     * GitLab integration for a task in a GitLab project. Null for GitHub tasks and tasks without a repository.
+     * @nullable
+     */
+    repository_integration?: number | null
+    /** Where the task is now. `queued` waits for a sandbox, `running` has a live run, `idle` can be woken by a follow-up and `done` is finished. Null on older tasks that have not been filled in yet.
+     *
+     * * `queued` - Queued
+     * * `running` - Running
+     * * `idle` - Idle
+     * * `done` - Done */
+    status?: TaskStatusEnumApi | null
+    /** Why the task stopped. Set only when `status` is `idle` or `done`.
+     *
+     * * `turn_closed` - Turn closed
+     * * `user_stopped` - User stopped
+     * * `provision_failed` - Provision failed
+     * * `unexpected_failure` - Unexpected failure
+     * * `timed_out` - Timed out
+     * * `budget_spent` - Budget spent
+     * * `credit_spent` - Credit spent
+     * * `access_changed` - Access changed
+     * * `finished` - Finished
+     * * `closed` - Closed
+     * * `cancelled` - Cancelled */
+    status_reason?: TaskStatusReasonEnumApi | null
+    /**
+     * Message shown next to `status_reason`, such as the error from a failed run.
+     * @nullable
+     */
+    status_detail?: string | null
 }
 
 /**
@@ -1422,6 +1546,49 @@ export interface TaskBasicApi {
      * * `posthog_mobile` - PostHog Mobile
      * * `posthog_web` - PostHog Web */
     client_provenance?: TaskClientProvenanceEnumApi | null
+    /** Client the latest person turn on this task came from. Null when no turn came from a known client.
+     *
+     * * `posthog_desktop` - PostHog Desktop
+     * * `posthog_mobile` - PostHog Mobile
+     * * `posthog_web` - PostHog Web
+     * * `slack` - Slack */
+    last_client?: TaskClientEnumApi | null
+    /**
+     * When the latest person turn from `last_client` arrived.
+     * @nullable
+     */
+    last_client_at?: string | null
+    /**
+     * GitLab integration for a task in a GitLab project. Null for GitHub tasks and tasks without a repository.
+     * @nullable
+     */
+    repository_integration?: number | null
+    /** Where the task is now. `queued` waits for a sandbox, `running` has a live run, `idle` can be woken by a follow-up and `done` is finished. Null on older tasks that have not been filled in yet.
+     *
+     * * `queued` - Queued
+     * * `running` - Running
+     * * `idle` - Idle
+     * * `done` - Done */
+    status?: TaskStatusEnumApi | null
+    /** Why the task stopped. Set only when `status` is `idle` or `done`.
+     *
+     * * `turn_closed` - Turn closed
+     * * `user_stopped` - User stopped
+     * * `provision_failed` - Provision failed
+     * * `unexpected_failure` - Unexpected failure
+     * * `timed_out` - Timed out
+     * * `budget_spent` - Budget spent
+     * * `credit_spent` - Credit spent
+     * * `access_changed` - Access changed
+     * * `finished` - Finished
+     * * `closed` - Closed
+     * * `cancelled` - Cancelled */
+    status_reason?: TaskStatusReasonEnumApi | null
+    /**
+     * Message shown next to `status_reason`, such as the error from a failed run.
+     * @nullable
+     */
+    status_detail?: string | null
     /** First 1000 characters of the description, so a summary surface can show a prompt snippet without the full body. Open the task for the complete text. */
     readonly description_preview: string
 }
@@ -1464,6 +1631,9 @@ export interface PaginatedTaskListItemListApi {
  * * `space_setup` - Space Setup
  * * `business_knowledge` - Business Knowledge
  * * `metrics_import` - Metrics Import
+ * * `knowledge_writer` - Knowledge Writer
+ * * `context_layer` - Context Layer
+ * * `feature_flags` - Feature Flags
  */
 export type TaskOriginProductEnumApi = (typeof TaskOriginProductEnumApi)[keyof typeof TaskOriginProductEnumApi]
 
@@ -1494,6 +1664,9 @@ export const TaskOriginProductEnumApi = {
     SpaceSetup: 'space_setup',
     BusinessKnowledge: 'business_knowledge',
     MetricsImport: 'metrics_import',
+    KnowledgeWriter: 'knowledge_writer',
+    ContextLayer: 'context_layer',
+    FeatureFlags: 'feature_flags',
 } as const
 
 /**
@@ -1537,6 +1710,92 @@ export const TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi = {
     FullAccess: 'full-access',
 } as const
 
+export interface TaskRunOptionsRepositoryApi {
+    /**
+     * GitHub repository in `organization/repo` format.
+     * @maxLength 255
+     */
+    name: string
+    /**
+     * Branch the first run starts from. Omit to use the repository's default branch.
+     * @maxLength 255
+     * @nullable
+     */
+    initial_branch?: string | null
+}
+
+/**
+ * JSON schema that the agent's final answer must match.
+ */
+export type TaskRunOptionsRequestApiOutputSchema = { [key: string]: unknown }
+
+export interface TaskRunOptionsRequestApi {
+    /** Agent protocol and harness for the task. It must be one the profile allows.
+     *
+     * * `acp` - ACP
+     * * `pi` - Pi */
+    runtime?: TaskRuntimeEnumApi
+    /** Agent harness for the first run. Derived from the model when omitted.
+     *
+     * * `claude` - claude
+     * * `codex` - codex */
+    adapter?: RuntimeAdapterEnumApi
+    /** LLM model for the first run. */
+    model?: string
+    /** Reasoning effort for the first run, for models that support it.
+     *
+     * * `low` - low
+     * * `medium` - medium
+     * * `high` - high
+     * * `xhigh` - xhigh
+     * * `max` - max
+     * * `ultracode` - ultracode */
+    reasoning_effort?: ReasoningEffortEnumApi
+    /**
+     * GitHub repositories available to the task. The first one's initial branch starts the first run.
+     * @maxItems 10
+     */
+    repositories?: TaskRunOptionsRepositoryApi[]
+    /** JSON schema that the agent's final answer must match. */
+    output_schema?: TaskRunOptionsRequestApiOutputSchema
+    /** The agent's starting permission mode for the first run.
+     *
+     * * `default` - default
+     * * `acceptEdits` - acceptEdits
+     * * `plan` - plan
+     * * `bypassPermissions` - bypassPermissions
+     * * `auto` - auto
+     * * `read-only` - read-only
+     * * `full-access` - full-access */
+    permission_mode?: TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi
+    /** When true, the agent pushes its work and opens a draft pull request when it finishes. */
+    auto_publish?: boolean
+}
+
+/**
+ * * `signal_report` - Signal Report
+ * * `hog_flow` - Hog Flow
+ */
+export type PublicTaskSourceKindEnumApi = (typeof PublicTaskSourceKindEnumApi)[keyof typeof PublicTaskSourceKindEnumApi]
+
+export const PublicTaskSourceKindEnumApi = {
+    SignalReport: 'signal_report',
+    HogFlow: 'hog_flow',
+} as const
+
+export interface TaskSourceRequestApi {
+    /** The kind of row the task starts from. It must be the kind the profile takes.
+     *
+     * * `signal_report` - Signal Report
+     * * `hog_flow` - Hog Flow */
+    kind: PublicTaskSourceKindEnumApi
+    /**
+     * ID of that row. It must belong to the current project.
+     * @maxLength 64
+     */
+    id: string
+}
+
 export interface TaskCreateApi {
     /**
      * Short human-readable title. Auto-generated from `description` when omitted.
@@ -1574,10 +1833,13 @@ export interface TaskCreateApi {
      * * `workflow` - Workflow
      * * `space_setup` - Space Setup
      * * `business_knowledge` - Business Knowledge
-     * * `metrics_import` - Metrics Import */
+     * * `metrics_import` - Metrics Import
+     * * `knowledge_writer` - Knowledge Writer
+     * * `context_layer` - Context Layer
+     * * `feature_flags` - Feature Flags */
     origin_product?: TaskOriginProductEnumApi
     /**
-     * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
+     * Target repository. For GitHub, use `organization/repo` (e.g. `posthog/posthog-js`). For GitLab, set `repository_integration` and use the full project path, which can include nested groups (e.g. `acme/platform/api`).
      * @maxLength 255
      * @nullable
      */
@@ -1593,6 +1855,11 @@ export interface TaskCreateApi {
      * @nullable
      */
     github_integration?: number | null
+    /**
+     * GitLab integration for a task in a GitLab project on gitlab.com. Requires `repository`. Leave `github_integration` and `github_user_integration` empty.
+     * @nullable
+     */
+    repository_integration?: number | null
     /**
      * User-scoped GitHub integration to use for user-authored cloud runs.
      * @nullable
@@ -1677,6 +1944,16 @@ export interface TaskCreateApi {
      * @nullable
      */
     scheduled_at?: string | null
+    /**
+     * Identity of this submission when targeting a warm run. Keep it unchanged on retries; a different submission may fall back to a cold task if the warm run was already claimed.
+     * @nullable
+     */
+    warm_submission_id?: string | null
+    /**
+     * Target an unused warm run owned by this user. All sandbox settings must match except permission mode, which is acknowledged before the first message.
+     * @nullable
+     */
+    warm_run_id?: string | null
     /** Create the first cloud run. It starts immediately unless scheduled_at is set. */
     start_run?: boolean
     /**
@@ -1701,6 +1978,20 @@ export interface TaskCreateApi {
      * * `acp` - ACP
      * * `pi` - Pi */
     runtime?: TaskRuntimeEnumApi
+    /**
+     * Key of a public task profile, which sets the limits for this kind of task. Omit it to create a task from `origin_product` as before.
+     * @maxLength 64
+     */
+    profile?: string
+    /** Settings for this task, checked against the profile. Only the options the profile makes public are accepted. Requires `profile`. Do not repeat a setting that you also send at the top level. Settings for the first run also require `start_run`: `adapter`, `model`, `reasoning_effort`, `permission_mode`, `auto_publish` and the `initial_branch` of a repository. */
+    options?: TaskRunOptionsRequestApi
+    /** The row this task starts from, for profiles that take one. Requires `profile`. */
+    source?: TaskSourceRequestApi
+    /**
+     * Makes the request safe to retry. Sending the same key with the same body returns the task that the first request created. The same key with a different body is refused. Requires `profile`.
+     * @maxLength 64
+     */
+    idempotency_key?: string
 }
 
 /**
@@ -1769,6 +2060,49 @@ export interface TaskCreateResponseDTOApi {
      * * `posthog_mobile` - PostHog Mobile
      * * `posthog_web` - PostHog Web */
     client_provenance?: TaskClientProvenanceEnumApi | null
+    /** Client the latest person turn on this task came from. Null when no turn came from a known client.
+     *
+     * * `posthog_desktop` - PostHog Desktop
+     * * `posthog_mobile` - PostHog Mobile
+     * * `posthog_web` - PostHog Web
+     * * `slack` - Slack */
+    last_client?: TaskClientEnumApi | null
+    /**
+     * When the latest person turn from `last_client` arrived.
+     * @nullable
+     */
+    last_client_at?: string | null
+    /**
+     * GitLab integration for a task in a GitLab project. Null for GitHub tasks and tasks without a repository.
+     * @nullable
+     */
+    repository_integration?: number | null
+    /** Where the task is now. `queued` waits for a sandbox, `running` has a live run, `idle` can be woken by a follow-up and `done` is finished. Null on older tasks that have not been filled in yet.
+     *
+     * * `queued` - Queued
+     * * `running` - Running
+     * * `idle` - Idle
+     * * `done` - Done */
+    status?: TaskStatusEnumApi | null
+    /** Why the task stopped. Set only when `status` is `idle` or `done`.
+     *
+     * * `turn_closed` - Turn closed
+     * * `user_stopped` - User stopped
+     * * `provision_failed` - Provision failed
+     * * `unexpected_failure` - Unexpected failure
+     * * `timed_out` - Timed out
+     * * `budget_spent` - Budget spent
+     * * `credit_spent` - Credit spent
+     * * `access_changed` - Access changed
+     * * `finished` - Finished
+     * * `closed` - Closed
+     * * `cancelled` - Cancelled */
+    status_reason?: TaskStatusReasonEnumApi | null
+    /**
+     * Message shown next to `status_reason`, such as the error from a failed run.
+     * @nullable
+     */
+    status_detail?: string | null
     /** Error returned when the task was created but its first run could not start. */
     run_error?: string
 }
@@ -1810,10 +2144,13 @@ export interface TaskWriteApi {
      * * `workflow` - Workflow
      * * `space_setup` - Space Setup
      * * `business_knowledge` - Business Knowledge
-     * * `metrics_import` - Metrics Import */
+     * * `metrics_import` - Metrics Import
+     * * `knowledge_writer` - Knowledge Writer
+     * * `context_layer` - Context Layer
+     * * `feature_flags` - Feature Flags */
     origin_product?: TaskOriginProductEnumApi
     /**
-     * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
+     * Target repository. For GitHub, use `organization/repo` (e.g. `posthog/posthog-js`). For GitLab, set `repository_integration` and use the full project path, which can include nested groups (e.g. `acme/platform/api`).
      * @maxLength 255
      * @nullable
      */
@@ -1829,6 +2166,11 @@ export interface TaskWriteApi {
      * @nullable
      */
     github_integration?: number | null
+    /**
+     * GitLab integration for a task in a GitLab project on gitlab.com. Requires `repository`. Leave `github_integration` and `github_user_integration` empty.
+     * @nullable
+     */
+    repository_integration?: number | null
     /**
      * User-scoped GitHub integration to use for user-authored cloud runs.
      * @nullable
@@ -1947,10 +2289,13 @@ export interface PatchedTaskWriteApi {
      * * `workflow` - Workflow
      * * `space_setup` - Space Setup
      * * `business_knowledge` - Business Knowledge
-     * * `metrics_import` - Metrics Import */
+     * * `metrics_import` - Metrics Import
+     * * `knowledge_writer` - Knowledge Writer
+     * * `context_layer` - Context Layer
+     * * `feature_flags` - Feature Flags */
     origin_product?: TaskOriginProductEnumApi
     /**
-     * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
+     * Target repository. For GitHub, use `organization/repo` (e.g. `posthog/posthog-js`). For GitLab, set `repository_integration` and use the full project path, which can include nested groups (e.g. `acme/platform/api`).
      * @maxLength 255
      * @nullable
      */
@@ -1966,6 +2311,11 @@ export interface PatchedTaskWriteApi {
      * @nullable
      */
     github_integration?: number | null
+    /**
+     * GitLab integration for a task in a GitLab project on gitlab.com. Requires `repository`. Leave `github_integration` and `github_user_integration` empty.
+     * @nullable
+     */
+    repository_integration?: number | null
     /**
      * User-scoped GitHub integration to use for user-authored cloud runs.
      * @nullable
@@ -2758,6 +3108,49 @@ export interface TaskRunResponseApi {
      * * `posthog_mobile` - PostHog Mobile
      * * `posthog_web` - PostHog Web */
     client_provenance?: TaskClientProvenanceEnumApi | null
+    /** Client the latest person turn on this task came from. Null when no turn came from a known client.
+     *
+     * * `posthog_desktop` - PostHog Desktop
+     * * `posthog_mobile` - PostHog Mobile
+     * * `posthog_web` - PostHog Web
+     * * `slack` - Slack */
+    last_client?: TaskClientEnumApi | null
+    /**
+     * When the latest person turn from `last_client` arrived.
+     * @nullable
+     */
+    last_client_at?: string | null
+    /**
+     * GitLab integration for a task in a GitLab project. Null for GitHub tasks and tasks without a repository.
+     * @nullable
+     */
+    repository_integration?: number | null
+    /** Where the task is now. `queued` waits for a sandbox, `running` has a live run, `idle` can be woken by a follow-up and `done` is finished. Null on older tasks that have not been filled in yet.
+     *
+     * * `queued` - Queued
+     * * `running` - Running
+     * * `idle` - Idle
+     * * `done` - Done */
+    status?: TaskStatusEnumApi | null
+    /** Why the task stopped. Set only when `status` is `idle` or `done`.
+     *
+     * * `turn_closed` - Turn closed
+     * * `user_stopped` - User stopped
+     * * `provision_failed` - Provision failed
+     * * `unexpected_failure` - Unexpected failure
+     * * `timed_out` - Timed out
+     * * `budget_spent` - Budget spent
+     * * `credit_spent` - Credit spent
+     * * `access_changed` - Access changed
+     * * `finished` - Finished
+     * * `closed` - Closed
+     * * `cancelled` - Cancelled */
+    status_reason?: TaskStatusReasonEnumApi | null
+    /**
+     * Message shown next to `status_reason`, such as the error from a failed run.
+     * @nullable
+     */
+    status_detail?: string | null
     /** Error returned when the run could not start. */
     run_error?: string
     /** The run this call created or activated. Read run-scoped ids from here — `run.id` is the id the run's stream and command endpoints take, while the top-level `id` is the task's. Set on every 200; when `run_error` is also set, the run exists but its workflow did not start. */
@@ -3161,6 +3554,7 @@ export const RunStatusEnumApi = {
  * * `subscription_usage_limit` - subscription_usage_limit
  * * `task_spend_limit` - task_spend_limit
  * * `agent_error` - agent_error
+ * * `ActiveSessionCapError` - ActiveSessionCapError
  */
 export type ErrorTypeEnumApi = (typeof ErrorTypeEnumApi)[keyof typeof ErrorTypeEnumApi]
 
@@ -3181,6 +3575,7 @@ export const ErrorTypeEnumApi = {
     SubscriptionUsageLimit: 'subscription_usage_limit',
     TaskSpendLimit: 'task_spend_limit',
     AgentError: 'agent_error',
+    ActiveSessionCapError: 'ActiveSessionCapError',
 } as const
 
 export interface PatchedTaskRunUpdateApi {
@@ -3233,7 +3628,8 @@ export interface PatchedTaskRunUpdateApi {
      * * `turn_ended_without_response` - turn_ended_without_response
      * * `subscription_usage_limit` - subscription_usage_limit
      * * `task_spend_limit` - task_spend_limit
-     * * `agent_error` - agent_error */
+     * * `agent_error` - agent_error
+     * * `ActiveSessionCapError` - ActiveSessionCapError */
     error_type?: ErrorTypeEnumApi | null
 }
 
@@ -4981,11 +5377,14 @@ export interface SlackThreadContextResponseApi {
 
 /**
  * * `autoresearch` - autoresearch
+ * * `context_layer` - context_layer
  * * `error_tracking` - error_tracking
  * * `eval_clusters` - eval_clusters
  * * `experiments` - experiments
+ * * `feature_flags` - feature_flags
  * * `hogdesk` - hogdesk
  * * `image_builder` - image_builder
+ * * `knowledge_writer` - knowledge_writer
  * * `loop` - loop
  * * `mcp_analytics` - mcp_analytics
  * * `onboarding` - onboarding
@@ -5010,11 +5409,14 @@ export type TaskListSourceEnumApi = (typeof TaskListSourceEnumApi)[keyof typeof 
 
 export const TaskListSourceEnumApi = {
     Autoresearch: 'autoresearch',
+    ContextLayer: 'context_layer',
     ErrorTracking: 'error_tracking',
     EvalClusters: 'eval_clusters',
     Experiments: 'experiments',
+    FeatureFlags: 'feature_flags',
     Hogdesk: 'hogdesk',
     ImageBuilder: 'image_builder',
+    KnowledgeWriter: 'knowledge_writer',
     Loop: 'loop',
     McpAnalytics: 'mcp_analytics',
     Onboarding: 'onboarding',
@@ -5066,6 +5468,27 @@ export interface TaskSummaryDTOApi {
     updated_at: string
     origin_product?: string
     latest_run?: TaskRunSummaryApi | null
+    /** Where the task is now: queued, running, idle or done. Null on older tasks not filled in yet.
+     *
+     * * `queued` - Queued
+     * * `running` - Running
+     * * `idle` - Idle
+     * * `done` - Done */
+    status?: TaskStatusEnumApi | null
+    /** Why the task stopped. Set only when `status` is `idle` or `done`.
+     *
+     * * `turn_closed` - Turn closed
+     * * `user_stopped` - User stopped
+     * * `provision_failed` - Provision failed
+     * * `unexpected_failure` - Unexpected failure
+     * * `timed_out` - Timed out
+     * * `budget_spent` - Budget spent
+     * * `credit_spent` - Credit spent
+     * * `access_changed` - Access changed
+     * * `finished` - Finished
+     * * `closed` - Closed
+     * * `cancelled` - Cancelled */
+    status_reason?: TaskStatusReasonEnumApi | null
 }
 
 export interface PaginatedTaskSummaryDTOListApi {
@@ -5183,6 +5606,8 @@ export interface WarmTaskResponseApi {
     task_id: string
     /** Id of the idling warm Run. The normal create+run path reuses and activates it on submit. */
     run_id: string
+    /** The server can negotiate the final permission mode before activating an explicitly targeted warm run. */
+    permission_mode_mutable?: boolean
 }
 
 export type SandboxCustomImagesListParams = {
@@ -5195,7 +5620,7 @@ export type SandboxCustomImagesListParams = {
      */
     offset?: number
     /**
-     * Return 403 unless tasks from this origin product can run on custom images. Leave it out to only check that custom images are enabled.
+     * The list is empty when tasks from this origin product cannot run on custom images. Leave it out to list every image you can see.
      *
      * * `onboarding` - Onboarding
      * * `account_audit` - Account audit
@@ -5223,6 +5648,9 @@ export type SandboxCustomImagesListParams = {
      * * `space_setup` - Space Setup
      * * `business_knowledge` - Business Knowledge
      * * `metrics_import` - Metrics Import
+     * * `knowledge_writer` - Knowledge Writer
+     * * `context_layer` - Context Layer
+     * * `feature_flags` - Feature Flags
      * @minLength 1
      */
     origin_product?: SandboxCustomImagesListOriginProduct
@@ -5258,6 +5686,9 @@ export const SandboxCustomImagesListOriginProduct = {
     SpaceSetup: 'space_setup',
     BusinessKnowledge: 'business_knowledge',
     MetricsImport: 'metrics_import',
+    KnowledgeWriter: 'knowledge_writer',
+    ContextLayer: 'context_layer',
+    FeatureFlags: 'feature_flags',
 } as const
 
 export type SandboxListParams = {
@@ -5405,6 +5836,9 @@ export type TasksListParams = {
      * * `space_setup` - Space Setup
      * * `business_knowledge` - Business Knowledge
      * * `metrics_import` - Metrics Import
+     * * `knowledge_writer` - Knowledge Writer
+     * * `context_layer` - Context Layer
+     * * `feature_flags` - Feature Flags
      * @minLength 1
      */
     exclude_origin_product?: TasksListExcludeOriginProduct
@@ -5498,6 +5932,16 @@ export type TasksListParams = {
      * @minLength 1
      */
     status?: TasksListStatus
+    /**
+     * Filter tasks by their own status: queued, running, idle or done.
+     *
+     * * `queued` - Queued
+     * * `running` - Running
+     * * `idle` - Idle
+     * * `done` - Done
+     * @minLength 1
+     */
+    task_status?: TasksListTaskStatus
 }
 
 export type TasksListArchived = (typeof TasksListArchived)[keyof typeof TasksListArchived]
@@ -5555,6 +5999,9 @@ export const TasksListExcludeOriginProduct = {
     SpaceSetup: 'space_setup',
     BusinessKnowledge: 'business_knowledge',
     MetricsImport: 'metrics_import',
+    KnowledgeWriter: 'knowledge_writer',
+    ContextLayer: 'context_layer',
+    FeatureFlags: 'feature_flags',
 } as const
 
 export type TasksListInternal = (typeof TasksListInternal)[keyof typeof TasksListInternal]
@@ -5583,11 +6030,14 @@ export const TasksListPrState = {
 
 /**
  * * `autoresearch` - autoresearch
+ * * `context_layer` - context_layer
  * * `error_tracking` - error_tracking
  * * `eval_clusters` - eval_clusters
  * * `experiments` - experiments
+ * * `feature_flags` - feature_flags
  * * `hogdesk` - hogdesk
  * * `image_builder` - image_builder
+ * * `knowledge_writer` - knowledge_writer
  * * `loop` - loop
  * * `mcp_analytics` - mcp_analytics
  * * `onboarding` - onboarding
@@ -5612,11 +6062,14 @@ export type TasksListSourcesItem = (typeof TasksListSourcesItem)[keyof typeof Ta
 
 export const TasksListSourcesItem = {
     Autoresearch: 'autoresearch',
+    ContextLayer: 'context_layer',
     ErrorTracking: 'error_tracking',
     EvalClusters: 'eval_clusters',
     Experiments: 'experiments',
+    FeatureFlags: 'feature_flags',
     Hogdesk: 'hogdesk',
     ImageBuilder: 'image_builder',
+    KnowledgeWriter: 'knowledge_writer',
     Loop: 'loop',
     McpAnalytics: 'mcp_analytics',
     Onboarding: 'onboarding',
@@ -5647,6 +6100,15 @@ export const TasksListStatus = {
     Completed: 'completed',
     Failed: 'failed',
     Cancelled: 'cancelled',
+} as const
+
+export type TasksListTaskStatus = (typeof TasksListTaskStatus)[keyof typeof TasksListTaskStatus]
+
+export const TasksListTaskStatus = {
+    Queued: 'queued',
+    Running: 'running',
+    Idle: 'idle',
+    Done: 'done',
 } as const
 
 export type TasksCommentsListParams = {

@@ -9,18 +9,24 @@ from posthog.dataclasses import frozen
 from products.review_hog.backend.reviewer.constants import REVIEW_MODE_FULL
 
 # How a review run was triggered. Gates are trigger-aware: inbox → `review_inbox_prs`, automatic →
-# the repository rules; label, manual (CLI/eval), ui (an explicit human ask from the Code review
-# scene) and comment (an `@posthog review` pull request comment) → ungated. Plain strings (not an
-# Enum) so Temporal payloads stay forward/backward-compatible across deploys.
+# the repository rules; stamphog (a Stamphog refusal of a self-driving PR), manual (CLI/eval), ui
+# (an explicit human ask from the Code review scene), comment (an `@posthog review` pull request
+# comment) and review_request (a review request for the `posthog-review` team) → ungated. Plain strings (not an Enum) so Temporal payloads stay forward/backward-compatible
+# across deploys.
+TRIGGER_STAMPHOG = "stamphog"
+# No new run uses it. Label runs started before the label trigger was removed still replay with it.
 TRIGGER_LABEL = "label"
 TRIGGER_INBOX = "inbox"
 TRIGGER_MANUAL = "manual"
 TRIGGER_UI = "ui"
 TRIGGER_COMMENT = "comment"
+TRIGGER_REVIEW_REQUEST = "review_request"
 TRIGGER_AUTOMATIC = "automatic"
-# The triggers a person starts and then waits on for an answer. An inbox review comes from the signals
-# agent, so it is not one of them.
-REQUESTED_TRIGGERS = frozenset({TRIGGER_LABEL, TRIGGER_MANUAL, TRIGGER_UI, TRIGGER_COMMENT})
+# The triggers that ask for a review and then wait on an answer. A Stamphog handoff counts, because
+# Inbox triage reads the answer. An inbox review comes from the signals agent, so it is not one of them.
+REQUESTED_TRIGGERS = frozenset(
+    {TRIGGER_STAMPHOG, TRIGGER_LABEL, TRIGGER_MANUAL, TRIGGER_UI, TRIGGER_COMMENT, TRIGGER_REVIEW_REQUEST}
+)
 
 
 @frozen
@@ -53,7 +59,7 @@ class ReviewPRWorkflowInputs:
     pr_number: int | None = None
     publish: bool = False
     acting_user_id: int | None = None
-    # Which trigger started this run (TRIGGER_LABEL / TRIGGER_INBOX / TRIGGER_MANUAL).
+    # Which trigger started this run (TRIGGER_STAMPHOG / TRIGGER_INBOX / TRIGGER_MANUAL).
     trigger_source: str = TRIGGER_MANUAL
     # The signals report whose implementation this run reviews (inbox trigger only): stamped onto the
     # ReviewReport as provenance, and the target of the `code_review` artefact receipt.
@@ -74,6 +80,15 @@ class ReviewPRWorkflowInputs:
     # payloads from before the field still deserialize as full reviews.
     review_mode: str = REVIEW_MODE_FULL
     requested_head_sha: str | None = None
+    # The GitHub `pull_request` action (`opened`, `ready_for_review`, `synchronize`) that asked for an
+    # automatic review of `requested_head_sha`. None for every other trigger.
+    trigger_action: str | None = None
+    # The event says the PR is ready for review at `requested_head_sha`: it was marked ready, or it
+    # opened as a non-draft. A clean Standard turn on that head then starts a silent stamphog review.
+    marks_ready: bool = False
+    # Set by the queue when it asks stamphog about the head itself once this turn ends. A turn without
+    # it keeps the older handoff, so a queue that replays a history from before the change stays consistent.
+    answered_by_queue: bool = False
     installation_id: str | None = None
     github_repo_id: int | None = None
 
@@ -90,7 +105,35 @@ class ReviewPRWorkflowInputs:
             "head_branch": self.head_branch,
             "trigger_source": self.trigger_source,
             "review_mode": self.review_mode,
+            "trigger_action": self.trigger_action,
         }
+
+
+@frozen
+class FinishedStandardAutomaticTurn:
+    """A finished Standard automatic turn, to record its coverage."""
+
+    team_id: int
+    report_id: str
+    repository: str
+    pr_number: int
+    head_sha: str
+    run_index: int
+    lens_chunks_capped: bool
+    delta_review: bool
+    # The turn's own event marked the PR ready at the head the turn reviewed, and the queue does not answer
+    # for the turn: queue the silent review when the turn was clean. The name is the persisted payload's.
+    marks_ready: bool
+
+
+@frozen
+class SilentStamphogRequest:
+    """A PR head that an event marked ready, for a silent stamphog review if its automatic turn was clean."""
+
+    team_id: int
+    repository: str
+    pr_number: int
+    head_sha: str
 
 
 @frozen

@@ -110,6 +110,13 @@ def record_feature_used(slack_workspace_id: str, slack_user_id: str | None, feat
         logger.warning("slack_app_feature_tips_record_used_failed", feature=feature, exc_info=True)
 
 
+def set_tips_enabled(slack_workspace_id: str, slack_user_id: str, enabled: bool) -> None:
+    def change(state: FeatureTipsState) -> None:
+        state.opted_out_at = None if enabled else (state.opted_out_at or timezone.now())
+
+    update_state(slack_workspace_id, slack_user_id, change)
+
+
 def mark_shown(slack_workspace_id: str, slack_user_id: str, feature: str, source: TipSource) -> None:
     def change(state: FeatureTipsState) -> None:
         record_shown(state, feature, source, timezone.now())

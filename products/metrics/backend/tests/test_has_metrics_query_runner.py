@@ -65,7 +65,7 @@ class TestHasMetricsAPI(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.get(f"/api/projects/{self.team.id}/metrics/has_metrics")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"hasMetrics": False})
+        self.assertEqual(response.json(), {"hasMetrics": False, "hasDerivedSources": False, "hasDerivedMetrics": False})
 
     def test_has_metrics_api_requires_authentication(self):
         self.client.logout()
@@ -83,7 +83,9 @@ class TestHasMetricsAPI(ClickhouseTestMixin, APIBaseTest):
 
             response = self.client.get(f"/api/projects/{self.team.id}/metrics/has_metrics")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
-            self.assertEqual(response.json(), {"hasMetrics": True})
+            self.assertEqual(
+                response.json(), {"hasMetrics": True, "hasDerivedSources": False, "hasDerivedMetrics": False}
+            )
             self.assertEqual(mock_runner.return_value.run.call_count, 1)
 
             assert mock_report.call_args[0][1] == "metrics has_metrics checked"
@@ -92,7 +94,9 @@ class TestHasMetricsAPI(ClickhouseTestMixin, APIBaseTest):
             # Second call hits the cache, not the runner
             response = self.client.get(f"/api/projects/{self.team.id}/metrics/has_metrics")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
-            self.assertEqual(response.json(), {"hasMetrics": True})
+            self.assertEqual(
+                response.json(), {"hasMetrics": True, "hasDerivedSources": False, "hasDerivedMetrics": False}
+            )
             self.assertEqual(mock_runner.return_value.run.call_count, 1)
 
             assert mock_report.call_count == 2
@@ -110,13 +114,17 @@ class TestHasMetricsAPI(ClickhouseTestMixin, APIBaseTest):
 
             response = self.client.get(f"/api/projects/{self.team.id}/metrics/has_metrics")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
-            self.assertEqual(response.json(), {"hasMetrics": False})
+            self.assertEqual(
+                response.json(), {"hasMetrics": False, "hasDerivedSources": False, "hasDerivedMetrics": False}
+            )
             self.assertEqual(mock_runner.return_value.run.call_count, 1)
 
             # Second call within the TTL hits the cache, not ClickHouse
             response = self.client.get(f"/api/projects/{self.team.id}/metrics/has_metrics")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
-            self.assertEqual(response.json(), {"hasMetrics": False})
+            self.assertEqual(
+                response.json(), {"hasMetrics": False, "hasDerivedSources": False, "hasDerivedMetrics": False}
+            )
             self.assertEqual(mock_runner.return_value.run.call_count, 1)
 
     def test_has_metrics_negative_cache_expires(self):
@@ -129,9 +137,13 @@ class TestHasMetricsAPI(ClickhouseTestMixin, APIBaseTest):
             mock_runner.return_value.run.return_value = False
 
             response = self.client.get(f"/api/projects/{self.team.id}/metrics/has_metrics")
-            self.assertEqual(response.json(), {"hasMetrics": False})
+            self.assertEqual(
+                response.json(), {"hasMetrics": False, "hasDerivedSources": False, "hasDerivedMetrics": False}
+            )
 
             # TTL of 0 means the negative is not held: the next call re-queries
             response = self.client.get(f"/api/projects/{self.team.id}/metrics/has_metrics")
-            self.assertEqual(response.json(), {"hasMetrics": False})
+            self.assertEqual(
+                response.json(), {"hasMetrics": False, "hasDerivedSources": False, "hasDerivedMetrics": False}
+            )
             self.assertEqual(mock_runner.return_value.run.call_count, 2)

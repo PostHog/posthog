@@ -5,23 +5,19 @@ import { useEffect, useState } from 'react'
 import { IconDatabase, IconPlus } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonInput, LemonSkeleton } from '@posthog/lemon-ui'
 
-import {
-    ExternalDataSourceTypeEnumApi,
-    SourceConfigResponseApi,
-} from 'products/warehouse_sources/frontend/generated/api.schemas'
+import type { ExternalDataSourceType } from '~/types'
+
+import { SourceConfigResponseApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
+import { wizardDetectedSourcesLogic } from 'products/wizard/frontend/logics/wizardDetectedSourcesLogic'
 
 import { availableSourcesLogic } from '../../scenes/NewSourceScene/availableSourcesLogic'
 import { AvailableSourcesError, NewSourcesWizard } from '../../scenes/NewSourceScene/NewSourceScene'
 import { sourceWizardLogic } from '../../scenes/NewSourceScene/sourceWizardLogic'
 import { DataWarehouseWizardBlock } from './DataWarehouseWizardBlock'
-import { SourceIcon } from './SourceIcon'
+import { inlineSourceGrid } from './inlineSourceGrid'
+import { type InlineSourceItem, InlineSourceTile } from './InlineSourceTile'
 
 export type InlineSourceSetupView = 'selection' | 'connecting'
-
-interface SourceItem {
-    id: ExternalDataSourceTypeEnumApi
-    label: string
-}
 
 export interface InlineSourceSetupProps {
     /** Callback when source connection is completed */
@@ -40,8 +36,8 @@ export interface InlineSourceSetupProps {
 
 interface InternalInlineSourceSetupProps extends InlineSourceSetupProps {
     currentView: InlineSourceSetupView
-    selectedSource: ExternalDataSourceTypeEnumApi | null
-    onSourceSelect: (sourceId: ExternalDataSourceTypeEnumApi) => void
+    selectedSource: ExternalDataSourceType | null
+    onSourceSelect: (sourceId: ExternalDataSourceType) => void
     onBack: () => void
     onFormSuccess: () => void
 }
@@ -59,6 +55,7 @@ function InternalInlineSourceSetup({
     onFormSuccess,
 }: InternalInlineSourceSetupProps): JSX.Element {
     const { connectors } = useValues(sourceWizardLogic)
+    const { detectedSourceTypes } = useValues(wizardDetectedSourcesLogic)
     const { searchParams, location } = useValues(router)
     const { replace } = useActions(router)
 
@@ -87,24 +84,18 @@ function InternalInlineSourceSetup({
         replace(location.pathname, restParams)
         // oxlint-disable-next-line react-hooks/exhaustive-deps
     }, [])
-    const featuredSources = availableConnectors.filter((c: SourceConfigResponseApi) => c.featured)
-    const hiddenSources = availableConnectors.filter((c: SourceConfigResponseApi) => !c.featured)
+    const isSearching = searchQuery.trim().length > 0
+    const { shown, hiddenCount } = inlineSourceGrid({
+        connectors: availableConnectors,
+        detectedTypes: detectedSourceTypes,
+        featuredOnly: !expanded,
+        query: searchQuery,
+    })
 
-    const trimmedQuery = searchQuery.trim().toLowerCase()
-    const isSearching = trimmedQuery.length > 0
-    // While searching, match across every source — the featured/expand split only applies
-    // to the default (unsearched) view.
-    const sourcesToShow = isSearching
-        ? availableConnectors.filter((c: SourceConfigResponseApi) =>
-              (c.label ?? c.name).toLowerCase().includes(trimmedQuery)
-          )
-        : expanded
-          ? availableConnectors
-          : featuredSources
-
-    const sourceItems: SourceItem[] = sourcesToShow.map((source: SourceConfigResponseApi) => ({
+    const sourceItems: InlineSourceItem[] = shown.map((source: SourceConfigResponseApi) => ({
         id: source.name,
         label: source.label ?? source.name,
+        detected: detectedSourceTypes.has(source.name),
     }))
 
     const effectiveTitle = title ?? `Choose from ${availableConnectors.length} sources`
@@ -139,14 +130,7 @@ function InternalInlineSourceSetup({
                         {sourceItems.length > 0 ? (
                             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
                                 {sourceItems.map((source) => (
-                                    <div
-                                        key={source.id}
-                                        className="flex items-center gap-3 p-3 rounded-lg border border-border bg-bg-light cursor-pointer"
-                                        onClick={() => onSourceSelect(source.id)}
-                                    >
-                                        <SourceIcon type={source.id} size="small" disableTooltip />
-                                        <span className="font-medium text-sm">{source.label}</span>
-                                    </div>
+                                    <InlineSourceTile key={source.id} source={source} onSelect={onSourceSelect} />
                                 ))}
                             </div>
                         ) : (
@@ -155,7 +139,7 @@ function InternalInlineSourceSetup({
                             </p>
                         )}
 
-                        {!isSearching && featured && !expanded && hiddenSources.length > 0 && (
+                        {!isSearching && featured && !expanded && hiddenCount > 0 && (
                             <div className="flex justify-center pt-2">
                                 <LemonButton
                                     type="secondary"
@@ -163,8 +147,8 @@ function InternalInlineSourceSetup({
                                     onClick={() => setExpanded(true)}
                                     size="small"
                                 >
-                                    Show {hiddenSources.length} more source
-                                    {hiddenSources.length !== 1 ? 's' : ''}
+                                    Show {hiddenCount} more source
+                                    {hiddenCount !== 1 ? 's' : ''}
                                 </LemonButton>
                             </div>
                         )}
@@ -200,7 +184,7 @@ export function InlineSourceSetup(props: InlineSourceSetupProps): JSX.Element {
     const { onClear } = useActions(sourceWizardLogic)
 
     const [currentView, setCurrentView] = useState<InlineSourceSetupView>('selection')
-    const [selectedSource, setSelectedSource] = useState<ExternalDataSourceTypeEnumApi | null>(null)
+    const [selectedSource, setSelectedSource] = useState<ExternalDataSourceType | null>(null)
 
     // Defined once here and bound as the logic's `onComplete` below, so the wizard's step-5
     // completion listener always sees this same callback — never the logic's unbound default —
@@ -213,7 +197,7 @@ export function InlineSourceSetup(props: InlineSourceSetupProps): JSX.Element {
         props.onComplete?.()
     }
 
-    const handleSourceSelect = (sourceId: ExternalDataSourceTypeEnumApi): void => {
+    const handleSourceSelect = (sourceId: ExternalDataSourceType): void => {
         setSelectedSource(sourceId)
         setCurrentView('connecting')
     }

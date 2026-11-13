@@ -689,6 +689,7 @@ export function makeToolExecutorState(
             isInlineExecUiHost: vi.fn(() => false),
             isClaudeChatHost: vi.fn(() => false),
             isAnthropicConnector: vi.fn(() => false),
+            isArtifactRuntime: vi.fn(() => false),
         } as any,
         requestContext: {
             authMethod: 'personal_api_key',
@@ -701,6 +702,8 @@ export function makeToolExecutorState(
         sessionContext: null,
         allTools: tools as any,
         scopeGatedTools: [],
+        findScopeGatedTool: () => undefined,
+        supportsStepUp: false,
         flagGatedTools: [],
         gatewayToolsEnabled: false,
         distinctId: 'test-distinct-id',

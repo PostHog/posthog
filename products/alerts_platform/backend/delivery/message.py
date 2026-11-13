@@ -7,6 +7,7 @@ A provider turns this into its own body shape.
 """
 
 import hashlib
+from dataclasses import field
 from typing import Any, Final
 
 from posthog.dataclasses import frozen
@@ -23,12 +24,14 @@ from products.alerts_platform.backend.facade.contracts import (
     MessageLink,
     SourceKind,
 )
+from products.alerts_platform.backend.logic.rule_metadata import render_annotations
 
 _HEADLINES: Final[dict[AlertEventKind, str]] = {
     AlertEventKind.FIRING: "{kind} alert '{name}' is firing",
     AlertEventKind.RESOLVED: "{kind} alert '{name}' is resolved",
     AlertEventKind.ERRORED: "{kind} alert '{name}' could not be checked",
     AlertEventKind.BROKEN: "{kind} alert '{name}' is turned off",
+    AlertEventKind.VERDICT_CHANGED: "{kind} alert '{name}' has a new verdict",
 }
 
 # The symbols the legacy messages use, so a pilot team sees the same state at a glance on both paths.
@@ -37,6 +40,7 @@ _SYMBOLS: Final[dict[AlertEventKind, str]] = {
     AlertEventKind.RESOLVED: "🟢",
     AlertEventKind.ERRORED: "🟡",
     AlertEventKind.BROKEN: "⚠️",
+    AlertEventKind.VERDICT_CHANGED: "🔄",
 }
 
 UNTRACKED_GROUPS_LABEL: Final = "Untracked groups"
@@ -47,10 +51,12 @@ _SOURCE_LABELS: Final[dict[SourceKind, str]] = {
     SourceKind.BILLING: "Billing",
     SourceKind.WAREHOUSE_SOURCE: "Warehouse sync",
     SourceKind.WAREHOUSE_DESTINATION: "Warehouse destination",
+    SourceKind.METRICS: "Metric",
+    SourceKind.TRACES: "Trace",
 }
 
 # What a held row says, when cooldown or mute kept its announcement and only its incident moved.
-_INCIDENT_KINDS: Final[dict[IncidentAction, AlertEventKind]] = {
+INCIDENT_KINDS: Final[dict[IncidentAction, AlertEventKind]] = {
     IncidentAction.TRIGGER: AlertEventKind.FIRING,
     IncidentAction.RESOLVE: AlertEventKind.RESOLVED,
 }
@@ -83,11 +89,21 @@ class AlertMessage:
     source_incident_key: str | None = None
     # The project the alert belongs to, which a reader with alerts in several projects needs.
     project: MessageLink | None = None
+    # The group's labels with the rule's over them, and the rule's annotations with templates filled in.
+    labels: dict[str, str] = field(default_factory=dict)
+    annotations: dict[str, str] = field(default_factory=dict)
+    # The rule's labels, then its annotations, each by name. Kept apart from `details`, so a rule
+    # entry can never stand in for a fact the platform measured.
+    rule_details: tuple[MessageDetail, ...] = ()
 
     @property
     def title(self) -> str:
         """The headline with its state symbol, for a provider a person reads."""
         return f"{self.symbol} {self.headline}"
+
+    @property
+    def all_details(self) -> tuple[MessageDetail, ...]:
+        return (*self.details, *self.rule_details)
 
     @property
     def links(self) -> tuple[MessageLink, ...]:
@@ -177,7 +193,7 @@ def build_message(
     """
     kind = transition.kind
     if kind == AlertEventKind.CHECK and incident_action is not None:
-        kind = _INCIDENT_KINDS[incident_action]
+        kind = INCIDENT_KINDS[incident_action]
     headline = _HEADLINES.get(kind)
     if headline is None:
         # `announcement` returns a check row only for a group whose incident moved, so a check
@@ -190,6 +206,9 @@ def build_message(
     failure_kinds = (AlertEventKind.ERRORED, AlertEventKind.BROKEN)
     if transition.kind in failure_kinds:
         details = list(_failure_details(transition, announcement.consecutive_failures))
+    elif transition.kind == AlertEventKind.VERDICT_CHANGED:
+        # The row records no measurement, so the breach details would state the threshold without a value.
+        details = list(description.details)
     else:
         details = list(description.details or _breach_details(transition))
     if overflowed:
@@ -202,6 +221,8 @@ def build_message(
                 value=f"{untracked} not tracked because this alert is at its group limit",
             )
         )
+    labels = {**transition.labels, **announcement.rule.labels}
+    annotations = render_annotations(announcement.rule.annotations, labels=labels, value=transition.value)
     return AlertMessage(
         headline=headline.format(kind=_SOURCE_LABELS[announcement.source], name=announcement.alert_name),
         symbol=_SYMBOLS[kind],
@@ -218,4 +239,11 @@ def build_message(
         incident_action=incident_action,
         source_incident_key=source_incident_key,
         project=project,
+        labels=labels,
+        annotations=annotations,
+        rule_details=tuple(
+            MessageDetail(label=name, value=value)
+            for entries in (announcement.rule.labels, annotations)
+            for name, value in sorted(entries.items())
+        ),
     )

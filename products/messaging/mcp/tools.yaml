@@ -135,10 +135,11 @@ tools:
             idempotent: true
         title: Update the Supabase auth email settings
         description: >
-            Update how the project sends a Supabase project's auth emails. Send only the fields to change. To get
-            templates to map, call supabase-auth-emails-starter-templates-create or use the email template tools. Ask
-            the user for the hook secret. Never invent one. Sending starts when the user turns on the Send Email hook in
-            Supabase, so map the core emails before telling them to.
+            Update how the project sends a Supabase project's auth emails. Send only the fields to change, but templates
+            replaces the whole mapping, so include every type to keep. To get templates to map, call
+            supabase-auth-emails-starter-templates-create or use the email template tools. Ask the user for the hook
+            secret. Never invent one. Map the core emails before the user turns on the hook in Supabase. Load the
+            setting-up-supabase-auth-emails skill before you set up or change the connection.
         feature_flag: workflows-supabase-auth-emails
         response:
             exclude:
@@ -157,9 +158,25 @@ tools:
         description: >
             Create and map an email template for each core Supabase auth email that has no usable template yet. A repeat
             call skips types that still have one. Needs a verified email sender on the project. Edit the templates
-            afterwards with the email template tools.
+            afterwards with the email template tools. Load the setting-up-supabase-auth-emails skill before you set up
+            the connection.
         feature_flag: workflows-supabase-auth-emails
         response:
             exclude:
                 - email_types
                 - hook_url
+    suppressions-add:
+        operation: messaging_suppressions_bulk_add_suppressions_create
+        enabled: true
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Add email addresses to the suppression list
+        description: >
+            Suppress one or more email addresses (up to 1000 per call) so no workflow sends to them. Use this to migrate
+            a suppression list from another email provider, such as Resend or SendGrid: page through the provider's list
+            and send each page in one call instead of adding addresses one at a time. Set reason to bounce for bounced
+            or invalid addresses (these also block transactional email), complaint for spam reports, and manual for
+            anything else. Addresses that already have an entry keep it, so repeating a call is safe.
+        feature_flag: workflows-bulk-suppressions-mcp

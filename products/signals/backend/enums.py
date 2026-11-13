@@ -104,6 +104,8 @@ class SignalSourceProduct(StrEnum):
     # A report check that failed after its report was resolved. Not a source a team connects:
     # the inbox emits it to itself so a fix that stopped holding starts a fresh report.
     SIGNALS_CHECK = "signals_check"
+    # A report a project member filed by hand through the report API. Not a source a team connects.
+    USER_AUTHORED = "user_authored"
     LOGS = "logs"
     HEALTH_CHECKS = "health_checks"
     REPLAY_VISION = "replay_vision"
@@ -205,6 +207,8 @@ class SignalSourceProduct(StrEnum):
     HELPSCOUT = "helpscout"
     DECAGON = "decagon"
     VITALLY = "vitally"
+    INTERCOM_TICKETS = "intercom_tickets"
+    PYLON = "pylon"
     # Tier-2 feedback and surveys
     USERSNAP = "usersnap"
     TYPEFORM = "typeform"
@@ -222,6 +226,28 @@ class SignalSourceProduct(StrEnum):
     AZURE_APPLICATION_INSIGHTS = "azure_application_insights"
     APPSIGNAL = "appsignal"
     CURSOR = "cursor"
+    # GitHub security alerts, one product per table so each has its own toggle
+    GITHUB_DEPENDABOT = "github_dependabot"
+    GITHUB_CODE_SCANNING = "github_code_scanning"
+    GITHUB_SECRET_SCANNING = "github_secret_scanning"
+    # Feedback, NPS and review tools
+    BEAMER = "beamer"
+    BEAMER_NPS = "beamer_nps"
+    CHAMELEON = "chameleon"
+    ETSY = "etsy"
+    FEATUREBASE_SURVEYS = "featurebase_surveys"
+    G2 = "g2"
+    GUMROAD = "gumroad"
+    TRUSTPILOT_PRODUCT_REVIEWS = "trustpilot_product_reviews"
+    USERVOICE_NPS = "uservoice_nps"
+    VITALLY_NPS = "vitally_nps"
+    WOOCOMMERCE = "woocommerce"
+    YOTPO = "yotpo"
+    # Monitoring alerts and error tracking
+    AIRBRAKE = "airbrake"
+    AMAZON_CLOUDWATCH = "amazon_cloudwatch"
+    LOGICMONITOR = "logicmonitor"
+    MUX = "mux"
 
 
 class SignalSourceType(StrEnum):
@@ -243,6 +269,7 @@ class SignalSourceType(StrEnum):
     HEALTH_ISSUE = "health_issue"
     SCANNER_FINDING = "scanner_finding"
     ANOMALY_INVESTIGATION = "anomaly_investigation"
+    ALERT_FIRING = "alert_firing"
     FEEDBACK = "feedback"
     REVIEW = "review"
     CI_FLAKY_CHECK = "ci_flaky_check"
@@ -250,6 +277,7 @@ class SignalSourceType(StrEnum):
     CI_DURATION_REGRESSION = "ci_duration_regression"
     SEARCH_OPPORTUNITY = "search_opportunity"
     CHECK_FAILED = "check_failed"
+    MONITORING_UNRESOLVED = "monitoring_unresolved"
     INCIDENT = "incident"
 
 
@@ -272,6 +300,7 @@ SIGNAL_SOURCE_PRODUCT_LABELS: dict[SignalSourceProduct, str] = {
     SignalSourceProduct.PGANALYZE: "pganalyze",
     SignalSourceProduct.SIGNALS_SCOUT: "Signals scout",
     SignalSourceProduct.SIGNALS_CHECK: "Report check",
+    SignalSourceProduct.USER_AUTHORED: "Team member",
     SignalSourceProduct.LOGS: "Logs",
     SignalSourceProduct.HEALTH_CHECKS: "Health checks",
     SignalSourceProduct.ENDPOINTS: "Endpoints",
@@ -359,6 +388,8 @@ SIGNAL_SOURCE_PRODUCT_LABELS: dict[SignalSourceProduct, str] = {
     SignalSourceProduct.HELPSCOUT: "Help Scout",
     SignalSourceProduct.DECAGON: "Decagon",
     SignalSourceProduct.VITALLY: "Vitally",
+    SignalSourceProduct.INTERCOM_TICKETS: "Intercom tickets",
+    SignalSourceProduct.PYLON: "Pylon",
     SignalSourceProduct.USERSNAP: "Usersnap",
     SignalSourceProduct.TYPEFORM: "Typeform",
     SignalSourceProduct.QUALTRICS: "Qualtrics",
@@ -373,6 +404,25 @@ SIGNAL_SOURCE_PRODUCT_LABELS: dict[SignalSourceProduct, str] = {
     SignalSourceProduct.AZURE_APPLICATION_INSIGHTS: "Azure Application Insights",
     SignalSourceProduct.APPSIGNAL: "AppSignal",
     SignalSourceProduct.CURSOR: "Cursor",
+    SignalSourceProduct.GITHUB_DEPENDABOT: "GitHub Dependabot",
+    SignalSourceProduct.GITHUB_CODE_SCANNING: "GitHub code scanning",
+    SignalSourceProduct.GITHUB_SECRET_SCANNING: "GitHub secret scanning",
+    SignalSourceProduct.BEAMER: "Beamer",
+    SignalSourceProduct.BEAMER_NPS: "Beamer NPS",
+    SignalSourceProduct.CHAMELEON: "Chameleon",
+    SignalSourceProduct.ETSY: "Etsy",
+    SignalSourceProduct.FEATUREBASE_SURVEYS: "Featurebase surveys",
+    SignalSourceProduct.G2: "G2",
+    SignalSourceProduct.GUMROAD: "Gumroad",
+    SignalSourceProduct.TRUSTPILOT_PRODUCT_REVIEWS: "Trustpilot product reviews",
+    SignalSourceProduct.USERVOICE_NPS: "UserVoice NPS",
+    SignalSourceProduct.VITALLY_NPS: "Vitally NPS",
+    SignalSourceProduct.WOOCOMMERCE: "WooCommerce",
+    SignalSourceProduct.YOTPO: "Yotpo",
+    SignalSourceProduct.AIRBRAKE: "Airbrake",
+    SignalSourceProduct.AMAZON_CLOUDWATCH: "Amazon CloudWatch",
+    SignalSourceProduct.LOGICMONITOR: "LogicMonitor",
+    SignalSourceProduct.MUX: "Mux",
 }
 
 

@@ -1,7 +1,5 @@
-# This layer defines LOGS role metric storage. Nothing ingests into the metrics2
-# tables now. They stay until their TTL clears the rows.
-# Patches in roles/logs/shared restore the cloud ZK paths.
-# The prod codec deltas sit in roles/logs/prod.
+# This layer defines the legacy metrics1 and metrics2 storage. Only the local logs
+# stack composes it: migration 0381 dropped these tables from the cloud logs nodes.
 # The local codec deltas for value and count sit in roles/logs/local.
 database "posthog" {
   table "metric_attributes" {
@@ -58,37 +56,6 @@ database "posthog" {
     }
     engine "replicated_aggregating_merge_tree" {
       zoo_path     = "/clickhouse/tables/noshard/posthog.metric_attributes"
-      replica_name = "{replica}"
-    }
-  }
-  table "metrics_kafka_metrics" {
-    order_by = ["_topic", "_partition"]
-    settings = {
-      index_granularity = "8192"
-    }
-    column "_partition" {
-      type = "UInt32"
-    }
-    column "_topic" {
-      type = "String"
-    }
-    column "max_offset" {
-      type = "SimpleAggregateFunction(max, UInt64)"
-    }
-    column "max_observed_timestamp" {
-      type = "SimpleAggregateFunction(max, DateTime64(9))"
-    }
-    column "max_timestamp" {
-      type = "SimpleAggregateFunction(max, DateTime64(9))"
-    }
-    column "max_created_at" {
-      type = "SimpleAggregateFunction(max, DateTime64(9))"
-    }
-    column "max_lag" {
-      type = "SimpleAggregateFunction(max, UInt64)"
-    }
-    engine "replicated_aggregating_merge_tree" {
-      zoo_path     = "/clickhouse/tables/noshard/posthog.metrics_kafka_metrics"
       replica_name = "{replica}"
     }
   }

@@ -21,6 +21,7 @@ from products.tasks.backend.metrics import (
     observe_wizard_run_unbound,
 )
 from products.tasks.backend.models import Task, TaskRun
+from products.tasks.backend.pr_urls import read_pr_urls
 from products.tasks.backend.temporal.metrics import record_run_token_usage
 from products.tasks.backend.temporal.observability import log_with_activity_context
 
@@ -203,7 +204,8 @@ def complete_signal_spend(run_id: str) -> None:
         complete_task_spend(
             team_id=run.team_id,
             run_id=run_id,
-            report_id=str(run.task.signal_report_id) if run.task.signal_report_id else None,
+            report_id=str(run.task.signal_report_source_id) if run.task.signal_report_source_id else None,
+            final_attempt=activity.in_activity() and activity.info().attempt >= 10,
         )
 
 
@@ -297,6 +299,7 @@ def _capture_terminal_analytics(task_run: TaskRun, input: UpdateTaskRunStatusInp
                     # A lost sandbox still completes the run, and this message carries its exit reason, e.g. OOM.
                     "error_message": truncate_error_message(input.error_message),
                     "has_summary": bool((task_run.state or {}).get("task_summary")),
+                    "pr_created": bool(read_pr_urls(task_run.output)),
                     **relay_state,
                 },
             )

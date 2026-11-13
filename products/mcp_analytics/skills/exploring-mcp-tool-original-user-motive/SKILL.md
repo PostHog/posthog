@@ -252,7 +252,7 @@ That last row is why the default is what it is. "A fifth of a create tool is mai
 
 **The structural cause is worth understanding, because no prompt fixes it.** Each session is a separate API call that cannot see what the other 499 wrote, so they cannot converge on shared wording. Raw output was 487 labels for 500 sessions. `canonicalize_intentions.py` recovers most of that, but it can only merge wordings — it cannot recover an altitude the extraction never reached. Reading the corpus yourself works because you see every previous batch as you go.
 
-**Use the script for speed, then fix the goals.** The facets it gets right are the mechanical ones; extract with it, canonicalize, then read the goal labels and correct the altitude. `gpt-4.1-mini` matches [`intent_generation.py`](../../backend/intent_generation.py), which already uses it for the closest existing job, so the two stay comparable.
+**Use the script for speed, then fix the goals.** The facets it gets right are the mechanical ones; extract with it, canonicalize, then read the goal labels and correct the altitude. `gpt-6-luna` matches [`intent_generation.py`](../../backend/intent_generation.py), which already uses it for the closest existing job, so the two stay comparable.
 
 ```bash
 export OPENAI_API_KEY=$(op read "$(grep -E '^OPENAI_API_KEY=' .env.local | cut -d= -f2- | tr -d '"')")

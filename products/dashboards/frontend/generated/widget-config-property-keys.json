@@ -488,7 +488,7 @@
                 }
             },
             "groupBy": {
-                "$type": "string"
+                "$types": ["string"]
             },
             "columns": {
                 "$array": {

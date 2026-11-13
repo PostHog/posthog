@@ -19,7 +19,7 @@ from products.engineering_analytics.backend.logic.sources import (
     list_github_sources,
 )
 from products.signals.backend.facade.api import set_signal_source_types_enabled, signal_source_types_state
-from products.signals.backend.models import SignalSourceConfig
+from products.signals.backend.facade.source_configs import get_source_config, latest_enabled_source_config
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 from products.warehouse_sources.backend.facade.sources import github_schema_repo_endpoint
 from products.warehouse_sources.backend.facade.types import ExternalDataSchemaStatus
@@ -30,19 +30,14 @@ CI_SIGNAL_SOURCE_TYPES = (
     SOURCE_TYPE_DURATION_REGRESSION,
 )
 CI_SIGNAL_REQUIRED_SCHEMAS = (PULL_REQUESTS_SCHEMA, WORKFLOW_RUNS_SCHEMA, WORKFLOW_JOBS_SCHEMA)
-# SignalSourceConfig.config key: the source ids the enabling user authorized the sweep to read.
+# Keys of SignalSourceConfig.config. A dry run detects and logs, and emits nothing.
 AUTHORIZED_SOURCES_CONFIG_KEY = "github_source_ids"
-# SignalSourceConfig.config key: detect and log, emit nothing. Mirrors the scout's `emit` flag.
 DRY_RUN_CONFIG_KEY = "dry_run"
 
 
 def is_dry_run(*, team: Team) -> bool:
-    row = (
-        SignalSourceConfig.objects.filter(team=team, source_product=SOURCE_PRODUCT, source_type=SOURCE_TYPE_FLAKY_CHECK)
-        .only("config")
-        .first()
-    )
-    if row is None or not isinstance(row.config, dict):
+    row = get_source_config(team_id=team.id, source_product=SOURCE_PRODUCT, source_type=SOURCE_TYPE_FLAKY_CHECK)
+    if row is None:
         return False
     return bool(row.config.get(DRY_RUN_CONFIG_KEY, False))
 
@@ -67,14 +62,12 @@ def update_ci_signals_config(
     created_by_id: int,
     user_access_control: UserAccessControl | None = None,
 ) -> CISignalsConfig:
-    """Enable or disable the CI-signals bundle. Enabling snapshots the requesting user's accessible
-    GitHub sources as the userless sweep's authorization; a source connected later isn't scanned
-    until a re-enable authorizes it."""
+    """Enabling snapshots the requesting user's accessible GitHub sources as the authorization of
+    the userless sweep. A source connected later is not scanned until a re-enable authorizes it."""
     config = None
     if enabled:
-        # list_github_sources yields one entry per (source, repo); dedupe so a multi-repo source
-        # snapshots once; duplicate ids would become duplicate sweep targets, each rescanning
-        # every repo and racing the emission ledger inside one batch.
+        # list_github_sources yields one entry per (source, repo). A duplicate id would become a
+        # duplicate sweep target that rescans every repo and races the emission ledger.
         authorized = list(
             dict.fromkeys(
                 source.id for source in list_github_sources(team=team, user_access_control=user_access_control)
@@ -93,8 +86,7 @@ def update_ci_signals_config(
 
 
 def resolve_authorizer(*, team: Team, user_id: int) -> User | None:
-    """The user whose access authorizes a sweep read, or None once deactivated or out of the org.
-    Discovery and the detection activity both resolve through here so the gates can't diverge."""
+    """Return None when the user is deactivated or no longer in the team's organization."""
     user = User.objects.filter(id=user_id, is_active=True).first()
     if user is None or not user.organization_memberships.filter(organization_id=team.organization_id).exists():
         return None
@@ -108,22 +100,14 @@ class AuthorizedCISignalSource:
 
 
 def list_authorized_ci_signal_sources(*, team: Team) -> list[AuthorizedCISignalSource]:
-    """The sources the coordinator may scan: the enabled snapshot re-filtered through the enabling
-    user's *current* access. Every edge fails closed (deleted/revoked source, missing snapshot,
-    deactivated authorizer) and never widens to all of the team's sources."""
-    row = (
-        SignalSourceConfig.objects.filter(
-            team_id=team.id,
-            source_product=SOURCE_PRODUCT,
-            source_type__in=CI_SIGNAL_SOURCE_TYPES,
-            enabled=True,
-        )
-        .order_by("-updated_at")
-        .first()
+    """The enabled snapshot filtered through the enabling user's current access. Every failure
+    returns fewer sources and never widens to all of the team's sources."""
+    row = latest_enabled_source_config(
+        team_id=team.id, source_product=SOURCE_PRODUCT, source_types=CI_SIGNAL_SOURCE_TYPES
     )
     if row is None or row.created_by_id is None:
         return []
-    snapshot = row.config.get(AUTHORIZED_SOURCES_CONFIG_KEY) if isinstance(row.config, dict) else None
+    snapshot = row.config.get(AUTHORIZED_SOURCES_CONFIG_KEY)
     if not isinstance(snapshot, list) or not snapshot:
         return []
     user = resolve_authorizer(team=team, user_id=row.created_by_id)
@@ -133,8 +117,7 @@ def list_authorized_ci_signal_sources(*, team: Team) -> list[AuthorizedCISignalS
     accessible = {source.id for source in list_github_sources(team=team, user_access_control=access_control)}
     return [
         AuthorizedCISignalSource(source_id=source_id, authorized_by_user_id=user.id)
-        # dict.fromkeys: snapshots written before enable deduped per-repo entries may hold
-        # duplicate ids; a duplicate target would rescan every repo and race the ledger.
+        # A stored snapshot can hold duplicate ids.
         for source_id in dict.fromkeys(snapshot)
         if source_id in accessible
     ]
@@ -146,8 +129,7 @@ def _sync_status(team: Team, user_access_control: UserAccessControl | None) -> C
     }
     if not source_ids:
         return None
-    # Schema names may be repo-qualified (`owner/repo.endpoint`), so resolve endpoints through the
-    # naming facade and aggregate per (source, repo); sources with no CI schemas syncing don't gate.
+    # Schema names can be repo-qualified (`owner/repo.endpoint`), so status aggregates per (source, repo).
     schemas = (
         ExternalDataSchema.objects.filter(
             team_id=team.id,

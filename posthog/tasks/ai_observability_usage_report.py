@@ -16,6 +16,7 @@ from posthog.constants import AI_EVENT_NAME_PREFIX
 from posthog.exceptions_capture import capture_exception
 from posthog.logging.timing import timed_log
 from posthog.models.event.new_events_schema import events_read_table, use_new_events_schema
+from posthog.models.organization import Organization
 from posthog.models.property.util import get_property_string_expr
 from posthog.models.team.team import Team
 from posthog.ph_client import PH_US_API_KEY
@@ -23,6 +24,8 @@ from posthog.schema_enums import AIEventType
 from posthog.tasks.report_utils import capture_event
 from posthog.tasks.utils import CeleryQueue
 from posthog.utils import DayRange, get_instance_region, get_previous_day
+
+from products.ai_observability.backend.offline_evaluation_billing import get_offline_evaluation_usage
 
 logger = structlog.get_logger(__name__)
 
@@ -118,6 +121,10 @@ class TeamMetrics:
     ai_generation_summary_count: int = 0
     ai_trace_clusters_count: int = 0
     ai_generation_clusters_count: int = 0
+    ai_generation_with_session_count: int = 0
+    ai_generation_identified_count: int = 0
+    ai_generation_with_tool_calls_count: int = 0
+    ai_otel_generation_count: int = 0
 
     # Cost metrics
     total_cost: float = 0.0
@@ -374,6 +381,11 @@ def _combine_all_metrics_results(results_list: list) -> dict[int, TeamMetrics]:
             metrics.ai_hog_evaluation_count += row[29] or 0
             metrics.ai_sentiment_evaluation_count += row[30] or 0
 
+            metrics.ai_generation_with_session_count += row[31] or 0
+            metrics.ai_generation_identified_count += row[32] or 0
+            metrics.ai_generation_with_tool_calls_count += row[33] or 0
+            metrics.ai_otel_generation_count += row[34] or 0
+
     return team_metrics
 
 
@@ -436,7 +448,17 @@ def get_all_ai_metrics(
             -- Evaluation counts
             countIf(event = '$ai_evaluation' AND {prop("$ai_evaluation_runtime")} = 'llm_judge') as ai_llm_judge_evaluation_count,
             countIf(event = '$ai_evaluation' AND {prop("$ai_evaluation_runtime")} = 'hog') as ai_hog_evaluation_count,
-            countIf(event = '$ai_evaluation' AND {prop("$ai_evaluation_runtime")} = 'sentiment') as ai_sentiment_evaluation_count
+            countIf(event = '$ai_evaluation' AND {prop("$ai_evaluation_runtime")} = 'sentiment') as ai_sentiment_evaluation_count,
+            -- Instrumentation counts. OTel generations always get a random UUID distinct_id, so they are
+            -- left out of the identified count and counted apart.
+            countIf(event = '$ai_generation' AND {prop("$ai_session_id")} != '') as ai_generation_with_session_count,
+            countIf(
+                event = '$ai_generation'
+                AND {prop("$ai_ingestion_source")} != 'otel'
+                AND distinct_id != {prop("$ai_trace_id")}
+            ) as ai_generation_identified_count,
+            countIf(event = '$ai_generation' AND toInt64OrZero({prop("$ai_tool_call_count")}) > 0) as ai_generation_with_tool_calls_count,
+            countIf(event = '$ai_generation' AND {prop("$ai_ingestion_source")} = 'otel') as ai_otel_generation_count
         FROM {events_read_table(use_new)}
         WHERE team_id IN %(team_ids)s
           AND startsWith(event, %(ai_event_prefix)s)
@@ -917,6 +939,7 @@ def _get_all_ai_observability_reports(
         dict mapping organization_id to usage data
     """
     logger.info("Querying AI observability usage data")
+    offline_usage = get_offline_evaluation_usage(period.start, period.start + timedelta(days=1))
 
     # Phase 1: Get all team_ids with report trigger events (fast query)
     try:
@@ -933,7 +956,7 @@ def _get_all_ai_observability_reports(
         # Re-raise so Celery's autoretry_for=(Exception,) kicks in. Do not swallow.
         raise
 
-    if not team_ids:
+    if not team_ids and not offline_usage:
         logger.info("No teams with AI observability trigger events found")
         return {}
 
@@ -942,7 +965,7 @@ def _get_all_ai_observability_reports(
     # Phase 2: Get all metrics in a single combined query
     logger.info("Querying all AI metrics")
     try:
-        all_metrics = get_all_ai_metrics(period.start, period.end, team_ids)
+        all_metrics = get_all_ai_metrics(period.start, period.end, team_ids) if team_ids else {}
     except Exception:
         logger.warning(
             "[AIO Usage Error] metrics query failed",
@@ -957,7 +980,7 @@ def _get_all_ai_observability_reports(
     # Phase 3: Get distinct trace counts
     logger.info("Querying AI trace counts")
     try:
-        ai_trace_counts = get_ai_trace_counts(period.start, period.end, team_ids)
+        ai_trace_counts = get_ai_trace_counts(period.start, period.end, team_ids) if team_ids else {}
     except Exception:
         logger.warning(
             "[AIO Usage Error] trace counts query failed",
@@ -973,7 +996,9 @@ def _get_all_ai_observability_reports(
     llm_prompt_fetched_counts: dict[int, int] = {}
     try:
         logger.info("Querying LLM prompt fetched counts")
-        llm_prompt_fetched_counts = get_llm_prompt_fetched_counts(period.start, period.end, team_ids)
+        llm_prompt_fetched_counts = (
+            get_llm_prompt_fetched_counts(period.start, period.end, team_ids) if team_ids else {}
+        )
         logger.info(f"Retrieved prompt fetched counts for {len(llm_prompt_fetched_counts)} teams")
     except Exception as err:
         logger.warning(
@@ -984,7 +1009,7 @@ def _get_all_ai_observability_reports(
     # Phase 5: Get all dimension breakdowns in a single combined query
     logger.info("Querying all AI dimension breakdowns")
     try:
-        all_breakdowns = get_all_ai_dimension_breakdowns(period.start, period.end, team_ids)
+        all_breakdowns = get_all_ai_dimension_breakdowns(period.start, period.end, team_ids) if team_ids else {}
     except Exception:
         logger.warning(
             "[AIO Usage Error] breakdowns query failed",
@@ -999,7 +1024,7 @@ def _get_all_ai_observability_reports(
     # Phase 6: Get LLM feedback survey metrics
     logger.info("Querying LLM feedback survey metrics")
     try:
-        survey_metrics = get_llm_feedback_survey_metrics(period.start, period.end, team_ids)
+        survey_metrics = get_llm_feedback_survey_metrics(period.start, period.end, team_ids) if team_ids else {}
     except Exception:
         logger.warning(
             "[AIO Usage Error] surveys query failed",
@@ -1015,17 +1040,21 @@ def _get_all_ai_observability_reports(
     teams = Team.objects.filter(id__in=team_ids).select_related("organization")
     team_to_org: dict[int, str] = {team.id: str(team.organization_id) for team in teams}
     org_id_to_name: dict[str, str] = {str(team.organization_id): team.organization.name for team in teams}
+    org_id_to_name.update(
+        (str(org.id), org.name) for org in Organization.objects.filter(id__in=offline_usage).only("id", "name")
+    )
 
     # Aggregate by organization
     org_reports: dict[str, dict[str, Any]] = {}
 
-    for team_id, org_id in team_to_org.items():
+    for org_id in org_id_to_name:
         if org_id not in org_reports:
             org_reports[org_id] = {
                 "organization_id": org_id,
                 "organization_name": org_id_to_name.get(org_id, ""),
                 "period_start": period.start.isoformat(),
                 "period_end": period.end.isoformat(),
+                "ai_offline_eval_metric_count_in_period": sum(offline_usage.get(org_id, {}).values()),
                 "ai_generation_count": 0,
                 "ai_embedding_count": 0,
                 "ai_span_count": 0,
@@ -1043,6 +1072,10 @@ def _get_all_ai_observability_reports(
                 "ai_generation_summary_count": 0,
                 "ai_trace_clusters_count": 0,
                 "ai_generation_clusters_count": 0,
+                "ai_generation_with_session_count": 0,
+                "ai_generation_identified_count": 0,
+                "ai_generation_with_tool_calls_count": 0,
+                "ai_otel_generation_count": 0,
                 "llm_prompt_fetched_count": 0,
                 "active_llm_feedback_survey_count": 0,
                 "llm_feedback_survey_response_count": 0,
@@ -1069,6 +1102,7 @@ def _get_all_ai_observability_reports(
                 "cost_model_provider_breakdown": {},
             }
 
+    for team_id, org_id in team_to_org.items():
         report = org_reports[org_id]
 
         # Add metrics from TeamMetrics dataclass
@@ -1091,6 +1125,10 @@ def _get_all_ai_observability_reports(
             report["ai_generation_summary_count"] += metrics.ai_generation_summary_count
             report["ai_trace_clusters_count"] += metrics.ai_trace_clusters_count
             report["ai_generation_clusters_count"] += metrics.ai_generation_clusters_count
+            report["ai_generation_with_session_count"] += metrics.ai_generation_with_session_count
+            report["ai_generation_identified_count"] += metrics.ai_generation_identified_count
+            report["ai_generation_with_tool_calls_count"] += metrics.ai_generation_with_tool_calls_count
+            report["ai_otel_generation_count"] += metrics.ai_otel_generation_count
 
             report["total_ai_cost_usd"] += metrics.total_cost
             report["total_ai_cost_usd_count"] += metrics.total_cost_count

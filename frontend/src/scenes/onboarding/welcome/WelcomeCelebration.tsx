@@ -2,11 +2,15 @@ import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { useHogfetti } from 'lib/components/Hogfetti/Hogfetti'
+import { inStorybookTestRunner } from 'lib/utils/dom'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 
-import { canCelebrate } from '../shared/wizard-sync/hooks'
 import { onboardingWelcomeLogic } from './onboardingWelcomeLogic'
+
+function canCelebrate(): boolean {
+    return !inStorybookTestRunner() && !window.matchMedia('(prefers-reduced-motion: reduce)').matches
+}
 
 export function WelcomeCelebration({ productKey }: { productKey: ProductKey }): JSX.Element {
     const { celebratedProductKeys } = useValues(onboardingWelcomeLogic)

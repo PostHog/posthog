@@ -16,7 +16,15 @@ import { INBOX_EVENTS } from '../../inboxAnalytics'
 import { inboxFiltersLogic } from '../../logics/inboxFiltersLogic'
 import { inboxSetupLogic } from '../../logics/inboxSetupLogic'
 import { reportListLogic, sectionListLogicProps } from '../../logics/reportListLogic'
-import { INBOX_SCOPE_ENTIRE_PROJECT, InboxReportSectionKey, SignalReport, SignalReportStatus } from '../../types'
+import {
+    INBOX_SCOPE_ENTIRE_PROJECT,
+    INBOX_SCOPE_FOR_YOU,
+    InboxReportSectionKey,
+    InboxScope,
+    SignalReport,
+    SignalReportStatus,
+} from '../../types'
+import { InboxStateFilter } from '../shell/InboxStateFilter'
 import { ReportsTab } from './ReportsTab'
 
 jest.mock('posthog-js')
@@ -114,6 +122,7 @@ function mockReportRows(resolvedRowsGate?: { block: Promise<void>; onRequest: ()
     const needsPr = makeReport('needs-pr', SignalReportStatus.READY)
     const failed = makeReport('failed', SignalReportStatus.FAILED)
     const resolved = makeReport('resolved', SignalReportStatus.RESOLVED)
+    const closed = makeReport('closed', SignalReportStatus.CLOSED)
     useMocks({
         get: {
             '/api/projects/:team_id/signals/reports/available_reviewers': {},
@@ -131,7 +140,9 @@ function mockReportRows(resolvedRowsGate?: { block: Promise<void>; onRequest: ()
                           ? [needsPr, failed]
                           : isResolved
                             ? [resolved]
-                            : []
+                            : params.get('view') === 'closed'
+                              ? [closed]
+                              : []
                 return [200, { count: results.length, next: null, previous: null, results }]
             },
         },
@@ -288,10 +299,10 @@ describe('ReportsTab', () => {
     it.each([
         { name: 'the visible sections', counts: COUNT_BY_FILTER, total: 14, empty: false },
         {
-            name: 'only hidden Closed reports',
-            counts: [{ match: (params: URLSearchParams) => params.get('status') === 'closed', count: 3 }],
-            total: 0,
-            empty: true,
+            name: 'only Closed reports',
+            counts: [{ match: (params: URLSearchParams) => params.get('view') === 'closed', count: 3 }],
+            total: 3,
+            empty: false,
         },
     ])('fires Inbox viewed once for $name', async ({ counts, total, empty }) => {
         mockReportCounts(counts)
@@ -300,8 +311,87 @@ describe('ReportsTab', () => {
         await waitFor(() => {
             const viewed = (posthog.capture as jest.Mock).mock.calls.filter(([event]) => event === INBOX_EVENTS.VIEWED)
             expect(viewed).toHaveLength(1)
-            // Needs decision + Review and merge + Resolved + Dismissed + Held back. Not actionable is staff-only triage.
             expect(viewed[0][1]).toMatchObject({ tab: 'reports', total_count: total, is_empty: empty })
+        })
+    })
+
+    // Product analytics reads these to tell "no personal ranking yet" apart from "nothing to rank".
+    it.each<{ scope: InboxScope; forYouCount: number | null }>([
+        { scope: INBOX_SCOPE_FOR_YOU, forYouCount: 14 },
+        { scope: INBOX_SCOPE_ENTIRE_PROJECT, forYouCount: null },
+    ])('records the personal ranking status on Inbox viewed in the $scope scope', async ({ scope, forYouCount }) => {
+        const status = { state: 'real', size: 4, age_minutes: 90, checked_age_minutes: 5, fallback_reason: null }
+        useMocks({
+            get: {
+                '/api/projects/:team_id/signals/reports/': ({ request }) => {
+                    const params = new URL(request.url).searchParams
+                    const count = COUNT_BY_FILTER.find((c) => c.match(params))?.count ?? 0
+                    const page = { count, next: null, previous: null, results: [] }
+                    return [
+                        200,
+                        params.get('count_only') === 'true'
+                            ? page
+                            : { ...page, ranker: 'priority', personal_ranking_status: status },
+                    ]
+                },
+            },
+        })
+        userLogic.actions.loadUserSuccess(MOCK_DEFAULT_USER)
+        inboxFiltersLogic.mount()
+        inboxFiltersLogic.actions.setScope(scope)
+
+        render(<ReportsTab />)
+
+        await waitFor(() => {
+            const viewed = (posthog.capture as jest.Mock).mock.calls.filter(([event]) => event === INBOX_EVENTS.VIEWED)
+            expect(viewed).toHaveLength(1)
+            expect(viewed[0][1]).toMatchObject({
+                personal_list_state: 'real',
+                personal_list_size: 4,
+                personal_list_age_minutes: 90,
+                personal_list_checked_age_minutes: 5,
+                personal_list_fallback_reason: null,
+                for_you_report_count: forYouCount,
+                sort_field: 'recommended',
+                ranker_id: 'priority',
+            })
+        })
+    })
+
+    // The automatic For you to Entire project switch refreshes the already-loaded section through
+    // its first page alone. Until that page lands the section still holds the For-you count, so the
+    // event has to wait for it instead of reporting the project as empty.
+    it('waits for a refreshed page before firing Inbox viewed', async () => {
+        let releaseProjectPage: () => void = () => {}
+        const heldProjectPage = new Promise<void>((resolve) => {
+            releaseProjectPage = resolve
+        })
+        mockReportCounts([])
+        useMocks({
+            get: {
+                '/api/projects/:team_id/signals/reports/': async ({ request }) => {
+                    const params = new URL(request.url).searchParams
+                    if (params.has('suggested_reviewers')) {
+                        return [200, { count: 0, next: null, previous: null, results: [] }]
+                    }
+                    const needsDecision = params.get('view') === 'needs_decision'
+                    if (needsDecision && params.get('count_only') !== 'true') {
+                        await heldProjectPage
+                    }
+                    return [200, { count: needsDecision ? 7 : 0, next: null, previous: null, results: [] }]
+                },
+            },
+        })
+        userLogic.actions.loadUserSuccess(MOCK_DEFAULT_USER)
+
+        render(<ReportsTab />)
+        await waitFor(() => expect(inboxFiltersLogic.values.scope).toBe(INBOX_SCOPE_ENTIRE_PROJECT))
+        releaseProjectPage()
+
+        await waitFor(() => {
+            const viewed = (posthog.capture as jest.Mock).mock.calls.filter(([event]) => event === INBOX_EVENTS.VIEWED)
+            expect(viewed).toHaveLength(1)
+            expect(viewed[0][1]).toMatchObject({ total_count: 7, is_empty: false })
         })
     })
 
@@ -380,6 +470,7 @@ describe('ReportsTab', () => {
             )
         })
         expect(document.querySelector('[data-attr="report-card-resolved"]')).toBeNull()
+        expect(document.querySelector('[data-attr="report-card-closed"]')).toBeNull()
 
         inboxFiltersLogic.actions.toggleState('resolved')
 
@@ -401,6 +492,43 @@ describe('ReportsTab', () => {
             expect(document.querySelector('[data-attr="report-card-failed"]')).toBeNull()
         })
         expect(document.querySelector('[data-attr="report-card-with-pr"]')).not.toBeNull()
+
+        inboxFiltersLogic.actions.setFilters({ ...inboxFiltersLogic.values, stateFilter: [] })
+        await waitFor(() =>
+            expect(document.querySelector('[data-attr="report-card-closed"]')).toHaveAttribute('data-section', 'closed')
+        )
+
+        inboxFiltersLogic.actions.setFilters({ ...inboxFiltersLogic.values, stateFilter: ['closed'] })
+        await waitFor(() => expect(document.querySelector('[data-attr="report-card-with-pr"]')).toBeNull())
+        expect(document.querySelector('[data-attr="report-card-closed"]')).not.toBeNull()
+    })
+
+    it.each([
+        ['closed', 'Closed', 0],
+        ['closed', 'Closed', 2],
+        ['outcome-monitoring', 'Monitoring', 0],
+        ['outcome-monitoring', 'Monitoring', 2],
+    ] as const)('offers %s only when the project has matching reports (%s, %s)', async (sectionKey, label, count) => {
+        mockReportCounts([
+            {
+                match: (params) =>
+                    (sectionKey === 'closed'
+                        ? params.get('view') === 'closed'
+                        : params.get('status') === 'monitoring') &&
+                    !params.has('search') &&
+                    !params.has('suggested_reviewers'),
+                count,
+            },
+        ])
+        inboxFiltersLogic.mount()
+        inboxFiltersLogic.actions.setSearchQuery('no matching reports')
+        render(<InboxStateFilter />)
+
+        await waitFor(() =>
+            expect(reportListLogic(sectionListLogicProps(sectionKey)).values.hasProjectReports).toBe(count > 0)
+        )
+        fireEvent.click(screen.getByText('2 statuses'))
+        expect(screen.queryByText(label) !== null).toBe(count > 0)
     })
 
     // A shared link or persisted storage can carry `state=not-actionable`, a staff-only state the

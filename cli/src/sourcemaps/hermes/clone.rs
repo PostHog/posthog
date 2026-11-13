@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use anyhow::{anyhow, Result};
-use tracing::info;
+use tracing::{info, warn};
 
 use crate::{
     invocation_context::context,
@@ -42,7 +42,10 @@ pub struct CloneArgs {
 
 pub fn clone(args: &CloneArgs) -> Result<()> {
     context().capture_command_invoked("hermes_clone");
+    clone_maps(args)
+}
 
+fn clone_maps(args: &CloneArgs) -> Result<()> {
     let CloneArgs {
         minified_map_path,
         composed_map_path,
@@ -72,11 +75,18 @@ pub fn clone(args: &CloneArgs) -> Result<()> {
     // Without this, a later release collides with the release that uploaded the map first.
     let release_id = match release_mode {
         ReleaseMode::Event => None,
+        // Without release flags, a map that already carries a release resolves none, and that
+        // release stays. `hermes inject` stamped it, and the upload binds the symbol set to it.
         ReleaseMode::SymbolSet => {
             get_release_for_maps(minified_map_path, release.clone(), [&minified_map])?
                 .map(|r| r.id.to_string())
+                .or_else(|| minified_map.get_release_id())
         }
     };
+
+    if *release_mode == ReleaseMode::SymbolSet && release_id.is_none() {
+        warn!("No release could be resolved. Sourcemaps will upload without a release. Pass both --release-name and --release-version, or run from a git repository or supported CI environment.");
+    }
 
     // The flow here differs from plain sourcemap injection a bit - here, we don't ever
     // overwrite the chunk ID, because at this point in the build process, we no longer
@@ -120,7 +130,8 @@ pub fn clone_metadata(minified_map: &SourceMapFile, composed_map: &mut SourceMap
 
 #[cfg(test)]
 mod test {
-    use super::clone_metadata;
+    use super::{clone_maps, clone_metadata, CloneArgs};
+    use crate::sourcemaps::args::{ReleaseArgs, ReleaseMode};
     use crate::sourcemaps::content::SourceMapFile;
     use crate::utils::files::SourceFile;
     use std::path::PathBuf;
@@ -191,5 +202,63 @@ mod test {
         clone_metadata(&minified, &mut composed);
 
         assert_eq!(composed.get_release_id(), None);
+    }
+
+    #[test]
+    fn symbol_set_clone_without_release_flags_keeps_the_stamped_release() {
+        // `hermes inject` stamps the release into the packager map. A clone without release
+        // flags resolves none, and must not clear it, or the upload binds to no release.
+        let dir = tempfile::tempdir().unwrap();
+        let minified_map_path = dir.path().join("main.jsbundle.map");
+        let composed_map_path = dir.path().join("main.hbc.map");
+        std::fs::write(
+            &minified_map_path,
+            serde_json::json!({
+                "version": 3,
+                "mappings": "AAAA",
+                "sources": ["App.js"],
+                "names": [],
+                "chunk_id": "c96bfa94-ca84-4f98-8d5e-f15adba692ca",
+                "release_id": "11111111-2222-4333-8444-555555555555",
+            })
+            .to_string(),
+        )
+        .unwrap();
+        std::fs::write(
+            &composed_map_path,
+            serde_json::json!({
+                "version": 3,
+                "mappings": "AAAA",
+                "sources": ["App.js"],
+                "names": [],
+                "x_hermes_function_offsets": {},
+            })
+            .to_string(),
+        )
+        .unwrap();
+
+        clone_maps(&CloneArgs {
+            minified_map_path: minified_map_path.clone(),
+            composed_map_path: composed_map_path.clone(),
+            release: ReleaseArgs {
+                name: None,
+                version: None,
+                build: None,
+                info_plist: None,
+                skip_release_on_fail: true,
+            },
+            release_mode: ReleaseMode::SymbolSet,
+        })
+        .unwrap();
+
+        for path in [minified_map_path, composed_map_path] {
+            assert_eq!(
+                SourceMapFile::load(&path)
+                    .unwrap()
+                    .get_release_id()
+                    .as_deref(),
+                Some("11111111-2222-4333-8444-555555555555")
+            );
+        }
     }
 }

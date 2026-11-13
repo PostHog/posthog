@@ -5,10 +5,10 @@ import { useEffect, useRef } from 'react'
 import { IconArrowLeft, IconCheckCircle } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, Link, Tooltip } from '@posthog/lemon-ui'
 
-import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 import { TZLabel } from 'lib/components/TZLabel'
 import { HotkeyInterface, useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { useKeyHeld } from 'lib/hooks/useKeyHeld'
+import { KeyboardShortcut } from 'lib/lemon-ui/KeyboardShortcut/KeyboardShortcut'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { cn } from 'lib/utils/css-classes'
 import { isMac } from 'lib/utils/dom'
@@ -106,7 +106,7 @@ function HintBarItem({ shortcut, label }: { shortcut: JSX.Element; label: string
 }
 
 export function TriageCard({ report, expanded }: { report: SignalReport; expanded: boolean }): JSX.Element {
-    const { canCreatePr, currentReportUrl } = useValues(inboxTriageLogic)
+    const { canCreatePr, currentReportUrl, implementationDisabledReason } = useValues(inboxTriageLogic)
     const { resolveCurrent, openCurrent, toggleExpanded } = useActions(inboxTriageLogic)
     // Read above the article keyed by report, so a key still held after Unassign me survives the
     // move to the next report.
@@ -212,7 +212,13 @@ export function TriageCard({ report, expanded }: { report: SignalReport; expande
                     Resolve
                 </LemonButton>
                 <DismissOrUnassignButton commandKeyHeld={commandKeyHeld} />
-                {canCreatePr && <ImplementButton report={report} surface="triage_mode" />}
+                {canCreatePr && (
+                    <ImplementButton
+                        report={report}
+                        surface="triage_mode"
+                        implementationDisabledReason={implementationDisabledReason}
+                    />
+                )}
                 <div className="flex-1" />
                 <LemonButton
                     type="tertiary"

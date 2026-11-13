@@ -58,6 +58,7 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
             expect(state.flowVersion).toBe(4)
             expect(state.customerTaskIdempotencyVersion).toBe(1)
             expect(state.variables).toEqual({ greeting: 'hi' })
+            expect(state.sensitive).toBeUndefined()
             expect(invocation.parentRunId).toEqual('batch-job-1')
             expect(invocation.queue).toEqual('hogflow')
             expect((invocation as any).person).toBeUndefined()
@@ -86,6 +87,32 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
 
             expect(invocation.hogFlow).toBe(maskedHogFlow)
             expect(invocation.hogFlow.trigger_masking).toEqual(HOG_FLOW_MASK_EXAMPLES.everyTime.trigger_masking)
+        })
+
+        it('stamps a protected message step on the run so a recovery path with only the workflow id keeps it out of the snapshot', () => {
+            const protectedFlow: HogFlow = {
+                ...hogFlow,
+                actions: [
+                    ...hogFlow.actions,
+                    {
+                        id: 'message',
+                        type: 'function_push',
+                        config: { template_id: 'template-native-push', sensitive: true, inputs: {} },
+                    } as any,
+                ],
+            }
+
+            const invocation = buildAccountHogFlowInvocation({
+                siteUrl: 'https://us.posthog.com',
+                parentRunId: 'batch-job-1',
+                team,
+                hogFlow: protectedFlow,
+                externalId: 'acme-1',
+                groupType: 'customer',
+                defaultVariables: {},
+            })
+
+            expect(invocation.state.sensitive).toBe(true)
         })
     })
 
@@ -186,6 +213,28 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
             expect(triggeredMetrics()).toHaveLength(3)
         })
 
+        it('pages a ready audience snapshot from the stored ids, not the Django audience query', async () => {
+            const getAudienceSnapshotPage = jest.fn().mockResolvedValue({
+                users_affected: ['person-1', 'person-2', 'person-3'],
+                cursor: 'person-3',
+                has_more: false,
+            })
+            Object.assign((consumer as any).hogFlowBatchPersonQueryService, { getAudienceSnapshotPage })
+
+            await (consumer as any).processOnePage(
+                { bulkCreateAndCheckIn, reschedule: jest.fn() },
+                {
+                    ...state,
+                    cursor: 'person-0',
+                    audienceSnapshot: { waitUntil: '2026-08-11T02:00:00.000Z', ready: true },
+                }
+            )
+
+            expect(getAudienceSnapshotPage).toHaveBeenCalledWith(team, BATCH_JOB_ID, 'person-0')
+            expect((consumer as any).hogFlowBatchPersonQueryService.getBlastRadiusPersons).not.toHaveBeenCalled()
+            expect(triggeredMetrics()).toHaveLength(3)
+        })
+
         it('counts each enrolled person as a triggered run against the batch job', async () => {
             await processPage()
 
@@ -220,20 +269,38 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
             }
         })
 
-        it('persists the enqueue time and customer task key version for new person runs', async () => {
+        it.each([
+            ['an ordinary workflow', false, undefined],
+            // A recovery path that holds only the workflow id reads this stamp to keep the message out of the snapshot.
+            ['a workflow with a protected message step', true, true],
+        ])('persists the enqueue time and run stamps for new person runs of %s', async (_name, sensitive, stamp) => {
             // The stamp is written onto the invocation by queueLifecycleRow, so it only lands in
             // cyclotron if that runs before the state is serialized. Out of order, the terminal
             // row written when the run wakes records the wake time and wins the argMax collapse.
+            const flow: HogFlow = {
+                ...hogFlow,
+                actions: [
+                    ...hogFlow.actions,
+                    {
+                        id: 'message',
+                        type: 'function_push',
+                        config: { template_id: 'template-native-push', sensitive, inputs: {} },
+                    } as any,
+                ],
+            }
+            ;(consumer as any).hogFlowManager.getHogFlow.mockResolvedValue(flow)
             await processPage()
 
             const { newJobs } = bulkCreateAndCheckIn.mock.calls[0][0]
             expect(newJobs).toHaveLength(2)
             for (const job of newJobs) {
-                expect(parseJSON(job.state.toString()).state).toMatchObject({
+                const jobState = parseJSON(job.state.toString()).state
+                expect(jobState).toMatchObject({
                     firstScheduledAt: expect.any(String),
                     actionStepCount: 0,
                     customerTaskIdempotencyVersion: 1,
                 })
+                expect(jobState.sensitive).toBe(stamp)
             }
         })
 
@@ -405,6 +472,130 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
             expect(heartbeat).toHaveBeenCalledTimes(2)
         })
     })
+    describe('audience snapshot', () => {
+        const buildConsumer = (requestAudienceSnapshot: jest.Mock, queueLogs: jest.Mock): any => {
+            const consumer = Object.create(CdpCyclotronWorkerBatchResolve.prototype)
+            Object.assign(consumer, {
+                config: { SITE_URL: 'https://us.posthog.com' },
+                deps: { teamManager: { getTeam: jest.fn().mockResolvedValue(team) } },
+                hogFlowManager: { getHogFlow: jest.fn().mockResolvedValue(hogFlow) },
+                hogFlowBatchPersonQueryService: { requestAudienceSnapshot, getBlastRadiusPersons: jest.fn() },
+                hogFunctionMonitoringService: {
+                    queueAppMetrics: jest.fn(),
+                    queueLogs,
+                    flush: jest.fn().mockResolvedValue(undefined),
+                },
+                invocationResultsService: {
+                    invocationResultsRowsService: { flush: jest.fn().mockResolvedValue(undefined) },
+                },
+            })
+            return consumer
+        }
+
+        const buildJob = (state: BatchResolverState): any => ({
+            id: 'job-snapshot',
+            teamId: team.id,
+            functionId: hogFlow.id,
+            parentRunId: state.batchJobId,
+            cancelRequestedAt: null,
+            state: serializeResolverState(state),
+            heartbeat: jest.fn().mockResolvedValue(undefined),
+            bulkCreateAndCheckIn: jest.fn().mockResolvedValue({ newJobIds: [] }),
+            reschedule: jest.fn().mockResolvedValue(undefined),
+            ack: jest.fn().mockResolvedValue(undefined),
+            fail: jest.fn().mockResolvedValue(undefined),
+        })
+
+        const waitingState = (waitUntilOffsetMs: number): BatchResolverState => ({
+            batchJobId: 'batch-job-snapshot',
+            teamId: team.id,
+            hogFlowId: hogFlow.id,
+            cursor: null,
+            filters: { properties: [] },
+            dedupeKey: 'email',
+            audienceSnapshot: { waitUntil: new Date(Date.now() + waitUntilOffsetMs).toISOString() },
+            maxAudienceSize: 100,
+            totalEnqueued: 0,
+            pagesProcessed: 0,
+            attempts: 0,
+            variables: {},
+            startedAt: '2026-08-11T00:00:00.000Z',
+        })
+
+        it("asks Django to resolve the audience with the run's dedupe key and cap, and polls while it resolves", async () => {
+            const requestAudienceSnapshot = jest
+                .fn()
+                .mockResolvedValue({ status: 'resolving', audience_size: null, error: null })
+            const consumer = buildConsumer(requestAudienceSnapshot, jest.fn())
+            const job = buildJob(waitingState(3600 * 1000))
+
+            await consumer.processResolverJob(job)
+
+            expect(requestAudienceSnapshot).toHaveBeenCalledWith(team, 'batch-job-snapshot', {
+                dedupeKey: 'email',
+                maxAudienceSize: 100,
+            })
+            expect((consumer as any).hogFlowBatchPersonQueryService.getBlastRadiusPersons).not.toHaveBeenCalled()
+            const [{ scheduledAt, state }] = job.reschedule.mock.calls[0]
+            expect(scheduledAt.getTime() - Date.now()).toBeGreaterThan(10_000)
+            expect(scheduledAt.getTime() - Date.now()).toBeLessThanOrEqual(15_000)
+            expect(deserializeResolverState(state).audienceSnapshot?.ready).toBeUndefined()
+            // Later polls carry the marker, so only the first dequeue counts as the run starting.
+            expect(deserializeResolverState(state).audienceSnapshot?.requested).toBe(true)
+        })
+
+        it('starts paging once the stored audience is ready', async () => {
+            const requestAudienceSnapshot = jest
+                .fn()
+                .mockResolvedValue({ status: 'ready', audience_size: 12, error: null })
+            const consumer = buildConsumer(requestAudienceSnapshot, jest.fn())
+            const job = buildJob(waitingState(3600 * 1000))
+
+            await consumer.processResolverJob(job)
+
+            const [{ scheduledAt, state }] = job.reschedule.mock.calls[0]
+            expect(scheduledAt.getTime()).toBeLessThanOrEqual(Date.now())
+            expect(deserializeResolverState(state).audienceSnapshot?.ready).toBe(true)
+            expect(deserializeResolverState(state).pendingTerminal).toBeUndefined()
+        })
+
+        it.each([
+            [
+                'Django could not resolve it',
+                { status: 'failed', audience_size: null, error: 'Audience query timed out after 20 minutes.' },
+                3600 * 1000,
+                'Batch resolver failed: Audience query timed out after 20 minutes.',
+            ],
+            [
+                'it is still resolving at the deadline',
+                { status: 'resolving', audience_size: null, error: null },
+                -1000,
+                "Batch resolver failed: the audience didn't finish resolving in time",
+            ],
+        ])('fails the run with a reason the customer can act on when %s', async (_name, response, offset, message) => {
+            const queueLogs = jest.fn()
+            const consumer = buildConsumer(jest.fn().mockResolvedValue(response), queueLogs)
+            const job = buildJob(waitingState(offset))
+
+            await consumer.processResolverJob(job)
+
+            const [{ state }] = job.reschedule.mock.calls[0]
+            expect(deserializeResolverState(state).pendingTerminal).toEqual('failed')
+            expect(queueLogs.mock.calls[0][0][0].message).toContain(message)
+        })
+
+        it('retries a snapshot request Django did not answer, like a page fetch', async () => {
+            const consumer = buildConsumer(jest.fn().mockRejectedValue(new Error('network down')), jest.fn())
+            const job = buildJob(waitingState(3600 * 1000))
+
+            await consumer.processResolverJob(job)
+
+            const [{ state }] = job.reschedule.mock.calls[0]
+            expect(deserializeResolverState(state).attempts).toEqual(1)
+            expect(deserializeResolverState(state).pendingTerminal).toBeUndefined()
+        })
+    })
+
     describe('permanent audience fetch failure', () => {
         const buildConsumer = (getBlastRadiusPersons: jest.Mock, queueLogs: jest.Mock): any => {
             const consumer = Object.create(CdpCyclotronWorkerBatchResolve.prototype)

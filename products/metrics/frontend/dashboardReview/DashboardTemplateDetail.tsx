@@ -5,7 +5,7 @@ import { LemonBanner, LemonButton, LemonCollapse, LemonSkeleton, LemonTag } from
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { cn } from 'lib/utils/css-classes'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { inStorybook } from 'lib/utils/dom'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { DashboardLoadAction } from 'scenes/dashboard/dashboardLogic'
@@ -19,6 +19,7 @@ import { useMcpToolApplyBack } from 'products/posthog_ai/frontend/api/logics'
 
 import { DashboardTemplateStatusTag } from './DashboardTemplateStatusTag'
 import { GenerationChecks } from './GenerationChecks'
+import { InternalTag } from './InternalTag'
 import { metricsDashboardReviewSceneLogic } from './metricsDashboardReviewSceneLogic'
 import { QuillDashboardTemplateDetailActions } from './QuillDashboardTemplateDetailActions'
 
@@ -69,6 +70,7 @@ export function DashboardTemplateDetail(): JSX.Element {
         <>
             <SceneTitleSection
                 name={template.name}
+                nameSuffix={<InternalTag />}
                 description={template.description}
                 resourceType={{ type: 'metrics' }}
                 actions={
@@ -96,7 +98,7 @@ export function DashboardTemplateDetail(): JSX.Element {
                                 <span
                                     className={cn(
                                         'rainbow-text font-semibold',
-                                        !(inStorybook() || inStorybookTestRunner()) && 'rainbow-text-animating'
+                                        !inStorybook() && 'rainbow-text-animating'
                                     )}
                                 >
                                     Edit with PostHog AI

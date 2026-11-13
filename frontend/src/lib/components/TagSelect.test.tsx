@@ -8,6 +8,9 @@ import { initKeaTests } from '~/test/init'
 
 import { TagSelect } from './TagSelect'
 
+// `getByLabelText` walks every label on each `waitFor` poll, which takes seconds over a full page of tags.
+const tagOption = (label: string): HTMLElement | null => document.querySelector(`[aria-label="${label}"]`)
+
 describe('TagSelect', () => {
     beforeEach(() => initKeaTests())
     afterEach(() => cleanup())
@@ -16,7 +19,7 @@ describe('TagSelect', () => {
         const onChange = jest.fn()
         const options = [
             { tag: 'revenue', count: 1 },
-            ...Array.from({ length: 75 }, (_, index) => ({ tag: `topic-${index + 1}`, count: 75 - index })),
+            ...Array.from({ length: 150 }, (_, index) => ({ tag: `topic-${index + 1}`, count: 150 - index })),
         ]
         render(
             <Provider>
@@ -25,15 +28,15 @@ describe('TagSelect', () => {
         )
 
         await userEvent.click(screen.getByText('revenue'))
-        await waitFor(() => expect(screen.getByLabelText('topic-1 (75)')).toBeInTheDocument())
+        await waitFor(() => expect(tagOption('topic-1 (150)')).not.toBeNull())
         expect(screen.getByText('Clear selection')).toBeInTheDocument()
-        expect(screen.queryByLabelText('topic-75 (1)')).not.toBeInTheDocument()
-        await userEvent.type(screen.getByPlaceholderText('Search tags'), 'topic-75')
-        await waitFor(() => expect(screen.getByLabelText('topic-75 (1)')).toBeInTheDocument())
-        expect(screen.queryByLabelText('revenue (1)')).not.toBeInTheDocument()
+        expect(tagOption('topic-150 (1)')).toBeNull()
+        await userEvent.type(screen.getByPlaceholderText('Search tags'), 'topic-150')
+        await waitFor(() => expect(tagOption('topic-150 (1)')).not.toBeNull())
+        expect(tagOption('revenue (1)')).toBeNull()
         expect(screen.queryByText('Clear selection')).not.toBeInTheDocument()
-        await userEvent.click(screen.getByLabelText('topic-75 (1)'))
-        expect(onChange).toHaveBeenCalledWith(['revenue', 'topic-75'])
+        await userEvent.click(tagOption('topic-150 (1)')!)
+        expect(onChange).toHaveBeenCalledWith(['revenue', 'topic-150'])
     })
 
     it('shows a retry when a tag page fails to load', async () => {
@@ -93,5 +96,6 @@ describe('TagSelect', () => {
             resolveNextPage({ results: [{ tag: 'current' }], hasMore: false })
         })
         expect(screen.getByLabelText('current')).toBeInTheDocument()
+        expect(screen.getByLabelText('selected')).toHaveAttribute('aria-checked', 'true')
     })
 })

@@ -23,10 +23,10 @@ describe("repositoryKeys", () => {
     ]);
   });
 
-  it("derives team refetch keys with an exact key per integration plus the picker", () => {
+  it("derives team refetch keys with a prefix per integration plus the picker", () => {
     expect(teamRepositoryRefreshKeys([1, 2])).toEqual([
-      { queryKey: ["integrations", "repositories", 1], exact: true },
-      { queryKey: ["integrations", "repositories", 2], exact: true },
+      { queryKey: ["integrations", "repositories", 1], exact: false },
+      { queryKey: ["integrations", "repositories", 2], exact: false },
       { queryKey: ["integrations", "repository-picker"], exact: false },
     ]);
   });

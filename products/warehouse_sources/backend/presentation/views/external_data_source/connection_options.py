@@ -30,12 +30,13 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSourceDestination,
 )
 from products.warehouse_sources.backend.facade.source_inputs import SourceInputsStore, UnreadableSourceInputsError
-from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
+from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
 from products.warehouse_sources.backend.presentation.views.destination_links import (
     DestinationLinkSerializer,
     SourceDestinationsSerializer,
     set_source_destinations,
 )
+from products.warehouse_sources.backend.presentation.views.external_data_source.source_type_field import SourceTypeField
 from products.warehouse_sources.backend.presentation.views.public_source_configs import build_source_configs
 
 from . import base, helpers
@@ -47,6 +48,20 @@ class ExternalDataSourceRevenueAnalyticsConfigSerializer(serializers.ModelSerial
     class Meta:
         model = ExternalDataSourceRevenueAnalyticsConfig
         fields = ["enabled", "include_invoiceless_charges"]
+        extra_kwargs = {
+            "enabled": {
+                "help_text": (
+                    "Whether this source feeds revenue analytics. Changing it updates the project's managed revenue "
+                    "analytics views. The synced warehouse tables are not changed."
+                ),
+            },
+            "include_invoiceless_charges": {
+                "help_text": (
+                    "Whether charges that have no invoice count as revenue. Turn it off to count only revenue "
+                    "that comes from invoices."
+                ),
+            },
+        }
 
 
 class ExternalDataSourceConnectionMetadataSerializer(serializers.Serializer):
@@ -104,8 +119,7 @@ class ExternalDataSourceConnectionOptionSerializer(serializers.ModelSerializer):
     engine = serializers.SerializerMethodField(
         help_text="Backend engine detected for the direct connection.",
     )
-    source_type = serializers.ChoiceField(
-        choices=ExternalDataSourceType.choices,
+    source_type = SourceTypeField(
         read_only=True,
         help_text="The source type (e.g. 'Postgres', 'MySQL', 'Snowflake').",
     )
@@ -171,8 +185,7 @@ class ExternalDataSourceConnectionOptionSerializer(serializers.ModelSerializer):
 class DirectConnectionSourceOptionSerializer(serializers.Serializer):
     """A source type that can be added as a direct (live-query) connection, with display metadata."""
 
-    source_type = serializers.ChoiceField(
-        choices=ExternalDataSourceType.choices,
+    source_type = SourceTypeField(
         read_only=True,
         help_text="The source type to start a direct-connection setup for (e.g. 'Postgres', 'ClickHouse').",
     )
@@ -342,6 +355,8 @@ class ExternalDataSourceConnectionOptionsMixin(base.ExternalDataSourceViewSetBas
             status=status.HTTP_200_OK, data=SourceDestinationsSerializer({"destination_ids": attached}).data
         )
 
+    # The request and response schemas are set on `ExternalDataSourceViewSet`: the response is the
+    # full source serializer, which this module cannot import without a cycle.
     @action(methods=["PATCH"], detail=True)
     def revenue_analytics_config(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Update the revenue analytics configuration and return the full external data source."""

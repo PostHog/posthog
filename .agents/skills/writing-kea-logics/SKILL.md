@@ -33,8 +33,8 @@ If your work overlaps it, read the companion skill first.
 ## Core principles
 
 1. **Business logic lives in a logic, not in a component.**
-   [CLAUDE.md](../../../CLAUDE.md) is explicit: "If there is a kea logic file, write all
-   business logic there, avoid React hooks at all costs." Hooks are for view concerns.
+   [`.agents/code-style.md`](../../code-style.md) is explicit: "Business logic goes in the
+   kea logic file, not a React hook." Hooks are for view concerns.
 
 2. **One concept, one source of truth.** Pick exactly one of: action-driven reducer,
    derived selector, async loader. Don't mirror the same value into multiple places.

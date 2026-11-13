@@ -1,7 +1,8 @@
-import MaskedView from '@react-native-masked-view/masked-view'
+import MaskedViewComponent from '@react-native-masked-view/masked-view'
 import { BlurView } from 'expo-blur'
-import type { ReactElement } from 'react'
-import { Platform, StyleSheet, type ViewStyle } from 'react-native'
+import type { ComponentType, ReactElement, RefObject } from 'react'
+import type { ViewInstance } from 'react-native'
+import { Platform, StyleSheet, type ViewProps, type ViewStyle } from 'react-native'
 
 import { FadeEdge } from './FadeEdge'
 import { useColorSchemeName } from './theme'
@@ -10,18 +11,28 @@ interface BlurEdgeProps {
     direction?: 'down' | 'up'
     solid: number
     intensity?: number
+    blurTarget?: RefObject<ViewInstance | null>
 }
 
 const DEFAULT_INTENSITY = 11
 
-export function BlurEdge({ direction = 'down', solid, intensity = DEFAULT_INTENSITY }: BlurEdgeProps): ReactElement {
+// The upstream declaration extends NativeMethods, which React Native's generated types no longer export.
+const MaskedView = MaskedViewComponent as unknown as ComponentType<ViewProps & { maskElement: ReactElement }>
+
+export function BlurEdge({
+    direction = 'down',
+    solid,
+    intensity = DEFAULT_INTENSITY,
+    blurTarget,
+}: BlurEdgeProps): ReactElement {
     const scheme = useColorSchemeName()
     const blur = (
         <BlurView
             style={[styles.fill, webMask(direction, solid)]}
             intensity={intensity}
             tint={scheme}
-            experimentalBlurMethod="dimezisBlurView"
+            blurMethod="dimezisBlurView"
+            blurTarget={Platform.OS === 'android' ? blurTarget : undefined}
         />
     )
     if (Platform.OS === 'web') {

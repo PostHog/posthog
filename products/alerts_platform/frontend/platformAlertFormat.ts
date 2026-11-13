@@ -1,8 +1,10 @@
+import { ApiError } from 'lib/api-error'
 import { urls } from 'scenes/urls'
 
 import {
     BillingAlertConfigurationStateEnumApi as PlatformAlertStateApi,
     CalendarUnitEnumApi,
+    PlatformAlertApi,
     PlatformAlertConfigurationApi,
     PlatformAlertConfigurationSourceKindEnumApi,
 } from './generated/api.schemas'
@@ -36,6 +38,14 @@ export const SOURCE_KINDS: Record<PlatformAlertConfigurationSourceKindEnumApi, S
     [PlatformAlertConfigurationSourceKindEnumApi.WarehouseDestination]: {
         label: 'Warehouse destination',
         alertUrl: () => urls.warehouseDestinations(),
+    },
+    [PlatformAlertConfigurationSourceKindEnumApi.Metrics]: {
+        label: 'Metrics',
+        alertUrl: () => urls.metrics('alerts'),
+    },
+    [PlatformAlertConfigurationSourceKindEnumApi.Traces]: {
+        label: 'Traces',
+        alertUrl: () => urls.tracing(),
     },
 }
 
@@ -92,4 +102,96 @@ export function describeSchedule(configuration: PlatformAlertConfigurationApi): 
 export function describeQuietHours(configuration: PlatformAlertConfigurationApi): string {
     const windows = configuration.schedule_restriction?.blocked_windows ?? []
     return windows.length ? windows.map((window) => `${window.start}-${window.end}`).join(', ') : 'None'
+}
+
+// Logs alerts group by these columns. Any other key is a log attribute the user typed, so it shows as written.
+const LABEL_NAMES: Record<string, string> = {
+    service_name: 'Service',
+    severity_text: 'Severity',
+}
+
+export interface GroupLabel {
+    key: string
+    name: string
+    value: string
+}
+
+/** A group's labels in the order the alert groups by, with readable names. */
+export function groupLabels(alert: PlatformAlertApi, groupingKeys: readonly string[]): GroupLabel[] {
+    // Label keys are user-typed attributes, so a key like `constructor` must not resolve through the prototype.
+    const known = groupingKeys.filter((key) => Object.hasOwn(alert.labels, key))
+    const rest = Object.keys(alert.labels)
+        .filter((key) => !groupingKeys.includes(key))
+        .sort()
+    return [...known, ...rest].map((key) => ({
+        key,
+        name: Object.hasOwn(LABEL_NAMES, key) ? LABEL_NAMES[key] : key,
+        value: alert.labels[key],
+    }))
+}
+
+export function describeOverflow(configuration: PlatformAlertConfigurationApi): string | null {
+    const count = configuration.overflowed_groups
+    if (count <= 0) {
+        return null
+    }
+    const groups = count === 1 ? 'group' : 'groups'
+    return `At its group limit: ${configuration.overflow_is_lower_bound ? 'at least ' : ''}${count} ${groups} not tracked`
+}
+
+export function describeOverflowDetail(configuration: PlatformAlertConfigurationApi): string {
+    const limit = configuration.grouping.max_instances
+    return `The last check found more groups than this alert's limit${
+        limit !== undefined ? ` of ${limit}` : ''
+    }, so it left the new ones out. To track them, raise the group limit or narrow the alert so fewer groups match.`
+}
+
+export const GROUP_SNOOZE_EXPLANATION =
+    'The group keeps being checked, and a firing group stays firing. Only its notifications are held.'
+
+export interface RuleMetadataEntry {
+    name: string
+    value: string
+}
+
+export interface RuleMetadataForm {
+    labels: RuleMetadataEntry[]
+    annotations: RuleMetadataEntry[]
+}
+
+export function ruleMetadataEntries(record: Record<string, string>): RuleMetadataEntry[] {
+    return Object.entries(record).map(([name, value]) => ({ name, value }))
+}
+
+export function ruleMetadataRecord(entries: RuleMetadataEntry[]): Record<string, string> {
+    return Object.fromEntries(
+        entries.filter(({ name, value }) => name.trim() || value).map(({ name, value }) => [name.trim(), value])
+    )
+}
+
+// Names and values are checked by the API. Only a nameless row and a repeated name are lost before the request.
+export function ruleMetadataEntriesError(entries: RuleMetadataEntry[]): string | undefined {
+    if (entries.some(({ name, value }) => !name.trim() && value)) {
+        return 'Give each entry a name'
+    }
+    const names = entries.map(({ name }) => name.trim()).filter(Boolean)
+    const repeated = names.find((name, index) => names.indexOf(name) !== index)
+    return repeated ? `"${repeated}" is used more than once. Use each name once.` : undefined
+}
+
+export function errorMessage(error: unknown): string {
+    return error instanceof ApiError && error.detail ? error.detail : 'Try again in a moment.'
+}
+
+/** The form field a server-side validation error belongs to, if any. */
+export function fieldError<F extends string>(
+    error: unknown,
+    fieldByAttr: Record<string, F>
+): Partial<Record<F, string>> {
+    // A nested error, such as one label's value, arrives as `labels__team`.
+    const attr = error instanceof ApiError ? error.attr?.split('__')[0] : undefined
+    if (attr && attr in fieldByAttr) {
+        return { [fieldByAttr[attr]]: errorMessage(error) } as Partial<Record<F, string>>
+    }
+    return {}
 }

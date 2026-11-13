@@ -13,6 +13,7 @@ interface FuseSearchable {
     searchKeywords?: string[]
     hiddenSearchText?: string
     matchedSearchKeyword?: string | null
+    hideMatchedKeyword?: boolean
 }
 
 export const SEARCH_TAB_CATEGORY = 'tabs'
@@ -64,7 +65,7 @@ export function filterSearchItems<T extends FuseSearchable>(items: T[], query: s
     }
     return fuse.search(trimmed).map((result) => ({
         ...(result.item as T),
-        matchedSearchKeyword: keywordOnlyMatch(result.matches),
+        matchedSearchKeyword: result.item.hideMatchedKeyword ? null : keywordOnlyMatch(result.matches),
     }))
 }
 
@@ -103,6 +104,8 @@ const TICKET_SEARCH_MAX_LENGTH = 200
  * of a support inbox anyway. A ticket number is exempt from the lower bound in both directions: it
  * is an indexed lookup, and "#7" is a complete query rather than the start of a longer one.
  */
+export const isTicketNumberQuery = (query: string): boolean => TICKET_NUMBER_QUERY.test(query.trim())
+
 export const shouldSearchTickets = (query: string): boolean => {
     const trimmed = query.trim()
     if (trimmed.length > TICKET_SEARCH_MAX_LENGTH) {
@@ -118,6 +121,7 @@ export const getCategoryDisplayName = (category: string): string => {
         tools: 'Products',
         'data-management': 'Data management',
         [SEARCH_TAB_CATEGORY]: 'Tabs',
+        shortcuts: 'Shortcuts',
         settings: 'Settings',
         early_access_feature: 'Early access features',
         suggested: 'Suggested',
@@ -147,7 +151,7 @@ export const getCategoryDisplayName = (category: string): string => {
         session_recording_playlist: 'Session recording filter',
         hog_flow: 'Workflows',
         health: 'Health',
-        misc: 'Misc',
+        actions: 'Actions',
     }
 
     return displayNames[category] || category

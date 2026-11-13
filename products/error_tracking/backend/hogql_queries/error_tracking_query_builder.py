@@ -7,6 +7,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     ErrorTrackingIssueFilter,
+    ErrorTrackingIssueTagFilter,
     ErrorTrackingQuery,
     FilterLogicalOperator,
     HogQLFilters,
@@ -19,6 +20,7 @@ from posthog.hogql.property import property_to_expr
 
 from posthog.models.team.team import Team
 
+from products.error_tracking.backend.hogql_queries.applied_issue_tags import issue_tag_filter_expr
 from products.error_tracking.backend.hogql_queries.error_tracking_query_runner_utils import (
     extract_aggregations,
     extract_event,
@@ -235,12 +237,16 @@ class ErrorTrackingQueryBuilder:
         date_from: datetime.datetime,
         date_to: datetime.datetime,
         include_recent_issue_state: bool = False,
+        issue_tag_filter: ErrorTrackingIssueTagFilter | None = None,
     ):
         self.query = query
         self.team = team
         self.date_from = date_from
         self.date_to = date_to
         self.include_recent_issue_state = include_recent_issue_state
+        # The runner passes the tag filter only while the tag is enabled for the team, so the builder does not
+        # read the query's own `issueTag`.
+        self.issue_tag_filter = issue_tag_filter
 
     def build_query(self) -> ast.SelectQuery:
         if self._needs_legacy_shape():
@@ -416,6 +422,49 @@ class ErrorTrackingQueryBuilder:
                 fingerprint_state,
             ],
         )
+
+    def _issue_state_filter_exprs(self, state_expr: Callable[[str], ast.Expr]) -> list[ast.Expr]:
+        exprs: list[ast.Expr] = []
+        if self.query.status and self.query.status != "all":
+            exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=state_expr("issue_status"),
+                    right=ast.Constant(value=self.query.status),
+                )
+            )
+
+        if self.query.severity:
+            exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=state_expr("issue_severity"),
+                    right=ast.Constant(value=self.query.severity.value),
+                )
+            )
+
+        if self.query.assignee:
+            if self.query.assignee.type == "user":
+                exprs.append(
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=state_expr("assigned_user_id"),
+                        right=ast.Constant(value=self.query.assignee.id),
+                    )
+                )
+            else:
+                exprs.append(
+                    ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=state_expr("assigned_role_id"),
+                        right=ast.Constant(value=str(self.query.assignee.id)),
+                    )
+                )
+
+        if self.issue_tag_filter is not None:
+            exprs.append(issue_tag_filter_expr(state_expr("issue_id"), self.issue_tag_filter))
+
+        return exprs
 
     def _build_query_optimized(self) -> ast.SelectQuery:
         inner = self._build_inner_query()
@@ -695,32 +744,7 @@ class ErrorTrackingQueryBuilder:
                 )
             )
 
-        if self.query.status and self.query.status != "all":
-            exprs.append(
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.Eq,
-                    left=self._issue_state_expr("issue_status"),
-                    right=ast.Constant(value=self.query.status),
-                )
-            )
-
-        if self.query.assignee:
-            if self.query.assignee.type == "user":
-                exprs.append(
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.Eq,
-                        left=self._issue_state_expr("assigned_user_id"),
-                        right=ast.Constant(value=self.query.assignee.id),
-                    )
-                )
-            else:
-                exprs.append(
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.Eq,
-                        left=self._issue_state_expr("assigned_role_id"),
-                        right=ast.Constant(value=str(self.query.assignee.id)),
-                    )
-                )
+        exprs.extend(self._issue_state_filter_exprs(self._issue_state_expr))
 
         return exprs
 
@@ -911,32 +935,7 @@ class ErrorTrackingQueryBuilder:
         if self.query.searchQuery:
             exprs.append(self._search_expr())
 
-        if self.query.status and self.query.status != "all":
-            exprs.append(
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.Eq,
-                    left=self._legacy_issue_state_expr("issue_status"),
-                    right=ast.Constant(value=self.query.status),
-                )
-            )
-
-        if self.query.assignee:
-            if self.query.assignee.type == "user":
-                exprs.append(
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.Eq,
-                        left=self._legacy_issue_state_expr("assigned_user_id"),
-                        right=ast.Constant(value=self.query.assignee.id),
-                    )
-                )
-            else:
-                exprs.append(
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.Eq,
-                        left=self._legacy_issue_state_expr("assigned_role_id"),
-                        right=ast.Constant(value=str(self.query.assignee.id)),
-                    )
-                )
+        exprs.extend(self._issue_state_filter_exprs(self._legacy_issue_state_expr))
 
         user_expr = self._user_filter_expr()
         if user_expr is not None:

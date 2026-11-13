@@ -6,6 +6,7 @@ import { useAuthStore } from '@/auth/authStore'
 import { sessionGeneration } from '@/auth/tokens'
 import { useProjectScope } from '@/auth/useProjectScope'
 import { type DataMode, useDataMode } from '@/demo/demoMode'
+import { useConnectivity } from '@/lib/connectivity'
 
 import type { ItemContext } from './items'
 import { useViewsAccess, type ViewsAccess } from './useViewsAccess'
@@ -13,6 +14,7 @@ import { useViewsAccess, type ViewsAccess } from './useViewsAccess'
 export interface ViewsContext {
     identity: string
     mode: DataMode
+    offline: boolean
     /** Null in demo mode, so demo cache entries never mix with a project's. */
     scope: ProjectScope | null
     /** `demo`, or `{host}|{project id}`: refresh floors and session ranges stay inside one. */
@@ -25,7 +27,9 @@ export interface ViewsContext {
 
 export function useViewsContext(): ViewsContext {
     const mode = useDataMode()
+    const offline = useConnectivity((state) => state.status === 'offline') && mode === 'live'
     const account = useAuthStore((state) => `${state.status}|${state.user?.uuid ?? ''}`)
+    const session = useAuthStore(sessionGeneration)
     const projectScope = useProjectScope()
     const client = useQueryClient()
     const access = useViewsAccess()
@@ -34,6 +38,6 @@ export function useViewsContext(): ViewsContext {
     const item = useMemo<ItemContext>(() => ({ client, scope, demo }), [client, scope, demo])
     const ready = demo || (mode === 'live' && scope !== null && access.state === 'ok')
     const dataScope = demo ? 'demo' : scope ? `${scope.host}|${scope.projectId}` : 'none'
-    const identity = `${mode}|${account}|${sessionGeneration()}|${dataScope}`
-    return { identity, mode, scope, dataScope, access, ready, item }
+    const identity = `${mode}|${account}|${session}|${dataScope}`
+    return { identity, mode, offline, scope, dataScope, access, ready, item }
 }

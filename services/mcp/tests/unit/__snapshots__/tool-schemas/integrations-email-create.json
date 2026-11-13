@@ -1,0 +1,8 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "description": "The request schema of a create. A create accepts only the public kinds, so the schema lists them.",
+    "properties": {
+        "config": {}
+    },
+    "type": "object"
+}

@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 
+import { BrandMark } from 'lib/components/BrandMark/BrandMark'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { PaginationControl, usePagination } from 'lib/lemon-ui/PaginationControl'
@@ -8,8 +9,7 @@ import { formatPercentage } from 'lib/utils/numbers'
 import { HogQLFilters, MCPModelBreakdownItem } from '~/queries/schema/schema-general'
 
 import { seriesLab } from '../aiLabs'
-import { labMark } from '../brandMarks'
-import { BrandMark } from '../components/BrandMark'
+import { labMark } from '../aiLabs'
 import { formatNumber } from './formatters'
 import { MODEL_PAGE_SIZE, modelBreakdownLogic } from './modelBreakdownLogic'
 

@@ -18,6 +18,7 @@ from posthog.models import User
 from products.ai_observability.backend.api.metrics import llma_track_latency
 
 from ..models.skills import LLMSkillFile
+from .archive_guards import SkillPublishRefused
 from .skill_analytics import file_extension, record_skill_event, skill_analytics_props
 from .skill_error_responses import skill_write_error_response
 from .skill_serializers import (
@@ -122,6 +123,7 @@ class SkillFileActionsMixin(SkillAccessMixin):
             LLMSkillVersionLimitError,
             LLMSkillFileLimitError,
             LLMSkillDescriptionTooLongError,
+            SkillPublishRefused,
         ) as err:
             response = skill_write_error_response(err, skill_name, not_found_response=self._skill_not_found_response)
             if response is None:
@@ -182,6 +184,7 @@ class SkillFileActionsMixin(SkillAccessMixin):
             LLMSkillVersionLimitError,
             LLMSkillFileLimitError,
             LLMSkillDescriptionTooLongError,
+            SkillPublishRefused,
         ) as err:
             response = skill_write_error_response(err, skill_name, not_found_response=self._skill_not_found_response)
             if response is None:
@@ -241,6 +244,7 @@ class SkillFileActionsMixin(SkillAccessMixin):
             LLMSkillVersionLimitError,
             LLMSkillFileLimitError,
             LLMSkillDescriptionTooLongError,
+            SkillPublishRefused,
         ) as err:
             response = skill_write_error_response(err, skill_name, not_found_response=self._skill_not_found_response)
             if response is None:

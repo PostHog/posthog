@@ -251,6 +251,41 @@ tools:
             Split one or more fingerprints out of an existing error tracking issue into new issues. Provide the source
             issue as `id` and the fingerprints to split as `fingerprints`, where each entry includes a required
             `fingerprint` and optional `name` or `description`.
+    error-tracking-issues-tag-definitions-retrieve:
+        operation: error_tracking_issues_tag_definitions_retrieve
+        enabled: true
+        scopes:
+            - error_tracking:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List error tracking issue tags
+        description: >
+            List the issue tags enabled for the project, with the key, label and description of each. Use a key with
+            `error-tracking-issues-tag-partial-update` to apply that tag to an issue or remove it. The list is empty
+            when the project does not have issue tags.
+    error-tracking-issues-tag-partial-update:
+        operation: error_tracking_issues_tag_partial_update
+        enabled: true
+        scopes:
+            - error_tracking:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Apply or remove error tracking issue tag
+        description: >
+            Apply one tag to an error tracking issue, or remove it. Provide the issue ID as `id` and the tag as `key`.
+            Set `applied` to true to apply the tag, or to false to remove it. Get the keys from
+            `error-tracking-issues-tag-definitions-retrieve`. A person's change ranks above AI taggers, so an AI tagger
+            does not apply a removed tag again or remove an applied tag. The call fails with "Issue tags are off for
+            this project." when the project does not have issue tags.
+        param_overrides:
+            key:
+                required: true
+            applied:
+                required: true
     error-tracking-recommendations-list:
         operation: error_tracking_recommendations_list
         enabled: true
@@ -465,7 +500,6 @@ tools:
         description_file: ./prompts/query-error-tracking-issue.md
         system_prompt_hint: Error issue details and impact (error-tracking category)
         ui_app: error-issue
-        reads_ingested_data: events
     query-error-tracking-issue-events:
         operation: error_tracking_query_issue_events_create
         enabled: true
@@ -480,7 +514,6 @@ tools:
         description_file: ./prompts/query-error-tracking-issue-events.md
         system_prompt_hint: Error event samples, stack traces, code variables, and session IDs (error-tracking category)
         ui_app: error-details
-        reads_ingested_data: events
     query-error-tracking-issues-list:
         operation: error_tracking_query_issues_list_create
         enabled: true
@@ -496,7 +529,6 @@ tools:
         description_file: ./prompts/query-error-tracking-issues-list.md
         system_prompt_hint: Error issue filtering and aggregation (error-tracking category)
         ui_app: error-issue-list
-        reads_ingested_data: events
         response:
             include:
                 - id

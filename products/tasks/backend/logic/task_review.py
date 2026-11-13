@@ -1,7 +1,8 @@
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 
 from posthog.egress.limiter.policies import Priority
-from posthog.models.integration import GitHubIntegration, Integration
+from posthog.integrations import IntegrationManager
+from posthog.models.integration import GitHubIntegration
 from posthog.models.user_integration import UserGitHubIntegration
 
 from products.tasks.backend.models import Task
@@ -10,7 +11,7 @@ from products.tasks.backend.models import Task
 def task_review(team_id: int, task_id: str, user_id: int, page: int) -> dict:
     task = (
         Task.objects.filter(team_id=team_id, id=task_id, created_by_id=user_id, deleted=False)
-        .select_related("github_integration", "github_user_integration")
+        .select_related("github_user_integration")
         .first()
     )
     if task is None:
@@ -28,8 +29,13 @@ def task_review(team_id: int, task_id: str, user_id: int, page: int) -> dict:
     if user_integration is not None and user_integration.user_id == user_id:
         github = UserGitHubIntegration(user_integration, source="tasks", priority=Priority.CRITICAL)
     else:
-        integrations = Integration.objects.filter(team_id=team_id, kind="github")
-        integration = integrations.filter(id=task.github_integration_id).first() if task.github_integration_id else None
+        integration = (
+            IntegrationManager.github.oauth.get_many(team_id, [task.github_integration_id]).get(
+                task.github_integration_id
+            )
+            if task.github_integration_id
+            else None
+        )
         if integration is None:
             raise ValidationError("Connect GitHub in PostHog to load the review.")
         github = GitHubIntegration(integration, source="tasks", priority=Priority.CRITICAL)

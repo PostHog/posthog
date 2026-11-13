@@ -3,8 +3,9 @@ import { createHash, createPrivateKey, X509Certificate } from 'node:crypto'
 import { appendFileSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { basename, dirname, join, resolve } from 'node:path'
+import { setTimeout as delay } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
-import { parseArgs } from 'node:util'
+import { isDeepStrictEqual, parseArgs } from 'node:util'
 
 import {
     compareVersions,
@@ -18,6 +19,7 @@ import {
     validateRequest,
     validateUpdates,
 } from './policy.mjs'
+import { receiptAssetName, renderReleaseNotes } from './receipt.mjs'
 
 const appRoot = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 const repoRoot = resolve(appRoot, '../..')
@@ -25,6 +27,7 @@ const requestRoot = join(appRoot, 'releases/requests')
 const config = JSON.parse(readFileSync(join(appRoot, 'releases/config.json'), 'utf8'))
 const repo = 'PostHog/posthog'
 const pointerRef = 'tags/mobile-production'
+let releaseInventory
 
 function run(command, args, options = {}) {
     return (
@@ -213,27 +216,54 @@ async function nativeFingerprints(expoRequire) {
     return fingerprints
 }
 
-async function loadProductionEnvironment() {
+async function fetchProductionEnvironment() {
     const fields = 'name type visibility value valueWithFileContent: value(includeFileContent: true)'
-    const response = await fetch('https://api.expo.dev/graphql', {
+    const options = {
         method: 'POST',
         headers: { Authorization: `Bearer ${process.env.EXPO_TOKEN}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
             query: `query MobileNativeEnvironment($appId: String!, $environment: EnvironmentVariableEnvironment) { app { byId(appId: $appId) { environmentVariablesIncludingSensitive(environment: $environment) { ${fields} } ownerAccount { environmentVariablesIncludingSensitive(environment: $environment) { ${fields} linkedEnvironments(appId: $appId) } } } } }`,
             variables: { appId: config.projectId, environment: 'production' },
         }),
-        signal: AbortSignal.timeout(30000),
-    })
-    const payload = await response.json()
+    }
+    for (let attempt = 1; attempt <= 3; attempt++) {
+        let failure = 'network failure'
+        let retryable = true
+        try {
+            const response = await fetch('https://api.expo.dev/graphql', {
+                ...options,
+                signal: AbortSignal.timeout(30000),
+            })
+            if (response.ok) {
+                return await response.json()
+            }
+            failure = `HTTP ${response.status}`
+            retryable = [408, 429, 500, 502, 503, 504].includes(response.status)
+            await response.body?.cancel()
+        } catch (error) {
+            if (error instanceof SyntaxError) {
+                failure = 'invalid JSON response'
+                retryable = false
+            }
+        }
+        if (!retryable || attempt === 3) {
+            throw new Error(`Cannot read the EAS production environment after ${attempt} attempt(s): ${failure}`)
+        }
+        console.error(`EAS production environment read failed (${failure}); retrying (${attempt}/3)`)
+        await delay(attempt * 1000)
+    }
+}
+
+async function loadProductionEnvironment() {
+    const payload = await fetchProductionEnvironment()
     const app = payload.data?.app?.byId
     if (
-        !response.ok ||
         payload.errors ||
         !app ||
         !Array.isArray(app.environmentVariablesIncludingSensitive) ||
         !Array.isArray(app.ownerAccount?.environmentVariablesIncludingSensitive)
     ) {
-        throw new Error('Cannot audit the EAS production environment; no release was claimed')
+        throw new Error('Cannot audit the EAS production environment; publication stopped')
     }
     const shared = app.ownerAccount.environmentVariablesIncludingSensitive.filter((variable) =>
         variable.linkedEnvironments?.includes('production')
@@ -295,9 +325,57 @@ function releaseTag(id) {
     return `mobile-release/${id}`
 }
 
+function downloadReceipt(id) {
+    return JSON.parse(
+        run('gh', [
+            'release',
+            'download',
+            releaseTag(id),
+            '--repo',
+            repo,
+            '--pattern',
+            receiptAssetName,
+            '--output',
+            '-',
+        ])
+    )
+}
+
 function releaseReceipt(id) {
-    const release = optionalApi(`releases/tags/${encodeURIComponent(releaseTag(id))}`)
-    return release ? { release, receipt: JSON.parse(release.body) } : null
+    if (!releaseInventory) {
+        const inventory = []
+        for (let page = 1; ; page++) {
+            const releases = api(`releases?per_page=100&page=${page}`)
+            inventory.push(...releases.filter(({ tag_name }) => tag_name.startsWith('mobile-release/')))
+            if (releases.length < 100) {
+                break
+            }
+        }
+        releaseInventory = [...new Map(inventory.map((release) => [release.id, release])).values()]
+    }
+    const matches = releaseInventory.filter(({ tag_name }) => tag_name === releaseTag(id))
+    if (matches.length > 1) {
+        throw new Error(
+            `Multiple GitHub receipts for ${id}; reconcile release IDs ${matches.map(({ id }) => id).join(', ')} before retrying`
+        )
+    }
+    const [release] = matches
+    if (!release) {
+        return null
+    }
+    const attached = !release.draft && release.assets?.some(({ name }) => name === receiptAssetName)
+    return { release, receipt: attached ? downloadReceipt(id) : JSON.parse(release.body) }
+}
+
+function isAbandonedNativeClaim({ release, receipt }, request) {
+    return (
+        release.draft === true &&
+        !release.assets?.length &&
+        request.kind === 'native' &&
+        receipt.state === 'abandoned' &&
+        isDeepStrictEqual(receipt.request, request) &&
+        !('staged' in receipt || 'stagingDeployment' in receipt || 'result' in receipt)
+    )
 }
 
 function productionState() {
@@ -344,7 +422,7 @@ function advancePointer(receipt) {
 }
 
 function saveReceipt(receipt) {
-    const output = join(process.env.RUNNER_TEMP, 'mobile-release-receipt.json')
+    const output = join(process.env.RUNNER_TEMP, receiptAssetName)
     writeFileSync(output, `${JSON.stringify(receipt, null, 2)}\n`)
     return output
 }
@@ -385,11 +463,11 @@ async function publish() {
     const previous = productionState()
     for (const name of requestFiles()) {
         const sibling = readRequest(join(requestRoot, name))
-        if (
-            sibling.id !== request.id &&
-            sibling.previousRelease === request.previousRelease &&
-            releaseReceipt(sibling.id)
-        ) {
+        if (sibling.id === request.id || sibling.previousRelease !== request.previousRelease) {
+            continue
+        }
+        const claimed = releaseReceipt(sibling.id)
+        if (claimed && !isAbandonedNativeClaim(claimed, sibling)) {
             throw new Error(
                 'Another request sharing this predecessor already has a release receipt. Reconcile its EAS results or repair the production pointer before creating a successor'
             )
@@ -432,28 +510,23 @@ async function publish() {
     const receipt = { schemaVersion: 1, state: 'claimed', request, commit, runUrl: process.env.MOBILE_RELEASE_RUN_URL }
     const message = `mobile-release:${request.id}@${commit}`
     let deployment
+    let releaseId
     try {
         await publishOnce({
             existing: null,
             commit,
             request,
             claim: () => {
-                const path = saveReceipt(receipt)
-                run('gh', [
-                    'release',
-                    'create',
-                    releaseTag(request.id),
-                    '--repo',
-                    repo,
-                    '--target',
-                    commit,
-                    '--draft',
-                    '--prerelease',
-                    '--title',
-                    `Mobile ${request.id}`,
-                    '--notes-file',
-                    path,
-                ])
+                saveReceipt(receipt)
+                const release = api('releases', {
+                    tag_name: releaseTag(request.id),
+                    target_commitish: commit,
+                    draft: true,
+                    prerelease: true,
+                    name: `Mobile ${request.id}`,
+                    body: JSON.stringify(receipt, null, 2),
+                })
+                releaseId = release.id
             },
             stage: async () => {
                 deployment = api('deployments', {
@@ -515,15 +588,12 @@ async function publish() {
                 }
                 receipt.staged = staged
                 receipt.stagingDeployment = deployment.id
-                run('gh', [
-                    'release',
-                    'edit',
-                    releaseTag(request.id),
-                    '--repo',
-                    repo,
-                    '--notes-file',
-                    saveReceipt(receipt),
-                ])
+                saveReceipt(receipt)
+                api(
+                    `releases/${releaseId}`,
+                    { tag_name: releaseTag(request.id), body: JSON.stringify(receipt, null, 2) },
+                    'PATCH'
+                )
                 deploymentStatus(deployment.id, 'success')
                 return staged
             },
@@ -572,17 +642,21 @@ async function publish() {
                     request.kind === 'native'
                         ? { commit, runtimeVersion: request.runtimeVersion, fingerprints, certificateFingerprint }
                         : previous.native
-                run('gh', [
-                    'release',
-                    'edit',
-                    releaseTag(request.id),
-                    '--repo',
-                    repo,
-                    '--draft=false',
-                    '--prerelease',
-                    '--notes-file',
-                    saveReceipt(receipt),
-                ])
+                const receiptPath = saveReceipt(receipt)
+                run('gh', ['release', 'upload', releaseTag(request.id), receiptPath, '--repo', repo])
+                if (!isDeepStrictEqual(downloadReceipt(request.id), receipt)) {
+                    throw new Error('Uploaded release receipt differs; reconcile the draft before retrying')
+                }
+                api(
+                    `releases/${releaseId}`,
+                    {
+                        tag_name: releaseTag(request.id),
+                        draft: false,
+                        prerelease: true,
+                        body: renderReleaseNotes(receipt, repo),
+                    },
+                    'PATCH'
+                )
                 advancePointer(receipt)
                 return receipt
             },

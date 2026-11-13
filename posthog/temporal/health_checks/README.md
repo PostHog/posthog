@@ -91,6 +91,7 @@ class HealthCheck:
     schedule: str | None = None
     rollout_percentage: float = 1.0
     not_processed_threshold: float = 0.1
+    execution_timeout: timedelta = timedelta(hours=12)
     dry_run: bool = False
     active_since_days: int | None = DEFAULT_ACTIVE_SINCE_DAYS
 
@@ -98,17 +99,18 @@ class HealthCheck:
         raise NotImplementedError
 ```
 
-| Attribute                 | Type                    | Default                    | Description                                                                                                                       |
-| ------------------------- | ----------------------- | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| `name`                    | `str`                   | required                   | Unique name used in Temporal workflow and schedule naming                                                                         |
-| `kind`                    | `str`                   | required                   | Issue kind written to the `posthog_healthissue` table. Must be globally unique                                                    |
-| `owner`                   | `JobOwners`             | required                   | Team that owns this check (used for alert routing)                                                                                |
-| `policy`                  | `HealthExecutionPolicy` | `DEFAULT_EXECUTION_POLICY` | Controls batch size and concurrency (see [Execution policies](#execution-policies))                                               |
-| `schedule`                | `str \| None`           | `None`                     | Cron expression (UTC). Omit for manual-only checks                                                                                |
-| `rollout_percentage`      | `float`                 | `1.0`                      | Fraction of teams to include (0–1, e.g. 0.01 = 1%). Deterministic by team ID                                                      |
-| `not_processed_threshold` | `float`                 | `0.1`                      | Fail the workflow if this fraction of teams are skipped or errored                                                                |
-| `dry_run`                 | `bool`                  | `False`                    | Run detection but skip DB writes (upsert/resolve). Sets the default for scheduled runs; can be overridden per-run in the admin UI |
-| `active_since_days`       | `int \| None`           | `90`                       | Only process teams whose org has a member with `User.last_login` within this many days. Set to `None` to process all teams        |
+| Attribute                 | Type                    | Default                    | Description                                                                                                                                                                                  |
+| ------------------------- | ----------------------- | -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `name`                    | `str`                   | required                   | Unique name used in Temporal workflow and schedule naming                                                                                                                                    |
+| `kind`                    | `str`                   | required                   | Issue kind written to the `posthog_healthissue` table. Must be globally unique                                                                                                               |
+| `owner`                   | `JobOwners`             | required                   | Team that owns this check (used for alert routing)                                                                                                                                           |
+| `policy`                  | `HealthExecutionPolicy` | `DEFAULT_EXECUTION_POLICY` | Controls batch size and concurrency (see [Execution policies](#execution-policies))                                                                                                          |
+| `schedule`                | `str \| None`           | `None`                     | Cron expression (UTC). Omit for manual-only checks                                                                                                                                           |
+| `rollout_percentage`      | `float`                 | `1.0`                      | Fraction of teams to include (0–1, e.g. 0.01 = 1%). Deterministic by team ID                                                                                                                 |
+| `not_processed_threshold` | `float`                 | `0.1`                      | Fail the workflow if this fraction of teams are skipped or errored                                                                                                                           |
+| `execution_timeout`       | `timedelta`             | `12 hours`                 | Temporal closes the run after this time, including every continue-as-new run. A run stuck on a failed workflow task otherwise stays open, and the schedule skips every start until it closes |
+| `dry_run`                 | `bool`                  | `False`                    | Run detection but skip DB writes (upsert/resolve). Sets the default for scheduled runs; can be overridden per-run in the admin UI                                                            |
+| `active_since_days`       | `int \| None`           | `90`                       | Only process teams whose org has a member with `User.last_login` within this many days. Set to `None` to process all teams                                                                   |
 
 ## `HealthCheckResult`
 
@@ -153,6 +155,8 @@ On each check run, for every team in the batch:
 | `CLICKHOUSE_BATCH_EXECUTION_POLICY` | 250          | 1                | ClickHouse query checks |
 
 Teams are split into batches of `batch_size` IDs. Up to `max_concurrent` batches run concurrently, controlled by an `asyncio.Semaphore` in the Temporal workflow. Each batch activity has a retry policy (3 attempts, 30 s initial interval, exponential backoff up to 5 min).
+
+The workflow reads team IDs one page at a time, in ID order, and continues as new between pages when its history grows. A small `batch_size` therefore makes a run longer, but it cannot make Temporal end the run early.
 
 Set the `policy` class attribute on your `HealthCheck` subclass to choose one.
 
@@ -225,10 +229,60 @@ rows = execute_clickhouse_health_team_query(
 
 Default ClickHouse settings: `max_execution_time=30`, `max_threads=2`.
 
+## Daily rollups
+
+Checks that would scan days of raw `events` read a daily rollup on Postgres instead.
+A Dagster job per rollup reads one UTC day from ClickHouse and replaces that day in a small Postgres table in one transaction.
+
+| Table                               | Product       | Kept    | Dagster job                             | Read by                             |
+| ----------------------------------- | ------------- | ------- | --------------------------------------- | ----------------------------------- |
+| `growth_sdk_versions_daily`         | growth        | 10 days | `growth_sdk_versions_daily_job`         | `sdk_outdated`, the SDK Health page |
+| `web_analytics_events_health_daily` | web analytics | 35 days | `web_analytics_events_health_daily_job` | six web checks                      |
+| `web_analytics_host_proxy_daily`    | web analytics | 35 days | `web_analytics_host_proxy_daily_job`    | `partial_proxy`                     |
+
+### How a day is published
+
+The job runs at 01:00 UTC. It publishes yesterday, and refills the day before only if its rows or events moved by more than 1%, which picks up late events.
+It also publishes every day that retention keeps and that has no rows yet.
+So the first run after a deploy fills the whole retention window, and a day lost to an outage comes back on the next run.
+
+A filled day is refused, and the published day stays as it was, when:
+
+- it has no rows, which is what a ClickHouse outage looks like
+- it has more than 2M rows
+- it has fewer than half the rows of the median of the last 7 published days, unless the run is forced
+
+Rows for teams that no longer exist are dropped before writing, and team deletion removes a team's rows.
+Every run also deletes the rows of teams that no longer exist, which a fill can write while a team deletion runs.
+A refused or failed day does not stop the other days or the clean-up, and the run fails at the end, which alerts the owning team.
+Dagster retries a failed run twice, 15 minutes apart, unless every failed day was refused.
+
+To fill a day by hand, launch the job in Dagster with `days: ["2026-10-01", ...]`, and add `force: true` to publish a day the median rule refused.
+
+### Reading a rollup from a check
+
+Subclass `RollupHealthCheck` instead of `HealthCheck`, set `rollup_model` and `window_days`, and implement `detect_from_rollup(team_ids, window)`.
+The window ends at the latest published day (L).
+When L is missing or more than two days old, or any day of the window is missing, the base class raises `HealthCheckBatchSkipped`.
+The batch then keeps its issues, and the run fails once skipped teams pass `not_processed_threshold`.
+Events after L are not in the rollup, so a check that must see them adds a small live ClickHouse query from `window.live_since`.
+
+Read rows through `window_rows(model, team_ids, window)` (`rollups/freshness.py`).
+Name the rollup model in `READ_REPLICA_OPT_IN` to read it from the read replica.
+
+### Adding a rollup
+
+Subclass `DailyRollup` (`rollups/framework.py`) next to the product's model, with `columns`, `fill_sql()` and `retention_days`.
+The fill drops rows whose strings exceed a column's `max_length` or hold a NUL byte, but filter client-controlled values in `fill_sql()` too, so the dropped count stays near zero.
+A fill reads every team's events, so read event properties through their materialized columns where they exist.
+Build its job and schedule with `build_daily_rollup_definitions` (`posthog/dags/daily_rollups.py`) in the product's `dags/`, and register both in the product's Dagster location.
+The model needs a composite primary key over the natural key, an index on `day`, no foreign keys, and `EnvironmentScopedManager`, and the product facade must delete its rows on team deletion.
+
 ## ClickHouse kill switch
 
 Health checks are automatically skipped when the ClickHouse kill switch is active (LIGHT or FULL).
-The `get_team_id_batches` activity returns an empty list, and the workflow completes with `total_teams: 0`.
+The `get_team_id_page` activity returns a page marked `stopped_by_kill_switch`, also in the middle of a run.
+The workflow then stops and sends no metrics, so the last-run timestamp still shows the last run that checked every team.
 
 ## Admin UI
 

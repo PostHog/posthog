@@ -35,6 +35,26 @@ def test_model_comparison_arguments(arguments: list[str], expected: list[tuple[s
 
 
 @pytest.mark.parametrize(
+    "arm,expected",
+    [
+        ("codex:gpt-example,service_tier=flex", ("gpt-example", "flex", None)),
+        ("codex:gpt-example,reasoning_effort=low,service_tier=default", ("gpt-example", "default", "low")),
+        ("codex:gpt-example,service_tier=batch", None),
+        ("codex:gpt-example,service_tier=flex,service_tier=default", None),
+        ("codex:gpt-example,temperature=0", None),
+    ],
+)
+def test_comparison_arm_settings(arm: str, expected: tuple[str, str | None, str | None] | None) -> None:
+    arguments = ["suite", "--compare-model", "codex:gpt-example", "--compare-model", arm]
+    if expected is None:
+        with pytest.raises(SystemExit):
+            parse_args(arguments)
+        return
+    target = parse_args(arguments).comparison_models[1]
+    assert (target.model, target.service_tier, target.reasoning_effort) == expected
+
+
+@pytest.mark.parametrize(
     "argv,expected_delivery",
     [
         ([], "bundled"),

@@ -388,6 +388,14 @@ _CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
     # Supavisor's ECHECKOUT* above — a slot frees the moment another transaction returns its backend —
     # so a fresh reconnect recovers.
     "query_wait_timeout",
+    # PgBouncer's own `idle_transaction_timeout` setting: it disconnects a client that leaves a
+    # transaction open (idle) for longer than the configured limit, which is exactly what our
+    # server-cursor reads do between fetches during a slow delta-merge. Same bare, SQLSTATE-less
+    # error-packet shape as `query_wait_timeout` above, so psycopg surfaces it as ProtocolViolation
+    # rather than the `IdleInTransactionSessionTimeout` Postgres itself raises for the equivalent
+    # server-side `idle_in_transaction_session_timeout` (already matched by type above) — same
+    # transient class, just culled by the pooler instead of the server. A fresh reconnect recovers.
+    "idle transaction timeout",
     # psycopg's own message when `PQconnectStart` reports the connection BAD before the handshake
     # ever begins and libpq has no server-reported error text to attach (see
     # `psycopg.generators._connect` / `psycopg.pq.misc._clean_error_message`). Unlike every other
@@ -408,6 +416,15 @@ _CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
     # fresh reconnect recovers once the backend is reachable again. Match the stable phrase and
     # exclude the volatile upstream ip:port.
     "failed to connect to upstream",
+    # The twin of "authentication did not complete within" above for a Neon compute that's still
+    # mid-wake when the proxy gives up on it: "ERROR:  The endpoint is taking longer than expected
+    # to become active. Please wait a moment and try again." — Neon's own message explicitly asks
+    # for a retry. With sslmode=prefer (require_ssl off), this failed SSL attempt makes libpq fall
+    # back to a second, unencrypted one, which Neon separately refuses ("connection is insecure
+    # (try using `sslmode=require`)") — a second line appended to the same message, so matching this
+    # substring alone still classifies the whole thing. Same transient wake class as the other Neon
+    # entries here; a fresh connect after a short backoff succeeds once the compute finishes waking.
+    "taking longer than expected to become active",
 )
 
 # Supavisor (Supabase's connection pooler) doesn't surface a dropped upstream connection with a
@@ -437,6 +454,11 @@ _CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
 # "(authenticated)" wrapper would be too broad: a non-:closed "Internal error (authenticated): ..."
 # could be a permanent pooler/protocol failure that should surface immediately, not be retried.
 #
+# ":einval" is the same shape with a different Erlang reason: gen_tcp returns it (POSIX EINVAL,
+# "invalid argument") when a socket operation is attempted on a connection the port has already
+# torn down — the same dead-backend-socket condition as ":closed", just raised on whichever side of
+# the race loses after the peer closes. A fresh reconnect recovers the same way.
+#
 # Neon's own compute-side WAL relay ("walsender") surfaces the same generic XX000 InternalError_
 # when it loses connectivity to a safekeeper — the storage-tier peer that actually holds the WAL,
 # since a Neon compute doesn't keep it locally: "[walsender] Failed to read WAL (...): failed to
@@ -449,6 +471,7 @@ _POOLER_CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
     "echeckoutretries",
     "echeckouttimeout",
     "internal error (authenticated): :closed",
+    "internal error (authenticated): :einval",
     "failed to connect to safekeeper",
 )
 
@@ -2895,12 +2918,13 @@ def _get_primary_keys(
         cursor.execute(child_partition_pk_query)
         child_pk_rows = cursor.fetchall()
     except Exception as e:
-        # A transient connection drop here means the fallback never ran — swallowing it would
-        # capture noise and wrongly report "no primary key" off a dead cursor. Re-raise so the
-        # setup retry loop reconnects (mirrors the unwrapped primary query above and the
-        # duplicate-PK probe). Genuine query-incompatibility errors (e.g. an engine that can't
-        # bind this pg_catalog query) still degrade to best-effort.
-        if _is_connection_dropped_error(e):
+        # A transient connection drop or hot-standby recovery conflict here means the fallback
+        # never ran — swallowing it would capture noise and wrongly report "no primary key" off a
+        # dead or conflicted cursor. Re-raise so the setup retry loop reconnects (mirrors the
+        # unwrapped primary query above and the duplicate-PK probe, and the setup loop's own
+        # recovery-conflict handler a few frames up). Genuine query-incompatibility errors (e.g. an
+        # engine that can't bind this pg_catalog query) still degrade to best-effort.
+        if _is_connection_dropped_error(e) or _is_recovery_conflict_error(e):
             raise
         capture_exception(e)
         logger.warning(f"Child-partition fallback query failed for {table_name}: {e}")

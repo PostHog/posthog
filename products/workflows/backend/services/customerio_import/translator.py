@@ -7,9 +7,11 @@ the team can review the draft before enabling it. Nothing about people is read.
 
 import re
 import json
+import secrets
 from collections import deque
 from collections.abc import Iterator
 from email.utils import parseaddr
+from html import escape
 from typing import Any
 
 from posthog.dataclasses import frozen
@@ -18,6 +20,7 @@ from products.workflows.backend.facade.contracts import (
     CampaignSource,
     ImportNote,
     ImportOptions,
+    ImportSegment,
     SnippetRoom,
     TranslatedWorkflow,
 )
@@ -47,9 +50,13 @@ _DAY_NAMES = {
 }
 _WEEKDAYS = ["monday", "tuesday", "wednesday", "thursday", "friday"]
 _LAYOUT_CONTENT = re.compile(r"\{\{-?\s*content\s*-?\}\}")
+# Only a bare subject or one with a `default`, so other filters such as `upcase` keep the unsupported note.
+_MESSAGE_SUBJECT = re.compile(r"\{\{-?\s*message\.subject\s*(?:\|\s*default:\s*(?:'[^']*'|\"[^\"]*\")\s*)?-?\}\}")
+# Never resolves (RFC 6761), so a draft enabled before the URL is set can't reach a real host.
+_PLACEHOLDER_WEBHOOK_URL = "https://webhook-url-not-imported.invalid"
 _LIQUID_TAG = re.compile(r"\{\{.{0,500}?\}\}|\{%.{0,500}?%\}", re.DOTALL)
 _SANS_SERIF = "font-family: Arial, Helvetica, sans-serif;"
-_STATIC_SEGMENT_TYPES = {"static", "manual"}
+STATIC_SEGMENT_TYPES = frozenset({"static", "manual"})
 _SEGMENT_IDS = re.compile(r"\b(segments?) (\d+(?:, \d+)*)\b")
 _CHANNEL_NAMES = {
     "push_action": "push notification",
@@ -192,6 +199,8 @@ class _Builder:
                 "cohort_id": self.options.segment_cohorts[segments[0]],
                 "transition": "left" if inverse else "entered",
             }
+        if len(segments) == 1 and not attributes and segments[0] in self.options.pending_segment_cohorts:
+            return _empty_trigger()
         described = [f"in segment {segment}" for segment in segments] + [
             conditions.describe(attribute) for attribute in attributes
         ]
@@ -208,7 +217,9 @@ class _Builder:
         audience = conditions.decode(self.campaign.get("filters"))
         if not audience:
             return
-        translated = conditions.translate_condition(audience, self.options.segment_cohorts)
+        translated = conditions.translate_condition(
+            audience, self.options.segment_cohorts, self.options.pending_segment_cohorts
+        )
         if translated.properties:
             trigger["filters"]["properties"] = list(translated.properties)
         for description in translated.skipped:
@@ -232,7 +243,10 @@ class _Builder:
             return None
         conversion_type = self.campaign.get("conversion_type")
         window = _duration(self.campaign.get("conversion_window") or 0)
-        if conversion_type != "perform_event" or not self.campaign.get("conversion_event_name"):
+        if conversion_type == "perform_event" and not self.campaign.get("conversion_event_name"):
+            # New Customer.io automations have the goal switched on with no event until someone picks one.
+            return None
+        if conversion_type != "perform_event":
             self.note(
                 NoteLevel.UNSUPPORTED,
                 "The goal counts people entering or leaving a segment. Set a conversion goal on an event instead.",
@@ -318,20 +332,12 @@ class _Builder:
         return f"{match.group(1)} {', '.join(labels)}"
 
     def _segment_label(self, segment_id: str) -> str:
-        segment = self.options.segments.get(segment_id)
-        return f'"{segment.name}" ({segment_id})' if segment and segment.name else segment_id
+        return segment_label(segment_id, self.options.segments.get(segment_id))
 
     def _static_segment_notes(self) -> None:
-        trees: list[Any] = [self.campaign.get("trigger"), self.campaign.get("global_exit_conditions")]
-        trees.append(conditions.decode(self.campaign.get("filters")))
-        for action in self.source_actions.values():
-            trees.append(conditions.decode(action.get("preconditions")))
-            trees.append(conditions.decode(action.get("conditions")))
-            trees.extend(conditions.decode(item) for item in action.get("multi_conditions") or [])
-        referenced = dict.fromkeys(segment for tree in trees for segment in _segment_references(tree))
-        for segment_id in referenced:
+        for segment_id in referenced_segments(self.campaign, list(self.source_actions.values())):
             segment = self.options.segments.get(segment_id)
-            if segment is None or segment.type not in _STATIC_SEGMENT_TYPES:
+            if segment is None or segment.type not in STATIC_SEGMENT_TYPES:
                 continue
             self.note(
                 NoteLevel.NEEDS_INPUT,
@@ -407,7 +413,9 @@ class _Builder:
         precondition = conditions.decode(source.get("preconditions"))
         if not precondition:
             return
-        translated = conditions.translate_condition(precondition, self.options.segment_cohorts)
+        translated = conditions.translate_condition(
+            precondition, self.options.segment_cohorts, self.options.pending_segment_cohorts
+        )
         if translated.properties:
             action["filters"] = {"properties": list(translated.properties)}
         for description in translated.skipped:
@@ -451,17 +459,18 @@ class _Builder:
     def _email(self, source: dict[str, Any], action: dict[str, Any]) -> dict[str, Any]:
         template = self._template(source, action)
         recipient = template.get("recipient") or source.get("recipient") or "{{customer.email}}"
-        html = self._liquid(self._with_layout(template, action), action, "email body")
+        subject = template.get("subject") or source.get("subject") or ""
+        body = self._with_subject(self._with_layout(template, action), _html_subject(subject))
         email: dict[str, Any] = {
             "to": {"email": self._liquid(recipient, action, "recipient"), "name": ""},
             "from": self._sender(template, action),
             "replyTo": self._address(template, "reply_to_identity_id", "reply_to_id", "reply_to").email,
-            "subject": self._liquid(template.get("subject") or source.get("subject") or "", action, "subject"),
+            "subject": self._liquid(subject, action, "subject"),
             "preheader": self._liquid(template.get("preheader_text") or "", action, "preheader"),
-            "html": html,
+            "html": self._liquid(body, action, "email body"),
         }
         if template.get("body_plain"):
-            email["text"] = self._liquid(template["body_plain"], action, "plain-text body")
+            email["text"] = self._liquid(self._with_subject(template["body_plain"], subject), action, "plain-text body")
         if not template:
             # A draft needs a subject and a body to save. The note about the missing content asks for the real ones.
             email["subject"] = email["subject"] or action["name"]
@@ -487,6 +496,14 @@ class _Builder:
         if source.get("tracked") is False:
             config["tracking_enabled"] = False
         return {"type": "function_email", "config": config}
+
+    def _with_subject(self, body: str, subject: str) -> str:
+        """The body with Customer.io's `{{ message.subject }}` replaced by the subject, while the copies fit the room."""
+        count = len(_MESSAGE_SUBJECT.findall(body)) if subject else 0
+        if not count or count * len(subject) > self.snippet_room.remaining:
+            return body
+        self.snippet_room.remaining -= count * len(subject)
+        return _MESSAGE_SUBJECT.sub(lambda _: subject, body)
 
     def _with_layout(self, template: dict[str, Any], action: dict[str, Any]) -> str:
         body = template.get("body") or ""
@@ -541,6 +558,9 @@ class _Builder:
 
     def _category(self, source: dict[str, Any], config: dict[str, Any], action: dict[str, Any]) -> None:
         topic_id = source.get("subscription_topic_id")
+        if not topic_id and not source.get("send_to_unsubscribed"):
+            # An email step without its own topic sends under the automation's topic, unless it ignores opt-outs.
+            topic_id = self.campaign.get("subscription_topic_id")
         if topic_id:
             category = self.options.topic_categories.get(str(topic_id))
             if category is not None:
@@ -577,8 +597,9 @@ class _Builder:
                 )
             else:
                 secret_headers[name] = value
+        url = self._liquid(template.get("url") or "", action, "URL") or _PLACEHOLDER_WEBHOOK_URL
         inputs: dict[str, Any] = {
-            "url": {"value": self._liquid(template.get("url") or "", action, "URL"), "templating": "liquid"},
+            "url": {"value": url, "templating": "liquid"},
             "method": {"value": str(template.get("request_method") or "POST").upper()},
             "headers": {"value": headers, "templating": "liquid"},
         }
@@ -586,7 +607,7 @@ class _Builder:
             inputs["secret_headers"] = {"value": secret_headers}
         if body_text:
             try:
-                inputs["body"] = {"value": json.loads(body_text), "templating": "liquid"}
+                inputs["body"] = {"value": _json_with_liquid(body_text), "templating": "liquid"}
             except ValueError:
                 # Liquid outside a JSON string, like `{% if %}` around a key, makes the stored body invalid JSON.
                 self.note(
@@ -595,7 +616,12 @@ class _Builder:
                     action,
                 )
         if not template.get("url"):
-            self.note(NoteLevel.NEEDS_INPUT, "Set the webhook URL.", action)
+            host = source.get("hostname")
+            self.note(
+                NoteLevel.NEEDS_INPUT,
+                f"Set the webhook URL. Customer.io sends this request to {host}." if host else "Set the webhook URL.",
+                action,
+            )
         return {"type": "function", "config": {"template_id": "template-webhook", "inputs": inputs}}
 
     def _attribute_update(self, source: dict[str, Any], base: dict[str, Any]) -> dict[str, Any] | None:
@@ -605,7 +631,50 @@ class _Builder:
                 f"`{base['name']}` sets a journey attribute, which PostHog has no equivalent for. It was left out.",
             )
             return None
-        template = self._template(source, base)
+        properties = self._template_properties(self._template(source, base), base)
+        if not properties:
+            self.note(NoteLevel.NEEDS_INPUT, "Set the person properties this step updates.", base)
+        return {
+            **base,
+            "type": "function",
+            "config": {
+                "template_id": "template-posthog-update-person-properties",
+                "inputs": {
+                    "distinct_id": {"value": "{{ event.distinct_id }}", "templating": "liquid"},
+                    "set_properties": {"value": properties, "templating": "liquid"},
+                },
+            },
+        }
+
+    def _create_event(self, source: dict[str, Any], base: dict[str, Any]) -> dict[str, Any] | None:
+        event_name: Any = source.get("event_name")
+        # The editor stores the name as JSON, like `{"type": "static", "value": "signed_up"}`.
+        if isinstance(event_name, str) and event_name.lstrip().startswith("{"):
+            try:
+                event_name = json.loads(event_name)
+            except ValueError:
+                pass
+        if isinstance(event_name, dict):
+            event_name = event_name.get("value")
+        if not event_name:
+            self.note(NoteLevel.UNSUPPORTED, f"`{base['name']}` sends an event with no name, so it was left out.")
+            return None
+        inputs: dict[str, Any] = {
+            "event": {"value": self._liquid(str(event_name), base, "event name"), "templating": "liquid"},
+            "distinct_id": {"value": "{{ event.distinct_id }}", "templating": "liquid"},
+        }
+        if source.get("template_id") is not None:
+            properties = self._template_properties(self._template(source, base), base)
+            if properties:
+                inputs["properties"] = {"value": properties, "templating": "liquid"}
+        return {
+            **base,
+            "type": "function",
+            "config": {"template_id": "template-posthog-capture", "inputs": inputs},
+        }
+
+    def _template_properties(self, template: dict[str, Any], base: dict[str, Any]) -> dict[str, Any]:
+        """The `[{name, type, value}]` list that attribute update and create event steps keep in their template."""
         attributes: Any = []
         for raw in (template.get("body"), template.get("body_json")):
             if not raw:
@@ -627,36 +696,7 @@ class _Builder:
                 properties[str(attribute["name"])] = self._liquid(value or "", base, "property value")
             else:
                 properties[str(attribute["name"])] = value
-        if not properties:
-            self.note(NoteLevel.NEEDS_INPUT, "Set the person properties this step updates.", base)
-        return {
-            **base,
-            "type": "function",
-            "config": {
-                "template_id": "template-posthog-update-person-properties",
-                "inputs": {
-                    "distinct_id": {"value": "{{ event.distinct_id }}", "templating": "liquid"},
-                    "set_properties": {"value": properties, "templating": "liquid"},
-                },
-            },
-        }
-
-    def _create_event(self, source: dict[str, Any], base: dict[str, Any]) -> dict[str, Any] | None:
-        event_name = source.get("event_name")
-        if not event_name:
-            self.note(NoteLevel.UNSUPPORTED, f"`{base['name']}` sends an event with no name, so it was left out.")
-            return None
-        return {
-            **base,
-            "type": "function",
-            "config": {
-                "template_id": "template-posthog-capture",
-                "inputs": {
-                    "event": {"value": str(event_name)},
-                    "distinct_id": {"value": "{{ event.distinct_id }}", "templating": "liquid"},
-                },
-            },
-        }
+        return properties
 
     def _delay(self, action: dict[str, Any], seconds: Any) -> str:
         total = int(seconds or 0)
@@ -697,7 +737,9 @@ class _Builder:
                     NoteLevel.UNSUPPORTED, f"Wait condition {index + 1} could not be read and was left out.", base
                 )
                 continue
-            translated = conditions.translate_condition(condition, self.options.segment_cohorts)
+            translated = conditions.translate_condition(
+                condition, self.options.segment_cohorts, self.options.pending_segment_cohorts
+            )
             for description in translated.skipped:
                 self.note(NoteLevel.UNSUPPORTED, f"The wait for `{description}` was left out.", base)
             if translated.events:
@@ -768,7 +810,9 @@ class _Builder:
         posthog_conditions: list[dict[str, Any]] = []
         for index, item in enumerate(encoded):
             decoded = conditions.decode(item)
-            translated = conditions.translate_condition(decoded or [], self.options.segment_cohorts)
+            translated = conditions.translate_condition(
+                decoded or [], self.options.segment_cohorts, self.options.pending_segment_cohorts
+            )
             if decoded is None or translated.skipped or translated.events:
                 parts = list(translated.skipped) + [f"event {event['name']}" for event in translated.events]
                 detail = f" `{'; '.join(parts)}`" if parts else ""
@@ -851,6 +895,46 @@ def translate_campaign(
     source: CampaignSource, options: ImportOptions, snippet_room: SnippetRoom | None = None
 ) -> TranslatedWorkflow:
     return _Builder(source, options, snippet_room or SnippetRoom()).build()
+
+
+def referenced_segments(campaign: dict[str, Any], actions: list[dict[str, Any]]) -> list[str]:
+    """The ids of every Customer.io segment the automation's trigger, filters, exits and steps check, in order."""
+    trees: list[Any] = [campaign.get("trigger"), campaign.get("global_exit_conditions")]
+    trees.append(conditions.decode(campaign.get("filters")))
+    for action in actions:
+        trees.append(conditions.decode(action.get("preconditions")))
+        trees.append(conditions.decode(action.get("conditions")))
+        trees.extend(conditions.decode(item) for item in action.get("multi_conditions") or [])
+    return list(dict.fromkeys(segment for tree in trees for segment in _segment_references(tree)))
+
+
+def segments_checked_through_cohorts(campaign: dict[str, Any], actions: list[dict[str, Any]]) -> list[str]:
+    """The ids of the segments the translated workflow would check through a cohort, in order.
+
+    That is a trigger on one segment alone, and each condition that names exactly one segment. Exits and
+    multi-segment conditions never use a cohort, so a cohort made for them would go unused.
+    """
+    found: list[str] = []
+    trigger = campaign.get("trigger")
+    trigger_segments = _segment_references(trigger)
+    if len(trigger_segments) == 1 and not _attribute_leaves(trigger):
+        found.extend(trigger_segments)
+    condition_lists: list[Any] = [conditions.decode(campaign.get("filters"))]
+    for action in actions:
+        condition_lists.append(conditions.decode(action.get("preconditions")))
+        condition_lists.append(conditions.decode(action.get("conditions")))
+        condition_lists.extend(conditions.decode(item) for item in action.get("multi_conditions") or [])
+    for condition_list in condition_lists:
+        for condition in condition_list if isinstance(condition_list, list) else []:
+            if isinstance(condition, dict) and condition.get("type") in ("segments_negatable", "segments"):
+                segments = condition.get("segments") or []
+                if len(segments) == 1:
+                    found.append(str(segments[0]))
+    return list(dict.fromkeys(found))
+
+
+def segment_label(segment_id: str, segment: ImportSegment | None) -> str:
+    return f'"{segment.name}" ({segment_id})' if segment and segment.name else segment_id
 
 
 def _empty_trigger() -> dict[str, Any]:
@@ -987,6 +1071,17 @@ def _plain_name(name: Any) -> str:
     return text[:400]
 
 
+def _html_subject(subject: str) -> str:
+    """The subject escaped for HTML, with its Liquid tags left as they are."""
+    escaped: list[str] = []
+    position = 0
+    for tag in _LIQUID_TAG.finditer(subject):
+        escaped += [escape(subject[position : tag.start()]), tag.group()]
+        position = tag.end()
+    escaped.append(escape(subject[position:]))
+    return "".join(escaped)
+
+
 def _strip_comments(html: str) -> str:
     """Drop plain HTML comments, keeping Outlook's conditional ones (`<!--[if mso]>`, `<!--<![endif]-->`)."""
     parts: list[str] = []
@@ -1001,3 +1096,37 @@ def _strip_comments(html: str) -> str:
         position = end + 3
     parts.append(html[position:])
     return "".join(parts)
+
+
+def _json_with_liquid(text: str) -> Any:
+    """Parses a JSON body whose strings hold Liquid, like `"{{ customer.name | default: "" }}"`.
+
+    Quotes inside a tag make the raw text invalid JSON, so each tag is swapped for a placeholder while parsing.
+    Liquid outside a string still fails to parse.
+    """
+    try:
+        return json.loads(text)
+    except ValueError:
+        pass
+    # A random marker, so text in the body itself can never read as a placeholder.
+    marker = f"liquid-{secrets.token_hex(8)}-"
+    tags: dict[str, str] = {}
+
+    def hold(match: re.Match[str]) -> str:
+        key = f"{marker}{len(tags)}"
+        tags[key] = match.group(0)
+        return key
+
+    parsed = json.loads(_LIQUID_TAG.sub(hold, text))
+    placeholder = re.compile(re.escape(marker) + r"\d+")
+
+    def restore(value: Any) -> Any:
+        if isinstance(value, str):
+            return placeholder.sub(lambda match: tags.get(match.group(0), match.group(0)), value)
+        if isinstance(value, list):
+            return [restore(item) for item in value]
+        if isinstance(value, dict):
+            return {restore(key): restore(item) for key, item in value.items()}
+        return value
+
+    return restore(parsed)

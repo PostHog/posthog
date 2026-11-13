@@ -6,7 +6,7 @@ import { objectsEqual } from 'lib/utils/objects'
 import { pluralize } from 'lib/utils/strings'
 import { BREAKPOINT_COLUMN_COUNTS } from 'scenes/dashboard/dashboardUtils'
 
-import type { DashboardLayoutSize, DashboardTile } from '~/types'
+import type { DashboardLayoutSize, DashboardTile, TileGroupDisplay } from '~/types'
 
 import type { DashboardGridCompactor } from './dashboardCustomization'
 import type { DashboardTileGroupApi } from './generated/api.schemas'
@@ -22,6 +22,13 @@ export interface TileGroupMoveOptions {
     canTakeOut: boolean
 }
 
+export type TileGroupMoveDirection = 'up' | 'down'
+
+export interface TileGroupMoveDirections {
+    canMoveUp: boolean
+    canMoveDown: boolean
+}
+
 export function getTileGroupLabel(group: DashboardTileGroupApi, tileCount: number): string {
     return group.title || pluralize(tileCount, 'tile')
 }
@@ -30,6 +37,10 @@ const TILE_GROUP_SECTION_KEY_PREFIX = 'group-'
 
 export function isTileGroupSectionKey(sectionKey: string): boolean {
     return sectionKey.startsWith(TILE_GROUP_SECTION_KEY_PREFIX)
+}
+
+export function getTileGroupSectionKey(groupKey: string): string {
+    return `${TILE_GROUP_SECTION_KEY_PREFIX}${groupKey}`
 }
 
 function tilesInLayoutOrder(tiles: DashboardTile[], layout: Layout | undefined): DashboardTile[] {
@@ -45,15 +56,20 @@ function tilesInLayoutOrder(tiles: DashboardTile[], layout: Layout | undefined):
     })
 }
 
-/** Splits tiles into full-width bands: each group starts where its top-left tile is, other tiles fill the gaps. */
+/**
+ * Splits tiles into full-width bands: each group starts where its top-left tile is, other tiles fill the gaps.
+ * `emptyGroupKeys` are groups with no tiles yet, which go last so a new group shows at the bottom.
+ */
 export function getDashboardSections({
     tiles,
     layout,
     groups,
+    emptyGroupKeys = [],
 }: {
     tiles: DashboardTile[]
     layout: Layout | undefined
     groups: Record<string, DashboardTileGroupApi> | undefined
+    emptyGroupKeys?: string[]
 }): DashboardSection[] {
     const sections: DashboardSection[] = []
     const groupSections = new Map<string, DashboardSection>()
@@ -69,7 +85,7 @@ export function getDashboardSections({
             const group = groups && Object.hasOwn(groups, groupKey) ? groups[groupKey] : {}
             const section: DashboardSection = {
                 kind: 'group',
-                key: `${TILE_GROUP_SECTION_KEY_PREFIX}${groupKey}`,
+                key: getTileGroupSectionKey(groupKey),
                 groupKey,
                 group,
                 tiles: [tile],
@@ -82,13 +98,31 @@ export function getDashboardSections({
         if (last?.kind === 'tiles') {
             last.tiles.push(tile)
         } else {
-            // Named after the group above it, so the key holds when the band's own tiles reorder.
-            const key = last ? `tiles-after-${last.groupKey}` : 'tiles-start'
+            // Numbered among the bands outside any group, so the key holds when the band's own tiles reorder
+            // and when a group moves past the band.
+            const key = `tiles-${sections.filter((section) => section.kind === 'tiles').length}`
             sections.push({ kind: 'tiles', key, tiles: [tile] })
         }
     }
 
+    for (const groupKey of emptyGroupKeys) {
+        if (groupSections.has(groupKey)) {
+            continue
+        }
+        const group = groups && Object.hasOwn(groups, groupKey) ? groups[groupKey] : {}
+        sections.push({ kind: 'group', key: getTileGroupSectionKey(groupKey), groupKey, group, tiles: [] })
+    }
+
     return sections
+}
+
+/** Groups saved on the dashboard that no tile belongs to, such as one just added from the Add menu. */
+export function getEmptyTileGroupKeys(
+    tiles: DashboardTile[],
+    groups: Record<string, DashboardTileGroupApi> | undefined
+): string[] {
+    const usedGroupKeys = new Set(tiles.map((tile) => tile.group_key).filter(Boolean))
+    return Object.keys(groups ?? {}).filter((groupKey) => !usedGroupKeys.has(groupKey))
 }
 
 // Group keys can't hold a null character, so no real group shares this key.
@@ -191,7 +225,11 @@ export function getCollapsedTileGroupKeys({
     groups: Record<string, DashboardTileGroupApi> | undefined
     choices: Record<string, boolean> | undefined
 }): string[] {
-    const groupKeys = new Set(tiles.map((tile) => tile.group_key).filter((groupKey): groupKey is string => !!groupKey))
+    // A group with no tiles still shows a band to editors, so it can be closed too.
+    const groupKeys = new Set([
+        ...tiles.map((tile) => tile.group_key).filter((groupKey): groupKey is string => !!groupKey),
+        ...Object.keys(groups ?? {}),
+    ])
     return [...groupKeys].filter((groupKey) => {
         if (choices && Object.hasOwn(choices, groupKey)) {
             return choices[groupKey]
@@ -215,6 +253,88 @@ export function getTileGroupMoveOptions(sections: DashboardSection[]): Record<nu
             return section.tiles.map((tile) => [tile.id, options])
         })
     )
+}
+
+// Only the next band or tab can trade places, because empty groups always come last and the tab of tiles
+// outside any group always comes first. A band with no tiles has no rows to trade, and in tabs a group
+// trades places only with another group.
+function getTileGroupSwapIndex(
+    sections: DashboardSection[],
+    groupKey: string,
+    direction: TileGroupMoveDirection,
+    groupDisplay: TileGroupDisplay
+): number {
+    const index = sections.findIndex((section) => section.kind === 'group' && section.groupKey === groupKey)
+    const swapIndex = index + (direction === 'up' ? -1 : 1)
+    const neighbour = sections[swapIndex]
+    if (index < 0 || sections[index].tiles.length === 0 || !neighbour?.tiles.length) {
+        return -1
+    }
+    if (groupDisplay === 'tabs' && neighbour.kind !== 'group') {
+        return -1
+    }
+    return swapIndex
+}
+
+/** Empty when fewer than two bands or tabs can trade places, so no group shows move buttons that can never act. */
+export function getTileGroupMoveDirections(
+    sections: DashboardSection[],
+    groupDisplay: TileGroupDisplay
+): Record<string, TileGroupMoveDirections> {
+    const reorderable = sections.filter(
+        (section) => section.tiles.length > 0 && (groupDisplay === 'sections' || section.kind === 'group')
+    )
+    if (reorderable.length < 2) {
+        return {}
+    }
+    return Object.fromEntries(
+        sections.flatMap((section) =>
+            section.kind === 'group'
+                ? [
+                      [
+                          section.groupKey,
+                          {
+                              canMoveUp: getTileGroupSwapIndex(sections, section.groupKey, 'up', groupDisplay) >= 0,
+                              canMoveDown: getTileGroupSwapIndex(sections, section.groupKey, 'down', groupDisplay) >= 0,
+                          },
+                      ],
+                  ]
+                : []
+        )
+    )
+}
+
+/**
+ * `sections` are the bands or tabs as the dashboard shows them. Every tile keeps its place inside its own band or tab,
+ * so only their order changes.
+ */
+export function getLayoutAfterTileGroupMove({
+    layout,
+    sections,
+    groupKey,
+    direction,
+    groupDisplay,
+    compactor,
+}: {
+    layout: Layout
+    sections: DashboardSection[]
+    groupKey: string
+    direction: TileGroupMoveDirection
+    groupDisplay: TileGroupDisplay
+    compactor: Compactor
+}): Layout | null {
+    const index = sections.findIndex((section) => section.kind === 'group' && section.groupKey === groupKey)
+    const swapIndex = getTileGroupSwapIndex(sections, groupKey, direction, groupDisplay)
+    if (swapIndex < 0) {
+        return null
+    }
+    const sectionLayouts = sections.map(
+        (section) => getSectionLayouts({ sm: layout }, section.tiles, compactor).sm ?? []
+    )
+    const reordered = [...sectionLayouts]
+    reordered[index] = sectionLayouts[swapIndex]
+    reordered[swapIndex] = sectionLayouts[index]
+    return stackSectionLayouts(reordered)
 }
 
 export function getDropCell({
@@ -263,9 +383,9 @@ export function getLayoutAfterTileMove({
 }): Layout {
     const tileKey = tileId.toString()
     if (!cell || !target) {
-        const targetTileIds = new Set(
-            (target ? target.tiles : sections.flatMap((section) => section.tiles)).map((tile) => tile.id.toString())
-        )
+        // An empty group shows after every band, so its first tile goes below every tile too.
+        const targetTiles = target?.tiles.length ? target.tiles : sections.flatMap((section) => section.tiles)
+        const targetTileIds = new Set(targetTiles.map((tile) => tile.id.toString()))
         targetTileIds.delete(tileKey)
         const bottom = Math.max(0, ...layout.filter((item) => targetTileIds.has(item.i)).map((item) => item.y + item.h))
         return layout.map((item) => (item.i === tileKey ? { ...item, y: bottom } : item))

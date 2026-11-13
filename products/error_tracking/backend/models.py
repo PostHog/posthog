@@ -9,6 +9,7 @@ from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models, transaction
+from django.db.models.fields.json import KeyTransform
 from django.db.models.functions import Now
 from django.utils import timezone
 
@@ -235,6 +236,15 @@ class ErrorTrackingExternalReference(UUIDTModel):
 
     class Meta:
         db_table = "posthog_errortrackingexternalreference"
+        indexes = [
+            # The Linear status sync looks up a workspace's references by ticket identifier on every
+            # state change in that workspace, also for tickets that no reference links.
+            models.Index(
+                models.F("integration_id"),
+                KeyTransform("id", "external_context"),
+                name="et_extref_integration_ctx_id",
+            ),
+        ]
 
 
 class ErrorTrackingIssueCohort(UUIDTModel):
@@ -920,6 +930,7 @@ class ErrorTrackingSettings(models.Model):
         primary_key=True,
         related_name="error_tracking_settings",
     )
+    adaptive_ingestion_enabled = models.BooleanField(default=False, db_default=False)
     project_rate_limit_value = models.IntegerField(null=True, blank=True)
     project_rate_limit_bucket_size_minutes = models.IntegerField(null=True, blank=True)
     per_issue_rate_limit_value = models.IntegerField(null=True, blank=True)
@@ -1180,9 +1191,9 @@ class ErrorTrackingIssueChange(TeamScopedRootMixin, UUIDModel):
 
 
 class ErrorTrackingIssueSummary(TeamScopedRootMixin, UUIDModel):
-    """The model-written summary of one issue, generated on first read and served from here after that.
+    """The model-written summary of one issue, written only when the issue is created and never regenerated.
 
-    `input_hash` covers the inputs that make a summary stale, so a read can tell when to regenerate.
+    `input_hash` identifies the inputs the summary was written from. Nothing compares it with current inputs.
     """
 
     # db_constraint=False keeps inserts lock-free on posthog_team (a hot table);
@@ -1193,8 +1204,54 @@ class ErrorTrackingIssueSummary(TeamScopedRootMixin, UUIDModel):
     input_hash = models.CharField(max_length=64)
     model = models.CharField(max_length=128)
     generated_at = models.DateTimeField()
-    # When the inputs were last compared with `input_hash`. The regenerate interval runs from here.
+    # Set to `generated_at` when the summary is written, because nothing checks a stored summary against its inputs.
     checked_at = models.DateTimeField()
 
     class Meta:
         db_table = "posthog_errortrackingissuesummary"
+
+
+class ErrorTrackingIssueTag(TeamScopedRootMixin, UUIDModel):
+    """The answer to one tag question about an issue.
+
+    A row holds only the answer of the highest-ranked tagger that answered, so write it through
+    logic/issue_tags/writer.py. A missing row and a null `value` both read as unknown.
+    """
+
+    class Source(models.TextChoices):
+        MANUAL = "manual", "Manual"
+        JEV = "jev", "Jev"
+
+    # db_constraint=False keeps inserts lock-free on hot tables (posthog_team / posthog_user);
+    # team scoping is enforced at the ORM layer via TeamScopedRootMixin.
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    # The unique constraint leads with issue, so the default foreign key index is redundant.
+    issue = models.ForeignKey(ErrorTrackingIssue, on_delete=models.CASCADE, related_name="tags", db_index=False)
+    key = models.CharField(max_length=64)
+    value = models.BooleanField(null=True)
+    probability = models.FloatField(null=True)
+    source = models.CharField(max_length=32, choices=Source)
+    # The model or rule that made the answer, so a change to it can trigger a re-run.
+    model = models.CharField(max_length=128, null=True)
+    question_version = models.PositiveSmallIntegerField()
+    set_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        null=True,
+        db_constraint=False,
+        db_index=False,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_errortrackingissuetag"
+        constraints = [
+            models.UniqueConstraint(fields=["issue", "key"], name="et_issue_tag_issue_key_unique"),
+        ]
+        indexes = [
+            # Serves the SET_NULL update when a user is deleted. Answers from automated taggers have no
+            # person, so the index leaves them out.
+            models.Index(fields=["set_by"], name="et_issue_tag_set_by", condition=models.Q(set_by__isnull=False)),
+        ]

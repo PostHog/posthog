@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  getGatewayUsageUrl,
   getLlmGatewayUrl,
   resolveAiProduct,
   resolveGatewayProduct,
@@ -71,6 +70,11 @@ describe("resolveGatewayProduct", () => {
     {
       isInternal: true,
       originProduct: "metrics_import",
+      expected: "posthog_ai",
+    },
+    {
+      isInternal: false,
+      originProduct: "feature_flags",
       expected: "posthog_ai",
     },
     {
@@ -194,12 +198,9 @@ describe("getLlmGatewayUrl", () => {
     );
   });
 
-  it("maps review_hog to the background_agents legacy slug everywhere", () => {
+  it("maps review_hog to the background_agents legacy slug", () => {
     expect(getLlmGatewayUrl("http://localhost:8000", "review_hog")).toBe(
       "http://localhost:3308/background_agents",
-    );
-    expect(getGatewayUsageUrl("http://localhost:8000", "review_hog")).toBe(
-      "http://localhost:3308/v1/usage/background_agents",
     );
   });
 });

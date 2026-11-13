@@ -1,6 +1,7 @@
 from typing import Any
 
 from django.contrib import admin, messages
+from django.contrib.admin import ActionLocation
 from django.db import transaction
 from django.db.models import QuerySet
 from django.http import HttpRequest
@@ -55,9 +56,11 @@ class DashboardAdmin(admin.ModelAdmin):
     def get_queryset(self, request):
         return Dashboard.objects_including_soft_deleted.all()
 
-    def get_actions(self, request: HttpRequest, *args: Any, **kwargs: Any) -> dict[str, Any]:
+    def get_actions(
+        self, request: HttpRequest, action_location: ActionLocation = ActionLocation.CHANGE_LIST
+    ) -> dict[str, Any]:
         # Drop the built-in hard-delete: dashboards are soft-deleted product-side.
-        actions = super().get_actions(request, *args, **kwargs)
+        actions = super().get_actions(request, action_location=action_location)
         actions.pop("delete_selected", None)
         return actions
 
@@ -66,7 +69,7 @@ class DashboardAdmin(admin.ModelAdmin):
         description="Restore selected dashboards (incl. tiles and co-deleted insights)",
     )
     def restore_selected(self, request: HttpRequest, queryset: QuerySet[Dashboard]) -> None:
-        from products.dashboards.backend.api.dashboard import (  # noqa: PLC0415 — keeps the heavy API module off the django.setup() path
+        from products.dashboards.backend.presentation.views.dashboard import (  # noqa: PLC0415 — keeps the heavy API module off the django.setup() path
             DashboardSerializer,
         )
 

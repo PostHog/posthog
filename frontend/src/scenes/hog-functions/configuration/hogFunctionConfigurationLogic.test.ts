@@ -1,5 +1,6 @@
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -14,6 +15,7 @@ import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import {
     CyclotronJobFilterEvents,
+    CyclotronJobInputType,
     CyclotronJobFiltersType,
     FilterLogicalOperator,
     HogFunctionTemplateType,
@@ -21,6 +23,8 @@ import {
     PropertyFilterType,
     PropertyOperator,
 } from '~/types'
+
+import { hogFunctionTemplatesRetrieve } from 'products/cdp/frontend/generated/api'
 
 import { FLAG_CALLS_NOT_LOADABLE } from '../filters/flagCallsMatching'
 import { performWideEventsQueryInTwoPhases } from '../sampleEventsQuery'
@@ -30,10 +34,14 @@ jest.mock('lib/api', () => ({
     ...jest.requireActual('lib/api'),
     hogFunctions: {
         get: jest.fn(),
-        getTemplate: jest.fn(),
         update: jest.fn(),
         create: jest.fn(),
     },
+}))
+
+jest.mock('products/cdp/frontend/generated/api', () => ({
+    ...jest.requireActual('products/cdp/frontend/generated/api'),
+    hogFunctionTemplatesRetrieve: jest.fn(),
 }))
 
 jest.mock('~/queries/query', () => ({
@@ -49,6 +57,8 @@ jest.mock('../sampleEventsQuery', () => ({
 // the mock api object
 
 const mockApi = api.hogFunctions as jest.Mocked<typeof api.hogFunctions>
+// The logic reads the generated template as the handwritten `HogFunctionTemplateType`, so the fixtures use that shape.
+const mockGetTemplate = hogFunctionTemplatesRetrieve as unknown as jest.Mock<Promise<HogFunctionTemplateType>>
 
 const HOG_TEMPLATE: HogFunctionTemplateType = {
     free: false,
@@ -149,7 +159,7 @@ describe('hogFunctionConfigurationLogic', () => {
         beforeEach(() => {
             initKeaTests()
 
-            mockApi.getTemplate.mockReturnValue(Promise.resolve(HOG_TEMPLATE))
+            mockGetTemplate.mockReturnValue(Promise.resolve(HOG_TEMPLATE))
             mockApi.create.mockReturnValue(Promise.resolve(HOG_FUNCTION))
             mockApi.update.mockReturnValue(Promise.resolve(HOG_FUNCTION))
 
@@ -245,7 +255,7 @@ describe('hogFunctionConfigurationLogic', () => {
 
         beforeEach(() => {
             initKeaTests()
-            mockApi.getTemplate.mockReturnValue(Promise.resolve(LOG_TEMPLATE))
+            mockGetTemplate.mockReturnValue(Promise.resolve(LOG_TEMPLATE))
             logic = hogFunctionConfigurationLogic({ templateId: 'test' })
             logic.mount()
         })
@@ -295,7 +305,7 @@ describe('hogFunctionConfigurationLogic', () => {
 
         beforeEach(() => {
             initKeaTests()
-            mockApi.getTemplate.mockResolvedValue(TEMPLATE_WITH_DEFAULT_FILTERS)
+            mockGetTemplate.mockResolvedValue(TEMPLATE_WITH_DEFAULT_FILTERS)
         })
 
         it.each([
@@ -320,6 +330,172 @@ describe('hogFunctionConfigurationLogic', () => {
         })
     })
 
+    describe('duplicating a function', () => {
+        const TEMPLATE_WITH_SECRETS: HogFunctionTemplateType = {
+            ...HOG_TEMPLATE,
+            inputs_schema: [
+                ...(HOG_TEMPLATE.inputs_schema ?? []),
+                { key: 'api_key', type: 'string', label: 'API key', secret: true, required: false },
+                { key: 'secret_headers', type: 'dictionary', label: 'Secret headers', secret: true, required: false },
+            ],
+        }
+
+        beforeEach(() => {
+            initKeaTests()
+            mockGetTemplate.mockResolvedValue(TEMPLATE_WITH_SECRETS)
+            mockApi.create.mockResolvedValue(HOG_FUNCTION)
+        })
+
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
+        const MASKED_HEADERS = { secret_headers: { secret: true, value: { Authorization: '********' } } }
+        const NOTHING_KEPT = { api_key: undefined, secret_headers: undefined, headers: undefined }
+
+        it.each<
+            [
+                string,
+                Record<string, CyclotronJobInputType>,
+                CyclotronJobInputType | null,
+                Record<string, unknown>,
+                boolean,
+            ]
+        >([
+            ['drops a masked string secret', { api_key: { value: undefined, secret: true } }, null, NOTHING_KEPT, true],
+            ['drops a dictionary secret with masked entries', MASKED_HEADERS, null, NOTHING_KEPT, true],
+            [
+                'drops a secret dictionary the user typed a new row into',
+                MASKED_HEADERS,
+                { secret: false, value: { Authorization: '********', 'x-new': 'typed' } },
+                NOTHING_KEPT,
+                true,
+            ],
+            [
+                'drops a secret the user typed and did not save',
+                { api_key: { value: 'typed-key' } },
+                null,
+                NOTHING_KEPT,
+                true,
+            ],
+            [
+                'keeps the copy enabled when a secret was never set',
+                { api_key: { value: '' } },
+                null,
+                NOTHING_KEPT,
+                false,
+            ],
+            [
+                'drops an edited secret dictionary that has only masked rows left',
+                MASKED_HEADERS,
+                { secret: false, value: { Authorization: '********' } },
+                NOTHING_KEPT,
+                true,
+            ],
+            [
+                'keeps a plain header whose value looks like a mask',
+                { headers: { value: { 'x-literal': '********' } } },
+                null,
+                { ...NOTHING_KEPT, headers: { 'x-literal': '********' } },
+                false,
+            ],
+        ])('%s', async (_name, sourceInputs, editedSecretHeaders, expectedKept, dropsSecrets) => {
+            mockApi.get.mockResolvedValue({
+                ...HOG_FUNCTION,
+                inputs_schema: TEMPLATE_WITH_SECRETS.inputs_schema,
+                inputs: { url: { value: 'https://example.com' }, ...sourceInputs },
+                template: TEMPLATE_WITH_SECRETS,
+            })
+            logic = hogFunctionConfigurationLogic({ id: HOG_FUNCTION.id })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadHogFunctionSuccess'])
+            if (editedSecretHeaders) {
+                logic.actions.setConfigurationValue('inputs.secret_headers', editedSecretHeaders)
+                jest.spyOn(window, 'confirm').mockReturnValue(true)
+            }
+            const toast = jest.spyOn(lemonToast, 'info')
+            logic.actions.duplicate()
+            expect(toast).toHaveBeenCalledTimes(dropsSecrets ? 1 : 0)
+
+            const copyLogic = hogFunctionConfigurationLogic({ templateId: TEMPLATE_WITH_SECRETS.id })
+            copyLogic.mount()
+            await expectLogic(copyLogic).toDispatchActions(['loadTemplateSuccess'])
+            await expectLogic(copyLogic, () => {
+                copyLogic.actions.submitConfiguration()
+            }).toDispatchActions(['submitConfigurationSuccess'])
+
+            const sent = mockApi.create.mock.calls[0][0]
+            expect(sent.enabled).toEqual(!dropsSecrets)
+            const sentInputs = sent.inputs ?? {}
+            expect(Object.entries(sentInputs).filter(([, input]) => input?.secret)).toEqual([])
+            expect({
+                api_key: sentInputs.api_key?.value,
+                secret_headers: sentInputs.secret_headers?.value,
+                headers: sentInputs.headers?.value,
+            }).toEqual(expectedKept)
+            expect(sentInputs.url).toMatchObject({ value: 'https://example.com' })
+        })
+
+        it('starts the copy disabled when only a mapping loses its secret', async () => {
+            mockApi.get.mockResolvedValue({
+                ...HOG_FUNCTION,
+                inputs: { url: { value: 'https://example.com' } },
+                mappings: [
+                    {
+                        name: 'Mapping with a secret',
+                        inputs_schema: [
+                            { key: 'token', type: 'string', label: 'Token', secret: true, required: false },
+                            { key: 'channel', type: 'string', label: 'Channel', required: false },
+                        ],
+                        inputs: { token: { value: undefined, secret: true }, channel: { value: 'alerts' } },
+                    },
+                ],
+                template: TEMPLATE_WITH_SECRETS,
+            })
+            logic = hogFunctionConfigurationLogic({ id: HOG_FUNCTION.id })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadHogFunctionSuccess'])
+            const toast = jest.spyOn(lemonToast, 'info')
+            logic.actions.duplicate()
+            expect(toast).toHaveBeenCalledTimes(1)
+
+            const copyLogic = hogFunctionConfigurationLogic({ templateId: TEMPLATE_WITH_SECRETS.id })
+            copyLogic.mount()
+            await expectLogic(copyLogic).toDispatchActions(['loadTemplateSuccess'])
+            await expectLogic(copyLogic, () => {
+                copyLogic.actions.submitConfiguration()
+            }).toDispatchActions(['submitConfigurationSuccess'])
+
+            const sent = mockApi.create.mock.calls[0][0]
+            expect(sent.enabled).toEqual(false)
+            const mappingInputs = sent.mappings?.[0].inputs ?? {}
+            expect(Object.entries(mappingInputs).filter(([, input]) => input?.secret)).toEqual([])
+            expect(mappingInputs.token?.value).toBeUndefined()
+            expect(mappingInputs.channel).toMatchObject({ value: 'alerts' })
+        })
+
+        it('keeps the user on their edited function without a toast when they cancel leaving it', async () => {
+            mockApi.get.mockResolvedValue({
+                ...HOG_FUNCTION,
+                inputs_schema: TEMPLATE_WITH_SECRETS.inputs_schema,
+                inputs: { api_key: { value: undefined, secret: true } },
+                template: TEMPLATE_WITH_SECRETS,
+            })
+            logic = hogFunctionConfigurationLogic({ id: HOG_FUNCTION.id })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadHogFunctionSuccess'])
+            logic.actions.setConfigurationValue('name', 'Edited name')
+            jest.spyOn(window, 'confirm').mockReturnValue(false)
+            const toast = jest.spyOn(lemonToast, 'info')
+            const { pathname } = router.values.location
+
+            logic.actions.duplicate()
+
+            expect(router.values.location.pathname).toEqual(pathname)
+            expect(toast).not.toHaveBeenCalled()
+        })
+    })
+
     describe('mapping preview filters', () => {
         beforeEach(() => {
             initKeaTests()
@@ -331,7 +507,7 @@ describe('hogFunctionConfigurationLogic', () => {
                 actions: [{ id: '99', name: 'Globally configured action', type: 'actions' }],
                 properties: [{ type: PropertyFilterType.HogQL, key: "properties.plan = 'paid'" }],
             }
-            mockApi.getTemplate.mockResolvedValue({
+            mockGetTemplate.mockResolvedValue({
                 ...HOG_TEMPLATE,
                 filters: globalFilters,
                 mapping_templates: [
@@ -377,7 +553,7 @@ describe('hogFunctionConfigurationLogic', () => {
         })
 
         it('matches every event for an all-events mapping', async () => {
-            mockApi.getTemplate.mockResolvedValue({
+            mockGetTemplate.mockResolvedValue({
                 ...HOG_TEMPLATE,
                 mapping_templates: [
                     {
@@ -408,7 +584,7 @@ describe('hogFunctionConfigurationLogic', () => {
         })
 
         it('matches every event when a mapping has no event or action matchers', async () => {
-            mockApi.getTemplate.mockResolvedValue({
+            mockGetTemplate.mockResolvedValue({
                 ...HOG_TEMPLATE,
                 mapping_templates: [
                     {
@@ -442,7 +618,7 @@ describe('hogFunctionConfigurationLogic', () => {
             const globalProperties: NonNullable<CyclotronJobFiltersType['properties']> = [
                 { type: PropertyFilterType.HogQL, key: "properties.plan = 'paid'" },
             ]
-            mockApi.getTemplate.mockResolvedValue({
+            mockGetTemplate.mockResolvedValue({
                 ...HOG_TEMPLATE,
                 filters: { properties: globalProperties },
                 mapping_templates: [
@@ -484,29 +660,49 @@ describe('hogFunctionConfigurationLogic', () => {
         })
     })
 
-    describe('loading a missing function', () => {
+    describe('loading a missing function or template', () => {
         beforeEach(() => {
             initKeaTests()
         })
 
-        it('resolves to null on a 404 so the not-found state renders without filing an exception', async () => {
-            // A cross-project deep link 404s here; the loader must swallow it rather than reject,
-            // which would surface as an unhandled rejection in error tracking.
-            mockApi.get.mockRejectedValue(new ApiError('Not found', 404))
-            logic = hogFunctionConfigurationLogic({ id: 'missing-id' })
+        it.each([
+            { case: 'function', props: { id: 'missing-id' }, mockFn: mockApi.get, loader: 'loadHogFunction' },
+            {
+                case: 'template',
+                props: { templateId: 'template-missing' },
+                mockFn: mockGetTemplate,
+                loader: 'loadTemplate',
+            },
+        ] as const)(
+            'resolves a missing $case to null on a 404 so the not-found state renders without filing an exception',
+            async ({ props, mockFn, loader }) => {
+                // A cross-project deep link or a bad template id 404s here; the loader must swallow it rather
+                // than reject, which would surface as an unhandled rejection in error tracking.
+                mockFn.mockRejectedValue(new ApiError('Not found', 404))
+                logic = hogFunctionConfigurationLogic(props)
+                logic.mount()
+
+                await expectLogic(logic).toDispatchActions([loader, `${loader}Success`])
+                expect(logic.values.hogFunction).toBeNull()
+                expect(logic.values.template).toBeNull()
+                expect(logic.values.loaded).toBe(false)
+            }
+        )
+
+        it.each([
+            { case: 'function', props: { id: 'boom-id' }, mockFn: mockApi.get, loader: 'loadHogFunction' },
+            {
+                case: 'template',
+                props: { templateId: 'template-boom' },
+                mockFn: mockGetTemplate,
+                loader: 'loadTemplate',
+            },
+        ] as const)('still rejects a $case load on non-404 errors', async ({ props, mockFn, loader }) => {
+            mockFn.mockRejectedValue(new ApiError('Boom', 500))
+            logic = hogFunctionConfigurationLogic(props)
             logic.mount()
 
-            await expectLogic(logic).toDispatchActions(['loadHogFunction', 'loadHogFunctionSuccess'])
-            expect(logic.values.hogFunction).toBeNull()
-            expect(logic.values.loaded).toBe(false)
-        })
-
-        it('still rejects on non-404 errors', async () => {
-            mockApi.get.mockRejectedValue(new ApiError('Boom', 500))
-            logic = hogFunctionConfigurationLogic({ id: 'boom-id' })
-            logic.mount()
-
-            await expectLogic(logic).toDispatchActions(['loadHogFunction', 'loadHogFunctionFailure'])
+            await expectLogic(logic).toDispatchActions([loader, `${loader}Failure`])
         })
     })
 
@@ -563,7 +759,7 @@ describe('hogFunctionConfigurationLogic', () => {
             mode: FlagEvaluationsModeEnumApi,
             events: CyclotronJobFilterEvents[] = [FLAG_CALLED]
         ): void {
-            mockApi.getTemplate.mockReturnValue(Promise.resolve({ ...HOG_TEMPLATE, filters: { events } }))
+            mockGetTemplate.mockReturnValue(Promise.resolve({ ...HOG_TEMPLATE, filters: { events } }))
             teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, flag_evaluations_mode: mode })
             logic = hogFunctionConfigurationLogic({ templateId: 'test' })
             logic.mount()

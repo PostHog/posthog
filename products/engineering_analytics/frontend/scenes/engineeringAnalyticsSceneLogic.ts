@@ -7,7 +7,6 @@ import { Breadcrumb } from '~/types'
 import { repoBreadcrumbs } from '../lib/repoBreadcrumbs'
 import { engineeringAnalyticsLogic } from './engineeringAnalyticsLogic'
 
-/** The root scene's views: the repo hub and the pull request, workflow, test, deploy, team, and author list pages. */
 export type EngineeringAnalyticsView = 'hub' | 'pull-requests' | 'workflows' | 'tests' | 'deploys' | 'teams' | 'authors'
 
 /** The scene subtitle. Teams and authors are organization-wide on GitHub, so their tabs say which

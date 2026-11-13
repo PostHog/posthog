@@ -2,6 +2,7 @@ from contextlib import nullcontext
 from datetime import UTC, datetime
 
 import pytest
+from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
 
 from django.db import connection
@@ -15,6 +16,7 @@ from parameterized import parameterized
 from posthog.models.team import Team
 from posthog.models.team.util import delete_team_records
 from posthog.models.user import User
+from posthog.test.fixtures import create_app_metric2
 
 from products.cohorts.backend.facade.ready_signals import realtime_cohort_ready
 from products.cohorts.backend.models.cohort import Cohort, CohortType
@@ -24,6 +26,9 @@ from products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job imp
     REALTIME_COHORT_WAIT_LIMIT,
     handle_hog_flow_batch_job_created,
 )
+from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
+from products.workflows.backend.services.batch_run_outcome import settle_batch_job_outcome
+from products.workflows.backend.utils.audience_snapshot import AUDIENCE_SNAPSHOT_WAIT_LIMIT
 
 
 @override_settings(REALTIME_COHORT_TEAM_ALLOWLIST="all")
@@ -72,6 +77,40 @@ class TestHogFlowBatchJob(TestCase):
         assert batch_job.variables == [{"key": "event_name", "value": "$pageview"}]
         assert str(batch_job) == f"HogFlow batch run {batch_job.id}"
         mock_create_invocation.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("without_a_rate_limit", None, 3000, None),
+            ("with_a_qualifying_rate_limit", {"count": 60, "period": "hour"}, 60 * 24 * 7, None),
+            ("when_the_call_times_out", {"count": 60, "period": "hour"}, 60 * 24 * 7, requests.ReadTimeout()),
+        ]
+    )
+    @override_settings(
+        WORKFLOWS_EMAIL_TIER_MODE="enforce",
+        WORKFLOWS_EMAIL_TIER_DAILY_CAPS=[100, 1000, 3000],
+        WORKFLOWS_EMAIL_TIER_BATCH_AUDIENCE_CAPS=[100, 1000, 3000],
+        WORKFLOWS_RATE_LIMITED_BATCH_MAX_DAILY_SHARE=0.5,
+        WORKFLOWS_RATE_LIMITED_BATCH_MAX_DAYS=7,
+        HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS=set(),
+    )
+    @patch(
+        "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
+    )
+    def test_dispatch_caps_the_audience_with_the_workflows_rate_limit(
+        self, _name, email_rate_limit, expected_cap, invocation_error, mock_create_invocation
+    ):
+        TeamWorkflowsConfig.objects.update_or_create(team=self.team, defaults={"email_sending_tier": 2})
+        self.hog_flow.actions = [*self.hog_flow.actions, {"id": "email", "type": "function_email", "config": {}}]
+        self.hog_flow.email_sending_rate_limit = email_rate_limit
+        self.hog_flow.save()
+        mock_create_invocation.side_effect = invocation_error
+
+        with pytest.raises(type(invocation_error)) if invocation_error else nullcontext():
+            HogFlowBatchJob.objects.create(team=self.team, hog_flow=self.hog_flow)
+
+        assert mock_create_invocation.call_args.kwargs["max_audience_size"] == expected_cap
+        # A timed-out call may still have queued the resolver, so the cap that locks the rate limit stays recorded.
+        assert HogFlowBatchJob.objects.get(hog_flow=self.hog_flow).max_audience_size == expected_cap
 
     @patch(
         "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
@@ -163,6 +202,44 @@ class TestHogFlowBatchJob(TestCase):
 
     def _realtime_audience(self, cohort: Cohort) -> dict:
         return {"properties": [{"key": "id", "type": "cohort", "value": cohort.pk, "operator": "in"}]}
+
+    @parameterized.expand(
+        [
+            ("flag_on", True, {"audience_type": "persons"}, True),
+            ("flag_off", False, {"audience_type": "persons"}, False),
+            # Account audiences and realtime cohorts keep their own paging paths.
+            ("accounts_audience", True, {"audience_type": "accounts"}, False),
+        ]
+    )
+    @patch("products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.use_audience_snapshot")
+    @patch(
+        "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
+    )
+    def test_hog_flow_batch_job_asks_the_resolver_to_snapshot_a_person_audience(
+        self, _name, flag_on, filters, expect_snapshot, mock_create_invocation, mock_flag
+    ):
+        mock_flag.return_value = flag_on
+
+        job = HogFlowBatchJob.objects.create(team=self.team, hog_flow=self.hog_flow, filters=filters)
+
+        audience_snapshot = mock_create_invocation.call_args.kwargs["audience_snapshot"]
+        if expect_snapshot:
+            assert audience_snapshot == {"wait_until": (job.created_at + AUDIENCE_SNAPSHOT_WAIT_LIMIT).isoformat()}
+        else:
+            assert audience_snapshot is None
+        assert job.status == HogFlowBatchJob.State.QUEUED
+
+    @patch("products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.use_audience_snapshot")
+    @patch(
+        "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
+    )
+    def test_realtime_cohort_audience_is_not_snapshotted(self, mock_create_invocation, mock_flag):
+        mock_flag.return_value = True
+        cohort = self._realtime_cohort(ready=True)
+
+        HogFlowBatchJob.objects.create(team=self.team, hog_flow=self.hog_flow, filters=self._realtime_audience(cohort))
+
+        assert mock_create_invocation.call_args.kwargs["audience_snapshot"] is None
 
     @parameterized.expand(
         [
@@ -383,3 +460,73 @@ class TestHogFlowBatchJob(TestCase):
         batch_job = HogFlowBatchJob.objects.create(team=self.team, hog_flow=self.hog_flow, variables=variables)
 
         assert batch_job.variables == variables
+
+
+class TestBatchRunOutcome(ClickhouseTestMixin, BaseTest):
+    def _completed_run(
+        self, step_failures: dict[str, int], *, started: int, finished: int, aborted: int
+    ) -> HogFlowBatchJob:
+        hog_flow = HogFlow.objects.create(
+            team=self.team,
+            name="Broadcast",
+            actions=[{"id": "email", "type": "function_email"}, {"id": "webhook", "type": "function"}],
+        )
+        with patch(
+            "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
+        ):
+            job = HogFlowBatchJob.objects.create(team=self.team, hog_flow=hog_flow, status="completed")
+
+        def record(metric_name: str, count: int, instance_id: str = "") -> None:
+            if count:
+                create_app_metric2(
+                    team_id=self.team.id,
+                    app_source="hog_flow",
+                    timestamp=job.created_at,
+                    app_source_id=str(job.id),
+                    instance_id=instance_id,
+                    metric_name=metric_name,
+                    count=count,
+                )
+
+        record("triggered", started)
+        record("succeeded", finished - aborted)
+        record("failed", aborted)
+        for step, count in step_failures.items():
+            record("failed", count, instance_id=step)
+        return job
+
+    @parameterized.expand(
+        [
+            ("no_send_errored", {}, 0, "completed"),
+            ("some_sends_errored", {"email": 1}, 0, "partially_failed"),
+            ("every_send_errored", {"email": 3}, 0, "failed"),
+            ("every_send_errored_and_aborted_the_run", {"email": 3}, 3, "failed"),
+            ("the_same_people_errored_at_two_steps", {"email": 2, "webhook": 2}, 0, "partially_failed"),
+            ("every_send_delivered_and_a_later_webhook_errored", {"webhook": 3}, 0, "completed"),
+        ]
+    )
+    def test_settled_run_status_follows_its_errored_sends(self, _name, step_failures, aborted, expected_status):
+        job = self._completed_run(step_failures, started=3, finished=3, aborted=aborted)
+
+        assert settle_batch_job_outcome(team_id=self.team.id, batch_job_id=str(job.id), final_check=False)
+        job.refresh_from_db()
+        assert job.status == expected_status
+
+    @parameterized.expand(
+        [
+            ("still_sending", 3, False, False, "completed"),
+            ("still_sending_final_check", 3, True, True, "partially_failed"),
+            ("metrics_not_arrived", 0, False, False, "completed"),
+        ]
+    )
+    def test_unsettled_run_keeps_its_status_until_the_final_check(
+        self, _name, started, final_check, settled, expected_status
+    ):
+        job = self._completed_run({"email": 1}, started=started, finished=min(started, 1), aborted=0)
+
+        outcome_written = settle_batch_job_outcome(
+            team_id=self.team.id, batch_job_id=str(job.id), final_check=final_check
+        )
+        assert outcome_written is settled
+        job.refresh_from_db()
+        assert job.status == expected_status
