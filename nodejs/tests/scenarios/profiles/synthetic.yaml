@@ -6,4 +6,6 @@ traffic:
         ratePerSecond: 2
     transactional_email:
         ratePerSecond: 1
+    bounce_followup:
+        ratePerSecond: 0.5
 settings: {}
