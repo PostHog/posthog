@@ -56,7 +56,7 @@ export const ReleasesCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Change the name, description, owner or linked flags of a release.
+ * Change the name, description, owner or linked flags, broadcasts, surveys and insights of a release.
  */
 export const releasesPartialUpdateBodyNameMax = 255
 
