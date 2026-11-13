@@ -88,10 +88,13 @@ function createQuoteTracker(input: string): (offset: number) => boolean {
     }
 }
 
-/** Takes every complete, known `facet:value` token out of the input. The rest stays as typed. */
+type TakesValue = (facet: FacetDefinition<unknown>, value: string) => boolean
+
+/** Takes every complete `facet:value` token whose facet takes the value out of the input. The rest stays as typed. */
 function extractCompleteFilters(
     input: string,
-    facets: FacetDefinition<unknown>[]
+    facets: FacetDefinition<unknown>[],
+    takesValue: TakesValue
 ): { filters: FacetFilter[]; remaining: string } {
     const filters: FacetFilter[] = []
     const isInsideOpenQuote = createQuoteTracker(input)
@@ -109,7 +112,7 @@ function extractCompleteFilters(
             const facet = findFacet(facets, key)
             const value = facet && normalizeFacetValue(facet, tokenValue(quoted, bare))
             // A token inside a quoted value that is still being typed is part of that value.
-            if (!facet || !value || isInsideOpenQuote(offset)) {
+            if (!facet || !value || isInsideOpenQuote(offset) || !takesValue(facet, value)) {
                 return token
             }
             filters.push({ facet: facet.key, value, negated: minus === '-' })
@@ -209,6 +212,20 @@ function reportFilterChange(
 }
 
 export type CountValuesIn = (scope: FacetSearchValue) => (facetKey: string) => FacetValueCount[]
+
+const EVERY_ITEM: FacetSearchValue = { filters: [], text: '' }
+
+/** A facet takes a free text value, or a value that a loaded item has or the facet pins. */
+function facetTakesValue(countValuesIn: CountValuesIn): TakesValue {
+    return (facet, value) => {
+        if (facet.freeTextValues) {
+            return true
+        }
+        const typed = [value, facet.resolveValue?.(value) ?? value].map((v) => v.toLowerCase())
+        const known = [...(facet.pinnedValues ?? []), ...countValuesIn(EVERY_ITEM)(facet.key).map(({ value: v }) => v)]
+        return known.some((v) => typed.includes(v.toLowerCase()))
+    }
+}
 
 interface SuggestionSource {
     facets: FacetDefinition<unknown>[]
@@ -627,7 +644,7 @@ export const facetSearchBarLogic = kea<facetSearchBarLogicType>([
             // still change the value, so during a composition nothing becomes a pill until it ends.
             const { filters, remaining } = values.composing
                 ? { filters: [], remaining: input }
-                : extractCompleteFilters(input, props.facets)
+                : extractCompleteFilters(input, props.facets, facetTakesValue(values.countValuesIn))
             const known = new Set(props.value.filters.map((filter) => resolvedFacetFilterKey(props.facets, filter)))
             const added = filters.filter((filter) => {
                 const key = resolvedFacetFilterKey(props.facets, filter)
