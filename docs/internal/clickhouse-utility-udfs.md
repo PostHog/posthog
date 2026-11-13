@@ -30,9 +30,9 @@ These limits bound reuse, not the size of an accepted property: a large retained
 
 The event, person, and temporary cleaners write every top-level object and array as a JSON string of canonical text.
 The cleaner parses the value and writes it back with no whitespace and with the keys of every object in byte order.
-It spells numbers and strings the way ClickHouse prints them from a properties document with `JSONExtractRaw`, so `2.0` is stored as `2` and `caf\u00e9` as `café`.
+It escapes strings the way ClickHouse prints them from a properties document with `JSONExtractRaw`, so `caf\u00e9` is stored as `café`.
 Two values with the same content therefore have the same string, so grouping by the property or comparing it compares the content.
-`null` fields and duplicate keys inside the value are kept, and an integer that does not fit 64 bits is stored as a string.
+Numbers are copied as they were sent, so `2.0` and `2` stay different, and `null` fields and duplicate keys inside the value are kept.
 A search for a substring of the value, such as a file path in a stack trace, matches the stored string.
 A read of the whole value returns the string, and a read of a field inside it parses the string.
 

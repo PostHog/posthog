@@ -7,7 +7,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"math"
 	"os"
 	"runtime/pprof"
 	"slices"
@@ -140,7 +139,7 @@ const (
 	kindNumber
 	kindBool
 	kindNull
-	// The JSON text of an object or array that is stored as a string. It orders before kindObject because the
+	// The escaped text of an object or array that is stored as a string. It orders before kindObject because the
 	// cleaner treats it as a scalar: nothing inside it is cleaned, deduplicated, or checked for nulls.
 	kindRaw
 	kindObject
@@ -187,8 +186,9 @@ type processor struct {
 	nullKeysOver bool
 	// True while parsing a properties document. Every top-level object and array, except the event feature-flags
 	// map, is then stored as a string of its JSON text. It is false for the envelope row itself.
-	captureNested bool
-	nestedBuf     bytes.Buffer
+	captureNested  bool
+	keepNumberText bool
+	nestedBuf      bytes.Buffer
 }
 
 func processLine(rawLine []byte, buf *bytes.Buffer) error {
@@ -211,6 +211,10 @@ func (p *processor) prepareLine(rawLine []byte, buf *bytes.Buffer) {
 	if p.stringBuf.Cap() > max(64*1024, 2*len(rawLine)) {
 		p.stringBuf = bytes.Buffer{}
 	}
+	if p.nestedBuf.Cap() > max(64*1024, 2*len(rawLine)) {
+		p.nestedBuf = bytes.Buffer{}
+	}
+	p.nestedBuf.Reset()
 	p.resetParser(rawLine)
 }
 
@@ -464,7 +468,7 @@ func (p *processor) parseValue(depth int) (*value, error) {
 			if v == nil {
 				return nil, nil
 			}
-			if shouldStringifyNumber(num) {
+			if !p.keepNumberText && shouldStringifyNumber(num) {
 				p.mutated = true
 				v.kind = kindString
 			}
@@ -543,65 +547,42 @@ func (p *processor) keepsStructure(key string) bool {
 	return key == featureFlagsKey && (p.kind == eventEnvelope || p.kind == eventProperties)
 }
 
-// Equal content must have equal stored text: compact, keys in byte order, spelled as JSONExtractRaw prints it.
+// Equal content must have equal stored text: compact, keys in byte order. Numbers, nulls and duplicate keys stay.
 func (p *processor) parseNestedAsString(depth int) (*value, error) {
 	p.skipWS()
 	if p.pos >= len(p.data) || (p.data[p.pos] != '{' && p.data[p.pos] != '[') {
 		return p.parseValue(depth)
 	}
+	p.keepNumberText = true
 	tree, err := p.parseValue(depth)
+	p.keepNumberText = false
 	if err != nil {
 		return nil, err
 	}
-	canonicalize(tree)
-	p.nestedBuf.Reset()
-	p.writeValue(&p.nestedBuf, tree)
+	sortKeys(tree)
+	// The text stays in nestedBuf until the row is written, so it is not copied again.
+	start := p.nestedBuf.Len()
+	p.writeValueAt(&p.nestedBuf, tree, true)
 	p.recycle(tree)
 	// The stored value is a string, so the output differs from the input and the line cannot be copied through.
 	p.mutated = true
 	v := p.newValue(kindRaw)
-	v.s = p.nestedBuf.String()
+	v.s = borrowedString(p.nestedBuf.Bytes()[start:])
 	return v, nil
 }
 
-func canonicalize(v *value) {
+func sortKeys(v *value) {
 	switch v.kind {
-	case kindNumber:
-		v.s = canonicalNumber(v.s)
 	case kindObject:
 		slices.SortStableFunc(v.entries, func(a, b entry) int { return strings.Compare(a.key, b.key) })
 		for _, entry := range v.entries {
-			canonicalize(entry.value)
+			sortKeys(entry.value)
 		}
 	case kindArray:
 		for _, child := range v.values {
-			canonicalize(child)
+			sortKeys(child)
 		}
 	}
-}
-
-func canonicalNumber(num string) string {
-	if !strings.ContainsAny(num, ".eE") {
-		if num == "-0" {
-			return "0"
-		}
-		return num
-	}
-	f, err := strconv.ParseFloat(num, 64)
-	if err != nil {
-		return num
-	}
-	if abs := math.Abs(f); abs == 0 || abs >= 1e-6 && abs < 1e21 {
-		return strconv.FormatFloat(f, 'f', -1, 64)
-	}
-	// strconv writes the exponent as e+21 or e-07, and ClickHouse writes e21 or e-7.
-	text := strconv.FormatFloat(f, 'e', -1, 64)
-	mantissa, exponent, _ := strings.Cut(text, "e")
-	sign := ""
-	if exponent[0] == '-' {
-		sign = "-"
-	}
-	return mantissa + "e" + sign + strings.TrimLeft(exponent[1:], "0")
 }
 
 func (p *processor) parseArray(depth int) (*value, error) {
@@ -1075,9 +1056,17 @@ func (p *processor) resetValue(v *value, kind valueKind) {
 }
 
 func (p *processor) writeValue(buf *bytes.Buffer, v *value) {
+	p.writeValueAt(buf, v, false)
+}
+
+func (p *processor) writeValueAt(buf *bytes.Buffer, v *value, nested bool) {
 	switch v.kind {
-	case kindString, kindRaw:
-		writeJSONString(buf, v.s)
+	case kindString:
+		writeStringAt(buf, v.s, nested)
+	case kindRaw:
+		buf.WriteByte('"')
+		buf.WriteString(v.s)
+		buf.WriteByte('"')
 	case kindNumber:
 		buf.WriteString(v.s)
 	case kindBool:
@@ -1094,9 +1083,9 @@ func (p *processor) writeValue(buf *bytes.Buffer, v *value) {
 			if i > 0 {
 				buf.WriteByte(',')
 			}
-			writeJSONString(buf, entry.key)
+			writeStringAt(buf, entry.key, nested)
 			buf.WriteByte(':')
-			p.writeValue(buf, entry.value)
+			p.writeValueAt(buf, entry.value, nested)
 		}
 		buf.WriteByte('}')
 	case kindArray:
@@ -1105,40 +1094,30 @@ func (p *processor) writeValue(buf *bytes.Buffer, v *value) {
 			if i > 0 {
 				buf.WriteByte(',')
 			}
-			p.writeValue(buf, child)
+			p.writeValueAt(buf, child, nested)
 		}
 		buf.WriteByte(']')
 	}
 }
 
-// The escapes match ClickHouse's JSON printer, so the text stored for an object equals what JSONExtractRaw prints.
+func writeStringAt(buf *bytes.Buffer, s string, nested bool) {
+	if nested {
+		writeNestedString(buf, s)
+	} else {
+		writeJSONString(buf, s)
+	}
+}
+
 func writeJSONString(buf *bytes.Buffer, s string) {
 	buf.WriteByte('"')
 	start := 0
 	for i := 0; i < len(s); i++ {
 		ch := s[i]
-		if ch >= 0x20 && ch != '\\' && ch != '"' && ch != 0xe2 {
+		if ch >= 0x20 && ch != '\\' && ch != '"' {
 			continue
-		}
-		escaped := ""
-		if ch == 0xe2 {
-			switch {
-			case strings.HasPrefix(s[i:], "\u2028"):
-				escaped = `\u2028`
-			case strings.HasPrefix(s[i:], "\u2029"):
-				escaped = `\u2029`
-			default:
-				continue
-			}
 		}
 		if start < i {
 			buf.WriteString(s[start:i])
-		}
-		if escaped != "" {
-			buf.WriteString(escaped)
-			i += 2
-			start = i + 1
-			continue
 		}
 		switch ch {
 		case '\\', '"':
@@ -1156,7 +1135,7 @@ func writeJSONString(buf *bytes.Buffer, s string) {
 			buf.WriteString("\\t")
 		default:
 			buf.WriteString("\\u00")
-			const hex = "0123456789ABCDEF"
+			const hex = "0123456789abcdef"
 			buf.WriteByte(hex[ch>>4])
 			buf.WriteByte(hex[ch&0x0f])
 		}
@@ -1166,6 +1145,47 @@ func writeJSONString(buf *bytes.Buffer, s string) {
 		buf.WriteString(s[start:])
 	}
 	buf.WriteByte('"')
+}
+
+var nestedEscapes = func() (escapes [256]string) {
+	for ch := range 0x20 {
+		escapes[ch] = fmt.Sprintf(`\\u%04X`, ch)
+	}
+	for ch, escape := range map[byte]string{'"': `\\\"`, '\\': `\\\\`, '\b': `\\b`, '\f': `\\f`, '\n': `\\n`, '\r': `\\r`, '\t': `\\t`} {
+		escapes[ch] = escape
+	}
+	return
+}()
+
+// Writes the escapes ClickHouse's JSON printer writes, so the stored text does not depend on the client's escaping.
+func writeNestedString(buf *bytes.Buffer, s string) {
+	buf.WriteString(`\"`)
+	start := 0
+	for i := 0; i < len(s); i++ {
+		ch := s[i]
+		if ch >= 0x20 && ch != '\\' && ch != '"' && ch != 0xe2 {
+			continue
+		}
+		escape := nestedEscapes[ch]
+		width := 1
+		if ch == 0xe2 {
+			switch {
+			case strings.HasPrefix(s[i:], "\u2028"):
+				escape = `\\u2028`
+			case strings.HasPrefix(s[i:], "\u2029"):
+				escape = `\\u2029`
+			default:
+				continue
+			}
+			width = 3
+		}
+		buf.WriteString(s[start:i])
+		buf.WriteString(escape)
+		i += width - 1
+		start = i + 1
+	}
+	buf.WriteString(s[start:])
+	buf.WriteString(`\"`)
 }
 
 func isNonEmptyValue(v *value) bool {
