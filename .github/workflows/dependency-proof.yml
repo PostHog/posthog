@@ -116,6 +116,7 @@ jobs:
                   persist-credentials: false
                   sparse-checkout: |
                       .github/scripts/dependency_scan.py
+                      .github/scripts/dependency_scan.py.lock
                       .github/actions/setup-uv
                   sparse-checkout-cone-mode: false
 
@@ -128,7 +129,7 @@ jobs:
               env:
                   HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
                   MERGE_BASE: ${{ needs.identify.outputs.merge_base }}
-              run: python3 -I .github/scripts/dependency_scan.py gate
+              run: uv run --frozen --script .github/scripts/dependency_scan.py gate
 
     # stamphog waits for a completed check on every pull request that changes a dependency file, so
     # every run posts one. A head with no eligible pull request gets a success that attests nothing.
