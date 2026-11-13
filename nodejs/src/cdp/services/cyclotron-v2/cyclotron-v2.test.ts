@@ -2733,6 +2733,7 @@ describe('Cyclotron V2', () => {
         })
 
         it.each([
+            ['for now, as a queue hop does', 0, 0],
             ['a second ahead', 1_000, 1],
             ['five minutes ahead', 300_000, 0],
         ])('counts a weeks-old job at the counter clamp rescheduled %s', async (_label, parkMs, expected) => {
