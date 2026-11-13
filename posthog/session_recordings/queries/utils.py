@@ -24,7 +24,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.database.schema.events import EVENTS_AVOID_ASTERISK_FIELDS, EventsTable
-from posthog.hogql.database.schema.session_replay_events import SessionReplayEventsTable
+from posthog.hogql.database.schema.session_replay_events import RawSessionReplayEventsTable
 from posthog.hogql.errors import BaseHogQLError
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import action_to_expr
@@ -102,16 +102,23 @@ INVERSE_OPERATOR_FOR = {
 def _event_only_fields() -> frozenset[str]:
     # The `$virt_*` fields are added to the events table when the database is built, so the class lacks them.
     event_fields = {*EventsTable().fields, *EVENTS_AVOID_ASTERISK_FIELDS}
-    return frozenset(event_fields - set(SessionReplayEventsTable().fields))
+    return frozenset(event_fields - set(RawSessionReplayEventsTable().fields))
 
 
 class _FieldRoots(TraversingVisitor):
     def __init__(self) -> None:
+        super().__init__()
         self.roots: set[str] = set()
+        self._lambda_args: list[str] = []
 
     def visit_field(self, node: ast.Field) -> None:
-        if node.chain:
+        if node.chain and str(node.chain[0]) not in self._lambda_args:
             self.roots.add(str(node.chain[0]))
+
+    def visit_lambda(self, node: ast.Lambda) -> None:
+        self._lambda_args.extend(node.args)
+        super().visit_lambda(node)
+        del self._lambda_args[-len(node.args) :]
 
     # A subquery's fields resolve against its own tables, not the table the filter runs on.
     def visit_select_query(self, node: ast.SelectQuery) -> None:
