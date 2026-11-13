@@ -8,7 +8,7 @@ from django.utils import timezone
 from parameterized import parameterized
 from social_django.models import UserSocialAuth
 
-from posthog.admin.console.member_email_migration import MemberEmailMigration, RequestedEmailChange
+from posthog.admin.console.member_email_migration import RequestedEmailChange
 from posthog.admin.console.organization_sign_in_panels import ChangeMemberEmailsForm
 from posthog.models import Organization, OrganizationDomain, User
 from posthog.models.id_jag_identity import IdJagIdentity
@@ -103,33 +103,6 @@ class TestChangeMemberEmails(BaseTest):
         assert response.context["form"].initial["members"] == "ada@old.example.com"
         assert "the first 1 of 2 members" in response.context["operation"].description
 
-    def test_a_second_run_with_the_listed_members_changes_the_ones_the_first_did_not_reach(
-        self, _send: MagicMock
-    ) -> None:
-        grace = self._create_user("grace@old.example.com")
-
-        with patch.object(MemberEmailMigration, "CHANGES_PER_RUN", 1):
-            first = self._change(self.client.get(self.url).context["form"].initial["members"])
-            self.member.refresh_from_db()
-            grace.refresh_from_db()
-            assert (self.member.email, grace.email) == ("ada@new.example.com", "grace@old.example.com")
-            assert "1 member left" in first.content.decode()
-
-            self._change(self.client.get(self.url).context["form"].initial["members"])
-
-        grace.refresh_from_db()
-        assert grace.email == "grace@new.example.com"
-
-    def test_a_line_with_a_typed_new_email_runs_before_the_run_limit(self, _send: MagicMock) -> None:
-        grace = self._create_user("grace@old.example.com")
-
-        with patch.object(MemberEmailMigration, "CHANGES_PER_RUN", 1):
-            self._change("ada@old.example.com\ngrace@old.example.com g.hopper@new.example.com")
-
-        self.member.refresh_from_db()
-        grace.refresh_from_db()
-        assert (self.member.email, grace.email) == ("ada@old.example.com", "g.hopper@new.example.com")
-
     def test_preview_shows_the_change_without_making_it(self, send: MagicMock) -> None:
         response = self._preview("ada@old.example.com")
 
@@ -208,7 +181,7 @@ class TestChangeMemberEmails(BaseTest):
         if current_email.startswith("grace@"):
             self._create_user(current_email)
 
-        response = self._change(f"ada@old.example.com ada@new.example.com\n{line}")
+        response = self._change(f"ada@old.example.com\n{line}")
 
         assert "Skipped" in response.content.decode()
         assert User.objects.filter(email=current_email).exists()

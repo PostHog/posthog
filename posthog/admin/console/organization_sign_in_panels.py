@@ -5,12 +5,7 @@ from django import forms
 from django.db.models import Model
 from django.http import HttpRequest, HttpResponse
 
-from posthog.admin.console.member_email_migration import (
-    NOT_REACHED,
-    MemberEmailChange,
-    MemberEmailMigration,
-    RequestedEmailChange,
-)
+from posthog.admin.console.member_email_migration import MemberEmailChange, MemberEmailMigration, RequestedEmailChange
 from posthog.admin.console.panels import MAX_FACTS_PER_PANEL, Fact, Operation, Panel, Tone
 from posthog.admin.console.records import RECORD_TYPES
 from posthog.admin.console.registry import console
@@ -23,8 +18,9 @@ from posthog.utils import pluralize
 
 
 class ChangeMemberEmailsForm(forms.Form):
-    # How many lines the form takes. One run changes MemberEmailMigration.CHANGES_PER_RUN of them at most.
-    MAX_MEMBERS = 2000
+    # One request changes every member on the list, so the list has a limit. Each member is its own
+    # transaction, and a run that stops partway can be repeated.
+    MAX_MEMBERS = 500
     # A line holds the current email and, optionally, the new one. Staff paste lists from sheets and
     # chats, so spaces, commas, semicolons and arrows all separate the two.
     _SEPARATORS = re.compile(r"(?:\s|,|;|->|=>|→)+")
@@ -36,7 +32,7 @@ class ChangeMemberEmailsForm(forms.Form):
             "One member per line. Delete a line to leave that member unchanged. "
             "To choose the new email yourself, add it on the same line after a space, "
             "for example: ada@old.example.com ada.lovelace@new.example.com. "
-            f"One run changes up to {MemberEmailMigration.CHANGES_PER_RUN} members. Run it again for the rest."
+            f"Up to {MAX_MEMBERS} members at a time."
         ),
     )
     new_domain = forms.CharField(
@@ -117,10 +113,6 @@ def _changes_table(changes: list[MemberEmailChange], changed_text: str) -> Table
     )
 
 
-def _not_reached(changes: list[MemberEmailChange]) -> int:
-    return sum(1 for change in changes if change.skip_reason == NOT_REACHED)
-
-
 def preview_member_email_changes(request: HttpRequest, obj: Model, form: forms.Form) -> Page:
     assert isinstance(obj, Organization)
     new_domain = form.cleaned_data["new_domain"]
@@ -152,17 +144,6 @@ def preview_member_email_changes(request: HttpRequest, obj: Model, form: forms.F
             )
         )
     ]
-    not_reached = _not_reached(changes)
-    if not_reached:
-        blocks.append(
-            Notice(
-                text=(
-                    f"{pluralize(not_reached, 'more member')} can change, but one run changes up to "
-                    f"{MemberEmailMigration.CHANGES_PER_RUN}. Run this again with the same list after this run."
-                ),
-                tone=Tone.WARNING,
-            )
-        )
     if obj.identity_provider_configs.filter(scim_enabled=True).exists():
         blocks.append(
             Notice(
@@ -196,16 +177,13 @@ def change_member_emails(request: HttpRequest, obj: Model, form: forms.Form | No
         notify=form.cleaned_data["notify"], changed_by=cast(User, request.user), reason=form.cleaned_data["reason"]
     )
     changed = sum(1 for result in results if result.changes)
-    not_reached = _not_reached(results)
-    skipped = len(results) - changed - not_reached
+    skipped = len(results) - changed
     summary = f"Changed the email of {pluralize(changed, 'member')}."
     if skipped:
         summary += f" Skipped {pluralize(skipped, 'member')}."
-    if not_reached:
-        summary += f" {pluralize(not_reached, 'member')} left. Run this again with the same list."
     return Page(
         blocks=(
-            Notice(text=summary, tone=Tone.WARNING if skipped or not_reached else Tone.SUCCESS),
+            Notice(text=summary, tone=Tone.WARNING if skipped else Tone.SUCCESS),
             _changes_table(results, "Changed"),
         )
     )
