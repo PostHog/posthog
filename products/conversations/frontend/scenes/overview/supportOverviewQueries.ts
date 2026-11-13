@@ -59,7 +59,11 @@ export function ticketListUrl(key: SupportOverviewNumberKey): string {
 
 // The events table does not apply ticket access control, but system.support_tickets does.
 // Each chart joins through it, so a viewer only counts the tickets they can read.
-const READABLE_TICKETS_HOGQL = 'properties.ticket_id IN (SELECT toString(id) FROM system.support_tickets)'
+// Creating a ticket, changing its status, and adding a message all set updated_at, so a ticket with an
+// event in the range has updated_at at or after the range start. The bound is a plain comparison, which
+// ClickHouse sends to Postgres, so the lookup reads recently active tickets instead of the full history.
+const READABLE_TICKETS_HOGQL =
+    'properties.ticket_id IN (SELECT toString(id) FROM system.support_tickets WHERE updated_at >= {filters.dateRange.from})'
 
 // HogQL returns 100 rows by default, which cuts the latest days from a longer range.
 const MAX_CHART_DAYS = 3660

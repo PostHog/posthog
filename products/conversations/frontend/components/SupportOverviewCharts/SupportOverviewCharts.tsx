@@ -1,11 +1,15 @@
 import { useActions, useValues } from 'kea'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { dateMapping } from 'lib/utils/dateFilters'
 
 import { Query } from '~/queries/Query/Query'
 import { DataVisualizationNode } from '~/queries/schema/schema-general'
 
 import { supportOverviewSceneLogic } from '../../scenes/overview/supportOverviewSceneLogic'
+
+// The chart queries need a range start, so the picker leaves out the unbounded option.
+const DATE_OPTIONS = dateMapping.filter((option) => option.key !== 'All time')
 
 interface Chart {
     key: string
@@ -55,6 +59,7 @@ export function SupportOverviewCharts(): JSX.Element {
                     dateTo={dateFilter.dateTo}
                     onChange={setDates}
                     forceGranularity="day"
+                    dateOptions={DATE_OPTIONS}
                 />
             </div>
             <div className="grid grid-cols-1 gap-4 @min-[60rem]/main-content:grid-cols-2">
