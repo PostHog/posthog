@@ -10,6 +10,7 @@ import {
     useContext,
     useEffect,
     useLayoutEffect,
+    useMemo,
     useState,
 } from 'react'
 import { createPortal } from 'react-dom'
@@ -71,8 +72,13 @@ function captureSceneMenuBar(event: string, properties: Record<string, unknown> 
  */
 const PADDED_LAYOUTS = new Set(['app', 'app-container', 'app-full-scene-height'])
 
-// A scene's own View menu registers here, so the bar adds "Full width" to it instead of rendering a second View menu.
-const SceneViewMenuRegistrationContext = createContext<(() => () => void) | null>(null)
+// A scene's Edit and View menus register here. The bar adds "Full width" to the scene's View menu, or places its own
+// View menu right after Edit, so the bar never shows two View menus.
+interface SceneMenuRegistration {
+    registerMenu: (label: 'Edit' | 'View') => () => void
+    sharedViewMenuAfterEdit: boolean
+}
+const SceneMenuRegistrationContext = createContext<SceneMenuRegistration | null>(null)
 
 type SceneMenuBarProps = {
     children?: ReactNode
@@ -89,11 +95,16 @@ export function SceneMenuBar({ children, className }: SceneMenuBarProps): JSX.El
     const slot = todayRailEnabled ? titleSlot : null
     useFillSceneMenuBarSlot(!!slot)
 
-    const [sceneViewMenuCount, setSceneViewMenuCount] = useState(0)
-    const registerSceneViewMenu = useCallback(() => {
-        setSceneViewMenuCount((count) => count + 1)
-        return () => setSceneViewMenuCount((count) => count - 1)
+    const [menuCounts, setMenuCounts] = useState({ Edit: 0, View: 0 })
+    const registerMenu = useCallback((label: 'Edit' | 'View') => {
+        setMenuCounts((counts) => ({ ...counts, [label]: counts[label] + 1 }))
+        return () => setMenuCounts((counts) => ({ ...counts, [label]: counts[label] - 1 }))
     }, [])
+    const needsSharedViewMenu = menuCounts.View === 0
+    const registration = useMemo(
+        () => ({ registerMenu, sharedViewMenuAfterEdit: needsSharedViewMenu && menuCounts.Edit > 0 }),
+        [registerMenu, needsSharedViewMenu, menuCounts.Edit]
+    )
 
     // A skipped product empty state parks its "isn't receiving data yet" reminder here so it
     // sits just below the bar. Null for every other scene, so nothing extra renders.
@@ -132,14 +143,10 @@ export function SceneMenuBar({ children, className }: SceneMenuBarProps): JSX.El
                   hover-to-switch between menus.
                 */}
             <Menubar className="gap-0 border-0">
-                <SceneViewMenuRegistrationContext.Provider value={registerSceneViewMenu}>
+                <SceneMenuRegistrationContext.Provider value={registration}>
                     {children}
-                </SceneViewMenuRegistrationContext.Provider>
-                {sceneViewMenuCount === 0 && (
-                    <SceneMenuBarMenu label="View" dataAttr="scene-menu-bar-view">
-                        <SceneMenuBarFullWidthItem />
-                    </SceneMenuBarMenu>
-                )}
+                </SceneMenuRegistrationContext.Provider>
+                {needsSharedViewMenu && menuCounts.Edit === 0 && <SharedViewMenu />}
                 {todayRailEnabled && <SceneMenuBarHelpMenu />}
             </Menubar>
 
@@ -155,6 +162,17 @@ export function SceneMenuBar({ children, className }: SceneMenuBarProps): JSX.El
             {slot ? createPortal(bar, slot) : bar}
             {setupReminder}
         </>
+    )
+}
+
+function SharedViewMenu(): JSX.Element {
+    // A null registration keeps this menu from counting as the scene's own View menu.
+    return (
+        <SceneMenuRegistrationContext.Provider value={null}>
+            <SceneMenuBarMenu label="View" dataAttr="scene-menu-bar-view">
+                <SceneMenuBarFullWidthItem />
+            </SceneMenuBarMenu>
+        </SceneMenuRegistrationContext.Provider>
     )
 }
 
@@ -344,12 +362,14 @@ export function SceneMenuBarMenu({
     contentClassName,
     disabled,
 }: SceneMenuBarMenuProps): JSX.Element {
-    const registerSceneViewMenu = useContext(SceneViewMenuRegistrationContext)
-    const hostsFullWidthItem = label === 'View' && registerSceneViewMenu !== null
+    const registration = useContext(SceneMenuRegistrationContext)
+    const registerMenu = registration?.registerMenu
+    const registeredLabel = registerMenu ? (label === 'Edit' ? 'Edit' : label === 'View' ? 'View' : null) : null
     useLayoutEffect(
-        () => (hostsFullWidthItem && registerSceneViewMenu ? registerSceneViewMenu() : undefined),
-        [hostsFullWidthItem, registerSceneViewMenu]
+        () => (registerMenu && registeredLabel ? registerMenu(registeredLabel) : undefined),
+        [registerMenu, registeredLabel]
     )
+    const hostsFullWidthItem = registeredLabel === 'View'
     const menuChildren = hostsFullWidthItem ? (
         <>
             {children}
@@ -360,30 +380,34 @@ export function SceneMenuBarMenu({
         children
     )
     const isDisabled = disabled || hasNoRenderableChildren(menuChildren)
+    const showSharedViewMenuAfter = registeredLabel === 'Edit' && !!registration?.sharedViewMenuAfterEdit
     return (
-        <MenubarMenu
-            onOpenChange={(open: boolean) => {
-                if (open) {
-                    captureSceneMenuBar('scene menu bar menu opened', { menu: label })
-                }
-            }}
-        >
-            <MenubarTrigger data-attr={dataAttr} disabled={isDisabled} className={MENU_TRIGGER_CLASSES}>
-                {label}
-            </MenubarTrigger>
-            <MenubarContent
-                align={align}
-                className={cn(
-                    // Override DropdownMenuContent's default `w-(--anchor-width)` so menus size to content.
-                    'w-auto min-w-max',
-                    // Items that render nothing can leave a separator at an edge or two in a row. Hide those.
-                    '[&_[role=separator]:is(:first-child,:last-child)]:hidden [&_[role=separator]+[role=separator]]:hidden',
-                    contentClassName
-                )}
+        <>
+            <MenubarMenu
+                onOpenChange={(open: boolean) => {
+                    if (open) {
+                        captureSceneMenuBar('scene menu bar menu opened', { menu: label })
+                    }
+                }}
             >
-                {menuChildren}
-            </MenubarContent>
-        </MenubarMenu>
+                <MenubarTrigger data-attr={dataAttr} disabled={isDisabled} className={MENU_TRIGGER_CLASSES}>
+                    {label}
+                </MenubarTrigger>
+                <MenubarContent
+                    align={align}
+                    className={cn(
+                        // Override DropdownMenuContent's default `w-(--anchor-width)` so menus size to content.
+                        'w-auto min-w-max',
+                        // Items that render nothing can leave a separator at an edge or two in a row. Hide those.
+                        '[&_[role=separator]:is(:first-child,:last-child)]:hidden [&_[role=separator]+[role=separator]]:hidden',
+                        contentClassName
+                    )}
+                >
+                    {menuChildren}
+                </MenubarContent>
+            </MenubarMenu>
+            {showSharedViewMenuAfter && <SharedViewMenu />}
+        </>
     )
 }
 
