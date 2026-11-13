@@ -51834,6 +51834,7 @@ export namespace Schemas {
       readonly id?: string;
       readonly source_type?: string;
       readonly access_method?: string;
+      readonly direct_query_enabled?: boolean;
       readonly supports_column_selection?: boolean;
       readonly supports_row_filters?: boolean;
       readonly requires_exact_column_metadata?: boolean;
@@ -85001,7 +85002,7 @@ export namespace Schemas {
       refresh_interval_seconds: number;
       /** Query time materializing saves in a month, in seconds. */
       saves_seconds_per_month: number;
-      /** Bytes materializing saves from scanning in a month. */
+      /** Bytes materializing saves from scanning in a month. Negative when its refreshes scan more than its reads would. */
       saves_bytes_per_month: number;
       /**
          * How old the view's data can be today, in seconds. Null when its sources are live.
@@ -85036,6 +85037,8 @@ export namespace Schemas {
          * @nullable
          */
       read_seconds?: number | null;
+      /** True when measuring the view's cost hit the time limit. The cost and every saving are then lower bounds. */
+      measurement_capped?: boolean;
     }
 
     export interface WarehouseSuggestionUnmaterializePayload {
@@ -89322,6 +89325,7 @@ export namespace Schemas {
       readonly id?: string;
       readonly source_type?: string;
       readonly access_method?: string;
+      readonly direct_query_enabled?: boolean;
       readonly supports_column_selection?: boolean;
       readonly supports_row_filters?: boolean;
       readonly requires_exact_column_metadata?: boolean;
