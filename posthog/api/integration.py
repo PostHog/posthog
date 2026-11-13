@@ -16,6 +16,7 @@ from django.shortcuts import redirect
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
+import requests
 import structlog
 from django_filters.utils import translate_validation
 from django_redis.cache import RedisCache
@@ -157,7 +158,6 @@ from posthog.permissions import (
     TimeSensitiveActionPermission,
     is_service_auth,
 )
-from posthog.ph_client import feature_enabled_or_false
 from posthog.rate_limit import GitHubRepositoryRefreshThrottle, PushTokenImportThrottle
 from posthog.tasks.email import send_integration_access_request
 from posthog.utils import absolute_uri, is_relative_url
@@ -294,29 +294,39 @@ def _verify_stripe_install_signature(state: str, user_id: str, account_id: str, 
         return False
 
 
-def _ensure_oauth_token_valid(instance: IntegrationRecord) -> None:
+# Keep in sync with INTEGRATION_TOKEN_REFRESH_FAILED_ERROR_CODE in frontend/src/lib/api-error.ts, which
+# keeps this expected failure out of error tracking.
+INTEGRATION_TOKEN_REFRESH_FAILED_ERROR_CODE = "integration_token_refresh_failed"
+
+
+def _token_refresh_failed_error() -> ValidationError:
+    return ValidationError(
+        "This integration's authentication token could not be refreshed. "
+        "Please reconnect or disconnect this integration and connect a different account.",
+        code=INTEGRATION_TOKEN_REFRESH_FAILED_ERROR_CODE,
+    )
+
+
+def _ensure_oauth_token_valid(instance: IntegrationRecord) -> IntegrationRecord:
     """Check that an OAuth integration's token is usable, attempting refresh if needed.
+
+    Returns the current row. Use it instead of `instance` after the call, because a refresh replaces the row.
 
     Raises ValidationError with a clear message instead of letting stale tokens
     cause unhandled 500s from external API calls.
     """
     if instance.kind not in OauthIntegration.supported_kinds:
-        return
+        return instance
 
     if instance.errors == ERROR_TOKEN_REFRESH_FAILED:
-        raise ValidationError(
-            "This integration's authentication token could not be refreshed. "
-            "Please reconnect or disconnect this integration and connect a different account."
-        )
+        raise _token_refresh_failed_error()
 
     oauth = OauthIntegration(instance)
     if oauth.access_token_expired():
-        oauth.refresh_access_token()
+        instance = oauth.refresh_access_token()
         if instance.errors == ERROR_TOKEN_REFRESH_FAILED:
-            raise ValidationError(
-                "This integration's authentication token could not be refreshed. "
-                "Please reconnect or disconnect this integration and connect a different account."
-            )
+            raise _token_refresh_failed_error()
+    return instance
 
 
 # Keyed by the `IntegrationUsage.type` that each product's `integration_usages.py` reports. The order
@@ -519,6 +529,47 @@ class JiraProjectSerializer(serializers.Serializer):
 
 class JiraProjectsResponseSerializer(serializers.Serializer):
     projects = JiraProjectSerializer(many=True, help_text="Jira projects available to this integration.")
+
+
+class GitLabProjectSerializer(serializers.Serializer):
+    id = serializers.IntegerField(help_text="GitLab numeric project ID.")
+    path_with_namespace = serializers.CharField(
+        help_text="Full project path, including nested groups, such as `acme/platform/api`. Use it as a task repository."
+    )
+    web_url = serializers.CharField(help_text="Project page on GitLab.")
+    default_branch = serializers.CharField(
+        allow_null=True, help_text="Default branch of the project. Null for a project without commits."
+    )
+
+
+class GitLabProjectsQuerySerializer(serializers.Serializer):
+    search = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="Optional search on the project name or path. Leave blank to list the most recently active projects.",
+    )
+
+
+class GitLabProjectsResponseSerializer(serializers.Serializer):
+    projects = GitLabProjectSerializer(
+        many=True,
+        help_text=(
+            "The connected project, when the token has the Developer role or higher on it. "
+            "Empty when it does not, or when it does not match the search."
+        ),
+    )
+    missing_scopes = serializers.ListField(
+        child=serializers.CharField(),
+        help_text=(
+            "Token scopes that coding tasks need and the token does not have. "
+            "Empty when the token has them, or when GitLab does not report the token's scopes."
+        ),
+    )
+    token_expires_at = serializers.DateField(
+        allow_null=True,
+        help_text="Date when the token expires. Null when it does not expire or GitLab does not report it.",
+    )
 
 
 class LinearTeamSerializer(serializers.Serializer):
@@ -985,8 +1036,8 @@ class IntegrationSerializer(serializers.Serializer):
         # `create` is a POST with upsert semantics: each kind's helper except email's does an `update_or_create`
         # keyed on (team, kind, integration_id), so re-submitting the same resource overwrites the
         # existing integration instead of adding a new one. Adding is allowed for any project
-        # member. A Google account's creator can also reconnect it because its credentials are
-        # personal; every other overwrite still requires admin. The transaction rolls back an
+        # member. The creator of a Google account or a PostHog connection can also reconnect it because its
+        # credentials are personal; every other overwrite still requires admin. The transaction rolls back an
         # unauthorized helper upsert.
         with transaction.atomic():
             existing_integrations = {
@@ -1657,6 +1708,7 @@ class IntegrationViewSet(
         "linear_team_members",
         "github_assignees",
         "gitlab_members",
+        "gitlab_projects",
         "anthropic_managed_agents",
         "anthropic_managed_agent_environments",
         "anthropic_managed_agent_vaults",
@@ -2290,14 +2342,19 @@ class IntegrationViewSet(
     @action(methods=["GET"], detail=True, url_path="google_conversion_actions")
     def conversion_actions(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
-        _ensure_oauth_token_valid(instance)
+        instance = _ensure_oauth_token_valid(instance)
         google_ads = GoogleAdsIntegration(instance)
         customer_id = request.query_params.get("customerId")
         parent_id = request.query_params.get("parentId")
 
-        conversion_actions = google_ads.list_google_ads_conversion_actions(customer_id, parent_id)
+        try:
+            search_stream = google_ads.list_google_ads_conversion_actions(customer_id, parent_id)
+        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as error:
+            # Still captured although the user gets a 400: it is the only signal that retries were not enough.
+            capture_exception(error)
+            raise ValidationError("Google Ads did not respond in time. Try again.") from error
 
-        if not conversion_actions or "results" not in conversion_actions[0]:
+        if not search_stream or "results" not in search_stream[0]:
             return Response({"conversionActions": []})
 
         conversion_actions = [
@@ -2306,7 +2363,7 @@ class IntegrationViewSet(
                 "name": conversionAction["conversionAction"]["name"],
                 "resourceName": conversionAction["conversionAction"]["resourceName"],
             }
-            for conversionAction in google_ads.list_google_ads_conversion_actions(customer_id, parent_id)[0]["results"]
+            for conversionAction in search_stream[0]["results"]
         ]
 
         return Response({"conversionActions": conversion_actions})
@@ -2314,7 +2371,7 @@ class IntegrationViewSet(
     @action(methods=["GET"], detail=True, url_path="google_accessible_accounts")
     def accessible_accounts(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
-        _ensure_oauth_token_valid(instance)
+        instance = _ensure_oauth_token_valid(instance)
         google_ads = GoogleAdsIntegration(instance)
 
         key = f"google_ads/{google_ads.integration.integration_id}/accessible_accounts"
@@ -2330,7 +2387,7 @@ class IntegrationViewSet(
     @action(methods=["GET"], detail=True, url_path="linkedin_ads_conversion_rules")
     def linkedin_ad_conversion_rules(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
-        _ensure_oauth_token_valid(instance)
+        instance = _ensure_oauth_token_valid(instance)
         linkedin_ads = LinkedInAdsIntegration(instance)
         account_id = request.query_params.get("accountId")
 
@@ -2348,7 +2405,7 @@ class IntegrationViewSet(
     @action(methods=["GET"], detail=True, url_path="linkedin_ads_accounts")
     def linkedin_ad_accounts(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
-        _ensure_oauth_token_valid(instance)
+        instance = _ensure_oauth_token_valid(instance)
         linkedin_ads = LinkedInAdsIntegration(instance)
 
         accounts = [
@@ -2365,7 +2422,7 @@ class IntegrationViewSet(
     @action(methods=["GET"], detail=True, url_path="clickup_spaces")
     def clickup_spaces(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
-        _ensure_oauth_token_valid(instance)
+        instance = _ensure_oauth_token_valid(instance)
         clickup = ClickUpIntegration(instance)
         workspace_id = request.query_params.get("workspaceId")
 
@@ -2382,7 +2439,7 @@ class IntegrationViewSet(
     @action(methods=["GET"], detail=True, url_path="clickup_lists")
     def clickup_lists(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
-        _ensure_oauth_token_valid(instance)
+        instance = _ensure_oauth_token_valid(instance)
         clickup = ClickUpIntegration(instance)
         space_id = request.query_params.get("spaceId")
 
@@ -2414,7 +2471,7 @@ class IntegrationViewSet(
     @action(methods=["GET"], detail=True, url_path="clickup_workspaces")
     def clickup_workspaces(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
-        _ensure_oauth_token_valid(instance)
+        instance = _ensure_oauth_token_valid(instance)
         clickup = ClickUpIntegration(instance)
 
         workspaces = [
@@ -2433,7 +2490,7 @@ class IntegrationViewSet(
         instance = self.get_object()
         if instance.kind != "linear":
             raise ValidationError("linear_teams endpoint is only supported for Linear integrations")
-        _ensure_oauth_token_valid(instance)
+        instance = _ensure_oauth_token_valid(instance)
         linear = LinearIntegration(instance)
         return Response({"teams": linear.list_teams()})
 
@@ -2448,7 +2505,7 @@ class IntegrationViewSet(
         instance = self.get_object()
         if instance.kind != "linear":
             raise ValidationError("linear_team_members endpoint is only supported for Linear integrations")
-        _ensure_oauth_token_valid(instance)
+        instance = _ensure_oauth_token_valid(instance)
         query = query_serializer.validated_data
         return assignees_response(lambda: LinearIntegration(instance).list_assignees(query["team_id"], query["search"]))
 
@@ -2887,7 +2944,7 @@ class IntegrationViewSet(
         instance = self.get_object()
         if instance.kind != "jira":
             raise ValidationError("jira_projects endpoint is only supported for Jira integrations")
-        _ensure_oauth_token_valid(instance)
+        instance = _ensure_oauth_token_valid(instance)
         jira = JiraIntegration(instance)
         return Response({"projects": jira.list_projects()})
 
@@ -2902,7 +2959,7 @@ class IntegrationViewSet(
         instance = self.get_object()
         if instance.kind != "jira":
             raise ValidationError("jira_assignable_users endpoint is only supported for Jira integrations")
-        _ensure_oauth_token_valid(instance)
+        instance = _ensure_oauth_token_valid(instance)
         query = query_serializer.validated_data
         return assignees_response(
             lambda: JiraIntegration(instance).list_assignees(query["project_key"], query["search"])
@@ -2921,6 +2978,39 @@ class IntegrationViewSet(
             raise ValidationError("gitlab_members endpoint is only supported for GitLab integrations")
         search = query_serializer.validated_data["search"]
         return assignees_response(lambda: GitLabIntegration(instance).list_assignees(search))
+
+    @extend_schema(parameters=[GitLabProjectsQuerySerializer], responses={200: GitLabProjectsResponseSerializer})
+    @action(methods=["GET"], detail=True, url_path="gitlab_projects")
+    def gitlab_projects(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        query_serializer = GitLabProjectsQuerySerializer(data=request.query_params)
+        query_serializer.is_valid(raise_exception=True)
+
+        instance = self.get_object()
+        if instance.kind != "gitlab":
+            raise ValidationError("gitlab_projects endpoint is only supported for GitLab integrations")
+        gitlab = GitLabIntegration(instance)
+        search = query_serializer.validated_data["search"].strip().lower()
+        try:
+            # A connection covers the project it was set up for. A broader token must not let every
+            # project member see the other private projects it can reach.
+            deadline = time.monotonic() + 10.0
+            project = gitlab.get_pushable_project(gitlab.project_path) if gitlab.project_path else None
+            projects = [project] if project and search in project.path_with_namespace.lower() else []
+            remaining = deadline - time.monotonic()
+            token_info = gitlab.credentials.describe(timeout=remaining) if remaining > 0 else None
+        except GitLabIntegrationError as error:
+            raise ValidationError(str(error))
+        except requests.RequestException as error:
+            raise ValidationError("Could not connect to GitLab. Try again.") from error
+        return Response(
+            GitLabProjectsResponseSerializer(
+                {
+                    "projects": projects,
+                    "missing_scopes": list(token_info.missing_task_scopes) if token_info else [],
+                    "token_expires_at": token_info.expires_at if token_info else None,
+                }
+            ).data
+        )
 
     @validated_request(
         PushTokenImportRequestSerializer,
@@ -2973,6 +3063,8 @@ class IntegrationViewSet(
     @action(methods=["POST"], detail=True, url_path="email/verify")
     def email_verify(self, request, **kwargs):
         instance = self.get_object()
+        if instance.kind != "email":
+            raise ValidationError("email/verify is only supported for email integrations")
         email = EmailIntegration(instance)
         verification_result = email.verify(
             on_domain_verified=lambda: self._report_email_domain_verified(request, instance)
@@ -2994,20 +3086,6 @@ class IntegrationViewSet(
     )
     @action(methods=["GET"], detail=True, url_path="email/status")
     def email_status(self, request: ValidatedRequest, **kwargs: Any) -> Response:
-        if not any(
-            feature_enabled_or_false(
-                flag,
-                str(cast(User, request.user).distinct_id),
-                groups={"organization": str(self.team.organization_id), "project": str(self.team.uuid)},
-                group_properties={
-                    "organization": {"id": str(self.team.organization_id)},
-                    "project": {"id": str(self.team.uuid)},
-                },
-                send_feature_flag_events=False,
-            )
-            for flag in ("workflows-email-domain-wizard", "workflows-email-domain-agent-setup")
-        ):
-            raise NotFound()
         instance = self.get_object()
         if instance.kind != "email":
             raise ValidationError("email/status is only supported for email integrations")
@@ -3040,6 +3118,8 @@ class IntegrationViewSet(
     @action(methods=["PATCH"], detail=True, url_path="email")
     def email_update(self, request, **kwargs) -> Response:
         instance = self.get_object()
+        if instance.kind != "email":
+            raise ValidationError("Only email integrations can be updated here")
         config = request.data.get("config", {})
 
         serializer = NativeEmailIntegrationSerializer(data=config)
@@ -3197,17 +3277,23 @@ class IntegrationViewSet(
         page = self.paginate_queryset(records)
         instances = page if page is not None else records
         # Only App installations have an installation id to heal from. A typed-in token row does not.
-        github_apps = [
-            instance
+        github_adapters = {
+            instance.id: GitHubIntegration(instance, source="integrations_api", priority=Priority.NORMAL)
             for instance in instances
             if instance.kind == "github" and instance.auth_type == IntegrationAuthType.OAUTH
-        ]
-        for instance in github_apps:
-            GitHubIntegration(instance, source="integrations_api", priority=Priority.NORMAL).ensure_account_name()
+        }
+        for adapter in github_adapters.values():
+            adapter.ensure_account_name()
+        # The heal replaces the adapter's row, so serialize the adapter's row.
+        instances = [github_adapters[i.id].integration if i.id in github_adapters else i for i in instances]
         # One grouped lookup for the whole page instead of an `exists()` per row, so
         # `installation_shared` stays a fixed one query however many GitHub rows there are.
         reference_counts = GitHubIntegration.installation_reference_counts(
-            {instance.integration_id for instance in github_apps if instance.integration_id},
+            {
+                adapter.integration.integration_id
+                for adapter in github_adapters.values()
+                if adapter.integration.integration_id
+            },
             include_personal=False,
         )
         serializer = self.get_serializer(
@@ -3230,5 +3316,7 @@ class IntegrationViewSet(
         # second query and permission check for the row already in hand.
         instance = self.get_object()
         if instance.kind == "github" and instance.auth_type == IntegrationAuthType.OAUTH:
-            GitHubIntegration(instance, source="integrations_api", priority=Priority.NORMAL).ensure_account_name()
+            github = GitHubIntegration(instance, source="integrations_api", priority=Priority.NORMAL)
+            github.ensure_account_name()
+            instance = github.integration
         return Response(self.get_serializer(instance).data)

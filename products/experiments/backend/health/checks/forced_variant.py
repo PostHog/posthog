@@ -17,6 +17,7 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingActionKind,
     ExperimentHealthFindingCode,
     ExperimentHealthFindingSeverity,
+    ExperimentHealthValueKey,
 )
 from products.experiments.backend.health.checks.change_wording import RESET_EFFECT
 from products.experiments.backend.health.checks.flag_state import is_single_variant_shipped, shipped_variant_key
@@ -31,12 +32,14 @@ from products.experiments.backend.health.context import (
 from products.experiments.backend.health.pinned_share import (
     PinnedConditions,
     PinnedShareGrade,
+    PinnedTraffic,
     grade_pinned_share,
     pinned_conditions,
     pinned_share_severity,
+    pinned_traffic,
     pinned_variant_keys,
 )
-from products.experiments.backend.health.skips import CheckOutcome, CheckSkip, flag_to_check
+from products.experiments.backend.health.skips import CheckOutcome, CheckRows, CheckSkip, CheckValues, flag_to_check
 from products.experiments.backend.health.split_changes import format_change_time
 from products.feature_flags.backend.facade.edits import ConditionsChange
 
@@ -83,6 +86,51 @@ def overrides_to_grade(ctx: HealthContext) -> PinnedConditions | None:
     return pins.graded
 
 
+def forced_variant_values(ctx: HealthContext) -> CheckValues:
+    flag = flag_to_check(ctx, before_launch=True)
+    if isinstance(flag, CheckSkip):
+        return {}
+    forced = sum(1 for condition in flag.reachable_conditions if condition.pinned_variant is not None)
+    values = {ExperimentHealthValueKey.FORCED_CONDITION_COUNT: forced}
+    measured = _measured_traffic(ctx)
+    traffic = ctx.condition_set_traffic
+    if measured is None or traffic is None:
+        return values
+    return {
+        **values,
+        ExperimentHealthValueKey.MATCHED_COUNT: measured.matched_people,
+        ExperimentHealthValueKey.TRAFFIC_SINCE_AT: measured.since.astimezone(UTC).isoformat(),
+        ExperimentHealthValueKey.FLAG_SERVICE_CALL_PERCENTAGE: (
+            round(traffic.remotely_evaluated_calls / traffic.calls * 100, 2) if traffic.calls else None
+        ),
+    }
+
+
+def forced_variant_rows(ctx: HealthContext) -> CheckRows:
+    measured = _measured_traffic(ctx)
+    if measured is None:
+        return ()
+    return tuple(
+        {
+            ExperimentHealthValueKey.VARIANT: variant.key,
+            ExperimentHealthValueKey.VARIANT_MATCHED_COUNT: round(variant.people),
+            ExperimentHealthValueKey.FORCED_COUNT: variant.pinned_people,
+            ExperimentHealthValueKey.FORCED_PERCENTAGE: round(variant.share * 100, 2),
+        }
+        for variant in measured.variants
+        if variant.key not in ctx.excluded_variant_keys
+    )
+
+
+def _measured_traffic(ctx: HealthContext) -> PinnedTraffic | None:
+    """The traffic that grades SOME_CONDITIONS_PINNED, under the same conditions as its grade."""
+    graded = overrides_to_grade(ctx)
+    traffic = ctx.condition_set_traffic
+    if graded is None or not graded.weighted or traffic is None:
+        return None
+    return pinned_traffic(graded, traffic)
+
+
 def forced_variant_release_condition(ctx: HealthContext) -> CheckOutcome:
     flag = flag_to_check(ctx, before_launch=True)
     if isinstance(flag, CheckSkip):
@@ -123,7 +171,13 @@ def forced_variant_release_condition(ctx: HealthContext) -> CheckOutcome:
             pinned_keys=pinned_keys,
             diagnostic_ref="A7b",
             grade_evidence=set_after_launch.evidence,
+            actions=(
+                ExperimentHealthFindingActionKind.EDIT_RELEASE_CONDITIONS,
+                *(() if is_draft else (ExperimentHealthFindingActionKind.END_EXPERIMENT,)),
+            ),
         )
+    # With one variant for everyone, the detail of a launched experiment says to end it if the rollout was meant.
+    ends_first = not is_draft and len(pinned_keys) == 1
     return _finding(
         subcode=ALL_CONDITIONS_PINNED,
         severity=ExperimentHealthFindingSeverity.WARNING,
@@ -133,6 +187,10 @@ def forced_variant_release_condition(ctx: HealthContext) -> CheckOutcome:
         pinned_keys=pinned_keys,
         diagnostic_ref="A7b",
         grade_evidence=set_after_launch.evidence,
+        actions=(
+            *((ExperimentHealthFindingActionKind.END_EXPERIMENT,) if ends_first else ()),
+            ExperimentHealthFindingActionKind.EDIT_RELEASE_CONDITIONS,
+        ),
     )
 
 
@@ -391,6 +449,9 @@ def _finding(
     diagnostic_ref: str,
     grade_evidence: Mapping[str, str | int | float | None] | None = None,
     reason: str | None = None,
+    actions: tuple[ExperimentHealthFindingActionKind, ...] = (
+        ExperimentHealthFindingActionKind.EDIT_RELEASE_CONDITIONS,
+    ),
 ) -> ExperimentHealthFinding:
     return ExperimentHealthFinding(
         code=ExperimentHealthFindingCode.FORCED_VARIANT_RELEASE_CONDITION,
@@ -404,6 +465,6 @@ def _finding(
             "pinned_variant_keys": ", ".join(pinned_keys),
             **(grade_evidence or {}),
         },
-        actions=(ExperimentHealthFindingActionKind.EDIT_RELEASE_CONDITIONS,),
+        actions=actions,
         diagnostic_ref=diagnostic_ref,
     )

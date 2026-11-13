@@ -1,12 +1,12 @@
-from typing import cast
-
 from django import forms
 from django.contrib import admin
 from django.http import HttpRequest
+from django.utils.html import format_html
+from django.utils.safestring import SafeString
 
+from posthog.admin.console.moved import MovedToConsole
 from posthog.admin.paginators.no_count_paginator import NoCountPaginator
 from posthog.models.organization import Organization, OrganizationAITerms
-from posthog.models.user import User
 
 
 def _desktop_beta_terms_accepted(organization: OrganizationAITerms) -> bool:
@@ -17,12 +17,6 @@ def _desktop_beta_terms_accepted(organization: OrganizationAITerms) -> bool:
 
 
 class OrganizationAITermsForm(forms.ModelForm):
-    revoke_desktop_beta_terms = forms.BooleanField(
-        required=False,
-        label="Revoke PostHog Desktop beta terms",
-        help_text="An org admin can accept the terms again in organization settings.",
-    )
-
     class Meta:
         model = OrganizationAITerms
         fields = ["is_ai_data_processing_approved"]
@@ -46,25 +40,24 @@ class OrganizationAITermsAdmin(admin.ModelAdmin):
         return False
 
     def get_fields(self, request: HttpRequest, obj: OrganizationAITerms | None = None) -> tuple[str, ...]:
-        fields = ("id", "name", "is_ai_data_processing_approved", "desktop_beta_terms_display")
-        if obj is not None and _desktop_beta_terms_accepted(obj):
-            return (*fields, "revoke_desktop_beta_terms")
-        return fields
+        return ("id", "name", "is_ai_data_processing_approved", "desktop_beta_terms_display")
 
     @admin.display(description="PostHog Desktop beta terms")
-    def desktop_beta_terms_display(self, organization: OrganizationAITerms) -> str:
-        return "Accepted" if _desktop_beta_terms_accepted(organization) else "Not accepted"
+    def desktop_beta_terms_display(self, organization: OrganizationAITerms) -> SafeString:
+        accepted = "Accepted" if _desktop_beta_terms_accepted(organization) else "Not accepted"
+        return format_html(
+            "{} &nbsp;{}",
+            accepted,
+            MovedToConsole.action("organization", organization, "posthog-desktop", "Revoke beta terms"),
+        )
 
     def save_model(
         self, request: HttpRequest, obj: OrganizationAITerms, form: OrganizationAITermsForm, change: bool
     ) -> None:
-        if "is_ai_data_processing_approved" in form.changed_data:
-            # Save through the concrete model, because the activity log and the Organization signals
-            # listen for sender=Organization and ignore a save that this proxy model sends.
-            organization = Organization.objects.get(pk=obj.pk)
-            organization.is_ai_data_processing_approved = obj.is_ai_data_processing_approved
-            organization.save(update_fields=["is_ai_data_processing_approved"])
-        if form.cleaned_data.get("revoke_desktop_beta_terms"):
-            from products.tasks.backend.facade import api as tasks_facade  # noqa: PLC0415
-
-            tasks_facade.revoke_desktop_beta_terms(obj.id, cast(User, request.user))
+        if "is_ai_data_processing_approved" not in form.changed_data:
+            return
+        # Save through the concrete model, because the activity log and the Organization signals
+        # listen for sender=Organization and ignore a save that this proxy model sends.
+        organization = Organization.objects.get(pk=obj.pk)
+        organization.is_ai_data_processing_approved = obj.is_ai_data_processing_approved
+        organization.save(update_fields=["is_ai_data_processing_approved"])

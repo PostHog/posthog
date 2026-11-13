@@ -43,6 +43,7 @@ import { UUIDT } from '~/common/utils/utils'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { TEST_KAFKA_TOPICS, ensureKafkaTopics } from '~/tests/helpers/kafka'
+import { setTeamQuotaLimited } from '~/tests/helpers/quota-limits'
 import { createTeam, getFirstTeam, resetBehavioralCohortsDatabase, resetTestDatabase } from '~/tests/helpers/sql'
 
 import { Hub, Team } from '../../src/types'
@@ -58,6 +59,7 @@ import {
 import { insertHogFlow } from './_tests/fixtures-hogflows'
 import { CdpApi } from './cdp-api'
 import { CdpCyclotronWorkerBatchResolve } from './consumers/cdp-cyclotron-worker-batch-resolve.consumer'
+import { CdpCyclotronWorkerEmailSandbox } from './consumers/cdp-cyclotron-worker-email-sandbox.consumer'
 import { CdpCyclotronWorkerEmail } from './consumers/cdp-cyclotron-worker-email.consumer'
 import { CdpCyclotronWorkerHogFlow } from './consumers/cdp-cyclotron-worker-hogflow.consumer'
 import { CdpDatawarehouseEventsConsumer } from './consumers/cdp-data-warehouse-events.consumer'
@@ -737,6 +739,83 @@ describe('Workflows E2E (postgres-v2)', () => {
                 )
                 expect(terminal.length).toBeGreaterThanOrEqual(1)
             }, 5000)
+        })
+    })
+
+    describe('sandbox email workflow: trigger → email_sandbox → delay → exit', () => {
+        let sandboxWorker: CdpCyclotronWorkerEmailSandbox | undefined
+
+        beforeEach(async () => {
+            hub.WORKFLOWS_SANDBOX_SENDER_ENABLED = true
+            await hogflowWorker.stop()
+            await hogflowQueue.startAsProducer()
+            hogflowWorker = new CdpCyclotronWorkerHogFlow(
+                hub,
+                deps,
+                new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub)
+            )
+            await hogflowWorker.start()
+
+            await createWorkflow({
+                actions: {
+                    trigger: trigger(),
+                    email: {
+                        type: 'email_sandbox',
+                        on_error: 'continue',
+                        output_variable: { key: 'email_result' },
+                        config: {
+                            inputs: {
+                                email: {
+                                    templating: 'liquid',
+                                    value: { to: { email: 'member@example.com' }, subject: 'Hi', text: 'Hello' },
+                                },
+                            },
+                        },
+                    },
+                    delay_1: delayAction('0.5s'),
+                    exit: exitAction(),
+                },
+                edges: [
+                    { from: 'trigger', to: 'email', type: 'continue' },
+                    { from: 'email', to: 'delay_1', type: 'continue' },
+                    { from: 'delay_1', to: 'exit', type: 'continue' },
+                ],
+            })
+            globals = createGlobals()
+        })
+
+        afterEach(async () => {
+            await sandboxWorker?.stop()
+            sandboxWorker = undefined
+        })
+
+        it('waits on the sandbox queue until the sandbox worker hands the step back, then runs the next action', async () => {
+            const jobState = (job: any): any => parseJSON(job.state.toString('utf-8')).state
+            await triggerWorkflow(globals)
+
+            await waitForExpect(async () => {
+                const jobs = await queryCyclotronJobs()
+                expect(jobs.map((j: any) => [j.queue_name, j.status])).toEqual([['emailsandbox', 'available']])
+            }, 5000)
+            const [parked] = await queryCyclotronJobs()
+            expect(jobState(parked).currentAction.id).toBe('email')
+
+            sandboxWorker = new CdpCyclotronWorkerEmailSandbox(
+                hub,
+                deps,
+                new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub)
+            )
+            await sandboxWorker.start()
+
+            await waitForExpect(async () => {
+                const jobs = await queryCyclotronJobs()
+                expect(jobs.map((j: any) => [j.queue_name, j.status])).toEqual([['hogflow', 'completed']])
+            }, 10000)
+            const [completed] = await queryCyclotronJobs()
+            expect(jobState(completed)).toMatchObject({
+                currentAction: { id: 'delay_1' },
+                variables: { email_result: { status: 'failed', reason: 'sandbox_worker_unavailable' } },
+            })
         })
     })
 
@@ -4848,6 +4927,76 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
                 expect(row.status).toBe('running')
             }
         }, 10000)
+    })
+
+    it.each([
+        ['refuses a batch that starts over the workflow quota', 0, 'failed', 0],
+        ['finishes a batch that goes over the workflow quota after its first page', 1, 'completed', 4],
+    ])('%s', async (_name, pagesBeforeLimit, expectedStatus, expectedChildren) => {
+        const flow = await insertActiveBatchFlow()
+        const parentRunId = new UUIDT().toString()
+        const statusPuts: Array<{ status: string }> = []
+        let personPageCalls = 0
+
+        mockInternalFetch.mockImplementation(async (url: string, opts: any) => {
+            if (url.includes('/user_blast_radius_persons')) {
+                personPageCalls += 1
+                if (personPageCalls === pagesBeforeLimit) {
+                    await setTeamQuotaLimited(hub, team, 'workflow_destinations_dispatched', true)
+                }
+                const page =
+                    personPageCalls === 1
+                        ? {
+                              users_affected: [new UUIDT().toString(), new UUIDT().toString()],
+                              cursor: 'c1',
+                              has_more: true,
+                          }
+                        : {
+                              users_affected: [new UUIDT().toString(), new UUIDT().toString()],
+                              cursor: null,
+                              has_more: false,
+                          }
+                return {
+                    status: 200,
+                    headers: {},
+                    json: () => Promise.resolve({}),
+                    text: () => Promise.resolve(JSON.stringify(page)),
+                    dump: async () => {},
+                }
+            }
+            if (url.includes('/batch_jobs/') && url.endsWith('/status')) {
+                statusPuts.push(parseJSON(opts.body) as { status: string })
+                return {
+                    status: 200,
+                    headers: {},
+                    json: () => Promise.resolve({}),
+                    text: () => Promise.resolve('{}'),
+                    dump: async () => {},
+                }
+            }
+            throw new Error(`Unexpected internalFetch call to ${url}`)
+        })
+
+        try {
+            await setTeamQuotaLimited(hub, team, 'workflow_destinations_dispatched', pagesBeforeLimit === 0)
+            await supertest(app)
+                .post(`/api/projects/${team.id}/hog_flows/${flow.id}/batch_invocations/${parentRunId}`)
+                .send({ filters: { filter_test_accounts: false }, max_audience_size: 1000 })
+                .expect(200)
+
+            resolverWorker = buildResolverConsumer()
+            await resolverWorker.start()
+
+            await waitForExpect(() => expect(statusPuts).toHaveLength(1), 20000)
+            expect(statusPuts[0]).toMatchObject({ status: expectedStatus })
+            const children = await cyclotronPool.query(
+                `SELECT id FROM cyclotron_jobs WHERE queue_name = 'hogflow' AND parent_run_id = $1`,
+                [parentRunId]
+            )
+            expect(children.rows).toHaveLength(expectedChildren)
+        } finally {
+            await setTeamQuotaLimited(hub, team, 'workflow_destinations_dispatched', false)
+        }
     })
 
     it('keeps the job lock and worker health during a slow audience fetch', async () => {

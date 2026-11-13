@@ -15,7 +15,7 @@ import { EMPTY_PAGINATED_RESPONSE } from '~/mocks/handlers'
 import { expect, userEvent } from 'storybook/test'
 
 import { modelLab } from './aiLabs'
-import { labMark } from './brandMarks'
+import { labMark } from './aiLabs'
 import { ActivityNextSteps } from './earlyData/ActivityNextSteps'
 import { MCPAnalyticsDashboardOverview } from './MCPAnalyticsDashboardOverview'
 

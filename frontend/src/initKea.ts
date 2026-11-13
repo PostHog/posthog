@@ -1,4 +1,4 @@
-import { BuiltLogic, KeaPlugin, resetContext } from 'kea'
+import { BuiltLogic, CreateStoreOptions, KeaPlugin, resetContext } from 'kea'
 import { disposablesPlugin } from 'kea-disposables'
 import { formsPlugin } from 'kea-forms'
 import { loadersPlugin } from 'kea-loaders'
@@ -73,7 +73,6 @@ const ERROR_FILTER_ALLOW_LIST = [
     'loadDatasetItemDetails', // Dataset item modals render their own retry state
     'loadDatasetItemVersions', // Dataset item modals render their own retry state
     'exportDataset', // Dataset scenes render their own retry state
-    'generateSummary', // Summary view renders its own retry state
     'loadSelfDrivingEvaluationReports', // The self-driving eval table renders its own retry state
     'loadProductDataEvents',
     'loadInstallRequests', // Polled in the background on Settings → Integrations; the banner just stays hidden
@@ -102,6 +101,8 @@ const ERROR_FILTER_ALLOW_LIST = [
     'loadTableDetails', // The model detail summary renders its own error state with a retry
     'loadIntegrationAccounts', // The source wizard's account picker shows the error under the field with a reconnect link
     'loadCredentialAccounts', // Fires while the user types credentials; the account picker shows the error under the field
+    'loadEvalSuggestions', // The suggested evals list shows its own retry line
+    'loadEvalSuggestionEstimate', // The judge suggestion confirm shows the estimate error and still lets the user add the eval
 ]
 
 /*
@@ -113,12 +114,14 @@ const ERROR_FILTER_ALLOW_LIST_BY_LOGIC_PATH: Record<string, string> = {
     extendRetention: 'products.ai_observability.frontend.datasets.datasetRetentionLogic',
     loadFeatureFlag: 'scenes.feature-flags.featureFlagLogic', // A retry banner, or a retry toast once the flag is on screen
     loadTopReports: 'scenes.project-homepage.today.todayLogic',
+    loadMatrix: 'products.customer_analytics.accountDotMatrixTileLogic',
     loadHighlights: 'scenes.project-homepage.today.todayHighlightsLogic',
     loadFullReport: 'scenes.project-homepage.today.todayReportLogic',
     loadPage: 'scenes.project-homepage.today.todayReportLogic',
     loadReportDiff: 'scenes.inbox.logics.inboxReportDetailLogic',
     loadMembers: 'products.replay_vision.frontend.replay_scanners.highlightFeedGroupLogic', // The feed card shows its own retry
     loadTraceSpans: 'products.tracing.frontend.components.TraceDialog.traceDialogLogic', // The dialog shows its own retry
+    loadTransactionalEmailOptions: 'products.workflows.frontend.Transactional.webhooks.deliveryWebhooksLogic',
     fetchMatchingCounts: 'products.tracing.frontend.tracingDataLogic', // The matching-count label is hidden when the count fails
     loadPreview: 'products.metrics.frontend.components.metricVariableEditorLogic', // The variable editor shows the error under the preview
     loadSiteProfiles: 'products.webAnalytics.contentAutopilot.contentAutopilotLogic',
@@ -150,6 +153,7 @@ const ERROR_FILTER_ALLOW_LIST_BY_LOGIC_PATH: Record<string, string> = {
     loadSummary: 'products.ai_observability.frontend.redesign.trace.traceSummaryLogic',
     requestSummary: 'products.ai_observability.frontend.redesign.trace.traceSummaryLogic',
     loadTracePullRequest: 'products.ai_observability.frontend.redesign.trace.traceGitPullRequestLogic', // The trace view's git chip stays plain when the read fails
+    loadTraceStepItem: 'scenes.ai-observability.saveToDatasetButtonLogic', // The add to dataset dropdown shows the error with a retry
     // Setup mode polls these every few seconds and shows its own retry text, so a toast per poll would stack up
     loadRecentCalls: 'products.mcp_analytics.frontend.setupMode.mcpSetupModeLogic',
     loadServerTools: 'products.mcp_analytics.frontend.setupMode.mcpSetupModeLogic',
@@ -221,6 +225,7 @@ const VALIDATION_ERROR_SELF_HANDLED_BY_LOGIC_PATH: Record<string, string> = {
     // Shows the rejected field under its input, or toasts the rejection
     createProviderKey: 'products.ai_observability.settings.llmProviderKeysLogic',
     updateProviderKey: 'products.ai_observability.settings.llmProviderKeysLogic',
+    loadMatrix: 'products.customer_analytics.accountDotMatrixTileLogic', // Shows SQL mistakes in the tile, so only 5xx are reported
 }
 
 /*
@@ -229,16 +234,6 @@ Write actions whose own logic marks the form row when the backend rejects an exi
 Owned by inviteLogic's inviteTeamMembersFailure listener.
 */
 const EXISTING_MEMBER_SELF_HANDLED = new Set(['inviteTeamMembers'])
-
-/*
-Loads whose owning logic renders a 404 with code `content_expired` inline. AI events drop their
-message content after the retention window, so the 404 is an expected state, not a defect. Other 404s
-from these loads still report. Owned by summaryViewLogic's summaryError reducer. The backend raises
-the code in products/ai_observability/backend/api/summarization.py.
-*/
-const CONTENT_EXPIRED_SELF_HANDLED_BY_LOGIC_PATH: Record<string, string> = {
-    generateSummary: 'products.ai_observability.frontend.summary-view.summaryViewLogic',
-}
 
 /*
 Loads whose owning logic renders a 404 with code `github_repository_inaccessible` inline, with a link
@@ -258,9 +253,6 @@ const CONFLICT_SELF_HANDLED_BY_LOGIC_PATH: Record<string, string> = {
 }
 
 function isExpectedFailureOwnedByLogic(error: any, actionKey: string, logicPath: string): boolean {
-    if (error?.status === 404 && error?.code === 'content_expired') {
-        return isOwnedByLogic(CONTENT_EXPIRED_SELF_HANDLED_BY_LOGIC_PATH, actionKey, logicPath)
-    }
     if (error?.status === 404 && error?.code === 'github_repository_inaccessible') {
         return isOwnedByLogic(GITHUB_REPOSITORY_INACCESSIBLE_SELF_HANDLED_BY_LOGIC_PATH, actionKey, logicPath)
     }
@@ -273,6 +265,7 @@ interface InitKeaProps {
     routerLocation?: any
     beforePlugins?: KeaPlugin[]
     replaceInitialPathInWindow?: boolean
+    middleware?: CreateStoreOptions['middleware']
 }
 
 // Used in some tests to make life easier
@@ -291,6 +284,7 @@ export function initKea({
     routerLocation,
     beforePlugins,
     replaceInitialPathInWindow,
+    middleware = [],
 }: InitKeaProps = {}): void {
     const plugins = [
         ...(beforePlugins || []),
@@ -443,6 +437,7 @@ export function initKea({
     resetContext({
         plugins: plugins,
         createStore: {
+            middleware,
             // Disable redux dev-tools's compose by passing `compose` from redux directly
             compose: ((...funcs: any[]) => {
                 if (funcs.length === 0) {

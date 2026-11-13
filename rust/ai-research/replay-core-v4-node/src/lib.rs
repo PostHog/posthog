@@ -7,7 +7,7 @@ use neon::prelude::*;
 use neon::types::buffer::TypedArray;
 use replay_core_v4::fetch_history::UrlHistory;
 use replay_core_v4::fetched_image::{
-    fetched_url_ref, image_url_hash, public_font_ref_of, seal_fetched_image, FetchedRef,
+    fetched_image_frame, fetched_url_ref, image_url_hash, public_font_ref_of, FetchedRef, SealError,
 };
 use replay_core_v4::refs::{public_url_hash, UrlAsset};
 use replay_core_v4::url_policy::{is_public_host, politeness_key, try_canonicalize};
@@ -118,9 +118,9 @@ fn team_month_key(cx: &mut FunctionContext, index: usize) -> NeonResult<[u8; 32]
 fn seal_fetched_image_ffi(mut cx: FunctionContext) -> JsResult<JsPromise> {
     let key = team_month_key(&mut cx, 0)?;
     let reference = cx.argument::<JsString>(1)?.value(&mut cx);
-    let image = cx.argument::<JsBuffer>(2)?.as_slice(&cx).to_vec();
+    let unsealed = fetched_image_frame(&reference, cx.argument::<JsBuffer>(2)?.as_slice(&cx));
     let promise = cx
-        .task(move || seal_fetched_image(&key, &reference, &image))
+        .task(move || Ok::<_, SealError>(unsealed?.seal(&key)?))
         .promise(|mut cx, frame| match frame {
             Ok(frame) => Ok(JsBuffer::external(&mut cx, frame)),
             Err(error) => cx.throw_error(error.to_string()),

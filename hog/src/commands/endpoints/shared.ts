@@ -142,8 +142,9 @@ export function actionLabel(action: 'create' | 'update' | 'skip', style: Styler)
     return labels[action]
 }
 
-export function problemLines(problems: FileProblem[], style: Styler): string[] {
-    return problems.map((problem) => `${style('Skipped', 'yellow', 'bold')} ${problem.path}: ${problem.message}`)
+// A pulled endpoint's name is in the message, and anyone in the project can set it.
+export function problemWarnings(problems: FileProblem[]): string[] {
+    return problems.map((problem) => `Skipped ${escapeControls(problem.path)}: ${escapeControls(problem.message)}`)
 }
 
 export function indent(lines: string[], by = '    '): string[] {

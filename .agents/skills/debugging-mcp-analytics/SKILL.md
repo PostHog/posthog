@@ -97,13 +97,14 @@ These are the failure modes that produce a plausible-looking answer rather than 
    `services/mcp` consumes the SDK through the `@posthog/mcp-analytics` alias in its
    `package.json` (`npm:@posthog/mcp@0.25.0` at the last check) and the pin moves independently
    of the published version, so version-dependent properties (typed error types, `$lib`
-   identity, payload redaction) can be absent from PostHog's own data when it lags. A query
-   filtering on `$lib = 'posthog-node-mcp'` silently excludes all dogfood traffic if that pin
-   predates SDK 0.7.0. Note too that `services/mcp` uses the **custom-dispatcher**
-   (`PostHogMCP`) path rather than `instrument()`, so behaviour living only in the
-   `instrument()` path — the `Mcp-Session-Id` token mint, `_meta`-based client identity — does
-   not apply to it. Its `$session_id` comes from `resolveSessionKey` in
-   `src/hono/mcp-context.ts` (see
+   identity, payload redaction) can be absent from PostHog's own data when it lags. Don't filter
+   MCP traffic on `$lib`: `posthog-node-mcp` (0.7.0 on) and `posthog-python-mcp` on
+   posthog-python 7.x mark a whole relabeled client, and an app can change `$lib` in
+   `before_send`. Filter on `$mcp_*` events or `$mcp_source = 'posthog_mcp_analytics'` instead.
+   Note too that `services/mcp` uses the **custom-dispatcher** (`PostHogMCP`) path rather than
+   `instrument()`, so behaviour living only in the `instrument()` path — the `Mcp-Session-Id`
+   token mint, `_meta`-based client identity — does not apply to it. Its `$session_id` comes
+   from `resolveSessionKey` in `src/hono/mcp-context.ts` (see
    [references/stateless-and-sessions.md](references/stateless-and-sessions.md)).
 6. **Know which session model produced the data.** Under the stateless spec there is no
    transport session, so `$session_id` is only stable if the agent echoes the conversation

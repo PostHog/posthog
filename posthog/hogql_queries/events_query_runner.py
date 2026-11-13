@@ -62,8 +62,7 @@ from posthog.utils import relative_date_parse
 from products.actions.backend.facade.api import get_action
 from products.actions.backend.facade.contracts import ActionNotFound, ActionStep
 from products.event_definitions.backend.models import PropertyDefinition
-from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
-from products.feature_flags.backend.facade.flags import get_flag_evaluations_read_mode
+from products.feature_flags.backend.facade.flags import reads_flag_calls_from_flag_evaluations
 
 logger = structlog.get_logger(__name__)
 
@@ -452,7 +451,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
             return EVENTS_LIST_TABLE
         if set(self._event_names()) != {FLAG_EVALUATIONS_SOURCE_EVENT}:
             return EVENTS_LIST_TABLE
-        if get_flag_evaluations_read_mode(self.team.organization_id) == FlagEvaluationsMode.EVENTS:
+        if not reads_flag_calls_from_flag_evaluations(self.team, self.modifiers):
             return EVENTS_LIST_TABLE
         return FLAG_EVALUATIONS_LIST_TABLE
 

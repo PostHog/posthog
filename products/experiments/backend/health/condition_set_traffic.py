@@ -28,7 +28,6 @@ import hashlib
 from dataclasses import asdict
 from datetime import datetime, timedelta
 from time import monotonic, sleep
-from uuid import UUID
 
 from django.core.cache import cache
 from django.utils import timezone
@@ -64,16 +63,13 @@ from products.experiments.backend.health.pinned_share import (
     grade_pinned_share,
 )
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
-    DEFAULT_EXPOSURE_EVENT,
+    aggregates_by_group,
     applies_test_account_filters,
-    exposure_event_name_filter,
-    get_entity_key,
     get_test_accounts_filter,
     multivariate_flag_response_expr,
 )
 from products.experiments.backend.models.experiment import Experiment
-from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
-from products.feature_flags.backend.facade.flags import get_organization_flag_evaluations_mode
+from products.feature_flags.backend.facade.flag_calls import FlagCalls
 
 QUERY_TIMEOUT_SECONDS = 10
 _ANSWER_CACHE_SECONDS = int(timedelta(days=1).total_seconds())
@@ -156,6 +152,8 @@ def query_condition_set_traffic(
     """The calls of the experiment's flag in `[window_start, window_end)`, read under `restricted_properties`."""
     team = experiment.team
     flag = experiment.feature_flag
+    group_type_index = flag.aggregation_group_type_index
+    flag_calls = FlagCalls.of(team)
     test_accounts = get_test_accounts_filter(team, experiment.exposure_criteria)
     query = parse_select(
         """
@@ -177,10 +175,10 @@ def query_condition_set_traffic(
                         AND ifNull(properties.$feature_flag_reason, '') != {locally_evaluated_reason}
                         AND timestamp >= {assigned_outside_since}
                 ) > 0 AS assigned_outside
-            FROM events
-            WHERE {flag_calls}
+            FROM {table}
+            WHERE {only_calls}
                 AND timestamp >= {window_start} AND timestamp < {window_end}
-                AND properties.$feature_flag = {flag_key}
+                AND {flag_key_field} = {flag_key}
                 AND {returned_variant}
                 AND {test_accounts}
             GROUP BY entity
@@ -189,10 +187,10 @@ def query_condition_set_traffic(
         LIMIT {max_rows}
         """,
         placeholders={
-            "flag_calls": exposure_event_name_filter(
-                DEFAULT_EXPOSURE_EVENT, read_copies=_reads_exposure_copies(team.organization_id)
-            ),
-            "entity": ast.Field(chain=[get_entity_key(flag.aggregation_group_type_index)]),
+            "table": ast.Field(chain=list(flag_calls.table)),
+            "only_calls": flag_calls.only_calls,
+            "flag_key_field": flag_calls.flag_key,
+            "entity": flag_calls.actor_column(group_type_index if aggregates_by_group(group_type_index) else None),
             "matched_reason": ast.Constant(value=_MATCHED_REASON),
             "flag_version": ast.Constant(value=flag.version),
             "locally_evaluated_reason": ast.Constant(value=_LOCALLY_EVALUATED_REASON),
@@ -242,13 +240,6 @@ def query_condition_set_traffic(
         people_assigned_outside=people_assigned_outside,
         filters_test_accounts=bool(test_accounts),
     )
-
-
-def _reads_exposure_copies(organization_id: UUID) -> bool:
-    # On FLAG_EVALUATIONS_ONLY, events hold no `$feature_flag_called` for the teams in ingestion's allowlist. The
-    # `$experiment_exposure` copy carries every property, the reason and the version included. A team can still
-    # write both, and then each person counts once under their latest set.
-    return get_organization_flag_evaluations_mode(organization_id) == FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY
 
 
 def _load_condition_set_traffic(

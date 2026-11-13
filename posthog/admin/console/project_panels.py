@@ -28,6 +28,7 @@ class ProjectOverviewPanel(Panel):
     key = "overview"
     title = "Overview"
     owner = DEV_EXPERIENCE
+    order = 10
 
     def facts(self, obj: Model) -> list[Fact]:
         assert isinstance(obj, Project)
@@ -200,6 +201,7 @@ class ProjectDeletionPanel(Panel):
     key = "deletion"
     title = "Deletion"
     owner = DEV_EXPERIENCE
+    order = 10
     danger = True
 
     def facts(self, obj: Model) -> list[Fact]:
@@ -251,3 +253,10 @@ class ProjectDeletionPanel(Panel):
                 )
             ]
         return []
+
+
+# The panel, not the form: each deletion operation is offered only in one deletion state, so its form would 404.
+for old in ("trigger-deletion", "delete-now"):
+    console.register_moved_action(
+        old_path=f"admin/posthog/project/<int:pk>/{old}/", record="project", target="#panel-deletion"
+    )

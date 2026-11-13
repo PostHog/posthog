@@ -10,12 +10,16 @@ export function AnalyticsSearchInput({
     label,
     placeholder,
     dataAttr,
+    className = 'w-56 max-w-full',
+    autoFocus,
 }: {
     value: string
     onChange: (value: string) => void
     label: string
     placeholder: string
     dataAttr: string
+    className?: string
+    autoFocus?: boolean
 }): JSX.Element {
     const inputRef = useRef<HTMLInputElement>(null)
     // The clear button unmounts once the field empties, which would drop focus to the page mid-search.
@@ -24,7 +28,7 @@ export function AnalyticsSearchInput({
         inputRef.current?.focus()
     }
     return (
-        <InputGroup size="sm" className="w-56 max-w-full">
+        <InputGroup size="sm" className={className}>
             <InputGroupAddon align="inline-start">
                 <InputGroupText>
                     <IconSearch />
@@ -33,6 +37,7 @@ export function AnalyticsSearchInput({
             <InputGroupInput
                 ref={inputRef}
                 type="search"
+                autoFocus={autoFocus}
                 aria-label={label}
                 placeholder={placeholder}
                 value={value}

@@ -1,6 +1,6 @@
 """
 Helpers for extracting and rewriting cohort/action references embedded in
-:class:`~products.experiments.backend.models.experiment.Experiment` JSON fields.
+the JSON fields of an experiment.
 """
 
 from __future__ import annotations

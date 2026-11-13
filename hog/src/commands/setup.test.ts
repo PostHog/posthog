@@ -14,7 +14,7 @@ import {
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import type { LearnResult, SkillsLibrary, SkillsResult } from '@posthog/mcp/src/cli/library-types'
+import type { CatalogSkill, SkillReadResult, SkillsLibrary, SkillsResult } from '@posthog/mcp/src/cli/library-types'
 
 import { escapeControls } from '@/core/output'
 import { processRuntime } from '@/core/runtime'
@@ -28,6 +28,10 @@ const START = Date.UTC(2026, 0, 1)
 const AGENT = { CLAUDECODE: '1' }
 const TOKEN = 'phc_example_project_token'
 
+function mcpJson(url: string): string {
+    return JSON.stringify({ mcpServers: { posthog: { type: 'http', url } } })
+}
+
 function statePath(folder: string): string {
     return `/home/test/.posthog/setup/${createHash('sha256').update(folder).digest('hex')}.json`
 }
@@ -36,23 +40,29 @@ function ok<T>(value: T): SkillsResult<T> {
     return { ok: true, value }
 }
 
-function fakeSkills(): SkillsLibrary {
+const CATALOG: CatalogSkill[] = [
+    { name: 'querying-posthog-data', kind: 'learning', description: 'Write HogQL' },
+    { name: 'tracing-nodejs', kind: 'implementation', description: 'Trace Node.js' },
+]
+
+function fakeSkills(catalog: CatalogSkill[] = CATALOG): SkillsLibrary {
     return {
-        learn: async ({ skill = '', paths, lines }) => {
-            const [path = 'SKILL.md'] = paths
-            return ok<LearnResult>({
-                output: { kind: 'text', text: `${skill} ${path}` },
+        read: async ({ skill, file, lines }) => {
+            const path = file ?? 'SKILL.md'
+            return ok<SkillReadResult>({
+                text: `${skill} ${path}`,
                 reads: [
                     {
                         source: 'posthog',
                         skill: skill.replace('posthog:', ''),
                         path,
-                        readKind: lines === undefined ? 'file' : 'file_lines',
+                        readKind: lines !== undefined ? 'file_lines' : file === undefined ? 'skill' : 'file',
                     },
                 ],
                 assets: [],
             })
         },
+        search: async () => ok({ skills: [], assets: [] }),
         instrumentSkills: async () =>
             ok({
                 skills: [
@@ -62,17 +72,11 @@ function fakeSkills(): SkillsLibrary {
                 ],
                 assets: [],
             }),
-        installable: async () =>
+        catalog: async () =>
             ok({
-                skills: [
-                    {
-                        id: 'querying-posthog-data',
-                        name: 'Querying PostHog data',
-                        description: 'Write HogQL',
-                        tags: [],
-                    },
-                ],
+                skills: catalog,
                 assets: [],
+                release: { assets: [] },
             }),
         install: async () => {
             throw new Error('hog setup installs no skills')
@@ -90,6 +94,7 @@ interface World {
     events: number[]
     intentStatus: number
     token: string
+    catalog: CatalogSkill[]
 }
 
 // One machine across several hog runs: files and the keychain carry over, and PostHog answers the
@@ -101,6 +106,7 @@ function world(files: Record<string, string> = {}, cwd = '/work'): World {
         events: [],
         intentStatus: 201,
         token: TOKEN,
+        catalog: CATALOG,
         async run(argv, extra = {}) {
             const respond = (url: string, body: unknown): { status: number; body: unknown } => {
                 const origin = new URL(url).origin
@@ -161,7 +167,7 @@ function world(files: Record<string, string> = {}, cwd = '/work'): World {
                 files: state.files,
                 keychain,
                 respond,
-                skills: fakeSkills,
+                skills: () => fakeSkills(state.catalog),
                 telemetryToken: extra.telemetry ? 'phc_telemetry' : undefined,
             })
             state.files = result.files
@@ -212,7 +218,7 @@ describe('hog setup', () => {
                 command: 'hog setup next',
                 url: `${EU}/device?code=BCDF-GHJK`,
                 code: 'BCDF-GHJK',
-                instructions: expect.stringContaining('run `hog setup next` yourself'),
+                instructions: expect.stringContaining('Then run `hog setup next`.'),
             },
         })
         expect(started.stdout).not.toContain('device-secret')
@@ -232,8 +238,8 @@ describe('hog setup', () => {
             next: {
                 kind: 'read',
                 read: [
-                    'hog learn posthog:instrument-integration',
-                    'hog learn posthog:instrument-integration references/COMMANDMENTS.md',
+                    'hog skills read instrument-integration',
+                    'hog skills read instrument-integration --file references/COMMANDMENTS.md',
                 ],
             },
             context: { host: EU, projectId: '42', token: TOKEN, apiHost: 'https://eu.i.posthog.com' },
@@ -254,12 +260,19 @@ describe('hog setup', () => {
             properties: { $anon_distinct_id: installId },
         })
 
-        await machine.run(['learn', 'posthog:instrument-integration'])
-        await machine.run(['learn', 'posthog:instrument-integration', 'references/COMMANDMENTS.md', '--lines', '1:5'])
+        await machine.run(['skills', 'read', 'instrument-integration'])
+        await machine.run([
+            'skills',
+            'read',
+            'posthog:instrument-integration',
+            'references/COMMANDMENTS.md',
+            '--lines',
+            '1:5',
+        ])
         const halfRead = await machine.run(['setup', 'next'])
         expect(halfRead.json()).toMatchObject({ step: 'install', code: 'setup_skill_not_read' })
 
-        await machine.run(['learn', 'posthog:instrument-integration', 'references/COMMANDMENTS.md'])
+        await machine.run(['skills', 'read', 'instrument-integration', '--file', 'references/COMMANDMENTS.md'])
         const installed = await machine.run(['setup', 'next'])
         expect(installed.json()).toMatchObject({
             step: 'review',
@@ -270,26 +283,46 @@ describe('hog setup', () => {
         // An event PostHog received before the setup started doesn't count, and setup finishes
         // without events after waiting for them.
         machine.events.push(START - 60_000)
+        // As many skills as PostHog publishes, with descriptions as long as theirs.
+        machine.catalog = [
+            ...CATALOG,
+            ...Array.from({ length: 179 }, (_, index) => ({
+                name: `learning-skill-${index}`,
+                kind: 'learning' as const,
+                description: 'Explains how to use one part of PostHog, step by step. '.repeat(11),
+            })),
+        ]
         const reviewed = await machine.run(['setup', 'next', '--reviewed'])
         expect(reviewed.exitCode).toBe(0)
         expect(reviewed.json()).toMatchObject({
             step: 'connected',
             status: 'connected',
             next: { kind: 'done' },
-            context: {
-                events: { since: '2026-01-01T00:00:00.000Z', count: 0 },
-                skills: [{ id: 'querying-posthog-data' }],
-            },
+            context: { events: { since: '2026-01-01T00:00:00.000Z', count: 0 } },
         })
+
+        expect(reviewed.stdout.length).toBeLessThan(10_000)
+        expect(Object.keys(reviewed.json() as object)).toEqual(['step', 'status', 'code', 'next', 'done', 'context'])
+        const skills = (reviewed.json() as any).context.skills
+        expect(skills).toHaveLength(180)
+        expect(skills).toContain('querying-posthog-data')
+        expect(skills).not.toContain('tracing-nodejs')
         const instructions = (reviewed.json() as any).next.instructions
         expect(instructions).toContain("PostHog hasn't received any events yet.")
         expect(instructions).toContain('At the end of your turn, tell the user')
+        expect(instructions).toContain("connect PostHog's MCP server with `hog mcp add --agent claude-code`")
+        expect((reviewed.json() as any).context.mcp).toEqual({
+            agent: 'claude-code',
+            configured: false,
+            command: 'hog mcp add --agent claude-code',
+            foreign: null,
+        })
         const polls = reviewed.requests.filter((request) => request.url.endsWith('/query'))
         expect(polls.length).toBeGreaterThan(1)
         expect(polls.every((request) => (request.body as { refresh: string }).refresh === 'force_blocking')).toBe(true)
         expect((reviewed.json() as any).context.products.slice(0, 2)).toMatchObject([
-            { id: 'session-replay', chosen: true, command: 'hog learn -s "session replay"' },
-            { id: 'feature-flags', chosen: true, command: 'hog learn posthog:instrument-feature-flags' },
+            { id: 'session-replay', chosen: true, command: 'hog skills search session replay' },
+            { id: 'feature-flags', chosen: true, command: 'hog skills read instrument-feature-flags' },
         ])
 
         const agentsMd = machine.files['/work/AGENTS.md'] ?? ''
@@ -297,7 +330,7 @@ describe('hog setup', () => {
         expect(agentsMd).not.toContain('in progress')
         expect(agentsMd).toContain(`project 42 on ${EU}`)
         expect(agentsMd).toContain(
-            '- Logs, metrics and tracing (APM): `hog learn -s "logs"`, `hog learn posthog:instrument-metrics`'
+            '- Logs, metrics, and tracing (APM): `hog skills search logs`, `hog skills read instrument-metrics`'
         )
         expect(agentsMd.indexOf('Session replay')).toBeLessThan(agentsMd.indexOf('Debugging errors'))
 
@@ -340,14 +373,14 @@ describe('hog setup', () => {
         })
 
         expect(result.exitCode).toBe(0)
-        expect(result.stdout).toContain('Done  Wants to use Product analytics')
+        expect(result.stdout).toContain('Done  Picked Product analytics')
         expect(result.stdout).toContain('Done  Logged in to https://us.posthog.com, project 42')
         expect(result.stdout).toContain(`Project token: ${escapeControls(machine.token)}`)
         expect(result.stdout).not.toContain('\u001b')
         expect(result.stdout).toContain('Next: Run both commands')
 
-        await machine.run(['learn', 'posthog:instrument-integration'])
-        await machine.run(['learn', 'posthog:instrument-integration', 'references/COMMANDMENTS.md'])
+        await machine.run(['skills', 'read', 'instrument-integration'])
+        await machine.run(['skills', 'read', 'instrument-integration', '--file', 'references/COMMANDMENTS.md'])
         const notReviewed = await machine.run(['setup', 'next'], { person: ['no'] })
         expect(notReviewed.stdout).toContain('Next: Read the rules again')
 
@@ -356,7 +389,53 @@ describe('hog setup', () => {
 
         expect(finished.exitCode).toBe(0)
         expect(finished.stdout).toContain('PostHog is set up')
+        expect(finished.stdout).toContain("Connect PostHog's MCP server to your agent with hog mcp add --agent <name>")
     })
+
+    test.each<[string, Record<string, string>, boolean, { path: string } | null]>([
+        ['in the project', { '/work/.mcp.json': mcpJson('https://mcp.posthog.com/mcp') }, true, null],
+        [
+            'for the user',
+            { '/home/test/.claude.json': mcpJson('https://mcp.posthog.com/mcp?features=flags') },
+            true,
+            null,
+        ],
+        ['nowhere', { '/work/.mcp.json': '{"mcpServers": {"other": {"command": "x"}}}' }, false, null],
+        [
+            'pointing at another server',
+            { '/work/.mcp.json': mcpJson('https://mcp.example.com/mcp') },
+            false,
+            { path: '/work/.mcp.json' },
+        ],
+    ])(
+        'the agent learns whether Claude Code has the MCP server %s, and nothing is written',
+        async (_name, files, configured, foreign) => {
+            const machine = world({ ...files })
+            await machine.run(['setup', 'next', ...ONE_PRODUCT])
+            await machine.run(['setup', 'next'])
+            await machine.run(['skills', 'read', 'instrument-integration'])
+            await machine.run(['skills', 'read', 'instrument-integration', '--file', 'references/COMMANDMENTS.md'])
+            await machine.run(['setup', 'next'])
+            machine.events.push(START + 60_000)
+
+            const finished = await machine.run(['setup', 'next', '--reviewed'])
+
+            expect(finished.json()).toMatchObject({
+                status: 'connected',
+                context: { mcp: { agent: 'claude-code', configured, foreign } },
+            })
+            const instructions: string = (finished.json() as any).next.instructions
+            expect(instructions.includes('hog mcp add')).toBe(!configured)
+            expect(
+                instructions.includes(
+                    'the `posthog` MCP server in `/work/.mcp.json` points at another server, and that `hog mcp add --agent claude-code --force` replaces it'
+                )
+            ).toBe(foreign !== null)
+            for (const [path, contents] of Object.entries(files)) {
+                expect(machine.files[path]).toBe(contents)
+            }
+        }
+    )
 
     test('a clone without the state file starts over at the first step it can not prove', async () => {
         const machine = world()
@@ -372,7 +451,11 @@ describe('hog setup', () => {
         expect(resumed.json()).toMatchObject({
             step: 'install',
             done: [{ step: 'purpose' }, { step: 'login' }, { step: 'project' }, { step: 'agents-md' }],
-            context: { warnings: [expect.stringContaining("PostHog didn't record your interest in Session replay")] },
+            context: {
+                warnings: [
+                    "PostHog didn't record your interest in Session replay: PostHog answered with HTTP 500: Intent refused.",
+                ],
+            },
         })
         expect(resumed.requests.some((request) => request.url.endsWith('/oauth/device-authorization/'))).toBe(false)
     })
@@ -486,10 +569,32 @@ describe('hog setup', () => {
         expect(result.error()).toMatchObject({ code, hint: expect.stringContaining(hint) })
     })
 
-    test('hog learn records nothing without a setup in the folder', async () => {
+    test.each([
+        ['a CI job', { CLAUDECODE: '', CI: 'true' }],
+        ["a Jenkins job, which doesn't set CI", { CLAUDECODE: '', JENKINS_URL: 'https://jenkins.example.com/' }],
+    ])('%s gets no setup, and hog changes nothing', async (_name, env) => {
+        const machine = world()
+        const before = { ...machine.files }
+
+        const result = await machine.run(['setup', 'next', ...ONE_PRODUCT], { env })
+
+        expect(result.exitCode).toBe(1)
+        expect(result.error()).toMatchObject({ code: 'not_in_ci', hint: expect.stringContaining('hog ci setup') })
+        expect(result.requests).toEqual([])
+        expect(machine.files).toEqual(before)
+    })
+
+    test('an agent in a CI sandbox still runs setup, because it hands the login to a person', async () => {
+        const result = await world().run(['setup', 'next', ...ONE_PRODUCT], { env: { CI: 'true' } })
+
+        expect(result.exitCode).toBe(0)
+        expect(result.json()).toMatchObject({ step: 'login' })
+    })
+
+    test('hog skills read records nothing without a setup in the folder', async () => {
         const machine = world()
 
-        const result = await machine.run(['learn', 'posthog:instrument-integration'])
+        const result = await machine.run(['skills', 'read', 'instrument-integration'])
 
         expect(result.exitCode).toBe(0)
         expect(Object.keys(machine.files).filter((path) => path.includes('/setup/'))).toEqual([])

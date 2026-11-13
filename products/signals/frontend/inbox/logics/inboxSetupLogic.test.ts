@@ -46,6 +46,7 @@ describe('Inbox setup', () => {
     let enabledScouts: string[]
     let hasErrorTrackingData: boolean
     let githubOptional: boolean
+    let setupDefaultSkills: string[] | undefined
     let hasEvents: boolean
     let completedAt: string | null
     let scanners: { id: string; enabled: boolean; emits_signals: boolean }[]
@@ -90,6 +91,7 @@ describe('Inbox setup', () => {
         enabledScouts = []
         hasErrorTrackingData = false
         githubOptional = false
+        setupDefaultSkills = undefined
         hasEvents = false
         failCompletion = true
         completedAt = null
@@ -103,6 +105,7 @@ describe('Inbox setup', () => {
                     draft: savedDraft,
                     completed_at: completedAt,
                     github_optional_available: githubOptional,
+                    setup_default_skills: setupDefaultSkills,
                 }),
                 '/api/projects/:id/signals/source_configs/': () => {
                     inventoryRequests++
@@ -408,6 +411,27 @@ describe('Inbox setup', () => {
         expect(activationRequests(capture)).toEqual([
             ['self-driving onboarding activation requested', expect.objectContaining({ activation_source: 'retry' })],
         ])
+    })
+
+    it('quick setup enables the usable scouts the onboarding state lists', async () => {
+        failCompletion = false
+        hasEvents = true
+        setupDefaultSkills = [
+            'signals-scout-general',
+            'signals-scout-anomaly-detection',
+            'signals-scout-logs',
+            'signals-scout-surveys',
+        ]
+        canonicalScouts = [
+            generalScoutConfig(),
+            { ...generalScoutConfig(), id: 'anomaly', skill_name: 'signals-scout-anomaly-detection' },
+            { ...generalScoutConfig(), id: 'logs', skill_name: 'signals-scout-logs', scout_origin: 'custom' },
+            { ...generalScoutConfig(), id: 'surveys', skill_name: 'signals-scout-surveys', lifecycle_locked: true },
+        ]
+        await expectLogic(logic, () => logic.actions.loadSetup()).toFinishAllListeners()
+        logic.actions.activateQuickSetup()
+        await waitFor(() => expect(logic.values.completed).toBe(true))
+        expect(enabledScouts).toEqual(['signals-scout-general', 'signals-scout-anomaly-detection'])
     })
 
     it('activates when the integration refresh fails after the inventory loaded', async () => {

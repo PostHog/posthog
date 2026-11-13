@@ -10,6 +10,11 @@ import { parseGithubUrl } from "@posthog/git/utils";
 import { z } from "zod";
 import { resolveGithubToken } from "../github-token";
 import { defineLocalTool, type LocalToolResult } from "../registry";
+import {
+  SIGNED_COMMIT_TOOL_NAME,
+  SIGNED_MERGE_TOOL_NAME,
+  SIGNED_REWRITE_TOOL_NAME,
+} from "../signed-commit-shared";
 
 const GIT_TIMEOUT_MS = 10 * 60 * 1000;
 const GITHUB_BASE_URL = "https://github.com/";
@@ -71,6 +76,33 @@ export function cloneRoot(cwd: string): string {
   return process.env.IS_SANDBOX === "1"
     ? CLOUD_CLONE_ROOT
     : path.join(cwd, "repos");
+}
+
+export function listClones(cwd: string): string[] {
+  const root = cloneRoot(cwd);
+  const clones: string[] = [];
+  let owners: fs.Dirent[];
+  try {
+    owners = fs.readdirSync(root, { withFileTypes: true });
+  } catch {
+    return clones;
+  }
+  for (const owner of owners) {
+    if (!owner.isDirectory()) continue;
+    const ownerPath = path.join(root, owner.name);
+    let repos: fs.Dirent[];
+    try {
+      repos = fs.readdirSync(ownerPath, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const repo of repos) {
+      if (!repo.isDirectory()) continue;
+      const candidate = path.join(ownerPath, repo.name);
+      if (fs.existsSync(path.join(candidate, ".git"))) clones.push(candidate);
+    }
+  }
+  return clones;
 }
 
 function isWithin(root: string, candidate: string): boolean {
@@ -169,7 +201,8 @@ export const cloneRepoTool = defineLocalTool({
   description:
     "Clone a git repository into your working directory (channel tasks only). " +
     "Use this once you've determined a coding task needs a specific repo. " +
-    "Returns the local path to cd into. Prefer repos named in the channel CONTEXT.md.",
+    "Returns the local path to cd into and to pass as `cwd` to the signed git tools. " +
+    "Prefer repos named in the channel CONTEXT.md.",
   schema: cloneRepoSchema,
   alwaysLoad: true,
   isEnabled: (_ctx, meta) => meta?.channelMode === true,
@@ -248,7 +281,7 @@ export const cloneRepoTool = defineLocalTool({
             type: "text",
             text: `${note ?? `Cloned ${slug} (${repoName}) to ${targetPath}`}${
               checkedOut ? ` on branch ${checkedOut}` : ""
-            }. cd into this path for all git and file work in this repo.`,
+            }. cd into this path for file work, and pass \`cwd: ${targetPath}\` to ${SIGNED_COMMIT_TOOL_NAME}, ${SIGNED_MERGE_TOOL_NAME}, and ${SIGNED_REWRITE_TOOL_NAME}: a shell cd does not change the directory they commit in.`,
           },
         ],
       };

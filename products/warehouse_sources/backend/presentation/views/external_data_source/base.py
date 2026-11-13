@@ -29,7 +29,6 @@ from products.data_warehouse.backend.facade.api import (
     delete_discover_schemas_schedule,
     delete_external_data_schedule,
     ensure_cdc_slot_cleanup_schedule,
-    is_cdc_enabled_for_team,
     is_cdc_extraction_schedule_paused,
     sync_cdc_extraction_schedule,
     sync_discover_schemas_schedule,
@@ -79,7 +78,6 @@ __all__ = [
     "ensure_cdc_slot_cleanup_schedule",
     "ensure_person_join",
     "get_primary_key_columns",
-    "is_cdc_enabled_for_team",
     "is_cdc_extraction_schedule_paused",
     "logger",
     "purge_buffer_prefix",
@@ -91,6 +89,7 @@ __all__ = [
 
 
 if TYPE_CHECKING:
+    from . import credential_store
 
     class ExternalDataSourceViewSetBase(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
         """The assembled viewset as each mixin sees it. Cross-mixin methods are declared here
@@ -121,6 +120,10 @@ if TYPE_CHECKING:
             payload: dict,
             access_method: str = ExternalDataSource.AccessMethod.WAREHOUSE,
         ) -> tuple[Response | None, Config | None]: ...
+
+        def _resolve_stored_credential(
+            self, source_type: str, payload: dict
+        ) -> credential_store.ResolvedStoredCredential: ...
 
         def refresh_schemas(self, request: Request, *args: Any, **kwargs: Any) -> Response: ...
 
