@@ -2,6 +2,7 @@ import gc
 import os
 import time
 import errno
+import logging
 import threading
 from typing import TYPE_CHECKING
 
@@ -174,6 +175,11 @@ def receiver_setup_logging(loglevel, logfile, format, colorize, **kwargs) -> Non
 
     # following instructions from here https://django-structlog.readthedocs.io/en/latest/celery.html
     logging_config.dictConfig(logs.LOGGING)
+    # django-structlog logs task_enqueued at INFO for each task this process publishes. Only a web
+    # request gives that line context to link to, and Django applies LOGGING to web processes too,
+    # so the level is raised here and not in LOGGING. This must run after dictConfig, because
+    # dictConfig disables every existing logger that LOGGING does not name.
+    logging.getLogger("django_structlog.celery.receivers").setLevel(logging.WARNING)
 
 
 @receiver(signals.bind_extra_task_metadata)

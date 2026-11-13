@@ -1,5 +1,6 @@
 import gc
 import os
+import logging
 import threading
 
 from unittest import TestCase
@@ -20,6 +21,7 @@ from posthog.celery import (
     _initialize_worker_metrics,
     freeze_objects_before_pool_forks,
     on_worker_process_shutdown,
+    receiver_setup_logging,
     write_heartbeat_when_worker_is_ready,
 )
 from posthog.celery_task_names import (
@@ -138,6 +140,18 @@ class TestWorkerStopsWhenEmbeddedSchedulerExits(TestCase):
         with self.assertRaises(WorkerShutdown) as shutdown:
             check()
         assert shutdown.exception.code == EX_FAILURE
+
+
+class TestCeleryProcessLogging(TestCase):
+    def test_drops_task_enqueued_info_line_but_keeps_warnings(self) -> None:
+        receivers_logger = logging.getLogger("django_structlog.celery.receivers")
+        self.addCleanup(receivers_logger.setLevel, receivers_logger.level)
+
+        with patch("logging.config.dictConfig"):
+            receiver_setup_logging(loglevel=None, logfile=None, format=None, colorize=False)
+
+        assert not receivers_logger.isEnabledFor(logging.INFO)
+        assert receivers_logger.isEnabledFor(logging.WARNING)
 
 
 class TestAnalyticsMetricsConfig(TestCase):
