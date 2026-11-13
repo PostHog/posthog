@@ -1245,11 +1245,11 @@ export interface sqlEditorLogicActions {
     setSelectedQueryTablesAndColumns: (tablesAndColumns: Record<string, Record<string, boolean>>) => {
         tablesAndColumns: Record<string, Record<string, boolean>>
     }
-    setSendRawQuery: (sendRawQuery: boolean) => {
-        sendRawQuery: boolean
-    }
     setSelectedVariables: (variables: HogQLVariable[]) => {
         variables: HogQLVariable[]
+    }
+    setSendRawQuery: (sendRawQuery: boolean) => {
+        sendRawQuery: boolean
     }
     setSourceQuery: (sourceQuery: DataVisualizationNode) => {
         sourceQuery: DataVisualizationNode
