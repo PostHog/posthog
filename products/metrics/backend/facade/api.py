@@ -56,6 +56,7 @@ from products.metrics.backend.facade.contracts import (
     MetricErrorSpike,
     MetricEventSample,
     MetricFilter,
+    MetricInstantWindow,
     MetricPoint,
     MetricQueryClause,
     MetricQueryCount,
@@ -92,11 +93,13 @@ from products.metrics.backend.metric_query_runner import (
     MAX_QUERY_SPAN,
     MAX_RAW_SERIES,
     MetricQueryRunner,
+    _align_to_interval,
+    _interval_step,
     _pick_interval,
 )
 from products.metrics.backend.metric_samples_query_runner import build_metric_query_runner
 from products.metrics.backend.metrics_overview_query_runner import MetricsOverviewQueryRunner
-from products.metrics.backend.promql import run_promql_range
+from products.metrics.backend.promql import run_promql_instant, run_promql_range
 from products.metrics.backend.query_concurrency import query_concurrency_slots
 from products.metrics.backend.query_counts import (
     list_metric_query_counts as _list_metric_query_counts,
@@ -546,6 +549,55 @@ def run_promql_query(
     return [
         replace(s, points=tuple(p for p in s.points if dt.datetime.fromisoformat(p.time) < date_to)) for s in series
     ]
+
+
+# An instant builder query reads 5-minute buckets unless told otherwise: every series scraped at least once
+# every 5 minutes has a sample in each one, as with PromQL's 5-minute lookback.
+DEFAULT_INSTANT_INTERVAL = "minute_5"
+# The instant value is the last of a few complete buckets, so a range function sees the buckets before it.
+_INSTANT_BUCKETS = 3
+
+
+def run_promql_instant_query(*, team: Team, expr: str, time: dt.datetime) -> list[MetricSeries]:
+    """Run a PromQL instant query on Snuffle at `time`: one point per series. The caller checks the Snuffle flag."""
+    with query_concurrency_slots(team):
+        return run_promql_instant(team, expr, time)
+
+
+def run_metric_instant_query(
+    *,
+    team: Team,
+    clauses: tuple[MetricQueryClause, ...],
+    time: dt.datetime,
+    interval: str | None = None,
+    formula: str | None = None,
+) -> list[MetricSeries]:
+    """The last complete bucket before `time` of a builder query: one point per series.
+
+    The buckets are `interval` wide (5 minutes by default) and end at the bucket boundary at or before `time`,
+    so the value is the one the chart shows for that bucket.
+    """
+    resolved = interval or DEFAULT_INSTANT_INTERVAL
+    window = metric_instant_window(team=team, time=time, interval=resolved)
+    end = window.date_to
+    request = MetricQueryRequest(
+        clauses=clauses, date_from=window.date_from, date_to=end, interval=resolved, formula=formula
+    )
+    # A bucket with no samples is missing from the series, so pick the last bucket by its start. Day and week
+    # buckets follow the project timezone and can be an hour off a whole step across a DST change.
+    step = _interval_step(resolved)
+    last_bucket_after = end - step - step / 2
+    return [
+        replace(s, points=tuple(p for p in s.points[-1:] if dt.datetime.fromisoformat(p.time) > last_bucket_after))
+        for s in run_metric_query(team=team, request=request)
+    ]
+
+
+def metric_instant_window(*, team: Team, time: dt.datetime, interval: str | None) -> MetricInstantWindow:
+    """The range an instant builder query at `time` reads: its value is the bucket that ends at the range's end."""
+    resolved = interval or DEFAULT_INSTANT_INTERVAL
+    end = _align_to_interval(time, resolved, tzinfo=team.timezone_info)
+    return MetricInstantWindow(date_from=end - _INSTANT_BUCKETS * _interval_step(resolved), date_to=end)
 
 
 def metric_query_concurrency_slots(team: Team) -> AbstractContextManager[None]:
