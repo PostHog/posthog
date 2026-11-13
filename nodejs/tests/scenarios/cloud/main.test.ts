@@ -118,15 +118,23 @@ describe('cloud controller', () => {
 
     afterEach(() => rmSync(dir, { recursive: true, force: true }))
 
-    it('prints the itemized worst-case estimate for the fixed six-hour TTL', async () => {
-        const { controller } = prepare()
+    it.each([
+        ['60m', '$47.99', /teardown tail.*\$5\.27/],
+        ['120m', '$53.26', /teardown tail.*\$10\.54/],
+    ])(
+        'prints the itemized worst-case estimate for the fixed six-hour TTL, with a %s teardown allowance',
+        async (allowance, total, tail) => {
+            const { controller } = prepare({
+                profile: (p) => ({ ...p, admission: { ...p.admission, teardownAllowance: allowance } }),
+            })
 
-        await expect(main(['run', profilePath()], controller)).resolves.toBe(0)
+            await expect(main(['run', profilePath()], controller)).resolves.toBe(0)
 
-        expect(out.join('\n')).toContain('Admitted estimate: $47.99 of the $200 cap')
-        expect(out.join('\n')).toMatch(/reader at 32 ACU.*\$19\.20/)
-        expect(out.join('\n')).toMatch(/teardown tail.*\$5\.27/)
-    })
+            expect(out.join('\n')).toContain(`Admitted estimate: ${total} of the $200 cap`)
+            expect(out.join('\n')).toMatch(/reader at 32 ACU.*\$19\.20/)
+            expect(out.join('\n')).toMatch(tail)
+        }
+    )
 
     it('leases the run by registering both stack-delete schedules and the private inputs', async () => {
         const { controller } = prepare()

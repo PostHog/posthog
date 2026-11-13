@@ -58,7 +58,10 @@ export function estimateOf({ writerClass, readerAcu, host, admission }: CloudPro
             item: `S3 requests, ${allowances.s3Requests}`,
             usd: (allowances.s3Requests / 1000) * rates.s3PerThousandRequests,
         },
-        { item: 'teardown tail, 1 h of the full inventory', usd: fullInventoryPerHour },
+        {
+            item: `teardown tail, ${admission.teardownAllowance} of the full inventory`,
+            usd: (durationMs(admission.teardownAllowance) / (HOUR_S * 1000)) * fullInventoryPerHour,
+        },
         { item: 'margin', usd: admission.reserve.marginUsd },
     ]
 }
