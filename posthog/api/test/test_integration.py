@@ -8710,3 +8710,68 @@ class TestOauthTokenRefreshFailedResponse(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["code"] == "integration_token_refresh_failed"
+
+
+@override_settings(GOOGLE_ADS_DEVELOPER_TOKEN="dev_token")
+@patch("tenacity.nap.time.sleep")
+@patch("posthog.models.integration.google_ads.requests.request")
+class TestGoogleAdsConversionActions(APIBaseTest):
+    def _get_conversion_actions(self) -> Any:
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="google-ads",
+            integration_id="google-ads-1",
+            config={"expires_in": 3600, "refreshed_at": int(time.time())},
+            sensitive_config={"access_token": "access", "refresh_token": "refresh"},
+        )
+        return self.client.get(
+            f"/api/environments/{self.team.pk}/integrations/{integration.id}/google_conversion_actions/",
+            {"customerId": "1234567890", "parentId": "6501924158"},
+        )
+
+    @staticmethod
+    def _search_stream() -> MagicMock:
+        stream = MagicMock(status_code=200)
+        stream.json.return_value = [
+            {
+                "results": [
+                    {
+                        "conversionAction": {
+                            "id": "111",
+                            "name": "Purchase",
+                            "resourceName": "customers/1234567890/conversionActions/111",
+                        }
+                    }
+                ]
+            }
+        ]
+        return stream
+
+    @parameterized.expand([("first_attempt", False), ("after_one_read_timeout", True)])
+    def test_lists_conversion_actions(
+        self, mock_request: MagicMock, _sleep: MagicMock, _name: str, first_attempt_times_out: bool
+    ) -> None:
+        timeouts = [requests.exceptions.ReadTimeout("read timed out")] if first_attempt_times_out else []
+        mock_request.side_effect = [*timeouts, self._search_stream()]
+
+        response = self._get_conversion_actions()
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {
+            "conversionActions": [
+                {"id": "111", "name": "Purchase", "resourceName": "customers/1234567890/conversionActions/111"}
+            ]
+        }
+
+    @patch("posthog.api.integration.capture_exception")
+    def test_asks_the_user_to_try_again_when_every_attempt_times_out(
+        self, mock_capture_exception: MagicMock, mock_request: MagicMock, _sleep: MagicMock
+    ) -> None:
+        timeout = requests.exceptions.ReadTimeout("read timed out")
+        mock_request.side_effect = timeout
+
+        response = self._get_conversion_actions()
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == "Google Ads did not respond in time. Try again."
+        mock_capture_exception.assert_called_once_with(timeout)
