@@ -108,6 +108,7 @@ describe('annotationModalLogic', () => {
         const logic = annotationModalLogic()
         logic.mount()
 
+        logic.actions.openModalToCreateAnnotation(null, 42, 8)
         logic.actions.openModalToEditAnnotation(annotation, insightId, dashboardId)
         if (newScope) {
             logic.actions.setAnnotationModalValue('scope', newScope)

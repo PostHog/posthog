@@ -244,6 +244,7 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
             }
         },
         openModalToEditAnnotation: ({ annotation: { date_marker, scope, content, emoji }, insightId, dashboardId }) => {
+            actions.resetAnnotationModal()
             actions.setAnnotationModalValues({
                 dateMarker: dayjs(date_marker).tz(values.timezone),
                 scope,
