@@ -384,11 +384,6 @@ export interface inboxSetupLogicMeta {
             currentTeam: TeamPublicType | TeamType | null,
             productStatusBySource: Partial<Record<AgentRosterSource, SourceProductStatus>>
         ) => ScoutSuggestionItemApi[]
-        scoutLimit: (
-            trial: SelfDrivingTrialStatusApi | null,
-            scoutConfigs: SignalScoutConfigApi[] | null,
-            draft: InboxOnboardingDraftApi
-        ) => InboxSetupScoutLimit
         scoutChoices: (
             suggestions: ScoutSuggestionItemApi[],
             defaultScouts: ScoutSuggestionItemApi[],
@@ -736,14 +731,7 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
             ): ScoutSuggestionItemApi[] =>
                 inboxSetupDefaultScouts(configs ?? [], sources, !!team?.ingested_event, statuses),
         ],
-        scoutLimit: [
-            (s) => [s.trial, s.scoutConfigs, s.draft],
-            (
-                trial: SelfDrivingTrialStatusApi | null,
-                configs: SignalScoutConfigApi[] | null,
-                draft: InboxOnboardingDraftApi
-            ): InboxSetupScoutLimit => inboxSetupScoutLimit(trial, configs ?? [], draft),
-        ],
+        scoutLimit: [() => [], (): InboxSetupScoutLimit => inboxSetupScoutLimit()],
         scoutChoices: [
             (s) => [s.suggestions, s.defaultScouts, s.draft],
             (

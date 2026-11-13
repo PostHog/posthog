@@ -94,8 +94,8 @@ export function sectionRecommendations(groups: RecommendationGroup[]): Recommend
 export const IMPACT_DIRECTION_LABELS: Record<MarketingAnalyticsRecommendation['impactDirection'], string> = {
     save: 'Save',
     gain: 'Gain',
-    invest: 'Invest',
-    keep: 'Keep',
+    invest: 'Invest up to',
+    keep: 'Keep spending',
 }
 
 export const IMPACT_DIRECTION_DESCRIPTIONS: Record<MarketingAnalyticsRecommendation['impactDirection'], string> = {
@@ -203,6 +203,51 @@ export function recommendationsShownState(status: RecommendationsLoadStatus): Re
         return 'no_selected_source'
     }
     return status.responseError ? 'error' : 'empty'
+}
+
+type Direction = MarketingAnalyticsRecommendation['impactDirection']
+
+// These rules move a whole campaign's spend, so other recommendations on the same campaign overlap with them.
+const WHOLE_CAMPAIGN_RULES: Partial<Record<Direction, MarketingAnalyticsRecommendationRule[]>> = {
+    save: ['review_campaign'],
+    invest: ['scale_campaign', 'budget_constrained'],
+}
+
+function campaignOf(recommendation: MarketingAnalyticsRecommendation): string | null {
+    return recommendation.level === 'campaign' ? recommendation.subject : (recommendation.campaign ?? null)
+}
+
+// The account-wide total, where overlapping recommendations on one campaign count once and "keep" stays out.
+export function summarizeImpact(recommendations: MarketingAnalyticsRecommendation[]): RecommendationTotal[] {
+    const byCampaign = new Map<string, { whole: number; rest: number; direction: Direction; currency: string | null }>()
+    recommendations.forEach((recommendation, index) => {
+        const { impact, impactDirection: direction } = recommendation
+        if (!impact || direction === 'keep') {
+            return
+        }
+        const currency = recommendation.currency ?? null
+        const campaign = campaignOf(recommendation) ?? `#${index}`
+        const key = `${direction}|${currency}|${campaign}`
+        const bucket = byCampaign.get(key) ?? { whole: 0, rest: 0, direction, currency }
+        if (WHOLE_CAMPAIGN_RULES[direction]?.includes(recommendation.rule)) {
+            bucket.whole = Math.max(bucket.whole, impact)
+        } else {
+            bucket.rest += impact
+        }
+        byCampaign.set(key, bucket)
+    })
+    const totals = new Map<string, RecommendationTotal>()
+    for (const { whole, rest, direction, currency } of byCampaign.values()) {
+        // Reviewing a campaign covers every saving inside it; a budget raise and new keywords add up.
+        const amount = direction === 'save' ? Math.max(whole, rest) : whole + rest
+        const key = `${direction}|${currency}`
+        const total = totals.get(key) ?? { direction, currency, amount: 0 }
+        total.amount += amount
+        totals.set(key, total)
+    }
+    return [...totals.values()].sort(
+        (a, b) => DIRECTION_ORDER.indexOf(a.direction) - DIRECTION_ORDER.indexOf(b.direction)
+    )
 }
 
 export function groupRecommendations(
