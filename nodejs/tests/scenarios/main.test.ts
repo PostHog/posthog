@@ -24,6 +24,7 @@ const passed = (cardId: string): RunResult => ({
     origin: 'local-agent',
     invariants: [],
     measurements: [],
+    admissions: [],
     timeline: [],
     startedAt: '2026-01-01T00:00:00.000Z',
     endedAt: '2026-01-01T00:00:01.000Z',

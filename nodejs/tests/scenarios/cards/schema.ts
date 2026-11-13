@@ -82,6 +82,22 @@ export const Backlog = z
     .strict()
 export type Backlog = z.infer<typeof Backlog>
 
+export const Load = z
+    .object({
+        targets: z
+            .object({
+                claimsPerSecond: z.partialRecord(BacklogQueue, z.number().positive()),
+                newJobsPerSecond: z.number().positive().optional(),
+            })
+            .strict(),
+        tolerance: z.number().min(0).max(1),
+    })
+    .strict()
+export type Load = z.infer<typeof Load>
+
+export const Host = z.object({ cpuCeiling: z.number().min(0).max(1) }).strict()
+export type Host = z.infer<typeof Host>
+
 export const Profile = z
     .object({
         name: z.string(),
@@ -95,6 +111,8 @@ export const Profile = z
             })
             .default({}),
         backlog: Backlog.optional(),
+        load: Load.optional(),
+        host: Host.optional(),
     })
     .strict()
 export type Profile = z.infer<typeof Profile>

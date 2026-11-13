@@ -4,9 +4,12 @@ export type Queue = 'hogflow' | 'email'
 
 type JobQuery = { teams: number[]; queues: Queue[] }
 
+export type QueueCounts = { due: number; running: number; oldestDueSeconds: number; created: number }
+
 export interface CyclotronProbe {
     unfinishedJobs(query: JobQuery): Promise<number>
     runningJobs(query: JobQuery): Promise<number>
+    counts(query: JobQuery & { since: Date }): Promise<QueueCounts>
 }
 
 export function createCyclotronProbe(cyclotronUrl: string): CyclotronProbe {
@@ -23,5 +26,26 @@ export function createCyclotronProbe(cyclotronUrl: string): CyclotronProbe {
     return {
         unfinishedJobs: (query) => count(query, ['available', 'running']),
         runningJobs: (query) => count(query, ['running']),
+        counts: ({ teams, queues, since }) =>
+            withPostgres(async (client) => {
+                const { rows } = await client.query<Record<keyof QueueCounts, string>>(
+                    `SELECT
+                         count(*) FILTER (WHERE status::text = 'available' AND scheduled <= now()) AS due,
+                         count(*) FILTER (WHERE status::text = 'running') AS running,
+                         coalesce(extract(epoch FROM now() - min(scheduled)
+                             FILTER (WHERE status::text = 'available' AND scheduled <= now())), 0) AS "oldestDueSeconds",
+                         count(*) FILTER (WHERE created >= $3) AS created
+                     FROM cyclotron_jobs
+                     WHERE team_id = ANY($1) AND queue_name = ANY($2)`,
+                    [teams, queues, since]
+                )
+                const [{ due, running, oldestDueSeconds, created }] = rows
+                return {
+                    due: Number(due),
+                    running: Number(running),
+                    oldestDueSeconds: Number(oldestDueSeconds),
+                    created: Number(created),
+                }
+            }, cyclotronUrl),
     }
 }

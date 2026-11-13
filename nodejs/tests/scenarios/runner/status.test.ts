@@ -1,9 +1,12 @@
+import type { Profile } from '../cards/schema'
 import type { Role } from '../environment/roles'
 import type { RoleExit } from '../environment/supervisor'
+import type { Baseline } from '../judge/measurements'
 import type { ValveTimelineEntry } from '../valves/valves'
-import { Verdict, statusOf } from './status'
+import { Admission, Verdict, admissionsOf, statusOf } from './status'
 
 const HELD: Verdict = {
+    admissions: [],
     minOffered: 0.9,
     units: { targetUnits: 60, offeredUnits: 60 },
     down: [],
@@ -12,6 +15,8 @@ const HELD: Verdict = {
     timeline: [],
     exits: [],
 }
+
+const REFUSED_LOAD: Admission = { name: 'load', passed: false, reason: 'email claims 1/s, not within 10% of 4/s' }
 
 const BROKEN = { name: 'at_least_once', passed: false, observed: 2, violation: 'run-1 email: lost', unitIds: ['run-1'] }
 
@@ -146,12 +151,83 @@ describe('statusOf', () => {
             `${HOGFLOW_WORKER} exited (SIGKILL) without a valve causing it; role.kill on ${EMAIL_WORKER} was not observed: never applied`,
         ],
         [
+            'the baseline load missed its target',
+            {
+                admissions: [REFUSED_LOAD, { name: 'host', passed: false, reason: 'host CPU 95% busy' }],
+                invariants: [BROKEN],
+            },
+            'invalid',
+            'the load admission failed: email claims 1/s, not within 10% of 4/s; the host admission failed: host CPU 95% busy',
+        ],
+        [
+            'every admission passed',
+            { admissions: [{ name: 'load', passed: true, reason: 'every baseline rate within 10% of its target' }] },
+            'passed',
+            'every invariant held',
+        ],
+        [
             'a dependency went away',
-            { down: ['provider-edge'], invariants: [BROKEN] },
+            { down: ['provider-edge'], invariants: [BROKEN], admissions: [REFUSED_LOAD] },
             'invalid',
             'dependencies went away: provider-edge',
         ],
     ])('%s', (_story, change, status, statusReason) => {
         expect(statusOf({ ...HELD, ...change })).toEqual({ status, statusReason })
+    })
+
+    const BASELINE: Baseline = {
+        seconds: 600,
+        claimsPerSecond: { email: 3.8, hogflow: 2 },
+        newJobsPerSecond: 5.5,
+        hostBusyShare: 0.62,
+    }
+    const LOAD: Profile['load'] = { targets: { claimsPerSecond: { email: 4 }, newJobsPerSecond: 5 }, tolerance: 0.1 }
+
+    it.each<[string, Pick<Profile, 'load' | 'host'>, Partial<Baseline>, Admission[]]>([
+        ['admits nothing for a profile that sets neither', {}, {}, []],
+        [
+            'admits a baseline within the tolerance of every target',
+            { load: LOAD },
+            {},
+            [{ name: 'load', passed: true, reason: 'every baseline rate within 10% of its target' }],
+        ],
+        [
+            'refuses a baseline that missed a queue and the new jobs',
+            { load: { ...LOAD, targets: { claimsPerSecond: { email: 4, hogflow: 3 }, newJobsPerSecond: 5 } } },
+            { newJobsPerSecond: 6 },
+            [
+                {
+                    name: 'load',
+                    passed: false,
+                    reason: 'hogflow claims 2/s, not within 10% of 3/s, new jobs 6/s, not within 10% of 5/s',
+                },
+            ],
+        ],
+        [
+            'refuses a run whose valve came before any baseline',
+            { load: LOAD },
+            { seconds: 0 },
+            [{ name: 'load', passed: false, reason: 'the drive had no baseline before its valve' }],
+        ],
+        [
+            'admits a host under its CPU ceiling',
+            { host: { cpuCeiling: 0.7 } },
+            {},
+            [{ name: 'host', passed: true, reason: 'host CPU 62% busy in the baseline, under the 70% ceiling' }],
+        ],
+        [
+            'refuses a host at its CPU ceiling',
+            { host: { cpuCeiling: 0.62 } },
+            {},
+            [{ name: 'host', passed: false, reason: 'host CPU 62% busy in the baseline, over the 62% ceiling' }],
+        ],
+        [
+            'refuses a host without CPU samples',
+            { host: { cpuCeiling: 0.7 } },
+            { hostBusyShare: undefined },
+            [{ name: 'host', passed: false, reason: 'no host CPU sample covers the baseline' }],
+        ],
+    ])('%s', (_story, profile, baseline, admissions) => {
+        expect(admissionsOf(profile, { ...BASELINE, ...baseline })).toEqual(admissions)
     })
 })

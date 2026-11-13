@@ -1,3 +1,4 @@
+import { readFileSync } from 'fs'
 import { setTimeout as sleep } from 'timers/promises'
 import { z } from 'zod'
 
@@ -6,6 +7,9 @@ import { internalFetch } from '~/common/utils/request'
 import type { Named } from '../cards'
 import type { Definition } from '../cards/definitions'
 import { ReplicaOf, nameOf } from '../environment/identity'
+import type { QueueCounts } from '../probe/cyclotron-probe'
+import type { WriterSample } from '../probe/writer-probe'
+import type { ValveTimelineEntry } from '../valves/valves'
 import { deliveryKey } from './invariants'
 import type { JudgeEvidence } from './invariants'
 
@@ -16,17 +20,32 @@ export type MetricSample = {
     startedAt: number
     cpuSeconds: number
     rssBytes: number
+    processed: Record<string, number>
+    pgClientErrors: number
+    consumerLoopErrors: number
 }
 
 export type MissedScrape = { role: string; replica: number; at: number }
 
-export type Sampled = { samples: MetricSample[]; missed: MissedScrape[] }
+export type HostSample = { at: number; busyTicks: number; totalTicks: number }
 
-export type Measurement = { name: string; key?: string; value: number; unit: string; incomplete?: true }
+export type Sampled = { samples: MetricSample[]; missed: MissedScrape[]; host: HostSample[] }
 
-export type MeasureEvidence = JudgeEvidence & Readonly<Sampled> & { sampledFrom: number }
+export type QueueSample = { at: number } & (QueueCounts | { error: string })
 
-type Measured = { key?: string; value: number; incomplete?: true }
+export type Probed = { writer: WriterSample[]; queue: QueueSample[] }
+
+export type DriveWindow = { startedAt: number; endedAt: number }
+
+type Value = { value: number; censored?: true } | { value: null; censored: true }
+
+type Measured = { key?: string; incomplete?: true } & Value
+
+export type Measurement = { name: string; unit: string } & Measured
+
+export type MeasureEvidence = JudgeEvidence &
+    Readonly<Sampled> &
+    Readonly<Probed> & { sampledFrom: number; drive: DriveWindow; timeline: readonly ValveTimelineEntry[] }
 
 export type MeasurementDefinition = Definition & {
     unit: string
@@ -54,11 +73,16 @@ const lostCpu = (ofReplica: readonly MetricSample[], missed: readonly MissedScra
             miss.role === ofReplica[0].role && miss.replica === ofReplica[0].replica && miss.at > ofReplica.at(-1)!.at
     )
 
-const cpuSecondsOf = (ofReplica: readonly MetricSample[], sampledFrom: number): number =>
+type Counter = (sample: MetricSample) => number
+
+const increaseOf = (ofReplica: readonly MetricSample[], read: Counter, since: number): number =>
     [...Map.groupBy(ofReplica, ({ startedAt }) => startedAt)].reduce((sum, [startedAt, lifetime]) => {
-        const startedWhileSampled = startedAt * 1000 >= sampledFrom
-        return sum + lifetime.at(-1)!.cpuSeconds - (startedWhileSampled ? 0 : lifetime[0].cpuSeconds)
+        const startedWhileSampled = startedAt * 1000 >= since
+        return sum + read(lifetime.at(-1)!) - (startedWhileSampled ? 0 : read(lifetime[0]))
     }, 0)
+
+const cpuSecondsOf = (ofReplica: readonly MetricSample[], sampledFrom: number): number =>
+    increaseOf(ofReplica, ({ cpuSeconds }) => cpuSeconds, sampledFrom)
 
 export const roleCpuSeconds: MeasurementDefinition = {
     name: 'role_cpu_seconds',
@@ -120,7 +144,237 @@ export const deliveryLatencyMs: MeasurementDefinition = {
     },
 }
 
-export const MEASUREMENTS: MeasurementDefinition[] = [roleCpuSeconds, roleRssMaxBytes, deliveryLatencyMs]
+export type Phase = { from: number; to: number }
+
+export type Phases = { baseline: Phase; valve?: Phase; failback?: Phase }
+
+export function phasesOf(drive: DriveWindow, timeline: readonly ValveTimelineEntry[]): Phases {
+    const first = timeline.at(0)
+    if (first?.intentAt === undefined) {
+        return { baseline: { from: drive.startedAt, to: drive.endedAt } }
+    }
+    const intent = Math.max(Date.parse(first.intentAt), drive.startedAt)
+    const released = first.releasedAt === undefined ? undefined : Date.parse(first.releasedAt)
+    return {
+        baseline: { from: drive.startedAt, to: intent },
+        valve: { from: intent, to: released ?? drive.endedAt },
+        ...(released !== undefined && released < drive.endedAt
+            ? { failback: { from: released, to: drive.endedAt } }
+            : {}),
+    }
+}
+
+const within = ({ from, to }: Phase, at: number): boolean => from <= at && at < to
+
+const lastBefore = <T extends { at: number }>(series: readonly T[], at: number): T | undefined =>
+    series.filter((sample) => sample.at < at).at(-1)
+
+const byTime = <T extends { at: number }>(series: readonly T[]): T[] => [...series].sort((a, b) => a.at - b.at)
+
+const committedAt = ({ at, latencyMs }: WriterSample): number => at + latencyMs
+
+type Outage = { from: number; to?: number }
+
+function outagesOf(writer: readonly WriterSample[]): Outage[] {
+    const outages: Outage[] = []
+    let lastCommit: number | undefined
+    let open: Outage | undefined
+    for (const sample of byTime(writer)) {
+        if (sample.ok) {
+            if (open) {
+                outages.push({ ...open, to: committedAt(sample) })
+                open = undefined
+            }
+            lastCommit = committedAt(sample)
+        } else {
+            open ??= { from: lastCommit ?? sample.at }
+        }
+    }
+    return open ? [...outages, open] : outages
+}
+
+const seconds = (ms: number): number => ms / 1000
+
+function writerUnavailable(writer: readonly WriterSample[], phase: Phase): Measured[] {
+    if (!writer.some(({ at }) => within(phase, at))) {
+        return []
+    }
+    const overlapping = outagesOf(writer).filter(({ from, to }) => from < phase.to && (to ?? Infinity) > phase.from)
+    const unavailable = overlapping.reduce(
+        (sum, { from, to }) => sum + Math.min(to ?? Infinity, phase.to) - Math.max(from, phase.from),
+        0
+    )
+    const censored = overlapping.some(({ to }) => (to ?? Infinity) > phase.to)
+    return [{ value: seconds(unavailable), ...(censored ? { censored: true as const } : {}) }]
+}
+
+function firstCommitAfterFailure(writer: readonly WriterSample[], phase: Phase): Measured[] {
+    const sorted = byTime(writer).filter(({ at }) => at >= phase.from)
+    const failed = sorted.find(({ ok, at }) => !ok && within(phase, at))
+    if (failed === undefined) {
+        return sorted.some(({ at }) => within(phase, at)) ? [{ value: 0 }] : []
+    }
+    const commit = sorted.find(({ ok, at }) => ok && at > failed.at)
+    return commit !== undefined && committedAt(commit) <= phase.to
+        ? [{ value: seconds(committedAt(commit) - phase.from) }]
+        : [{ value: seconds(phase.to - phase.from), censored: true }]
+}
+
+const counted = (queue: readonly QueueSample[]): (QueueCounts & { at: number })[] =>
+    byTime(queue).filter((sample): sample is QueueCounts & { at: number } => !('error' in sample))
+
+const ENVELOPE_MS = 10 * 60_000
+const DRAINED_FOR_MS = 60_000
+
+function drain(queue: readonly QueueSample[], baseline: Phase, phase: Phase): Measured[] {
+    const samples = counted(queue)
+    const recent = { from: Math.max(baseline.from, baseline.to - ENVELOPE_MS), to: baseline.to }
+    const envelope = samples.filter(({ at }) => within(recent, at))
+    const inPhase = samples.filter(({ at }) => within(phase, at))
+    if (envelope.length === 0 || inPhase.length === 0) {
+        return []
+    }
+    const maxDue = Math.max(...envelope.map(({ due }) => due))
+    const maxAge = Math.max(...envelope.map(({ oldestDueSeconds }) => oldestDueSeconds))
+    const inside = ({ due, oldestDueSeconds }: QueueCounts): boolean => due <= maxDue && oldestDueSeconds <= maxAge
+    const left = inPhase.findIndex((sample) => !inside(sample))
+    if (left < 0) {
+        return [{ value: 0 }]
+    }
+    let insideSince: number | undefined
+    for (const sample of inPhase.slice(left)) {
+        insideSince = inside(sample) ? (insideSince ?? sample.at) : undefined
+        if (insideSince !== undefined && sample.at - insideSince >= DRAINED_FOR_MS) {
+            return [{ value: seconds(insideSince - phase.from) }]
+        }
+    }
+    return [{ value: null, censored: true }]
+}
+
+const spanning = <T extends { at: number }>(series: readonly T[], phase: Phase): T[] => {
+    const reference = lastBefore(series, phase.from)
+    return [...(reference ? [reference] : []), ...series.filter(({ at }) => within(phase, at))]
+}
+
+const replicasOf = (samples: readonly MetricSample[]): MetricSample[][] => [
+    ...Map.groupBy(byTime(samples), ({ role, replica }) => `${role}-${replica}`).values(),
+]
+
+function phaseIncrease(samples: readonly MetricSample[], read: Counter, phase: Phase): number {
+    return replicasOf(samples).reduce((sum, ofReplica) => {
+        const window = spanning(ofReplica, phase)
+        return window.length === 0 ? sum : sum + increaseOf(window, read, window[0].at)
+    }, 0)
+}
+
+function phaseRate(samples: readonly MetricSample[], read: Counter, phase: Phase): number {
+    return replicasOf(samples).reduce((sum, ofReplica) => {
+        const window = spanning(ofReplica, phase)
+        const span = window.length < 2 ? 0 : window.at(-1)!.at - window[0].at
+        return span <= 0 ? sum : sum + increaseOf(window, read, window[0].at) / seconds(span)
+    }, 0)
+}
+
+export type Baseline = {
+    seconds: number
+    claimsPerSecond: Record<string, number>
+    newJobsPerSecond?: number
+    hostBusyShare?: number
+}
+
+export function baselineOf({ samples, queue, host, drive, timeline }: MeasureEvidence): Baseline {
+    const { baseline } = phasesOf(drive, timeline)
+    const queues = [...new Set(samples.flatMap(({ processed }) => Object.keys(processed)))]
+    const claimsPerSecond = Object.fromEntries(
+        queues.map((name) => [name, phaseRate(samples, ({ processed }) => processed[name] ?? 0, baseline)])
+    )
+    const created = spanning(counted(queue), baseline)
+    const hostSpan = spanning(byTime(host), baseline)
+    const [firstHost, lastHost] = [hostSpan.at(0), hostSpan.at(-1)]
+    return {
+        seconds: seconds(baseline.to - baseline.from),
+        claimsPerSecond,
+        ...(created.length > 1 && created.at(-1)!.at > created[0].at
+            ? {
+                  newJobsPerSecond:
+                      (created.at(-1)!.created - created[0].created) / seconds(created.at(-1)!.at - created[0].at),
+              }
+            : {}),
+        ...(firstHost !== undefined && lastHost !== undefined && lastHost.totalTicks > firstHost.totalTicks
+            ? {
+                  hostBusyShare:
+                      (lastHost.busyTicks - firstHost.busyTicks) / (lastHost.totalTicks - firstHost.totalTicks),
+              }
+            : {}),
+    }
+}
+
+type PhaseName = 'valve' | 'failback'
+
+const inPhase = (
+    name: string,
+    unit: string,
+    phaseName: PhaseName,
+    measured: (evidence: MeasureEvidence, phase: Phase, phases: Phases) => Measured[]
+): MeasurementDefinition => ({
+    name,
+    params: z.object({}).strict(),
+    unit,
+    measure: (evidence) => {
+        const phases = phasesOf(evidence.drive, evidence.timeline)
+        const phase = phases[phaseName]
+        return phase === undefined ? [] : measured(evidence, phase, phases)
+    },
+})
+
+export const RECOVERY_MEASUREMENTS: MeasurementDefinition[] = [
+    inPhase('writer_unavailable_seconds', 's', 'valve', ({ writer }, phase) => writerUnavailable(writer, phase)),
+    inPhase('failback_writer_unavailable_seconds', 's', 'failback', ({ writer }, phase) =>
+        writerUnavailable(writer, phase)
+    ),
+    inPhase('seconds_to_first_probe_commit', 's', 'valve', ({ writer }, phase) =>
+        firstCommitAfterFailure(writer, phase)
+    ),
+    inPhase('queue_lag_peak_seconds', 's', 'valve', ({ queue }, phase) => {
+        const ages = counted(queue)
+            .filter(({ at }) => within(phase, at))
+            .map(({ oldestDueSeconds }) => oldestDueSeconds)
+        return ages.length === 0 ? [] : [{ value: Math.max(...ages) }]
+    }),
+    inPhase('drain_seconds', 's', 'valve', ({ queue }, phase, { baseline }) => drain(queue, baseline, phase)),
+    inPhase('failback_drain_seconds', 's', 'failback', ({ queue }, phase, { baseline }) =>
+        drain(queue, baseline, phase)
+    ),
+    inPhase('pg_client_errors', 'errors', 'valve', ({ samples }, phase) => [
+        { value: phaseIncrease(samples, ({ pgClientErrors }) => pgClientErrors, phase) },
+    ]),
+    inPhase('consumer_loop_errors', 'errors', 'valve', ({ samples }, phase) => [
+        { value: phaseIncrease(samples, ({ consumerLoopErrors }) => consumerLoopErrors, phase) },
+    ]),
+    {
+        name: 'baseline_claims_per_second',
+        params: z.object({}).strict(),
+        unit: 'jobs/s',
+        measure: (evidence) =>
+            Object.entries(baselineOf(evidence).claimsPerSecond).map(([key, value]) => ({ key, value })),
+    },
+    {
+        name: 'baseline_new_jobs_per_second',
+        params: z.object({}).strict(),
+        unit: 'jobs/s',
+        measure: (evidence) => {
+            const { newJobsPerSecond } = baselineOf(evidence)
+            return newJobsPerSecond === undefined ? [] : [{ value: newJobsPerSecond }]
+        },
+    },
+]
+
+export const MEASUREMENTS: MeasurementDefinition[] = [
+    roleCpuSeconds,
+    roleRssMaxBytes,
+    deliveryLatencyMs,
+    ...RECOVERY_MEASUREMENTS,
+]
 
 export function measure(measurements: Named[], evidence: MeasureEvidence): Measurement[] {
     return measurements.flatMap(({ name }) => {
@@ -138,25 +392,90 @@ function gauge(text: string, name: string): number | undefined {
     return Number.isFinite(value) ? value : undefined
 }
 
+const SERIES = /^(\w+)(?:\{([^}]*)\})? (\S+)/
+
+function seriesOf(text: string, name: string): { labels: Record<string, string>; value: number }[] {
+    return text.split('\n').flatMap((line) => {
+        const match = SERIES.exec(line)
+        const value = Number(match?.[3])
+        if (match === null || match[1] !== name || !Number.isFinite(value)) {
+            return []
+        }
+        const labels = Object.fromEntries([...(match[2] ?? '').matchAll(/(\w+)="([^"]*)"/g)].map(([, k, v]) => [k, v]))
+        return [{ labels, value }]
+    })
+}
+
+const totalOf = (text: string, name: string): number => seriesOf(text, name).reduce((sum, { value }) => sum + value, 0)
+
+const CYCLOTRON_SOURCE = 'postgres-v2'
+
+function processedOf(text: string): Record<string, number> {
+    const processed: Record<string, number> = {}
+    for (const { labels, value } of seriesOf(text, 'cdp_cyclotron_jobs_processed')) {
+        if (labels.source === CYCLOTRON_SOURCE && labels.queue !== undefined) {
+            processed[labels.queue] = (processed[labels.queue] ?? 0) + value
+        }
+    }
+    return processed
+}
+
 export function sampleOf({ role, replica }: Target, at: number, text: string): MetricSample | undefined {
     const startedAt = gauge(text, 'process_start_time_seconds')
     const cpuSeconds = gauge(text, 'process_cpu_seconds_total')
     const rssBytes = gauge(text, 'process_resident_memory_bytes')
     return startedAt === undefined || cpuSeconds === undefined || rssBytes === undefined
         ? undefined
-        : { role, replica, at, startedAt, cpuSeconds, rssBytes }
+        : {
+              role,
+              replica,
+              at,
+              startedAt,
+              cpuSeconds,
+              rssBytes,
+              processed: processedOf(text),
+              pgClientErrors: totalOf(text, 'cdp_cyclotron_v2_pg_client_errors_total'),
+              consumerLoopErrors: totalOf(text, 'cdp_cyclotron_v2_consumer_loop_errors_total'),
+          }
+}
+
+export function hostSampleOf(at: number, procStat: string): HostSample | undefined {
+    const line = procStat.split('\n').find((candidate) => /^cpu\s/.test(candidate))
+    const ticks = line?.trim().split(/\s+/).slice(1).map(Number) ?? []
+    if (ticks.length < 5 || ticks.some((tick) => !Number.isFinite(tick))) {
+        return undefined
+    }
+    const totalTicks = ticks.reduce((sum, tick) => sum + tick, 0)
+    return { at, busyTicks: totalTicks - ticks[3] - ticks[4], totalTicks }
 }
 
 export type Sampler = { sampledFrom: number; stop(): Promise<Sampled> }
 
 type Target = ReplicaOf & { metricsUrl: string }
 
+export type SamplerOptions = { baselineWithinMs?: number; readHostStat?: () => string }
+
+const readProcStat = (): string => readFileSync('/proc/stat', 'utf8')
+
 export async function startSampler(
     targets: Target[],
-    { baselineWithinMs = BASELINE_WITHIN_MS } = {}
+    { baselineWithinMs = BASELINE_WITHIN_MS, readHostStat = readProcStat }: SamplerOptions = {}
 ): Promise<Sampler> {
     const samples: MetricSample[] = []
     const missed: MissedScrape[] = []
+    const host: HostSample[] = []
+    const sampleHost = (): void => {
+        const at = Date.now()
+        let sample: HostSample | undefined
+        try {
+            sample = hostSampleOf(at, readHostStat())
+        } catch {
+            sample = undefined
+        }
+        if (sample) {
+            host.push(sample)
+        }
+    }
     const stopped = new AbortController()
     const scrape = async (some: Target[], timeoutMs = SCRAPE_TIMEOUT_MS): Promise<MissedScrape[]> => {
         const failed: MissedScrape[] = []
@@ -177,6 +496,7 @@ export async function startSampler(
         return failed
     }
     const scrapeAll = async (): Promise<void> => {
+        sampleHost()
         missed.push(...(await scrape(targets)))
     }
     const sampledFrom = Date.now()
@@ -195,6 +515,7 @@ export async function startSampler(
         }
         await sleep(BASELINE_RETRY_MS)
     }
+    sampleHost()
     const sampling = (async () => {
         while (!stopped.signal.aborted) {
             await sleep(SAMPLE_INTERVAL_MS, undefined, { signal: stopped.signal }).catch(() => undefined)
@@ -211,7 +532,7 @@ export async function startSampler(
                 stopped.abort()
                 await sampling
                 await scrapeAll()
-                return { samples, missed }
+                return { samples, missed, host }
             })()),
     }
 }

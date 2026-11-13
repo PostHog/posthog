@@ -1,7 +1,9 @@
+import type { Profile } from '../cards/schema'
 import { nameOf } from '../environment/identity'
 import type { RoleExit } from '../environment/supervisor'
 import type { DriveSummary } from '../generator/generator'
 import type { Convergence, InvariantResult } from '../judge/judge'
+import type { Baseline } from '../judge/measurements'
 import type { ValveTimelineEntry } from '../valves/valves'
 
 export type Status = 'passed' | 'failed' | 'invalid'
@@ -12,7 +14,64 @@ export function exitCodeOf({ status, scorecardError }: { status: Status; scoreca
     return scorecardError === undefined ? EXIT_CODE[status] : EXIT_CODE.writeFailed
 }
 
+export type Admission = { name: 'load' | 'host'; passed: boolean; reason: string }
+
+type RateCheck = { what: string; measured: number | undefined; target: number }
+
+const percent = (share: number): string => `${Number((share * 100).toFixed(1))}%`
+const rate = (perSecond: number): string => `${Number(perSecond.toFixed(2))}/s`
+
+export function admissionsOf({ load, host }: Pick<Profile, 'load' | 'host'>, baseline: Baseline): Admission[] {
+    const admissions: Admission[] = []
+    if (load) {
+        const { targets, tolerance } = load
+        const checks: RateCheck[] = [
+            ...Object.entries(targets.claimsPerSecond).map(([queue, target]) => ({
+                what: `${queue} claims`,
+                measured: baseline.claimsPerSecond[queue] ?? 0,
+                target,
+            })),
+            ...(targets.newJobsPerSecond === undefined
+                ? []
+                : [{ what: 'new jobs', measured: baseline.newJobsPerSecond, target: targets.newJobsPerSecond }]),
+        ]
+        const misses = checks
+            .filter(
+                ({ measured, target }) => measured === undefined || Math.abs(measured - target) > tolerance * target
+            )
+            .map(
+                ({ what, measured, target }) =>
+                    `${what} ${measured === undefined ? 'unmeasured' : rate(measured)}, not within ${percent(tolerance)} of ${rate(target)}`
+            )
+        admissions.push(
+            baseline.seconds <= 0
+                ? { name: 'load', passed: false, reason: 'the drive had no baseline before its valve' }
+                : misses.length > 0
+                  ? { name: 'load', passed: false, reason: misses.join(', ') }
+                  : {
+                        name: 'load',
+                        passed: true,
+                        reason: `every baseline rate within ${percent(tolerance)} of its target`,
+                    }
+        )
+    }
+    if (host) {
+        const { hostBusyShare } = baseline
+        admissions.push(
+            hostBusyShare === undefined
+                ? { name: 'host', passed: false, reason: 'no host CPU sample covers the baseline' }
+                : {
+                      name: 'host',
+                      passed: hostBusyShare < host.cpuCeiling,
+                      reason: `host CPU ${percent(hostBusyShare)} busy in the baseline, ${hostBusyShare < host.cpuCeiling ? 'under' : 'over'} the ${percent(host.cpuCeiling)} ceiling`,
+                  }
+        )
+    }
+    return admissions
+}
+
 export type Verdict = {
+    admissions: Admission[]
     minOffered: number
     units: DriveSummary
     down: string[]
@@ -36,12 +95,19 @@ function unexpectedExit(exit: RoleExit, timeline: ValveTimelineEntry[]): string 
     ].join(', ')
 }
 
-export function statusOf({ minOffered, units, down, convergence, invariants, timeline, exits }: Verdict): {
+export function statusOf({ admissions, minOffered, units, down, convergence, invariants, timeline, exits }: Verdict): {
     status: Status
     statusReason: string
 } {
     if (down.length > 0) {
         return { status: 'invalid', statusReason: `dependencies went away: ${down.join(', ')}` }
+    }
+    const refused = admissions.filter(({ passed }) => !passed)
+    if (refused.length > 0) {
+        return {
+            status: 'invalid',
+            statusReason: refused.map(({ name, reason }) => `the ${name} admission failed: ${reason}`).join('; '),
+        }
     }
     if (units.targetUnits === 0 || units.offeredUnits < minOffered * units.targetUnits) {
         return {
