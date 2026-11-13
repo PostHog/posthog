@@ -10,8 +10,9 @@ import { urls } from 'scenes/urls'
 
 import { releaseCalendarLogic } from './releaseCalendarLogic'
 import { releaseLogic } from './releaseLogic'
+import { releaseRelatedLogic } from './releaseRelatedLogic'
 import { RolloutStep } from './releaseRollout'
-import { ReleaseRolloutChart } from './ReleaseRolloutChart'
+import { ReleaseRolloutBar } from './ReleaseRolloutBar'
 import { ReleaseStageDot } from './ReleaseStageDot'
 import { ReleaseTimelineAxis } from './ReleaseTimelineAxis'
 import { ReleaseTimelineSkeleton } from './ReleaseTimelineSkeleton'
@@ -19,7 +20,7 @@ import { ReleaseTrackGrid } from './ReleaseTrackGrid'
 import { ReleaseTrackLabel } from './ReleaseTrackLabel'
 import { ReleaseTrackLane } from './ReleaseTrackLane'
 import { ReleaseTrackMarkers } from './ReleaseTrackMarkers'
-import { CALENDAR_SCALE, LANE, SPAN_LOOK, Track, buildTrack, mergeOverlapping } from './releaseTracks'
+import { CALENDAR_SCALE, LANE, SPAN_LOOK, Track, TrackRelated, buildTrack, mergeOverlapping } from './releaseTracks'
 import { ReleaseTrackSpan } from './ReleaseTrackSpan'
 import { CALENDAR_DAYS_AFTER, ReleaseRow, STAGE_COLOR, STAGE_COLOR_VARS } from './releaseUtils'
 import { useRefreshChangedFlagHistory } from './useRefreshChangedFlagHistory'
@@ -78,21 +79,12 @@ function TrackLanesContent({ track, open }: { track: Track; open: boolean }): JS
             <ReleaseTrackGrid scale={scale} />
             <div className="relative" style={{ height: open ? SUMMARY_OPEN : SUMMARY }}>
                 {steps.length > 0 && !open && (
-                    <ReleaseRolloutChart
-                        color={STAGE_COLOR[row.stage]}
+                    <ReleaseRolloutBar
                         steps={steps}
-                        start={scale.start}
-                        days={scale.days}
-                        dayWidth={scale.day}
-                        height={38}
-                        labelRoom={13}
-                        note={
-                            row.flags.length > 1
-                                ? `+${row.flags.length - 1} ${row.flags.length === 2 ? 'flag' : 'flags'}`
-                                : undefined
-                        }
-                        className="!absolute left-0"
-                        style={{ top: 20 }}
+                        scale={scale}
+                        color={STAGE_COLOR[row.stage]}
+                        top={26}
+                        height={20}
                     />
                 )}
                 {summarySpans.map((span) =>
@@ -127,6 +119,8 @@ function TrackLanesContent({ track, open }: { track: Track; open: boolean }): JS
     )
 }
 
+const laneKeys = (track: Track): string => track.lanes.map((lane) => `${lane.key}:${lane.title}`).join('|')
+
 const laneSteps = (track: Track): (RolloutStep[] | undefined)[] =>
     track.lanes.map((lane) => (lane.kind === 'flag' ? lane.steps : undefined))
 
@@ -136,24 +130,36 @@ const TrackLanes = memo(
         previous.open === next.open &&
         previous.track.row === next.track.row &&
         previous.track.steps === next.track.steps &&
+        laneKeys(previous.track) === laneKeys(next.track) &&
         laneSteps(previous.track).every((steps, index) => steps === laneSteps(next.track)[index])
 )
 
 interface CalendarState {
     expanded: Record<string, true>
     stepsByFlag: Map<number, RolloutStep[]>
+    related: Record<string, TrackRelated>
 }
 
-const CalendarStateContext = createContext<CalendarState>({ expanded: {}, stepsByFlag: new Map() })
+const CalendarStateContext = createContext<CalendarState>({ expanded: {}, stepsByFlag: new Map(), related: {} })
 
 function ReleaseCell({ row }: CellContext<ReleaseRow, unknown>): JSX.Element {
-    const { expanded, stepsByFlag } = useContext(CalendarStateContext)
-    return <TrackHeader track={buildTrack(row.original, stepsByFlag)} open={!!expanded[row.original.id]} />
+    const { expanded, stepsByFlag, related } = useContext(CalendarStateContext)
+    return (
+        <TrackHeader
+            track={buildTrack(row.original, stepsByFlag, related[row.original.id])}
+            open={!!expanded[row.original.id]}
+        />
+    )
 }
 
 function TimelineCell({ row }: CellContext<ReleaseRow, unknown>): JSX.Element {
-    const { expanded, stepsByFlag } = useContext(CalendarStateContext)
-    return <TrackLanes track={buildTrack(row.original, stepsByFlag)} open={!!expanded[row.original.id]} />
+    const { expanded, stepsByFlag, related } = useContext(CalendarStateContext)
+    return (
+        <TrackLanes
+            track={buildTrack(row.original, stepsByFlag, related[row.original.id])}
+            open={!!expanded[row.original.id]}
+        />
+    )
 }
 
 function TimelineHeader(): JSX.Element {
@@ -168,6 +174,7 @@ const COLUMNS: ColumnDef<ReleaseRow>[] = [
 export function ReleaseTimeline(): JSX.Element {
     const { filteredRows, dataLoading, releases, flags } = useValues(releaseLogic)
     const { expanded } = useValues(releaseCalendarLogic)
+    const { relatedByRelease } = useValues(releaseRelatedLogic)
     const { toggleExpanded, loadFlagActivity } = useActions(releaseCalendarLogic)
 
     useEffect(() => {
@@ -190,7 +197,10 @@ export function ReleaseTimeline(): JSX.Element {
 
     useRefreshChangedFlagHistory(flags)
 
-    const state = useMemo(() => ({ expanded, stepsByFlag }), [expanded, stepsByFlag])
+    const state = useMemo(
+        () => ({ expanded, stepsByFlag, related: relatedByRelease }),
+        [expanded, stepsByFlag, relatedByRelease]
+    )
 
     return (
         <div

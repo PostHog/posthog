@@ -67462,6 +67462,18 @@ export namespace Schemas {
       status: string;
     }
 
+    export interface LinkedInsightDTO {
+      /** True when the insight was deleted after it was linked. */
+      readonly deleted: boolean;
+      id: number;
+      short_id: string;
+      name: string;
+      /** @nullable */
+      created_at: string | null;
+      /** @nullable */
+      last_modified_at: string | null;
+    }
+
     /**
      * Minimal inbox `SignalReport` projection for the scout reverse lookup — just enough
      * for the scout UI to render a clickable chip and deep-link into the inbox, which loads
@@ -79011,6 +79023,8 @@ export namespace Schemas {
     }
 
     export interface ReleaseDTO {
+      /** ID, short ID, name and dates of each linked insight the caller can see, including deleted ones. */
+      readonly insights: readonly LinkedInsightDTO[];
       /** ID, name and status of each linked broadcast the caller can see. Deleted broadcasts are left out. */
       readonly broadcasts: readonly LinkedBroadcastDTO[];
       /** True when the release links flags the caller cannot see. Their IDs are left out of feature_flag_ids. */
@@ -79021,6 +79035,8 @@ export namespace Schemas {
       owner: ReleaseOwnerDTO | null;
       feature_flag_ids: number[];
       broadcast_ids: string[];
+      survey_ids: string[];
+      insight_ids: number[];
       created_at: string;
     }
 
@@ -96490,6 +96506,18 @@ export namespace Schemas {
          * @maxItems 100
          */
       broadcast_ids?: string[];
+      /**
+         * IDs of the surveys that collect feedback on the release, at most 100.
+         * @maxItems 100
+         */
+      survey_ids?: string[];
+      /**
+         * IDs of the saved insights that measure the release, at most 100.
+         * @maxItems 100
+         * @items.minimum 1
+         * @items.maximum 2147483647
+         */
+      insight_ids?: number[];
     }
 
     /**
@@ -127225,6 +127253,18 @@ export namespace Schemas {
          * @maxItems 100
          */
       broadcast_ids?: string[];
+      /**
+         * IDs of the surveys that collect feedback on the release, at most 100.
+         * @maxItems 100
+         */
+      survey_ids?: string[];
+      /**
+         * IDs of the saved insights that measure the release, at most 100.
+         * @maxItems 100
+         * @items.minimum 1
+         * @items.maximum 2147483647
+         */
+      insight_ids?: number[];
     }
 
     export interface ZendeskImportError {

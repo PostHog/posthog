@@ -4806,6 +4806,7 @@ dependencies = [
  "subtle",
  "tempfile",
  "test-case",
+ "testcontainers",
  "thiserror 2.0.21",
  "tokio",
  "tokio-retry",
