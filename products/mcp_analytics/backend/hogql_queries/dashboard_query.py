@@ -122,21 +122,44 @@ ORDER BY tool_calls DESC
 LIMIT 500
 """
 
-TOOL_ROWS_SQL = """
-SELECT
-    toString(properties.$mcp_tool_name) AS tool,
-    count() AS total_calls,
-    countIf(toBool(properties.$mcp_is_error)) AS errors,
-    round(countIf(toBool(properties.$mcp_is_error)) * 100.0 / count(), 1) AS error_rate_pct,
-    round(quantile(0.95)(toFloat(properties.$mcp_duration_ms))) AS p95_duration_ms
-FROM events
-WHERE event = '$mcp_tool_call'
-    AND properties.$mcp_tool_name IS NOT NULL
-    AND properties.$mcp_tool_name != ''
-    AND {filters}
-GROUP BY tool
-ORDER BY total_calls DESC
-LIMIT 50
+# A tool with a handful of calls swings to 100% on one failure, and its p95 is one slow call, so the
+# error-rate and p95 rankings need a minimum sample. Keep in step with MIN_CALLS_TO_RANK_TOOLS in
+# mcpDashboardOverviewLogic.ts, which words the empty states.
+MIN_CALLS_TO_RANK_TOOLS = 20
+TOOLS_PER_RANKING = 8
+
+# Each card reads its own top tools: by calls, by error rate, and by p95. Ranking all three from one
+# aggregate reads the events once. A cap by call volume before ranking would drop a slow or flaky tool
+# that is not among the busiest. The ranking goes last so the first five columns keep their meaning for
+# cached rows from before it and for browsers still running the previous parser.
+TOOL_ROWS_SQL = f"""
+SELECT tool, total_calls, errors, error_rate_pct, p95_duration_ms, ranking
+FROM (
+    SELECT
+        {EFFECTIVE_TOOL_SQL} AS tool,
+        count() AS total_calls,
+        countIf(toBool(properties.$mcp_is_error)) AS errors,
+        round(countIf(toBool(properties.$mcp_is_error)) * 100.0 / count(), 1) AS error_rate_pct,
+        round(quantile(0.95)(toFloat(properties.$mcp_duration_ms))) AS p95_duration_ms
+    FROM events
+    WHERE event = '$mcp_tool_call'
+        AND properties.$mcp_tool_name IS NOT NULL
+        AND properties.$mcp_tool_name != ''
+        AND {{filters}}
+    GROUP BY tool
+)
+ARRAY JOIN ['calls', 'error_rate', 'p95'] AS ranking
+WHERE ranking = 'calls'
+    OR (total_calls >= {MIN_CALLS_TO_RANK_TOOLS} AND (ranking = 'error_rate' OR p95_duration_ms > 0))
+ORDER BY
+    ranking,
+    multiIf(
+        ranking = 'calls', toFloat(total_calls),
+        ranking = 'error_rate', toFloat(error_rate_pct),
+        toFloat(p95_duration_ms)
+    ) DESC,
+    tool
+LIMIT {TOOLS_PER_RANKING} BY ranking
 """
 
 TOOL_CALL_WHERE = """event = '$mcp_tool_call'

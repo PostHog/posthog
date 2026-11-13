@@ -123,14 +123,6 @@ FROM events WHERE {WHERE}""",
         True,
     ),
     (
-        MCPDashboardSection.TOOL_ROWS,
-        f"""SELECT toString(properties.$mcp_tool_name) AS tool, count() AS total_calls, countIf(toBool(properties.$mcp_is_error)) AS errors,
-    round(countIf(toBool(properties.$mcp_is_error)) * 100.0 / count(), 1) AS error_rate_pct,
-    round(quantile(0.95)(toFloat(properties.$mcp_duration_ms))) AS p95_duration_ms
-FROM events WHERE {WHERE} GROUP BY tool ORDER BY total_calls DESC LIMIT 50""",
-        False,
-    ),
-    (
         MCPDashboardSection.SESSION_ROWS,
         """SELECT $session_id AS session_id, count() AS tool_calls, countIf(toBool(properties.$mcp_is_error)) AS errors,
     round(countIf(toBool(properties.$mcp_is_error)) * 100.0 / count(), 1) AS error_rate_pct,
@@ -305,6 +297,39 @@ class TestMCPDashboardQueryRunner(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTe
         expected = to_jsonable_python(browser.results)
         assert expected, "the seed should give the section rows to compare"
         assert self._rows(self._run([section]), section) == expected
+
+    def test_tool_rows_rank_every_tool_by_calls_error_rate_and_p95(self) -> None:
+        # (tool, calls, errors, duration_ms) for directly registered tools
+        direct = [
+            ("busy_tool", 30, 0, 50),
+            ("slow_tool", 20, 0, 5000),
+            ("flaky_tool", 20, 10, 100),
+            ("rare_tool", 2, 2, 90000),
+        ]
+        for tool, calls, errors, duration_ms in direct:
+            for i in range(calls):
+                self._emit(1, "d1", "s1", tool, **{"$mcp_is_error": i < errors, "$mcp_duration_ms": duration_ms})
+        for _ in range(25):
+            self._emit(
+                1,
+                "d2",
+                "s2",
+                "exec",
+                **{"$mcp_exec_verb": "call", "$mcp_exec_target_tool": "wrapped_tool", "$mcp_duration_ms": 3000},
+            )
+        flush_persons_and_events()
+
+        rows = self._rows(self._run([MCPDashboardSection.TOOL_ROWS]), MCPDashboardSection.TOOL_ROWS)
+
+        ranked: dict[str, list[str]] = {}
+        for tool, *_, ranking in rows:
+            ranked.setdefault(ranking, []).append(tool)
+        assert ranked == {
+            "calls": ["busy_tool", "wrapped_tool", "flaky_tool", "slow_tool", "rare_tool"],
+            "error_rate": ["flaky_tool", "busy_tool", "slow_tool", "wrapped_tool"],
+            "p95": ["slow_tool", "wrapped_tool", "flaky_tool", "busy_tool"],
+        }
+        assert ["flaky_tool", 20, 10, 50.0, 100.0] in [row[:5] for row in rows]
 
     @parameterized.expand([(section.value, section, node, bucketed) for section, node, bucketed in BROWSER_TYPED])
     def test_typed_section_matches_the_browser_query(
