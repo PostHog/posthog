@@ -18,6 +18,7 @@ import { ContentAutopilotPromptsOverview } from './ContentAutopilotPromptsOvervi
 import { ContentAutopilotPromptSuggestModal } from './ContentAutopilotPromptSuggestModal'
 import { ContentAutopilotProposalDetail } from './ContentAutopilotProposalDetail'
 import { ContentAutopilotRankings } from './ContentAutopilotRankings'
+import { ContentAutopilotSettings } from './ContentAutopilotSettings'
 import { ContentAutopilotSetup } from './ContentAutopilotSetup'
 import { ContentAutopilotSiteGate } from './ContentAutopilotSiteGate'
 import { ContentAutopilotSitePicker } from './ContentAutopilotSitePicker'
@@ -109,13 +110,13 @@ export const ContentAutopilot = (): JSX.Element => {
                     ) : workspaceTab === 'settings' && profile ? (
                         <div className="flex flex-col gap-4" data-attr="content-autopilot-settings-page">
                             <ContentAutopilotPageHeader
-                                title="Site settings"
+                                title="Settings"
                                 backLabel="Overview"
                                 backDataAttr="content-autopilot-settings-back"
                                 onBack={() => setWorkspaceTab('overview')}
                             />
                             <ContentAutopilotSitePicker />
-                            <ContentAutopilotSetup />
+                            <ContentAutopilotSettings />
                         </div>
                     ) : (
                         <LemonTabs<ContentAutopilotWorkspaceTab>
@@ -142,8 +143,8 @@ export const ContentAutopilot = (): JSX.Element => {
                                             size="small"
                                             icon={<IconGear />}
                                             onClick={() => setWorkspaceTab('settings')}
-                                            tooltip="Site settings"
-                                            aria-label="Site settings"
+                                            tooltip="Settings"
+                                            aria-label="Settings"
                                             data-attr="content-autopilot-settings"
                                         />
                                     ) : null}

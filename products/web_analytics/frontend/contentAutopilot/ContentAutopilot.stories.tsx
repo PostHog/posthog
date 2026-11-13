@@ -23,7 +23,6 @@ import {
 import { contentAutopilotPromptDetailLogic } from './contentAutopilotPromptDetailLogic'
 import { contentAutopilotPromptsLogic } from './contentAutopilotPromptsLogic'
 import {
-    EXAMPLE_ENGINE_SETTINGS,
     EXAMPLE_FAILED_DRAFT_OPPORTUNITY,
     EXAMPLE_FAILED_PROPOSAL_LIST,
     EXAMPLE_KEYWORD_MODIFIERS,
@@ -37,6 +36,7 @@ import {
     EXAMPLE_PROMPT_SET_SOURCES_RESPONSE,
     EXAMPLE_PROMPT_TOPICS,
     EXAMPLE_COMPETITOR_BRANDS,
+    EXAMPLE_ENGINE_SETTINGS,
     EXAMPLE_PROMPTS,
     EXAMPLE_PROMPT_CHECKS,
     EXAMPLE_PROMPT_VERSIONS,
@@ -112,7 +112,6 @@ const workspaceHandlers = ({
                 200,
                 { ...EXAMPLE_PROMPT_SET_RANKINGS, ...echoedFilters(request.url) },
             ],
-            '/api/projects/:team_id/aeo_engines/': () => [200, EXAMPLE_ENGINE_SETTINGS],
             '/api/projects/:team_id/aeo_keywords/': () => [200, keywords],
             '/api/projects/:team_id/aeo_keywords/report/': ({ request }) => [
                 200,
@@ -135,6 +134,7 @@ const workspaceHandlers = ({
                     results: EXAMPLE_COMPETITOR_BRANDS,
                 },
             ],
+            '/api/projects/:team_id/aeo_engines/': () => [200, EXAMPLE_ENGINE_SETTINGS],
             '/api/projects/:team_id/aeo_prompts/:id/': () => [200, EXAMPLE_PROMPTS[0]],
             '/api/projects/:team_id/aeo_prompts/:id/stats/': () => [200, EXAMPLE_PROMPT_STATS],
             '/api/projects/:team_id/aeo_prompts/:id/versions/': () => [200, EXAMPLE_PROMPT_VERSIONS],

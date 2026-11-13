@@ -3282,7 +3282,7 @@ export namespace Schemas {
       optimizeProjections?: boolean | null;
       /** HogQL parser backend; absent → `rust_py_with_cpp_shadow` (rust-py is primary, cpp runs as a sampled shadow). `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip. */
       parserMode?: ParserMode | null;
-      /** Push an `id IN (SELECT person_id FROM <left table> WHERE …)` predicate into the joined persons subquery, so the latest-version lookup only reads persons that the outer query's left-table filters can reach. Applies only to a persons join from the query's own FROM table. */
+      /** Push an `id IN (SELECT person_id FROM <left table> WHERE …)` predicate into the joined persons subquery, so the latest-version lookup only reads persons that the outer query's left-table filters can reach. Applies only to a persons join from the query's own FROM table. Unset, it applies to a persons join from `posthog.flag_evaluations` or from the union of events and flag_evaluations, and to no other join. */
       personIdPushdown?: boolean | null;
       personsArgMaxVersion?: PersonsArgMaxVersion | null;
       personsJoinMode?: PersonsJoinMode | null;
@@ -7627,6 +7627,7 @@ export namespace Schemas {
       color?: DataColorToken | null;
       customColor?: string | null;
       hidden?: boolean | null;
+      label?: string | null;
     }
 
     export interface ResultCustomizationByPosition {
@@ -10558,6 +10559,17 @@ export namespace Schemas {
       Suppressed: 'suppressed',
     } as const;
 
+    export interface ErrorTrackingIssueTag {
+      /** What the tag means, for a tooltip. */
+      description: string;
+      /** Key of the tag definition. */
+      key: string;
+      /** Short name of the tag. */
+      label: string;
+      /** The tagger that applied the tag: `jev` for AI, `manual` for a person. Issue detail sets it, list results send null. */
+      source?: string | null;
+    }
+
     export interface ErrorTrackingIssue {
       aggregations?: ErrorTrackingIssueAggregations | null;
       assignee?: ErrorTrackingIssueAssignee | null;
@@ -10575,6 +10587,8 @@ export namespace Schemas {
       severity?: ErrorTrackingQueryIssueSeverity | null;
       source?: string | null;
       status: ErrorTrackingIssueStatus;
+      /** The enabled tags that are applied to the issue, on issue list results and issue detail. Null or absent when the project has no enabled tag. */
+      tags?: ErrorTrackingIssueTag[] | null;
     }
 
     export interface Response14 {
@@ -10627,6 +10641,8 @@ export namespace Schemas {
       population: Population;
       severity?: ErrorTrackingQueryIssueSeverity | null;
       status: ErrorTrackingIssueStatus;
+      /** The enabled tags that are applied to the issue, on issue list results and issue detail. Null or absent when the project has no enabled tag. */
+      tags?: ErrorTrackingIssueTag[] | null;
     }
 
     export interface Response15 {
@@ -11834,6 +11850,13 @@ export namespace Schemas {
       webQueryModifiers?: WebAnalyticsQueryModifiers | null;
     }
 
+    export interface ErrorTrackingIssueTagFilter {
+      /** True matches the issues the tag is applied to. False matches every other issue. */
+      applied: boolean;
+      /** Key of the tag definition. */
+      key: string;
+    }
+
     export type ErrorTrackingOrderBy = typeof ErrorTrackingOrderBy[keyof typeof ErrorTrackingOrderBy];
 
 
@@ -11909,6 +11932,8 @@ export namespace Schemas {
       groupTypeIndex?: number | null;
       /** Filter to a specific error tracking issue by ID. */
       issueId?: string | null;
+      /** Filter by whether one issue tag is applied. Ignored when issue tags or this tag are off for the project. */
+      issueTag?: ErrorTrackingIssueTagFilter | null;
       kind?: 'ErrorTrackingQuery';
       limit?: number | null;
       /** Modifiers used when performing the query */
@@ -15288,6 +15313,23 @@ export namespace Schemas {
       event_kinds: PlatformAlertDestinationEventKindEnum[];
       /** Whether this route sends. */
       enabled: boolean;
+    }
+
+    export interface AlertRouteMatch {
+      /** A route these labels match. */
+      route: AlertRoute;
+      /** The receiver the route sends to. */
+      receiver: AlertReceiver;
+    }
+
+    /**
+     * The alert's labels, by name, such as {"team": "checkout"}. Unsaved labels work too.
+     */
+    export type AlertRouteMatchingRequestLabels = {[key: string]: string};
+
+    export interface AlertRouteMatchingRequest {
+      /** The alert's labels, by name, such as {"team": "checkout"}. Unsaved labels work too. */
+      labels: AlertRouteMatchingRequestLabels;
     }
 
     export interface AlertRouteWrite {
@@ -38590,7 +38632,7 @@ export namespace Schemas {
     }
 
     export interface DiagnosticCheckResult {
-      /** Stable identifier for the check (e.g. cname, cloudflare, caa, http_challenge, live_event, cert_expiry). */
+      /** Stable identifier for the check (e.g. cname, cloudflare, caa, http_challenge, live_event, capture_v1, cert_expiry). */
       id: string;
       /** Human-readable check name. */
       name: string;
@@ -43150,6 +43192,17 @@ export namespace Schemas {
       includeBreakdown?: boolean;
     }
 
+    export interface ErrorTrackingIssueTagRead {
+      /** Key of the tag. Pass it as `issueTag.key` to filter the issue list. */
+      key: string;
+      /** Short name of the tag. */
+      label: string;
+      /** What the tag means, for a tooltip. */
+      description: string;
+      /** The tagger that applied the tag: `jev` for AI, `manual` for a person. */
+      source: string;
+    }
+
     /**
      * Read-only serializer for issue contract types returned by the facade.
      */
@@ -43167,6 +43220,8 @@ export namespace Schemas {
       assignee: ErrorTrackingIssueAssigneeRead | null;
       external_issues: ErrorTrackingExternalReferenceResult[];
       cohort: ErrorTrackingIssueCohortRead | null;
+      /** The enabled tags that are applied to the issue. Only issue detail returns it, and only while the project has an enabled tag. */
+      tags?: ErrorTrackingIssueTagRead[];
     }
 
     export interface ErrorTrackingIssueRedirectResponse {
@@ -43279,6 +43334,33 @@ export namespace Schemas {
        * * `disabled` - Disabled
        * * `ai_not_approved` - Ai Not Approved */
       reason: IssueSummaryUnavailableReasonEnum | null;
+    }
+
+    export interface ErrorTrackingIssueTagCorrection {
+      /** Key of the tag. Pass it as `issueTag.key` to filter the issue list. */
+      key: string;
+      /** Short name of the tag. */
+      label: string;
+      /** What the tag means, for a tooltip. */
+      description: string;
+      /** The tagger that applied the tag: `jev` for AI, `manual` for a person. */
+      source: string;
+      /** Whether the tag is applied to the issue after the change. */
+      applied: boolean;
+    }
+
+    export interface ErrorTrackingIssueTagDefinition {
+      /** Key of the tag. Pass it as `issueTag.key` to filter the issue list. */
+      key: string;
+      /** Short name of the tag. */
+      label: string;
+      /** What the tag means, for a tooltip. */
+      description: string;
+    }
+
+    export interface ErrorTrackingIssueTagDefinitionsResponse {
+      /** The tags enabled for the project. Empty while issue tags are off for the project. */
+      results: ErrorTrackingIssueTagDefinition[];
     }
 
     export interface ErrorTrackingIssueValue {
@@ -51772,6 +51854,7 @@ export namespace Schemas {
       readonly id?: string;
       readonly source_type?: string;
       readonly access_method?: string;
+      readonly direct_query_enabled?: boolean;
       readonly supports_column_selection?: boolean;
       readonly supports_row_filters?: boolean;
       readonly requires_exact_column_metadata?: boolean;
@@ -63717,8 +63800,8 @@ export namespace Schemas {
 
     export interface IncrementalFieldRecommendationsRequest {
       /**
-         * Tables from database_schema to get a recommended incremental field for.
-         * @maxItems 128
+         * Tables from database_schema to get a recommended incremental field for. One request is one model call: up to 8 tables with up to 32 candidate fields in total, or a single table of any size.
+         * @maxItems 8
          */
       tables: IncrementalFieldTable[];
     }
@@ -84939,7 +85022,7 @@ export namespace Schemas {
       refresh_interval_seconds: number;
       /** Query time materializing saves in a month, in seconds. */
       saves_seconds_per_month: number;
-      /** Bytes materializing saves from scanning in a month. */
+      /** Bytes materializing saves from scanning in a month. Negative when its refreshes scan more than its reads would. */
       saves_bytes_per_month: number;
       /**
          * How old the view's data can be today, in seconds. Null when its sources are live.
@@ -84974,6 +85057,8 @@ export namespace Schemas {
          * @nullable
          */
       read_seconds?: number | null;
+      /** True when measuring the view's cost hit the time limit. The cost and every saving are then lower bounds. */
+      measurement_capped?: boolean;
     }
 
     export interface WarehouseSuggestionUnmaterializePayload {
@@ -88439,6 +88524,16 @@ export namespace Schemas {
       assignee?: ErrorTrackingIssueAssigneeWrite | null;
     }
 
+    export interface PatchedErrorTrackingIssueTagWrite {
+      /**
+         * Key of the tag to apply or remove. The tag definitions endpoint lists the tags enabled for the project.
+         * @maxLength 64
+         */
+      key?: string;
+      /** True applies the tag. False removes it and stops automatic taggers from applying it again. */
+      applied?: boolean;
+    }
+
     export interface PatchedErrorTrackingIssueWrite {
       /** Issue status to set. Deprecated archived and pending_release values are rejected.
        *
@@ -89250,6 +89345,7 @@ export namespace Schemas {
       readonly id?: string;
       readonly source_type?: string;
       readonly access_method?: string;
+      readonly direct_query_enabled?: boolean;
       readonly supports_column_selection?: boolean;
       readonly supports_row_filters?: boolean;
       readonly requires_exact_column_metadata?: boolean;
@@ -113694,9 +113790,9 @@ export namespace Schemas {
       new_work_paused: boolean;
       /** Enabled scouts across this project's environments. */
       enabled_scouts: number;
-      /** Maximum enabled scouts during the trial. */
+      /** Maximum enabled scouts allowed for the project. */
       scout_limit: number;
-      /** On activation, all but the three oldest enabled scouts pause. */
+      /** Number of scouts paused when the trial starts. */
       scouts_to_pause: number;
       /** What happens to new work after the trial.
        *
@@ -141445,7 +141541,7 @@ export namespace Schemas {
 
     export type LlmSkillsSearchRetrieveParams = {
     /**
-     * Case-insensitive substring to search across ordinary skill names, descriptions, bodies, file paths, and Markdown file contents.
+     * Case-insensitive text to search for in ordinary skills. Names, descriptions, and file paths match any substring. Bodies and Markdown file contents match whole words and word prefixes.
      * @minLength 1
      * @maxLength 200
      */

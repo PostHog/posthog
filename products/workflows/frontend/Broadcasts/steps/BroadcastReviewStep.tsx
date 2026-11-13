@@ -10,6 +10,7 @@ import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { AiEmailDraftStatus } from '../../MessageAudience/AiEmailDraftStatus'
 import { optOutCategoriesLogic } from '../../OptOuts/optOutCategoriesLogic'
+import { sendingRateSummary } from '../../Workflows/emailSending'
 import { MissingRecipientEmailBanner } from '../../Workflows/hogflows/steps/components/MissingRecipientEmailBanner'
 import { RealtimeCohortCalculatingBanner } from '../../Workflows/hogflows/steps/components/RealtimeCohortCalculatingBanner'
 import { isRealtimeCohortCalculating } from '../../Workflows/hogflows/steps/realtimeCohortStatus'
@@ -71,6 +72,7 @@ export function BroadcastReviewStep(): JSX.Element {
         audienceProperties,
         blastRadius,
         blastRadiusLoading,
+        blastRadiusError,
         goalEnabled,
         conversion,
         scheduleSummary,
@@ -133,7 +135,11 @@ export function BroadcastReviewStep(): JSX.Element {
                             {channel === 'push' ? '. Only people with push turned on in your app get it.' : ''}
                         </span>
                     ) : (
-                        <span className="text-warning">Couldn't estimate the audience size</span>
+                        <span className="text-warning">
+                            {["Couldn't estimate the audience size", blastRadiusError]
+                                .filter(Boolean)
+                                .join('. Details: ')}
+                        </span>
                     )}
                     <RealtimeCohortCalculatingBanner status={blastRadius?.realtime_cohort} />
                     {audienceProperties.length > 0 ? (
@@ -230,7 +236,7 @@ export function BroadcastReviewStep(): JSX.Element {
                     <ReviewRow label="Sending rate" step="schedule" showErrors={false}>
                         {emailRateLimit ? (
                             <span>
-                                At most {humanFriendlyNumber(emailRateLimit.count)} emails per {emailRateLimit.period}
+                                {sendingRateSummary(emailRateLimit)}
                                 {rateLimitedSendDuration && !rateLimitNeeded
                                     ? `, so about ${rateLimitedSendDuration} to reach everyone`
                                     : ''}

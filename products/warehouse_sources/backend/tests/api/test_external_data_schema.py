@@ -44,7 +44,7 @@ from products.data_warehouse.backend.facade.api import (
     sync_external_data_job_workflow,
 )
 from products.data_warehouse.backend.facade.contracts import WebhookHogFunctionCreateResult
-from products.warehouse_sources.backend.facade.incremental_field_model import recommend_for_candidates
+from products.warehouse_sources.backend.facade.incremental_field_model import WIZARD_PATH, recommend_for_candidates
 from products.warehouse_sources.backend.facade.models import (
     INCREMENTAL_HISTORY_KEY,
     DataWarehouseTable,
@@ -777,7 +777,9 @@ class TestExternalDataSchema(APIBaseTest):
         ):
             if wizard_asked_first:
                 discovered = open_orders_schema()
-                recommend_for_candidates([(discovered.name, discovered.incremental_fields)], team=self.team)
+                recommend_for_candidates(
+                    [(discovered.name, discovered.incremental_fields)], team=self.team, path=WIZARD_PATH
+                )
             first_fields = []
             for _ in expected_first_field_per_open:
                 response = self.client.post(
@@ -802,7 +804,9 @@ class TestExternalDataSchema(APIBaseTest):
             fake_decision_model(choice="c0"),
         ):
             discovered = open_orders_schema()
-            recommend_for_candidates([(discovered.name, discovered.incremental_fields)], team=self.team)
+            recommend_for_candidates(
+                [(discovered.name, discovered.incremental_fields)], team=self.team, path=WIZARD_PATH
+            )
             first_field = self._open_sync_form(schema)
 
         assert first_field == "created_at"
@@ -5661,27 +5665,34 @@ class TestAvailableColumnsAcrossSqlSources(APIBaseTest):
 
 
 class TestExternalDataSchemaRetrieveSource(APIBaseTest):
-    def _create(self, source_type: ExternalDataSourceType = ExternalDataSourceType.STRIPE):
+    def _create(
+        self, source_type: ExternalDataSourceType = ExternalDataSourceType.STRIPE, direct_query_enabled: bool = False
+    ):
         source = ExternalDataSource.objects.create(
             team=self.team,
             source_type=source_type,
             job_inputs={"auth_method": {"selection": "api_key", "stripe_secret_key": "123"}},
+            direct_query_enabled=direct_query_enabled,
         )
         schema = ExternalDataSchema.objects.create(name="Customers", team=self.team, source=source)
         return source, schema
 
     @parameterized.expand(
         [
-            # source_type, expected supports_column_selection, expected supports_row_filters.
+            # source_type, expected supports_column_selection, expected supports_row_filters, direct_query_enabled.
             # Stripe is a managed-schema source (no column selection); row filters are SQL-only.
-            (ExternalDataSourceType.STRIPE, False, False),
-            (ExternalDataSourceType.POSTGRES, True, True),
+            (ExternalDataSourceType.STRIPE, False, False, False),
+            (ExternalDataSourceType.POSTGRES, True, True, True),
         ]
     )
     def test_retrieve_includes_source_summary(
-        self, source_type: ExternalDataSourceType, expected_column_selection: bool, expected_row_filters: bool
+        self,
+        source_type: ExternalDataSourceType,
+        expected_column_selection: bool,
+        expected_row_filters: bool,
+        direct_query_enabled: bool,
     ):
-        source, schema = self._create(source_type=source_type)
+        source, schema = self._create(source_type=source_type, direct_query_enabled=direct_query_enabled)
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/")
         assert response.status_code == 200, response.json()
         summary = response.json()["source"]
@@ -5691,6 +5702,7 @@ class TestExternalDataSchemaRetrieveSource(APIBaseTest):
         assert summary["access_method"] == source.access_method
         assert summary["supports_column_selection"] is expected_column_selection
         assert summary["supports_row_filters"] is expected_row_filters
+        assert summary["direct_query_enabled"] is direct_query_enabled
         assert "user_access_level" in summary
 
     @parameterized.expand(
@@ -5825,6 +5837,7 @@ class TestExternalDataSchemaRetrieveSource(APIBaseTest):
                 "name",
                 "source_id",
                 "should_sync",
+                "live_query_enabled",
                 "sync_type",
                 "status",
                 "last_synced_at",

@@ -93,6 +93,12 @@ export interface AnalyticsItem {
     entry?: FileSystemEntry
 }
 
+export function analyticsItemTarget(
+    item: AnalyticsItem
+): Pick<AnalyticsItem, 'type' | 'name' | 'href' | 'tags'> & { ref: string } {
+    return { type: item.type, ref: item.id, name: item.name, href: item.href, tags: item.tags }
+}
+
 export const ANALYTICS_BACK_NAME = 'Analytics'
 
 /** The item's page, told where the person came from so its back control returns there rather than to the type's own list. */

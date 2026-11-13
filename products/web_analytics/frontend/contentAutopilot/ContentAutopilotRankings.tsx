@@ -7,7 +7,6 @@ import type { Series, TimeSeriesLineChartConfig } from '@posthog/quill-charts'
 
 import { useChartTheme } from 'lib/charts/hooks'
 import { percentage } from 'lib/utils/numbers'
-import { urls } from 'scenes/urls'
 import { parseWebAnalyticsURL } from 'scenes/web-analytics/common'
 import { PagePerformanceCard } from 'scenes/web-analytics/PagePerformanceCard'
 import { PagePerformanceCardHeader } from 'scenes/web-analytics/PagePerformanceCardHeader'
@@ -85,16 +84,13 @@ export const ContentAutopilotRankings = (): JSX.Element => {
                     {rankings.competitors_confirmed ? (
                         <>
                             Competitors are the ones you confirmed in{' '}
-                            <Link to={urls.settings('environment-web-analytics', 'ai-visibility-brands')}>
-                                AI visibility brands
-                            </Link>
-                            .
+                            <Link onClick={() => setWorkspaceTab('settings')}>settings</Link>.
                         </>
                     ) : (
                         <>
                             Competitors are guessed from the sites the engines cite most.{' '}
                             <Link
-                                to={urls.settings('environment-web-analytics', 'ai-visibility-brands')}
+                                onClick={() => setWorkspaceTab('settings')}
                                 data-attr="content-autopilot-rankings-confirm-competitors"
                             >
                                 Confirm your competitors

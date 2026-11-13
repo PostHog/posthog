@@ -54,7 +54,11 @@ Do this in the US app, while team 2 is the current project. The connection belon
 3. Set the region to **European Union (EU)**.
 4. Select only these scopes: `query` read, `external_data_source` read and `user` read. Do not pick a preset.
    `user` read lets the connection read your EU user, which is how it finds the EU project.
-5. Click **Connect EU**, sign in with your EU login, and choose the EU internal project that holds the direct-connect sources.
+5. In a separate tab, open `eu.posthog.com` and switch your current project to the EU internal project that holds the direct-connect sources.
+   The connection reads your current EU project to find its name and organization.
+   If your current EU project is a different one, such as a demo project, `target` can fail to read the project you pick in step 6.
+6. Click **Connect EU**, sign in with your EU login, and choose only that EU internal project on the consent screen.
+   The connection can use only the projects you pick there.
 
 Keep the scopes narrow.
 A call through a connection must carry every scope the connection was granted, and an MCP session token holds only part of the read scopes.
@@ -67,6 +71,17 @@ call integrations-list {"kind": "posthog"}
 ```
 
 A connection works only for the person who created it. Each staff member makes their own.
+`connection_id` takes the `id` from this list as a number or a string.
+
+### 4. Check where the connection runs
+
+```text
+call posthog-connection-call {"connection_id": "<your connection id>", "tool": "external-data-sources-connections-list", "arguments": {}}
+```
+
+Every result has a `ran_in` block with the project, organization and region.
+Make sure `ran_in.project_name` is the EU internal project.
+An empty source list with a different `ran_in` project means the connection points at the wrong project: delete it and do step 2 again.
 
 ## Querying
 
@@ -147,11 +162,14 @@ Use [`querying-production-databases-via-metabase`](../querying-production-databa
 
 ## Errors
 
-| Error                                                             | Cause                                                          | Fix                                                                                             |
-| ----------------------------------------------------------------- | -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| `Your API key must carry the scopes this connection was granted`  | The PostHog connection has broader scopes than the MCP token   | Delete it and connect again with only `query` read, `external_data_source` read and `user` read |
-| `This ClickHouse table function is not allowed in direct queries` | `clusterAllReplicas()` or another table function               | Use `posthog.query_log_archive` or the plain table                                              |
-| Unknown table in HogQL mode                                       | HogQL cannot see the table                                     | Add `"sendRawQuery": true` (ClickHouse only)                                                    |
-| `sendRawQuery` refused                                            | The source is a synced source                                  | Write HogQL, or fall back to Metabase                                                           |
-| `integrations-list` returns no `posthog` connection               | The connection was made in another project, or by someone else | Create it while US team 2 is the current project                                                |
-| Memory or timeout error                                           | Scan too wide                                                  | Narrow the time range, add `team_id`, aggregate earlier                                         |
+| Error                                                                          | Cause                                                                                       | Fix                                                                                             |
+| ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `Your API key must carry the scopes this connection was granted`               | The PostHog connection has broader scopes than the MCP token                                | Delete it and connect again with only `query` read, `external_data_source` read and `user` read |
+| `This ClickHouse table function is not allowed in direct queries`              | `clusterAllReplicas()` or another table function                                            | Use `posthog.query_log_archive` or the plain table                                              |
+| Unknown table in HogQL mode                                                    | HogQL cannot see the table                                                                  | Add `"sendRawQuery": true` (ClickHouse only)                                                    |
+| `sendRawQuery` refused                                                         | The source is a synced source                                                               | Write HogQL, or fall back to Metabase                                                           |
+| `integrations-list` returns no `posthog` connection                            | The connection was made in another project, or by someone else                              | Create it while US team 2 is the current project                                                |
+| `This connection can use only project <id>, and its details could not be read` | Your current EU project is not the project picked at consent                                | In `eu.posthog.com`, switch to that project, then try again                                     |
+| `This connection can use several projects`                                     | More than one project was picked at consent, and your current EU project is not one of them | Switch to the EU internal project in `eu.posthog.com`, or reconnect with only that project      |
+| Empty source list, and `ran_in` names another project                          | The connection was made for the wrong EU project                                            | Delete it and do setup step 2 again                                                             |
+| Memory or timeout error                                                        | Scan too wide                                                                               | Narrow the time range, add `team_id`, aggregate earlier                                         |
