@@ -2,7 +2,6 @@ import { useActions, useValues } from 'kea'
 import { useRef } from 'react'
 
 import { useShortcut } from 'lib/components/Shortcuts/useShortcut'
-import { useOutsideClickHandler } from 'lib/hooks/useOutsideClickHandler'
 import { Resizer } from 'lib/lemon-ui/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/lemon-ui/Resizer/resizerLogic'
 
@@ -34,17 +33,7 @@ export function TraceDrawerHost({ listId }: TraceDrawerHostProps): JSX.Element |
         persistent: true,
         minSize: 480,
     }
-    const { desiredSize, isResizeInProgress } = useValues(resizerLogic(resizerProps))
-    const isOpen = !!openRef
-    useOutsideClickHandler(
-        isOpen ? [containerRef] : [],
-        () => {
-            if (!isResizeInProgress && !isOverlayOpen()) {
-                close()
-            }
-        },
-        [isOpen]
-    )
+    const { desiredSize } = useValues(resizerLogic(resizerProps))
 
     // Stepping unmounts the trace view, and with it any modal opened from it, so a key never steps under an open overlay.
     const stepUnlessOverlayOpen = (direction: TraceStepDirection): void => {

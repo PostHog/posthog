@@ -152,23 +152,36 @@ describe('TraceDrawerHost', () => {
         release()
     })
 
-    it.each(['spans', 'summary'] as const)(
-        'applies the opening of the list once, so stepping from %s stays there',
-        async (mode) => {
-            silenceKeaLoadersErrors()
-            useTraceMocks(answerTrace('a'))
-            setUp(drawerUrl(ROW_A, urls.aiObservabilityCluster('run-1', 3)))
-            const view = renderHost([ROW_A, ROW_B], 'cluster-traces')
-            const host = traceViewHostLogic({ hostId: traceDrawerLogic({ listId: 'cluster-traces' }).values.hostId })
-            await waitFor(() => expect(host.values.mode).toBe('thread'))
-            act(() => host.actions.setMode(mode))
+    it.each([
+        ['spans', 'toolbar'],
+        ['summary', 'toolbar'],
+        ['spans', 'list'],
+        ['summary', 'list'],
+    ] as const)('keeps the selected %s view when opening another trace from the %s', async (mode, source) => {
+        silenceKeaLoadersErrors()
+        useTraceMocks(answerTrace('a'))
+        setUp(drawerUrl(ROW_A, urls.aiObservabilityCluster('run-1', 3)))
+        const view = renderHost([ROW_A, ROW_B], 'cluster-traces')
+        const drawer = traceDrawerLogic({ listId: 'cluster-traces' })
+        const host = traceViewHostLogic({ hostId: drawer.values.hostId })
+        await waitFor(() => expect(host.values.mode).toBe('thread'))
+        act(() => host.actions.setMode(mode))
 
-            fireEvent.click(attr(view.container, 'trace-drawer-next'))
+        const list = render(
+            <LemonButton data-attr="open-trace-b" onClick={() => drawer.actions.openRow(ROW_B)}>
+                Open trace B
+            </LemonButton>
+        )
+        const target =
+            source === 'list' ? attr(list.container, 'open-trace-b') : attr(view.container, 'trace-drawer-next')
+        fireEvent.mouseDown(target)
+        fireEvent.mouseUp(target)
+        fireEvent.click(target)
 
-            await view.findAllByText('answer-b')
-            expect(host.values.mode).toBe(mode)
-        }
-    )
+        await view.findAllByText('answer-b')
+        expect(router.values.searchParams.trace).toBe('b')
+        expect(host.values.mode).toBe(mode)
+    })
 
     it('steps with n and p, but not while typing or with a modal open', async () => {
         useTraceMocks(answerTrace('a'))
@@ -207,29 +220,6 @@ describe('TraceDrawerHost', () => {
 
         expect(router.values.searchParams.trace).toBeUndefined()
         expect(aiObservabilityTracesNodesRetrieve).not.toHaveBeenCalled()
-    })
-
-    it('closes on an outside click but keeps the drawer open for its content and dialogs', async () => {
-        useTraceMocks(answerTrace('a'))
-        setUp(drawerUrl(ROW_A))
-        const view = renderHost([ROW_A, ROW_B])
-        await view.findAllByText('answer-a')
-
-        fireEvent.mouseUp(attr(view.container, 'trace-view-search-input'))
-        expect(router.values.searchParams.trace).toBe('a')
-
-        const modal = render(
-            <LemonModal isOpen onClose={() => {}} title="Edit dataset item">
-                <LemonButton>Save</LemonButton>
-            </LemonModal>
-        )
-        fireEvent.mouseUp(modal.getByText('Save'))
-        expect(router.values.searchParams.trace).toBe('a')
-        modal.unmount()
-
-        fireEvent.mouseUp(document.body)
-        expect(router.values.searchParams.trace).toBeUndefined()
-        expect(view.queryByLabelText('Trace detail')).toBeNull()
     })
 
     it('writes a clicked step to the list URL and stays on the list', async () => {
