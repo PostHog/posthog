@@ -7,16 +7,19 @@ use crate::traces_avro_schema::TRACES_AVRO_SCHEMA;
 use anyhow::anyhow;
 use apache_avro::{Codec, Schema, Writer, ZstandardSettings};
 use capture::config::KafkaConfig;
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use common_kafka::error::error_code_tag;
 use health::HealthHandle;
 use metrics::{counter, gauge};
 use rdkafka::error::KafkaError;
 use rdkafka::message::{Header, OwnedHeaders};
 use rdkafka::producer::future_producer::OwnedDeliveryResult;
-use rdkafka::producer::{FutureProducer, FutureRecord, Producer};
+use rdkafka::producer::{DeliveryFuture, FutureProducer, FutureRecord, Producer};
 use rdkafka::util::Timeout;
 use rdkafka::ClientConfig;
+use siphasher::sip::SipHasher13;
+use std::collections::BTreeMap;
+use std::hash::Hasher;
 use std::result::Result::Ok;
 use std::sync::Arc;
 use std::time::Duration;
@@ -129,6 +132,7 @@ pub struct KafkaSink {
     traces_schema: Arc<Schema>,
     metrics_schema: Arc<Schema>,
     logs_message_max_bytes: usize,
+    metrics_partition_slots: u32,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -376,7 +380,13 @@ impl KafkaSink {
             traces_schema: Arc::new(Schema::parse_str(TRACES_AVRO_SCHEMA)?),
             metrics_schema: Arc::new(Schema::parse_str(METRICS_AVRO_SCHEMA)?),
             logs_message_max_bytes: config.kafka_producer_message_max_bytes as usize,
+            metrics_partition_slots: 0,
         })
+    }
+
+    pub fn with_metrics_partition_slots(mut self, slots: u32) -> Self {
+        self.metrics_partition_slots = slots;
+        self
     }
 
     /// The producer's `message.max.bytes` for the logs topic, so an intake that chunks a large
@@ -407,6 +417,39 @@ impl KafkaSink {
         backfill_days: Option<u32>,
         internal_signature: Option<&str>,
     ) -> Result<(), anyhow::Error> {
+        let delivery = self.enqueue_avro_batch(
+            producer,
+            topic,
+            schema,
+            token,
+            rows,
+            None,
+            uncompressed_bytes,
+            records_uncompressed_bytes,
+            timestamps_overridden,
+            min_timestamp_micros,
+            backfill_days,
+            internal_signature,
+        )?;
+        interpret_delivery_result(delivery.await.ok(), topic)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn enqueue_avro_batch<T: serde::Serialize>(
+        &self,
+        producer: &FutureProducer<KafkaContext>,
+        topic: &str,
+        schema: &Schema,
+        token: &str,
+        rows: &[T],
+        key: Option<&[u8]>,
+        uncompressed_bytes: u64,
+        records_uncompressed_bytes: Option<u64>,
+        timestamps_overridden: u64,
+        min_timestamp_micros: Option<i64>,
+        backfill_days: Option<u32>,
+        internal_signature: Option<&str>,
+    ) -> Result<DeliveryFuture, anyhow::Error> {
         let mut writer = Writer::with_codec(
             schema,
             Vec::new(),
@@ -419,11 +462,11 @@ impl KafkaSink {
 
         let payload: Vec<u8> = writer.into_inner()?;
 
-        let future = match producer.send_result(FutureRecord {
+        match producer.send_result(FutureRecord {
             topic,
             payload: Some(&payload),
             partition: None,
-            key: None::<Vec<u8>>.as_ref(),
+            key,
             timestamp: None,
             headers: Some({
                 let created_at = Utc::now().to_rfc3339();
@@ -492,9 +535,7 @@ impl KafkaSink {
                 Err(anyhow!("kafka error: {err}"))
             }
             Ok(delivery_future) => Ok(delivery_future),
-        }?;
-
-        interpret_delivery_result(future.await.ok(), topic)
+        }
     }
 
     pub async fn write(
@@ -599,23 +640,138 @@ impl KafkaSink {
         counter!("capture_metrics_bytes_uncompressed_records")
             .increment(records_uncompressed_bytes);
 
-        self.write_avro_batch(
-            &self.metrics_producer,
-            &self.metrics_topic,
-            &self.metrics_schema,
+        let messages = split_metrics_messages(
             token,
-            &rows,
+            rows,
+            self.metrics_partition_slots,
+            Utc::now(),
             uncompressed_bytes,
-            Some(records_uncompressed_bytes),
+            records_uncompressed_bytes,
             timestamps_overridden,
-            None,
-            None,
-            None,
-        )
-        .await?;
+        );
+        // Enqueue every message before the first wait, so the messages share one linger window.
+        let mut deliveries = Vec::with_capacity(messages.len());
+        for message in &messages {
+            let key = message.slot.map(u32::to_be_bytes);
+            deliveries.push(self.enqueue_avro_batch(
+                &self.metrics_producer,
+                &self.metrics_topic,
+                &self.metrics_schema,
+                token,
+                &message.rows,
+                key.as_ref().map(|k| k.as_slice()),
+                message.bytes_uncompressed,
+                Some(message.records_uncompressed_bytes),
+                message.timestamps_overridden,
+                None,
+                None,
+                None,
+            )?);
+        }
+        for delivery in deliveries {
+            interpret_delivery_result(delivery.await.ok(), &self.metrics_topic)?;
+        }
 
         Ok(())
     }
+}
+
+const METRICS_PARTITION_WINDOW_SECS: i64 = 300;
+
+struct MetricsMessage {
+    slot: Option<u32>,
+    rows: Vec<KafkaMetricRow>,
+    bytes_uncompressed: u64,
+    records_uncompressed_bytes: u64,
+    timestamps_overridden: u64,
+}
+
+// Metrics ingestion aggregates only these types, and only within one consumer batch.
+fn metrics_partition_slot(
+    token: &str,
+    row: &KafkaMetricRow,
+    window: i64,
+    slots: u32,
+) -> Option<u32> {
+    if slots == 0
+        || !matches!(
+            row.metric_type.as_str(),
+            "sum" | "histogram" | "exponential_histogram"
+        )
+    {
+        return None;
+    }
+    // The window moves a hot series to a new partition every few minutes. Points of one series
+    // at a window boundary can land in two batches, which aggregation tolerates.
+    let mut hasher = SipHasher13::new();
+    hasher.write(token.as_bytes());
+    hasher.write_u8(0xff);
+    hasher.write_i64(row.series_fingerprint);
+    hasher.write_i64(window);
+    Some((hasher.finish() % u64::from(slots)) as u32)
+}
+
+fn apportion(total: u64, weights: &[u64]) -> Vec<u64> {
+    let weight_sum: u128 = weights.iter().map(|&w| u128::from(w)).sum();
+    if weight_sum == 0 {
+        let mut shares = vec![0; weights.len()];
+        if let Some(first) = shares.first_mut() {
+            *first = total;
+        }
+        return shares;
+    }
+    let mut cumulative: u128 = 0;
+    let mut assigned: u64 = 0;
+    weights
+        .iter()
+        .map(|&w| {
+            cumulative += u128::from(w);
+            let upto = (u128::from(total) * cumulative / weight_sum) as u64;
+            let share = upto - assigned;
+            assigned = upto;
+            share
+        })
+        .collect()
+}
+
+// Metrics ingestion bills and rate limits from the size headers of each message, so the
+// shares of the request totals must add up to the totals.
+fn split_metrics_messages(
+    token: &str,
+    rows: Vec<KafkaMetricRow>,
+    slots: u32,
+    now: DateTime<Utc>,
+    bytes_uncompressed: u64,
+    records_uncompressed_bytes: u64,
+    timestamps_overridden: u64,
+) -> Vec<MetricsMessage> {
+    let window = now.timestamp().div_euclid(METRICS_PARTITION_WINDOW_SECS);
+    let mut groups: BTreeMap<Option<u32>, Vec<KafkaMetricRow>> = BTreeMap::new();
+    for row in rows {
+        let slot = metrics_partition_slot(token, &row, window, slots);
+        groups.entry(slot).or_default().push(row);
+    }
+
+    let row_bytes: Vec<u64> = groups
+        .values()
+        .map(|g| sum_kafka_metric_row_bytes(g))
+        .collect();
+    let row_counts: Vec<u64> = groups.values().map(|g| g.len() as u64).collect();
+    let bytes_shares = apportion(bytes_uncompressed, &row_bytes);
+    let records_shares = apportion(records_uncompressed_bytes, &row_bytes);
+    let overridden_shares = apportion(timestamps_overridden, &row_counts);
+
+    groups
+        .into_iter()
+        .enumerate()
+        .map(|(i, (slot, rows))| MetricsMessage {
+            slot,
+            rows,
+            bytes_uncompressed: bytes_shares[i],
+            records_uncompressed_bytes: records_shares[i],
+            timestamps_overridden: overridden_shares[i],
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -638,6 +794,101 @@ mod tests {
                 None,
             ),
         )))
+    }
+
+    fn metric_row(metric_type: &str, series_fingerprint: i64) -> KafkaMetricRow {
+        KafkaMetricRow {
+            uuid: String::new(),
+            trace_id: String::new(),
+            span_id: String::new(),
+            trace_flags: 0,
+            timestamp: Utc::now(),
+            observed_timestamp: Utc::now(),
+            service_name: String::new(),
+            metric_name: "m".to_string(),
+            metric_type: metric_type.to_string(),
+            value: 1.0,
+            count: 1,
+            histogram_bounds: vec![],
+            histogram_counts: vec![],
+            unit: String::new(),
+            aggregation_temporality: "delta".to_string(),
+            is_monotonic: true,
+            resource_attributes: Default::default(),
+            instrumentation_scope: String::new(),
+            attributes: Default::default(),
+            series_fingerprint,
+            has_labels: false,
+            retention_days: None,
+            start_timestamp: None,
+        }
+    }
+
+    fn slots_by_series(messages: &[MetricsMessage]) -> BTreeMap<(String, i64), Option<u32>> {
+        let mut slots = BTreeMap::new();
+        for message in messages {
+            for row in &message.rows {
+                let previous = slots.insert(
+                    (row.metric_type.clone(), row.series_fingerprint),
+                    message.slot,
+                );
+                assert!(previous.is_none_or(|p| p == message.slot));
+            }
+        }
+        slots
+    }
+
+    #[test]
+    fn metrics_messages_keep_each_series_together_and_the_request_totals() {
+        let window_start = DateTime::from_timestamp(1_700_000_100, 0).unwrap();
+        let rows = || {
+            let mut rows = Vec::new();
+            for fingerprint in 0..40 {
+                for metric_type in ["sum", "histogram", "gauge"] {
+                    rows.push(metric_row(metric_type, fingerprint));
+                    rows.push(metric_row(metric_type, fingerprint));
+                }
+            }
+            rows
+        };
+        let split =
+            |slots, now| split_metrics_messages("phc_test", rows(), slots, now, 10_007, 9_001, 13);
+
+        let messages = split(16, window_start);
+        let series = slots_by_series(&messages);
+        for ((metric_type, _), slot) in &series {
+            assert_eq!(slot.is_none(), metric_type == "gauge");
+        }
+        assert!(messages.len() > 2 && messages.len() <= 17);
+        assert_eq!(messages.iter().map(|m| m.rows.len()).sum::<usize>(), 240);
+        assert_eq!(
+            messages.iter().map(|m| m.bytes_uncompressed).sum::<u64>(),
+            10_007
+        );
+        assert_eq!(
+            messages
+                .iter()
+                .map(|m| m.records_uncompressed_bytes)
+                .sum::<u64>(),
+            9_001
+        );
+        assert_eq!(
+            messages
+                .iter()
+                .map(|m| m.timestamps_overridden)
+                .sum::<u64>(),
+            13
+        );
+
+        let later_in_window = window_start + chrono::TimeDelta::seconds(299);
+        assert_eq!(slots_by_series(&split(16, later_in_window)), series);
+        let next_window = window_start + chrono::TimeDelta::seconds(300);
+        assert_ne!(slots_by_series(&split(16, next_window)), series);
+
+        let unkeyed = split(0, window_start);
+        assert_eq!(unkeyed.len(), 1);
+        assert_eq!(unkeyed[0].slot, None);
+        assert_eq!(unkeyed[0].bytes_uncompressed, 10_007);
     }
 
     #[test]

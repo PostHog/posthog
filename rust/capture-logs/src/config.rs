@@ -37,6 +37,9 @@ pub struct Config {
     #[envconfig(from = "MAX_EXPANDED_REQUEST_BYTES", default = "268435456")] // 256 MiB
     pub max_expanded_request_bytes: usize,
 
+    #[envconfig(from = "METRICS_PARTITION_SLOTS", default = "0")]
+    pub metrics_partition_slots: u32,
+
     #[envconfig(from = "MAX_BACKFILL_DAYS", default = "0")]
     pub max_backfill_days: u32,
 

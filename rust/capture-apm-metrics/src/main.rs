@@ -228,7 +228,8 @@ async fn run(
         metrics_sink_liveness,
     )
     .await
-    .expect("failed to start Kafka sink");
+    .expect("failed to start Kafka sink")
+    .with_metrics_partition_slots(config.base.metrics_partition_slots);
 
     let management_router = Router::new()
         .route("/", get(index))
