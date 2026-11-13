@@ -195,8 +195,10 @@ tools:
         title: Replace static cohort members from query
         description: "Replace all members of an existing STATIC cohort with persons matching a query (HogQLQuery or
             ActorsQuery). The server runs the query, adds newly matched persons, and removes members the query no longer
-            matches. An empty result is refused: if the query matches no persons, the replace is stopped, existing
-            members are kept, and errors_calculating is set. The query must expose the person id under one of:
+            matches. The replace runs in the background, so a successful response means it was queued. To see the
+            result, call 'cohorts-retrieve' until 'is_calculating' is false. If the query matched no persons, the
+            replace was refused: 'last_error_message' explains why, 'errors_calculating' went up by one, and the
+            members are unchanged. The query must expose the person id under one of:
             'person_id', 'actor_id', 'id', or 'distinct_id' (selecting from the 'events' or 'persons' tables resolves
             the actor automatically). Validate the query before saving it — run a HogQLQuery through 'execute-sql' and
             an ActorsQuery through its matching 'query-*-actors' tool (e.g. 'query-trends-actors') — and only save one

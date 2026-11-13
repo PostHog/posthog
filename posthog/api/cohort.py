@@ -1357,9 +1357,10 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         required=False,
         help_text=(
             "How to populate the static cohort from the query. 'append' adds newly matched persons to existing "
-            "members. 'replace' also removes members the query no longer matches. If the query matches no persons, "
-            "the replace is refused and existing members are kept. Only accepted together with query on an existing "
-            "static cohort."
+            "members. 'replace' also removes members the query no longer matches. A replace runs in the background. "
+            "Read the cohort until 'is_calculating' is false; if the query matched no persons, 'last_error_message' "
+            "says the replace was refused and the members are unchanged. Only accepted together with query on an "
+            "existing static cohort."
         ),
     )
 
