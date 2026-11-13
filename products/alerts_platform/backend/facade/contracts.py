@@ -1124,8 +1124,6 @@ class HeldAlertSearchMatch:
     # What the source's own read gates check, such as the insight an insight alert watches.
     source_config: dict[str, Any]
     check_interval_minutes: int
-    # The one state a source shows, composed as `runtime_by_public_id` does. A mute is left to the source.
-    state: PlatformAlertState
     snooze_until: datetime | None
     # The full-text rank of the name, or None when the search had no query.
     rank: float | None

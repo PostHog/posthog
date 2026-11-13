@@ -275,7 +275,8 @@ def search_held_configurations(
     *, team_ids: Collection[int], source_kind: str, query: str | None
 ) -> tuple[HeldAlertSearchMatch, ...]:
     """The alerts of a kind whose settings the platform holds in these teams, ranked by how well their name
-    matches `query`, or in name order without one."""
+    matches `query`, or in name order without one. Runtime state stays out, so a caller reads it only for the
+    page it shows, with `runtime_by_public_id`."""
     if not team_ids:
         return ()
     # The caller names the teams, as a source's readers of its own rows across teams do.
@@ -290,26 +291,8 @@ def search_held_configurations(
     rows = (
         rows.filter(rank__gt=_SEARCH_RANK_THRESHOLD).order_by("-rank", "id") if query else rows.order_by("name", "id")
     )
-    instances = PlatformAlert.objects.unscoped().filter(configuration=OuterRef("pk"))
-    matches = rows.annotate(
-        public_id=_PUBLIC_ID,
-        instance_state=Case(
-            When(
-                Exists(instances.filter(state=PlatformAlertState.FIRING)), then=Value(PlatformAlertState.FIRING.value)
-            ),
-            default=Subquery(instances.filter(grouping_key="").values("state")[:1]),
-        ),
-    ).values_list(
-        "public_id",
-        "team_id",
-        "name",
-        "enabled",
-        "source_config",
-        "check_interval_minutes",
-        "instance_state",
-        "check_status",
-        "snooze_until",
-        "rank",
+    matches = rows.annotate(public_id=_PUBLIC_ID).values_list(
+        "public_id", "team_id", "name", "enabled", "source_config", "check_interval_minutes", "snooze_until", "rank"
     )
     return tuple(
         HeldAlertSearchMatch(
@@ -319,18 +302,10 @@ def search_held_configurations(
             enabled=enabled,
             source_config=source_config,
             check_interval_minutes=check_interval_minutes,
-            state=PlatformAlertState(
-                InstanceCheckState.composed(
-                    grouping_key="",
-                    state=instance_state or PlatformAlertState.NOT_FIRING,
-                    check_status=check_status,
-                    configuration_snooze_until=None,
-                ).state
-            ),
             snooze_until=snooze_until,
             rank=rank,
         )
-        for public_id, team_id, name, enabled, source_config, check_interval_minutes, instance_state, check_status, snooze_until, rank in matches
+        for public_id, team_id, name, enabled, source_config, check_interval_minutes, snooze_until, rank in matches
     )
 
 
