@@ -9,7 +9,14 @@ import {
     NodeKind,
     TrendsQuery,
 } from '~/queries/schema/schema-general'
-import { BaseMathType, ChartDisplayType, HogQLMathType, PropertyFilterType, PropertyOperator } from '~/types'
+import {
+    BaseMathType,
+    ChartDisplayType,
+    HogQLMathType,
+    HogQLPropertyFilter,
+    PropertyFilterType,
+    PropertyOperator,
+} from '~/types'
 
 import type { TicketSlaState, TicketStatus } from '../../types'
 
@@ -63,6 +70,12 @@ export function ticketListUrl(key: SupportOverviewNumberKey): string {
     return combineUrl(urls.supportTickets(), params).url
 }
 
+// The events table does not apply ticket access control, but system.support_tickets does.
+// Each chart joins through it, so a viewer only counts the tickets they can read.
+const READABLE_TICKETS_HOGQL = 'properties.ticket_id IN (SELECT toString(id) FROM system.support_tickets)'
+
+const READABLE_TICKETS_FILTER: HogQLPropertyFilter = { type: PropertyFilterType.HogQL, key: READABLE_TICKETS_HOGQL }
+
 function trendsViz(source: TrendsQuery): InsightVizNode {
     return { kind: NodeKind.InsightVizNode, source }
 }
@@ -78,6 +91,7 @@ export function ticketsCreatedQuery(dateRange: DateRange): InsightVizNode {
                 event: '$conversation_ticket_created',
                 custom_name: 'Tickets created',
                 math: BaseMathType.TotalCount,
+                properties: [READABLE_TICKETS_FILTER],
             },
         ],
         breakdownFilter: { breakdown: 'channel_source', breakdown_type: 'event' },
@@ -103,6 +117,7 @@ export function ticketsResolvedQuery(dateRange: DateRange): InsightVizNode {
                         operator: PropertyOperator.Exact,
                         value: 'resolved',
                     },
+                    READABLE_TICKETS_FILTER,
                 ],
             },
         ],
@@ -121,6 +136,7 @@ export function slaAttainmentQuery(dateRange: DateRange): InsightVizNode {
                 event: '$conversation_message_sent',
                 custom_name: 'Replies within SLA',
                 math: HogQLMathType.HogQL,
+                properties: [READABLE_TICKETS_FILTER],
                 // Replies on tickets without an SLA stay out of both sides of the ratio.
                 math_hogql:
                     'round(100 * countIf(properties.sla_active = true AND properties.sla_breached = false) / nullIf(countIf(properties.sla_active = true), 0), 1)',
@@ -129,6 +145,9 @@ export function slaAttainmentQuery(dateRange: DateRange): InsightVizNode {
         trendsFilter: { display: ChartDisplayType.ActionsLineGraph, aggregationAxisPostfix: '%' },
     })
 }
+
+// HogQL returns 100 rows by default, which cuts the latest days from a longer range.
+const FIRST_RESPONSE_MAX_DAYS = 3660
 
 export function firstResponseTimeQuery(dateRange: DateRange): DataVisualizationNode {
     return {
@@ -149,14 +168,21 @@ export function firstResponseTimeQuery(dateRange: DateRange): DataVisualizationN
                     FROM events
                     WHERE event IN ('$conversation_ticket_created', '$conversation_message_sent')
                         AND timestamp >= {filters.dateRange.from}
+                        AND properties.ticket_id IN (
+                            SELECT properties.ticket_id
+                            FROM events
+                            WHERE event = '$conversation_ticket_created'
+                                AND {filters}
+                                AND ${READABLE_TICKETS_HOGQL}
+                        )
                     GROUP BY ticket_id
                     HAVING countIf(event = '$conversation_ticket_created') > 0
                         AND countIf(event = '$conversation_message_sent') > 0
                         AND first_reply_at >= created_at
-                        AND created_at <= {filters.dateRange.to}
                 )
                 GROUP BY day
                 ORDER BY day
+                LIMIT ${FIRST_RESPONSE_MAX_DAYS}
             `,
             filters: { dateRange },
         },
