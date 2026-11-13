@@ -5,11 +5,14 @@ import posthog from 'posthog-js'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 
+import { HrefPin, hrefPinsFromShortcuts } from '~/layout/today/sidebar/hrefPins'
 import { sidebarPinsLogic } from '~/layout/today/sidebar/sidebarPinsLogic'
 import {
     MonitorProduct,
     MonitorProducts,
+    TODAY_MONITOR_RECENT_TYPES,
     TodayMonitorRecent,
+    TodayMonitorRecentType,
     monitorItems,
     monitorProductForPath,
     monitorRecentRowKey,
@@ -18,8 +21,6 @@ import { todayMonitorRecentsLogic } from '~/layout/today/todayMonitorRecentsLogi
 import { matchesPaneQuery } from '~/layout/today/todayPaneSearch'
 import { TODAY_USER_PERSIST_OPTIONS } from '~/layout/today/todayUserPersistOptions'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
-
-import { TodayMonitorPin, monitorPinsFromShortcuts } from './todayMonitorPins'
 
 // pinned: persisted section ids and the `section` property of `monitor section toggled`.
 export type TodayMonitorSection = 'pinned' | 'recents' | 'products'
@@ -51,11 +52,11 @@ export interface todayMonitorLogicValues {
     collapsedSections: TodayMonitorSection[]
     isSearching: boolean
     isSectionOpen: (section: TodayMonitorSection) => boolean
-    matchingPinnedRows: TodayMonitorPin[]
+    matchingPinnedRows: HrefPin<TodayMonitorRecentType>[]
     matchingProducts: MonitorProduct[]
     matchingRecentRows: TodayMonitorRecent[]
     matchingTools: MonitorProduct[]
-    pinnedRows: TodayMonitorPin[]
+    pinnedRows: HrefPin<TodayMonitorRecentType>[]
     products: MonitorProducts
     searchQuery: string
 }
@@ -76,11 +77,14 @@ export interface todayMonitorLogicMeta {
         products: (featureFlags: FeatureFlagsSet) => MonitorProducts
         matchingTools: (products: MonitorProducts, searchQuery: string) => MonitorProduct[]
         matchingProducts: (products: MonitorProducts, searchQuery: string) => MonitorProduct[]
-        pinnedRows: (shortcutData: FileSystemEntry[]) => TodayMonitorPin[]
-        matchingPinnedRows: (pinnedRows: TodayMonitorPin[], searchQuery: string) => TodayMonitorPin[]
+        pinnedRows: (shortcutData: FileSystemEntry[]) => HrefPin<TodayMonitorRecentType>[]
+        matchingPinnedRows: (
+            pinnedRows: HrefPin<'error_tracking_issue' | 'logs_view'>[],
+            searchQuery: string
+        ) => HrefPin<TodayMonitorRecentType>[]
         matchingRecentRows: (
             recentRows: TodayMonitorRecent[],
-            pinnedRows: TodayMonitorPin[],
+            pinnedRows: HrefPin<'error_tracking_issue' | 'logs_view'>[],
             searchQuery: string
         ) => TodayMonitorRecent[]
         activeRow: (
@@ -90,7 +94,7 @@ export interface todayMonitorLogicMeta {
                 search: string
             },
             currentRecent: TodayMonitorRecent | null,
-            pinnedRows: TodayMonitorPin[],
+            pinnedRows: HrefPin<'error_tracking_issue' | 'logs_view'>[],
             recentRows: TodayMonitorRecent[]
         ) => string | null
         isSearching: (searchQuery: string) => boolean
@@ -152,11 +156,12 @@ export const todayMonitorLogic = kea<todayMonitorLogicType>([
         ],
         pinnedRows: [
             (s) => [s.shortcutData],
-            (shortcutData: FileSystemEntry[]): TodayMonitorPin[] => monitorPinsFromShortcuts(shortcutData),
+            (shortcutData: FileSystemEntry[]): HrefPin<TodayMonitorRecentType>[] =>
+                hrefPinsFromShortcuts(shortcutData, TODAY_MONITOR_RECENT_TYPES),
         ],
         matchingPinnedRows: [
             (s) => [s.pinnedRows, s.searchQuery],
-            (pinnedRows: TodayMonitorPin[], searchQuery: string): TodayMonitorPin[] =>
+            (pinnedRows: HrefPin<TodayMonitorRecentType>[], searchQuery: string): HrefPin<TodayMonitorRecentType>[] =>
                 pinnedRows.filter((pin) => matchesPaneQuery(pin.name, searchQuery)),
         ],
         // A pinned issue or view shows once, under Pinned, so its row value stays unique on the keyboard path.
@@ -164,7 +169,7 @@ export const todayMonitorLogic = kea<todayMonitorLogicType>([
             (s) => [s.recentRows, s.pinnedRows, s.searchQuery],
             (
                 recentRows: TodayMonitorRecent[],
-                pinnedRows: TodayMonitorPin[],
+                pinnedRows: HrefPin<TodayMonitorRecentType>[],
                 searchQuery: string
             ): TodayMonitorRecent[] => {
                 const pinnedHrefs = new Set(pinnedRows.map((pin) => pin.href))
@@ -178,7 +183,7 @@ export const todayMonitorLogic = kea<todayMonitorLogicType>([
             (
                 location: { pathname: string },
                 currentRecent: TodayMonitorRecent | null,
-                pinnedRows: TodayMonitorPin[],
+                pinnedRows: HrefPin<TodayMonitorRecentType>[],
                 recentRows: TodayMonitorRecent[]
             ): string | null => activeMonitorRow(location.pathname, currentRecent, [...pinnedRows, ...recentRows]),
         ],

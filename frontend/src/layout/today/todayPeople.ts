@@ -1,8 +1,7 @@
 import { isUnderPath } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
 
-import { splitPath } from '~/layout/panel-layout/ProjectTree/utils'
-import { pinKey } from '~/layout/today/sidebar/sidebarPinsLogic'
+import { HrefPin, hrefPinsFromShortcuts } from '~/layout/today/sidebar/hrefPins'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
 const TODAY_PEOPLE_RECENT_TYPES = ['person', 'group', 'cohort', 'account', 'ticket'] as const
@@ -47,30 +46,8 @@ export function peopleRecentRowKey(href: string): string {
     return `recent:${href}`
 }
 
-export interface TodayPeoplePin extends TodayPeopleRecent {
-    key: string
-}
+export type TodayPeoplePin = HrefPin<TodayPeopleRecentType>
 
-function isPeopleType(type: string | undefined): type is TodayPeopleRecentType {
-    return (TODAY_PEOPLE_RECENT_TYPES as readonly (string | undefined)[]).includes(type)
-}
-
-/** Keys on the href, so a cohort starred in the classic navigation shows here too. */
 export function peoplePinsFromShortcuts(shortcuts: FileSystemEntry[]): TodayPeoplePin[] {
-    const pins = new Map<string, TodayPeoplePin>()
-    for (const shortcut of shortcuts) {
-        if (!shortcut.href || !isPeopleType(shortcut.type)) {
-            continue
-        }
-        const key = pinKey(shortcut.type, shortcut.href)
-        if (!pins.has(key)) {
-            pins.set(key, {
-                key,
-                type: shortcut.type,
-                name: splitPath(shortcut.path).at(-1) ?? shortcut.path,
-                href: shortcut.href,
-            })
-        }
-    }
-    return [...pins.values()]
+    return hrefPinsFromShortcuts(shortcuts, TODAY_PEOPLE_RECENT_TYPES)
 }
