@@ -4,7 +4,8 @@ import { percentage } from 'lib/utils/numbers'
 
 import type { AEOKeywordModifierApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
-import { isCitationGap } from './keywordsReport'
+import { ContentAutopilotCitationsLink } from './ContentAutopilotCitationsLink'
+import { KEYWORDS_DAYS, isCitationGap } from './keywordsReport'
 import { engineLabel } from './utils'
 
 /** The words of one modifier group, with gaps against the baseline cited rate highlighted. */
@@ -72,8 +73,15 @@ export const ContentAutopilotKeywordModifierTerms = ({
                 render: (_, modifier) => (
                     <ul className="m-0 flex flex-col gap-0.5 max-w-120">
                         {modifier.example_searches.map((search) => (
-                            <li key={search} className="truncate text-xs" title={search}>
-                                {search}
+                            <li key={search} className="flex min-w-0 text-xs">
+                                <ContentAutopilotCitationsLink
+                                    lookup={{ kind: 'search', value: search, days: KEYWORDS_DAYS, branded: 'all' }}
+                                    source="keyword-modifier-searches"
+                                    className="block truncate"
+                                    title={search}
+                                >
+                                    {search}
+                                </ContentAutopilotCitationsLink>
                             </li>
                         ))}
                     </ul>

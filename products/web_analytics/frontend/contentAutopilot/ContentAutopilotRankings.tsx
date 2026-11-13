@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
+import { IconExternal } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonCard, LemonTable, Link } from '@posthog/lemon-ui'
 import { TimeSeriesLineChart } from '@posthog/quill-charts'
 import type { Series, TimeSeriesLineChartConfig } from '@posthog/quill-charts'
@@ -20,6 +21,7 @@ import type {
 
 import { pageReportPath } from '../pageReports/pageReportsUtils'
 import { ContentAutopilotBrandedSegmentControl } from './ContentAutopilotBrandedSegmentControl'
+import { ContentAutopilotCitationsLink } from './ContentAutopilotCitationsLink'
 import { ContentAutopilotKpiDelta } from './ContentAutopilotKpiDelta'
 import { contentAutopilotLogic } from './contentAutopilotLogic'
 import { ContentAutopilotPromptsDisabled } from './ContentAutopilotPromptsDisabled'
@@ -180,7 +182,17 @@ export const ContentAutopilotRankings = (): JSX.Element => {
                                                     domain={brand.domain}
                                                     isTarget={brand.is_target}
                                                 >
-                                                    {named ? brand.name : brand.domain}
+                                                    <ContentAutopilotCitationsLink
+                                                        lookup={{
+                                                            kind: 'domain',
+                                                            value: brand.domain,
+                                                            days: RANKINGS_DAYS,
+                                                            branded: rankings.branded,
+                                                        }}
+                                                        source="rankings-brands"
+                                                    >
+                                                        {named ? brand.name : brand.domain}
+                                                    </ContentAutopilotCitationsLink>
                                                 </ContentAutopilotSiteLabel>
                                                 {named ? (
                                                     <span className="pl-6 text-xs text-muted">{brand.domain}</span>
@@ -258,7 +270,19 @@ export const ContentAutopilotRankings = (): JSX.Element => {
                                             domain={domain.domain}
                                             isTarget={domain.is_target}
                                             isCompetitor={domain.is_competitor}
-                                        />
+                                        >
+                                            <ContentAutopilotCitationsLink
+                                                lookup={{
+                                                    kind: 'domain',
+                                                    value: domain.domain,
+                                                    days: RANKINGS_DAYS,
+                                                    branded: rankings.branded,
+                                                }}
+                                                source="rankings-sites"
+                                            >
+                                                {domain.domain}
+                                            </ContentAutopilotCitationsLink>
+                                        </ContentAutopilotSiteLabel>
                                     ),
                                 },
                                 {
@@ -299,9 +323,18 @@ export const ContentAutopilotRankings = (): JSX.Element => {
                                                 domain={parseWebAnalyticsURL(page.url).host ?? page.url}
                                                 isTarget={page.is_target}
                                             >
-                                                <Link to={page.url} target="_blank" title={page.url}>
+                                                <ContentAutopilotCitationsLink
+                                                    lookup={{
+                                                        kind: 'url',
+                                                        value: page.url,
+                                                        days: RANKINGS_DAYS,
+                                                        branded: rankings.branded,
+                                                    }}
+                                                    source="rankings-pages"
+                                                    title={page.url}
+                                                >
                                                     {page.url.replace(/^https?:\/\//, '')}
-                                                </Link>
+                                                </ContentAutopilotCitationsLink>
                                             </ContentAutopilotSiteLabel>
                                         </span>
                                     ),
@@ -317,20 +350,33 @@ export const ContentAutopilotRankings = (): JSX.Element => {
                                 },
                                 {
                                     key: 'page_report',
-                                    // Only your own pages have traffic in web analytics to report on.
-                                    render: (_, page) =>
-                                        page.is_target ? (
+                                    // Only your own pages have traffic in web analytics to report on, and the external
+                                    // button comes last so it lines up on every row.
+                                    render: (_, page) => (
+                                        <span className="flex items-center justify-end gap-1">
+                                            {page.is_target ? (
+                                                <LemonButton
+                                                    size="xsmall"
+                                                    type="secondary"
+                                                    className="whitespace-nowrap"
+                                                    to={pageReportPath(page.url)}
+                                                    tooltip="See this page's traffic, including visits from AI assistants"
+                                                    data-attr="content-autopilot-rankings-page-report"
+                                                >
+                                                    Page report
+                                                </LemonButton>
+                                            ) : null}
                                             <LemonButton
                                                 size="xsmall"
-                                                type="secondary"
-                                                className="whitespace-nowrap"
-                                                to={pageReportPath(page.url)}
-                                                tooltip="See this page's traffic, including visits from AI assistants"
-                                                data-attr="content-autopilot-rankings-page-report"
-                                            >
-                                                Page report
-                                            </LemonButton>
-                                        ) : null,
+                                                icon={<IconExternal />}
+                                                to={page.url}
+                                                targetBlank
+                                                hideExternalLinkIcon
+                                                tooltip="Open the page"
+                                                data-attr="content-autopilot-rankings-page-open"
+                                            />
+                                        </span>
+                                    ),
                                 },
                             ]}
                         />
