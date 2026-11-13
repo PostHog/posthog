@@ -44,7 +44,10 @@ def test_db_lookup(tmp_path_factory: pytest.TempPathFactory) -> Iterator[MmdbGeo
 def test_geoip_enrichment_matches_the_node_template(case: dict[str, Any], test_db_lookup: MmdbGeoipLookup) -> None:
     properties = case["properties"]
     enrichment = geoip_enrichment(properties, test_db_lookup)
-    assert (properties if enrichment is None else enrichment.apply(properties)) == case["expected"]
+    enriched = properties if enrichment is None else enrichment.apply(properties)
+    assert enriched == case["expected"]
+    # The text also has to match: `13.0 == 13` holds in Python, but the stored JSON would read 13.0.
+    assert json.dumps(enriched) == json.dumps(case["expected"])
 
 
 def test_geoip_enrichment_writes_null_for_objects_without_english_names() -> None:

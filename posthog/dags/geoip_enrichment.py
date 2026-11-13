@@ -142,9 +142,9 @@ def _location(record: GeoipRecord) -> dict[str, Any]:
     if postal := _object_or_empty(record.get("postal")):
         location["postal_code"] = postal.get("code")
     if coordinates := _object_or_empty(record.get("location")):
-        location["latitude"] = coordinates.get("latitude")
-        location["longitude"] = coordinates.get("longitude")
-        location["accuracy_radius"] = coordinates.get("accuracy_radius")
+        location["latitude"] = _js_number(coordinates.get("latitude"))
+        location["longitude"] = _js_number(coordinates.get("longitude"))
+        location["accuracy_radius"] = _js_number(coordinates.get("accuracy_radius"))
         location["time_zone"] = coordinates.get("time_zone")
     subdivisions = record.get("subdivisions")
     if isinstance(subdivisions, list):
@@ -157,6 +157,11 @@ def _location(record: GeoipRecord) -> dict[str, Any]:
 
 def _english_name(geo_object: Mapping[str, Any]) -> Any:
     return _object_or_empty(geo_object.get("names")).get("en")
+
+
+def _js_number(value: Any) -> Any:
+    # JavaScript has one number type, so the template writes 13.0 as 13.
+    return int(value) if isinstance(value, float) and value.is_integer() else value
 
 
 def _hog_truthy(value: Any) -> bool:
