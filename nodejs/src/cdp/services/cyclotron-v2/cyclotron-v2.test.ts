@@ -2719,6 +2719,7 @@ describe('Cyclotron V2', () => {
             ['at the churn threshold', CYCLOTRON_TRANSITION_CHURN_THRESHOLD - 1, 0, 1],
             ['at the churn threshold on a day-old job', CYCLOTRON_TRANSITION_CHURN_THRESHOLD - 1, 24, 1],
             ['at the churn threshold on a weeks-old job', CYCLOTRON_TRANSITION_CHURN_THRESHOLD - 1, 400, 0],
+            ['at the counter clamp on a weeks-old job', CYCLOTRON_COUNTER_MAX, 400, 1],
         ])('counts a dequeue %s', async (_label, seeded, ageHours, expected) => {
             const before = await churnCountForQueue(QUEUE)
             const id = await manager.createJob({ teamId: 1, queueName: QUEUE })

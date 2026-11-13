@@ -49,13 +49,17 @@ export interface RawJobRow {
 // Read off the row the dequeue already returns, so tracking churn costs no extra query.
 const highTransitionDequeuesCounter = new Counter({
     name: 'cdp_cyclotron_v2_high_transition_dequeues',
-    help: `Jobs dequeued with transition_count at or above ${CYCLOTRON_TRANSITION_CHURN_THRESHOLD} and at least ${CYCLOTRON_TRANSITION_CHURN_RATE_PER_HOUR} transitions per hour of age, meaning they are cycling without completing.`,
+    help: `Jobs dequeued with transition_count at or above ${CYCLOTRON_TRANSITION_CHURN_THRESHOLD} and either at least ${CYCLOTRON_TRANSITION_CHURN_RATE_PER_HOUR} transitions per hour of age or at the counter cap, meaning they are cycling without completing.`,
     labelNames: ['queue'] as const,
 })
 
 function isChurning(row: RawJobRow): boolean {
     if (row.transition_count < CYCLOTRON_TRANSITION_CHURN_THRESHOLD) {
         return false
+    }
+    const counterStoppedGrowing = row.transition_count >= CYCLOTRON_COUNTER_MAX
+    if (counterStoppedGrowing) {
+        return true
     }
     const ageHours = (Date.now() - new Date(row.created).getTime()) / 3_600_000
     return row.transition_count >= CYCLOTRON_TRANSITION_CHURN_RATE_PER_HOUR * ageHours
