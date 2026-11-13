@@ -64,6 +64,23 @@ tools:
             exclude:
                 - actions.*.config.inputs
                 - draft.actions.*.config.inputs
+    workflows-code-compile:
+        operation: hog_flows_compile_code_create
+        enabled: true
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Compile workflow code
+        description: >
+            Check Hog source for a workflow Code step before saving it. Returns ok and any compile errors with their
+            line and column; it saves nothing. A Code step is a function action with template_id 'template-posthog-code'
+            and config.hog set to the source. The code can call only fetch and postHogCapture, and reads the globals
+            event, person, groups and variables, plus inputs.params.<key> (the templated params dictionary input) and
+            inputs.secrets.<key> (the encrypted secrets dictionary input). Its return value is stored in the step's
+            output_variable. A run can make at most 5 fetches, and the step bills max(1, fetches) invocations. The
+            source is at most 100KB. Saving compiles it again, so never send bytecode.
+        feature_flag: workflows-code-step
     workflows-convert-to-broadcast:
         operation: hog_flows_convert_to_broadcast
         enabled: true
@@ -112,13 +129,14 @@ tools:
             editor. Two traps that save but break: (1) a conditional_branch condition needs a 'filters' wrapper —
             {filters:{properties:[...]}}, not {properties:[...]} on the condition; omitting it passes save but the
             editor flags it and the branch won't evaluate your condition. (2) Never hand-author bytecode anywhere; send
-            properties/hash and the server compiles it. For '$account_custom_property_changed', current_value is
-            polymorphic. To target multiple property types, repeat that event in filters.events: nested properties in
-            each event entry are ANDed, while event entries are ORed. For example, one entry can pair property_name=Plan
-            with current_value=enterprise and another can pair property_name=Seats with current_value greater than 5; do
-            not put one shared current_value condition in top-level properties. A 'batch' trigger broadcasts to an
-            audience (config.filters.properties: person-property conditions and/or cohort references), one run per
-            matching person, and does NOT fire on enable: dispatch with workflows-run-batch or attach a schedule with
+            properties/hash and the server compiles it. For custom logic, a Code step runs your own Hog: check it with
+            workflows-code-compile first. For '$account_custom_property_changed', current_value is polymorphic. To
+            target multiple property types, repeat that event in filters.events: nested properties in each event entry
+            are ANDed, while event entries are ORed. For example, one entry can pair property_name=Plan with
+            current_value=enterprise and another can pair property_name=Seats with current_value greater than 5; do not
+            put one shared current_value condition in top-level properties. A 'batch' trigger broadcasts to an audience
+            (config.filters.properties: person-property conditions and/or cohort references), one run per matching
+            person, and does NOT fire on enable: dispatch with workflows-run-batch or attach a schedule with
             workflows-schedule-create. A 'schedule' trigger has no audience: it runs once per occurrence, so attach its
             cadence with workflows-schedule-create and skip the audience preview. Behavioral targeting ('did event X at
             least N times over the last M days') is unsupported; reject it and explain why.
@@ -534,8 +552,9 @@ tools:
             nothing reaches real people until workflows-publish. The updated workflow is returned without step inputs,
             so you can confirm every step's id and type without re-fetching; read a step's inputs back with
             workflows-get. When adding or editing a conditional_branch, each condition needs a 'filters' wrapper:
-            {filters:{properties:[...]}}, not {properties:[...]} on the condition. Re-test the changed path with
-            workflows-test-run after patching.
+            {filters:{properties:[...]}}, not {properties:[...]} on the condition. For a Code step, check config.hog
+            with workflows-code-compile before patching. Re-test the changed path with workflows-test-run after
+            patching.
         response:
             exclude:
                 - actions.*.config.inputs
@@ -720,7 +739,8 @@ tools:
             mock_async_functions=false to fire real side effects. Returns the step's execution trace. Set use_draft=true
             to test a workflow's staged draft instead of its live config — always do this before workflows-publish.
             use_draft requires a staged draft to exist (workflows-get shows it in 'draft'); on a workflow with nothing
-            staged, omit it.
+            staged, omit it. A Code step that throws returns status=error with its message in errors and logs, but no
+            line number; workflows-code-compile gives line numbers for compile errors.
         exclude_params:
             - configuration
     workflows-update:

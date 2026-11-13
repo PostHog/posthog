@@ -77,6 +77,32 @@ const broadcastsCreate = (): ToolBase<ReturnType<typeof BroadcastsCreateSchema>,
     },
 })
 
+const WorkflowsCodeCompileSchema = () => {
+    const HogFlowsCompileCodeCreateBody = orvalSchemas.HogFlowsCompileCodeCreateBody()
+    return HogFlowsCompileCodeCreateBody
+}
+
+const workflowsCodeCompile = (): ToolBase<
+    ReturnType<typeof WorkflowsCodeCompileSchema>,
+    Schemas.HogFlowCompileCodeResponse
+> => ({
+    name: 'workflows-code-compile',
+    schema: WorkflowsCodeCompileSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof WorkflowsCodeCompileSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.hog !== undefined) {
+            body['hog'] = params.hog
+        }
+        const result = await context.api.request<Schemas.HogFlowCompileCodeResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/compile_code/`,
+            body,
+        })
+        return result
+    },
+})
+
 const WorkflowsConvertToBroadcastSchema = () => {
     const HogFlowsConvertToBroadcastParams = orvalSchemas.HogFlowsConvertToBroadcastParams()
     return HogFlowsConvertToBroadcastParams.omit({ project_id: true })
@@ -1162,6 +1188,7 @@ const workflowsVersionStats = (): ToolBase<
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'broadcasts-create': broadcastsCreate,
+    'workflows-code-compile': workflowsCodeCompile,
     'workflows-convert-to-broadcast': workflowsConvertToBroadcast,
     'workflows-create': workflowsCreate,
     'workflows-data-suggestions-create': workflowsDataSuggestionsCreate,

@@ -31,6 +31,8 @@ import type {
     HogFlowApi,
     HogFlowBatchJobApi,
     HogFlowBatchJobCancelResponseApi,
+    HogFlowCompileCodeRequestApi,
+    HogFlowCompileCodeResponseApi,
     HogFlowConvertedToBroadcastApi,
     HogFlowInFlightApi,
     HogFlowInvocationApi,
@@ -1390,6 +1392,27 @@ export const hogFlowsBulkUpdateTagsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(bulkUpdateTagsUUIDRequestApi),
+    })
+}
+
+export const getHogFlowsCompileCodeCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/hog_flows/compile_code/`
+}
+
+/**
+ * Checks Hog source for a workflow code step with the same rules a save applies, and returns any compile errors with their line and column. It saves nothing and returns no bytecode.
+ * @summary Compile a code step
+ */
+export const hogFlowsCompileCodeCreate = async (
+    projectId: string,
+    hogFlowCompileCodeRequestApi: HogFlowCompileCodeRequestApi,
+    options?: RequestInit
+): Promise<HogFlowCompileCodeResponseApi> => {
+    return apiMutator<HogFlowCompileCodeResponseApi>(getHogFlowsCompileCodeCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(hogFlowCompileCodeRequestApi),
     })
 }
 

@@ -1,0 +1,11 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "hog": {
+            "description": "Hog source for a code step (at most 100KB). It can call fetch and postHogCapture, and reads the globals event, person, groups, variables, inputs.params and inputs.secrets.",
+            "type": "string"
+        }
+    },
+    "required": ["hog"],
+    "type": "object"
+}

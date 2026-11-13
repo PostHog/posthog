@@ -102,6 +102,7 @@ from products.cdp.backend.presentation.hog_functions import (
     DATA_WAREHOUSE_SOURCES,
     FLAG_GATED_TEMPLATE_IDS,
     MAX_HOG_CODE_SIZE_BYTES,
+    HogCompileError,
     compile_filters_expr,
     compile_hog,
     filter_action_ids,
@@ -717,6 +718,34 @@ WORKFLOW_CODE_COMPILER_FINGERPRINT = "workflow_code:v1"
 
 def workflow_code_hash(hog: str) -> str:
     return hashlib.sha256((WORKFLOW_CODE_COMPILER_FINGERPRINT + hog).encode("utf-8")).hexdigest()
+
+
+def workflow_code_enabled(team: Any) -> bool:
+    return gated_template_enabled(FLAG_GATED_TEMPLATE_IDS[WORKFLOW_CODE_TEMPLATE_ID], team)
+
+
+def reject_oversized_workflow_code(hog: str) -> None:
+    if len(hog.encode("utf-8")) > MAX_HOG_CODE_SIZE_BYTES:
+        raise serializers.ValidationError(
+            {"hog": f"Hog code exceeds the maximum size of {MAX_HOG_CODE_SIZE_BYTES // 1024}KB."}
+        )
+
+
+def compile_workflow_code(hog: str) -> list:
+    """Bytecode for a code step's source. Raises a ValidationError keyed on `hog` when it can't run."""
+    reject_oversized_workflow_code(hog)
+    return compile_hog(hog, "workflow_code")
+
+
+def workflow_code_errors(hog: str, error: serializers.ValidationError) -> list[dict[str, Any]]:
+    detail = error.detail.get("hog") if isinstance(error.detail, dict) else error.detail
+    messages = detail if isinstance(detail, list) else [detail]
+    start = error.start if isinstance(error, HogCompileError) else None
+    position = {}
+    if start is not None:
+        line_start = hog.rfind("\n", 0, start) + 1
+        position = {"line": hog.count("\n", 0, start) + 1, "column": start - line_start + 1}
+    return [{"message": str(message), **position} for message in messages]
 
 
 def _stored_code_bytecode(instance: Optional[WorkflowEditState]) -> dict[tuple[Any, str], list]:
@@ -2108,16 +2137,13 @@ class HogFlowActionSerializer(serializers.Serializer):
             return
         if not isinstance(hog, str):
             raise serializers.ValidationError({"hog": "hog must be a string of Hog code."})
-        if len(hog.encode("utf-8")) > MAX_HOG_CODE_SIZE_BYTES:
-            raise serializers.ValidationError(
-                {"hog": f"Hog code exceeds the maximum size of {MAX_HOG_CODE_SIZE_BYTES // 1024}KB."}
-            )
+        reject_oversized_workflow_code(hog)
 
         bytecode_hash = workflow_code_hash(hog)
         bytecode = (self.context.get("stored_code_bytecode") or {}).get((data.get("id"), bytecode_hash))
         if bytecode is None:
             try:
-                bytecode = compile_hog(hog, "workflow_code")
+                bytecode = compile_workflow_code(hog)
             except serializers.ValidationError:
                 if strict:
                     raise
@@ -2984,6 +3010,29 @@ class SendCalendarFlowSerializer(serializers.Serializer):
     batch_jobs = SendCalendarBatchJobSerializer(
         many=True, read_only=True, help_text="The batch runs that started inside the requested range."
     )
+
+
+class HogFlowCompileCodeRequestSerializer(serializers.Serializer):
+    hog = serializers.CharField(
+        trim_whitespace=False,
+        help_text=(
+            "Hog source for a code step (at most 100KB). It can call fetch and postHogCapture, and reads the "
+            "globals event, person, groups, variables, inputs.params and inputs.secrets."
+        ),
+    )
+
+
+class HogFlowCodeErrorSerializer(serializers.Serializer):
+    message = serializers.CharField(help_text="What is wrong with the code.")
+    line = serializers.IntegerField(required=False, help_text="1-based line of the error, when the compiler knows it.")
+    column = serializers.IntegerField(
+        required=False, help_text="1-based column of the error, when the compiler knows it."
+    )
+
+
+class HogFlowCompileCodeResponseSerializer(serializers.Serializer):
+    ok = serializers.BooleanField(help_text="True when the code compiles and can run in a code step.")
+    errors = HogFlowCodeErrorSerializer(many=True, help_text="Compile errors. Empty when ok is true.")
 
 
 class HogFlowRunRequestSerializer(serializers.Serializer):
@@ -5494,6 +5543,7 @@ class HogFlowViewSet(
         "reject_proposal",
         "bulk_update_tags",
         "apply_utm_defaults",
+        "compile_code",
     ]
     queryset = HogFlow.objects.all()
     bulk_update_tags_request_serializer_class = BulkUpdateTagsUUIDRequestSerializer
@@ -5788,6 +5838,27 @@ class HogFlowViewSet(
             user_access_control=None if is_service_auth(request) else self.user_access_control,
         )
         return Response(SendCalendarFlowSerializer(flows, many=True).data)
+
+    @validated_request(
+        request_serializer=HogFlowCompileCodeRequestSerializer,
+        responses={200: OpenApiResponse(response=HogFlowCompileCodeResponseSerializer)},
+        summary="Compile a code step",
+        description=(
+            "Checks Hog source for a workflow code step with the same rules a save applies, and returns any "
+            "compile errors with their line and column. It saves nothing and returns no bytecode."
+        ),
+    )
+    @action(detail=False, methods=["POST"], url_path="compile_code", pagination_class=None, filter_backends=[])
+    def compile_code(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        if not workflow_code_enabled(self.team):
+            raise exceptions.PermissionDenied("Code steps are not available for this project.")
+        hog = request.validated_data["hog"]
+        try:
+            compile_workflow_code(hog)
+            errors: list[dict[str, Any]] = []
+        except serializers.ValidationError as error:
+            errors = workflow_code_errors(hog, error)
+        return Response(HogFlowCompileCodeResponseSerializer({"ok": not errors, "errors": errors}).data)
 
     def safely_get_object(self, queryset):
         # TODO(team-workflows): Somehow implement version lookups

@@ -1629,6 +1629,13 @@ def topological_sort(nodes: list[str], edges: dict[str, list[str]]) -> list[str]
     return sorted_list
 
 
+class HogCompileError(serializers.ValidationError):
+    def __init__(self, message: str, start: Optional[int]):
+        super().__init__({"hog": message})
+        # Character offset into the source, so callers can point at the line.
+        self.start = start
+
+
 def compile_hog(
     hog: str,
     hog_type: str,
@@ -1694,13 +1701,13 @@ def compile_hog(
         # async functions registered, and workflow code has a fixed allowlist, so surface the
         # error at save time instead.
         if hog_type in ("transformation_log", "workflow_code") and context.errors:
-            raise serializers.ValidationError({"hog": context.errors[0].message})
+            raise HogCompileError(context.errors[0].message, context.errors[0].start)
 
         return bytecode
     except serializers.ValidationError:
         raise
     except ExposedHogQLError as e:
-        raise serializers.ValidationError({"hog": f"Hog code has errors: {e}"})
+        raise HogCompileError(f"Hog code has errors: {e}", e.start)
     except Exception as e:
         logger.error(f"Failed to compile hog {e}", exc_info=True)
         raise serializers.ValidationError({"hog": "Hog code has errors."})

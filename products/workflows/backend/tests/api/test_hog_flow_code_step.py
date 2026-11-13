@@ -119,3 +119,49 @@ class TestHogFlowCodeStep(APIBaseTest):
 
         assert response.status_code == 400, response.json()
         assert message in str(response.json())
+
+
+class TestCompileCode(APIBaseTest):
+    def _compile(self, hog: str, flag: bool = True):
+        with patch(GATE, return_value=flag):
+            return self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/compile_code/", {"hog": hog}, format="json"
+            )
+
+    @parameterized.expand(
+        [
+            ("compiles", CODE, {"ok": True, "errors": []}),
+            (
+                "disallowed_function",
+                "let a := 1\n  sendEmail({})",
+                {
+                    "ok": False,
+                    "errors": [{"message": "Hog function `sendEmail` is not implemented", "line": 2, "column": 3}],
+                },
+            ),
+            (
+                "oversize",
+                "return '" + "x" * 100 * 1024 + "'",
+                {"ok": False, "errors": [{"message": "Hog code exceeds the maximum size of 100KB."}]},
+            ),
+        ]
+    )
+    def test_reports_compile_errors_with_their_position(self, _name: str, hog: str, expected: dict):
+        response = self._compile(hog)
+
+        assert response.status_code == 200, response.json()
+        assert response.json() == expected
+
+    def test_points_a_syntax_error_at_its_line(self):
+        response = self._compile("let a := 1\nreturn {")
+
+        assert response.status_code == 200, response.json()
+        [error] = response.json()["errors"]
+        assert error["message"].startswith("Hog code has errors:")
+        assert error["line"] == 2
+        assert "column" in error
+
+    def test_is_refused_when_the_flag_is_off(self):
+        response = self._compile(CODE, flag=False)
+
+        assert response.status_code == 403, response.json()
