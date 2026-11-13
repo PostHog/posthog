@@ -1900,11 +1900,24 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         query_serializer=FileSystemFolderCountsQuerySerializer,
         responses={200: OpenApiResponse(response=FileSystemFolderCountsSerializer)},
         summary="Count files per folder",
-        description="Counts the files directly in each folder, so a view can tell which folders hold files without listing them.",
+        description=(
+            "Counts the files directly in each folder outside Unfiled, so the workflows list can tell which folders "
+            "hold files without listing them. Not found unless the workflows list is on for the caller."
+        ),
     )
     @action(methods=["GET"], detail=False, pagination_class=None)
     def folder_counts(self, request: Request, **kwargs: object) -> Response:
-        files = self.get_queryset().exclude(type="folder").exclude(shortcut=True).order_by()
+        if not self._workflow_files_enabled:
+            raise NotFound()
+        # The workflows list shows Unfiled as one folder, so the files under it change nothing there. They are most
+        # rows of a large project, and this constant prefix drops them before the regexes and access checks run.
+        files = (
+            self.get_queryset()
+            .exclude(type="folder")
+            .exclude(shortcut=True)
+            .exclude(path__startswith="Unfiled/")
+            .order_by()
+        )
         # Whole segments up to the last unescaped separator, read from the start so `\\/` and `\/` split as split_path does.
         parents = Func(F("path"), Value(r"^(?:(?:\\.|[^/\\])*/)*"), function="substring", output_field=CharField())
         folder = Func(parents, Value("/$"), Value(""), function="regexp_replace", output_field=CharField())
