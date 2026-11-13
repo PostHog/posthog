@@ -22,7 +22,6 @@ from products.warehouse_sources.sources.unleash.unleash import (
     UnleashHostNotAllowedError,
     UnleashResumeConfig,
     check_endpoint_permissions,
-    metrics_hours_back,
     normalize_instance_url,
     validate_credentials,
 )
@@ -251,7 +250,15 @@ class TestFeatureFanout:
             },
         ]
 
-    def test_feature_metrics_requests_each_flag_and_fills_the_flag_name(self) -> None:
+    @parameterized.expand(
+        [
+            ("full_refresh", False, None),
+            ("incremental_recent_watermark", True, "2099-01-01T00:00:00.000Z"),
+        ]
+    )
+    def test_feature_metrics_reads_the_full_window_and_fills_the_flag_name(
+        self, _name: str, incremental: bool, last_value: Optional[str]
+    ) -> None:
         def respond(request: RecordedRequest) -> ScriptedResponse:
             if request.path == "/api/admin/search/features":
                 return _features_page(request, self.FEATURES[:1])
@@ -265,7 +272,13 @@ class TestFeatureFanout:
                 }
             )
 
-        result = _driver().run("feature_metrics", respond)
+        result = _driver().run(
+            "feature_metrics",
+            respond,
+            should_use_incremental_field=incremental,
+            incremental_field="timestamp",
+            db_incremental_field_last_value=last_value,
+        )
 
         assert result.raised is None
         assert result.paths == ["/api/admin/search/features", "/api/admin/client-metrics/features/checkout/raw"]
@@ -301,19 +314,22 @@ class TestFeatureFanout:
         assert [offset for offset in resumed.params("offset") if offset] == [str(PAGE_SIZE), str(2 * PAGE_SIZE)]
         assert len(resumed.requests) == 2
 
-    @parameterized.expand(
-        [
-            ("first_sync", None, 48),
-            ("synced_an_hour_ago", datetime(2026, 3, 10, 11, 0, tzinfo=UTC), 2),
-            ("synced_ninety_minutes_ago", "2026-03-10T10:30:00.000Z", 3),
-            ("synced_just_now", datetime(2026, 3, 10, 12, 0, tzinfo=UTC), 1),
-            ("older_than_retention", datetime(2026, 3, 1, tzinfo=UTC), 48),
+    def test_flag_names_stay_one_path_segment(self) -> None:
+        features = [{"name": "x/../../user-admin", "project": "a?b"}, {"name": "..", "project": "web"}]
+
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/api/admin/search/features":
+                return _features_page(request, features)
+            return ScriptedResponse(json={"environments": [{"name": "dev", "strategies": [{"id": "s"}]}]})
+
+        result = _driver().run("feature_strategies", respond)
+
+        assert result.raised is None
+        assert [url.split("/", 3)[3].split("?")[0] for url in result.urls] == [
+            "api/admin/search/features",
+            "api/admin/projects/a%3Fb/features/x%2F..%2F..%2Fuser-admin",
         ]
-    )
-    def test_metrics_hours_back_covers_the_gap_since_the_watermark(
-        self, _name: str, last_value: Any, expected: int
-    ) -> None:
-        assert metrics_hours_back(last_value, now=datetime(2026, 3, 10, 12, 0, tzinfo=UTC)) == expected
+        assert [(row["featureName"], row["project"]) for row in result.rows] == [("x/../../user-admin", "a?b")]
 
 
 class TestErrorHandling:

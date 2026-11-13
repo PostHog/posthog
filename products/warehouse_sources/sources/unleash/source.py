@@ -182,9 +182,9 @@ The instance URL is where you open the Unleash UI — for Unleash cloud it inclu
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # Only events and feature metrics have a server-side time filter; the configuration
-        # tables are full refresh only (see settings.py). Append is off: both filters overlap the
-        # previous sync, so only a merge on the primary key drops the repeated rows.
+        # Only events and feature metrics sync incrementally; the configuration tables are full
+        # refresh only (see settings.py). Append is off: both reads overlap the previous sync, so
+        # only a merge on the primary key drops the repeated rows.
         schemas = [
             SourceSchema(
                 name=endpoint,

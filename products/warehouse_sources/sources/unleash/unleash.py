@@ -1,10 +1,9 @@
 import re
-import math
 import dataclasses
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 import requests
 
@@ -27,8 +26,10 @@ from products.warehouse_sources.sources.sdk import (
 from products.warehouse_sources.sources.unleash.settings import UNLEASH_ENDPOINTS, UnleashEndpointConfig
 
 FEATURES_ENDPOINT = "features"
-# The raw client metrics endpoint accepts hoursBack from 1 to 48 on every instance.
-MAX_METRICS_HOURS_BACK = 48
+# The largest hoursBack every instance accepts. See feature_metrics in settings.py.
+METRICS_HOURS_BACK = 48
+PATH_FIELDS = ("name", "project")
+PATH_FIELD_SUFFIX = "_path_segment"
 # Cheap list endpoint used to confirm the token is genuine. Every admin-capable token (personal
 # access token, service account token) can read projects.
 DEFAULT_PROBE_PATH = "/api/admin/projects"
@@ -165,13 +166,16 @@ def events_params(db_incremental_field_last_value: Any) -> dict[str, Any]:
     return {"from": f"IS:{(last - timedelta(days=1)).date().isoformat()}"}
 
 
-def metrics_hours_back(db_incremental_field_last_value: Any, now: Optional[datetime] = None) -> int:
-    last = _as_datetime(db_incremental_field_last_value)
-    if last is None:
-        return MAX_METRICS_HOURS_BACK
-    elapsed_hours = ((now or datetime.now(UTC)) - last).total_seconds() / 3600
-    # One extra hour reads the last synced bucket again, since it can still have been filling.
-    return max(1, min(MAX_METRICS_HOURS_BACK, math.ceil(elapsed_hours) + 1))
+def with_path_segments(feature: dict[str, Any]) -> dict[str, Any] | list[dict[str, Any]]:
+    # Unleash flag names are not URL-safe and the fan-out binds them unescaped. A "." or ".." name
+    # cannot be sent as one segment, because requests decodes "%2E".
+    for field in PATH_FIELDS:
+        if field not in feature:
+            continue
+        if str(feature[field]) in (".", ".."):
+            return []
+        feature[f"{field}{PATH_FIELD_SUFFIX}"] = quote(str(feature[field]), safe="")
+    return feature
 
 
 def _parent_value(row: dict[str, Any], field: str) -> Any:
@@ -212,7 +216,7 @@ def _fanout_resources(config: UnleashEndpointConfig, child_params: dict[str, Any
         "path": config.path,
         "params": {
             **{
-                field: {"type": "resolve", "resource": FEATURES_ENDPOINT, "field": field}
+                field: {"type": "resolve", "resource": FEATURES_ENDPOINT, "field": f"{field}{PATH_FIELD_SUFFIX}"}
                 for field in config.parent_fields
             },
             **child_params,
@@ -225,7 +229,11 @@ def _fanout_resources(config: UnleashEndpointConfig, child_params: dict[str, Any
     if config.data_selector is not None:
         child_endpoint["data_selector"] = config.data_selector
     return [
-        {"name": FEATURES_ENDPOINT, "endpoint": _list_endpoint(UNLEASH_ENDPOINTS[FEATURES_ENDPOINT])},
+        {
+            "name": FEATURES_ENDPOINT,
+            "endpoint": _list_endpoint(UNLEASH_ENDPOINTS[FEATURES_ENDPOINT]),
+            "data_map": with_path_segments,
+        },
         {
             "name": config.name,
             "endpoint": child_endpoint,
@@ -269,7 +277,7 @@ def unleash_source(
     resources: list[str | EndpointResource]
 
     if config.parent_fields:
-        child_params = {"hoursBack": metrics_hours_back(last_value)} if endpoint == "feature_metrics" else {}
+        child_params = {"hoursBack": METRICS_HOURS_BACK} if endpoint == "feature_metrics" else {}
         resources = _fanout_resources(config, child_params)
         if resume is not None and resume.fanout_state:
             initial_paginator_state = resume.fanout_state

@@ -1,14 +1,14 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Optional
 
-from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType
+from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType, frozen
 
 # The feature search endpoint documents a default limit of 50; 100 verified working against a
 # live instance and keeps round trips low.
 PAGE_SIZE = 100
 
 
-@dataclass
+@frozen
 class UnleashEndpointConfig:
     name: str
     # Path under the instance base URL (Unleash Admin API lives at /api/admin).
@@ -132,8 +132,9 @@ UNLEASH_ENDPOINTS: dict[str, UnleashEndpointConfig] = {
         parent_fields=("name", "project"),
     ),
     # Hourly yes/no evaluation counts per flag, SDK app and environment. Unleash keeps 48 hours
-    # of raw metrics; an incremental sync merges each window into the table, so history builds
-    # up beyond that retention as long as syncs run at least every 48 hours.
+    # of raw metrics. Every sync reads the whole window, because late reports update older
+    # buckets; an incremental sync merges it on the key, so history outlives that retention as
+    # long as syncs run at least every 48 hours.
     "feature_metrics": UnleashEndpointConfig(
         name="feature_metrics",
         path="/api/admin/client-metrics/features/{name}/raw",
