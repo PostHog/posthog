@@ -20,10 +20,14 @@ from django.utils import timezone
 
 from parameterized import param, parameterized
 
+from posthog.schema import HogQLQueryResponse
+
 from posthog.hogql.property_access_types import RestrictedProperty
+from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
 from posthog.exceptions import ClickHouseClusterMemoryLimitExceeded, ClickHouseQueryTimeOut
+from posthog.models.group.util import create_group
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -723,6 +727,59 @@ class TestQueryConditionSetTraffic(ClickhouseTestMixin, BaseTest):
         traffic = self._scan(experiment, now, native_teams=[self.team] if team_reads_native_events else [])
 
         self.assertEqual(dict(traffic.people_by_set), {2: 1})
+
+    @parameterized.expand([("legacy_events", False), ("native_events", True)])
+    def test_a_group_filter_reads_only_the_groups_of_the_scanned_calls(
+        self, _name: str, team_reads_native_events: bool
+    ) -> None:
+        now = timezone.now()
+        create_group_type_mapping(
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type="organization",
+            group_type_index=0,
+            created_at=now - timedelta(days=30),
+        )
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="internal", properties={"name": "Internal"})
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="acme", properties={"name": "Acme"})
+        self.team.test_account_filters = [
+            {"key": "name", "value": "Internal", "operator": "is_not", "type": "group", "group_type_index": 0}
+        ]
+        self.team.save()
+        experiment = _create_running_experiment(self.team, self.user, launched_at=now - timedelta(days=30))
+        experiment.exposure_criteria = {"filterTestAccounts": True}
+        experiment.save()
+        for distinct_id, group_key, reason in [
+            ("staff", "internal", "Matched condition set 1"),
+            ("customer", "acme", "Matched condition set 2"),
+        ]:
+            self._call_flag(
+                self.team,
+                distinct_id,
+                reason,
+                FLAG_VERSION,
+                now - timedelta(days=1),
+                store="flag_evaluations" if team_reads_native_events else "events",
+                person_id=create_person(team=self.team, distinct_ids=[distinct_id]).uuid,
+                group_key=group_key,
+            )
+        flush_persons_and_events()
+        responses: list[HogQLQueryResponse] = []
+
+        def execute_and_keep(*args: Any, **kwargs: Any) -> HogQLQueryResponse:
+            response = execute_hogql_query(*args, **kwargs)
+            responses.append(response)
+            return response
+
+        with patch(
+            "products.experiments.backend.health.condition_set_traffic.execute_hogql_query",
+            side_effect=execute_and_keep,
+        ):
+            traffic = self._scan(experiment, now, native_teams=[self.team] if team_reads_native_events else [])
+
+        self.assertEqual(dict(traffic.people_by_set), {2: 1})
+        # Without the key bound, the groups join reads every group of the type that the team has.
+        self.assertIn("globalIn(key,", responses[0].clickhouse or "")
 
     def _call_flag(
         self,

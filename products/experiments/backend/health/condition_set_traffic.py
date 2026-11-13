@@ -167,27 +167,35 @@ def query_condition_set_traffic(
         SELECT condition_set, count(), sum(calls), sum(remotely_evaluated_calls), countIf(assigned_outside)
         FROM (
             SELECT
-                {entity} AS entity,
+                entity,
                 argMaxIf(
-                    toInt(extract(properties.$feature_flag_reason, {matched_reason})),
+                    toInt(extract(reason, {matched_reason})),
                     timestamp,
-                    toFloat(properties.$feature_flag_version) = {flag_version}
-                        AND match(properties.$feature_flag_reason, {matched_reason})
+                    toFloat(version) = {flag_version} AND match(reason, {matched_reason})
                 ) AS condition_set,
                 count() AS calls,
-                countIf(isNotNull(toFloat(properties.$feature_flag_version))) AS remotely_evaluated_calls,
+                countIf(isNotNull(toFloat(version))) AS remotely_evaluated_calls,
                 countIf(
-                    isNull(toFloat(properties.$feature_flag_version))
-                        AND ifNull(toString(properties.locally_evaluated), '') != 'true'
-                        AND ifNull(properties.$feature_flag_reason, '') != {locally_evaluated_reason}
+                    isNull(toFloat(version))
+                        AND ifNull(toString(locally_evaluated), '') != 'true'
+                        AND ifNull(reason, '') != {locally_evaluated_reason}
                         AND timestamp >= {assigned_outside_since}
                 ) > 0 AS assigned_outside
-            FROM {table}
-            WHERE {only_calls}
-                AND timestamp >= {window_start} AND timestamp < {window_end}
-                AND {flag_key_field} = {flag_key}
-                AND {returned_variant}
-                AND {test_accounts}
+            FROM (
+                SELECT
+                    {entity} AS entity,
+                    timestamp,
+                    properties.$feature_flag_reason AS reason,
+                    properties.$feature_flag_version AS version,
+                    properties.locally_evaluated AS locally_evaluated,
+                    {test_accounts} AS counted
+                FROM {table}
+                WHERE {only_calls}
+                    AND timestamp >= {window_start} AND timestamp < {window_end}
+                    AND {flag_key_field} = {flag_key}
+                    AND {returned_variant}
+            )
+            WHERE counted
             GROUP BY entity
         )
         GROUP BY condition_set
@@ -208,6 +216,8 @@ def query_condition_set_traffic(
             # A call that returned no variant, such as "Out of rollout bound", put nobody in the experiment, so it
             # must not count toward the share of calls that name a set.
             "returned_variant": multivariate_flag_response_expr(),
+            # A column of the inner query, not a condition of its WHERE. HogQL then limits the join that a filter on
+            # group properties needs to the groups of the calls that the WHERE matches, instead of every group.
             "test_accounts": ast.And(exprs=test_accounts) if test_accounts else ast.Constant(value=True),
             # One row per condition set, plus one for people without a matched set. HogQL adds LIMIT 100 otherwise.
             "max_rows": ast.Constant(value=_MAX_CONDITION_SETS + 1),
