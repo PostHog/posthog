@@ -5,8 +5,10 @@ from typing import Any
 
 from django.db.models import Max, Sum
 
+from posthog.clickhouse.kafka_engine import trim_quotes_expr
 from posthog.clickhouse.query_tagging import Product
 from posthog.dataclasses import frozen
+from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_SOURCE_EVENT, FLAG_EVALUATIONS_TABLE
 from posthog.temporal.health_checks.rollups.framework import DailyRollup
 from posthog.temporal.health_checks.rollups.freshness import RollupWindow, rollup_window, window_rows
 from posthog.utils import ensure_utc
@@ -17,22 +19,55 @@ from products.growth.backend.sdk_health import sort_sdk_version_entries
 
 MAX_VERSIONS_PER_TEAM_LIB_DAY = 100
 
-SDK_VERSIONS_FILL_SQL = """
+# The Dagster job that runs this fill runs only on Cloud. There, every team's flag calls are in flag_evaluations,
+# whatever its flag evaluations mode, and an organization on FLAG_EVALUATIONS_ONLY has none in events.
+# flag_evaluations has no $lib column, so the fill reads both keys from the JSON with the expression that events
+# uses to materialize them.
+_FLAG_EVALUATIONS_LIB = trim_quotes_expr("JSONExtractRaw(properties, '$lib')")
+_FLAG_EVALUATIONS_LIB_VERSION = trim_quotes_expr("JSONExtractRaw(properties, '$lib_version')")
+
+SDK_VERSIONS_FILL_SQL = f"""
 SELECT
     team_id,
-    `mat_$lib` AS lib,
-    `mat_$lib_version` AS lib_version,
-    count() AS event_count,
-    max(timestamp) AS max_timestamp
-FROM events
-WHERE team_id >= %(team_id_start)s
-  AND team_id < %(team_id_end)s
-  AND timestamp >= %(day_start)s
-  AND timestamp < %(day_end)s
-  AND `mat_$lib` IN %(sdk_types)s
-  AND (`mat_$lib` = 'posthog-java' OR `mat_$lib_version` != '')
-  AND length(`mat_$lib_version`) <= %(max_version_length)s
-  AND position(`mat_$lib_version`, char(0)) = 0
+    lib,
+    lib_version,
+    sum(branch_event_count) AS event_count,
+    max(branch_max_timestamp) AS max_timestamp
+FROM (
+    SELECT
+        team_id,
+        `mat_$lib` AS lib,
+        `mat_$lib_version` AS lib_version,
+        count() AS branch_event_count,
+        max(timestamp) AS branch_max_timestamp
+    FROM events
+    WHERE team_id >= %(team_id_start)s
+      AND team_id < %(team_id_end)s
+      AND timestamp >= %(day_start)s
+      AND timestamp < %(day_end)s
+      AND event != '{FLAG_EVALUATIONS_SOURCE_EVENT}'
+      AND `mat_$lib` IN %(sdk_types)s
+    GROUP BY team_id, lib, lib_version
+
+    UNION ALL
+
+    SELECT
+        team_id,
+        {_FLAG_EVALUATIONS_LIB} AS lib,
+        {_FLAG_EVALUATIONS_LIB_VERSION} AS lib_version,
+        count() AS branch_event_count,
+        max(timestamp) AS branch_max_timestamp
+    FROM {FLAG_EVALUATIONS_TABLE}
+    WHERE team_id >= %(team_id_start)s
+      AND team_id < %(team_id_end)s
+      AND timestamp >= %(day_start)s
+      AND timestamp < %(day_end)s
+      AND lib IN %(sdk_types)s
+    GROUP BY team_id, lib, lib_version
+)
+WHERE (lib = 'posthog-java' OR lib_version != '')
+  AND length(lib_version) <= %(max_version_length)s
+  AND position(lib_version, char(0)) = 0
 GROUP BY team_id, lib, lib_version
 ORDER BY team_id, lib, event_count DESC
 LIMIT %(max_versions)s BY team_id, lib
