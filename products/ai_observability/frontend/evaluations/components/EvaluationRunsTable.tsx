@@ -10,7 +10,6 @@ import { EvaluationExplanation } from '../../components/EvaluationExplanation'
 import { EvaluationResultTag, compareEvaluationResults } from '../../components/EvaluationResultTag'
 import { EvaluationRunTargetCell } from '../../components/EvaluationRunTargetCell'
 import { EvaluationRunTimestampCell } from '../../components/EvaluationRunTimestampCell'
-import { TraceDrawerHost } from '../../redesign/trace/TraceDrawerHost'
 import { useTraceDrawerTable } from '../../redesign/trace/TraceDrawerRowsHost'
 import { TraceListRow } from '../../redesign/trace/traceListRows'
 import { evaluationIsDetector } from '../constants'
@@ -265,7 +264,6 @@ export function EvaluationRunsTable(): JSX.Element {
                     {...drawerTableProps}
                 />
             </div>
-            <TraceDrawerHost listId={TRACE_DRAWER_LIST_ID} />
         </>
     )
 }

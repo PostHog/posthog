@@ -9,8 +9,7 @@ ui_apps: {}
 tools:
     aeo-brands-create:
         operation: aeo_brands_create
-        enabled: false
-        disabled_reason: Enable after the aeo_brands create route is deployed, so MCP never serves a tool whose route 404s.
+        enabled: true
         annotations:
             readOnly: false
             destructive: false
@@ -67,8 +66,7 @@ tools:
         feature_flag: aeo-citation-tracking
     aeo-engines-list:
         operation: aeo_engines_list
-        enabled: false
-        disabled_reason: Enable after the aeo_engines route is deployed, so MCP never serves a tool whose route 404s.
+        enabled: true
         title: List the AI citation answer engines
         description: >
             List every answer engine the project can run, in display order: whether this deployment can run it
@@ -78,8 +76,7 @@ tools:
         feature_flag: aeo-citation-tracking
     aeo-engines-update:
         operation: aeo_engines_partial_update
-        enabled: false
-        disabled_reason: Enable after the aeo_engines route is deployed, so MCP never serves a tool whose route 404s.
+        enabled: true
         annotations:
             readOnly: false
             destructive: false
@@ -92,8 +89,7 @@ tools:
         feature_flag: aeo-citation-tracking
     aeo-keywords-create:
         operation: aeo_keywords_create
-        enabled: false
-        disabled_reason: Enable after the aeo_keywords route is deployed, so MCP never serves a tool whose route 404s.
+        enabled: true
         annotations:
             readOnly: false
             destructive: false
@@ -108,8 +104,7 @@ tools:
         feature_flag: aeo-citation-tracking
     aeo-keywords-delete:
         operation: aeo_keywords_destroy
-        enabled: false
-        disabled_reason: Enable together with aeo-keywords-create, after the aeo_keywords route is deployed.
+        enabled: true
         title: Remove a tracked keyword
         description: >
             Remove one keyword from the project's AI visibility keyword list. Checks are not changed, so adding the
@@ -118,10 +113,20 @@ tools:
             id:
                 description: The keyword id (a UUID), from `aeo-keywords-list`.
         feature_flag: aeo-citation-tracking
+    aeo-keywords-get:
+        operation: aeo_keywords_retrieve
+        enabled: true
+        title: Get a tracked keyword
+        description: >
+            Get one keyword from the project's AI visibility keyword list by id. Use `aeo-keywords-report-get` for how
+            it performs.
+        param_overrides:
+            id:
+                description: The keyword id (a UUID), from `aeo-keywords-list`.
+        feature_flag: aeo-citation-tracking
     aeo-keywords-list:
         operation: aeo_keywords_list
-        enabled: false
-        disabled_reason: Enable together with aeo-keywords-create, after the aeo_keywords route is deployed.
+        enabled: true
         title: List tracked keywords
         description: >
             List the project's AI visibility keyword list, by keyword, with each keyword's `id`. The list holds at most
@@ -130,8 +135,7 @@ tools:
         feature_flag: aeo-citation-tracking
     aeo-keywords-modifiers-get:
         operation: aeo_keywords_modifiers
-        enabled: false
-        disabled_reason: Enable together with aeo-keywords-create, after the aeo_keywords route is deployed.
+        enabled: true
         title: Get the words AI engines add to their searches
         description: >
             Get the modifiers of the last `days` days (default 7, at most 30): words and two-word phrases the answer
@@ -144,8 +148,7 @@ tools:
         feature_flag: aeo-citation-tracking
     aeo-keywords-report-get:
         operation: aeo_keywords_report
-        enabled: false
-        disabled_reason: Enable together with aeo-keywords-create, after the aeo_keywords route is deployed.
+        enabled: true
         title: Get the AI visibility keyword report
         description: >
             Get one row per tracked keyword for the last `days` days (default 7, at most 30, in the project's timezone),
@@ -159,8 +162,7 @@ tools:
         feature_flag: aeo-citation-tracking
     aeo-keywords-suggest:
         operation: aeo_keywords_suggest
-        enabled: false
-        disabled_reason: Enable after the aeo_keywords/suggest route is deployed, so MCP never serves a tool whose route 404s.
+        enabled: true
         annotations:
             readOnly: false
             destructive: false
@@ -180,8 +182,7 @@ tools:
         feature_flag: aeo-citation-tracking
     aeo-keywords-suggestion-get:
         operation: aeo_keywords_suggestion_retrieve
-        enabled: false
-        disabled_reason: Enable together with aeo-keywords-suggest, after its route is deployed.
+        enabled: true
         title: Get suggested keywords
         description: >
             Get a keyword suggestion job started with `aeo-keywords-suggest`, by its `job_id`. `status` is `pending`
@@ -232,8 +233,7 @@ tools:
         feature_flag: aeo-citation-tracking
     aeo-prompts-create-dashboard:
         operation: aeo_prompts_create_dashboard
-        enabled: false
-        disabled_reason: Enable after the aeo_prompts/create_dashboard route is deployed, so MCP never serves a tool whose route 404s.
+        enabled: true
         annotations:
             readOnly: false
             destructive: false
@@ -319,6 +319,21 @@ tools:
             or engines mention or cite us least", "how many prompts are never cited", "which sites do the engines cite
             instead of us" and "what do the engines search for". For one prompt, use `aeo-prompts-stats-get`.
         feature_flag: aeo-citation-tracking
+    aeo-prompts-rankings-get:
+        operation: aeo_prompts_rankings
+        enabled: true
+        title: Rank the project against its competitors in AI answers
+        description: >
+            Get how often AI answers named the project against its competitors over the last `days` days (default 30, in
+            the project's timezone), with the same share for the window before. `brands` lists the project and its
+            competitors, most visible first. Competitors are the ones confirmed in the brand catalog, or, while none are
+            confirmed (`competitors_confirmed` false), the brands behind the most cited domains. `daily` gives the
+            visibility per brand and day, and `top_domains` and `top_pages` the sites and pages the engines cited most.
+            `answers` is the denominator of every share. `branded` picks the checks: `all` (default), `branded` (the
+            prompt names the brand) or `non_branded`; prefer `non_branded` to judge visibility. Use it to answer "who is
+            winning AI answers in our space" and "which pages do the engines cite most". For set totals per engine and
+            topic, use `aeo-prompts-overview-get`.
+        feature_flag: aeo-citation-tracking
     aeo-prompts-stats-get:
         operation: aeo_prompts_stats
         enabled: true
@@ -342,8 +357,7 @@ tools:
         feature_flag: aeo-citation-tracking
     aeo-prompts-suggest:
         operation: aeo_prompts_suggest
-        enabled: false
-        disabled_reason: Enable after the aeo_prompts/suggest route is deployed, so MCP never serves a tool whose route 404s.
+        enabled: true
         annotations:
             readOnly: false
             destructive: false
@@ -361,8 +375,7 @@ tools:
         feature_flag: aeo-citation-tracking
     aeo-prompts-suggestion-get:
         operation: aeo_prompts_suggestion_retrieve
-        enabled: false
-        disabled_reason: Enable together with aeo-prompts-suggest, after its route is deployed.
+        enabled: true
         title: Get suggested AI prompts
         description: >
             Get a prompt suggestion job started with `aeo-prompts-suggest`, by its `job_id`. `status` is `pending` while
@@ -423,8 +436,7 @@ tools:
         feature_flag: aeo-citation-tracking
     aeo-setup-context-get:
         operation: aeo_setup_context
-        enabled: false
-        disabled_reason: Enable together with aeo-setup-start, after the aeo_setup route is deployed.
+        enabled: true
         title: Get what PostHog knows for AI visibility setup
         description: >
             Get the domains the project may be about, the most likely first, each with its `source` (`own_brand`,
@@ -434,8 +446,7 @@ tools:
         feature_flag: aeo-citation-tracking
     aeo-setup-get:
         operation: aeo_setup_retrieve
-        enabled: false
-        disabled_reason: Enable together with aeo-setup-start, after the aeo_setup route is deployed.
+        enabled: true
         title: Get an AI visibility setup job
         description: >
             Get a setup job started with `aeo-setup-start`, by its `id`. `status` is `pending` while PostHog works, then
@@ -448,8 +459,7 @@ tools:
         feature_flag: aeo-citation-tracking
     aeo-setup-start:
         operation: aeo_setup_create
-        enabled: false
-        disabled_reason: Enable after the aeo_setup route is deployed, so MCP never serves a tool whose route 404s.
+        enabled: true
         annotations:
             readOnly: false
             destructive: false

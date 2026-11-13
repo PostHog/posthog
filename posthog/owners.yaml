@@ -84,6 +84,7 @@ rules:
       owners: team-ingestion
     - match:
           - '/session/test/test_*.py'
+          - '/test/test_breached_password_validator.py'
       owners: team-platform-features
     - match:
           - '/resource_limits/test/test_*.py'

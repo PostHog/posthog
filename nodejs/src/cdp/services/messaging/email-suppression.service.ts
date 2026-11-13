@@ -7,17 +7,44 @@ import { logger } from '~/common/utils/logger'
 import { isValidTeamId } from '~/common/utils/team-manager'
 import type { ValueMatcher } from '~/types'
 
+import { SES_NOTIFICATIONS_PER_BATCH } from './helpers/ses'
+
 const cdpEmailSuppressionTotal = new Counter({
     name: 'cdp_email_suppression_total',
-    help: 'Email suppression-list outcomes. `suppressed_hit` = a send skipped because the recipient is on the list; `lookup_failed` = a lookup could not read the list, once per address checked; `transient_bounce` = a soft-bounce counter increment; `hard_bounce` = an address suppressed immediately after a permanent bounce; `complaint` = an address suppressed immediately after a spam complaint; `global_hard_bounce` = an address added to the global hard-bounce list; `global_hard_bounce_before_delivery` = a bounce that list ignored because a newer delivery was recorded for the address; `global_hard_bounce_cleared` = an entry on that list ended by a newer delivery; `global_hard_bounce_hit` = a send skipped because of that list; `global_hard_bounce_shadow_hit` = a send that list would skip once enforced.',
+    help: 'Email suppression-list outcomes. `suppressed_hit` = a send skipped because the recipient is on the list; `lookup_failed` = a lookup could not read the list, once per address checked; `transient_bounce` = a soft-bounce counter increment; `hard_bounce` = an address suppressed immediately after a permanent bounce; `complaint` = an address suppressed immediately after a spam complaint; `global_hard_bounce` = an address added to the global hard-bounce list; `global_hard_bounce_before_delivery` = a bounce that list ignored because a newer delivery was recorded for the address; `global_hard_bounce_cleared` = an entry on that list ended by a newer delivery; `global_hard_bounce_hit` = a send skipped because of that list; `global_hard_bounce_shadow_hit` = a send that list would skip once enforced; `transient_bounce_repeat` = a soft bounce already counted, seen again on a redelivery; `unstorable_address` = an address left out of a write because Postgres cannot store it.',
     labelNames: ['result'],
 })
 
 const DIAGNOSTIC_MAX_LENGTH = 1000
 
+const EVENT_ID_MAX_LENGTH = 128
+
+const TRANSIENT_BOUNCE_EVENT_IDS_KEPT = SES_NOTIFICATIONS_PER_BATCH
+
 const normalizeIdentifier = (email: string): string => email.trim().toLowerCase()
 
 const toKey = (teamId: number, identifier: string): string => `${teamId}:${identifier}`
+
+const IDENTIFIER_MAX_LENGTH = 512
+
+const toStorableIdentifiers = (emails: string[]): string[] => {
+    const identifiers = new Set<string>()
+    for (const email of emails) {
+        const identifier = normalizeIdentifier(email)
+        if (!identifier) {
+            continue
+        }
+        if (identifier.length > IDENTIFIER_MAX_LENGTH || identifier.includes('\u0000')) {
+            cdpEmailSuppressionTotal.inc({ result: 'unstorable_address' })
+            continue
+        }
+        identifiers.add(identifier)
+    }
+    return Array.from(identifiers)
+}
+
+const toStorableText = (text: string | undefined, maxLength: number): string | null =>
+    text ? text.replaceAll('\u0000', '').slice(0, maxLength) || null : null
 
 const toTimestampPostgresAccepts = (timestamp?: string): string | null => {
     const parsed = timestamp ? Date.parse(timestamp) : NaN
@@ -191,18 +218,16 @@ export class EmailSuppressionService {
         emails: string[],
         diagnostic?: string,
         bounceTimestamp?: string,
-        { throwOnFailure = false }: SuppressionWriteOptions = {}
+        { throwOnFailure = false, eventId }: SuppressionWriteOptions & { eventId?: string } = {}
     ): Promise<void> {
-        const identifiers = Array.from(new Set(emails.map(normalizeIdentifier).filter(Boolean)))
+        const identifiers = toStorableIdentifiers(emails)
         if (identifiers.length === 0) {
             return
         }
 
-        const diag = diagnostic ? diagnostic.slice(0, DIAGNOSTIC_MAX_LENGTH) : null
+        const diag = toStorableText(diagnostic, DIAGNOSTIC_MAX_LENGTH)
         const reason = `Auto-suppressed after ${this.threshold} consecutive soft bounces`
 
-        // Build a single multi-row upsert. Params: teamId, reason, threshold, diag, legacy reasons,
-        // global-copy diagnostic, bounce time, then one identifier per row.
         const valueClauses: string[] = []
         const params: (number | string | string[] | null)[] = [
             teamId,
@@ -212,13 +237,15 @@ export class EmailSuppressionService {
             LEGACY_HARD_BOUNCE_REASONS,
             GLOBAL_HARD_BOUNCE_DIAGNOSTIC,
             this.stampsSoftBounceWithEventTime(teamId) ? toTimestampPostgresAccepts(bounceTimestamp) : null,
+            toStorableText(eventId, EVENT_ID_MAX_LENGTH),
+            TRANSIENT_BOUNCE_EVENT_IDS_KEPT,
         ]
         identifiers.forEach((identifier, i) => {
             const p = params.length + 1 + i
             // gen_random_uuid() for the id, mirroring RecipientsManagerService.optOut. First bounce
             // starts the count at 1 and only suppresses immediately if the threshold is 1.
             valueClauses.push(
-                `(gen_random_uuid(), $1, $${p}, 'BOUNCE', NULL, 1, COALESCE($7::timestamptz, NOW()), $4, (1 >= $3), CASE WHEN 1 >= $3 THEN NOW() ELSE NULL END, false, NOW(), NOW())`
+                `(gen_random_uuid(), $1, $${p}, 'BOUNCE', NULL, 1, COALESCE($7::timestamptz, NOW()), $4, (1 >= $3), CASE WHEN 1 >= $3 THEN NOW() ELSE NULL END, false, NOW(), NOW(), array_remove(ARRAY[$8::varchar], NULL))`
             )
         })
         params.push(...identifiers)
@@ -226,10 +253,16 @@ export class EmailSuppressionService {
         const query = `
             INSERT INTO posthog_messagesuppression
                 (id, team_id, identifier, source, reason, transient_bounce_count, last_bounce_at,
-                 last_bounce_diagnostic, suppressed, suppressed_at, deleted, created_at, updated_at)
+                 last_bounce_diagnostic, suppressed, suppressed_at, deleted, created_at, updated_at,
+                 transient_bounce_event_ids)
             VALUES ${valueClauses.join(', ')}
             ON CONFLICT (team_id, identifier) DO UPDATE SET
                 transient_bounce_count = posthog_messagesuppression.transient_bounce_count + 1,
+                transient_bounce_event_ids = CASE WHEN $8::varchar IS NULL
+                    THEN posthog_messagesuppression.transient_bounce_event_ids
+                    ELSE (array_append(COALESCE(posthog_messagesuppression.transient_bounce_event_ids, '{}'), $8::varchar))
+                        [GREATEST(COALESCE(cardinality(posthog_messagesuppression.transient_bounce_event_ids), 0) + 2 - $9::int, 1):]
+                    END,
                 last_bounce_at = GREATEST(posthog_messagesuppression.last_bounce_at, EXCLUDED.last_bounce_at),
                 -- The diagnostic marks a copy of a global hard bounce, which a delivery must still be able to release.
                 last_bounce_diagnostic = CASE
@@ -267,11 +300,16 @@ export class EmailSuppressionService {
                         AND posthog_messagesuppression.transient_bounce_count + 1 >= $3 THEN false
                     ELSE posthog_messagesuppression.deleted END,
                 updated_at = NOW()
+            WHERE NOT COALESCE($8::varchar = ANY(posthog_messagesuppression.transient_bounce_event_ids), false)
         `
 
         try {
-            await this.postgres.query(PostgresUse.COMMON_WRITE, query, params, 'recordTransientBounces')
-            cdpEmailSuppressionTotal.inc({ result: 'transient_bounce' }, identifiers.length)
+            const result = await this.postgres.query(PostgresUse.COMMON_WRITE, query, params, 'recordTransientBounces')
+            const counted = result.rowCount ?? identifiers.length
+            cdpEmailSuppressionTotal.inc({ result: 'transient_bounce' }, counted)
+            if (counted < identifiers.length) {
+                cdpEmailSuppressionTotal.inc({ result: 'transient_bounce_repeat' }, identifiers.length - counted)
+            }
             // Only invalidate the keys we touched — cross-team entries stay warm.
             this.lazyLoader.markForRefresh(identifiers.map((identifier) => toKey(teamId, identifier)))
         } catch (error) {
@@ -295,7 +333,7 @@ export class EmailSuppressionService {
         diagnostic?: string,
         { throwOnFailure = false }: SuppressionWriteOptions = {}
     ): Promise<void> {
-        const identifiers = Array.from(new Set(emails.map(normalizeIdentifier).filter(Boolean)))
+        const identifiers = toStorableIdentifiers(emails)
         if (identifiers.length === 0) {
             return
         }
@@ -319,7 +357,7 @@ export class EmailSuppressionService {
         diagnostic?: string,
         { keepRemoved = false }: { keepRemoved?: boolean } = {}
     ): Promise<void> {
-        const diag = diagnostic ? diagnostic.slice(0, DIAGNOSTIC_MAX_LENGTH) : null
+        const diag = toStorableText(diagnostic, DIAGNOSTIC_MAX_LENGTH)
         // Params: teamId, reason, diag, then one identifier per row.
         const valueClauses: string[] = []
         const params: (number | string | null)[] = [teamId, HARD_BOUNCE_REASON, diag]
@@ -376,7 +414,7 @@ export class EmailSuppressionService {
         { throwOnFailure = false }: SuppressionWriteOptions = {}
     ): Promise<void> {
         // Sorted so the upsert locks rows in the order `recordDeliveries` does, and the two cannot deadlock.
-        const identifiers = Array.from(new Set(emails.map(normalizeIdentifier).filter(Boolean))).sort()
+        const identifiers = toStorableIdentifiers(emails).sort()
         if (identifiers.length === 0) {
             return
         }
@@ -430,15 +468,16 @@ export class EmailSuppressionService {
         feedbackType?: string,
         { throwOnFailure = false }: SuppressionWriteOptions = {}
     ): Promise<void> {
-        const identifiers = Array.from(new Set(emails.map(normalizeIdentifier).filter(Boolean)))
+        const identifiers = toStorableIdentifiers(emails)
         if (identifiers.length === 0) {
             return
         }
 
         // The feedback type is the provider's classification of the report (e.g. "abuse",
         // "fraud"); surface it in the reason for operator visibility.
-        const reason = feedbackType
-            ? `Auto-suppressed after a spam complaint (feedback type: ${feedbackType.slice(0, 100)})`
+        const feedback = toStorableText(feedbackType, 100)
+        const reason = feedback
+            ? `Auto-suppressed after a spam complaint (feedback type: ${feedback})`
             : 'Auto-suppressed after a spam complaint'
 
         // Params: teamId, reason, legacy reasons, then one identifier per row.
@@ -515,7 +554,7 @@ export class EmailSuppressionService {
         deliveryTimestamp?: string,
         { clearGlobal = false, throwOnFailure = false }: { clearGlobal?: boolean } & SuppressionWriteOptions = {}
     ): Promise<void> {
-        const identifiers = Array.from(new Set(emails.map(normalizeIdentifier).filter(Boolean)))
+        const identifiers = toStorableIdentifiers(emails)
         if (identifiers.length === 0) {
             return
         }
