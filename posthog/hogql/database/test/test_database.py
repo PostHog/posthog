@@ -1457,7 +1457,18 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
     @staticmethod
     def _ran_source_fetch_queries(ctx: CaptureQueriesContext) -> bool:
-        return any("datawarehouse" in query["sql"].lower() for query in ctx.captured_queries)
+        # The catalog version check aggregates over the same tables, so only row selects count as a fetch.
+        return any(
+            "datawarehouse" in query["sql"].lower() and "count(" not in query["sql"].lower()
+            for query in ctx.captured_queries
+        )
+
+    @staticmethod
+    def _execution_cache_flag(enabled: bool) -> Any:
+        return patch(
+            "posthog.hogql.database.database.feature_enabled_or_false",
+            side_effect=lambda key, *args, **kwargs: enabled and key == "hogql-execution-cached-sources",
+        )
 
     def test_cached_sources_warm_build_runs_no_queries(self):
         credential = DataWarehouseCredential.objects.create(access_key="blah", access_secret="blah", team=self.team)
@@ -1485,25 +1496,64 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert warm.has_table("cached_table")
         assert warm.has_table("cached_view")
 
-    def test_cached_sources_shared_across_users_with_fresh_access_control(self):
+    @parameterized.expand([("no_access_control", False), ("preloaded_access_control", True)])
+    def test_cached_sources_shared_across_users_with_fresh_access_control(self, _name: str, preload: bool):
         other_user = self._create_user("other-user@posthog.com")
         Database.create_for(team=self.team, user=self.user, use_cached_sources=True)
+        user_access_control = UserAccessControl(user=other_user, team=self.team) if preload else None
 
         with CaptureQueriesContext(connection) as ctx:
-            Database.create_for(team=self.team, user=other_user, use_cached_sources=True)
+            Database.create_for(
+                team=self.team, user=other_user, user_access_control=user_access_control, use_cached_sources=True
+            )
 
         assert not self._ran_source_fetch_queries(ctx)
         # The catalog is shared, but the second user's access-control decision is computed
         # fresh rather than reused from the user who warmed the cache.
         assert any("organizationmembership" in query["sql"].lower() for query in ctx.captured_queries)
 
-    def test_sources_not_cached_by_default(self):
-        Database.create_for(team=self.team, user=self.user, use_cached_sources=True)
+    @parameterized.expand(
+        [
+            ("flag_off", False, None, True),
+            ("flag_on", True, None, False),
+            ("flag_on_fresh_requested", True, False, True),
+        ]
+    )
+    def test_execution_reads_cached_sources_only_for_flagged_teams(
+        self, _name: str, flag_enabled: bool, use_cached_sources: bool | None, expect_fetch: bool
+    ):
+        with self._execution_cache_flag(flag_enabled):
+            Database.create_for(team=self.team, user=self.user, use_cached_sources=use_cached_sources)
+            with CaptureQueriesContext(connection) as ctx:
+                Database.create_for(team=self.team, user=self.user, use_cached_sources=use_cached_sources)
 
-        with CaptureQueriesContext(connection) as ctx:
-            Database.create_for(team=self.team, user=self.user)
+        assert self._ran_source_fetch_queries(ctx) == expect_fetch
 
-        assert self._ran_source_fetch_queries(ctx)
+    @parameterized.expand([("created_view", "new_view", True), ("deleted_table", "doomed_table", False)])
+    def test_execution_cached_sources_see_created_and_deleted_tables_immediately(
+        self, _name: str, table_name: str, expect_table: bool
+    ):
+        credential = DataWarehouseCredential.objects.create(access_key="blah", access_secret="blah", team=self.team)
+        doomed = DataWarehouseTable.objects.create(
+            name="doomed_table", team=self.team, columns={"id": "String"}, credential=credential, url_pattern=""
+        )
+
+        with self._execution_cache_flag(True):
+            warm = Database.create_for(team=self.team, user=self.user)
+            assert warm.has_table("doomed_table") and not warm.has_table("new_view")
+            if expect_table:
+                DataWarehouseSavedQuery.objects.create(
+                    team=self.team,
+                    name="new_view",
+                    query={"query": "SELECT event FROM events"},
+                    columns={"event": "String"},
+                    status=DataWarehouseSavedQuery.Status.COMPLETED,
+                )
+            else:
+                doomed.soft_delete()
+            database = Database.create_for(team=self.team, user=self.user)
+
+        assert database.has_table(table_name) == expect_table
 
     def test_cached_sources_bypassed_for_synthetic_users(self):
         Database.create_for(team=self.team, user=SyntheticUser(self.team, "synthetic-1"), use_cached_sources=True)
@@ -5279,9 +5329,16 @@ class TestSourcesCacheConcurrency(TestCase):
         assert not waiter_thread.is_alive()
         assert results == [stub]
 
-    def test_oversized_sources_are_returned_but_not_cached(self):
+    @parameterized.expand([("editor_assist", None, 2), ("execution", "v1", 1)])
+    def test_oversized_sources_are_cached_only_for_execution(
+        self, _name: str, catalog_version: str | None, expected_fetches: int
+    ):
         key = SourcesCacheKey(
-            team_id=1, connection_id=None, modifiers_fingerprint="fp", bypass_warehouse_access_control=False
+            team_id=1,
+            connection_id=None,
+            modifiers_fingerprint="fp",
+            bypass_warehouse_access_control=False,
+            catalog_version=catalog_version,
         )
         fetch_count = 0
 
@@ -5293,7 +5350,7 @@ class TestSourcesCacheConcurrency(TestCase):
         first = get_or_fetch_sources(key, fetch)
         second = get_or_fetch_sources(key, fetch)
 
-        assert fetch_count == 2
+        assert fetch_count == expected_fetches
         assert first is not None and second is not None
 
 
