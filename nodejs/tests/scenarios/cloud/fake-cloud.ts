@@ -117,6 +117,7 @@ export class FakeCloud implements Aws {
     readonly untyped: string[] = []
     private deleteFailures: number
     private readonly failures = new Map<string, { from: number; to: number }>()
+    private readonly conditions = new Map<string, (args: string[]) => boolean>()
     private readonly lostResponses = new Map<string, number>()
     private readonly calls = new Map<string, number>()
     private readonly hooks = new Map<string, () => void>()
@@ -138,8 +139,13 @@ export class FakeCloud implements Aws {
         this.failures.set(operation, { from, to: from + times })
     }
 
+    failWhen(operation: string, applies: (args: string[]) => boolean): void {
+        this.conditions.set(operation, applies)
+    }
+
     heal(): void {
         this.failures.clear()
+        this.conditions.clear()
     }
 
     loseResponseOf(operation: string, nth: number = 1): void {
@@ -192,7 +198,7 @@ export class FakeCloud implements Aws {
         this.calls.set(operation, count)
         this.hooks.get(operation)?.()
         const failing = this.failures.get(operation)
-        if (failing && count >= failing.from && count < failing.to) {
+        if ((failing && count >= failing.from && count < failing.to) || this.conditions.get(operation)?.(rest)) {
             throw serviceError(operation, 'InternalFailure', 'injected by the fake cloud')
         }
         const action = actionOf(service, operation)

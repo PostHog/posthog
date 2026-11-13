@@ -148,6 +148,16 @@ describe('cloud controller', () => {
     const leasedRunId = (): string =>
         /^Leased run (\S+) until/.exec(out.find((line) => line.startsWith('Leased run'))!)![1]
 
+    const lastReceipt = (runId: string): unknown => {
+        const key = [...cloud.objects.keys()]
+            .filter((name) => name.startsWith(`runs/${runId}/receipts/`))
+            .sort()
+            .at(-1)
+        return parseJSON(cloud.objects.get(key!)!)
+    }
+
+    const listsReceipts = (args: string[]): boolean => args.some((arg) => arg.includes('/receipts/'))
+
     const released = (runId: string): number => out.filter((line) => line === `Released run ${runId}.`).length
 
     const schedulesFor = (runId: string): string[] =>
@@ -650,7 +660,7 @@ describe('cloud controller', () => {
         )
         expect(cloud.billable()).toEqual([])
         expect(cloud.schedules.size).toBe(0)
-        expect(parseJSON(cloud.objects.get(`runs/${runId}/receipt.json`)!)).toMatchObject({ runId, clean: true })
+        expect(lastReceipt(runId)).toMatchObject({ runId, clean: true })
     })
 
     it.each([
@@ -793,7 +803,7 @@ describe('cloud controller', () => {
         expect(cloud.billable()).not.toEqual([])
         expect(cloud.schedules.size).toBe(2)
         expect(err.join('\n')).toContain(`cleanup <cloud profile> ${runId}`)
-        expect(parseJSON(cloud.objects.get(`runs/${runId}/receipt.json`)!)).toMatchObject({ clean: false })
+        expect(lastReceipt(runId)).toMatchObject({ clean: false })
 
         cloud.heal()
         await expect(main(['cleanup', profilePath(), runId], controller)).resolves.toBe(0)
@@ -805,7 +815,11 @@ describe('cloud controller', () => {
     it.each<[string, (fake: FakeCloud) => void, string]>([
         ['it cannot list what the run created', (fake) => fake.failOnCall('get-resources', 2), 'could not list'],
         ['releasing the lease fails', (fake) => fake.failOnCall('delete-schedule', 2), 'releasing its lease failed'],
-        ['it cannot read the last receipt', (fake) => fake.failOnCall('get-object'), 'could not list the last receipt'],
+        [
+            'it cannot read its earlier receipts',
+            (fake) => fake.failWhen('list-objects-v2', listsReceipts),
+            'could not list the earlier receipts',
+        ],
     ])('deletes the stack but keeps a schedule and names the cleanup when %s', async (_, arrange, reason) => {
         const { controller } = prepare()
         arrange(cloud)
@@ -818,6 +832,7 @@ describe('cloud controller', () => {
         expect(err.join('\n')).toContain(reason)
         expect(err.join('\n')).toContain(`cleanup <cloud profile> ${runId}`)
 
+        cloud.heal()
         await expect(main(['cleanup', profilePath(), runId], controller)).resolves.toBe(0)
 
         expect(cloud.billable()).toEqual([])
@@ -835,9 +850,15 @@ describe('cloud controller', () => {
         ],
         [
             'AWS::SecretsManager::Secret',
-            ', even after a cleanup that cannot read the last receipt',
+            ', even after a cleanup that cannot read an earlier receipt',
             () => undefined,
             (fake) => fake.failOnCall('get-object', 2),
+        ],
+        [
+            'AWS::SecretsManager::Secret',
+            ', even when the run cannot list its earlier receipts',
+            (fake) => fake.failWhen('list-objects-v2', listsReceipts),
+            (fake) => fake.heal(),
         ],
     ])('keeps the schedules and names a %s that outlives the stack%s', async (type, _, beforeRun, beforeCleanup) => {
         const { controller } = prepare({ cloud: { outlives: [type] } })
@@ -865,7 +886,9 @@ describe('cloud controller', () => {
         await main(['run', profilePath()], controller)
         const runId = leasedRunId()
         if (forgetReceipt) {
-            cloud.objects.delete(`runs/${runId}/receipt.json`)
+            ;[...cloud.objects.keys()]
+                .filter((key) => key.startsWith(`runs/${runId}/receipts/`))
+                .forEach((key) => cloud.objects.delete(key))
         }
         const at = new Date(T.getTime() + 7 * HOUR_MS)
         now = at

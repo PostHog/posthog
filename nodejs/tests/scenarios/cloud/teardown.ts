@@ -1,3 +1,5 @@
+import { randomUUID } from 'crypto'
+
 import { parseJSON } from '~/common/utils/json-parse'
 
 import { durationMs } from '../duration'
@@ -173,15 +175,12 @@ async function discover(
     return { failures, tagged: new Set(tagged.map(keyOfResource)) }
 }
 
-async function lastReceiptOf(
-    evidence: ReturnType<typeof evidenceOf>,
-    manifest: Manifest
-): Promise<Receipt | typeof GONE> {
-    return await orGone(
-        evidence.get(keyOf(manifest.runId, 'receipt.json')),
-        (body) => parseJSON(body) as Receipt,
-        'NoSuchKey'
-    )
+async function receiptsOf(evidence: ReturnType<typeof evidenceOf>, manifest: Manifest): Promise<Receipt[]> {
+    const receipts: Receipt[] = []
+    for (const key of (await evidence.keys(keyOf(manifest.runId, 'receipts/'))).sort()) {
+        receipts.push(parseJSON(await evidence.get(key)) as Receipt)
+    }
+    return receipts
 }
 
 async function clusterCopiesOf(aws: Aws, clusterId: string): Promise<Resource[]> {
@@ -288,21 +287,20 @@ export async function teardown(controller: Controller, profile: CloudProfile, ma
         const stack = { type: STACK, id: manifest.stackName }
         const inventory: Inventory = new Map([[keyOfResource(stack), stack]])
         const lost: string[] = []
-        await listInto(inventory, lost, 'the last receipt', async () => {
-            const last = await lastReceiptOf(evidence, manifest)
-            return last === GONE ? [] : last.resources.map(({ type, id }) => ({ type, id }))
-        })
-        const lastReceiptLost = lost.length > 0
+        await listInto(inventory, lost, 'the earlier receipts', async () =>
+            (await receiptsOf(evidence, manifest)).flatMap(({ resources }) =>
+                resources.map(({ type, id }) => ({ type, id }))
+            )
+        )
         lost.push(...(await discover(controller, manifest, inventory)).failures)
         await deleteStack(controller, profile, manifest, until).catch((error: Error) =>
             controller.warn(`Could not delete stack ${manifest.stackName}: ${error.message}`)
         )
         receipt = await receiptOf(controller, manifest, inventory, lost, until)
-        if (lastReceiptLost) {
-            controller.warn(`Kept the last receipt of run ${manifest.runId}, because it could not be read.`)
-        } else {
-            await evidence.put(keyOf(manifest.runId, 'receipt.json'), JSON.stringify(receipt, null, 2))
-        }
+        await evidence.put(
+            keyOf(manifest.runId, `receipts/${receipt.checkedAt}-${randomUUID()}.json`),
+            JSON.stringify(receipt, null, 2)
+        )
     } catch (error) {
         controller.warn(
             [
@@ -353,8 +351,8 @@ export async function teardownExpired(
             if (Date.parse(manifest.expiresAt) > controller.now().getTime()) {
                 continue
             }
-            const receipt = await lastReceiptOf(evidence, manifest)
-            if (!retryLeftovers && receipt !== GONE && !receipt.clean) {
+            const latest = (await receiptsOf(evidence, manifest)).at(-1)
+            if (!retryLeftovers && latest && !latest.clean) {
                 controller.warn(`Expired run ${runId} left resources behind.\n${finishOf(manifest)}`)
                 clean = false
             } else {
