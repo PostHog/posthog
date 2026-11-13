@@ -19,7 +19,12 @@ from products.data_modeling.backend.facade.models import (
     Node,
 )
 
-from .utils import bind_data_modeling_log_context, clear_node_suspension, update_node_system_properties
+from .utils import (
+    bind_data_modeling_log_context,
+    capture_materialization_finished,
+    clear_node_suspension,
+    update_node_system_properties,
+)
 
 LOGGER = get_logger(__name__)
 
@@ -159,6 +164,7 @@ async def succeed_materialization_activity(inputs: SucceedMaterializationInputs)
         f"Succeeded materialization job: node={inputs.node_id} dag={inputs.dag_id} job={outcome.job.id} "
         f"workflow={outcome.job.workflow_id} workflow_run={outcome.job.workflow_run_id}"
     )
+    capture_materialization_finished(team_id=inputs.team_id, job=outcome.job)
     return SucceedMaterializationResult(
         enrichment_needed=outcome.enrichment_needed, saved_query_id=outcome.enrichment_saved_query_id
     )

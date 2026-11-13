@@ -7,6 +7,7 @@ from django.db import transaction
 
 from structlog.contextvars import bind_contextvars
 
+from posthog.ph_client import ph_background_capture
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.asyncpa import INVALID_MESSAGE_FORMAT_ERROR, InvalidMessageFormat
 from posthog.temporal.common.logger import get_logger
@@ -33,6 +34,7 @@ from products.data_modeling.backend.facade.models import (
 __all__ = [
     "CONSECUTIVE_FAILURES_TO_SUSPEND",
     "bind_data_modeling_log_context",
+    "capture_materialization_finished",
     "clear_node_suspension",
     "clear_node_suspension_for_engine",
     "count_leading_failures",
@@ -56,6 +58,30 @@ CONSECUTIVE_FAILURES_TO_SUSPEND = 5
 
 # Shared with quality_block_materialization so the counter below can recognize its job rows.
 QUALITY_BLOCKED_ERROR_PREFIX = "Not published:"
+MATERIALIZATION_FINISHED_EVENT = "data modeling materialization finished"
+MATERIALIZATION_EVENT_DISTINCT_ID = "data-modeling-materialization"
+
+
+def capture_materialization_finished(*, team_id: int, job: DataModelingJob, last_error_type: str | None = None) -> None:
+    try:
+        ph_background_capture()(
+            distinct_id=MATERIALIZATION_EVENT_DISTINCT_ID,
+            event=MATERIALIZATION_FINISHED_EVENT,
+            uuid=str(job.id),
+            properties={
+                "$process_person_profile": False,
+                "team_id": team_id,
+                "data_modeling_job_id": str(job.id),
+                "engine": job.engine,
+                "status": job.status,
+                "run_mode": job.run_mode,
+                "last_error_type": last_error_type if job.status == DataModelingJobStatus.FAILED else None,
+                "temporal.workflow.id": job.workflow_id,
+                "temporal.workflow.run_id": job.workflow_run_id,
+            },
+        )
+    except Exception:
+        LOGGER.exception("Failed to capture materialization outcome")
 
 
 def get_previous_jobs(

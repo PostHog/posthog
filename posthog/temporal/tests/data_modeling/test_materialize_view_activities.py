@@ -14,6 +14,7 @@ from django.conf import settings
 from django.test import override_settings
 
 import httpx
+import aiohttp
 import pyarrow as pa
 import deltalake
 import pyarrow.parquet as pq
@@ -57,8 +58,8 @@ from posthog.temporal.data_modeling.activities.materialize_view import (
     InvalidNodeTypeException,
     _adaptive_retry_delay,
     _describe_columns,
-    _recent_capacity_errors,
-    _RecentCapacityErrors,
+    _recent_transient_errors,
+    _RecentTransientErrors,
     get_aws_storage_options,
     get_s3_client,
     hogql_table,
@@ -427,9 +428,14 @@ class TestFailMaterializationActivity:
             dag_id=str(adag.id),
             job_id=str(ajob.id),
             error="Test error message",
+            error_type="ClientOSError",
             cancelled=cancelled,
         )
-        run_mode = await activity_environment.run(fail_materialization_activity, inputs)
+        capture = unittest.mock.MagicMock()
+        with unittest.mock.patch(
+            "posthog.temporal.data_modeling.activities.utils.ph_background_capture", return_value=capture
+        ):
+            run_mode = await activity_environment.run(fail_materialization_activity, inputs)
         assert run_mode == "incremental"
         await database_sync_to_async(ajob.refresh_from_db)()
         assert ajob.status == expected_status
@@ -438,6 +444,22 @@ class TestFailMaterializationActivity:
         # The UI derives run duration and the log-search window from last_run_at, so a
         # terminal transition must stamp it (the model default is the job's start time).
         assert ajob.last_run_at > ajob.created_at
+        capture.assert_called_once_with(
+            distinct_id="data-modeling-materialization",
+            event="data modeling materialization finished",
+            uuid=str(ajob.id),
+            properties={
+                "$process_person_profile": False,
+                "team_id": ateam.pk,
+                "data_modeling_job_id": str(ajob.id),
+                "engine": DataModelingJobEngine.CLICKHOUSE,
+                "status": expected_status,
+                "run_mode": DataModelingJob.RunMode.INCREMENTAL,
+                "last_error_type": "ClientOSError" if not cancelled else None,
+                "temporal.workflow.id": ajob.workflow_id,
+                "temporal.workflow.run_id": ajob.workflow_run_id,
+            },
+        )
 
     @pytest.mark.parametrize(
         "status,error",
@@ -1359,11 +1381,31 @@ class TestSucceedMaterializationActivity:
             row_count=1000,
             duration_seconds=45.5,
         )
-        await activity_environment.run(succeed_materialization_activity, inputs)
+        capture = unittest.mock.MagicMock()
+        with unittest.mock.patch(
+            "posthog.temporal.data_modeling.activities.utils.ph_background_capture", return_value=capture
+        ):
+            await activity_environment.run(succeed_materialization_activity, inputs)
         await database_sync_to_async(ajob.refresh_from_db)()
         assert ajob.status == DataModelingJob.Status.COMPLETED
         assert ajob.error is None
         assert ajob.last_run_at is not None
+        capture.assert_called_once_with(
+            distinct_id="data-modeling-materialization",
+            event="data modeling materialization finished",
+            uuid=str(ajob.id),
+            properties={
+                "$process_person_profile": False,
+                "team_id": ateam.pk,
+                "data_modeling_job_id": str(ajob.id),
+                "engine": DataModelingJobEngine.CLICKHOUSE,
+                "status": DataModelingJob.Status.COMPLETED,
+                "run_mode": ajob.run_mode,
+                "last_error_type": None,
+                "temporal.workflow.id": ajob.workflow_id,
+                "temporal.workflow.run_id": ajob.workflow_run_id,
+            },
+        )
 
     async def test_updates_node_system_properties(self, activity_environment, ateam, anode, ajob, adag):
         inputs = SucceedMaterializationInputs(
@@ -2077,6 +2119,24 @@ class TestMaterializeViewActivity:
                 (dt.timedelta(seconds=20), dt.timedelta(seconds=40)),
             ),
             (
+                aiohttp.ClientConnectorError(
+                    unittest.mock.MagicMock(host="clickhouse", port=9000, ssl=False),
+                    OSError(111, "Connect call failed"),
+                ),
+                1,
+                (dt.timedelta(minutes=1), dt.timedelta(minutes=2)),
+            ),
+            (
+                aiohttp.ServerDisconnectedError("Server disconnected"),
+                1,
+                (dt.timedelta(minutes=1), dt.timedelta(minutes=2)),
+            ),
+            (
+                aiohttp.ClientOSError(104, "Connection reset by peer"),
+                1,
+                (dt.timedelta(minutes=1), dt.timedelta(minutes=2)),
+            ),
+            (
                 ClickHouseError("Code: 241. DB::Exception: Memory limit (total) exceeded. (MEMORY_LIMIT_EXCEEDED)"),
                 1,
                 None,
@@ -2099,7 +2159,7 @@ class TestMaterializeViewActivity:
             raise clickhouse_error
 
         activity_environment.info = replace(activity_environment.info, attempt=attempt)
-        _recent_capacity_errors.clear()
+        _recent_transient_errors.clear()
 
         with (
             override_settings(
@@ -2155,7 +2215,7 @@ class TestAdaptiveRetryDelay:
             assert _adaptive_retry_delay(base, attempt, recent_errors) == expected_delay
 
     async def test_recent_errors_count_only_the_window(self):
-        errors = _RecentCapacityErrors(dt.timedelta(minutes=5))
+        errors = _RecentTransientErrors(dt.timedelta(minutes=5))
 
         assert [errors.record(now) for now in (0.0, 10.0, 20.0)] == [0, 1, 2]
         assert errors.record(315.0) == 1

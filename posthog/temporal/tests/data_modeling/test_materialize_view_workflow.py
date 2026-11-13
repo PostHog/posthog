@@ -163,21 +163,37 @@ class TestQualityGateBranching:
         assert started.count("create_data_modeling_job_activity") == 1
         assert "check_managed_warehouse_shadow_eligibility_activity" not in started
 
-    @pytest.mark.parametrize("recorded_run_mode,expected", [("incremental", "incremental"), (None, "unknown")])
-    async def test_clickhouse_failure_reports_the_jobs_run_mode(self, recorded_run_mode, expected) -> None:
+    @pytest.mark.parametrize(
+        "recorded_run_mode,expected_run_mode,failure,expected_error_type",
+        [
+            ("incremental", "incremental", RuntimeError("Code: 241. Memory limit exceeded"), "RuntimeError"),
+            (
+                None,
+                "unknown",
+                temporalio.exceptions.ApplicationError("Connection reset by peer", type="ClientOSError"),
+                "ClientOSError",
+            ),
+        ],
+    )
+    async def test_clickhouse_failure_reports_the_jobs_run_mode_and_error_type(
+        self, recorded_run_mode, expected_run_mode, failure, expected_error_type
+    ) -> None:
         async def execute_activity(activity, *args, **kwargs):
             if activity.__name__ == "materialize_view_activity":
-                raise RuntimeError("Code: 241. Memory limit exceeded")
+                raise failure
             if activity.__name__ == "fail_materialization_activity":
                 return recorded_run_mode
             return {"create_data_modeling_job_activity": "job-1"}.get(activity.__name__)
 
-        with pytest.raises(RuntimeError):
-            await self._run([], {}, execute_activity=AsyncMock(side_effect=execute_activity))
+        execute = AsyncMock(side_effect=execute_activity)
+        with pytest.raises(type(failure)):
+            await self._run([], {}, execute_activity=execute)
 
         finished = self.metrics["get_node_finished_metric"]
         assert finished.call_args.args == ("failed", "clickhouse")
-        assert finished.call_args.kwargs["run_mode"] == expected
+        assert finished.call_args.kwargs["run_mode"] == expected_run_mode
+        fail_call = next(call for call in execute.await_args_list if call.args[0] is fail_materialization_activity)
+        assert fail_call.args[1].error_type == expected_error_type
 
     async def test_blocking_failures_stop_the_publish(self):
         activity_results = [
@@ -243,6 +259,7 @@ class TestQualityGateBranching:
         materialize_call = next(
             call for call in execute_activity.await_args_list if call.args[0].__name__ == "materialize_view_activity"
         )
+        assert materialize_call.kwargs["retry_policy"].maximum_attempts == 5
         assert "ClickHouseUserQueryError" in materialize_call.kwargs["retry_policy"].non_retryable_error_types
 
     async def test_an_audit_that_reached_no_verdict_leaves_the_node_to_the_sweep(self):
@@ -369,6 +386,7 @@ class TestFinalizeOrphanedManagedWarehouseJob:
         assert activity is fail_materialization_activity
         assert isinstance(payload, FailMaterializationInputs)
         assert payload.job_id == "job-123"
+        assert payload.error_type == type(error).__name__
         # shadow job has no node properties to update — only finalize the job row
         assert payload.update_node is False
         assert "activity died" in payload.error

@@ -26,6 +26,7 @@ from .notify_materialization_failure import maybe_notify_materialization_failure
 from .utils import (
     CONSECUTIVE_FAILURES_TO_SUSPEND,
     bind_data_modeling_log_context,
+    capture_materialization_finished,
     maybe_suspend_node_for_engine,
     strip_hostname_from_error,
     update_node_system_properties,
@@ -42,6 +43,7 @@ class FailMaterializationInputs:
     dag_id: str
     job_id: str
     error: str
+    error_type: str | None = None
     cancelled: bool = False
     update_node: bool = True
 
@@ -125,6 +127,7 @@ async def fail_materialization_activity(inputs: FailMaterializationInputs) -> st
     # error the job row does. The raw one stays write-only, where only internal logging sees it.
     await logger.aerror(f"Failed materialization job: {job_context} error={strip_hostname_from_error(inputs.error)}")
     await logger.aerror(f"Failed materialization job: {job_context} error={inputs.error}", write_only=True)
+    capture_materialization_finished(team_id=inputs.team_id, job=job, last_error_type=inputs.error_type)
     # error-specific recovery: revert on unknown table, else suspend the node after repeated failures
     if not inputs.update_node:
         return job.run_mode
