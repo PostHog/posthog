@@ -121,9 +121,7 @@ describe('broadcast previews', () => {
 
     const el = (dataAttr: string): HTMLElement | null => screen.queryByTestId(dataAttr)
     const click = (dataAttr: string): void => {
-        act(() => {
-            fireEvent.click(screen.getByTestId(dataAttr))
-        })
+        fireEvent.click(screen.getByTestId(dataAttr))
     }
     const type = (dataAttr: string, value: string): void => {
         act(() => {
@@ -213,9 +211,7 @@ describe('broadcast previews', () => {
         expect(el('broadcast-review-modify-content')).toBeNull()
 
         click('broadcast-preview-person')
-        act(() => {
-            fireEvent.click(screen.getByText('grace@example.com'))
-        })
+        fireEvent.click(screen.getByText('grace@example.com'))
 
         expect(await screen.findByText('Hi Grace')).toBeInTheDocument()
         expect(iframeHtml()).toBe('<p>Hello Grace</p>')
@@ -253,6 +249,10 @@ describe('broadcast previews', () => {
         expect(iframeHtml()).toBeUndefined()
         expect(el('broadcast-preview-person')).toHaveTextContent('Ada')
         expect(screen.getByText('Preview and test before this reaches the audience.')).toBeInTheDocument()
+    })
+
+    it("leaves the preview's own test button out of the review step", () => {
+        renderReview('email')
         expect(el('broadcast-open-test-email')).toBeNull()
     })
 
@@ -266,9 +266,7 @@ describe('broadcast previews', () => {
 
         expect(await screen.findByText("Variables use Ada's values, matching the preview.")).toBeInTheDocument()
 
-        act(() => {
-            fireEvent.click(document.querySelector('[aria-label="close"]') as HTMLElement)
-        })
+        fireEvent.click(document.querySelector('[aria-label="close"]') as HTMLElement)
 
         await waitFor(() => expect(el('broadcast-send-test-email')).toBeNull())
     })
@@ -315,9 +313,7 @@ describe('broadcast previews', () => {
 
     it('asks for a distinct ID before it sends a test push', async () => {
         renderReview('push')
-        act(() => {
-            fireEvent.click(screen.getByText('Send test notification'))
-        })
+        fireEvent.click(screen.getByText('Send test notification'))
 
         expect(screen.getByText('Send a test notification')).toBeInTheDocument()
         expect(screen.getByText(/^Goes to this person's devices only\./)).toBeInTheDocument()
@@ -337,19 +333,19 @@ describe('broadcast previews', () => {
         expect(action?.config.inputs.distinctId.value).toBe('{% raw %}user-1{% endraw %}')
     })
 
-    it.each<['email' | 'push', string, string, string, string]>([
-        ['email', 'reviewer@example.com', 'reviewer@example.com', 'Read the email in a real', 'Check it in your inbox'],
-        ['push', 'user-1', "user-1's devices", 'See the notification on a real', 'Check it on your phone'],
+    it.each<['email' | 'push', string, string, RegExp, RegExp]>([
+        ['email', 'reviewer@example.com', 'reviewer@example.com', /Read the email in a real/, /Check it in your inbox/],
+        ['push', 'user-1', "user-1's devices", /See the notification on a real/, /Check it on your phone/],
     ])('vouches for a sent %s test on the review step', async (channel, to, sentTo, before, followUp) => {
-        sendResult = { status: 'success', logs: [log('Push accepted by FCM')] }
+        sendResult = { status: 'success', logs: channel === 'push' ? [log('Push accepted by FCM')] : [] }
         renderReview(channel)
-        expect(screen.getByText(new RegExp(`^${before}`))).toBeInTheDocument()
+        expect(screen.getByText(before)).toBeInTheDocument()
         click('broadcast-review-send-test')
         type(`broadcast-test-${channel}-recipient`, to)
         click('broadcast-send-test-email')
 
         expect(await screen.findByText(`Test sent to ${sentTo}`)).toBeInTheDocument()
-        expect(screen.getByText(new RegExp(`^${followUp}`))).toBeInTheDocument()
+        expect(screen.getByText(followUp)).toBeInTheDocument()
         expect(screen.getByText('Send another test')).toBeInTheDocument()
         await waitFor(() => expect(el('broadcast-send-test-email')).toBeNull())
     })
@@ -380,9 +376,7 @@ describe('broadcast previews', () => {
             expect(await screen.findByText(banner)).toBeInTheDocument()
             expect(screen.getByText(card)).toBeInTheDocument()
 
-            act(() => {
-                fireEvent.click(screen.getByText('Cancel'))
-            })
+            fireEvent.click(screen.getByText('Cancel'))
 
             await waitFor(() => expect(el('broadcast-send-test-email')).toBeNull())
         }
