@@ -225,7 +225,9 @@ class MemberEmailMigration:
             return "The new email is too long"
         if _domain(new_email) not in verified:
             return f"The organization has not verified the new domain {_domain(new_email)}"
-        if new_email == user.email:
+        # A stored address that differs only by case is the same login. Changing it would sign the
+        # member out and remove their SSO links for nothing.
+        if new_email == EmailNormalizer.normalize(user.email):
             return "Already uses this email"
         if new_email.lower() in seen_targets or self._is_taken(new_email, user):
             return "Another account already uses this email"

@@ -209,6 +209,18 @@ class TestChangeMemberEmails(BaseTest):
         assert self.member.email == "i@new.example.com"
         assert grace.email == "grace@old.example.com"
 
+    def test_an_email_that_differs_only_by_case_is_not_a_change(self, _send: MagicMock) -> None:
+        grace = self._create_user("grace@new.example.com")
+        User.objects.filter(pk=grace.pk).update(email="Grace@new.example.com")
+        UserSocialAuth.objects.create(user=grace, provider="saml", uid="grace@new.example.com")
+
+        response = self._change("ada@old.example.com\nGrace@new.example.com")
+
+        assert "Skipped: Already uses this email" in response.content.decode()
+        grace.refresh_from_db()
+        assert grace.email == "Grace@new.example.com"
+        assert UserSocialAuth.objects.filter(user=grace).exists()
+
     def test_a_failed_notice_keeps_the_history_and_the_rest_of_the_list(self, send: MagicMock) -> None:
         send.side_effect = RuntimeError("broker down")
         grace = self._create_user("grace@old.example.com")
