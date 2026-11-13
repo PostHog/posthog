@@ -1013,9 +1013,9 @@ Before deploying risky migrations:
 Node and Rust services deploy on their own schedule, often before the Django deploy that runs `bin/migrate`, so a merged migration is not yet live when their new image starts.
 Code in those services that reads a new table or column needs the migration applied in production first.
 For Rust, merge the migration in its own PR and wait for it to deploy, or make the reader tolerate the missing column.
-ClickHouse and sqlx migrations also need their own PR, not stacked under the reader.
-CI fails a PR that has ClickHouse migrations and `nodejs/` changes, or sqlx migrations and `nodejs/` or Rust service changes.
-For a Django migration and a Node reader, one PR is fine.
+ClickHouse migrations also need their own PR, not stacked under the reader, and so do sqlx migrations with a Rust reader.
+CI fails a PR that has ClickHouse migrations and `nodejs/` changes, or sqlx migrations and Rust service changes.
+For a Django or sqlx migration and a Node reader, one PR is fine.
 The schema check in `nodejs/src/schema-check/` enforces the order on every Node app that connects to the main Postgres.
 An app without a write role on it opts out explicitly in the charts repo, because the hook reads the primary.
 Each Node image records the Django migrations it needs at build time, and the hook holds the rollout until `django_migrations` has all of them.
