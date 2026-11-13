@@ -71,6 +71,7 @@ export function BroadcastReviewStep(): JSX.Element {
         audienceProperties,
         blastRadius,
         blastRadiusLoading,
+        blastRadiusError,
         goalEnabled,
         conversion,
         scheduleSummary,
@@ -133,7 +134,11 @@ export function BroadcastReviewStep(): JSX.Element {
                             {channel === 'push' ? '. Only people with push turned on in your app get it.' : ''}
                         </span>
                     ) : (
-                        <span className="text-warning">Couldn't estimate the audience size</span>
+                        <span className="text-warning">
+                            {["Couldn't estimate the audience size", blastRadiusError]
+                                .filter(Boolean)
+                                .join('. Details: ')}
+                        </span>
                     )}
                     <RealtimeCohortCalculatingBanner status={blastRadius?.realtime_cohort} />
                     {audienceProperties.length > 0 ? (
