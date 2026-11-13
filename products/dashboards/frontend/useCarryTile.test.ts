@@ -121,6 +121,24 @@ describe('useCarryTile', () => {
         expect(onCarryingChange).toHaveBeenLastCalledWith(null)
     })
 
+    it.each([
+        { kind: 'move' as const, target: (): HTMLElement => gridItem },
+        { kind: 'resize' as const, target: (): HTMLElement => resizeHandle },
+    ])('does not carry a $kind started by touch after an earlier mouse press', ({ kind, target }) => {
+        const { onCarryingChange, result } = renderMove(true, kind)
+        handle.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0, clientX: 10, clientY: 10 }))
+        handle.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, button: 0, clientX: 10, clientY: 10 }))
+
+        target().dispatchEvent(new Event('touchstart', { bubbles: true }))
+        result.current.carryHeld(target(), kind)
+        target().dispatchEvent(new Event('touchend', { bubbles: true }))
+        const nextRelease = new MouseEvent('mouseup', { bubbles: true, cancelable: true, button: 0 })
+        document.body.dispatchEvent(nextRelease)
+
+        expect(onCarryingChange).not.toHaveBeenCalled()
+        expect(nextRelease.defaultPrevented).toBe(false)
+    })
+
     it('puts a carried resize back to where it started on Escape', () => {
         const { onCarryingChange, onCarryCanceled, result } = renderMove(true, 'resize')
         const atRelease: [string, unknown[][]][] = []

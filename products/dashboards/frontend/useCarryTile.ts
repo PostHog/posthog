@@ -115,6 +115,13 @@ export function useCarryTile({
             pressRef.current = event.button === 0 ? { x: event.clientX, y: event.clientY } : null
         }
 
+        // A touch gesture ends with touchend and never sends the mouseup that ends a held carry. Forget the last
+        // mouse press, so that carryHeld does not start a carry for a touch drag or resize. A tap still works,
+        // because the browser sends its compatibility mousedown after touchend.
+        const onTouchStart = (): void => {
+            pressRef.current = null
+        }
+
         const onClick = (event: MouseEvent): void => {
             if (carryRef.current) {
                 return
@@ -129,9 +136,11 @@ export function useCarryTile({
         }
 
         container.addEventListener('mousedown', onMouseDown, { capture: true })
+        container.addEventListener('touchstart', onTouchStart, { capture: true, passive: true })
         container.addEventListener('click', onClick, { capture: true })
         return () => {
             container.removeEventListener('mousedown', onMouseDown, { capture: true })
+            container.removeEventListener('touchstart', onTouchStart, { capture: true })
             container.removeEventListener('click', onClick, { capture: true })
             carryRef.current?.cancel()
         }
