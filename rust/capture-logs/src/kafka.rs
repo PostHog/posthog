@@ -132,7 +132,7 @@ pub struct KafkaSink {
     traces_schema: Arc<Schema>,
     metrics_schema: Arc<Schema>,
     logs_message_max_bytes: usize,
-    metrics_partition_slots: u32,
+    metrics_buckets_per_token: u32,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -380,12 +380,12 @@ impl KafkaSink {
             traces_schema: Arc::new(Schema::parse_str(TRACES_AVRO_SCHEMA)?),
             metrics_schema: Arc::new(Schema::parse_str(METRICS_AVRO_SCHEMA)?),
             logs_message_max_bytes: config.kafka_producer_message_max_bytes as usize,
-            metrics_partition_slots: 0,
+            metrics_buckets_per_token: 0,
         })
     }
 
-    pub fn with_metrics_partition_slots(mut self, slots: u32) -> Self {
-        self.metrics_partition_slots = slots;
+    pub fn with_metrics_buckets_per_token(mut self, buckets: u32) -> Self {
+        self.metrics_buckets_per_token = buckets;
         self
     }
 
@@ -643,7 +643,7 @@ impl KafkaSink {
         let messages = split_metrics_messages(
             token,
             rows,
-            self.metrics_partition_slots,
+            self.metrics_buckets_per_token,
             Utc::now(),
             uncompressed_bytes,
             records_uncompressed_bytes,
@@ -652,7 +652,7 @@ impl KafkaSink {
         // Enqueue every message before the first wait, so the messages share one linger window.
         let mut deliveries = Vec::with_capacity(messages.len());
         for message in &messages {
-            let key = message.slot.map(u32::to_be_bytes);
+            let key = message.key.map(u64::to_be_bytes);
             deliveries.push(self.enqueue_avro_batch(
                 &self.metrics_producer,
                 &self.metrics_topic,
@@ -679,7 +679,7 @@ impl KafkaSink {
 const METRICS_PARTITION_WINDOW_SECS: i64 = 300;
 
 struct MetricsMessage {
-    slot: Option<u32>,
+    key: Option<u64>,
     rows: Vec<KafkaMetricRow>,
     bytes_uncompressed: u64,
     records_uncompressed_bytes: u64,
@@ -687,13 +687,13 @@ struct MetricsMessage {
 }
 
 // Metrics ingestion aggregates only these types, and only within one consumer batch.
-fn metrics_partition_slot(
+fn metrics_partition_key(
     token: &str,
     row: &KafkaMetricRow,
     window: i64,
-    slots: u32,
-) -> Option<u32> {
-    if slots == 0
+    buckets_per_token: u32,
+) -> Option<u64> {
+    if buckets_per_token == 0
         || !matches!(
             row.metric_type.as_str(),
             "sum" | "histogram" | "exponential_histogram"
@@ -701,14 +701,15 @@ fn metrics_partition_slot(
     {
         return None;
     }
-    // The window moves a hot series to a new partition every few minutes. Points of one series
-    // at a window boundary can land in two batches, which aggregation tolerates.
+    // A request fans out to at most `buckets_per_token` keyed messages. The window moves each
+    // bucket to a new partition every few minutes, so a hot team does not stay on one partition.
+    let bucket = (row.series_fingerprint as u64) % u64::from(buckets_per_token);
     let mut hasher = SipHasher13::new();
     hasher.write(token.as_bytes());
     hasher.write_u8(0xff);
-    hasher.write_i64(row.series_fingerprint);
+    hasher.write_u64(bucket);
     hasher.write_i64(window);
-    Some((hasher.finish() % u64::from(slots)) as u32)
+    Some(hasher.finish())
 }
 
 fn apportion(total: u64, weights: &[u64]) -> Vec<u64> {
@@ -739,17 +740,17 @@ fn apportion(total: u64, weights: &[u64]) -> Vec<u64> {
 fn split_metrics_messages(
     token: &str,
     rows: Vec<KafkaMetricRow>,
-    slots: u32,
+    buckets_per_token: u32,
     now: DateTime<Utc>,
     bytes_uncompressed: u64,
     records_uncompressed_bytes: u64,
     timestamps_overridden: u64,
 ) -> Vec<MetricsMessage> {
     let window = now.timestamp().div_euclid(METRICS_PARTITION_WINDOW_SECS);
-    let mut groups: BTreeMap<Option<u32>, Vec<KafkaMetricRow>> = BTreeMap::new();
+    let mut groups: BTreeMap<Option<u64>, Vec<KafkaMetricRow>> = BTreeMap::new();
     for row in rows {
-        let slot = metrics_partition_slot(token, &row, window, slots);
-        groups.entry(slot).or_default().push(row);
+        let key = metrics_partition_key(token, &row, window, buckets_per_token);
+        groups.entry(key).or_default().push(row);
     }
 
     let row_bytes: Vec<u64> = groups
@@ -764,8 +765,8 @@ fn split_metrics_messages(
     groups
         .into_iter()
         .enumerate()
-        .map(|(i, (slot, rows))| MetricsMessage {
-            slot,
+        .map(|(i, (key, rows))| MetricsMessage {
+            key,
             rows,
             bytes_uncompressed: bytes_shares[i],
             records_uncompressed_bytes: records_shares[i],
@@ -824,18 +825,18 @@ mod tests {
         }
     }
 
-    fn slots_by_series(messages: &[MetricsMessage]) -> BTreeMap<(String, i64), Option<u32>> {
-        let mut slots = BTreeMap::new();
+    fn keys_by_series(messages: &[MetricsMessage]) -> BTreeMap<(String, i64), Option<u64>> {
+        let mut keys = BTreeMap::new();
         for message in messages {
             for row in &message.rows {
-                let previous = slots.insert(
+                let previous = keys.insert(
                     (row.metric_type.clone(), row.series_fingerprint),
-                    message.slot,
+                    message.key,
                 );
-                assert!(previous.is_none_or(|p| p == message.slot));
+                assert!(previous.is_none_or(|p| p == message.key));
             }
         }
-        slots
+        keys
     }
 
     #[test]
@@ -851,15 +852,16 @@ mod tests {
             }
             rows
         };
-        let split =
-            |slots, now| split_metrics_messages("phc_test", rows(), slots, now, 10_007, 9_001, 13);
+        let split = |token, buckets, now| {
+            split_metrics_messages(token, rows(), buckets, now, 10_007, 9_001, 13)
+        };
 
-        let messages = split(16, window_start);
-        let series = slots_by_series(&messages);
-        for ((metric_type, _), slot) in &series {
-            assert_eq!(slot.is_none(), metric_type == "gauge");
+        let messages = split("phc_test", 8, window_start);
+        let series = keys_by_series(&messages);
+        for ((metric_type, _), key) in &series {
+            assert_eq!(key.is_none(), metric_type == "gauge");
         }
-        assert!(messages.len() > 2 && messages.len() <= 17);
+        assert_eq!(messages.len(), 9);
         assert_eq!(messages.iter().map(|m| m.rows.len()).sum::<usize>(), 240);
         assert_eq!(
             messages.iter().map(|m| m.bytes_uncompressed).sum::<u64>(),
@@ -881,13 +883,17 @@ mod tests {
         );
 
         let later_in_window = window_start + chrono::TimeDelta::seconds(299);
-        assert_eq!(slots_by_series(&split(16, later_in_window)), series);
+        assert_eq!(
+            keys_by_series(&split("phc_test", 8, later_in_window)),
+            series
+        );
         let next_window = window_start + chrono::TimeDelta::seconds(300);
-        assert_ne!(slots_by_series(&split(16, next_window)), series);
+        assert_ne!(keys_by_series(&split("phc_test", 8, next_window)), series);
+        assert_ne!(keys_by_series(&split("phc_other", 8, window_start)), series);
 
-        let unkeyed = split(0, window_start);
+        let unkeyed = split("phc_test", 0, window_start);
         assert_eq!(unkeyed.len(), 1);
-        assert_eq!(unkeyed[0].slot, None);
+        assert_eq!(unkeyed[0].key, None);
         assert_eq!(unkeyed[0].bytes_uncompressed, 10_007);
     }
 

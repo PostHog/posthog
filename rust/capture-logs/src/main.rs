@@ -105,7 +105,7 @@ async fn main() {
     )
     .await
     .expect("failed to start Kafka sink")
-    .with_metrics_partition_slots(config.metrics_partition_slots);
+    .with_metrics_buckets_per_token(config.metrics_buckets_per_token);
 
     let management_router = Router::new()
         .route("/", get(index))
