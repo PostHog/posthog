@@ -127,11 +127,13 @@ describe('ToolExecutor metrics', () => {
         { tool: 'execute-sql', useSingleExec: false, type: 'validation' },
         { tool: 'execute-sql', useSingleExec: false, type: 'memory_limit' },
         { tool: 'execute-sql', useSingleExec: true, type: 'memory_limit' },
+        { tool: 'execute-sql', useSingleExec: false, type: 'internal', filtered: true },
+        { tool: 'execute-sql', useSingleExec: true, type: 'internal', filtered: true },
         { tool: 'read-data-schema', useSingleExec: false, type: 'permission' },
         { tool: 'read-data-schema', useSingleExec: true, type: 'api_5xx' },
     ])(
         'classifies backend result errors without capturing caller content: %j',
-        async ({ tool, useSingleExec, type }) => {
+        async ({ tool, useSingleExec, type, filtered }) => {
             const captureException = vi.spyOn(getPostHogClient(), 'captureException').mockImplementation(() => {})
             const tools = catalog
                 .getPreBuiltEntries()
@@ -139,7 +141,9 @@ describe('ToolExecutor metrics', () => {
             const state = makeToolExecutorState(tools, { useSingleExec, suppressAnalytics: false })
             state.context.api = new ApiClient({ apiToken: 'phx_test', baseUrl: 'https://us.posthog.com' })
             state.context.stateManager.getProjectId = vi.fn().mockResolvedValue(2)
-            const content = 'Tool failed: private caller query. You may retry with adjusted inputs.'
+            const content = filtered
+                ? 'Tool failed: invalid input syntax for type integer: "private-filter@example.com"'
+                : 'Tool failed: private caller query. You may retry with adjusted inputs.'
             vi.stubGlobal(
                 'fetch',
                 vi.fn().mockResolvedValue(
@@ -153,7 +157,17 @@ describe('ToolExecutor metrics', () => {
                     )
                 )
             )
-            const args = { query: tool === 'execute-sql' ? 'SELECT 1' : { kind: 'events' } }
+            const args = {
+                query: tool === 'execute-sql' ? 'SELECT 1' : { kind: 'events' },
+                ...(filtered
+                    ? {
+                          connectionId: 'example-connection',
+                          filters: {
+                              properties: [{ key: 'email', type: 'event', value: ['private-filter@example.com'] }],
+                          },
+                      }
+                    : {}),
+            }
             const result = await executor.handleToolCall(
                 useSingleExec
                     ? { name: 'exec', arguments: { command: `call ${tool} ${JSON.stringify(args)}` } }
@@ -167,6 +181,9 @@ describe('ToolExecutor metrics', () => {
             })
             expect(mockToolErrorsInc).toHaveBeenCalledWith({ tool, error_type: type })
             expect(captureException).toHaveBeenCalledTimes(['validation', 'permission'].includes(type) ? 0 : 1)
+            if (filtered) {
+                expect(captureException.mock.calls[0]?.[2]).toMatchObject({ suppress_analytics: true })
+            }
             const properties = trackToolCallExtras(tool)
             expect(properties).toMatchObject({ $mcp_error_type: type, $mcp_error_message: `Tool failed: ${type}` })
             if (type === 'validation') {
