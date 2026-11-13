@@ -58,6 +58,7 @@ import {
     captureInboxReportAction,
     captureInboxReportActionCompleted,
 } from './inboxAnalytics'
+import { agentSteeringLogic } from './logics/agentSteeringLogic'
 import { selfDrivingTrialLogic } from './logics/selfDrivingTrialLogic'
 import {
     SIGNAL_REPORT_TASK_DISCUSSION_RELATIONSHIP,
@@ -337,6 +338,9 @@ function handleKickoffError(
     fallbackMessage: string
 ): void {
     const limitMessage = taskLimitMessage(error)
+    if (limitMessage) {
+        agentSteeringLogic.findMounted()?.actions.loadSteeringConfig()
+    }
     lemonToast.error(limitMessage || error?.detail || error?.message || fallbackMessage)
     captureInboxReportActionCompleted({
         report,

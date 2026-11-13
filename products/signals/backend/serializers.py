@@ -98,6 +98,7 @@ from products.signals.backend.reviewer_rules import ReviewerRules
 from products.signals.backend.scout_harness.tools.report import is_self_improvement_title
 from products.signals.backend.source_filters import compile_source_filter
 from products.signals.backend.source_issues import source_issues_by_report
+from products.tasks.backend.facade.access import get_posthog_code_usage
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 from products.warehouse_sources.backend.facade.types import ExternalDataSchemaStatus
 
@@ -605,6 +606,8 @@ class _AutostartBaseBranchesField(serializers.DictField):
 # singleton. Without this drf-spectacular types the response as a paginated list.
 @extend_schema_serializer(many=False)
 class SignalTeamConfigSerializer(serializers.ModelSerializer):
+    posthog_ai_usage_limited = serializers.SerializerMethodField()
+
     scout_instructions = serializers.CharField(
         required=False,
         allow_blank=True,
@@ -789,6 +792,10 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
             self._reports_today = reports_generated_today(obj.team, day_start=team_day_start(obj.team))
         return self._reports_today
 
+    def get_posthog_ai_usage_limited(self, obj: SignalTeamConfig) -> bool:
+        usage = get_posthog_code_usage(obj.team_id)
+        return usage.is_rate_limited if usage is not None else False
+
     @extend_schema_field(serializers.IntegerField(min_value=0))
     def get_reports_generated_today(self, obj: SignalTeamConfig) -> int:
         # No limit means the count is never shown, so skip the query — mirroring the sibling field
@@ -832,6 +839,7 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
             "anomaly_scoring_available",
             "reports_generated_today",
             "daily_report_limit_reached",
+            "posthog_ai_usage_limited",
             "created_at",
             "updated_at",
         ]
@@ -840,6 +848,7 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
             "anomaly_scoring_available",
             "reports_generated_today",
             "daily_report_limit_reached",
+            "posthog_ai_usage_limited",
             "created_at",
             "updated_at",
         ]

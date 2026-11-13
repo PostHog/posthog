@@ -862,6 +862,7 @@ export interface SignalTeamConfigApi {
     readonly reports_generated_today: number
     /** Whether the team hit its daily report limit, pausing new report generation until local midnight. Always false when max_reports_per_day is null. */
     readonly daily_report_limit_reached: boolean
+    readonly posthog_ai_usage_limited: boolean
     readonly created_at: string
     readonly updated_at: string
 }

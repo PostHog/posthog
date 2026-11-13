@@ -32,6 +32,7 @@ import {
     buildDiscussReportPrompt,
     inboxTaskKickoffLogic,
 } from './inboxTaskKickoffLogic'
+import { agentSteeringLogic } from './logics/agentSteeringLogic'
 import { reportGithubAccessLogic } from './logics/reportGithubAccessLogic'
 import { selfDrivingTrialLogic } from './logics/selfDrivingTrialLogic'
 import { SignalReportStatus } from './types'
@@ -654,6 +655,37 @@ describe('inboxTaskKickoffLogic', () => {
         })
 
         describe.each(['implementation', 'discussion'] as const)('%s kickoff errors', (relationship) => {
+            it('refreshes the AI quota after a usage-limit refusal', async () => {
+                let limited = false
+                useMocks({
+                    get: {
+                        '/api/projects/:id/signals/config/': () => [200, { posthog_ai_usage_limited: limited }],
+                    },
+                    post: {
+                        '/api/projects/:team/tasks/:id/run/': () => {
+                            limited = true
+                            return [429, { code: 'usage_limit_exceeded', error: 'Usage limit reached.' }]
+                        },
+                    },
+                })
+                const configLogic = agentSteeringLogic()
+                const unmount = configLogic.mount()
+                try {
+                    await expectLogic(configLogic).toFinishAllListeners()
+                    expect(configLogic.values.steeringConfig?.posthog_ai_usage_limited).toBe(false)
+                    await expectLogic(logic, () => {
+                        if (relationship === 'implementation') {
+                            logic.actions.createPrFromReport(report)
+                        } else {
+                            logic.actions.discussReport(report, 'https://example.com/report', 'Explain the fix')
+                        }
+                    }).toFinishAllListeners()
+                    await waitFor(() => expect(configLogic.values.steeringConfig?.posthog_ai_usage_limited).toBe(true))
+                } finally {
+                    unmount()
+                }
+            })
+
             it.each<[string, number, Record<string, string>, 'limited' | 'failure']>([
                 ['create', 429, { code: 'signal_report_task_cap', error: 'Report task limit reached' }, 'limited'],
                 ['create', 429, { code: 'throttled', detail: 'Please wait before creating another task.' }, 'limited'],

@@ -15,6 +15,7 @@ from products.tasks.backend.facade.contracts import DesktopAccessReason
 from products.tasks.backend.logic.services.code_usage_gate import (
     code_access_required_response,
     compute_quota_limit_response,
+    get_posthog_code_usage,
     usage_limit_response,
 )
 from products.tasks.backend.models import TaskRun
@@ -67,6 +68,7 @@ __all__ = [
     "PostHogAIAccessDecision",
     "code_access_required_response",
     "compute_quota_limit_response",
+    "get_posthog_code_usage",
     "get_desktop_access_decision",
     "get_cached_posthog_ai_access_decision",
     "get_posthog_ai_access_decision",

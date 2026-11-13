@@ -27,6 +27,7 @@ import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
 import { captureInboxReportAction } from '../../inboxAnalytics'
 import { inboxSceneLogic } from '../../inboxSceneLogic'
+import { agentSteeringLogic } from '../../logics/agentSteeringLogic'
 import { inboxDetailLayoutLogic } from '../../logics/inboxDetailLayoutLogic'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { SignalCard } from '../../SignalCard'
@@ -291,14 +292,17 @@ export function InboxDetailFrame({
     const reportUrl = `${window.location.origin}${addProjectIdIfMissing(urls.inboxReport('reports', report.id))}`
 
     const reportActions = useReportDetailActions(report)
+    const { steeringConfig } = useValues(agentSteeringLogic)
     const hasPostHogAiAccess = useFeatureFlag('PHAI_SANDBOX_MODE')
+    const canStartAiRun = hasPostHogAiAccess && steeringConfig !== null && !steeringConfig.posthog_ai_usage_limited
     const showCreatePr = canCreateImplementationPr(report)
     const summaryHasSolution = parseReportSummary(report.summary).sections.some(
         (section) => section.kind === 'solution'
     )
     const { featureFlags } = useValues(featureFlagLogic)
     const implementButtonVariant = peekFeatureFlag(featureFlags, FEATURE_FLAGS.INBOX_REPORT_IMPLEMENT_BUTTON_POSITION)
-    const hasImplementButton = hasPostHogAiAccess && !primaryAction && (showCreatePr || !!reportTaskToOpen)
+    const hasImplementButton =
+        hasPostHogAiAccess && !primaryAction && (!!reportTaskToOpen || (canStartAiRun && showCreatePr))
     if (
         hasImplementButton &&
         summaryHasSolution &&
@@ -637,7 +641,7 @@ export function InboxDetailFrame({
                 <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
                     {primaryAction}
                     {implementButtonInHeader && implementButton}
-                    {hasPostHogAiAccess && <DiscussReportButton report={report} reportUrl={reportUrl} />}
+                    {canStartAiRun && <DiscussReportButton report={report} reportUrl={reportUrl} />}
                     {/* Buttons inline on wide layouts; collapse into a standard LemonMenu kebab below @4xl. */}
                     <div className="hidden @4xl:flex items-center gap-2">
                         {reportActions.map((action) => (

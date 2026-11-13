@@ -35,6 +35,13 @@ class TestSignalTeamConfigAPI(APIBaseTest):
     def _activity(self) -> list[ActivityLog]:
         return list(ActivityLog.objects.filter(team_id=self.team.pk, scope="SignalTeamConfig").order_by("created_at"))
 
+    @parameterized.expand([True, False])
+    def test_ai_usage_limit_matches_task_credit_gate(self, limited: bool) -> None:
+        with patch("ee.billing.quota_limiting.is_team_over_credit_budget", return_value=limited):
+            response = self.client.get(self._url())
+        assert response.status_code == 200
+        assert response.json()["posthog_ai_usage_limited"] is limited
+
     @parameterized.expand([OrganizationMembership.Level.MEMBER, OrganizationMembership.Level.ADMIN])
     def test_project_member_can_save_and_clear_roles_independently(self, level: int) -> None:
         self.organization_membership.level = level
