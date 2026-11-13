@@ -46,7 +46,7 @@ describe('subscription ownership activity descriptions', () => {
                     : [],
             },
         }
-        const describer = await manifest.activityDescribers![ActivityScope.SUBSCRIPTION]!()
+        const describer = await manifest.activityDescribers![logItem.scope as ActivityScope]!()
         const rows = humanize([logItem], () => describer)
         expect(rows).toHaveLength(1)
         const { container } = render(<>{rows[0].description}</>)
