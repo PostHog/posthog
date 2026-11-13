@@ -24,6 +24,18 @@ env:
     # The version the flox environment pins for hog, as in ci-hog.yml.
     BUN_VERSION: 1.4.2
     RELEASE_BRANCH: chore/release-hog
+    # What compiles into hog, for the approval check in prepare-release: hog, the MCP library it bundles,
+    # the product files that library imports or copies in, and the lockfile and patches that pick their
+    # dependencies. The build job's sparse checkout names the same trees.
+    HOG_SOURCE_PATHS: >-
+        hog
+        services/mcp
+        products/notebooks
+        products/product_analytics/mcp
+        products/posthog_ai/skills/querying-posthog-data/references/guidelines.md
+        products/ai_observability/backend/prompts/parser_recipe_examples.yaml
+        pnpm-lock.yaml
+        patches
 
 jobs:
     check-changesets:
@@ -93,7 +105,8 @@ jobs:
             cancel-in-progress: false
         permissions:
             contents: read
-            # The approvals of this run, which the guard checks.
+            # The approvals of this run, and the pull requests of the released commits, which the
+            # approval checks read.
             actions: read
             pull-requests: read
         outputs:
@@ -148,43 +161,104 @@ jobs:
             - name: Update to latest master before preparing release
               run: git pull --ff-only origin master
 
-            # The guard covers only this run's push. The release ships every pending changeset, so the
-            # authors and mergers of the pull requests that added them can't approve it either.
-            - name: Check approvers against every pending changeset
+            # The release ships every change to hog's sources since the last release, so nobody who
+            # authored or merged one of those pull requests may approve it. The range ends at the commit
+            # checked out here, and "Ensure master did not advance" stops the run when master moves on,
+            # so the release branch holds only checked changes. Every lookup that fails stops the run.
+            - name: Check approvers against every change since the last release
+              id: range-guard
               env:
                   GH_TOKEN: ${{ github.token }}
                   REPOSITORY: ${{ github.repository }}
               run: |
                   set -euo pipefail
+
                   approvers=$(gh api "repos/$REPOSITORY/actions/runs/$GITHUB_RUN_ID/approvals" \
                       --jq '[.[] | select(.state == "approved") | .user.login] | unique | .[]')
-                  blocked=""
-                  for file in hog/.sampo/changesets/*.md; do
-                      [ -e "$file" ] || continue
-                      commit=$(git log --diff-filter=A --format=%H -n 1 -- "$file")
-                      people=$(gh api "repos/$REPOSITORY/commits/$commit/pulls" \
-                          --jq '.[] | select(.merged_at != null) | .user.login, (.merged_by.login // empty)' | grep -v '\[bot\]$' || true)
-                      for approver in $approvers; do
-                          if printf '%s\n' "$people" | grep -qx "$approver"; then
-                              blocked="$blocked $approver ($file)"
-                          fi
-                      done
-                  done
-                  if [ -n "$blocked" ]; then
-                      echo "::error::These approvers authored or merged a pull request this release ships:$blocked. Re-run the failed jobs and have someone else approve."
+                  if [ -z "$approvers" ]; then
+                      echo "::error::This run has no approval in hog-release to check"
                       exit 1
                   fi
 
-            # The guard checked the pull requests up to this run's commit. A hog change merged since
-            # then would ship without its author being kept from approving, so it stops the release.
-            - name: Check that hog didn't change after the guarded commit
-              run: |
-                  changed=$(git diff --name-only "$GITHUB_SHA" HEAD -- hog services/mcp)
-                  if [ -n "$changed" ]; then
-                      echo "::error::hog changed on master after $GITHUB_SHA, which the approval guard checked. Its changeset push starts a new release run; without a changeset, run this workflow from master by hand."
-                      printf '%s\n' "$changed"
+                  last_tag="hog/v$(jq -r '.version' hog/package.json)"
+                  if ! base=$(git rev-parse -q --verify "refs/tags/$last_tag^{commit}"); then
+                      echo "::error::$last_tag, the tag of the last hog release, doesn't exist, so the check has no first commit. If that release is still publishing, re-run the failed jobs after it finishes. Before the first release, tag the first commit as hog/README.md, \"Releases\", describes."
                       exit 1
                   fi
+                  if ! git merge-base --is-ancestor "$base" HEAD; then
+                      echo "::error::$last_tag isn't on master"
+                      exit 1
+                  fi
+
+                  read -ra paths <<<"$HOG_SOURCE_PATHS"
+                  commits=$(git log --format=%H "$base..HEAD" -- "${paths[@]}")
+                  shas=()
+                  if [ -n "$commits" ]; then
+                      mapfile -t shas <<<"$commits"
+                  fi
+
+                  # One GraphQL query per 10 commits returns each commit's merged pull request with its
+                  # author and merger, which commits/{sha}/pulls leaves out. Larger batches pass GitHub's
+                  # 10-second query limit on this repository, and a 502 or timeout gets two more tries.
+                  owner=${REPOSITORY%%/*}
+                  name=${REPOSITORY#*/}
+                  pulls=""
+                  for ((i = 0; i < ${#shas[@]}; i += 10)); do
+                      fields=""
+                      for sha in "${shas[@]:i:10}"; do
+                          fields+="c$sha: object(oid: \"$sha\") { ... on Commit { associatedPullRequests(first: 10) { nodes { number merged author { login } mergedBy { login } } } } } "
+                      done
+                      for attempt in 1 2 3; do
+                          if response=$(gh api graphql -f query="query { repository(owner: \"$owner\", name: \"$name\") { $fields } }"); then
+                              break
+                          fi
+                          if [ "$attempt" -eq 3 ]; then
+                              echo "::error::GitHub couldn't list the pull requests of the released commits"
+                              exit 1
+                          fi
+                          sleep $((attempt * 5))
+                      done
+                      if [ "$(jq '.errors // [] | length' <<<"$response")" -ne 0 ]; then
+                          echo "::error::GitHub couldn't list the pull requests of the released commits"
+                          jq -c '.errors' <<<"$response"
+                          exit 1
+                      fi
+
+                      unlinked=$(jq -r '.data.repository | to_entries[] | select([.value.associatedPullRequests.nodes[]? | select(.merged)] | length == 0) | .key | ltrimstr("c")' <<<"$response")
+                      if [ -n "$unlinked" ]; then
+                          echo "::error::These released commits have no merged pull request, so their authors can't be ruled out:"
+                          printf '%s\n' "$unlinked"
+                          exit 1
+                      fi
+
+                      pulls+=$(jq -r '.data.repository[].associatedPullRequests.nodes[] | select(.merged) | [.number, (.author.login // ""), (.mergedBy.login // "")] | @tsv' <<<"$response")
+                      pulls+=$'\n'
+                  done
+                  echo "Checked ${#shas[@]} commits since $last_tag against the approvals of $(paste -sd ' ' - <<<"$approvers")"
+
+                  blocked=""
+                  while IFS= read -r approver; do
+                      numbers=$(awk -F '\t' -v who="$approver" '$2 == who || $3 == who { print "#" $1 }' <<<"$pulls" | sort -u | paste -sd ' ' -)
+                      if [ -n "$numbers" ]; then
+                          blocked+="${blocked:+, }$approver ($numbers)"
+                      fi
+                  done <<<"$approvers"
+                  if [ -n "$blocked" ]; then
+                      echo "violations=$blocked" >> "$GITHUB_OUTPUT"
+                      echo "::error::These approvers authored or merged a pull request this release ships: $blocked. Re-run the failed jobs and have someone else approve."
+                      exit 1
+                  fi
+
+            - name: Notify Slack - Approval rejected by the release range check
+              if: failure() && steps.range-guard.outputs.violations != '' && needs.notify-approval-needed.outputs.slack_ts != ''
+              continue-on-error: true
+              uses: posthog/.github/.github/actions/slack-thread-reply@03565438486849ac0d19543de36c248a27d32a2f
+              with:
+                  slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
+                  slack_channel_id: ${{ vars.SLACK_APPROVALS_HOG_CHANNEL_ID }}
+                  thread_ts: ${{ needs.notify-approval-needed.outputs.slack_ts }}
+                  message: '🚫 Approval by ${{ steps.range-guard.outputs.violations }} rejected: they authored or merged a hog change this release ships. <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|Re-run the failed jobs> and have someone else approve.'
+                  emoji_reaction: 'no_entry'
 
             - name: Check for remaining changesets
               id: recheck-changesets
@@ -448,7 +522,7 @@ jobs:
                       }
 
             - name: Notify Slack - Failed
-              if: ${{ failure() && steps.guard.outcome == 'success' && needs.notify-approval-needed.outputs.slack_ts != '' }}
+              if: ${{ failure() && steps.guard.outcome == 'success' && steps.range-guard.outputs.violations == '' && needs.notify-approval-needed.outputs.slack_ts != '' }}
               continue-on-error: true
               uses: posthog/.github/.github/actions/slack-thread-reply@03565438486849ac0d19543de36c248a27d32a2f
               with:
