@@ -35,14 +35,15 @@ const SOLID_WITH_STATUS = STATUS_BOTTOM / (STATUS_BOTTOM + HEADER_FADE)
 
 const FILTER_DOT = 8
 
+// Home keeps the screen's own name as its title.
 const TITLES: Record<TabKey, string> = {
+    live: 'Live',
     inbox: 'Inbox',
     chats: 'Chats',
     views: 'Views',
     errors: 'Errors',
     replay: 'Sessions',
     web_analytics: 'Web analytics',
-    live: 'Live',
 }
 
 interface TabsHeaderProps {
@@ -55,7 +56,7 @@ interface TabsHeaderProps {
 }
 
 /**
- * The header of the Inbox, Chats and Views tabs and the pinned lists. The tabs layout draws it once, so the logo, the title and the controls
+ * The header of the Home, Inbox, Chats and Views tabs and the pinned lists. The tabs layout draws it once, so the logo, the title and the controls
  * keep their place and their state across a tab switch. The status line is absolutely positioned, so it never moves
  * the title row, and the refresh hint takes its place while it shows, so every tab's content starts at the same offset.
  */

@@ -3,7 +3,7 @@ import { Counter, Gauge } from 'prom-client'
 
 import { logger } from '~/common/utils/logger'
 
-export type CyclotronPoolName = 'worker' | 'manager' | 'janitor' | 'subscription_matcher'
+export type CyclotronPoolName = 'worker' | 'manager' | 'manager_lookup' | 'janitor' | 'subscription_matcher'
 
 type PoolWithEndingFlag = Pool & { readonly ending?: boolean }
 

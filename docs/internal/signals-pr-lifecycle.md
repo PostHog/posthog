@@ -304,7 +304,9 @@ The report remains readable and supports discussion, assignment, resolution, and
 
 Report access checks share pending and recent results by project, installation, and repository for up to 30 seconds. Explicit retries invalidate the project cache. A pending request is canceled when its last report reader leaves or after 30 seconds, allowing stalled checks to be retried; temporary failures are not cached. The backend still checks live access before creating an implementation task.
 
-Client-side repository access probes apply only after the server confirms pilot eligibility. Unknown eligibility, including a pending or failed onboarding request, leaves the existing implementation action available; the backend remains responsible for checking repository access.
+When a report has no selected repository, Implement first lets the backend resolve one. If resolution fails, Implement shows Select repository and opens a repository picker. A retry waits for a selection. The chosen repository is saved in the report's work log before the implementation starts, so the backend keeps responsibility for repository resolution and live access checks. The selection does not enable automatic implementation. This recovery applies to report details and triage, including projects outside the GitHub-optional pilot.
+
+Client-side repository access probes apply only after the server confirms pilot eligibility. Unknown eligibility, including a pending or failed onboarding request, leaves the implementation action available for reports with a selected repository; the backend remains responsible for checking repository access.
 
 Outside the pilot, Implement with PostHog opens the same GitHub connection flow when the project has no GitHub installation, or only installations marked unavailable. Reports reach such projects without onboarding, for example from Replay Vision scanners, scanner scouts, and scout findings, because those sources need no `SignalSourceConfig`. Report tasks push only with the project's own GitHub integration, so without one the backend refuses the task. The check reads only the project's integration list and does not probe repositories.
 

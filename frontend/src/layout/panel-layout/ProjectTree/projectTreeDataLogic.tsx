@@ -53,6 +53,7 @@ import {
     refTypeParams,
     reparentPath,
     shortcutFromEntry,
+    shortcutTelemetryName,
     sortFilesAndFolders,
     splitPath,
 } from '~/layout/panel-layout/ProjectTree/utils'
@@ -1154,7 +1155,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     if (created) {
                         posthog.capture('navbar starred item added', {
                             item_type: shortcutItem.type ?? 'unknown',
-                            item_name: shortcutItem.path,
+                            item_name: shortcutTelemetryName(shortcutItem.type, shortcutItem.path),
                         })
                     }
                     lemonToast.success(successMessage ?? 'Added to starred')
@@ -1182,7 +1183,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     await api.fileSystemShortcuts.delete(id)
                     posthog.capture('navbar starred item removed', {
                         item_type: shortcut?.type ?? 'unknown',
-                        item_name: shortcut?.path ?? 'unknown',
+                        item_name: shortcutTelemetryName(shortcut?.type, shortcut?.path ?? 'unknown'),
                     })
                     lemonToast.success(successMessage ?? 'Removed from starred')
                     return values.shortcutData.filter((s) => s.id !== id)
