@@ -7,6 +7,8 @@ from django.db import DatabaseError
 
 import structlog
 
+from posthog.ph_client import ScopedCapture
+
 from products.wizard.backend.facade.contracts import WizardRunArtifactDTO, WizardRunDTO, WizardRunPullRequestArtifactDTO
 from products.wizard.backend.facade.enums import WizardRunStatus
 from products.wizard.backend.logic.workers.contracts import WizardWorkerTelemetry
@@ -218,6 +220,18 @@ class WizardObservability:
                 "repository": artifact.repository,
                 "pull_request_number": artifact.number,
             },
+        )
+
+    def pull_request_finished(
+        self, run: WizardRunDTO, artifact: WizardRunPullRequestArtifactDTO, capture: ScopedCapture
+    ) -> None:
+        # Not through _observe: the Celery task retries a failed capture, so the error must reach it.
+        events.enqueue_pull_request_finished(run, artifact, capture)
+        logger.info(
+            "wizard_pull_request_finished",
+            **self._run_context(run),
+            artifact_id=str(artifact.id),
+            state=str(artifact.state),
         )
 
     def worker_cleanup_finished(

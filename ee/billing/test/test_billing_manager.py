@@ -698,6 +698,7 @@ class TestBillingManager(BaseTest):
                     "distinct_id": self.user.distinct_id,
                     "event": "events retention period shortened",
                     "properties": {
+                        "$update_person_last_seen_at": False,
                         "organization_name": organization.name,
                         "previous_retention_months": 84,
                         "retention_months": expected_team_months,

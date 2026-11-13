@@ -22,8 +22,10 @@ from posthog.security.outbound_proxy import internal_requests
 from posthog.temporal.common.posthog_client import is_expected_activity_failure
 
 from products.signals.backend.facade.testing import claim_trial, trial_incomplete_sources
-from products.signals.backend.models import SignalReport
+from products.signals.backend.facade.trial import TrialExecutionRefused
+from products.signals.backend.models import SignalReport, SignalScoutRun, SignalSpend
 from products.signals.backend.scout_harness.suggestions import SUGGESTIONS_AI_STAGE
+from products.signals.backend.spend import record_task_spend
 from products.tasks.backend import model_catalog
 from products.tasks.backend.constants import RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS
 from products.tasks.backend.exceptions import (
@@ -723,20 +725,43 @@ class TestProvisioningBoundaries:
         return task
 
     @pytest.mark.django_db
-    @pytest.mark.parametrize("failure", [None, RuntimeError("mint unavailable")])
+    @pytest.mark.parametrize(
+        "runtime,failure,expected_error",
+        [
+            ("acp", None, GatewayNotConfiguredError),
+            ("acp", RuntimeError("mint unavailable"), GatewayNotConfiguredError),
+            ("pi", None, GatewayTokenUnavailableError),
+            ("pi", RuntimeError("mint unavailable"), ProcessTaskTransientError),
+        ],
+    )
     def test_trial_provisioning_retry_does_not_invent_missing_usage(
-        self, mint_settings: Settings, test_task_run: TaskRun, failure: RuntimeError | None
+        self,
+        mint_settings: Settings,
+        test_task_run: TaskRun,
+        failure: RuntimeError | None,
+        runtime: str,
+        expected_error: type[Exception],
     ) -> None:
         task = test_task_run.task
-        task.origin_product = "signal_report"
+        task.origin_product = "signals_scout" if runtime == "pi" else "signal_report"
+        task.runtime = runtime
         task.internal = True
         task.signal_report = SignalReport.objects.create(team=task.team, triggering_signal_id=uuid4())
         task.save()
         with patch("products.signals.backend.trial.policy.posthoganalytics.feature_enabled", return_value=True):
             assert task.created_by_id is not None
             grant_id = claim_trial(team=task.team, user_id=task.created_by_id)
-            run = task.create_run(extra_state={"ai_stage": "research"})
+            model = "deepseek-ai/deepseek-v4.1-flash-1017-fast" if runtime == "pi" else "claude-sonnet-5"
+            run = task.create_run(extra_state={"ai_stage": "scout" if runtime == "pi" else "research", "model": model})
+            if runtime == "pi":
+                scout_run = SignalScoutRun.objects.for_team(task.team_id).create(
+                    team=task.team, task_run=run, skill_name="signals-scout-first-report", skill_version=1
+                )
+                record_task_spend(
+                    team_id=task.team_id, run_id=str(run.id), stage="scout", scout_run_id=str(scout_run.id)
+                )
             ctx = self._ctx()
+            ctx.task_runtime, ctx.model = runtime, model
             ctx.run_id, ctx.team_id, ctx.origin_product, ctx.state = (
                 str(run.id),
                 run.team_id,
@@ -744,12 +769,17 @@ class TestProvisioningBoundaries:
                 run.state,
             )
             with patch.object(utils, "mint_scoped_token", side_effect=[failure, "synthetic-token"]):
-                with pytest.raises(GatewayNotConfiguredError):
+                with pytest.raises(expected_error):
                     utils.run_gateway_env_vars(ctx, task)
-                assert utils.run_gateway_env_vars(ctx, task)["AI_GATEWAY_TOKEN"] == "synthetic-token"
+                env = utils.run_gateway_env_vars(ctx, task)
+                assert env["AI_GATEWAY_TOKEN"] == "synthetic-token"
+                assert env["AI_GATEWAY_PRODUCT"] == ("signals_scout" if runtime == "pi" else "signals_research")
         run.refresh_from_db()
         assert not run.state.get("token_cost_incomplete")
         assert trial_incomplete_sources(team=task.team, grant_id=grant_id) == 0
+        spend = SignalSpend.objects.for_team(task.team_id).get(task_run_id=run.id)
+        assert spend.trial_grant_id == grant_id
+        assert spend.billing_exempt
 
     @pytest.mark.django_db
     @pytest.mark.parametrize(
@@ -904,6 +934,25 @@ class TestProvisioningBoundaries:
             ordinary_route.assert_called_once()
             post.assert_not_called()
             record_routing.assert_called_once_with(run_id=ctx.run_id, team_id=ctx.team_id, uses_gateway=False)
+
+    @pytest.mark.parametrize(
+        "claude_access,codex_access,runtime,origin",
+        [
+            ("own-subscription", "posthog-gateway", "acp", "signals_scout"),
+            ("posthog-gateway", "own-subscription", "acp", "signals_scout"),
+            ("posthog-gateway", "posthog-gateway", "pi", "signal_report"),
+        ],
+    )
+    def test_trial_execution_refusal_is_expected(
+        self, claude_access: str, codex_access: str, runtime: str, origin: str
+    ) -> None:
+        ctx = self._ctx()
+        ctx.origin_product = origin
+        ctx.state = {"self_driving_funding": {"funding": "trial"}}
+        ctx.claude_model_access, ctx.codex_model_access, ctx.task_runtime = claude_access, codex_access, runtime
+        with pytest.raises(TrialExecutionRefused, match="PostHog AI gateway") as error:
+            utils.run_gateway_env_vars(ctx, self._task())
+        assert is_expected_activity_failure(error.value)
 
     @pytest.mark.parametrize(
         ("private_capture", "claude_model_access", "codex_model_access", "runtime"),
@@ -1785,7 +1834,7 @@ class TestPosthogCodeSandboxMint:
         assert {entry.id for entry in model_catalog.MODELS} - {"gpt-6.1-terra"} <= set(pin)
         assert "gpt-6.1-terra" not in pin
         assert set(SDK_IMPLICIT_MODELS) <= set(pin)
-        assert {"gpt-5.4", "gpt-5.3-codex", "gpt-5.2", "gpt-5-mini"} <= set(pin)
+        assert {"gpt-5.4", "gpt-5.3-codex", "gpt-5-mini"} <= set(pin)
 
     def test_pin_carries_the_go_spelling_of_every_cf_id(self):
         pin = set(_PRODUCT_ALLOWED_MODELS["posthog_code"])

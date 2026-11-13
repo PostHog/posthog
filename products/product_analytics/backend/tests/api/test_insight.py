@@ -18,13 +18,14 @@ from unittest.case import skip
 from unittest.mock import ANY, patch
 
 from django.db import connection
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     DataTableNode,
@@ -75,11 +76,12 @@ from products.dashboards.backend.facade.access import DashboardAccessMethod
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile, Text
 from products.product_analytics.backend.facade.models import Insight, InsightVariable
-from products.product_analytics.backend.models.insight import InsightViewed
+from products.product_analytics.backend.models.insight import InsightAgentRead, InsightViewed
 from products.product_analytics.backend.presentation.insight import (
     InsightSerializer,
     InsightViewSet,
     chart_display_filter,
+    parse_property_names_param,
 )
 from products.subscriptions.backend.facade.testing import (
     create_subscription,
@@ -208,38 +210,6 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         response = self.client.get(f"/api/projects/{self.team.id}/insights/", data={"user": "true"}).json()
 
         self.assertEqual(len(response["results"]), 1)
-
-    def test_get_insight_items_all_environments_included(self) -> None:
-        other_team_in_project = Team.objects.create(organization=self.organization, project=self.project)
-        _, team_in_other_project = Project.objects.create_with_team(
-            organization=self.organization, initiating_user=self.user
-        )
-
-        insight_a = Insight.objects.create(
-            query=browser_filtered_pageview_query(),
-            team=self.team,
-            created_by=self.user,
-        )
-        insight_b = Insight.objects.create(
-            query=browser_filtered_pageview_query(),
-            team=other_team_in_project,
-            created_by=self.user,
-        )
-        Insight.objects.create(
-            query=browser_filtered_pageview_query(),
-            team=team_in_other_project,
-            created_by=self.user,
-        )
-
-        # All of these three ways should return the same set of insights,
-        # i.e. all insights in the test project regardless of environment
-        response_project = self.client.get(f"/api/projects/{self.project.id}/insights/").json()
-        response_env_current = self.client.get(f"/api/environments/{self.team.id}/insights/").json()
-        response_env_other = self.client.get(f"/api/environments/{other_team_in_project.id}/insights/").json()
-
-        self.assertEqual({insight["id"] for insight in response_project["results"]}, {insight_a.id, insight_b.id})
-        self.assertEqual({insight["id"] for insight in response_env_current["results"]}, {insight_a.id, insight_b.id})
-        self.assertEqual({insight["id"] for insight in response_env_other["results"]}, {insight_a.id, insight_b.id})
 
     @patch("posthoganalytics.capture")
     def test_created_updated_and_last_modified(self, mock_capture: mock.Mock) -> None:
@@ -1795,6 +1765,31 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             {"tile_type": "insight", "insight_type": "stickiness", "dashboard_id": dashboard_id},
             team=ANY,
             request=ANY,
+        )
+
+    @parameterized.expand(
+        [
+            ("an agent", {"X-PostHog-Client": "mcp"}, False, 1),
+            ("an agent by short id", {"X-PostHog-Client": "mcp"}, True, 1),
+            ("the web app", {}, False, 0),
+            ("the desktop app", {"User-Agent": "posthog/desktop.hog.dev/1.0"}, False, 0),
+        ]
+    )
+    def test_agent_reads_are_recorded_for_the_reader(
+        self, _name: str, headers: dict[str, str], by_short_id: bool, recorded: int
+    ) -> None:
+        insight_id, insight_json = self.dashboard_api.create_insight({})
+        path = (
+            f"/api/projects/{self.team.id}/insights/?short_id={insight_json['short_id']}"
+            if by_short_id
+            else f"/api/projects/{self.team.id}/insights/{insight_id}"
+        )
+
+        self.client.get(path, headers=headers)
+
+        self.assertEqual(
+            InsightAgentRead.objects.for_team(self.team.id).filter(user=self.user, insight_id=insight_id).count(),
+            recorded,
         )
 
     @patch("products.product_analytics.backend.presentation.insight.report_user_action")
@@ -4261,6 +4256,39 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertIsNotNone(updated_metadata)
         self.assertNotEqual(initial_metadata, updated_metadata)
 
+    def test_listing_insights_filtered_by_property_name(self):
+        def insight_with_properties(*names: str) -> Insight:
+            # No query, so the save hook keeps the seeded metadata.
+            return Insight.objects.create(
+                team=self.team,
+                created_by=self.user,
+                query_metadata={
+                    "events": [],
+                    "properties": [{"type": "event", "name": name} for name in names],
+                    "updated_at": "2026-01-01T00:00:00Z",
+                },
+            )
+
+        browser_insight = insight_with_properties("$browser")
+        browser_and_os_insight = insight_with_properties("$browser", "$os")
+        os_insight = insight_with_properties("$os")
+
+        def listed_ids(properties_param: str) -> list[int]:
+            response = self.client.get(f"/api/projects/{self.team.id}/insights/", data={"properties": properties_param})
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            return [insight["id"] for insight in response.json()["results"]]
+
+        self.assertCountEqual(listed_ids(json.dumps(["$browser"])), [browser_insight.id, browser_and_os_insight.id])
+        self.assertCountEqual(listed_ids(json.dumps(["$browser", "$os"])), [browser_and_os_insight.id])
+        # Old clients sent property-filter dicts under this param; those must stay a no-op
+        self.assertCountEqual(
+            listed_ids(json.dumps([{"key": "$browser"}])),
+            [browser_insight.id, browser_and_os_insight.id, os_insight.id],
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/", data={"properties": "not json"})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
     def test_updating_insight_with_no_query_changes_does_not_update_query_metadata(self):
         """
         Test that updating an insight without changing the query does not update the query metadata.
@@ -4953,3 +4981,18 @@ class TestInsightBulkSetTestAccountFilter(ClickhouseTestMixin, APIBaseTest, Quer
             team=ANY,
             request=ANY,
         )
+
+
+class TestParsePropertyNamesParam(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("malformed_json", '["$browser"'),
+            ("null", "null"),
+            ("number", "42"),
+            ("string", '"$browser"'),
+            ("object", '{"name": "$browser"}'),
+        ]
+    )
+    def test_rejects_anything_but_a_json_list(self, _name: str, raw: str) -> None:
+        with self.assertRaises(ValidationError):
+            parse_property_names_param(raw)

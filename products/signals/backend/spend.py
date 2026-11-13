@@ -157,9 +157,16 @@ def _locked_ad_hoc_spend(
     return SignalSpend.objects.for_team(team_id).select_for_update().get(id=spend.id)
 
 
-def begin_signal_spend(*, team_id: int, signal_id: str, billing_exempt: bool = False) -> None:
+def begin_signal_spend(
+    *, team_id: int, signal_id: str, billing_exempt: bool = False, trial_grant_id: str | None = None
+) -> None:
     with transaction.atomic():
-        _locked_ad_hoc_spend(team_id=team_id, signal_id=signal_id, billing_exempt=billing_exempt)
+        _locked_ad_hoc_spend(
+            team_id=team_id,
+            signal_id=signal_id,
+            billing_exempt=billing_exempt,
+            trial_grant_id=trial_grant_id,
+        )
 
 
 def _save_ad_hoc_spend(spend: SignalSpend, *, finalize: bool = False) -> None:

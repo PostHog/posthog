@@ -1,6 +1,7 @@
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import replace
+from datetime import UTC, date, datetime
 from uuid import UUID
 
 from django.core.cache import cache
@@ -12,8 +13,10 @@ import posthoganalytics
 from rest_framework.exceptions import APIException, PermissionDenied
 
 from posthog.dataclasses import frozen
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.temporal.common.errors import NonReportableError
 
 from products.signals.backend.trial.funding import TrialFunding
 from products.signals.backend.trial.limits import MAX_TRIAL_GRANTS_PER_ORGANIZATION, STANDARD_TRIAL_LIMITS, TrialLimits
@@ -21,6 +24,7 @@ from products.signals.backend.trial.models import SignalTrialGrant
 from products.signals.backend.usage import trial_usage
 
 TRIAL_FLAG = "self-driving-ubp"
+PRICING_LAUNCHED_AT = datetime(2026, 11, 9, 15, 26, tzinfo=UTC)
 POLICY_VERSION = 1
 logger = structlog.get_logger(__name__)
 
@@ -29,15 +33,67 @@ class TrialRefused(APIException):
     status_code = 402
     default_code = "self_driving_trial_unavailable"
 
-    def __init__(self, reason: str) -> None:
+    def __init__(self, reason: str, *, detail: str | None = None) -> None:
         self.reason = reason
-        super().__init__(f"Self-driving trial: {reason}. Check the trial and billing status in Inbox.")
+        super().__init__(detail or f"Self-driving trial: {reason}. Check the trial and billing status in Inbox.")
+
+
+class TrialExecutionRefused(TrialRefused, NonReportableError):
+    def __init__(self) -> None:
+        super().__init__(
+            "accounted_execution_required",
+            detail="Self-driving trials require the PostHog AI gateway. Choose Claude Code or Codex with PostHog model access to start this run.",
+        )
 
 
 @frozen
 class TrialFlagDecision:
     enabled: bool | None
     confirmed: bool
+
+
+def activated_before_pricing_launch(organization_id: UUID) -> bool:
+    from products.signals.backend.models import (  # noqa: PLC0415 -- model registration cycle
+        SignalScoutConfig,
+        SignalSourceConfig,
+        SignalTeamConfig,
+    )
+
+    before_launch = {"team__organization_id": organization_id, "created_at__lt": PRICING_LAUNCHED_AT}
+    if SignalSourceConfig.objects.filter(**before_launch).exists():
+        return True
+    if SignalScoutConfig.objects.unscoped().filter(**before_launch).exists():
+        return True
+    completed = SignalTeamConfig.objects.filter(
+        team__organization_id=organization_id, onboarding__completed_at__isnull=False
+    ).values_list("onboarding__completed_at", flat=True)
+    return any(isinstance(value, str) and datetime.fromisoformat(value) < PRICING_LAUNCHED_AT for value in completed)
+
+
+def pricing_flag_distinct_id(organization_id: UUID) -> str:
+    # The pricing flag matches grandfathered orgs through a person cohort, so it needs the distinct id
+    # of a real person, not the org id. One fixed member per org gives every caller the same answer,
+    # including pipeline work that has no request user. An org that activated self-driving after the
+    # pricing launch cannot be grandfathered, so it uses the org id, which no cohort matches. Otherwise
+    # a cohort member would pass grandfathered pricing to every new org they set up.
+    if not activated_before_pricing_launch(organization_id):
+        return str(organization_id)
+    distinct_id = (
+        OrganizationMembership.objects.filter(organization_id=organization_id, user__is_active=True)
+        .order_by("joined_at", "id")
+        .values_list("user__distinct_id", flat=True)
+        .first()
+    )
+    return distinct_id or str(organization_id)
+
+
+def spend_billing_starts_later(organization_id: UUID) -> bool:
+    cutoff = (
+        Organization.objects.filter(id=organization_id)
+        .values_list("usage__signals_spend_credits__billing_start_date", flat=True)
+        .first()
+    )
+    return isinstance(cutoff, str) and date.fromisoformat(cutoff) > timezone.now().date()
 
 
 def lock_organization_trial(organization_id: UUID) -> None:
@@ -53,15 +109,21 @@ class TrialPolicy:
 
     def flag_decision(self) -> TrialFlagDecision:
         org_id = str(self.organization_id)
+        decision: bool | None
         try:
-            decision = posthoganalytics.feature_enabled(
-                TRIAL_FLAG,
-                org_id,
-                groups={"organization": org_id},
-                group_properties={"organization": {"id": org_id}},
-                only_evaluate_locally=True,
-                send_feature_flag_events=False,
-            )
+            # Billing has not moved this organization to usage-based pricing yet, so the trial does not apply.
+            # The flag cannot exclude an organization that is evaluated as the org id, which no cohort matches.
+            if spend_billing_starts_later(self.organization_id):
+                decision = False
+            else:
+                # Remote evaluation is required because the SDK cannot evaluate a static cohort locally.
+                decision = posthoganalytics.feature_enabled(
+                    TRIAL_FLAG,
+                    pricing_flag_distinct_id(self.organization_id),
+                    groups={"organization": org_id},
+                    group_properties={"organization": {"id": org_id}},
+                    send_feature_flag_events=False,
+                )
         except Exception:
             decision = None
         confirmed = type(decision) is bool
@@ -143,12 +205,11 @@ class TrialPolicy:
         from products.signals.backend.scout_harness.lifecycle_lock import (
             user_holds_scout_lifecycle_claims,  # noqa: PLC0415 -- lifecycle permissions depend on Signals models
         )
-
-        configs = list(
-            SignalScoutConfig.objects.for_team(self.team_id, canonical=True)
-            .filter(enabled=True)
-            .order_by("created_at", "id")
+        from products.signals.backend.trial.scouts import (
+            trial_counted_scouts,  # noqa: PLC0415 -- the scout rules import this module
         )
+
+        configs = list(trial_counted_scouts(self.team_id).order_by("created_at", "id"))
         excess = configs[grant.scout_limit :]
         if excess and api_scopes is not None and not {"*", "signal_scout:write"}.intersection(api_scopes):
             raise PermissionDenied("Starting this trial would pause scouts and requires signal_scout:write access.")

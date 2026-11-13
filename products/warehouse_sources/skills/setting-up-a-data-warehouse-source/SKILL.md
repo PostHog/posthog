@@ -110,6 +110,17 @@ missing required fields).
    headless automation; no `schemas` array is needed. On success you get the new source `id`; call
    `external-data-schemas-list` to show the user what was enabled and how each table will sync.
 
+   The OAuth integration id key is different for every source.
+   Do not guess it: call `external-data-sources-wizard` with the `source_type` and use the name of the field whose type is `oauth`
+   (for example `google_ads_integration_id` for GoogleAds).
+   A failed call returns a 400 with a `message` that says how to fix it and, for most causes, a stable `code`
+   such as `credential_expired`, `credential_not_found`, `credential_source_type_mismatch`, `invalid_config`,
+   `credential_validation_failed`, `duplicate_source` or `no_tables_found`.
+   A failed call does not use up a stored credential, so after fixing a cause that is not in the stored details you can retry with the same `credential_id`.
+   Stored values always win over inline values, so inline corrections to them have no effect.
+   Ask the user for a new connect link when the code is `credential_expired` or `credential_not_found`.
+   Do the same when the code is `credential_validation_failed` and the stored password, key or token has changed or is wrong.
+
 Notes specific to this path:
 
 - **All discovered tables are enabled.** That's intended (incremental defaults keep ongoing cost low), but flag row
@@ -345,6 +356,10 @@ If the user wants near-real-time replication from Postgres:
    source that will immediately fail.
 3. Once prerequisites pass, proceed to db-schema and create. Set `sync_type: "cdc"` on the tables that need it, and
    include `primary_key_columns` for each (CDC requires them).
+
+To add CDC to a Postgres source that already exists, use `external-data-sources-enable-cdc-create` (it re-checks the
+prerequisites), then set `sync_type: "cdc"` on the tables. `external-data-sources-update-cdc-settings-create` tunes the
+lag thresholds. `external-data-sources-disable-cdc-create` turns CDC off and resets every CDC table, so ask first.
 
 ## Sending a source to the user's own warehouse (optional, when requested)
 

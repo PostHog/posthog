@@ -1,11 +1,11 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
-from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType, SortMode
+from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType, SortMode, frozen
 
-# SurveySparrow caps `limit` per endpoint: 100 on surveys/questions/tickets/channels, 200 on
-# responses, 50 on contacts, contact_lists and users. Each endpoint config carries its own maximum to minimise round
-# trips without 400s.
+# SurveySparrow caps `limit` per endpoint: 100 on surveys/questions/tickets/channels/teams/ticket comments,
+# 200 on responses, 50 on contacts, contact_lists, users, reputation app platforms and reputation reviews.
+# Each endpoint config carries its own maximum to minimise round trips without 400s.
 DEFAULT_PAGE_SIZE = 100
 
 COMPLETED_TIME_INCREMENTAL: IncrementalField = {
@@ -22,16 +22,42 @@ UPDATED_AT_INCREMENTAL: IncrementalField = {
     "field_type": IncrementalFieldType.DateTime,
 }
 
+CREATED_AT_INCREMENTAL: IncrementalField = {
+    "label": "created_at",
+    "type": IncrementalFieldType.DateTime,
+    "field": "created_at",
+    "field_type": IncrementalFieldType.DateTime,
+}
+
+
+@frozen
+class FanoutParent:
+    """The list endpoint a child endpoint fans out over, one child request series per parent id."""
+
+    name: str
+    path: str
+    page_size: int
+    # Column on the child rows that holds the parent id; part of the child's primary key.
+    child_column: str
+
+
+SURVEYS_PARENT = FanoutParent(name="surveys", path="/v3/surveys", page_size=100, child_column="survey_id")
+TICKETS_PARENT = FanoutParent(name="tickets", path="/v3/tickets", page_size=100, child_column="ticket_id")
+APP_PLATFORMS_PARENT = FanoutParent(
+    name="app_platforms", path="/v3/reputation/app_platforms", page_size=50, child_column="app_platform_id"
+)
+
 
 @dataclass(frozen=False)
 class SurveySparrowEndpointConfig:
     name: str
     path: str
     incremental_fields: list[IncrementalField] = field(default_factory=list)
-    # Fan-out endpoints first enumerate every survey, then page the child resource per survey
-    # (SurveySparrow requires `survey_id` as a query param on /v3/responses, /v3/questions and
-    # /v3/channels).
-    is_fanout: bool = False
+    # Fan-out endpoints first enumerate every parent, then page the child resource per parent. The
+    # child `path` holds a `{<child_column>}` placeholder for the parent id.
+    parent: Optional[FanoutParent] = None
+    # False for endpoints that document no pagination: one request with no page/limit params.
+    paginated: bool = True
     default_incremental_field: Optional[str] = None
     # Server-side filter param the incremental cutoff maps to.
     cutoff_param: Optional[str] = None
@@ -59,8 +85,8 @@ SURVEYSPARROW_ENDPOINTS: dict[str, SurveySparrowEndpointConfig] = {
     ),
     "responses": SurveySparrowEndpointConfig(
         name="responses",
-        path="/v3/responses",
-        is_fanout=True,
+        path="/v3/responses?survey_id={survey_id}",
+        parent=SURVEYS_PARENT,
         partition_key="completed_time",
         default_incremental_field="completed_time",
         cutoff_param="date.gte",
@@ -78,8 +104,8 @@ SURVEYSPARROW_ENDPOINTS: dict[str, SurveySparrowEndpointConfig] = {
     ),
     "questions": SurveySparrowEndpointConfig(
         name="questions",
-        path="/v3/questions",
-        is_fanout=True,
+        path="/v3/questions?survey_id={survey_id}",
+        parent=SURVEYS_PARENT,
         page_size=100,
         primary_keys=["survey_id", "id"],
     ),
@@ -113,11 +139,44 @@ SURVEYSPARROW_ENDPOINTS: dict[str, SurveySparrowEndpointConfig] = {
     ),
     "channels": SurveySparrowEndpointConfig(
         name="channels",
-        path="/v3/channels",
         # /v3/channels requires `survey_id`, so it fans out over every survey like questions.
-        is_fanout=True,
+        path="/v3/channels?survey_id={survey_id}",
+        parent=SURVEYS_PARENT,
         page_size=100,
         primary_keys=["survey_id", "id"],
+    ),
+    "teams": SurveySparrowEndpointConfig(
+        name="teams",
+        path="/v3/teams",
+        partition_key="created_at",
+        page_size=100,
+    ),
+    "contact_properties": SurveySparrowEndpointConfig(
+        name="contact_properties",
+        path="/v3/contact_properties",
+        paginated=False,
+    ),
+    "ticket_comments": SurveySparrowEndpointConfig(
+        name="ticket_comments",
+        path="/v3/tickets/{ticket_id}/comments",
+        parent=TICKETS_PARENT,
+        partition_key="created_at",
+        default_incremental_field="created_at",
+        cutoff_param="created_date.gte",
+        cutoff_includes_time=True,
+        incremental_fields=[CREATED_AT_INCREMENTAL],
+        page_size=100,
+        primary_keys=["ticket_id", "id"],
+    ),
+    # Full refresh only: reviews are scraped from external platforms, so a review can be fetched
+    # after reviews with a later `review_date`, and a `review_date.gte` cutoff would skip it.
+    "reputation_reviews": SurveySparrowEndpointConfig(
+        name="reputation_reviews",
+        path="/v3/reputation/reviews?app_platform_id={app_platform_id}",
+        parent=APP_PLATFORMS_PARENT,
+        partition_key="review_date",
+        page_size=50,
+        primary_keys=["app_platform_id", "id"],
     ),
 }
 

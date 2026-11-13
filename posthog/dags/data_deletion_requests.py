@@ -9,6 +9,7 @@ from typing import TypeVar
 
 from django.conf import settings as django_settings
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db.models import F
 
 import dagster
 import pydantic
@@ -2378,6 +2379,10 @@ def data_deletion_request_pickup_sensor(context: dagster.SensorEvaluationContext
         dagster.DagsterRunStatus.NOT_STARTED,
         dagster.DagsterRunStatus.STARTING,
         dagster.DagsterRunStatus.STARTED,
+        # A CANCELING run can still execute ops until termination completes. If the sensor launched
+        # beside it, two runs could load the same request, and the loser's failure hook would mark
+        # the winner's IN_PROGRESS request FAILED.
+        dagster.DagsterRunStatus.CANCELING,
     ]
     active_count = 0
     for job_name in DELETION_JOB_NAMES:
@@ -2389,7 +2394,14 @@ def data_deletion_request_pickup_sensor(context: dagster.SensorEvaluationContext
     if active_count > 0:
         return dagster.SkipReason(f"A deletion job is already running ({active_count} active). Waiting.")
 
-    next_request = DataDeletionRequest.objects.filter(status=RequestStatus.APPROVED).order_by("approved_at").first()
+    # Only one deletion job runs at a time, so automatic requests (such as conversations ticket
+    # purges) can build a long queue. Staff-created requests skip that queue. created_by_staff is
+    # NULL on requests that no person submitted, so nulls sort with the non-staff requests.
+    next_request = (
+        DataDeletionRequest.objects.filter(status=RequestStatus.APPROVED)
+        .order_by(F("created_by_staff").desc(nulls_last=True), "approved_at")
+        .first()
+    )
     if next_request is None:
         return dagster.SkipReason("No approved deletion requests to process.")
 
@@ -2409,12 +2421,18 @@ def data_deletion_request_pickup_sensor(context: dagster.SensorEvaluationContext
         f"(team_id={next_request.team_id}, type={next_request.request_type})"
     )
 
+    # Dagster drops a RunRequest whose run_key it has seen before, even when that run failed.
+    # attempt_count alone does not make the key unique, because only the load_* op increments it.
+    # A run can end without reaching that op: it is cancelled while queued, its worker crashes, or
+    # its load op finds the request was moved out of APPROVED and later approved again. The request
+    # is then APPROVED with an unchanged attempt_count, and it stays first in the queue, so every
+    # request behind it would wait forever. The count of earlier runs for this request makes each
+    # launch's key new. All of those runs are finished, because the check above returns while any
+    # deletion run is active.
+    prior_runs = context.instance.get_runs_count(dagster.RunsFilter(tags={"deletion_request_id": str(next_request.pk)}))
+
     return dagster.RunRequest(
-        # Include attempt_count so retries / re-approvals of the same request get a
-        # distinct run_key. Dagster dedupes by run_key, so a bare pk would make every
-        # relaunch after the first a silent no-op. attempt_count is bumped exactly once
-        # per APPROVED → IN_PROGRESS transition (see _mark_in_progress).
-        run_key=f"{next_request.pk}:{next_request.attempt_count}",
+        run_key=f"{next_request.pk}:{next_request.attempt_count}:{prior_runs}",
         job_name=job.name,
         run_config={
             "ops": {

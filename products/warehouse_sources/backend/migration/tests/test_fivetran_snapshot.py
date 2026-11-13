@@ -1,4 +1,5 @@
 import json
+import tracemalloc
 from typing import Any
 
 import pytest
@@ -10,6 +11,10 @@ import requests
 import requests_mock
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.facade.contracts import (
+    MigrationConnectionUpload,
+    WarehouseMigrationUploadTooLargeError,
+)
 from products.warehouse_sources.backend.migration.fivetran.client import (
     FIVETRAN_API_URL,
     FivetranAPIError,
@@ -21,6 +26,7 @@ from products.warehouse_sources.backend.migration.fivetran.client import (
 from products.warehouse_sources.backend.migration.fivetran.snapshot import (
     SnapshotStoppedError,
     fetch_snapshot,
+    merge_upload,
     parse_connection,
 )
 from products.warehouse_sources.backend.migration.secrets import strip_secrets
@@ -205,6 +211,24 @@ class TestFetchSnapshot(SimpleTestCase):
                 fetch_snapshot(_client())
 
 
+class TestMergeUpload(SimpleTestCase):
+    def test_refuses_a_schema_name_repeated_in_every_table_without_encoding_all_of_it(self) -> None:
+        # About 120 KB as uploaded, and about 200 MB once each of the 2,000 tables carries the schema name.
+        schema_config = {"schemas": {"s" * 100_000: {"enabled": True, "tables": {f"t{i}": {} for i in range(2_000)}}}}
+        connection = {"id": "conn_a", "service": "postgres", "schema": "public"}
+        upload = MigrationConnectionUpload(connection=connection, schema_config=schema_config)
+        # The first call imports modules lazily, which would count toward the peak.
+        merge_upload(None, account=None, destinations=[], connections=[MigrationConnectionUpload(connection, None)])
+        tracemalloc.start()
+        try:
+            with pytest.raises(WarehouseMigrationUploadTooLargeError):
+                merge_upload(None, account=None, destinations=[], connections=[upload])
+            peak = tracemalloc.get_traced_memory()[1]
+        finally:
+            tracemalloc.stop()
+        assert peak < 50_000_000
+
+
 class TestConnectionConfig(SimpleTestCase):
     @parameterized.expand(
         [
@@ -308,7 +332,16 @@ class TestStripSecrets(SimpleTestCase):
             ("camel_case", {"apiKey": "fake", "privateKey": "fake"}, {}),
             ("auth_object", {"auth": {"client_id": "fake"}, "authorization": "fake"}, {}),
             ("password_in_url", {"uri": "postgres://reader:fake@db.example.com/app"}, {}),
+            ("password_in_a_later_url", {"note": "see https://docs.example.com then ftp://u:fake@h"}, {}),
+            # A backtracking pattern takes minutes on this.
+            (
+                "long_colon_run_is_not_secret",
+                {"host": "https://" + ":" * 100_000},
+                {"host": "https://" + ":" * 100_000},
+            ),
             ("password_in_url_without_user", {"uri": "redis://:fake@cache.example.com:6379"}, {}),
+            ("percent_encoded_password_in_url", {"jdbc_url": "postgres://reader%3Afake@db.example.com/app"}, {}),
+            ("at_sign_in_the_user", {"jdbc_url": "postgres://reader@corp:fake@db.example.com/app"}, {}),
             (
                 "credential_in_url_query",
                 {

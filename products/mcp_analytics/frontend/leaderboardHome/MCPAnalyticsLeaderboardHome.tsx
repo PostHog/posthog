@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useCallback, useMemo } from 'react'
 
-import { Skeleton } from '@posthog/quill-primitives'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { useChartTheme } from 'lib/charts/hooks'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -9,18 +9,29 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { formatPercentage } from 'lib/utils/numbers'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { MCPDashboardSection } from '~/queries/schema/schema-general'
+
 import { labColor, modelColors } from '../colors'
 import { McpDateFilter } from '../components/McpDateFilter'
 import { McpSharedFilters } from '../components/McpSharedFilters'
 import { ActivityChart } from '../dashboard/ActivityChart'
 import { Card } from '../dashboard/Card'
+import { ChartSkeleton } from '../dashboard/ChartSkeleton'
 import { formatMsAsSeconds } from '../dashboard/formatters'
 import { HarnessBarChart } from '../dashboard/HarnessBarChart'
 import { KpiTiles } from '../dashboard/KpiTiles'
 import { ModelBarChart } from '../dashboard/ModelBarChart'
 import { NotableSessionsTable } from '../dashboard/NotableSessionsTable'
 import { ToolErrorRateChart } from '../dashboard/ToolErrorRateChart'
-import { mcpDashboardOverviewLogic, rankedToolsEmptyMessage, rankToolsByErrorRate } from '../mcpDashboardOverviewLogic'
+import { ToolLatencyChart } from '../dashboard/ToolLatencyChart'
+import { mcpToolQualityUrlWithDates } from '../mcpAnalyticsToolQualityLogic'
+import {
+    mcpDashboardOverviewLogic,
+    rankedToolsEmptyMessage,
+    rankToolsByErrorRate,
+    rankToolsByP95,
+    slowestToolsEmptyMessage,
+} from '../mcpDashboardOverviewLogic'
 import { FacetShareCard } from './FacetShareCard'
 import { LabScoreboard } from './LabScoreboard'
 import { harnessErrorRateRows } from './leaderboardShares'
@@ -39,42 +50,23 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
         interval,
         queryFilters,
         dailyActivity,
-        activityRowsLoading,
         harnessRows,
-        harnessRowsLoading,
         headlineKpis,
-        kpisLoading,
         periodTotals,
-        periodTotalsLoading,
         intentClusterCount,
         kpiIncompleteTail,
         activityIncompleteTail,
         notableSessions,
         toolRows,
-        sessionRowsLoading,
-        modelRowsLoading,
-        toolRowsLoading,
         failedLoads,
+        loadingSections,
     } = useValues(mcpDashboardOverviewLogic)
-    const {
-        setDateFilter,
-        reloadAll,
-        markFilterInteraction,
-        openToolReport,
-        loadKPIs,
-        loadPeriodTotals,
-        loadActivityRows,
-        loadHarnessRows,
-        loadToolRows,
-        loadSessionRows,
-    } = useActions(mcpDashboardOverviewLogic)
+    const { setDateFilter, reloadAll, markFilterInteraction, openToolReport, loadSections } =
+        useActions(mcpDashboardOverviewLogic)
     const {
         facets,
-        facetsLoading,
         reliabilityRows,
-        reliabilityRowsLoading,
         reliabilityFailed,
-        leaderboardLoading,
         scoreboardMetric,
         scoreboardShares,
         leaderboardModelRows,
@@ -91,6 +83,8 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
     const theme = useChartTheme()
 
     const failedFacet = (...keys: FacetKey[]): boolean => keys.some((key) => facets.failedFacets.includes(key))
+    const loadingFacet = (...keys: FacetKey[]): boolean =>
+        keys.some((key) => loadingSections[key as MCPDashboardSection])
 
     const pageModelColors = useMemo(() => modelColors(theme, pageModels), [theme, pageModels])
     const modelColorOf = useCallback((label: string) => pageModelColors.get(label), [pageModelColors])
@@ -123,7 +117,7 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                 pageKey="mcp-dashboard-overview"
                 dataAttrPrefix="mcp-dashboard"
                 onRefresh={reloadAll}
-                refreshing={dashboardLoading || leaderboardLoading}
+                refreshing={dashboardLoading}
             >
                 <McpDateFilter
                     dateFrom={dateFilter.dateFrom}
@@ -141,12 +135,12 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                     kpis={headlineKpis}
                     users={periodTotals.users}
                     intentClusterCount={intentClusterCount}
-                    kpisLoading={kpisLoading}
-                    usersLoading={periodTotalsLoading}
+                    kpisLoading={!!loadingSections.kpis}
+                    usersLoading={!!loadingSections.periodTotals}
                     kpisFailed={failedLoads.kpis}
                     usersFailed={failedLoads.periodTotals}
-                    onRetryKpis={loadKPIs}
-                    onRetryUsers={loadPeriodTotals}
+                    onRetryKpis={() => loadSections([MCPDashboardSection.Kpis])}
+                    onRetryUsers={() => loadSections([MCPDashboardSection.PeriodTotals])}
                     showIntentClusters={!!featureFlags[FEATURE_FLAGS.MCP_ANALYTICS_INTENT_ROUTING]}
                     theme={theme}
                     interval={interval}
@@ -154,9 +148,9 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                 />
                 <ActivityChart
                     daily={dailyActivity}
-                    loading={activityRowsLoading}
+                    loading={!!loadingSections.activityRows}
                     failed={failedLoads.activityRows}
-                    onRetry={loadActivityRows}
+                    onRetry={() => loadSections([MCPDashboardSection.ActivityRows])}
                     theme={theme}
                     timezone={timezone}
                     interval={interval}
@@ -167,7 +161,11 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
             <Section title="Models">
                 <LabScoreboard
                     shares={scoreboardShares}
-                    loading={facetsLoading}
+                    loading={
+                        scoreboardMetric === 'calls'
+                            ? loadingFacet('model')
+                            : loadingFacet('labUsers', 'namedModelUsers')
+                    }
                     failed={
                         scoreboardMetric === 'calls' ? failedFacet('model') : failedFacet('labUsers', 'namedModelUsers')
                     }
@@ -179,16 +177,18 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                         title="Model share of calls over time"
                         labels={dailyActivity.labels}
                         series={modelSeries}
-                        loading={facetsLoading}
+                        loading={loadingFacet('model')}
                         failed={failedFacet('model')}
                         theme={theme}
                         timezone={timezone}
                         interval={interval}
                         colorOf={modelColorOf}
                     />
-                    {leaderboardModelRows.length === 0 && (facetsLoading || modelRowsLoading) ? (
+                    {leaderboardModelRows.length === 0 && (loadingFacet('model') || loadingSections.modelRows) ? (
                         <Card title="Share of calls by model" className="min-w-0">
-                            <Skeleton className="h-48 w-full" />
+                            <div className="flex min-h-48 flex-col">
+                                <ChartSkeleton kind="shares" />
+                            </div>
                         </Card>
                     ) : (
                         <ModelBarChart
@@ -206,7 +206,7 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                         title="AI lab share of calls over time"
                         labels={dailyActivity.labels}
                         series={labSeries}
-                        loading={facetsLoading}
+                        loading={loadingFacet('model')}
                         failed={failedFacet('model')}
                         theme={theme}
                         timezone={timezone}
@@ -215,9 +215,9 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                     />
                     <HarnessBarChart
                         rows={harnessRows}
-                        loading={harnessRowsLoading}
+                        loading={!!loadingSections.harnessRows}
                         failed={failedLoads.harnessRows}
-                        onRetry={loadHarnessRows}
+                        onRetry={() => loadSections([MCPDashboardSection.HarnessRows])}
                         theme={theme}
                         fillHeight
                     />
@@ -229,7 +229,7 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                     title="Protocol version share of calls over time"
                     labels={dailyActivity.labels}
                     series={protocolVersionSeries}
-                    loading={facetsLoading}
+                    loading={loadingFacet('protocolVersion')}
                     failed={failedFacet('protocolVersion')}
                     theme={theme}
                     timezone={timezone}
@@ -242,7 +242,7 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                 <FacetShareCard
                     title="Most called tools"
                     rows={facets.tool}
-                    loading={facetsLoading}
+                    loading={loadingFacet('tool')}
                     failed={failedFacet('tool')}
                     theme={theme}
                 />
@@ -254,7 +254,7 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                         title="Error rate"
                         labels={reliabilitySeries.labels}
                         lines={errorRateLines}
-                        loading={reliabilityRowsLoading}
+                        loading={!!loadingSections.reliability}
                         isEmpty={reliabilityUnavailable}
                         failed={reliabilityFailed}
                         theme={theme}
@@ -266,7 +266,7 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                         title="Latency"
                         labels={reliabilitySeries.labels}
                         lines={latencyLines}
-                        loading={reliabilityRowsLoading}
+                        loading={!!loadingSections.reliability}
                         isEmpty={reliabilityUnavailable}
                         failed={reliabilityFailed}
                         theme={theme}
@@ -279,37 +279,65 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                     <ToolErrorRateChart
                         rows={rankToolsByErrorRate(toolRows)}
                         emptyMessage={rankedToolsEmptyMessage(toolRows)}
-                        loading={toolRowsLoading}
+                        loading={!!loadingSections.toolRows}
                         failed={failedLoads.toolRows}
-                        onRetry={loadToolRows}
+                        onRetry={() => loadSections([MCPDashboardSection.ToolRows])}
                         theme={theme}
                         onToolClick={openToolReport}
                     />
-                    <FacetShareCard
-                        title="Why calls fail"
-                        rows={facets.errorType}
-                        loading={facetsLoading}
-                        failed={failedFacet('errorType')}
+                    <ToolLatencyChart
+                        rows={rankToolsByP95(toolRows)}
+                        emptyMessage={slowestToolsEmptyMessage(toolRows)}
+                        loading={!!loadingSections.toolRows}
+                        failed={failedLoads.toolRows}
+                        onRetry={() => loadSections([MCPDashboardSection.ToolRows])}
                         theme={theme}
+                        onToolClick={openToolReport}
+                        action={
+                            // Negative margin keeps the header as tall as a title-only header.
+                            <LemonButton
+                                className="-my-1"
+                                type="secondary"
+                                size="xsmall"
+                                to={mcpToolQualityUrlWithDates(dateFilter, null, {
+                                    column: 'p95_duration_ms',
+                                    direction: 'DESC',
+                                })}
+                                data-attr="mcp-dashboard-slowest-tools-view-all"
+                            >
+                                View all tools
+                            </LemonButton>
+                        }
                     />
                 </TwoColumns>
                 <TwoColumns>
                     <ToolErrorRateChart
                         rows={harnessErrorRows}
-                        loading={harnessRowsLoading}
+                        loading={!!loadingSections.harnessRows}
                         failed={failedLoads.harnessRows}
-                        onRetry={loadHarnessRows}
+                        onRetry={() => loadSections([MCPDashboardSection.HarnessRows])}
                         theme={theme}
                         title="Error rate by harness"
                         emptyMessage="No harness data in this date range. Try a wider range."
                     />
-                    <NotableSessionsTable
-                        sessions={notableSessions}
-                        loading={sessionRowsLoading}
-                        failed={failedLoads.sessionRows}
-                        onRetry={loadSessionRows}
+                    <FacetShareCard
+                        title="Why calls fail"
+                        rows={facets.errorType}
+                        loading={loadingFacet('errorType')}
+                        failed={failedFacet('errorType')}
+                        theme={theme}
+                        maxVisibleRows={8}
                     />
                 </TwoColumns>
+                {/* The card's self-start would shrink it to its content width in this flex column. */}
+                <div className="min-w-0">
+                    <NotableSessionsTable
+                        sessions={notableSessions}
+                        loading={!!loadingSections.sessionRows}
+                        failed={failedLoads.sessionRows}
+                        onRetry={() => loadSections([MCPDashboardSection.SessionRows])}
+                    />
+                </div>
             </Section>
         </div>
     )

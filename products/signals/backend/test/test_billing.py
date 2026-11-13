@@ -45,6 +45,7 @@ from products.signals.backend.spend import (
 from products.signals.backend.spend_billing import (
     get_signals_spend_billing_credits_by_team,
     get_signals_spend_quota_credits_by_team,
+    scout_skill_spend_exempt,
 )
 from products.skills.backend.models.skills import LLMSkill
 
@@ -545,22 +546,32 @@ class TestBillingExemptions(BaseTest):
             emitted_report_ids=emitted_report_ids,
         )
 
-    def test_system_policy_exempts_health_check_scout_reports_only(self) -> None:
-        health_check_report = _make_report(self.team)
+    @parameterized.expand(
+        [
+            ("health_checks", "signals-scout-health-checks", SignalReport.BillingExemptReason.POSTHOG_HEALTH_CHECK),
+            # Runs are free, but its follow-up reports are about the team's product and stay billable.
+            ("inbox_validation", "signals-scout-inbox-validation", None),
+        ]
+    )
+    def test_system_policy_exempts_canonical_scout_runs_and_their_reports_per_skill(
+        self, _name: str, skill_name: str, report_reason: str | None
+    ) -> None:
+        scout_report = _make_report(self.team)
         other_scout_report = _make_report(self.team)
         pipeline_report = _make_report(self.team)
-        self._scout_run("signals-scout-health-checks", [str(health_check_report.id)])
+        self._scout_run(skill_name, [str(scout_report.id)])
         self._scout_run("signals-scout-general", [str(other_scout_report.id)])
 
         # No skill row for the team: origin unprovable → fail closed, stays billable.
-        self.assertIsNone(system_billing_exempt_reason(self.team.id, health_check_report.id))
+        self.assertIsNone(system_billing_exempt_reason(self.team.id, scout_report.id))
+        self.assertFalse(scout_skill_spend_exempt(self.team.id, skill_name, 1))
 
-        skill = _seed_canonical_scout_skill(self.team, "signals-scout-health-checks")
-        self.assertEqual(
-            system_billing_exempt_reason(self.team.id, health_check_report.id),
-            SignalReport.BillingExemptReason.POSTHOG_HEALTH_CHECK,
-        )
+        skill = _seed_canonical_scout_skill(self.team, skill_name)
+        _seed_canonical_scout_skill(self.team, "signals-scout-general")
+        self.assertEqual(system_billing_exempt_reason(self.team.id, scout_report.id), report_reason)
+        self.assertTrue(scout_skill_spend_exempt(self.team.id, skill_name, 1))
         self.assertIsNone(system_billing_exempt_reason(self.team.id, other_scout_report.id))
+        self.assertFalse(scout_skill_spend_exempt(self.team.id, "signals-scout-general", 1))
         self.assertIsNone(system_billing_exempt_reason(self.team.id, pipeline_report.id))
 
         # A team-edited fork keeps the canonical name but is no longer PostHog's system:
@@ -568,16 +579,18 @@ class TestBillingExemptions(BaseTest):
         skill.body = "team-edited body"
         skill.save(update_fields=["body"])
         forked_report = _make_report(self.team)
-        self._scout_run("signals-scout-health-checks", [str(forked_report.id)])
+        self._scout_run(skill_name, [str(forked_report.id)])
         self.assertIsNone(system_billing_exempt_reason(self.team.id, forked_report.id))
+        self.assertFalse(scout_skill_spend_exempt(self.team.id, skill_name, 1))
 
         # A republished row that kept the seed tag but dropped the stored hash proves nothing
         # about its content, so it cannot mint an exemption either.
         skill.metadata.pop("canonical_hash")
         skill.save(update_fields=["metadata"])
         unproven_report = _make_report(self.team)
-        self._scout_run("signals-scout-health-checks", [str(unproven_report.id)])
+        self._scout_run(skill_name, [str(unproven_report.id)])
         self.assertIsNone(system_billing_exempt_reason(self.team.id, unproven_report.id))
+        self.assertFalse(scout_skill_spend_exempt(self.team.id, skill_name, 1))
 
 
 class TestSpendBasedBilling(BaseTest):

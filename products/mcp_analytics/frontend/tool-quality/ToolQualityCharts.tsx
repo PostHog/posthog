@@ -1,6 +1,5 @@
 import { useMemo } from 'react'
 
-import { LemonSkeleton } from '@posthog/lemon-ui'
 import {
     BoxPlot,
     type BoxPlotConfig,
@@ -21,6 +20,7 @@ import { useChartConfig } from 'lib/charts/hooks'
 import { formatPercentage } from 'lib/utils/numbers'
 
 import { Card, CardState } from '../dashboard/Card'
+import { ChartSkeleton } from '../dashboard/ChartSkeleton'
 import { formatMsAsSeconds } from '../dashboard/formatters'
 import { type ChartViewChange, type ChartViews, type DailyChartData } from '../mcpAnalyticsToolQualityLogic'
 
@@ -106,7 +106,8 @@ function ChartCard({
             <CardState
                 loading={loading}
                 isEmpty={isEmpty}
-                skeleton={<LemonSkeleton className="min-h-[220px] flex-1" />}
+                className="min-h-[220px]"
+                skeleton={<ChartSkeleton kind="line" />}
                 empty={
                     <div className="flex min-h-[220px] flex-1 items-center justify-center text-center text-[12px] text-secondary">
                         No tool calls for this selection.
@@ -143,7 +144,8 @@ export function ToolQualityCharts({
     latencyBoxes: (BoxPlotDatum | null)[]
     onViewChange: (change: ChartViewChange) => void
 }): JSX.Element {
-    const isEmpty = data.labels.length === 0
+    // The series are zero-filled across the date range, so an empty range still has labels.
+    const isEmpty = data.calls.every((calls) => calls === 0)
 
     // `incompleteTail` is only true when the window has ≥2 buckets (lastBucketIsInProgress owns that
     // rule), and every series is filled to the bucket count, so the final segment exists.

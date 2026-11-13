@@ -129,6 +129,11 @@ export function apiUrl(path: string, query?: Record<string, QueryValue>): string
     return `${host}${path.startsWith('/') ? path : `/${path}`}${buildQuery(query)}`
 }
 
+/** The bearer header for a URL that a native loader, such as a video player, fetches instead of `send()`. */
+export function authorizationHeaders(): Record<string, string> {
+    return { Authorization: `Bearer ${requireAuth().accessToken as string}` }
+}
+
 /** The web app URL of a page in the current project, or undefined when no session or project is set. */
 export function projectWebUrl(path: string): string | undefined {
     try {

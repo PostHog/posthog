@@ -28,7 +28,7 @@ export const HttpEndpoints: Story = {
     args: {
         config: {
             ...CATALOG.defaultConfig,
-            groupBy: 'http.route',
+            groupBy: ['http.request.method', 'http.route'],
             columns: [
                 { label: 'Requests/s', metricName: 'http_server_requests_total', aggregation: 'rate' },
                 {

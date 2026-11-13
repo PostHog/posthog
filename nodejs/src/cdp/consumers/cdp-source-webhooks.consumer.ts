@@ -8,7 +8,9 @@ import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { UUID, UUIDT } from '~/common/utils/utils'
 
 import { HealthCheckResult, HealthCheckResultOk, PluginsServerConfig } from '../../types'
+import { RunIntake } from '../intake/run-intake'
 import { createHogFlowInvocation } from '../services/hogflows/hogflow-executor.service'
+import { HOG_FLOW_QUOTA_LIMITED_MESSAGE } from '../services/hogflows/hogflow-quota-limiting'
 import { actionIdForLogging } from '../services/hogflows/hogflow-utils'
 import { IdempotencyKeys } from '../services/hogflows/idempotency-keys'
 import { JobQueue } from '../services/job-queue/job-queue.interface'
@@ -111,10 +113,16 @@ export class SourceWebhookError extends Error {
     }
 }
 
+// A 4xx rejection is the API answering the caller as designed, so it stays out of error tracking.
+export function isUnexpectedWebhookError(error: unknown): boolean {
+    return !(error instanceof SourceWebhookError && error.status < 500)
+}
+
 export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConfig> {
     protected name = 'CdpSourceWebhooksConsumer'
     private hogQueue: JobQueue
     private hogflowQueue: JobQueue
+    private runIntake: RunIntake
     private promiseScheduler: PromiseScheduler
 
     constructor(
@@ -127,6 +135,10 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
         this.promiseScheduler = new PromiseScheduler()
         this.hogQueue = jobQueues.hogQueue
         this.hogflowQueue = jobQueues.hogflowQueue
+        this.runIntake = new RunIntake({
+            hogflowQueue: this.hogflowQueue,
+            invocationResultsRowsService: this.invocationResultsService.invocationResultsRowsService,
+        })
     }
 
     public async getWebhook(webhookId: string): Promise<{ hogFlow?: HogFlow; hogFunction: HogFunctionType } | null> {
@@ -151,12 +163,17 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
 
         // Otherwise check for hog flows
         const hogFlow = await this.hogFlowManager.getHogFlow(webhookId)
+        if (hogFlow?.status === 'active' && hogFlow.trigger?.type === 'manual') {
+            // This route takes no credentials, so a manual run goes through Django, which checks the user's access.
+            throw new SourceWebhookError(
+                403,
+                'A manual trigger runs only for a signed-in user. Use the trigger button in PostHog or POST /api/projects/:project_id/hog_flows/:id/run/.'
+            )
+        }
         if (
             hogFlow &&
             hogFlow.status === 'active' &&
-            (hogFlow.trigger?.type === 'webhook' ||
-                hogFlow.trigger?.type === 'tracking_pixel' ||
-                hogFlow.trigger?.type === 'manual')
+            (hogFlow.trigger?.type === 'webhook' || hogFlow.trigger?.type === 'tracking_pixel')
         ) {
             const hogFunction = await this.hogFlowFunctionsService.buildHogFunction(hogFlow, hogFlow.trigger)
 
@@ -377,29 +394,43 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
                     }
                 }
 
+                const releaseReservation = async (): Promise<void> => {
+                    if (scopedIdempotencyKey) {
+                        await this.idempotencyKeys.release(hogFlow.team_id, scopedIdempotencyKey, invocationId)
+                    }
+                }
+
+                const quotaLimited = await this.isHogFlowQuotaLimited(hogFlow).catch(async (error) => {
+                    await releaseReservation()
+                    throw error
+                })
+                if (quotaLimited) {
+                    await releaseReservation()
+                    addLog('warn', `Started no run: ${HOG_FLOW_QUOTA_LIMITED_MESSAGE}`)
+                    functionResult.finished = false
+                    if (hogFlow.trigger?.type !== 'tracking_pixel') {
+                        functionResult.execResult = {
+                            httpResponse: { status: 429, body: { error: HOG_FLOW_QUOTA_LIMITED_MESSAGE } },
+                        }
+                    }
+                    return { result: functionResult, queuedInvocationId: null }
+                }
+
                 addMetric({
                     metric_kind: 'other',
                     metric_name: 'triggered',
                     count: 1,
                 })
 
-                // Queued before queueInvocations serializes the invocation, because
-                // queueLifecycleRow stamps `state.firstScheduledAt` and only a stamp set before
-                // serialization reaches cyclotron.
-                this.invocationResultsService.invocationResultsRowsService.queueLifecycleRow(
-                    hogFlowInvocation,
-                    'running'
-                )
-
                 try {
-                    await this.hogflowQueue.queueInvocations([hogFlowInvocation])
+                    const [committed] = await this.runIntake.launch([{ invocation: hogFlowInvocation }], {
+                        wait: 'committed',
+                    })
+                    queuedInvocationId = committed.runId
                 } catch (error) {
-                    if (scopedIdempotencyKey) {
-                        await this.idempotencyKeys.release(hogFlow.team_id, scopedIdempotencyKey, invocationId)
-                    }
+                    await releaseReservation()
                     throw error
                 }
-                queuedInvocationId = invocationId
                 if (scopedIdempotencyKey) {
                     await this.idempotencyKeys.markQueued(
                         hogFlow.team_id,
@@ -550,7 +581,10 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
         return result
     }
 
-    @instrumented('cdpSourceWebhooksConsumer.processWebhook')
+    @instrumented({
+        key: 'cdpSourceWebhooksConsumer.processWebhook',
+        shouldCaptureException: isUnexpectedWebhookError,
+    })
     public async processWebhook(
         identifier: string,
         req: ModifiedRequest
@@ -587,7 +621,10 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
     }
 
     // The caller must check that the user may edit the workflow: this method trusts `userId`.
-    @instrumented('cdpSourceWebhooksConsumer.processManualTrigger')
+    @instrumented({
+        key: 'cdpSourceWebhooksConsumer.processManualTrigger',
+        shouldCaptureException: isUnexpectedWebhookError,
+    })
     public async processManualTrigger(
         teamId: number,
         hogFlowId: string,
@@ -644,7 +681,9 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
         // A refusal gets 422 so a template's own 401 or 405 is not mistaken for the route's auth check.
         const httpResponse = getCustomHttpResponse(outcome.result)
         if (httpResponse && httpResponse.status >= 400) {
-            const reason = typeof httpResponse.body === 'string' ? httpResponse.body : JSON.stringify(httpResponse.body)
+            const body = httpResponse.body
+            const reason =
+                typeof body === 'string' ? body : typeof body?.error === 'string' ? body.error : JSON.stringify(body)
             throw new SourceWebhookError(422, `The trigger refused the run (${httpResponse.status}): ${reason}`)
         }
         throw new SourceWebhookError(

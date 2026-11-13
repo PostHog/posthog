@@ -86,7 +86,8 @@ REVIEW_POLICY_FIELDS = ("review_mode", "trigger_label")
 # Reviewer requests decide which teams get asked on every pull request, and turning them off can leave
 # pull requests with no reviewer at all, so both directions take manager. A fork label replaces a
 # team's review request on fork pull requests, so it decides who gets asked too.
-MANAGER_FIELDS = (*REVIEW_POLICY_FIELDS, "routing_mode", "routing_fork_labels")
+# The clean-review switch starts reviews outside review_mode, so it decides when reviews run as well.
+MANAGER_FIELDS = (*REVIEW_POLICY_FIELDS, "routing_mode", "routing_fork_labels", "review_on_clean_external_review")
 
 ReviewLevel = Literal["editor", "manager"]
 
@@ -665,8 +666,9 @@ class ReviewRunViewSet(_StamphogTeamScopedViewSet, viewsets.GenericViewSet):
                     "Filter by what caused the run. Leave it unset to include runs from every trigger. "
                     "'all' is not a wildcard: it matches only runs in repos that review every pull request "
                     "event. The other values: 'label' (the repo's trigger label opted the PR in), 'manual' "
-                    "(someone requested the review through the API or MCP), and 'self_driving' (stamphog "
-                    "reviewed a bot-authored PR from the inbox)."
+                    "(someone requested the review through the API or MCP), 'reviewhog_clean' (a clean PostHog "
+                    "Review run started a silent review, which posts only an approval), and 'self_driving' "
+                    "(stamphog reviewed a bot-authored PR from the inbox)."
                 ),
             ),
         ],

@@ -1,0 +1,105 @@
+# LangChain `lc_serializable` envelope ({lc, type: constructor, id, kwargs}). The real
+# message is in `kwargs`, but serialization drops its `type`, so the message kind
+# survives only as the class name at the end of `id`. That is index 2 for
+# `langchain_core` ids and index 3 for `langchain.schema` ids. The class rules give
+# the message back its LangChain `type` so the bare langchain rule sets the role.
+# A tool result is emitted with the tool role instead, because the bare rule gives
+# `type: tool` the default role and the result would never fold into its call.
+# Any other envelope delegates `kwargs` unchanged.
+
+id: langchain_envelope
+
+rules:
+    - on:
+          lc: 1
+          type: constructor
+          id: { shape: { '2': { in: [SystemMessage, SystemMessageChunk] } } }
+          kwargs: { is: object }
+      delegate:
+          type: system
+          content: $.kwargs.content
+          tool_calls: $.kwargs.tool_calls
+          tool_call_id: $.kwargs.tool_call_id
+
+    - on:
+          lc: 1
+          type: constructor
+          id: { shape: { '3': { in: [SystemMessage, SystemMessageChunk] } } }
+          kwargs: { is: object }
+      delegate:
+          type: system
+          content: $.kwargs.content
+          tool_calls: $.kwargs.tool_calls
+          tool_call_id: $.kwargs.tool_call_id
+
+    - on:
+          lc: 1
+          type: constructor
+          id: { shape: { '2': { in: [HumanMessage, HumanMessageChunk] } } }
+          kwargs: { is: object }
+      delegate:
+          type: human
+          content: $.kwargs.content
+          tool_calls: $.kwargs.tool_calls
+          tool_call_id: $.kwargs.tool_call_id
+
+    - on:
+          lc: 1
+          type: constructor
+          id: { shape: { '3': { in: [HumanMessage, HumanMessageChunk] } } }
+          kwargs: { is: object }
+      delegate:
+          type: human
+          content: $.kwargs.content
+          tool_calls: $.kwargs.tool_calls
+          tool_call_id: $.kwargs.tool_call_id
+
+    - on:
+          lc: 1
+          type: constructor
+          id: { shape: { '2': { in: [AIMessage, AIMessageChunk] } } }
+          kwargs: { is: object }
+      delegate:
+          type: ai
+          content: $.kwargs.content
+          tool_calls: $.kwargs.tool_calls
+          tool_call_id: $.kwargs.tool_call_id
+
+    - on:
+          lc: 1
+          type: constructor
+          id: { shape: { '3': { in: [AIMessage, AIMessageChunk] } } }
+          kwargs: { is: object }
+      delegate:
+          type: ai
+          content: $.kwargs.content
+          tool_calls: $.kwargs.tool_calls
+          tool_call_id: $.kwargs.tool_call_id
+
+    - on:
+          lc: 1
+          type: constructor
+          id: { shape: { '2': { in: [ToolMessage, ToolMessageChunk] } } }
+          kwargs: { is: object }
+      emit:
+          role: tool
+          content:
+              stringify: $.kwargs.content
+          toolCallId: $.kwargs.tool_call_id
+
+    - on:
+          lc: 1
+          type: constructor
+          id: { shape: { '3': { in: [ToolMessage, ToolMessageChunk] } } }
+          kwargs: { is: object }
+      emit:
+          role: tool
+          content:
+              stringify: $.kwargs.content
+          toolCallId: $.kwargs.tool_call_id
+
+    - on:
+          lc: 1
+          type: constructor
+          kwargs: { is: object }
+      delegate: $.kwargs

@@ -381,6 +381,11 @@ EXPERIMENTS_RECALCULATION_ACTIVITY_TASK_QUEUE = _set_temporal_task_queue(
 EXPERIMENTS_RECALCULATION_PRECOMPUTE_TASK_QUEUE = _set_temporal_task_queue(
     "experiments-recalculation-precompute-task-queue"
 )
+# The build and direct-heavy queues have workers but get no calcs yet; the routing changes send calcs to them later.
+EXPERIMENTS_RECALCULATION_BUILD_TASK_QUEUE = _set_temporal_task_queue("experiments-recalculation-build-task-queue")
+EXPERIMENTS_RECALCULATION_DIRECT_HEAVY_TASK_QUEUE = _set_temporal_task_queue(
+    "experiments-recalculation-direct-heavy-task-queue"
+)
 HEALTH_CHECK_TASK_QUEUE = _set_temporal_task_queue("health-check-task-queue")
 DUCKLAKE_TASK_QUEUE = _set_temporal_task_queue("ducklake-task-queue")
 TASKS_TASK_QUEUE = _set_temporal_task_queue("tasks-task-queue")
@@ -482,6 +487,15 @@ if ALERTS_PLATFORM_METRICS_MAX_INFLIGHT_BATCHES <= 0:
     raise ImproperlyConfigured(
         "ALERTS_PLATFORM_METRICS_MAX_INFLIGHT_BATCHES must be a positive integer, or no platform metrics check starts"
     )
+# The platform's traces batches allowed to run at once, across every team. A batch runs its
+# `trace_spans` queries one after another, so this bounds the concurrent traces alert queries.
+ALERTS_PLATFORM_TRACES_MAX_INFLIGHT_BATCHES: int = get_from_env(
+    "ALERTS_PLATFORM_TRACES_MAX_INFLIGHT_BATCHES", 5, type_cast=int
+)
+if ALERTS_PLATFORM_TRACES_MAX_INFLIGHT_BATCHES <= 0:
+    raise ImproperlyConfigured(
+        "ALERTS_PLATFORM_TRACES_MAX_INFLIGHT_BATCHES must be a positive integer, or no platform traces check starts"
+    )
 # Insight alert checks allowed to run against ClickHouse at once, across every team.
 ALERTS_MAX_INFLIGHT_EVALUATIONS: int = get_from_env("ALERTS_MAX_INFLIGHT_EVALUATIONS", 40, type_cast=int)
 if ALERTS_MAX_INFLIGHT_EVALUATIONS <= 0:
@@ -498,10 +512,11 @@ REPLAY_VISION_TASK_QUEUE = _set_temporal_task_queue("replay-vision-task-queue")
 SURFACING_SCORING_SWEEP_TASK_QUEUE = SESSION_REPLAY_TASK_QUEUE
 WEEKLY_DIGEST_TASK_QUEUE = _set_temporal_task_queue("weekly-digest-task-queue")
 # The digest workflow's webhook in the US project, and the Authorization value it requires. Both regions post
-# there. Without both, every digest goes through Customer.io.
+# there. Without both, the send sends no digest and fails the run.
 WEEKLY_DIGEST_WORKFLOW_WEBHOOK_URL: str = get_from_env("WEEKLY_DIGEST_WORKFLOW_WEBHOOK_URL", "")
 WEEKLY_DIGEST_WORKFLOW_WEBHOOK_SECRET: str = get_from_env("WEEKLY_DIGEST_WORKFLOW_WEBHOOK_SECRET", "")
 LLMA_EVALS_TASK_QUEUE = _set_temporal_task_queue("llm-analytics-evals-task-queue")
+AEO_TASK_QUEUE = _set_temporal_task_queue("aeo-task-queue")
 LLMA_TASK_QUEUE = _set_temporal_task_queue("llm-analytics-task-queue")
 # Units one evaluation backfill dispatches per tick, one tick per BACKFILL_TICK_INTERVAL.
 # evaluation_backfill.py clamps this to 1..1000 where it reads the setting, because the candidate

@@ -21,10 +21,12 @@ export const RECOMMENDATION_RULE_LABELS: Record<MarketingAnalyticsRecommendation
     keyword_gap: 'Keyword gap',
     spend_without_conversions: 'Spend without conversions',
     striking_distance: 'Striking distance',
+    keyword_tracking: 'Keyword tracking',
 }
 
 export const RECOMMENDATION_RULE_DESCRIPTIONS: Record<MarketingAnalyticsRecommendationRule, string> = {
-    budget_constrained: 'Google Ads limits these campaigns by budget and suggests a higher daily budget.',
+    budget_constrained:
+        'Conversions cost no more than the benchmark CPA, but Google Ads limits the campaign by budget and suggests a higher one.',
     brand_leak: 'Campaigns that are not about your brand spend on searches for your brand name.',
     scale_campaign:
         'Conversions cost less than the benchmark CPA, but the campaign loses impressions to budget or ad rank.',
@@ -35,6 +37,8 @@ export const RECOMMENDATION_RULE_DESCRIPTIONS: Record<MarketingAnalyticsRecommen
     keyword_gap: 'Popular organic searches you do not bid on, made of words that already convert in your ads.',
     spend_without_conversions: 'Search terms that cost at least twice the benchmark CPA and never converted.',
     striking_distance: 'Searches where your site ranks between positions 5 and 20. The top 3 gets most of the clicks.',
+    keyword_tracking:
+        'Visits from your Google Ads clicks have no utm_term, so conversion goals cannot be tied to the keyword that brought them.',
 }
 
 // Completes "Benchmark $40, ...".
@@ -64,6 +68,7 @@ const RULE_CATEGORIES: Record<MarketingAnalyticsRecommendationRule, Recommendati
     content_gap: 'organic',
     striking_distance: 'organic',
     policy_limited: 'fix',
+    keyword_tracking: 'fix',
 }
 
 export const RECOMMENDATION_CATEGORY_LABELS: Record<RecommendationCategory, string> = {

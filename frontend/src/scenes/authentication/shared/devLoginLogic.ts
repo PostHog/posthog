@@ -208,6 +208,7 @@ export const devLoginLogic = kea<devLoginLogicType>([
                 clientId: connector.client_id,
                 logoUri: connector.logo_uri,
                 redirectHost: connector.redirect_host,
+                flow: 'authorize',
             })
             const { pathname } = router.values.location
             const authPath = pathname === urls.signup() ? urls.signup() : urls.login()

@@ -7,7 +7,7 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 
-import { PlatformAlertConfigurationApi } from './generated/api.schemas'
+import { AlertReceiverApi, AlertRouteApi, PlatformAlertConfigurationApi } from './generated/api.schemas'
 
 const CONFIGURATION: PlatformAlertConfigurationApi = {
     id: '0192a5b0-0000-7000-8000-000000000001',
@@ -15,6 +15,11 @@ const CONFIGURATION: PlatformAlertConfigurationApi = {
     enabled: true,
     labels: {},
     annotations: {},
+    created_by: null,
+    last_checked_at: null,
+    last_error_message: null,
+    state_timeline: [],
+    destination_types: [],
     source_kind: 'logs',
     source_config: {
         filters: { serviceNames: ['checkout'], severityLevels: ['error'] },
@@ -78,6 +83,11 @@ const GROUPED_CONFIGURATION: PlatformAlertConfigurationApi = {
     name: 'Errors per service above 50',
     legacy_configuration_id: null,
     owner: 'platform',
+    labels: { team: 'checkout', severity: 'page' },
+    annotations: {
+        runbook_url: 'https://example.com/runbooks/checkout-errors',
+        summary: '{{ $labels.service_name }} logged {{ $value }} errors',
+    },
     grouping: {
         mode: 'by_result_labels',
         keys: ['service_name', 'severity_text'],
@@ -120,6 +130,52 @@ const GROUPED_CONFIGURATION: PlatformAlertConfigurationApi = {
     ],
 }
 
+const RECEIVERS: AlertReceiverApi[] = [
+    {
+        id: '0192a5b0-0000-7000-8000-000000000401',
+        name: 'Infra incidents',
+        type: 'webhook',
+        enabled: true,
+        route_count: 2,
+        webhook_url: 'https://hooks.example.com',
+    },
+    {
+        id: '0192a5b0-0000-7000-8000-000000000402',
+        name: 'Checkout team',
+        type: 'teams',
+        enabled: false,
+        route_count: 1,
+        webhook_url: 'https://example.webhook.office.com',
+    },
+]
+
+const ROUTES: AlertRouteApi[] = [
+    {
+        id: '0192a5b0-0000-7000-8000-000000000501',
+        receiver_id: RECEIVERS[0].id,
+        matchers: [
+            { label: 'team', value: 'infra' },
+            { label: 'severity', value: 'critical' },
+        ],
+        event_kinds: ['firing', 'resolved', 'errored', 'broken'],
+        enabled: true,
+    },
+    {
+        id: '0192a5b0-0000-7000-8000-000000000502',
+        receiver_id: RECEIVERS[0].id,
+        matchers: [],
+        event_kinds: ['firing', 'resolved'],
+        enabled: false,
+    },
+    {
+        id: '0192a5b0-0000-7000-8000-000000000503',
+        receiver_id: RECEIVERS[1].id,
+        matchers: [{ label: 'team', value: 'checkout' }],
+        event_kinds: ['firing', 'resolved', 'errored', 'broken'],
+        enabled: true,
+    },
+]
+
 const meta: Meta = {
     component: App,
     title: 'Scenes-App/PlatformAlerts',
@@ -140,6 +196,8 @@ const meta: Meta = {
                 },
                 [`/api/projects/:team_id/platform_alerts/${CONFIGURATION.id}/`]: CONFIGURATION,
                 [`/api/projects/:team_id/platform_alerts/${GROUPED_CONFIGURATION.id}/`]: GROUPED_CONFIGURATION,
+                '/api/projects/:team_id/platform_alert_receivers/': RECEIVERS,
+                '/api/projects/:team_id/platform_alert_routes/': ROUTES,
             },
             post: {
                 [`/api/projects/:team_id/platform_alerts/${GROUPED_CONFIGURATION.id}/snooze_group/`]:
@@ -176,5 +234,24 @@ export const DetailGroupedSnoozeMenuOpen: Story = {
             .find((trigger) => trigger.textContent === 'Snoozed')
             ?.click()
         await within(document.body).findByText('Unsnooze')
+    },
+}
+
+export const DetailRuleMetadataModalOpen: Story = {
+    parameters: {
+        pageUrl: urls.platformAlert(GROUPED_CONFIGURATION.id),
+        testOptions: { snapshotBrowsers: [] },
+    },
+    play: async ({ canvasElement }) => {
+        await within(canvasElement).findByText('Labels and annotations')
+        canvasElement.querySelector<HTMLElement>('[data-attr="platform-alert-rule-metadata-edit"]')?.click()
+        await within(document.body).findByText('Edit labels and annotations')
+    },
+}
+
+export const Routing: Story = {
+    parameters: {
+        pageUrl: `${urls.platformAlerts()}?tab=routing`,
+        featureFlags: [FEATURE_FLAGS.PLATFORM_ALERTS, FEATURE_FLAGS.PLATFORM_ALERTS_ROUTING],
     },
 }

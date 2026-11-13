@@ -196,6 +196,7 @@ export const PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION = [
     'transactional_email:read',
     'transactional_email:write',
     'llm_prompt:read',
+    'logs:read',
 ] as const
 
 export type ProjectSecretAPIKeyAllowedScope = (typeof PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION)[number]
@@ -252,7 +253,7 @@ export const API_KEY_SCOPE_PRESETS: {
     {
         value: 'source_map_upload',
         label: 'Source map upload',
-        scopes: ['organization:read', 'error_tracking:write'],
+        scopes: ['error_tracking:write'],
     },
     {
         value: 'zapier',

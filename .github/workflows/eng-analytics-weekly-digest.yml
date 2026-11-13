@@ -10,8 +10,8 @@ name: Engineering analytics weekly digest
 #   - secrets.SLACK_DEVEX_BOT_TOKEN: the DevEx Slack bot.
 #
 # Optional:
-#   - secrets.DEPOT_TOKEN: a Depot organization token that can read usage. Without it the digest
-#     posts no spend.
+#   - secrets.DEPOT_TOKEN: a Depot organization token that can read usage and the credit balance.
+#     Without it the digest posts no spend.
 #   - vars.DEPOT_CONTRACT_USD: the Depot contract's usage allowance in list-price dollars.
 #   - vars.DEPOT_CONTRACT_START and vars.DEPOT_CONTRACT_END: the contract dates, as YYYY-MM-DD.
 #     Without all three the digest posts no contract sentence.

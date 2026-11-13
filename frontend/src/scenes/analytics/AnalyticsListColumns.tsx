@@ -1,6 +1,7 @@
 import type { ColumnDef } from '@tanstack/react-table'
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { useState } from 'react'
 
 import {
     IconChevronDown,
@@ -27,6 +28,7 @@ import {
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
+import { cn } from 'lib/utils/css-classes'
 import { urls } from 'scenes/urls'
 
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
@@ -37,7 +39,9 @@ import { AnalyticsFolderDropTarget } from './AnalyticsFolderDropTarget'
 import { analyticsListLogic } from './analyticsListLogic'
 import type { FolderRow } from './analyticsListLogic'
 import { AnalyticsOwner } from './AnalyticsOwner'
+import { AnalyticsPinHint } from './AnalyticsPinHint'
 import { AnalyticsPinMenuItem } from './AnalyticsPinMenuItem'
+import { analyticsPinnedLogic } from './analyticsPinnedLogic'
 import { analyticsShareLogic } from './analyticsShareLogic'
 import { AnalyticsSpaceGlyph } from './AnalyticsSpaceGlyph'
 import { AnalyticsTypeIcon } from './AnalyticsTypeIcon'
@@ -76,6 +80,8 @@ function TimeCell({ time }: { time: string | null }): JSX.Element {
 const VISIBLE_TAGS = 2
 
 function TagsCell({ tags }: { tags: string[] }): JSX.Element {
+    const { filters } = useValues(analyticsListLogic)
+    const { setFilters } = useActions(analyticsListLogic)
     if (!tags.length) {
         return (
             <Text size="xs" variant="muted">
@@ -88,7 +94,19 @@ function TagsCell({ tags }: { tags: string[] }): JSX.Element {
         <div className="flex min-w-0 items-center gap-1">
             <ChipGroup className="min-w-0 max-w-full flex-1 flex-nowrap">
                 {tags.slice(0, VISIBLE_TAGS).map((tag) => (
-                    <Chip key={tag} size="xs" className="min-w-0 max-w-24 flex-1" title={tag}>
+                    <Chip
+                        key={tag}
+                        size="xs"
+                        className="min-w-0 max-w-24 flex-1"
+                        title={`Filter by ${tag}`}
+                        render={<button type="button" />}
+                        onClick={() => {
+                            if (!filters.tags.includes(tag)) {
+                                setFilters({ tags: [...filters.tags, tag] })
+                            }
+                        }}
+                        data-attr="analytics-list-row-tag"
+                    >
                         <span className="min-w-0 truncate">{tag}</span>
                     </Chip>
                 ))}
@@ -154,14 +172,23 @@ function SpaceCell({ item }: { item: AnalyticsItem }): JSX.Element {
 
 function ItemMenuCell({ item }: { item: AnalyticsItem }): JSX.Element {
     const { openShareToSpace } = useActions(analyticsShareLogic)
+    // Read here, not passed in by the column factory: new columns would remount this cell and close its open menu.
+    const { pinHintVisible } = useValues(analyticsPinnedLogic)
+    const { items } = useValues(analyticsListLogic)
+    const { hidePinHint } = useActions(analyticsPinnedLogic)
+    const pinHint = pinHintVisible && items[0]?.type === item.type && items[0]?.id === item.id
+    const [trigger, setTrigger] = useState<HTMLButtonElement | null>(null)
     return (
-        <DropdownMenu>
+        <DropdownMenu onOpenChange={(open) => open && pinHint && hidePinHint()}>
+            {pinHint && trigger && <AnalyticsPinHint anchor={trigger} />}
             <DropdownMenuTrigger
                 render={
                     <Button
+                        ref={setTrigger}
                         variant="default"
                         size="icon-sm"
                         aria-label={`Actions for ${item.name}`}
+                        className={cn(pinHint && 'ring-2 ring-ring')}
                         data-attr="analytics-list-row-menu"
                     />
                 }
@@ -381,7 +408,7 @@ export function analyticsListColumns({
             ? ([
                   {
                       id: 'last_viewed_at',
-                      header: 'Last viewed',
+                      header: 'Last viewed by me',
                       accessorFn: (row) => (row.kind === 'item' ? (row.item.entry?.last_viewed_at ?? null) : null),
                       sortDescFirst: true,
                       enableMultiSort: false,

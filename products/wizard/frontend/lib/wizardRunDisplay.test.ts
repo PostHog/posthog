@@ -1,10 +1,11 @@
-import type { WizardRunApi } from '../generated/api.schemas'
+import type { WizardRunApi, WizardRunTaskApi } from '../generated/api.schemas'
 import {
     WizardRunProgressStep,
     wizardGithubRepositoryUrl,
     wizardRunCanCancel,
     selectWizardInstallRun,
     wizardRunFailureStage,
+    wizardRunProgressFraction,
     wizardRunProgressStates,
     wizardRunProgressStep,
 } from './wizardRunDisplay'
@@ -107,6 +108,25 @@ describe('wizardRunProgressStates', () => {
             [WizardRunProgressStep.ExecutingWizard]: 'complete',
             [WizardRunProgressStep.CreatingArtifacts]: 'failed',
         })
+    })
+})
+
+describe('wizardRunProgressFraction', () => {
+    const tasks = (['completed', 'completed', 'running', 'created'] as const).map(
+        (status) => ({ name: status, status }) as WizardRunTaskApi
+    )
+
+    test.each([
+        ['created', null, [], 0],
+        ['running', 'preparing_workspace', [], 0.05],
+        ['running', 'executing_wizard', [], 0.15],
+        ['running', 'executing_wizard', tasks, 0.525],
+        ['running', 'creating_artifacts', tasks, 0.9],
+        ['completed', null, tasks, 1],
+    ])('places a %s run at stage %s with %j tasks at %s', (status, stage, runTasks, expected) => {
+        const run = makeRun({ status: status as WizardRunApi['status'], stage: stage as WizardRunApi['stage'] })
+
+        expect(wizardRunProgressFraction(run, runTasks)).toBeCloseTo(expected)
     })
 })
 

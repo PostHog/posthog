@@ -1,13 +1,16 @@
 import { router } from 'kea-router'
 
 import { ApiError } from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { performQuery } from '~/queries/query'
 import { initKeaTests } from '~/test/init'
 import { expectLogic } from '~/test/keaTestUtils'
 
+import { newMetricUrl } from './common'
 import { dataCatalogNewMetricSceneLogic, NewMetricFormValues } from './dataCatalogNewMetricSceneLogic'
 import { dataCatalogMetricsApproveCreate, dataCatalogMetricsCreate, dataCatalogMetricsList } from './generated/api'
 import type { DataCatalogMetricApi } from './generated/api.schemas'
@@ -137,6 +140,21 @@ describe('dataCatalogNewMetricSceneLogic', () => {
         expect(router.values.location.pathname).toContain(urls.dataCatalogMetric('monthly_active_users'))
     })
 
+    it('fills the form from a prefilled link without marking it as edited', async () => {
+        const prefill = {
+            display_name: 'User signups',
+            name: 'user_signups',
+            description: 'Counts signups.',
+            sql: 'SELECT 1',
+        }
+
+        await expectLogic(logic, () => router.actions.push(newMetricUrl(prefill))).toMatchValues({
+            metricForm: expect.objectContaining({ ...prefill, definitionType: 'sql' }),
+            metricFormChanged: false,
+        })
+        expect(router.values.hashParams).not.toHaveProperty('metric_prefill')
+    })
+
     it('does not create anything when the active definition is empty', async () => {
         logic.actions.setMetricFormValues({ ...SQL_FORM, sql: '', markdown: 'Count the users' })
 
@@ -234,5 +252,17 @@ describe('dataCatalogNewMetricSceneLogic', () => {
         logic.actions.testSqlQuery()
 
         expect(performQuery).toHaveBeenCalledTimes(1)
+    })
+
+    it.each([
+        [false, ['Data catalog', 'New metric']],
+        [true, ['Data catalog', 'Metrics', 'New metric']],
+    ])('with the catalog restructure %s the breadcrumbs read %j', (restructure, names) => {
+        featureFlagLogic.actions.setFeatureFlags([], {
+            [FEATURE_FLAGS.TODAY_RAIL_NAV]: restructure,
+            [FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE]: restructure,
+        })
+
+        expect(logic.values.breadcrumbs.map((crumb) => crumb.name)).toEqual(names)
     })
 })

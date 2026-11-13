@@ -62,17 +62,19 @@ from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentic
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
 from posthog.exceptions_capture import capture_exception
-from posthog.integrations import IntegrationManager
+from posthog.integrations import CrossTeamFilter, IntegrationManager
 from posthog.ip_restrictions import enforce_ip_restrictions, get_ip_blocked_organization_ids
-from posthog.models.integration import GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS, GitHubIntegrationError, Integration
+from posthog.models.integration import GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS, GitHubIntegrationError
 from posthog.models.integration.github_audit import GitHubAudit
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.user_integration import (
     NEEDS_REAUTHORIZATION_Q,
     GitHubInstallRequest,
+    ReauthorizationRequired,
     UserGitHubIntegration,
     UserIntegration,
+    revoke_slack_user_token,
 )
 from posthog.permissions import APIScopePermission, TimeSensitiveActionPermission
 from posthog.rate_limit import CodexConnectUserThrottle, UserAuthenticationThrottle
@@ -359,6 +361,8 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
         # GitHubRateLimitError as the team integration endpoints — same 429 mapping.
         if isinstance(exc, GitHubRateLimitError):
             return github_rate_limited_response(exc)
+        if isinstance(exc, ReauthorizationRequired):
+            exc = exceptions.PermissionDenied("Your GitHub connection has expired. Reconnect GitHub in settings.")
         return super().handle_exception(exc)
 
     def _get_user(self) -> User:
@@ -576,6 +580,8 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
         integration = self._get_connected_github_integration(installation_id)
 
         github = UserGitHubIntegration(integration, source="github_branch_picker", priority=Priority.CRITICAL)
+        if not github.user_can_open_repository(repo):
+            raise exceptions.NotFound("Repository not found for this GitHub connection.")
         branches, default_branch, has_more = github.list_cached_branches(
             repo,
             search=search,
@@ -769,12 +775,19 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
             ).values_list("config__slack_team_id", flat=True)
         )
 
-        candidates = (
-            Integration.objects.filter(kind="slack", team__organization_id__in=org_ids)
-            .exclude(team__organization_id__in=get_ip_blocked_organization_ids(request))
-            .exclude(integration_id__in=already_linked_slack_team_ids)
-            .select_related("team", "team__organization")
-        )
+        teams_by_id = {
+            team.id: team
+            for team in Team.objects.filter(organization_id__in=org_ids)
+            .exclude(organization_id__in=get_ip_blocked_organization_ids(request))
+            .select_related("organization")
+        }
+        candidates = [
+            integration
+            for integration in IntegrationManager.slack.oauth.list_across_teams(
+                CrossTeamFilter(team_ids=tuple(teams_by_id))
+            )
+            if integration.integration_id not in already_linked_slack_team_ids
+        ]
 
         # Skip projects the user can't actually access (private project, no role
         # via access-control, etc.). Without the per-team check, an org member
@@ -787,7 +800,8 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
 
         results: list[dict[str, Any]] = []
         for integration in candidates:
-            if permissions.team(integration.team).effective_membership_level is None:
+            team = teams_by_id[integration.team_id]
+            if permissions.team(team).effective_membership_level is None:
                 continue
             # Scope check per workspace so an install that can't resolve identities
             # doesn't show up in another org's picker.
@@ -801,8 +815,8 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
             results.append(
                 {
                     "posthog_team_id": integration.team_id,
-                    "posthog_team_name": integration.team.name,
-                    "posthog_organization_name": integration.team.organization.name,
+                    "posthog_team_name": team.name,
+                    "posthog_organization_name": team.organization.name,
                     "slack_team_id": integration.integration_id,
                     "slack_team_name": team_block.get("name"),
                 }
@@ -887,6 +901,7 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
         ).first()
         if integration is None:
             raise exceptions.NotFound("No Slack link found for this Slack user id.")
+        revoke_slack_user_token(integration)
         integration.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 

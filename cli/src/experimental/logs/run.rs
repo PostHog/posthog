@@ -13,6 +13,7 @@ use super::mapping::Mapper;
 use super::retention::retention_cutoff;
 use super::send::{backoff, classify, Disposition};
 use super::shard::shards;
+use crate::utils::redact_request_error;
 
 /// The intake rejects a personal API token, so the import takes the project write key. That key is
 /// already public-facing, which keeps a long unattended run off the user's personal credential.
@@ -221,7 +222,8 @@ impl Importer<'_> {
                 .header("Content-Type", "application/json")
                 .bearer_auth(&self.project_key)
                 .body(batch.body.clone())
-                .send();
+                .send()
+                .map_err(redact_request_error);
 
             let disposition = match sent {
                 Ok(response) => {

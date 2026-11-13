@@ -1,12 +1,18 @@
+import gc
 import os
 import time
 import errno
 import threading
+from typing import TYPE_CHECKING
 
+from django.conf import settings
 from django.dispatch import receiver
 
 import structlog
-from celery import Celery
+from celery import Celery, bootsteps
+from celery.bootsteps import RUN
+from celery.exceptions import WorkerShutdown
+from celery.platforms import EX_FAILURE
 from celery.signals import (
     celeryd_init,
     import_modules,
@@ -16,8 +22,10 @@ from celery.signals import (
     task_prerun,
     task_retry,
     task_success,
+    worker_init,
     worker_process_init,
     worker_process_shutdown,
+    worker_ready,
 )
 from django_structlog.celery import signals
 from django_structlog.celery.steps import DjangoStructLogInitStep
@@ -25,6 +33,10 @@ from opentelemetry import trace
 from prometheus_client import Counter, Histogram, start_http_server
 
 from posthog.celery_task_names import LIVENESS_ALERTED_TASK_NAMES
+
+if TYPE_CHECKING:
+    from celery.worker import WorkController
+    from kombu.asynchronous import Hub
 
 # When PROMETHEUS_MULTIPROC_DIR is set (by bin/docker-worker-celery),
 # prometheus_client uses file-backed storage so all prefork children's
@@ -208,6 +220,21 @@ def _celery_team_id_prerun_receiver(task_id=None, task=None, args=None, kwargs=N
     _tag_celery_span_with_team_id(kwargs)
 
 
+@worker_init.connect
+def freeze_objects_before_pool_forks(**kwargs) -> None:
+    if not settings.GC_FREEZE_BEFORE_POOL_FORK:
+        return
+    # Celery sends worker_init after it imports the task modules and before the prefork pool forks
+    # its children, so the frozen objects include the tasks. Children that the pool forks again
+    # later, for example after --max-tasks-per-child, inherit the same frozen objects. The garbage
+    # collector writes to every object it scans, so a child's first full collection turns the memory
+    # it shares with this process into private copies. Frozen objects are never scanned, so the
+    # children keep sharing them. The collection runs first because a frozen garbage cycle is never
+    # freed.
+    gc.collect()
+    gc.freeze()
+
+
 @worker_process_init.connect
 def on_worker_start(**kwargs) -> None:
     from posthoganalytics import setup
@@ -244,6 +271,51 @@ def on_worker_start(**kwargs) -> None:
 
     # Initialize metrics that need to survive pod restarts
     _initialize_worker_metrics()
+
+
+@worker_ready.connect
+def write_heartbeat_when_worker_is_ready(**kwargs) -> None:
+    from posthog.cloud_utils import is_hobby
+    from posthog.tasks.tasks import redis_heartbeat
+
+    # Hobby schedules the heartbeat every 60 seconds, and beat first runs an interval task one
+    # interval after it starts. Without this write, preflight shows Celery offline on a new install
+    # until that first run.
+    if is_hobby():
+        redis_heartbeat()
+
+
+_EMBEDDED_SCHEDULER_CHECK_INTERVAL_SECONDS = 30.0
+
+
+class StopWorkerWhenEmbeddedSchedulerExits(bootsteps.StartStopStep):
+    # Celery never restarts an embedded scheduler that exits, so the worker would keep running with
+    # nothing scheduling tasks. Exit instead, the same way the container exits when a separate
+    # scheduler process exits, so that the restart policy starts both again.
+
+    def register_with_event_loop(self, worker: "WorkController", hub: "Hub") -> None:
+        scheduler = worker.beat
+        if scheduler is None:
+            return
+
+        def stop_worker_if_scheduler_exited() -> None:
+            # A worker that stops ends its scheduler first, and then Celery fires this timer from a
+            # helper thread while the pool finishes its tasks. An exception raised there ends that
+            # thread, and the task time limits stop with it.
+            worker_is_stopping = worker.blueprint.state != RUN
+            if worker_is_stopping or scheduler.is_alive():
+                return
+            logger.error("embedded_scheduler_exited", exitcode=scheduler.exitcode)
+            raise WorkerShutdown(EX_FAILURE)
+
+        # The check asks the process object and not the process list, because a scheduler that waits
+        # for the RedBeat lock does not have the "[celery beat]" title yet. Celery clears the timers
+        # of the event loop when it loses the broker connection, and calls this method again when
+        # the loop restarts, so the check is registered here and not in a worker_ready receiver.
+        hub.call_repeatedly(_EMBEDDED_SCHEDULER_CHECK_INTERVAL_SECONDS, stop_worker_if_scheduler_exited)
+
+
+app.steps["worker"].add(StopWorkerWhenEmbeddedSchedulerExits)
 
 
 _ANALYTICS_METRICS_FLUSH_TIMEOUT_SECONDS = 5.0

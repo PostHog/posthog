@@ -73,6 +73,14 @@ function recommendation(
         impactDirection: 'save',
         impactType: 'measured',
         currency: 'USD',
+        identity: {
+            rule: overrides.rule,
+            source_type: 'google_ads',
+            customer_id: '1234567890',
+            campaign_id: '',
+            subject: overrides.subject,
+        },
+        key: `${overrides.rule}:${overrides.subject}`,
         ...overrides,
     }
 }
@@ -94,7 +102,7 @@ const RESULTS: MarketingAnalyticsRecommendation[] = [
         level: 'campaign',
         subject: 'Search - Competitors',
         action: 'Review bids, ads and landing page, or pause',
-        reason: "Its non-brand CPA is $412, 4.1x the account's non-brand CPA of $100.",
+        reason: "Its non-brand CPA is 4.1x the account's non-brand CPA.",
         impact: 3100,
         cpa: cpa(412, 100, 'account'),
     }),
@@ -173,10 +181,11 @@ const RESULTS: MarketingAnalyticsRecommendation[] = [
     recommendation({
         rule: 'budget_constrained',
         level: 'campaign',
-        subject: 'Search - Brand',
+        subject: 'Search - Generic',
         action: 'Raise the daily budget from $50 to $80',
-        reason: 'Google Ads reports this campaign as limited by budget and recommends $80 a day.',
+        reason: "Limited by budget, and its non-brand CPA is at or below the account's non-brand CPA. 22% of eligible impressions are lost because the budget runs out. $80 a day is Google's recommended budget.",
         impact: 900,
+        cpa: cpa(85, 100, 'account'),
         impactDirection: 'invest',
         impactType: 'estimated',
     }),
@@ -185,7 +194,7 @@ const RESULTS: MarketingAnalyticsRecommendation[] = [
         level: 'campaign',
         subject: 'Search - Product',
         action: 'Raise the budget',
-        reason: "Its non-brand CPA is $62, against the account's non-brand CPA of $100. It loses 31% of impressions to budget and 12% to ad rank.",
+        reason: "Its non-brand CPA is at or below the account's non-brand CPA. It loses 31% of impressions to budget and 12% to ad rank.",
         impact: 1500,
         cpa: cpa(62, 100, 'account'),
         impactDirection: 'invest',
@@ -205,7 +214,7 @@ const RESULTS: MarketingAnalyticsRecommendation[] = [
         subject: 'event tracking setup',
         campaign: 'Search - Product',
         action: 'Create or improve a page for this search',
-        reason: "Converts in Ads at a CPA of $45 (the account's non-brand CPA is $100), but does not rank organically",
+        reason: "You pay $540/mo in Ads for this search, which converts at a CPA at or below the account's non-brand CPA. It does not rank organically, so a new page in the top 3 could bring these visitors without ad spend.",
         cpa: cpa(45, 100, 'account'),
         impact: 600,
         impactDirection: 'gain',
@@ -226,6 +235,14 @@ const RESULTS: MarketingAnalyticsRecommendation[] = [
         subject: 'Performance Max - All products',
         action: 'Check the affected ads in Policy manager',
         reason: 'Some asset groups are limited by policy, so they show less often.',
+    }),
+    recommendation({
+        rule: 'keyword_tracking',
+        level: 'account',
+        subject: 'Acme Ads',
+        action: "Add utm_term={keyword} to the account's Final URL suffix",
+        reason: "98% of the project's 4,310 Google Ads sessions in the selected dates have no utm_term, so PostHog conversion goals cannot be tied to the keyword that brought each visitor.",
+        impactDirection: 'gain',
     }),
 ]
 
@@ -285,7 +302,7 @@ const meta: Meta<typeof RecommendationsSection> = {
         layout: 'fullscreen',
         mockDate: '2025-02-15T12:00:00Z',
         msw: { mocks: MOCKS },
-        pageUrl: `${urls.marketingAnalyticsApp()}?tab=ad-performance&date_from=-30d`,
+        pageUrl: `${urls.marketingAnalyticsApp()}?tab=search-performance&date_from=-30d`,
         featureFlags: [
             FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS,
             FEATURE_FLAGS.MARKETING_ANALYTICS_RECOMMENDATIONS,
@@ -311,6 +328,15 @@ export const ModalInstructions: Story = {
         const modal = within(canvasElement.ownerDocument.body)
         await userEvent.click(await modal.findByText('Spend without conversions', { selector: 'button *' }))
         await userEvent.click(await modal.findByText('View instructions'))
+    },
+}
+
+export const ModalKeywordTracking: Story = {
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await userEvent.click(await canvas.findByText('Recommendations', { selector: 'button *' }))
+        const modal = within(canvasElement.ownerDocument.body)
+        await userEvent.click(await modal.findByText('Keyword tracking', { selector: 'button *' }))
     },
 }
 

@@ -28,7 +28,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from products.approvals.backend.models import ChangeRequest
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.util import sort_cohorts_topologically
-from products.dashboards.backend.api.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard import Dashboard
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.experiments.backend.facade.testing import create_experiment
 from products.feature_flags.backend.api.organization_feature_flag import (

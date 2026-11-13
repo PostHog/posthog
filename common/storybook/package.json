@@ -12,31 +12,31 @@
         "test:visual:update:docker": "pnpm build:products && NODE_OPTIONS=--max-old-space-size=16384 test-storybook -u --browsers chromium webkit --no-index-json"
     },
     "dependencies": {
-        "@babel/runtime": "^7.26.10",
+        "@babel/runtime": "^7.29.10",
         "@jest/globals": "^30.0.5",
         "@jest/test-sequencer": "^30.0.5",
         "@posthog/frontend": "workspace:*",
-        "@storybook/addon-a11y": "^10.4.3",
-        "@storybook/addon-docs": "^10.4.3",
-        "@storybook/addon-links": "^10.4.3",
+        "@storybook/addon-a11y": "^10.6.1",
+        "@storybook/addon-docs": "^10.6.1",
+        "@storybook/addon-links": "^10.6.1",
         "@storybook/csf": "^0.1.12",
         "@storybook/react": "catalog:",
         "@storybook/react-vite": "catalog:",
-        "@storybook/test-runner": "^0.24.4",
+        "@storybook/test-runner": "^0.26.0",
         "@tailwindcss/vite": "4.3.0",
-        "@types/jest-image-snapshot": "^6.4.0",
+        "@types/jest-image-snapshot": "^6.4.2",
         "buffer": "^6.0.3",
         "history": "^5.0.1",
-        "jest-image-snapshot": "^6.4.0",
+        "jest-image-snapshot": "^6.5.2",
         "mockdate": "^3.0.5",
         "posthog-js-lite": "4.13.3",
-        "sass": "^1.26.2",
+        "sass": "^1.107.1",
         "storybook": "catalog:",
         "vite": "catalog:"
     },
     "devDependencies": {
         "@playwright/test": "catalog:",
         "http-server": "^14.1.1",
-        "wait-on": "^7.2.0"
+        "wait-on": "^9.5.1"
     }
 }

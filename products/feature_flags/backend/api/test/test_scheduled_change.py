@@ -428,6 +428,28 @@ class TestScheduledChange(APIBaseTest):
 
         assert paged_ids == [9001, 9002, 9003, 9004]
 
+    def test_record_ids_returns_the_schedules_of_any_listed_flag(self):
+        flag_ids = []
+        for key in ("first", "second", "unlisted"):
+            flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key=key, name=key)
+            ScheduledChange.objects.create(
+                team=self.team,
+                record_id=flag.id,
+                model_name="FeatureFlag",
+                payload={"operation": "update_status", "value": True},
+                scheduled_at="2024-03-01T09:00:00Z",
+                created_by=self.user,
+            )
+            flag_ids.append(str(flag.id))
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/scheduled_changes/",
+            data={"record_ids": f"{flag_ids[0]}, {flag_ids[1]}"},
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert sorted(result["record_id"] for result in response.json()["results"]) == sorted(flag_ids[:2])
+
     def test_cannot_update_record_id(self):
         """Updating record_id is rejected to prevent cross-tenant manipulation."""
         feature_flag = FeatureFlag.objects.create(

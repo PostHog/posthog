@@ -47,6 +47,7 @@ from posthog.logging.exceptions import add_otel_exception_attributes
 
 if typing.TYPE_CHECKING:
     from posthog.kafka_client.client import _AsyncKafkaProducer
+    from posthog.temporal.common.internal_logs import InternalLogsSink
 
 BACKGROUND_LOGGER_TASKS: dict[str, asyncio.Task[typing.Any]] = {}
 
@@ -495,7 +496,8 @@ def configure_logger(
     file: typing.TextIO | None = None,
     raise_on_producer_error: bool = False,
     otel_log_mirror: structlog.types.Processor | None = None,
-) -> None:
+    internal_logs: "InternalLogsSink | None" = None,
+) -> collections.abc.Callable[[], collections.abc.Awaitable[None]] | None:
     """Configure a structlog for Temporal workflows.
 
     Configuring the logger involves:
@@ -526,6 +528,12 @@ def configure_logger(
             prefer only logging as most products can survive without logs.
         otel_log_mirror: Optionally, a processor inserted before the renderer to mirror
             records to the Logs product over OTLP.
+        internal_logs: Optionally, also send each produced `log_entries` message to the
+            team's logs product as a signed internal log.
+
+    Returns:
+        A coroutine function that sends every queued log and stops the producer, or `None`
+        when no producer runs.
     """
     base_processors: list[structlog.types.Processor] = [
         structlog.stdlib.add_log_level,
@@ -569,6 +577,7 @@ def configure_logger(
                 queue=log_queue,
                 topic=KAFKA_LOG_ENTRIES,
                 producer=producer,
+                internal_logs=internal_logs,
             )
         except Exception as e:
             # Skip putting logs in queue if we don't have a producer that can consume the queue.
@@ -605,28 +614,39 @@ def configure_logger(
 
             logger = structlog.get_logger()
             logger.error("Failed to initialize log producer", exc_info=log_producer_error)
-        return
+        return None
 
     listen_task = create_background_task(
         log_producer.listen(), loop or asyncio.get_running_loop(), name="log_producer_listen"
     )
 
-    async def handle_worker_shutdown():
-        """Gracefully handle a Temporal Worker shutting down.
+    async def stop_log_producer() -> None:
+        """Waits until the queue is fully processed, then cancels the task listening on it.
 
-        Graceful handling means:
-        * Waiting until the queue is fully processed to avoid missing log messages.
-        * Cancel task listening on queue.
+        Gives up after the internal logs retry window, because the queue only empties when Kafka confirms
+        each message, and a Kafka outage would otherwise hold the process open.
         """
+
+        async def stop() -> None:
+            await log_queue.join()
+
+            listen_task.cancel()
+
+            await asyncio.wait([listen_task])
+
+        await asyncio.wait(
+            [asyncio.ensure_future(stop())], timeout=settings.LOGS_INTERNAL_PRODUCER_RETRY_TIMEOUT_MS / 1000
+        )
+
+    async def handle_worker_shutdown():
+        """Gracefully handle a Temporal Worker shutting down."""
         await temporalio.activity.wait_for_worker_shutdown()
 
-        await log_queue.join()
-
-        listen_task.cancel()
-
-        await asyncio.wait([listen_task])
+        await stop_log_producer()
 
     create_background_task(handle_worker_shutdown(), loop or asyncio.get_running_loop(), name="handle_worker_shutdown")
+
+    return stop_log_producer
 
 
 CoroRetType = typing.TypeVar("CoroRetType")
@@ -682,11 +702,13 @@ class KafkaLogProducerFromQueueAsync:
         topic: str = KAFKA_LOG_ENTRIES,
         producer: "_AsyncKafkaProducer | None" = None,
         key: str | None = None,
+        internal_logs: "InternalLogsSink | None" = None,
     ):
         self.queue = queue
         self.topic = topic
         self.key = key
         self._producer = producer
+        self._internal_logs = internal_logs
         self.logger = structlog.get_logger("posthog.temporal.common.logger.KafkaLogProducerFromQueueAsync")
 
     @property
@@ -710,10 +732,16 @@ class KafkaLogProducerFromQueueAsync:
             while True:
                 msg = await self.queue.get()
                 await self.produce(msg)
+                if self._internal_logs is not None:
+                    self._internal_logs.offer(msg)
 
         finally:
-            await self.flush()
-            await self.producer.close()
+            try:
+                await self.flush()
+                await self.producer.close()
+            finally:
+                if self._internal_logs is not None:
+                    await self._internal_logs.drain()
 
     async def produce(self, msg: bytes):
         """Produce messages to configured topic and key.
@@ -857,6 +885,8 @@ BATCH_EXPORT_WORKFLOW_TYPES = {
     "http-export",
     "redshift-export",
     "databricks-export",
+    "azure-blob-export",
+    "workflows-export",
 }
 
 

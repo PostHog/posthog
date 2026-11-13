@@ -27,11 +27,18 @@ from posthog.ph_client import ph_scoped_capture
 from products.signals.backend.activity_summary.read import ActivitySummaryStatus, get_summary
 from products.signals.backend.models import PersonalInboxRanking
 from products.signals.backend.personal_ranking.candidates import Candidate, gather_candidates
-from products.signals.backend.personal_ranking.config import PersonalRankingConfig, ReasoningEffort, read_config
+from products.signals.backend.personal_ranking.config import (
+    PersonalRankingConfig,
+    ReasoningEffort,
+    list_limit,
+    read_config,
+)
+from products.signals.backend.personal_ranking.inbox_activity import InboxActivityBlock, read_inbox_activity
 from products.signals.backend.personal_ranking.prompt import (
     PROMPT_VERSION,
     RESPONSE_FORMAT,
     TIERS,
+    render_inbox_activity,
     render_person,
     system_prompt,
     user_message,
@@ -73,7 +80,15 @@ RETRYABLE_FALLBACK_REASONS = frozenset(
 
 # The input parts that `input_parts` hashes one by one. The report parts have one hash for each candidate.
 REPORT_PARTS = ("text", "status", "priority", "pull_request_state", "needs_you", "scores")
-INPUT_PARTS = ("candidate_set", *REPORT_PARTS, "activity_summary_version", "prompt_version", "focus")
+INPUT_PARTS = (
+    "candidate_set",
+    *REPORT_PARTS,
+    "activity_summary_version",
+    "prompt_version",
+    "config",
+    "focus",
+    "inbox_activity",
+)
 # The person had no list before this build.
 CHANGED_NO_PREVIOUS = "no_previous_list"
 # The previous list has no part hashes, so the build cannot tell which part changed.
@@ -82,13 +97,12 @@ _PART_HASH_CHARS = 16
 
 BuildStatus = Literal["ok", "fallback", "empty", "disabled"]
 # What started a build, on the build event and the trace, so cost can be split by it.
-BuildTrigger = Literal["on_demand", "tick"]
+BuildTrigger = Literal["on_demand", "tick", "first_summary"]
 
 _MODEL_ORDER_REASON = "Kept in inbox order."
 _NEEDS_YOU_REASONS = {
     "waiting_on_input": "Waiting on your input.",
     "claimed": "You claimed this report.",
-    "suggested_reviewer": "You're a suggested reviewer.",
 }
 
 
@@ -150,6 +164,8 @@ class PersonalRankingBuild:
     input_parts: dict[str, Any] | None = None
     # None for a dry run or a disabled build.
     input_changes: InputChanges | None = None
+    # None when the config leaves the block out.
+    inbox_activity: InboxActivityBlock | None = None
 
     def result_json(self) -> dict[str, Any]:
         """The stored `result`: every candidate by report id, with its rank, tier and reason."""
@@ -182,7 +198,9 @@ class PersonalRankingBuild:
 
 
 def model_order_reason(candidate: Candidate) -> str:
-    return next((_NEEDS_YOU_REASONS[kind] for kind in candidate.needs_you), _MODEL_ORDER_REASON)
+    return next(
+        (_NEEDS_YOU_REASONS[kind] for kind in candidate.needs_you if kind in _NEEDS_YOU_REASONS), _MODEL_ORDER_REASON
+    )
 
 
 def may_call_model(team: Team, *, summary_ready: bool) -> bool:
@@ -198,8 +216,21 @@ def normalize_focus(focus: str | None, max_chars: int) -> str | None:
     return text or None
 
 
-def input_hash(candidates: list[Candidate], *, activity_summary_version: int | None, focus: str | None) -> str:
-    """Changes when a candidate, its text, status, priority, PR state, needs-you facts or score, the summary, the prompt or the focus changes."""
+def _config_part(config: PersonalRankingConfig, limit: int) -> list[str]:
+    # The rendered prompt holds every lever it names, such as `rank_top`, the tier caps and the reason limits.
+    return [config.model, config.reasoning_effort, system_prompt(config, limit)]
+
+
+def input_hash(
+    candidates: list[Candidate],
+    *,
+    config: PersonalRankingConfig,
+    limit: int,
+    activity_summary_version: int | None,
+    focus: str | None,
+    inbox_activity: InboxActivityBlock | None,
+) -> str:
+    """Changes when a candidate, its text, status, priority, PR state, needs-you facts or score, the summary, the prompt, the config, the focus or the hashed inbox activity changes."""
     rows = sorted(
         [
             candidate.report_id,
@@ -221,7 +252,10 @@ def input_hash(candidates: list[Candidate], *, activity_summary_version: int | N
         "candidates": rows,
         "activity_summary_version": activity_summary_version,
         "prompt_version": PROMPT_VERSION,
+        "config": _config_part(config, limit),
         "focus": focus,
+        # Left out when the block is off, so the hash stays as it was before the block existed.
+        **({"inbox_activity": inbox_activity.hash_part()} if inbox_activity is not None else {}),
     }
     return hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()
 
@@ -246,7 +280,13 @@ def _report_parts(candidate: Candidate) -> dict[str, Any]:
 
 
 def input_parts(
-    candidates: list[Candidate], *, activity_summary_version: int | None, focus: str | None
+    candidates: list[Candidate],
+    *,
+    config: PersonalRankingConfig,
+    limit: int,
+    activity_summary_version: int | None,
+    focus: str | None,
+    inbox_activity: InboxActivityBlock | None,
 ) -> dict[str, Any]:
     """The inputs of `input_hash` as one hash per part, so a later build can name the parts that changed.
 
@@ -256,7 +296,9 @@ def input_parts(
         "parts": {
             "activity_summary_version": _part_hash(activity_summary_version),
             "prompt_version": _part_hash(PROMPT_VERSION),
+            "config": _part_hash(_config_part(config, limit)),
             "focus": _part_hash(focus),
+            **({"inbox_activity": _part_hash(inbox_activity.hash_part())} if inbox_activity is not None else {}),
         },
         "reports": {
             candidate.report_id: {part: _part_hash(value) for part, value in _report_parts(candidate).items()}
@@ -340,12 +382,21 @@ class InputCheck:
     calls_model: bool
 
 
-def check_inputs(team: Team, user: User, config: PersonalRankingConfig, *, now: datetime.datetime) -> InputCheck:
+def check_inputs(
+    team: Team, user: User, config: PersonalRankingConfig, *, now: datetime.datetime, limit: int | None = None
+) -> InputCheck:
     """Compare the latest list with the current inputs. A list that still matches counts as fresh again."""
     latest = latest_row(team, user)
     candidates = gather_candidates(team, user, config, now=now, with_sources=False)
     summary_version = ready_summary_version(team, user)
-    current_hash = input_hash(candidates, activity_summary_version=summary_version, focus=None)
+    current_hash = input_hash(
+        candidates,
+        config=config,
+        limit=list_limit(config, limit),
+        activity_summary_version=summary_version,
+        focus=None,
+        inbox_activity=read_inbox_activity(team, user, config, now=now),
+    )
     if (
         latest is not None
         and latest.input_hash == current_hash
@@ -456,6 +507,7 @@ def _capture(
     # Ids, counts and accounting only. Report text, reasons and the summary are user content.
     try:
         pools: dict[str, int] = {}
+        by_ref = {candidate.ref: candidate for candidate in build.candidates}
         for candidate in build.candidates:
             for pool in candidate.pools:
                 pools[pool] = pools.get(pool, 0) + 1
@@ -465,6 +517,7 @@ def _capture(
                 distinct_id=user.distinct_id or PIPELINE_DISTINCT_ID,
                 event=BUILT_EVENT,
                 properties={
+                    **({"$update_person_last_seen_at": False} if trigger != "on_demand" else {}),
                     "team_id": team.id,
                     "user_id": user.id,
                     "ranking_id": build.ranking_id,
@@ -483,6 +536,12 @@ def _capture(
                     "candidate_count": len(build.candidates),
                     "ranked_by_llm_count": sum(1 for entry in build.entries if entry.ranked_by == "llm"),
                     "folded_count": len(build.folded),
+                    # The list as stored: the ranked reports by rank, then the folded reports. A later build
+                    # prunes the row, so an offline comparison of rankings and outcomes reads the order here.
+                    "report_ids": [
+                        *(by_ref[entry.ref].report_id for entry in build.entries),
+                        *(by_ref[fold.ref].report_id for fold in build.folded),
+                    ],
                     "tier_counts": {tier: sum(1 for entry in build.entries if entry.tier == tier) for tier in TIERS},
                     "pool_counts": pools,
                     **dataclasses.asdict(build.counts),
@@ -490,6 +549,7 @@ def _capture(
                     "tokens_out": build.tokens_out,
                     "latency_ms": build.latency_ms,
                     **(build.input_changes.properties() if build.input_changes is not None else {}),
+                    **(build.inbox_activity.properties() if build.inbox_activity is not None else {}),
                 },
                 groups={"organization": str(team.organization_id), "project": str(team.uuid)},
             )
@@ -539,7 +599,7 @@ def build_personal_ranking(
 ) -> PersonalRankingBuild:
     """Rank the person's candidate reports. `dry_run` calls the model but stores no row and records no event."""
     config = config or read_config()
-    limit = min(max(limit or config.default_limit, 1), config.max_limit)
+    limit = list_limit(config, limit)
     if not config.enabled:
         return PersonalRankingBuild(
             status="disabled",
@@ -561,6 +621,7 @@ def build_personal_ranking(
     ready_summary = summary if summary is not None and summary.status == ActivitySummaryStatus.READY else None
     summary_version = ready_summary.version if ready_summary is not None else None
     candidates = gather_candidates(team, user, config, now=now)
+    inbox_activity = read_inbox_activity(team, user, config, now=now, candidates=candidates)
     refs = [candidate.ref for candidate in candidates]
     model_reasons = {candidate.ref: model_order_reason(candidate) for candidate in candidates}
 
@@ -586,6 +647,7 @@ def build_personal_ranking(
                     now=now,
                     limit=limit,
                     rank_top=config.rank_top,
+                    inbox_activity=render_inbox_activity(inbox_activity, now) if inbox_activity is not None else None,
                 ),
             },
         ]
@@ -612,7 +674,14 @@ def build_personal_ranking(
                 fallback_reason = FALLBACK_MALFORMED
         status = "ok" if validated is not None else "fallback"
 
-    parts = input_parts(candidates, activity_summary_version=summary_version, focus=focus)
+    parts = input_parts(
+        candidates,
+        config=config,
+        limit=limit,
+        activity_summary_version=summary_version,
+        focus=focus,
+        inbox_activity=inbox_activity,
+    )
     build = PersonalRankingBuild(
         status=status,
         personalized=validated is not None,
@@ -624,8 +693,16 @@ def build_personal_ranking(
         candidates=tuple(candidates),
         counts=validated.counts if validated is not None else ValidationCounts(),
         limit=limit,
-        input_hash=input_hash(candidates, activity_summary_version=summary_version, focus=focus),
+        input_hash=input_hash(
+            candidates,
+            config=config,
+            limit=limit,
+            activity_summary_version=summary_version,
+            focus=focus,
+            inbox_activity=inbox_activity,
+        ),
         input_parts=parts,
+        inbox_activity=inbox_activity,
         activity_summary_version=summary_version,
         model=config.model,
         model_called=call is not None,

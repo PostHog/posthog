@@ -10,8 +10,6 @@ import Animated, {
     withSequence,
     withTiming,
 } from 'react-native-reanimated'
-import Svg from 'react-native-svg'
-
 import { type LogomarkPart, LogomarkShapes } from './LogomarkShapes'
 
 const AIRTIME_MS = 720
@@ -76,9 +74,7 @@ export function AnimatedLogomark({
         <View style={{ width, height }} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
             {PARTS.map((part, index) => (
                 <Animated.View key={part} style={[StyleSheet.absoluteFill, partStyles[index]]}>
-                    <Svg width={width} height={height} viewBox="0 0 52 28">
-                        <LogomarkShapes part={part} />
-                    </Svg>
+                    <LogomarkShapes part={part} height={height} />
                 </Animated.View>
             ))}
         </View>

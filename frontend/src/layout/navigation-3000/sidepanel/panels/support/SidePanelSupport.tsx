@@ -2,7 +2,7 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 import React from 'react'
 
 import { IconExpand45, IconFeatures, IconHelmet, IconMap, IconWarning } from '@posthog/icons'
-import { LemonButton, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, Link } from '@posthog/lemon-ui'
 
 import { incidentStatusLogic } from 'lib/components/HelpMenu/incidentStatusLogic'
 import { DEFAULT_PAID_RESPONSE_TIME, getSupportPlanRows } from 'lib/components/Support/supportResponseTime'
@@ -80,9 +80,14 @@ const StatusPageAlert = (): JSX.Element | null => {
 // In order to set these turn on the `support-message-override` feature flag.
 
 //Support offsite messaging
-const SUPPORT_MESSAGE_OVERRIDE_TITLE = "We're catching up on our support queue"
+const SUPPORT_MESSAGE_OVERRIDE_TITLE = "We're making improvements:"
 const SUPPORT_MESSAGE_OVERRIDE_BODY =
-    'Our support engineers recently attended an offsite to make long-term enhancements to our support process. As a result, our response times are slightly delayed for some inquiries. Thanks for your patience as we work to get caught up!'
+    "Many of our support engineers are attending an offsite (from 16th to 20th November) so we can make long-term enhancements. We're working different hours, so non-urgent inquiries may experience a slight delay. We'll be catching up from the 23rd and back to full speed shortly after!"
+
+//Support post-offsite catch-up messaging
+//const SUPPORT_MESSAGE_OVERRIDE_TITLE = "We're catching up on our support queue"
+//const SUPPORT_MESSAGE_OVERRIDE_BODY =
+//    'Our support engineers recently attended an offsite to make long-term enhancements to our support process. As a result, our response times are slightly delayed for some inquiries. Thanks for your patience as we work to get caught up!'
 
 //Support Christmas messaging
 //const SUPPORT_MESSAGE_OVERRIDE_TITLE = '🎄 🎅 Support during the holidays 🎁 ⛄'
@@ -97,10 +102,10 @@ const SupportMessageOverride = (): JSX.Element | null => {
     }
 
     return (
-        <div className="border bg-surface-primary p-2 rounded gap-2 mb-3">
+        <LemonBanner type="info" hideIcon={false} className="mb-3">
             <strong>{SUPPORT_MESSAGE_OVERRIDE_TITLE}</strong>
-            <p className="mt-2 mb-0">{SUPPORT_MESSAGE_OVERRIDE_BODY}</p>
-        </div>
+            <p className="mt-1 mb-0">{SUPPORT_MESSAGE_OVERRIDE_BODY}</p>
+        </LemonBanner>
     )
 }
 

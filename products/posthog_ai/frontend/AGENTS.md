@@ -241,6 +241,7 @@ ingestion).
   The quill thread folds only runs of two or more calls, like Desktop (`groupToolRuns`).
   A registry entry marked `pinned` (a plan, a question) never folds.
   A `keepVisible` widget result folds in quill, except the last finished call of a closed run.
+  The `task_summary_update` call never counts as that last call, because the agent must make it after every chart.
 - **A tool card is two header lines plus an accordion — overflow goes in the accordion.** Every tool
   renderer wraps its content in `ToolActivity`, which exposes exactly two always-visible header lines:
   the `title` and the `subtitle` (the one salient input — a command, path, repo, branch). **Any other

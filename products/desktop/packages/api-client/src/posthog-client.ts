@@ -2436,6 +2436,21 @@ export class PostHogAPIClient {
     });
   }
 
+  async getGitlabProjects(
+    integrationId: number,
+    search?: string,
+  ): Promise<Schemas.GitLabProjectsResponse> {
+    const teamId = await this.getTeamId();
+    const trimmedSearch = search?.trim();
+    return await this.api.get(
+      "/api/projects/{project_id}/integrations/{id}/gitlab_projects/",
+      {
+        path: { project_id: teamId.toString(), id: integrationId },
+        query: trimmedSearch ? { search: trimmedSearch } : {},
+      },
+    );
+  }
+
   /** Emails the project's admins asking them to connect an integration; members only. */
   async requestIntegrationAccess(
     projectId: number,
@@ -3568,6 +3583,7 @@ export class PostHogAPIClient {
       > & {
         github_integration?: number | null;
         github_user_integration?: string | null;
+        repository_integration?: number | null;
         signal_report_task_relationship?: string;
         signal_report_discussion_question?: string;
         branch?: string | null;
@@ -3580,7 +3596,7 @@ export class PostHogAPIClient {
         initial_permission_mode?: ExecutionMode;
         auto_publish?: boolean;
         naming_source?: string;
-      },
+      } & Pick<Schemas.TaskCreate, "warm_run_id">,
   ): Promise<Task> {
     const teamId = await this.getTeamId();
     const { origin_product: originProduct, ...taskOptions } = options;
@@ -4609,7 +4625,7 @@ export class PostHogAPIClient {
     fast_mode?: boolean | null;
     sandbox_environment_id?: string | null;
     custom_image_id?: string | null;
-  }): Promise<{ task_id: string; run_id: string } | null> {
+  }): Promise<Schemas.WarmTaskResponse | null> {
     const teamId = await this.getTeamId();
     const urlPath = `/api/projects/${teamId}/tasks/warm/`;
     const url = new URL(`${this.api.baseUrl}${urlPath}`);
@@ -4651,7 +4667,7 @@ export class PostHogAPIClient {
     if (!text) {
       return null;
     }
-    return JSON.parse(text) as { task_id: string; run_id: string };
+    return JSON.parse(text) as Schemas.WarmTaskResponse;
   }
 
   async prepareTaskStagedArtifactUploads(
@@ -5443,23 +5459,37 @@ export class PostHogAPIClient {
 
   async getGithubRepositories(
     integrationId: string | number,
+    signal?: AbortSignal,
   ): Promise<string[]> {
     const repositories: string[] = [];
     let offset = 0;
 
     while (true) {
-      const page = await this.getGithubRepositoriesPage(
-        integrationId,
-        offset,
-        500,
-      );
-      repositories.push(...page.repositories);
+      const controller = new AbortController();
+      const requestSignal = signal
+        ? AbortSignal.any([signal, controller.signal])
+        : controller.signal;
+      const timeout = setTimeout(() => controller.abort(), 15_000);
 
-      if (!page.hasMore) {
-        return repositories;
+      try {
+        requestSignal.throwIfAborted();
+        const page = await this.getGithubRepositoriesPage(
+          integrationId,
+          offset,
+          500,
+          undefined,
+          requestSignal,
+        );
+        repositories.push(...page.repositories);
+
+        if (!page.hasMore) {
+          return repositories;
+        }
+
+        offset += page.repositories.length;
+      } finally {
+        clearTimeout(timeout);
       }
-
-      offset += page.repositories.length;
     }
   }
 
@@ -5468,6 +5498,7 @@ export class PostHogAPIClient {
     offset: number,
     limit: number,
     search?: string,
+    signal?: AbortSignal,
   ): Promise<{
     repositories: string[];
     hasMore: boolean;
@@ -5486,6 +5517,7 @@ export class PostHogAPIClient {
       method: "get",
       url,
       path: `/api/environments/${teamId}/integrations/${integrationId}/github_repos/`,
+      overrides: { signal },
     });
 
     if (!response.ok) {
@@ -5569,25 +5601,38 @@ export class PostHogAPIClient {
 
   async refreshGithubRepositories(
     integrationId: string | number,
+    signal?: AbortSignal,
   ): Promise<string[]> {
     const teamId = await this.getTeamId();
     const url = new URL(
       `${this.api.baseUrl}/api/environments/${teamId}/integrations/${integrationId}/github_repos/refresh/`,
     );
-    const response = await this.api.fetcher.fetch({
-      method: "post",
-      url,
-      path: `/api/environments/${teamId}/integrations/${integrationId}/github_repos/refresh/`,
-    });
+    const controller = new AbortController();
+    const requestSignal = signal
+      ? AbortSignal.any([signal, controller.signal])
+      : controller.signal;
+    const timeout = setTimeout(() => controller.abort(), 60_000);
 
-    if (!response.ok) {
-      throw new Error(
-        `Failed to refresh GitHub repositories: ${response.statusText}`,
-      );
+    try {
+      requestSignal.throwIfAborted();
+      const response = await this.api.fetcher.fetch({
+        method: "post",
+        url,
+        path: `/api/environments/${teamId}/integrations/${integrationId}/github_repos/refresh/`,
+        overrides: { signal: requestSignal },
+      });
+
+      if (!response.ok) {
+        throw new Error(
+          `Failed to refresh GitHub repositories: ${response.statusText}`,
+        );
+      }
+
+      const data: unknown = await response.json();
+      return this.normalizeGithubRepositories(data);
+    } finally {
+      clearTimeout(timeout);
     }
-
-    const data: unknown = await response.json();
-    return this.normalizeGithubRepositories(data);
   }
 
   async refreshGithubUserRepositories(
@@ -6118,6 +6163,36 @@ export class PostHogAPIClient {
       throw new Error(errorText || "Failed to update signal report state");
     }
 
+    return (await response.json()) as SignalReport;
+  }
+
+  /**
+   * Take over the claim another person holds on a report. `claimId` names the
+   * claim the user confirmed, so the server refuses when a newer claim replaced
+   * it, and it notifies the person who held it.
+   */
+  async takeOverSignalReportClaim(
+    reportId: string,
+    claimId: string | null,
+  ): Promise<SignalReport> {
+    const teamId = await this.getTeamId();
+    const path = `/api/projects/${teamId}/signals/reports/${reportId}/claim/`;
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url: new URL(`${this.api.baseUrl}${path}`),
+      path,
+      overrides: {
+        body: JSON.stringify(
+          claimId
+            ? { takeover: true, takeover_claim_id: claimId }
+            : { takeover: true },
+        ),
+      },
+    });
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(errorText || "Failed to take over the report");
+    }
     return (await response.json()) as SignalReport;
   }
 

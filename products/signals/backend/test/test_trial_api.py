@@ -14,10 +14,10 @@ from posthog.models import OrganizationMembership, Team, User
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
-from products.signals.backend.models import SignalScoutConfig, SignalSourceConfig, SignalSpend
+from products.signals.backend.models import SignalScoutConfig, SignalSourceConfig, SignalSpend, SignalTeamConfig
 from products.signals.backend.trial.billing import TrialBillingStatus, TrialContinuation
 from products.signals.backend.trial.models import SignalTrialGrant
-from products.signals.backend.trial.policy import TrialPolicy
+from products.signals.backend.trial.policy import PRICING_LAUNCHED_AT, TrialPolicy
 from products.signals.backend.usage import trial_usage
 from products.skills.backend.models.skills import LLMSkill
 
@@ -255,9 +255,21 @@ class TestTrialAPI(APIBaseTest):
         assert not source.enabled
         assert not SignalTrialGrant.objects.for_team(self.team.pk).exists()
 
-    @parameterized.expand([(False, True), (True, False)])
-    def test_flag_off_and_disabled_sources_do_not_enroll(self, flag: bool, enabled: bool) -> None:
+    @parameterized.expand(
+        [
+            ("flag_off", False, True, False),
+            ("source_disabled", True, False, False),
+            ("billing_starts_later", True, True, True),
+        ]
+    )
+    def test_source_activation_outside_the_trial_does_not_enroll(
+        self, _name: str, flag: bool, enabled: bool, billing_starts_later: bool
+    ) -> None:
         self.flag_mock.return_value = flag
+        if billing_starts_later:
+            cutover = timezone.now().date() + timedelta(days=2)
+            self.organization.usage = {"signals_spend_credits": {"billing_start_date": cutover.isoformat()}}
+            self.organization.save(update_fields=["usage"])
         with patch("products.signals.backend.trial.billing.TrialBilling.status") as billing:
             response = self.client.post(
                 f"/api/projects/{self.team.pk}/signals/source_configs/",
@@ -520,7 +532,46 @@ class TestTrialAPI(APIBaseTest):
         assert response.json()["grant_id"] == str(grant.id)
         assert response.json()["grant_status"] == "active"
 
+    @parameterized.expand(
+        [
+            ("source_before_launch", "source", -1, True),
+            ("scout_before_launch", "scout", -1, True),
+            ("onboarding_before_launch", "onboarding", -1, True),
+            ("source_after_launch", "source", 1, False),
+        ]
+    )
+    def test_pricing_flag_identity_depends_on_activation_before_launch(
+        self, _name: str, activation: str, days_from_launch: int, uses_member: bool
+    ) -> None:
+        activated_at = PRICING_LAUNCHED_AT + timedelta(days=days_from_launch)
+        if activation == "source":
+            source = SignalSourceConfig.objects.create(
+                team=self.team, source_product="github", source_type="issue", enabled=False
+            )
+            SignalSourceConfig.objects.filter(pk=source.pk).update(created_at=activated_at)
+        elif activation == "scout":
+            scout = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-activation")
+            SignalScoutConfig.objects.unscoped().filter(pk=scout.pk).update(created_at=activated_at)
+        else:
+            SignalTeamConfig.objects.update_or_create(
+                team=self.team, defaults={"onboarding": {"completed_at": activated_at.isoformat()}}
+            )
+        TrialPolicy(self.team).flag_decision()
+        expected = self.user.distinct_id if uses_member else str(self.organization.id)
+        assert self.flag_mock.call_args.args == ("self-driving-ubp", expected)
+
     def test_flag_off_hides_offer_and_prevents_activation_for_claimed_projects(self) -> None:
+        SignalTeamConfig.objects.update_or_create(
+            team=self.team,
+            defaults={"onboarding": {"completed_at": (PRICING_LAUNCHED_AT - timedelta(days=30)).isoformat()}},
+        )
+        User.objects.create_and_join(self.organization, "later-member@example.com", None)
+        deactivated = User.objects.create_and_join(self.organization, "deactivated-member@example.com", None)
+        deactivated.is_active = False
+        deactivated.save()
+        OrganizationMembership.objects.filter(user=deactivated).update(
+            joined_at=OrganizationMembership.objects.get(user=self.user).joined_at - timedelta(days=1)
+        )
         with patch(
             "products.signals.backend.trial.billing.TrialBilling.status",
             return_value=TrialBillingStatus(ready=True, continuation=TrialContinuation.PAYMENT),
@@ -530,10 +581,9 @@ class TestTrialAPI(APIBaseTest):
             grant_id = response.json()["grant_id"]
             self.flag_mock.assert_called_with(
                 "self-driving-ubp",
-                str(self.organization.id),
+                self.user.distinct_id,
                 groups={"organization": str(self.organization.id)},
                 group_properties={"organization": {"id": str(self.organization.id)}},
-                only_evaluate_locally=True,
                 send_feature_flag_events=False,
             )
             self.flag_mock.return_value = False

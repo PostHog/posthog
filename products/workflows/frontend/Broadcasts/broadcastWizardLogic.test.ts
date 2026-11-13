@@ -1,11 +1,13 @@
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
-import { router } from 'kea-router'
+import { decodeParams, router } from 'kea-router'
+import { getRouterContext } from 'kea-router/lib/router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import { dayjs } from 'lib/dayjs'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { emailTemplaterLogic } from 'scenes/hog-functions/email-templater/emailTemplaterLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -23,6 +25,7 @@ import {
     DELETED_SENDER_ERROR,
     broadcastWizardLogic,
     getBroadcastTemplatingErrors,
+    rateLimitNeededForAudience,
 } from './broadcastWizardLogic'
 
 const LOCAL_AUDIENCE: AnyPropertyFilter[] = [
@@ -504,6 +507,134 @@ describe('broadcastWizardLogic', () => {
         expect(router.values.searchParams).toEqual({ step: 'content' })
     })
 
+    it('opens the email editor on the content step when the review preview asks to modify content', async () => {
+        latest = savedBroadcast({ name: 'Spring sale', subject: '', updatedAt: '2026-09-24T10:00:00Z' })
+        router.actions.push('/broadcasts/broadcast-1', { utm_source: 'test' })
+        const draftLogic = broadcastWizardLogic({ id: 'broadcast-1' })
+        draftLogic.mount()
+        await expectLogic(draftLogic).toFinishAllListeners()
+        draftLogic.actions.setStep('review')
+
+        draftLogic.actions.editEmailContent()
+
+        expect(draftLogic.values.currentStep).toBe('content')
+        expect(router.values.searchParams).toEqual({ utm_source: 'test', editor: 'email' })
+        draftLogic.unmount()
+    })
+
+    it('opens the email editor on the draft URL when an unsaved broadcast asks to modify content from review', async () => {
+        router.actions.push('/broadcasts/new')
+        logic.actions.setStep('review')
+
+        logic.actions.editEmailContent()
+        releaseCreate()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(router.values.location.pathname).toContain('/broadcasts/broadcast-1')
+        expect(router.values.searchParams).toEqual({ step: 'content', editor: 'email' })
+    })
+
+    it('closes the email editor on back after an unsaved broadcast opened it from review', async () => {
+        router.actions.push('/broadcasts/new')
+        const browserHistory = [router.values.location.pathname]
+        const { history } = getRouterContext()
+        if (!history) {
+            throw new Error('The router has no history in this test')
+        }
+        history.pushState = (_state: unknown, _title: string, url: string): void => {
+            browserHistory.push(url)
+        }
+        history.replaceState = (_state: unknown, _title: string, url: string): void => {
+            browserHistory[browserHistory.length - 1] = url
+        }
+        logic.actions.setStep('review')
+        logic.actions.editEmailContent()
+        releaseCreate()
+        await expectLogic(logic).toFinishAllListeners()
+        const editor = emailTemplaterLogic({
+            value: { design: null, html: '<p>Hi</p>', subject: 'Spring sale', text: 'Hi', from: '', to: '' },
+            onChange: jest.fn(),
+            type: 'native_email',
+        })
+        editor.mount()
+        expect(editor.values.isModalOpen).toBe(true)
+
+        browserHistory.pop()
+        const { pathname, search } = new URL(browserHistory[browserHistory.length - 1], 'https://example.com')
+        router.actions.locationChanged({
+            method: 'POP',
+            pathname,
+            search,
+            searchParams: decodeParams(search, '?'),
+            hash: '',
+            hashParams: {},
+            url: pathname + search,
+        })
+        await expectLogic(editor).toFinishAllListeners()
+
+        expect(editor.values.isModalOpen).toBe(false)
+        expect(router.values.location.pathname).toContain('/broadcasts/broadcast-1')
+        editor.unmount()
+    })
+
+    it('saves the draft and its send time before modify content retries after a failed schedule save', async () => {
+        const createdSchedules: Record<string, any>[] = []
+        const savedDrafts: string[] = []
+        let failSchedules = 1
+        useMocks({
+            patch: {
+                '/api/projects/:team_id/hog_flows/:id/': async ({ request }) => {
+                    savedDrafts.push(JSON.stringify(await request.json()))
+                    return [200, savedBroadcast({ name: '', subject: '', updatedAt: '2026-09-24T10:00:05Z' })]
+                },
+            },
+            post: {
+                '/api/projects/:team_id/hog_flows/:id/schedules/': async ({ request }) => {
+                    if (failSchedules > 0) {
+                        failSchedules -= 1
+                        return [500, { detail: 'Simulated outage' }]
+                    }
+                    const body = (await request.json()) as Record<string, any>
+                    createdSchedules.push(body)
+                    return [201, { id: 'schedule-1', ...body }]
+                },
+            },
+        })
+        const sendAt = dayjs().add(1, 'day').startOf('minute').toISOString()
+        router.actions.push('/broadcasts/new')
+        logic.actions.setScheduleMode('later')
+        logic.actions.setSendAt(sendAt)
+        logic.actions.setStep('review')
+        logic.actions.editEmailContent()
+        releaseCreate()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(router.values.location.pathname).toContain('/broadcasts/new')
+        expect(logic.values.savingForEmailEditor).toBe(false)
+        logic.actions.setAudienceProperties(LOCAL_AUDIENCE)
+
+        logic.actions.editEmailContent()
+        logic.actions.editEmailContent()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(savedDrafts).toEqual([expect.stringContaining('"plan"')])
+        expect(createdSchedules).toEqual([expect.objectContaining({ starts_at: sendAt })])
+        expect(router.values.location.pathname).toContain('/broadcasts/broadcast-1')
+        expect(router.values.searchParams).toEqual({ step: 'content', editor: 'email' })
+    })
+
+    it('keeps the step a person picks while the draft that modify content asked for still saves', async () => {
+        router.actions.push('/broadcasts/new')
+        logic.actions.setStep('review')
+        logic.actions.editEmailContent()
+
+        logic.actions.setStep('schedule')
+        releaseCreate()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(router.values.location.pathname).toContain('/broadcasts/broadcast-1')
+        expect(router.values.searchParams).toEqual({ step: 'schedule' })
+    })
+
     it.each([
         {
             edit: 'an email edit',
@@ -701,11 +832,30 @@ describe('broadcastWizardLogic', () => {
     })
 
     it.each([
-        { stop: 'the audience is over the batch limit', affected: 60000, editedElsewhere: false, step: 'recipients' },
-        { stop: 'the draft was edited elsewhere', affected: 10, editedElsewhere: true, step: 'review' },
+        {
+            stop: 'the audience is over the batch limit',
+            affected: 60000,
+            rateLimited: null,
+            editedElsewhere: false,
+            step: 'recipients',
+        },
+        {
+            stop: 'the audience needs a sending rate limit',
+            affected: 60000,
+            rateLimited: { max_emails_per_hour: 1000, max_days: 7, limit: 168000 },
+            editedElsewhere: false,
+            step: 'schedule',
+        },
+        {
+            stop: 'the draft was edited elsewhere',
+            affected: 10,
+            rateLimited: null,
+            editedElsewhere: true,
+            step: 'review',
+        },
     ])(
         'moves to the draft URL when a launch from /broadcasts/new stops because $stop',
-        async ({ affected, editedElsewhere, step }) => {
+        async ({ affected, rateLimited, editedElsewhere, step }) => {
             latest = savedBroadcast({
                 name: '',
                 subject: 'Edited by the assistant',
@@ -715,7 +865,14 @@ describe('broadcastWizardLogic', () => {
                 post: {
                     '/api/projects/:team_id/hog_flows/user_blast_radius/': () => [
                         200,
-                        { affected, total: affected, limit: 50000, dedupe_key: 'email', confirm_token: 'token' },
+                        {
+                            affected,
+                            total: affected,
+                            limit: 50000,
+                            dedupe_key: 'email',
+                            confirm_token: 'token',
+                            rate_limited: rateLimited,
+                        },
                     ],
                 },
             })
@@ -962,6 +1119,62 @@ describe('broadcastWizardLogic', () => {
             body: undefined,
             to: undefined,
         })
+    })
+
+    it.each([
+        { case: 'an audience under the limit', affected: 3000, rateLimit: null, expected: null },
+        {
+            case: 'an audience a sending rate limit can reach',
+            affected: 10000,
+            rateLimit: null,
+            expected: { affected: 10000, minPerHour: 60, maxPerHour: 62, days: 7 },
+        },
+        {
+            case: 'an audience a rate limit that is too fast cannot reach',
+            affected: 10000,
+            rateLimit: { count: 100, period: 'hour' as const },
+            expected: { affected: 10000, minPerHour: 60, maxPerHour: 62, days: 7 },
+        },
+        {
+            case: 'an audience the chosen rate limit reaches',
+            affected: 10000,
+            rateLimit: { count: 1, period: 'minute' as const },
+            expected: null,
+        },
+        { case: 'an audience too large for any sending rate', affected: 10417, rateLimit: null, expected: null },
+    ])('asks for a sending rate limit for $case', ({ affected, rateLimit, expected }) => {
+        // The slowest rate has to reach everyone in max_days, or the server keeps the normal limit.
+        const blastRadius: BlastRadiusApi = {
+            affected,
+            total: affected,
+            limit: 3000,
+            dedupe_key: 'email',
+            confirm_token: 'token',
+            rate_limited: { max_emails_per_hour: 62, max_days: 7, limit: 62 * 24 * 7 },
+        }
+        expect(rateLimitNeededForAudience(blastRadius, rateLimit)).toEqual(expected)
+    })
+
+    it('asks for a rate limit on the schedule step only once one is set, and applies the suggested rate', () => {
+        logic.actions.loadBlastRadiusSuccess({
+            affected: 10000,
+            total: 10000,
+            limit: 3000,
+            dedupe_key: 'email',
+            confirm_token: 'token',
+            rate_limited: { max_emails_per_hour: 62, max_days: 7, limit: 62 * 24 * 7 },
+        })
+        expect(logic.values.stepValidationErrors.schedule).toEqual([])
+        expect(logic.values.stepValidationErrors.review).toContain(logic.values.rateLimitMessage)
+
+        logic.actions.setEmailRateLimit({ count: 100, period: 'hour' })
+        expect(logic.values.stepValidationErrors.schedule).toEqual([logic.values.rateLimitMessage])
+
+        logic.actions.applySuggestedRateLimit()
+        expect(logic.values.emailRateLimit).toEqual({ count: 62, period: 'hour' })
+        expect(logic.values.stepValidationErrors.schedule).toEqual([])
+        expect(logic.values.rateLimitNeeded).toBeNull()
+        expect(logic.values.audienceLimit).toEqual(62 * 24 * 7)
     })
 
     it('leaves push text saved as Hog unparsed', () => {

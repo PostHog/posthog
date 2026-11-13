@@ -23,6 +23,7 @@ import structlog
 
 from posthog.dataclasses import frozen
 
+from products.signals.backend.activity_summary.render import InboxStrength
 from products.signals.backend.scout_harness.team_limits import read_flag_payload
 
 logger = structlog.get_logger(__name__)
@@ -48,9 +49,9 @@ _POOL_KEYS = frozenset({"source", "size", "name"})
 class ReasonLimits:
     """The longest reason, in characters, of an entry in each tier."""
 
-    top: int = 240
-    worth_a_look: int = 160
-    later: int = 100
+    top: int = 140
+    worth_a_look: int = 110
+    later: int = 80
 
 
 @frozen
@@ -76,6 +77,8 @@ class PersonalRankingTickConfig:
     skip_team_ids: tuple[int, ...] = ()
     # A pair is due when its latest list was built or checked longer ago than this.
     target_interval_minutes: int = 60
+    # A due pair with no list, or a list older than this, goes first. The payload default is twice the target interval.
+    overdue_after_minutes: int = 120
     # Only pairs with activity in this many days are due.
     active_days: int = 7
     max_pairs_per_tick: int = 20
@@ -86,6 +89,8 @@ class PersonalRankingTickConfig:
     max_org_share: float = 0.25
     # The tick stops when this share of its model calls failed or raised.
     max_error_rate: float = 0.5
+    # The tick starts no pair after this share of its schedule interval, so the last pairs end before the next tick.
+    time_budget_share: float = 0.6
 
 
 TICK_DISABLED = PersonalRankingTickConfig()
@@ -96,9 +101,12 @@ _TICK_MAXIMUMS: dict[str, int] = {
     "target_interval_minutes": 1440,
     "active_days": 90,
     "max_pairs_per_tick": 2000,
-    "max_concurrency": 50,
+    "max_concurrency": 100,
     "max_tick_builds_per_day": 50000,
 }
+_MAX_OVERDUE_AFTER_MINUTES = 2 * _TICK_MAXIMUMS["target_interval_minutes"]
+# A larger share lets the pairs started at the end of a tick run into the next tick.
+_MAX_TIME_BUDGET_SHARE = 0.85
 
 
 @frozen
@@ -108,18 +116,18 @@ class PersonalRankingConfig:
     reasoning_effort: ReasoningEffort = "low"
     # The `for_you_recommended` pool reads reports created in this window.
     window_days: int = 14
-    for_you_recommended_pool: int = 10
+    for_you_recommended_pool: int = 20
     # No window, so older reports with new activity come in too.
-    for_you_updated_pool: int = 5
-    assigned_pool: int = 5
+    for_you_updated_pool: int = 10
+    assigned_pool: int = 10
     # The pools in merge order. Empty uses `default_pools`, which take their sizes from the `*_pool` fields.
     pools: tuple[CandidatePool, ...] = ()
-    max_candidates: int = 30
+    max_candidates: int = 40
     # The model ranks only this many candidates. The others follow in model order. At most `max_limit`.
-    rank_top: int = 10
+    rank_top: int = 25
     # The most entries in each tier. The validator moves an entry past a cap down one tier and keeps its rank.
     top_max: int = 5
-    worth_a_look_max: int = 10
+    worth_a_look_max: int = 15
     # The entries that get a `next_step`, and the most a caller can ask for.
     default_limit: int = 25
     max_limit: int = 50
@@ -129,7 +137,7 @@ class PersonalRankingConfig:
     # Names of owned and watched objects from the activity summary, each.
     max_object_names: int = 8
     focus_max_chars: int = 500
-    timeout_seconds: float = 60.0
+    timeout_seconds: float = 90.0
     max_completion_tokens: int = 16000
     # The `for_me` endpoint reuses a stored list this many minutes old or newer while its inputs are the same.
     freshness_minutes: int = 60
@@ -141,6 +149,13 @@ class PersonalRankingConfig:
     max_builds_per_day: int = 500
     # Each build keeps this many of the person's newest rows and deletes the older ones.
     max_rows_per_person: int = 5
+    # The most lines of the person's own inbox activity in the prompt. 0 leaves the block out and runs no read.
+    inbox_activity_lines: int = 0
+    inbox_activity_days: int = 14
+    # Facts below this strength stay out of the block. Opens and Slack discussions are below `RATED`.
+    inbox_activity_min_strength: InboxStrength = InboxStrength.RATED
+    # The most standing reviewer exclusions of the person under the activity lines.
+    inbox_activity_exclusion_lines: int = 5
     tick: PersonalRankingTickConfig = TICK_DISABLED
 
 
@@ -171,6 +186,9 @@ _MAXIMUMS: dict[str, int] = {
     "builds_per_day": 500,
     "max_builds_per_day": 50000,
     "max_rows_per_person": 100,
+    "inbox_activity_lines": 20,
+    "inbox_activity_days": 28,
+    "inbox_activity_exclusion_lines": 20,
     "reason_max_chars": 500,
 }
 
@@ -194,6 +212,12 @@ def _model(value: Any) -> str:
 
 def _reasoning_effort(value: Any) -> ReasoningEffort:
     return cast(ReasoningEffort, value) if value in REASONING_EFFORTS else DEFAULTS.reasoning_effort
+
+
+def _min_strength(value: Any) -> InboxStrength:
+    if isinstance(value, str) and value.upper() in InboxStrength.__members__:
+        return InboxStrength[value.upper()]
+    return DEFAULTS.inbox_activity_min_strength
 
 
 def _reason_limits(value: Any) -> ReasonLimits:
@@ -233,6 +257,10 @@ def _team_ids(value: Any) -> tuple[int, ...]:
 def parse_tick_config(payload: Any) -> PersonalRankingTickConfig:
     if not isinstance(payload, dict) or payload.get("enabled") is not True:
         return TICK_DISABLED
+    ints = {
+        name: _bounded_int(payload.get(name), getattr(TICK_DISABLED, name), maximum)
+        for name, maximum in _TICK_MAXIMUMS.items()
+    }
     return PersonalRankingTickConfig(
         enabled=True,
         organization_ids=_organization_ids(payload.get("organization_ids")),
@@ -241,10 +269,13 @@ def parse_tick_config(payload: Any) -> PersonalRankingTickConfig:
         skip_team_ids=_team_ids(payload.get("skip_team_ids")),
         max_org_share=_fraction(payload.get("max_org_share"), TICK_DISABLED.max_org_share),
         max_error_rate=_fraction(payload.get("max_error_rate"), TICK_DISABLED.max_error_rate),
-        **{
-            name: _bounded_int(payload.get(name), getattr(TICK_DISABLED, name), maximum)
-            for name, maximum in _TICK_MAXIMUMS.items()
-        },
+        overdue_after_minutes=_bounded_int(
+            payload.get("overdue_after_minutes"), 2 * ints["target_interval_minutes"], _MAX_OVERDUE_AFTER_MINUTES
+        ),
+        time_budget_share=_bounded_number(
+            payload.get("time_budget_share"), TICK_DISABLED.time_budget_share, _MAX_TIME_BUDGET_SHARE
+        ),
+        **ints,
     )
 
 
@@ -339,6 +370,7 @@ def parse_config(payload: Any) -> PersonalRankingConfig:
         model=_model(payload.get("model")),
         reasoning_effort=_reasoning_effort(payload.get("reasoning_effort")),
         reason_limits=_reason_limits(payload.get("reason_max_chars")),
+        inbox_activity_min_strength=_min_strength(payload.get("inbox_activity_min_strength")),
         pools=_pools(payload.get("pools")),
         tick=tick,
         timeout_seconds=_bounded_number(
@@ -353,6 +385,11 @@ def parse_config(payload: Any) -> PersonalRankingConfig:
     )
 
 
+def list_limit(config: PersonalRankingConfig, limit: int | None) -> int:
+    """The entries a build or a read lists: the caller's `limit`, else `default_limit`, at most `max_limit`."""
+    return min(max(limit or config.default_limit, 1), config.max_limit)
+
+
 def effective_config(config: PersonalRankingConfig) -> dict[str, Any]:
     """The levers that change the speed of a build, so a dogfood run shows which values it used."""
     return {
@@ -363,6 +400,7 @@ def effective_config(config: PersonalRankingConfig) -> dict[str, Any]:
         "max_candidates": config.max_candidates,
         "timeout_seconds": config.timeout_seconds,
         "max_completion_tokens": config.max_completion_tokens,
+        "inbox_activity_lines": config.inbox_activity_lines,
     }
 
 

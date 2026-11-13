@@ -1,10 +1,12 @@
 import './BreakdownTagMenu.scss'
 
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
 import { IconInfo } from '@posthog/icons'
 import { LemonInput, LemonLabel, LemonSwitch } from '@posthog/lemon-ui'
 
+import { QuillChartOptionNumberInput } from 'lib/components/ChartOptions/QuillChartOptionNumberInput'
 import { QuillChartOptionSwitch } from 'lib/components/ChartOptions/QuillChartOptionSwitch'
 import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -16,6 +18,14 @@ import { taxonomicBreakdownFilterLogic } from './taxonomicBreakdownFilterLogic'
 const MIN_BREAKDOWN_LIMIT = 1
 const MAX_BREAKDOWN_LIMIT = 1000
 
+function clampBreakdownLimit(raw: string): number | null {
+    const parsed = Number(raw)
+    if (raw.trim() === '' || !Number.isFinite(parsed)) {
+        return null
+    }
+    return Math.min(Math.max(parsed, MIN_BREAKDOWN_LIMIT), MAX_BREAKDOWN_LIMIT)
+}
+
 export const GlobalBreakdownOptionsMenu = (): JSX.Element | null => {
     const { insightProps } = useValues(insightLogic)
     const { isTrends } = useValues(insightVizDataLogic(insightProps))
@@ -23,6 +33,15 @@ export const GlobalBreakdownOptionsMenu = (): JSX.Element | null => {
     const { breakdownLimit, breakdownHideOtherAggregation, breakdownFilter } = useValues(taxonomicBreakdownFilterLogic)
     const { setBreakdownLimit, setBreakdownHideOtherAggregation } = useActions(taxonomicBreakdownFilterLogic)
     const quillSurface = useQuillSurface()
+    const [limitDraft, setLimitDraft] = useState<string | null>(null)
+
+    const commitBreakdownLimit = (raw: string): number | null => {
+        const clamped = clampBreakdownLimit(raw)
+        if (clamped !== null && clamped !== breakdownLimit) {
+            setBreakdownLimit(clamped)
+        }
+        return clamped
+    }
 
     // Cohort breakdowns are over an explicit, user-picked set — there's no long-tail to truncate
     // and nothing to bucket as "Other", so these controls don't apply.
@@ -30,18 +49,37 @@ export const GlobalBreakdownOptionsMenu = (): JSX.Element | null => {
         return null
     }
 
-    return (
-        <>
-            {isTrends && quillSurface ? (
-                <div className="px-2">
+    if (quillSurface) {
+        return (
+            <div className="flex flex-col gap-2">
+                {isTrends && (
                     <QuillChartOptionSwitch
                         label='Group remaining values under "Other"'
                         info={`If you have over ${breakdownLimit} breakdown options, the smallest ones are aggregated under the label "Other". Use this toggle to show/hide the "Other" option.`}
                         checked={!breakdownHideOtherAggregation}
                         onChange={() => setBreakdownHideOtherAggregation(!breakdownHideOtherAggregation)}
                     />
-                </div>
-            ) : isTrends ? (
+                )}
+                <QuillChartOptionNumberInput
+                    label="Breakdown limit"
+                    value={breakdownLimit}
+                    onChange={(value) => value !== undefined && commitBreakdownLimit(String(value))}
+                    draft={limitDraft ?? String(breakdownLimit)}
+                    setDraft={setLimitDraft}
+                    commit={() => {
+                        if (limitDraft !== null) {
+                            commitBreakdownLimit(limitDraft)
+                            setLimitDraft(null)
+                        }
+                    }}
+                />
+            </div>
+        )
+    }
+
+    return (
+        <>
+            {isTrends ? (
                 <LemonSwitch
                     fullWidth
                     className="min-h-10 px-2"
@@ -87,18 +125,7 @@ export const GlobalBreakdownOptionsMenu = (): JSX.Element | null => {
                     className="w-20 ml-2"
                     onBlur={(event) => {
                         const target = event.currentTarget
-                        const raw = target.value
-                        if (raw === '') {
-                            // Don't commit an empty value — restore the last
-                            // committed limit instead.
-                            target.value = String(breakdownLimit)
-                            return
-                        }
-                        const clamped = Math.min(Math.max(Number(raw), MIN_BREAKDOWN_LIMIT), MAX_BREAKDOWN_LIMIT)
-                        target.value = String(clamped)
-                        if (clamped !== breakdownLimit) {
-                            setBreakdownLimit(clamped)
-                        }
+                        target.value = String(commitBreakdownLimit(target.value) ?? breakdownLimit)
                     }}
                     onPressEnter={(event) => event.currentTarget.blur()}
                 />

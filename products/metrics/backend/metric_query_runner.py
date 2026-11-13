@@ -11,7 +11,7 @@ import bisect
 import datetime as dt
 from collections.abc import Iterator, Sequence
 from functools import cached_property
-from typing import Any, Literal, NamedTuple
+from typing import Any, Literal, NamedTuple, Protocol
 from zoneinfo import ZoneInfo
 
 from posthog.hogql import ast
@@ -27,7 +27,12 @@ from posthog.permissions import posthog_feature_flag_enabled
 
 from products.metrics.backend.facade.contracts import MetricFilter, MetricGroupBy, MetricQueryTooManyRowsError
 from products.metrics.backend.facade.enums import FilterOp, MetricType
-from products.metrics.backend.metrics4_samples import dedupe_points_limit_by, metric_name_expr, samples_points_query
+from products.metrics.backend.metrics4_samples import (
+    dedupe_points_limit_by,
+    metric_name_expr,
+    not_stale_marker_expr,
+    samples_points_query,
+)
 
 AttributeScope = Literal["resource", "attribute", "auto"]
 
@@ -86,6 +91,10 @@ def attribute_field(name: str, *, scope: AttributeScope = "auto") -> ast.Expr:
         "if(arrayElement(resource_attributes, {name}) != '', arrayElement(resource_attributes, {name}), arrayElement(attributes, {name}))",
         placeholders={"name": name_constant},
     )
+
+
+class FieldResolver(Protocol):
+    def __call__(self, name: str, *, scope: AttributeScope = "auto") -> ast.Expr: ...
 
 
 def _series_key_expr() -> ast.Expr:
@@ -164,6 +173,8 @@ class MergedDistribution(NamedTuple):
     # The edges the quantile estimate is accurate to; see `_resolution_edges`.
     resolution_bounds: list[float]
     fingerprints: set[int]
+    # Distinct explicit bucket layouts merged. Exponential layouts shift between emissions, so they don't count.
+    layout_count: int
 
 
 @frozen
@@ -414,12 +425,12 @@ def counter_lookback(interval: str) -> dt.timedelta:
     return max(_interval_step(interval), _MIN_COUNTER_LOOKBACK)
 
 
-def _filter_condition(filter: MetricFilter) -> ast.Expr:
+def _filter_condition(filter: MetricFilter, field_for: FieldResolver = attribute_field) -> ast.Expr:
     """Return one label predicate as a HogQL boolean expression.
 
     Negative matchers include missing map keys, as in Prometheus.
     """
-    field = attribute_field(filter.key, scope=filter.scope.value)
+    field = field_for(filter.key, scope=filter.scope.value)
     if filter.op in (FilterOp.REGEX, FilterOp.NOT_REGEX):
         # Return 400 for invalid patterns. Python accepts all valid RE2 syntax.
         try:
@@ -438,11 +449,14 @@ def _filter_condition(filter: MetricFilter) -> ast.Expr:
     raise ValueError(f"Unsupported filter op: {filter.op!r}")
 
 
-def filters_expr(filters: Sequence[MetricFilter]) -> ast.Expr:
-    """AND of all filter conditions; TRUE when there are none."""
+def filters_expr(filters: Sequence[MetricFilter], *, field_for: FieldResolver = attribute_field) -> ast.Expr:
+    """AND of all filter conditions; TRUE when there are none.
+
+    `field_for` resolves a label key to the expression it compares, for tables other than `metrics`.
+    """
     if not filters:
         return ast.Constant(value=True)
-    conditions = [_filter_condition(f) for f in filters]
+    conditions = [_filter_condition(f, field_for) for f in filters]
     if len(conditions) == 1:
         return conditions[0]
     return ast.And(exprs=conditions)
@@ -508,6 +522,7 @@ def points_query(
     `row_filters` can use only columns that are constant in a series-hour.
     `samples_row_filters` apply only to `metric_samples`, for example array lookups.
     `dedupe_points` drops exact copies of a point, as written by a replayed Kafka batch.
+    Neither source returns Prometheus stale markers.
     """
     if from_samples:
         return samples_points_query(
@@ -526,8 +541,7 @@ def points_query(
     )
     assert isinstance(query, ast.SelectQuery) and query.where is not None
     query.select = [ast.Field(chain=[column]) for column in columns]
-    if row_filters or point_filters:
-        query.where = ast.And(exprs=[query.where, *row_filters, *point_filters])
+    query.where = ast.And(exprs=[query.where, not_stale_marker_expr(), *row_filters, *point_filters])
     if dedupe_points:
         query.limit_by = dedupe_points_limit_by([column for column in columns if column != "series_fingerprint"])
     return query
@@ -737,7 +751,7 @@ class MetricQueryRunner:
             query_type="MetricQuery",
             query=query,
             team=self.team,
-            workload=Workload.LOGS,  # metrics share the logs ClickHouse workload pool for now
+            workload=Workload.METRICS,
             settings=_QUERY_SETTINGS,
         )
         self._raise_on_truncation(response.results)
@@ -767,7 +781,7 @@ class MetricQueryRunner:
             query_type="MetricQuery",
             query=query,
             team=self.team,
-            workload=Workload.LOGS,
+            workload=Workload.METRICS,
             settings=_QUERY_SETTINGS,
         )
         self._raise_on_truncation(response.results)
@@ -785,6 +799,7 @@ class MetricQueryRunner:
                     "labels": {group.key: key[1 + index] for index, group in enumerate(self.group_by)},
                     "series_fingerprints": sorted(merged.fingerprints),
                     "histogram_bounds": merged.resolution_bounds,
+                    "histogram_layout_count": merged.layout_count,
                 }
             )
         return rows
@@ -801,10 +816,13 @@ class MetricQueryRunner:
         group_count = len(self.group_by)
         layouts: dict[tuple[Any, ...], list[_Histogram]] = {}
         fingerprints: dict[tuple[Any, ...], set[int]] = {}
+        explicit_layouts: dict[tuple[Any, ...], set[tuple[float, ...]]] = {}
         for row in results:
             key = tuple(row[: 1 + group_count])
             layouts.setdefault(key, []).append(_row_distribution(row, group_count))
             fingerprints.setdefault(key, set()).update(row[3 + group_count])
+            if row[4 + group_count] != MetricType.EXPONENTIAL_HISTOGRAM.value:
+                explicit_layouts.setdefault(key, set()).add(tuple(row[1 + group_count]))
         extra = [_Histogram(bounds=list(edges), counts=[0.0] * (len(edges) + 1))] if edges else []
         merged: dict[tuple[Any, ...], MergedDistribution] = {}
         for key, distributions in layouts.items():
@@ -814,6 +832,7 @@ class MetricQueryRunner:
                 counts=histogram.counts,
                 resolution_bounds=_resolution_edges(distributions, histogram.bounds),
                 fingerprints=fingerprints[key],
+                layout_count=len(explicit_layouts.get(key, ())),
             )
         return merged
 
@@ -961,8 +980,14 @@ class MetricQueryRunner:
         """Build rate and increase queries from per-series deltas.
 
         Cumulative metrics diff each sample and handle resets. Delta metrics
-        use sample values. Missing predecessors produce gaps. The lookback
-        provides a predecessor before the requested range.
+        use sample values. The lookback provides a predecessor before the
+        requested range.
+
+        A sample without a predecessor usually starts a new series, such as a
+        counter on a new pod. It counts from zero when its value is small next
+        to the following delta, as in VictoriaMetrics' `increase`. That delta
+        handles a reset like any other sample. A larger value means the counter
+        ran before we saw it, so the sample is a gap.
         """
         step_seconds = _interval_step(self.interval).total_seconds()
         divisor = step_seconds if self.range_function == "rate" else 1.0
@@ -978,7 +1003,18 @@ class MetricQueryRunner:
                         series_fingerprint AS series_fingerprint,
                         multiIf(
                             aggregation_temporality = 'delta', value,
-                            isNull(prev_value), NULL,
+                            isNull(prev_value),
+                                if(
+                                    abs(value) < 10 * (
+                                        multiIf(
+                                            isNull(next_value), 0,
+                                            assumeNotNull(next_value) >= value, assumeNotNull(next_value) - value,
+                                            assumeNotNull(next_value)
+                                        ) + 1
+                                    ),
+                                    value,
+                                    NULL
+                                ),
                             value >= assumeNotNull(prev_value), value - assumeNotNull(prev_value),
                             value
                         ) AS contribution
@@ -992,7 +1028,12 @@ class MetricQueryRunner:
                                 PARTITION BY {series_key}
                                 ORDER BY timestamp ASC
                                 ROWS BETWEEN 1 PRECEDING AND 1 PRECEDING
-                            ) AS prev_value
+                            ) AS prev_value,
+                            leadInFrame(toNullable(value)) OVER (
+                                PARTITION BY {series_key}
+                                ORDER BY timestamp ASC
+                                ROWS BETWEEN 1 FOLLOWING AND 1 FOLLOWING
+                            ) AS next_value
                         FROM {points}
                     )
                 )

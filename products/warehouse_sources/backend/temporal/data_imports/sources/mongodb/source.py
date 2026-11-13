@@ -19,7 +19,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    rank_incremental_fields,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mongodb import (
     MongoDBSourceConfig,
@@ -406,6 +409,12 @@ class MongoDBSource(ResumableSource[MongoDBSourceConfig, MongoResumeConfig], Val
         # getMore was killed before yielding anything (resuming immediately would hit the same cap
         # in a tight loop). A fresh Temporal retry isn't bound by that same in-flight time budget, so
         # it is self-recovering and must not flood error tracking on every no-progress getMore.
+        #
+        # OperationFailure code 16500 (codeName 'RequestRateTooLarge') comes from Azure Cosmos DB's
+        # API for MongoDB when the cluster's provisioned throughput is exceeded — the Cosmos DB
+        # equivalent of an HTTP 429. The errmsg itself says the request made no changes and to retry
+        # later (RetryAfterMs), so this is the cluster's own backpressure signal, not a PostHog bug
+        # or a customer credential/config problem; a later Temporal retry recovers once load drops.
         return {
             "The resolution lifetime expired",
             "connection pool paused",
@@ -416,6 +425,7 @@ class MongoDBSource(ResumableSource[MongoDBSourceConfig, MongoResumeConfig], Val
             "Connection reset by peer",
             "connection closed (configured timeouts:",
             "operation exceeded time limit",
+            "RequestRateTooLarge",
         }
 
     def get_retry_exhausted_errors(self) -> dict[str, str]:
@@ -460,18 +470,20 @@ class MongoDBSource(ResumableSource[MongoDBSourceConfig, MongoResumeConfig], Val
                     name=collection_name,
                     supports_incremental=len(incremental_fields) > 0,
                     supports_append=len(incremental_fields) > 0,
-                    incremental_fields=[
-                        {
-                            "label": field_name,
-                            "type": field_type,
-                            "field": field_name,
-                            "field_type": field_type,
-                            # Index discovery failed, so we can't tell an unindexed field from an
-                            # indexed one. Don't warn on a guess.
-                            "is_indexed": True if index_keys is None else field_name in index_keys.leading,
-                        }
-                        for field_name, field_type in incremental_fields
-                    ],
+                    incremental_fields=rank_incremental_fields(
+                        [
+                            {
+                                "label": field_name,
+                                "type": field_type,
+                                "field": field_name,
+                                "field_type": field_type,
+                                # Index discovery failed, so we can't tell an unindexed field from an
+                                # indexed one. Don't warn on a guess.
+                                "is_indexed": True if index_keys is None else field_name in index_keys.leading,
+                            }
+                            for field_name, field_type in incremental_fields
+                        ]
+                    ),
                 )
             )
 

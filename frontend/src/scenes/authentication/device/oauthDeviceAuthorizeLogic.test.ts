@@ -6,6 +6,7 @@ import { urls } from 'scenes/urls'
 import type { DeviceGrantDetailsApi } from '~/generated/core/api.schemas'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import type { AppContext } from '~/types'
 
 import { oauthDeviceAuthorizeLogic } from './oauthDeviceAuthorizeLogic'
 
@@ -136,6 +137,46 @@ describe('oauthDeviceAuthorizeLogic', () => {
         await expectLogic(logic).toMatchValues({ projects: [], projectsError: expect.any(String) })
     })
 
+    it('picks a project the person creates in the picker, and keeps it through a list loaded without it', async () => {
+        const created: unknown[] = []
+        useMocks({
+            get: {
+                '/api/organizations/org-a/projects/': () => [
+                    200,
+                    { results: [{ id: 1, name: 'A project' }], next: null },
+                ],
+            },
+            post: {
+                '/api/organizations/org-a/projects/': async ({ request }) => {
+                    created.push(await request.json())
+                    return [201, { id: 7, name: 'My app' }]
+                },
+            },
+        })
+        const logic = oauthDeviceAuthorizeLogic()
+        logic.mount()
+        logic.actions.setOrganizationId('org-a')
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setShowCreateProject(true)
+        logic.actions.createProject('My app')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(created).toEqual([{ name: 'My app' }])
+        await expectLogic(logic).toMatchValues({ projectId: 7, showCreateProject: false, creatingProject: false })
+
+        logic.actions.loadProjects('org-a')
+        await expectLogic(logic).toFinishAllListeners()
+
+        await expectLogic(logic).toMatchValues({
+            projectChoices: [
+                { id: 1, name: 'A project' },
+                { id: 7, name: 'My app' },
+            ],
+            projectId: 7,
+        })
+    })
+
     it('approves the code the server returned, for the project the person picked', async () => {
         useGrantMocks(GRANT)
         const logic = oauthDeviceAuthorizeLogic()
@@ -155,6 +196,32 @@ describe('oauthDeviceAuthorizeLogic', () => {
             },
         ])
         await expectLogic(logic).toMatchValues({ decision: 'authorized' })
+    })
+
+    it('without a session, sends the code through login instead of looking it up', async () => {
+        useGrantMocks(GRANT)
+        const priorAppContext = window.POSTHOG_APP_CONTEXT
+        const priorLocation = window.location
+        const assign = jest.fn()
+        try {
+            window.POSTHOG_APP_CONTEXT = { ...priorAppContext, current_user: null } as AppContext
+            initKeaTests()
+            Object.defineProperty(window, 'location', { value: { ...priorLocation, assign }, configurable: true })
+            const logic = oauthDeviceAuthorizeLogic()
+            logic.mount()
+
+            router.actions.push(urls.oauthDeviceAuthorize(), { code: 'bcdf-ghjk' })
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.submitCode()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(lookups).toEqual([])
+            expect(assign).toHaveBeenCalledWith('/device?code=BCDF-GHJK')
+            await expectLogic(logic).toMatchValues({ goingToLogin: true })
+        } finally {
+            window.POSTHOG_APP_CONTEXT = priorAppContext
+            Object.defineProperty(window, 'location', { value: priorLocation, configurable: true })
+        }
     })
 
     it('goes back to code entry when the code expired during review', async () => {

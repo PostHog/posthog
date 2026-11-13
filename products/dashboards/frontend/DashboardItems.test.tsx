@@ -1,10 +1,12 @@
 import '@testing-library/jest-dom'
 
-import { fireEvent, render, waitFor, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, waitFor, within } from '@testing-library/react'
 import { useActions, useAsyncActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import type { PositionStrategy } from 'react-grid-layout/core'
 
+import { shortcutLogic } from 'lib/components/Shortcuts/shortcutLogic'
+import { isMac } from 'lib/utils/dom'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
@@ -37,13 +39,6 @@ jest.mock('~/models/dashboardsModel', () => ({
 
 jest.mock('~/models/insightsModel', () => ({
     insightsModel: { __mock: 'insightsModel' },
-}))
-
-jest.mock('lib/utils/eventUsageLogic', () => ({
-    DashboardEventSource: {
-        CardEdgeHover: 'CardEdgeHover',
-        CardDragHandle: 'CardDragHandle',
-    },
 }))
 
 jest.mock('kea-router', () => ({
@@ -226,6 +221,7 @@ const mockMoveTileToSection = jest.fn()
 const mockChangeTileGroupDisplay = jest.fn()
 const mockRenameTileGroup = jest.fn()
 const mockSetRenamingTileGroupKey = jest.fn()
+const mockUndoLayoutChange = jest.fn()
 const mockPositionStrategies = new Map<Element, unknown>()
 let mockGridWidth = 1200
 let mockGridMounts = 0
@@ -252,8 +248,6 @@ describe('DashboardItems', () => {
                     layouts: {
                         sm: [{ i: '1', x: 0, y: 0, w: 6, h: 5 }],
                     },
-                    dashboardEditing: { filters: true, layout: true },
-                    layoutEditMode: true,
                     placement: DashboardPlacement.Dashboard,
                     isRefreshingQueued: () => false,
                     isRefreshing: () => false,
@@ -266,7 +260,8 @@ describe('DashboardItems', () => {
                     temporaryBreakdownColors: [],
                     dataColorThemeId: null,
                     canEditDashboard,
-                    layoutZoom: 0.75,
+                    isEditablePlacement: canEditDashboard,
+                    canEditLayout: canEditDashboard,
                     tileGroupSections: [],
                 }
             }
@@ -287,6 +282,7 @@ describe('DashboardItems', () => {
                     updateContainerWidth: mockUpdateContainerWidth,
                     updateTileColor: jest.fn(),
                     toggleTileDescription: jest.fn(),
+                    updateTileDisplayOptions: jest.fn(),
                     removeTile: mockRemoveTile,
                     duplicateTile: jest.fn(),
                     refreshDashboardItem: jest.fn(),
@@ -301,7 +297,14 @@ describe('DashboardItems', () => {
                     changeTileGroupDisplay: mockChangeTileGroupDisplay,
                     renameTileGroup: mockRenameTileGroup,
                     setRenamingTileGroupKey: mockSetRenamingTileGroupKey,
+                    undoLayoutChange: mockUndoLayoutChange,
+                    redoLayoutChange: jest.fn(),
                 }
+            }
+
+            // The layout shortcuts register with the real shortcut logic, which listens for key presses.
+            if (logic === shortcutLogic) {
+                return jest.requireActual('kea').useActions(logic)
             }
 
             if (logic === insightsModel) {
@@ -330,7 +333,7 @@ describe('DashboardItems', () => {
         })
     })
 
-    it('matches snapshot in edit mode with layout zoom enabled', () => {
+    it('matches snapshot for an editor', () => {
         const { container } = render(<DashboardItems />)
         expect(container.firstChild).toMatchSnapshot()
     })
@@ -355,38 +358,49 @@ describe('DashboardItems', () => {
         )
     })
 
-    it.each([
-        [false, true],
-        [true, false],
-    ])('with readOnly %s on a built-in dashboard, offers editing controls: %s', (readOnly, editable) => {
+    it('keeps tile menus but not dragging where the layout cannot change', () => {
         const defaultValues = mockedUseValues.getMockImplementation()!
         mockedUseValues.mockImplementation((logic) =>
             logic === dashboardLogic
-                ? {
-                      ...defaultValues(logic),
-                      placement: DashboardPlacement.Builtin,
-                      readOnly,
-                      layoutEditMode: false,
-                      dashboardEditing: null,
-                  }
+                ? { ...defaultValues(logic), isEditablePlacement: true, canEditLayout: false }
                 : defaultValues(logic)
         )
 
-        const setDashboardEditing = jest.fn()
-        const defaultActions = mockedUseActions.getMockImplementation()!
-        mockedUseActions.mockImplementation((logic) =>
-            logic === dashboardLogic ? { ...defaultActions(logic), setDashboardEditing } : defaultActions(logic)
-        )
-
-        render(<DashboardItems />)
+        const { container } = render(<DashboardItems />)
 
         const cardProps = mockInsightCard.mock.calls[mockInsightCard.mock.calls.length - 1][0]
-        expect(cardProps.showEditingControls).toBe(editable)
-        cardProps.onEnterEditModeFromEdge(
-            { target: document.body, clientX: 0, clientY: 0, nativeEvent: new MouseEvent('mousemove') },
-            'e'
-        )
-        expect(setDashboardEditing).toHaveBeenCalledTimes(editable ? 1 : 0)
+        expect(cardProps.showEditingControls).toBe(true)
+        expect(cardProps.showResizeHandles).toBe(false)
+        expect(container.querySelector('[data-attr="react-grid-layout"]')).toHaveAttribute('data-drag-enabled', 'false')
+    })
+
+    describe('layout undo shortcut', () => {
+        beforeEach(() => {
+            // Grids left mounted by earlier tests would answer the shortcut too.
+            cleanup()
+        })
+
+        it.each([
+            { name: 'with nothing over the grid', overrides: {}, undoes: true },
+            { name: 'while the text tile modal is open', overrides: { showTextTileModal: true }, undoes: false },
+            { name: 'while a tile is carried', overrides: { carryingTile: true }, undoes: false },
+            {
+                name: 'on an embedded dashboard',
+                overrides: { placement: DashboardPlacement.ProjectHomepage },
+                undoes: false,
+            },
+        ])('Cmd+Z $name undoes: $undoes', ({ overrides, undoes }) => {
+            const defaultValues = mockedUseValues.getMockImplementation()!
+            mockedUseValues.mockImplementation((logic) =>
+                logic === dashboardLogic ? { ...defaultValues(logic), ...overrides } : defaultValues(logic)
+            )
+            const { unmount } = render(<DashboardItems />)
+
+            fireEvent.keyDown(document.body, { key: 'z', [isMac() ? 'metaKey' : 'ctrlKey']: true })
+
+            expect(mockUndoLayoutChange).toHaveBeenCalledTimes(undoes ? 1 : 0)
+            unmount()
+        })
     })
 
     it.each([
@@ -417,8 +431,6 @@ describe('DashboardItems', () => {
                     dashboard: { id: 5, customization: { tile_spacing: tileSpacing } },
                     tiles: [],
                     layouts: { sm: [] },
-                    dashboardEditing: { filters: true, layout: true },
-                    layoutEditMode: true,
                     placement: DashboardPlacement.Dashboard,
                     isRefreshingQueued: () => false,
                     isRefreshing: () => false,
@@ -429,7 +441,8 @@ describe('DashboardItems', () => {
                     currentDashboardVariables: {},
                     dataColorThemeId: null,
                     canEditDashboard: true,
-                    layoutZoom: 1,
+                    isEditablePlacement: true,
+                    canEditLayout: true,
                     widgetResultsByTileId: {},
                     widgetRefreshStatus: {},
                     tileGroupSections: [],
@@ -453,8 +466,6 @@ describe('DashboardItems', () => {
                     dashboard: { id: 5, customization: { tile_spacing: 'unknown' } },
                     tiles: [],
                     layouts: { sm: [] },
-                    dashboardEditing: { filters: true, layout: true },
-                    layoutEditMode: true,
                     placement: DashboardPlacement.Dashboard,
                     isRefreshingQueued: () => false,
                     isRefreshing: () => false,
@@ -465,7 +476,8 @@ describe('DashboardItems', () => {
                     currentDashboardVariables: {},
                     dataColorThemeId: null,
                     canEditDashboard: true,
-                    layoutZoom: 1,
+                    isEditablePlacement: true,
+                    canEditLayout: true,
                     widgetResultsByTileId: {},
                     widgetRefreshStatus: {},
                     tileGroupSections: [],
@@ -507,7 +519,6 @@ describe('DashboardItems', () => {
                     temporaryBreakdownColors: [],
                     dataColorThemeId: null,
                     canEditDashboard: false,
-                    layoutZoom: 1,
                     widgetResultsByTileId: {},
                     widgetRefreshStatus: {},
                     tileGroupSections: [],
@@ -545,7 +556,8 @@ describe('DashboardItems', () => {
                     temporaryBreakdownColors: [],
                     dataColorThemeId: null,
                     canEditDashboard: true,
-                    layoutZoom: 1,
+                    isEditablePlacement: true,
+                    canEditLayout: true,
                     widgetResultsByTileId: {},
                     widgetRefreshStatus: {},
                     tileGroupSections: [],
@@ -598,7 +610,8 @@ describe('DashboardItems', () => {
                     temporaryBreakdownColors: [],
                     dataColorThemeId: null,
                     canEditDashboard: true,
-                    layoutZoom: 1,
+                    isEditablePlacement: true,
+                    canEditLayout: true,
                     widgetResultsByTileId: {},
                     widgetRefreshStatus: {},
                     tileGroupSections: [],
@@ -655,7 +668,8 @@ describe('DashboardItems', () => {
                     temporaryBreakdownColors: [],
                     dataColorThemeId: null,
                     canEditDashboard: true,
-                    layoutZoom: 1,
+                    isEditablePlacement: true,
+                    canEditLayout: true,
                     widgetResultsByTileId: {},
                     widgetRefreshStatus: {},
                     tileGroupSections: [],

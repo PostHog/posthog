@@ -24,7 +24,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { dataTableLogic } from '~/queries/nodes/DataTable/dataTableLogic'
 import { isActorsQuery } from '~/queries/schema/node-guards'
-import { DataTableNode } from '~/queries/schema/schema-general'
+import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import {
     isEventsQuery,
     isGroupsQuery,
@@ -120,6 +120,34 @@ export function ColumnConfigurator({ query, setQuery }: ColumnConfiguratorProps)
     )
 }
 
+function getTaxonomicGroupTypes(source: DataTableNode['source']): TaxonomicFilterGroupType[] {
+    if (isGroupsQuery(source)) {
+        return [
+            `${TaxonomicFilterGroupType.GroupsPrefix}_${source.group_type_index}` as TaxonomicFilterGroupType,
+            TaxonomicFilterGroupType.HogQLExpression,
+        ]
+    } else if (isActorsQuery(source)) {
+        return [
+            TaxonomicFilterGroupType.PersonProperties,
+            ...(source.source?.kind === NodeKind.AccountUsersQuery ? [] : [TaxonomicFilterGroupType.HogQLExpression]),
+        ]
+    } else if (isSessionsQuery(source)) {
+        return [
+            TaxonomicFilterGroupType.SessionProperties,
+            TaxonomicFilterGroupType.PersonProperties,
+            TaxonomicFilterGroupType.HogQLExpression,
+        ]
+    }
+    return [
+        TaxonomicFilterGroupType.EventProperties,
+        TaxonomicFilterGroupType.EventFeatureFlags,
+        TaxonomicFilterGroupType.PersonProperties,
+        ...(isEventsQuery(source)
+            ? [TaxonomicFilterGroupType.SessionProperties, TaxonomicFilterGroupType.HogQLExpression]
+            : []),
+    ]
+}
+
 function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Element {
     const restrictionReason = useRestrictedArea({
         minimumAccessLevel: TeamMembershipLevel.Admin,
@@ -129,6 +157,7 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
     const { hideModal, moveColumn, setColumns, selectColumn, unselectColumn, save, toggleSaveAsDefault } =
         useActions(columnConfiguratorLogic)
     const { context } = useValues(columnConfiguratorLogic)
+    const isAccountUsersTable = isActorsQuery(query.source) && query.source.source?.kind === NodeKind.AccountUsersQuery
 
     const onEditColumn = (column: string, index: number): void => {
         const newColumn = window.prompt('Edit column', column)
@@ -137,30 +166,7 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
         }
     }
 
-    let taxonomicGroupTypes: TaxonomicFilterGroupType[] = []
-    if (isGroupsQuery(query.source)) {
-        taxonomicGroupTypes = [
-            `${TaxonomicFilterGroupType.GroupsPrefix}_${query.source.group_type_index}` as TaxonomicFilterGroupType,
-            TaxonomicFilterGroupType.HogQLExpression,
-        ]
-    } else if (isActorsQuery(query.source)) {
-        taxonomicGroupTypes = [TaxonomicFilterGroupType.PersonProperties, TaxonomicFilterGroupType.HogQLExpression]
-    } else if (isSessionsQuery(query.source)) {
-        taxonomicGroupTypes = [
-            TaxonomicFilterGroupType.SessionProperties,
-            TaxonomicFilterGroupType.PersonProperties,
-            TaxonomicFilterGroupType.HogQLExpression,
-        ]
-    } else {
-        taxonomicGroupTypes = [
-            TaxonomicFilterGroupType.EventProperties,
-            TaxonomicFilterGroupType.EventFeatureFlags,
-            TaxonomicFilterGroupType.PersonProperties,
-            ...(isEventsQuery(query.source)
-                ? [TaxonomicFilterGroupType.SessionProperties, TaxonomicFilterGroupType.HogQLExpression]
-                : []),
-        ]
-    }
+    const taxonomicGroupTypes = getTaxonomicGroupTypes(query.source)
 
     const showPersistedColumnReorder =
         isEventsQuery(query.source) ||
@@ -233,7 +239,7 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
                                         key={column}
                                         column={column}
                                         dataIndex={index}
-                                        onEdit={onEditColumn}
+                                        onEdit={isAccountUsersTable ? undefined : onEditColumn}
                                         onRemove={unselectColumn}
                                     />
                                 ))}
@@ -286,7 +292,7 @@ const SelectedColumn = ({
 }: {
     column: string
     dataIndex: number
-    onEdit: (column: string, index: number) => void
+    onEdit?: (column: string, index: number) => void
     onRemove: (column: string) => void
 }): JSX.Element => {
     const { setNodeRef, attributes, transform, transition, listeners } = useSortable({ id: column })
@@ -332,11 +338,13 @@ const SelectedColumn = ({
                     type={filterGroupType || TaxonomicFilterGroupType.EventProperties}
                 />
                 <div className="flex-1" />
-                <Tooltip title="Edit">
-                    <LemonButton onClick={() => onEdit(column, dataIndex)} size="small">
-                        <IconPencil data-attr="column-display-item-edit-icon" />
-                    </LemonButton>
-                </Tooltip>
+                {onEdit && (
+                    <Tooltip title="Edit">
+                        <LemonButton onClick={() => onEdit(column, dataIndex)} size="small">
+                            <IconPencil data-attr="column-display-item-edit-icon" />
+                        </LemonButton>
+                    </Tooltip>
+                )}
                 <Tooltip title="Remove">
                     <LemonButton onClick={() => onRemove(column)} status="danger" size="small">
                         <IconX data-attr="column-display-item-remove-icon" />

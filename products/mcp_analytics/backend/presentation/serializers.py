@@ -346,6 +346,13 @@ class MCPSessionToolCallsQuerySerializer(serializers.Serializer):
             "older sessions resolve. Defaults to a 7-day lookback when omitted or unparseable."
         ),
     )
+    date_to = LenientDateTimeField(
+        required=False,
+        help_text=(
+            "Absolute ISO timestamp upper bound for the event scan. Pass the session's end so the scan stops "
+            "there instead of reading up to now. Unbounded when omitted or unparseable."
+        ),
+    )
     properties = PropertyFiltersField(
         required=False,
         allow_blank=True,
