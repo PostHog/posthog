@@ -2,13 +2,13 @@ import { useActions, useValues } from 'kea'
 
 import { LemonInput, LemonSegmentedButton, LemonSelect } from '@posthog/lemon-ui'
 
-import { ReviewHogRepositoryOverviewRetrieveView } from 'products/review_hog/frontend/generated/api.schemas'
+import { CodeReviewRepositoryOverviewRetrieveView } from 'products/review_hog/frontend/generated/api.schemas'
 
 import { PANE_LEFT, PANE_ROW } from './paneClasses'
 import { reviewHogProjectSettingsLogic } from './reviewHogProjectSettingsLogic'
 import { reviewHogRepositoriesLogic } from './reviewHogRepositoriesLogic'
 
-const VIEW_OPTIONS: { value: ReviewHogRepositoryOverviewRetrieveView; label: string }[] = [
+const VIEW_OPTIONS: { value: CodeReviewRepositoryOverviewRetrieveView; label: string }[] = [
     { value: 'all', label: 'All' },
     { value: 'in_project', label: 'In this project' },
     { value: 'exceptions', label: 'With exceptions' },

@@ -16614,18 +16614,6 @@ snapshots:
         hash: v1.k794b7964.e63dca0640c9531e301e436c81f47fded633e05f46b9a1bd9b04b05bab392527.8Wot76c-chwAyrANL5OXm4Ytw8wbBqa0mP54QtWPNJc
     scenes-app-slack-app-workspace-setup--done-from-settings--light:
         hash: v1.k794b7964.36ed36daab731e6b5dff3560bfb3becf79684c6c6cd9dc8fe4ea08f88f05fb1c.914SoPzQ8leWnBnjLf_macALBulhwY4LAGcSEWkCLec
-    scenes-app-stamphog-digests--digest-expanded--dark:
-        hash: v1.k794b7964.c37367d7ed65cc0d69dfa67eaa60a4857d0583997d7c46ac61624a459ca66430.LN5ob34i8KQC7FZRnu7UEBIT50kaufpYjSW8Q6z4Gy0
-    scenes-app-stamphog-digests--digest-expanded--light:
-        hash: v1.k794b7964.a01aae909aed03c9ef2cf62bebbfec3e6709df0cd02d258b61b218e382ecbde5.0gSR0Yo0ijeS4DwZdC7mjj7wB-Huj8TYoxLzn7ko_Lg
-    scenes-app-stamphog-digests--digests-list--dark:
-        hash: v1.k794b7964.28fbaad98ddd90b171e6774057e8e9656af77e67fd0b5d462235a1d063c1777c.6E_uVxcZxkBaFZgqKmXAg4njrs4xCTiNBGWAUNg9GT0
-    scenes-app-stamphog-digests--digests-list--light:
-        hash: v1.k794b7964.ba0549543f6e411dd799cf1407f9b4a8c9a84e292acf9b12fc32814b03c190c5.toASimpafR_STSgrg5rySLjRYZ6LvnsHLTqaTwFpDak
-    scenes-app-stamphog-digests--digests-list-empty--dark:
-        hash: v1.k794b7964.2ff771815c26e56d32f41eae88bb1c453a6fe50e273cb5095c1c3f9477dc590f.5A7_p3_Mbh5nL3T1e5olwqpfNMu6t4_-TKQ0j1ja1AY
-    scenes-app-stamphog-digests--digests-list-empty--light:
-        hash: v1.k794b7964.46c349724a92b59d4693ac9e9164bcff7c89c8d04ef967fee23ff5052457c63e.HqC03R4DRb_7TP-ljXEykmHv_DOCNYRAhZeNr5fSAoE
     scenes-app-stamphog-repositories--add-repository-picker-open--dark:
         hash: v1.k794b7964.7c70df7eb2aba8e63827f52ca587fba6245bdef4030d41d0ee4b356c111267e1.7PTfVCbXSGaxOy0S60kvBXR3ukQWRQ4uhqE387ODGwE
     scenes-app-stamphog-repositories--add-repository-picker-open--light:
