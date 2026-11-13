@@ -14,7 +14,7 @@ export function makeGuidanceRedis(failing = false): GuidanceRedisStub {
     const refresh = (keys: (string | undefined)[], ttl: number): void => {
         for (const key of keys) {
             if (key !== undefined && store.has(key)) {
-                expiresAt.set(key, now + ttl)
+                expiresAt.set(key, Date.now() / 1000 + now + ttl)
             }
         }
     }
@@ -29,20 +29,30 @@ export function makeGuidanceRedis(failing = false): GuidanceRedisStub {
         store.set(key, String(next))
         return next
     }
+    const read = (key: string): string | null => {
+        if ((expiresAt.get(key) ?? Infinity) <= Date.now() / 1000 + now) {
+            store.delete(key)
+            expiresAt.delete(key)
+        }
+        return store.get(key) ?? null
+    }
     return {
         store,
         evalCalls,
         advance: (seconds) => {
             now += seconds
             for (const [key, expiry] of expiresAt) {
-                if (expiry <= now) {
+                if (expiry <= Date.now() / 1000 + now) {
                     store.delete(key)
                     expiresAt.delete(key)
                 }
             }
         },
-        get: (key) => guard(store.get(key) ?? null),
+        get: (key) => guard(read(key)),
         set: (key, value, ...options) => {
+            if (options.includes('NX') && read(key) !== null) {
+                return guard(null)
+            }
             store.set(key, value)
             if (options[0] === 'EX') {
                 refresh([key], Number(options[1]))
@@ -52,7 +62,10 @@ export function makeGuidanceRedis(failing = false): GuidanceRedisStub {
         del: async (...keys) => keys.filter((key) => store.delete(key)).length,
         scan: async () => ['0', []],
         incr: (key) => guard(incr(key)),
-        expire: () => guard(1),
+        expire: (key, seconds) => {
+            refresh([key], seconds)
+            return guard(Number(store.has(key)))
+        },
         ttl: () => guard(-1),
         eval: (_script, _numberOfKeys, ...args) => {
             evalCalls.push(args)
