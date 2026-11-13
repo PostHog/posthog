@@ -888,10 +888,9 @@ export class CdpHogflowSubscriptionMatcherConsumer<
 
     @instrumented('cdpHogflowSubscriptionMatcher.parseKafkaMessages')
     public async _parseKafkaBatch(messages: Message[]): Promise<HogFunctionInvocationGlobals[]> {
+        const buildGlobals = (team: Team, clickHouseEvent: RawClickHouseEvent): HogFunctionInvocationGlobals =>
+            convertToHogFunctionInvocationGlobals(clickHouseEvent, team, this.config.SITE_URL)
         return await this.parseMatcherBatch(messages, 'Error parsing message', (message) => {
-            const toGlobals = (team: Team, clickHouseEvent: RawClickHouseEvent): HogFunctionInvocationGlobals =>
-                convertToHogFunctionInvocationGlobals(clickHouseEvent, team, this.config.SITE_URL)
-
             const headerTeamId = readTeamIdHeader(message)
             if (headerTeamId !== null) {
                 counterTeamIdSource.labels({ source: 'header' }).inc()
@@ -907,7 +906,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                             counterTeamIdHeaderMismatch.inc()
                             throw new Error('team_id_header_mismatch')
                         }
-                        return isMatchableEvent(clickHouseEvent) ? toGlobals(team, clickHouseEvent) : null
+                        return isMatchableEvent(clickHouseEvent) ? buildGlobals(team, clickHouseEvent) : null
                     },
                 }
             }
@@ -917,7 +916,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             if (!isMatchableEvent(clickHouseEvent)) {
                 return null
             }
-            return { teamId: clickHouseEvent.team_id, toGlobals: (team) => toGlobals(team, clickHouseEvent) }
+            return { teamId: clickHouseEvent.team_id, toGlobals: (team) => buildGlobals(team, clickHouseEvent) }
         })
     }
 
