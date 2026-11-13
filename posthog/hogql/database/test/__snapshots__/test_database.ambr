@@ -2188,6 +2188,7 @@
               },
               "$virt_is_bot": {
                   "chain": null,
+                  "description": null,
                   "fields": null,
                   "hogql_value": "`$virt_is_bot`",
                   "id": null,
@@ -2198,6 +2199,7 @@
               },
               "$virt_traffic_type": {
                   "chain": null,
+                  "description": null,
                   "fields": null,
                   "hogql_value": "`$virt_traffic_type`",
                   "id": null,
@@ -2208,6 +2210,7 @@
               },
               "$virt_traffic_category": {
                   "chain": null,
+                  "description": null,
                   "fields": null,
                   "hogql_value": "`$virt_traffic_category`",
                   "id": null,
@@ -2218,6 +2221,7 @@
               },
               "$virt_bot_name": {
                   "chain": null,
+                  "description": null,
                   "fields": null,
                   "hogql_value": "`$virt_bot_name`",
                   "id": null,
@@ -2228,6 +2232,7 @@
               },
               "$virt_bot_operator": {
                   "chain": null,
+                  "description": null,
                   "fields": null,
                   "hogql_value": "`$virt_bot_operator`",
                   "id": null,
@@ -18993,6 +18998,7 @@
               },
               "$virt_is_bot": {
                   "chain": null,
+                  "description": null,
                   "fields": null,
                   "hogql_value": "`$virt_is_bot`",
                   "id": null,
@@ -19003,6 +19009,7 @@
               },
               "$virt_traffic_type": {
                   "chain": null,
+                  "description": null,
                   "fields": null,
                   "hogql_value": "`$virt_traffic_type`",
                   "id": null,
@@ -19013,6 +19020,7 @@
               },
               "$virt_traffic_category": {
                   "chain": null,
+                  "description": null,
                   "fields": null,
                   "hogql_value": "`$virt_traffic_category`",
                   "id": null,
@@ -19023,6 +19031,7 @@
               },
               "$virt_bot_name": {
                   "chain": null,
+                  "description": null,
                   "fields": null,
                   "hogql_value": "`$virt_bot_name`",
                   "id": null,
@@ -19033,6 +19042,7 @@
               },
               "$virt_bot_operator": {
                   "chain": null,
+                  "description": null,
                   "fields": null,
                   "hogql_value": "`$virt_bot_operator`",
                   "id": null,
