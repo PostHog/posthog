@@ -164,7 +164,7 @@ export const MessagingSendEmailCreateBody = /* @__PURE__ */ zod.object({
                     .max(messagingSendEmailCreateBodyAttachmentsItemContentTypeMax)
                     .optional()
                     .describe(
-                        'MIME type of the file, such as `application\/pdf`. Without it, the type follows from the file name.'
+                        'MIME type of the file, such as `application\/pdf`, with any parameters, such as `text\/calendar; charset=utf-8; method=REQUEST`. Without it, the type follows from the file name. A `name` parameter is refused, because the file name comes from `filename`.'
                     ),
                 content_id: zod
                     .string()
