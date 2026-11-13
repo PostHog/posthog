@@ -176,8 +176,7 @@ def notebook_sql_v2_data_plane(request: HttpRequest) -> HttpResponse:
         # The `notebooks-frame-store` flag carries the rollout on its own; the only other
         # condition is that the deployment has object storage to write to. Failing either
         # falls through to the inline transport below, which is correct for any user but
-        # clamped at the async row ceiling. DEBUG stands in for the flag, the way the SQLV2
-        # endpoints already treat `revamped-py-notebooks`, so local dev takes the object
+        # clamped at the async row ceiling. DEBUG stands in for the flag so local dev takes the object
         # path without a flag on whichever project this instance sends analytics to.
         frame_store_configured = frame_store.is_enabled()
         if frame_store_configured and (settings.DEBUG or is_frame_store_enabled(user)):

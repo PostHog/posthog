@@ -91,7 +91,7 @@ Exit codes: 0 on success, 1 when a command fails, 2 for a usage error.
 `hog setup next` does the current step, keeps going through every step that needs nobody, and stops at the first one that needs the person or the agent.
 The setup is built for a coding agent: it asks the person one question, and runs `hog setup next` itself after each step.
 A person at a terminal gets prompts for any answer the options leave out.
-Agents get JSON: `{ step, status, code, done, next: { kind, command, ask, read, instructions }, context }`, where `next.kind` is `run`, `ask_user`, `tell_user`, `read`, `wait` or `done`.
+Agents get JSON: `{ step, status, code, next: { kind, command, ask, read, instructions }, done, context }`, where `next.kind` is `run`, `ask_user`, `tell_user`, `read`, `wait` or `done`. The outcome comes before `context`, so an agent that sees only the start of the output still knows where setup stands. `context.skills` lists skill names only, as `hog skills list` does, and `hog skills search` describes them.
 [src/setup/README.md](src/setup/README.md) draws the steps for a person alone and for a person with an agent.
 
 | Step        | `hog setup next`                                                                                                                                                              | Done when                                     |

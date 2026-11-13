@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from collections.abc import Collection
+from collections.abc import Collection, Mapping
 from typing import Any, cast
 
 from django.db.models import Prefetch
@@ -32,11 +32,15 @@ def insight_alerts_prefetch(to_attr: str) -> Prefetch:
     return Prefetch("alertconfiguration_set", queryset=queryset, to_attr=to_attr)
 
 
-def native_insight_alerts(insights: Collection[Insight]) -> dict[int, list[AlertConfiguration]]:
-    """Each insight's alerts with no insight row, as the alert API shows them, with one read per team.
+def shown_insight_alerts(
+    insights: Collection[Insight], rows: Mapping[int, Collection[AlertConfiguration]]
+) -> dict[int, list[AlertConfiguration]]:
+    """Each insight's alerts as the alert API shows them, with one platform read per team.
 
-    ``insight_alerts_prefetch`` loads only alerts with an insight row. A caller serializing a page of
-    insights passes the whole page, so the page costs one read rather than one per insight.
+    ``rows`` holds each insight's alerts with an insight row, as ``insight_alerts_prefetch`` loads
+    them. Those the platform owns are shown with the settings and state it holds, in place. Each
+    insight's alerts with no insight row follow its rows. A caller serializing a page of insights
+    passes the whole page, so the page costs one read rather than one per insight.
     """
     # Deferred for the same import loop as `serialize_insight_alerts`.
     from products.alerts.backend.facade.platform import (  # noqa: PLC0415
@@ -52,7 +56,7 @@ def native_insight_alerts(insights: Collection[Insight]) -> dict[int, list[Alert
     for insight in insights:
         insight_ids_by_team[insight.team_id].add(insight.id)
     insights_by_id = {insight.id: insight for insight in insights}
-    shown: dict[int, list[AlertConfiguration]] = {}
+    shown: dict[int, list[AlertConfiguration]] = {insight.id: list(rows.get(insight.id, ())) for insight in insights}
     now = timezone.now()
     for team_id, insight_ids in insight_ids_by_team.items():
         with team_scope(team_id):
@@ -61,17 +65,21 @@ def native_insight_alerts(insights: Collection[Insight]) -> dict[int, list[Alert
                 native_insight_alert_views(team_id, [alert_id for ids in ids_by_insight.values() for alert_id in ids]),
                 team_id=team_id,
             )
-            alerts = list(presented.values())
+            alerts = [
+                *(alert for insight_id in insight_ids for alert in shown[insight_id] if alert.platform_owned),
+                *presented.values(),
+            ]
             _show_platform_status(alerts, now=now)
             _show_platform_subscribers(alerts)
         for insight_id, alert_ids in ids_by_insight.items():
             # An alert moved to another insight between the two reads belongs to that insight now, which
             # the caller has not checked the reader may view.
             listed = [presented.get(alert_id) for alert_id in alert_ids]
-            shown[insight_id] = [alert for alert in listed if alert is not None and alert.insight_id == insight_id]
-            for alert in shown[insight_id]:
+            native = [alert for alert in listed if alert is not None and alert.insight_id == insight_id]
+            for alert in native:
                 # The caller's insight already carries what the alert serializer reads from it.
                 alert.insight = insights_by_id[insight_id]
+            shown[insight_id].extend(native)
     return shown
 
 

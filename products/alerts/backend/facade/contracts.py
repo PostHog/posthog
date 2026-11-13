@@ -7,6 +7,7 @@ an insight alert means, and the hooks other sources use to reach this product's 
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import datetime
 from enum import StrEnum
 from typing import Any, Final
@@ -152,6 +153,16 @@ class EnabledAlert:
 
 
 @frozen
+class ErroredAlert:
+    id: UUID
+    name: str
+    insight_name: str | None
+    insight_short_id: str
+    # None for an alert the platform owns, whose checks it keeps in ClickHouse.
+    last_checked_at: datetime | None
+
+
+@frozen
 class AlertInternalEvent:
     """One internal event that makes an alert's HogFunction destinations fire."""
 
@@ -221,6 +232,20 @@ class MovedAlertCheckPage:
     # How many checks the requested window holds, past this page too.
     total: int
     checks: tuple[MovedAlertCheck, ...]
+
+
+class MovedAlertHistoryUnavailable(Exception):
+    """The platform's check history of an alert it owns could not be read."""
+
+
+@frozen
+class MovedAlertSettings:
+    """A moved alert's settings as its platform copy holds them."""
+
+    # By the insight row field each one replaces.
+    fields: Mapping[str, Any]
+    threshold: dict[str, Any] | None
+    schedule_start_time: str | None
 
 
 class PlatformCannotOwn(ValueError):
