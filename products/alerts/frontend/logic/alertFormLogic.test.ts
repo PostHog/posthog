@@ -5,6 +5,7 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { ApiError } from 'lib/api'
+import * as takeOwnership from 'lib/components/openTakeOwnershipDialog'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
@@ -365,7 +366,7 @@ describe('alertFormLogic', () => {
 
     it('shows success toast and no error toast when update succeeds', async () => {
         const onEditSuccess = jest.fn()
-        const existingAlert = makeSavedAlert({ id: 'alert-existing-id' })
+        const existingAlert = makeSavedAlert({ id: 'alert-existing-id', snoozed_until: '2026-07-16T15:30:00Z' })
         const logic = alertFormLogic({
             alert: existingAlert,
             insightId: 42,
@@ -381,12 +382,86 @@ describe('alertFormLogic', () => {
         }).toFinishAllListeners()
 
         expect(updateSpy).toHaveBeenCalledTimes(1)
+        // The form still holds the alert as it loaded, so sending its snooze would undo one set since.
+        expect(updateSpy.mock.calls[0][1].snoozed_until).toBeUndefined()
         expect(errorToastSpy).not.toHaveBeenCalled()
         expect(successToastSpy).toHaveBeenCalledWith('Alert saved.')
         expect(captureSpy).toHaveBeenCalledWith('alert wizard completed', {
             action: 'updated',
             alert_type: 'insight',
         })
+    })
+
+    it.each([
+        {
+            outcome: 'succeeds',
+            response: () =>
+                Promise.resolve(makeSavedAlert({ id: 'alert-existing-id', snoozed_until: '2026-07-16T15:30:00Z' })),
+            toasts: () => ({
+                success: [expect.stringMatching(/^Alert snoozed until Jul 16, \d\d:30\.$/)],
+                error: [],
+            }),
+        },
+        {
+            outcome: 'fails',
+            response: () => Promise.reject(new Error('network down')),
+            toasts: () => ({ success: [], error: ["We couldn't snooze this alert. Please try again."] }),
+        },
+    ])('keeps the editor open and tells the user when a snooze $outcome', async ({ response, toasts }) => {
+        const onEditSuccess = jest.fn()
+        const existingAlert = makeSavedAlert({ id: 'alert-existing-id' })
+        jest.spyOn(generatedApi, 'alertsPartialUpdate').mockImplementationOnce(response as any)
+        const logic = alertFormLogic({
+            alert: existingAlert,
+            insightId: 42,
+            onEditSuccess,
+            insightVizDataLogicProps: insightLogicProps,
+            insightInterval: 'day',
+        })
+        logic.mount()
+        logic.actions.setAlertFormValues({ ...makeFormDefaults({ id: existingAlert.id }), checks: undefined })
+
+        await expectLogic(logic, () => {
+            logic.actions.snoozeAlert('2026-07-16T15:30:00Z')
+        }).toFinishAllListeners()
+
+        expect(onEditSuccess).not.toHaveBeenCalled()
+        expect({
+            success: successToastSpy.mock.calls.map(([message]) => message),
+            error: errorToastSpy.mock.calls.map(([message]) => message),
+        }).toEqual(toasts())
+    })
+
+    it('saves the edits disabled before offering to take ownership when the owner left', async () => {
+        const existingAlert = makeSavedAlert({ id: 'alert-existing-id' })
+        updateSpy.mockRejectedValueOnce(new ApiError('refused', 400, undefined, { code: 'owner_left_organization' }))
+        const dialogSpy = jest.spyOn(takeOwnership, 'openTakeOwnershipDialog').mockResolvedValue(false)
+        const logic = alertFormLogic({
+            alert: existingAlert,
+            insightId: 42,
+            onEditSuccess: jest.fn(),
+            insightVizDataLogicProps: insightLogicProps,
+            insightInterval: 'day',
+        })
+        logic.mount()
+        logic.actions.setAlertFormValues({
+            ...makeFormDefaults({ id: existingAlert.id }),
+            enabled: true,
+            checks: undefined,
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.submitAlertForm()
+        }).toFinishAllListeners()
+
+        // The refused save is retried with the alert still disabled, so the takeover's enable sees the saved edits.
+        expect(updateSpy).toHaveBeenCalledTimes(2)
+        expect(updateSpy.mock.calls[1][1].enabled).toBe(false)
+        expect(dialogSpy).toHaveBeenCalledWith(
+            expect.objectContaining({ resourceLabel: 'alert', resourceId: existingAlert.id, cause: 'left' })
+        )
+        expect(dialogSpy.mock.invocationCallOrder[0]).toBeGreaterThan(updateSpy.mock.invocationCallOrder[1])
+        expect(errorToastSpy).not.toHaveBeenCalled()
     })
 
     it('blocks save when threshold alert has no lower or upper bound', async () => {
@@ -482,6 +557,28 @@ describe('alertFormLogic', () => {
             '15-minute alert intervals require a Boost, Scale, or Enterprise platform add-on.'
         )
         expect(successToastSpy).not.toHaveBeenCalled()
+    })
+
+    it.each([
+        [true, 1],
+        [false, 0],
+    ])('saves a new alert with staged PagerDuty only when it can page (%s)', async (available, creates) => {
+        jest.spyOn(generatedApi, 'alertsPagerdutyAvailabilityRetrieve').mockResolvedValue({ available })
+        jest.spyOn(generatedApi, 'alertsDestinationsPagerdutyCreate').mockResolvedValue({ hog_function_ids: [] })
+        const logic = mountForm()
+        logic.actions.setAlertFormValues({ ...makeFormDefaults(), checks: undefined })
+        alertNotificationLogic({}).actions.addPendingNotification({
+            type: 'pagerduty',
+            routingKey: 'a'.repeat(32),
+            severity: 'critical',
+            region: 'us',
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.submitAlertForm()
+        }).toFinishAllListeners()
+
+        expect(createSpy).toHaveBeenCalledTimes(creates)
     })
 
     describe('hogql column prefill', () => {

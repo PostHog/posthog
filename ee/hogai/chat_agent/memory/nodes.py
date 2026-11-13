@@ -365,10 +365,9 @@ class MemoryOnboardingFinalizeNode(AssistantNode):
     @property
     def _model(self):
         return MaxChatOpenAI(
-            model="gpt-4.1-mini",
-            temperature=0.3,
+            model="gpt-6-luna",
+            reasoning_effort="low",
             disable_streaming=True,
-            stop_sequences=["[Done]"],
             user=self._user,
             team=self._team,
         )

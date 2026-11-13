@@ -52,13 +52,25 @@ def _reject_invalid_user_content_parts(messages: list[dict[str, Any]]) -> None:
                 )
 
 
+def _allow_reasoning_effort_for_unmapped_reasoning_models(data: dict[str, Any]) -> dict[str, Any]:
+    if "reasoning_effort" not in data:
+        return data
+    model = data["model"].removeprefix("openai/")
+    model_info = litellm.model_cost.get(model, {})
+    if model_info.get("litellm_provider") != "openai" or not model_info.get("supports_reasoning"):
+        return data
+    if "reasoning_effort" in (litellm.get_supported_openai_params(model=model, custom_llm_provider="openai") or []):
+        return data
+    return {**data, "allowed_openai_params": [*data.get("allowed_openai_params", []), "reasoning_effort"]}
+
+
 async def _handle_chat_completions(
     body: ChatCompletionRequest,
     user: RateLimitedUser,
-    product: str = "llm_gateway",
+    product: str,
 ) -> dict[str, Any] | StreamingResponse:
     _reject_invalid_user_content_parts(body.messages)
-    data = body.model_dump(exclude_none=True)
+    data = _allow_reasoning_effort_for_unmapped_reasoning_models(body.model_dump(exclude_none=True))
 
     if is_inference_routed_model(body.model):
         return await send_inference_chat_completions(data, user, body.stream or False, product)
@@ -80,7 +92,7 @@ async def _handle_chat_completions(
 async def _handle_responses(
     body: ResponsesRequest,
     user: RateLimitedUser,
-    product: str = "llm_gateway",
+    product: str,
 ) -> dict[str, Any] | StreamingResponse:
     """Handle OpenAI Responses API request.
 
@@ -131,16 +143,6 @@ async def _handle_responses(
     )
 
 
-@openai_router.post("/v1/chat/completions", response_model=None)
-async def chat_completions(
-    body: ChatCompletionRequest,
-    user: RateLimitedUser,
-    request: Request,
-) -> dict[str, Any] | StreamingResponse:
-    apply_posthog_context_from_headers(request)
-    return await _handle_chat_completions(body, user)
-
-
 @openai_router.post("/{product}/v1/chat/completions", response_model=None)
 async def chat_completions_with_product(
     body: ChatCompletionRequest,
@@ -153,16 +155,6 @@ async def chat_completions_with_product(
     return await _handle_chat_completions(body, user, product=product)
 
 
-@openai_router.post("/v1/responses", response_model=None)
-async def responses_v1(
-    body: ResponsesRequest,
-    user: RateLimitedUser,
-    request: Request,
-) -> dict[str, Any] | StreamingResponse:
-    apply_posthog_context_from_headers(request)
-    return await _handle_responses(body, user)
-
-
 @openai_router.post("/{product}/v1/responses", response_model=None)
 async def responses_v1_with_product(
     body: ResponsesRequest,
@@ -173,16 +165,6 @@ async def responses_v1_with_product(
     validate_product(product)
     apply_posthog_context_from_headers(request)
     return await _handle_responses(body, user, product=product)
-
-
-@openai_router.post("/responses", response_model=None)
-async def responses(
-    body: ResponsesRequest,
-    user: RateLimitedUser,
-    request: Request,
-) -> dict[str, Any] | StreamingResponse:
-    apply_posthog_context_from_headers(request)
-    return await _handle_responses(body, user)
 
 
 @openai_router.post("/{product}/responses", response_model=None)
@@ -201,8 +183,8 @@ async def _handle_transcription(
     file: UploadFile,
     model: str,
     user: RateLimitedUser,
-    language: str | None = None,
-    product: str = "llm_gateway",
+    language: str | None,
+    product: str,
 ) -> dict[str, Any]:
     if not file.filename:
         raise HTTPException(
@@ -243,25 +225,13 @@ async def _handle_transcription(
     )
 
 
-@openai_router.post("/v1/audio/transcriptions", response_model=None)
-async def audio_transcriptions(
-    user: RateLimitedUser,
-    request: Request,
-    file: Annotated[UploadFile, File()],
-    # required, like OpenAI's API: a server default would bypass the model access checks
-    model: Annotated[str, Form()],
-    language: Annotated[str | None, Form()] = None,
-) -> dict[str, Any]:
-    apply_posthog_context_from_headers(request)
-    return await _handle_transcription(file, model, user, language)
-
-
 @openai_router.post("/{product}/v1/audio/transcriptions", response_model=None)
 async def audio_transcriptions_with_product(
     user: RateLimitedUser,
     product: str,
     request: Request,
     file: Annotated[UploadFile, File()],
+    # required, like OpenAI's API: a server default would bypass the model access checks
     model: Annotated[str, Form()],
     language: Annotated[str | None, Form()] = None,
 ) -> dict[str, Any]:

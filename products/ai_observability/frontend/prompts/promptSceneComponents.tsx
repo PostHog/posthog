@@ -34,8 +34,9 @@ import { Query } from '~/queries/Query/Query'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import type { ExperimentBasicApi } from '../../../experiments/frontend/generated/api.schemas'
-import { useTracesQueryContext } from '../AIObservabilityTracesScene'
+import { toTraceDrawerRow, useTracesDrawerContext } from '../AIObservabilityTracesScene'
 import { MarkdownOutline } from '../components/MarkdownOutline'
+import { TraceDrawerQueryHost } from '../redesign/trace/TraceDrawerQueryHost'
 import { CreatePromptExperimentModal } from './CreatePromptExperimentModal'
 import { createPromptExperimentModalLogic } from './createPromptExperimentModalLogic'
 import { InsertPromptReferenceButton } from './InsertPromptReferenceButton'
@@ -512,10 +513,13 @@ function PromptDiffView(): JSX.Element {
     )
 }
 
+const PROMPT_TRACES_LIST_ID = 'prompt-traces'
+const PROMPT_TRACES_DATA_NODE_KEY = 'llm-analytics-prompt-traces'
+
 export function PromptRelatedTraces(): JSX.Element {
     const { prompt, relatedTracesQuery, viewAllTracesUrl, analyticsScope } = useValues(llmPromptLogic)
     const { setRelatedTracesQuery } = useActions(llmPromptLogic)
-    const tracesQueryContext = useTracesQueryContext()
+    const tracesQueryContext = useTracesDrawerContext(PROMPT_TRACES_LIST_ID, PROMPT_TRACES_DATA_NODE_KEY)
 
     if (!prompt || !isPrompt(prompt)) {
         return <></>
@@ -551,13 +555,21 @@ export function PromptRelatedTraces(): JSX.Element {
             </div>
 
             {relatedTracesQuery && (
-                <DataTable
-                    query={relatedTracesQuery}
-                    setQuery={setRelatedTracesQuery}
-                    context={tracesQueryContext}
-                    uniqueKey="prompt-related-traces"
-                    attachTo={llmPromptLogic}
-                />
+                <>
+                    <DataTable
+                        query={relatedTracesQuery}
+                        setQuery={setRelatedTracesQuery}
+                        context={tracesQueryContext}
+                        uniqueKey="prompt-related-traces"
+                        attachTo={llmPromptLogic}
+                    />
+                    <TraceDrawerQueryHost
+                        listId={PROMPT_TRACES_LIST_ID}
+                        dataNodeKey={PROMPT_TRACES_DATA_NODE_KEY}
+                        query={relatedTracesQuery.source}
+                        toRow={toTraceDrawerRow}
+                    />
+                </>
             )}
         </div>
     )

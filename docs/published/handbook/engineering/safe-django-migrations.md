@@ -22,6 +22,7 @@ This guide explains how to safely perform dangerous Django migration operations 
 - [Adding Constraints](#adding-constraints)
 - [Running Data Migrations](#running-data-migrations)
 - [Using SeparateDatabaseAndState](#using-separatedatabaseandstate)
+- [Changing Choices and Help Text](#changing-choices-and-help-text)
 - [General Best Practices](#general-best-practices)
 
 ## Altering Hot Tables
@@ -249,10 +250,14 @@ Removing a product (`products/<name>/`) is the phased table drop above — once 
 Safe order:
 
 1. Strip all usage and the model classes, and drop the tables via the [phased approach](#dropping-tables) (state-only `DeleteModel`, wait a deploy cycle, then `SafeDropTable`). Keep the app in `INSTALLED_APPS` so its migrations still run.
-2. Only after the drop migration has deployed everywhere, remove the app from `INSTALLED_APPS` and delete the `products/<name>/` folder.
+   Once the models are out of Django's state, the next migration squash writes an empty initial migration for the app, and no new squash file depends on it.
+   Note: other apps' migrations depend on this app's migration files, not on its models, so the model classes do not need to stay for them.
+2. Remove the app from `INSTALLED_APPS` and delete the `products/<name>/` folder only after the drop migration has deployed everywhere and no migration file outside the app names one of its migrations as a dependency.
+   Django resolves a dependency by app label and migration name, and loads migrations only from installed apps.
+   Each squash writes `schema_addons` files that depend on every app that still had models at that squash. Those references go away only when that squash's files are deleted.
 3. Optionally `DELETE FROM django_migrations WHERE app = '<app_label>'` to clear the orphan rows.
 
-Leaving the table in place — code gone, table dropped in a follow-up — is a legitimate shortcut for a small retired product: it dodges the rolling-deploy window where in-flight requests hit a dropped table. Just make the leftover table a tracked follow-up, not an accident.
+Leaving the table in place — code and model classes gone, table dropped in a follow-up — is a legitimate shortcut for a small retired product: it dodges the rolling-deploy window where in-flight requests hit a dropped table. Just make the leftover table a tracked follow-up, not an accident.
 
 ## Dropping Columns
 
@@ -865,6 +870,17 @@ class Migration(migrations.Migration):
 - Without this, `makemigrations` may generate incorrect migrations trying to sync the state
 - Allows you to separate "what Django thinks exists" from "what actually exists in the database"
 
+## Changing Choices and Help Text
+
+`choices`, `help_text`, `verbose_name`, `validators`, `error_messages`, `editable`, `blank` and `limit_choices_to` never reach the database.
+PostHog's `makemigrations` leaves them out when it compares fields (`posthog/management/migration_autodetector.py`), so adding an enum member or editing help text writes no migration.
+
+Do not write that `AlterField` by hand, and do not wrap it in `SeparateDatabaseAndState`.
+The migration analyzer points out both (`NonDbAlterFieldPolicy`), because the operation runs no SQL but still takes a `max_migration.txt` slot. It does not block, so migrations generated before this change still pass CI.
+
+A real column change on the same field, such as `max_length` or `null`, still writes a migration, and that migration carries the current choices.
+`default` is still compared, because Django reads it from migration state when a column becomes `NOT NULL`.
+
 ## General Best Practices
 
 ### 1. One Risky Operation Per Migration
@@ -991,6 +1007,27 @@ Before deploying risky migrations:
 - Consider using `SeparateDatabaseAndState` for complex changes
 - **Important:** With `atomic=False`, migrations may partially apply changes. If a migration fails, Django won't automatically roll back the changes. Always verify schema consistency after failed runs and be prepared to manually fix partial states.
 - Remember that infra team may roll back deployments at any time for any reason (performance issues, alerts, etc.) - plan for this
+
+### 5. Apply the Migration Before Node or Rust Code Reads the Column
+
+Node and Rust services deploy on their own schedule, often before the Django deploy that runs `bin/migrate`, so a merged migration is not yet live when their new image starts.
+Code in those services that reads a new table or column needs the migration applied in production first.
+For Rust, merge the migration in its own PR and wait for it to deploy, or make the reader tolerate the missing column.
+ClickHouse and sqlx migrations also need their own PR, not stacked under the reader.
+CI fails a PR that has ClickHouse migrations and `nodejs/` changes, or sqlx migrations and `nodejs/` or Rust service changes.
+For a Django migration and a Node reader, one PR is fine.
+The schema check in `nodejs/src/schema-check/` enforces the order on every Node app that connects to the main Postgres.
+An app without a write role on it opts out explicitly in the charts repo, because the hook reads the primary.
+Each Node image records the Django migrations it needs at build time, and the hook holds the rollout until `django_migrations` has all of them.
+If Django has not applied them when the hook's wait ends, the sync fails and the old pods keep serving until a later sync passes.
+The check only covers Django tables in the main database.
+Node Jest CI fails when Node SQL reads a table of an app that `products/db_routing.yaml` sends to a product database, or a table with an app prefix that no migration creates.
+ClickHouse tables are out of scope.
+The sqlx databases (persons, cyclotron, behavioral cohorts) are checked in shadow mode: the hook logs their state but does not hold the rollout yet.
+A sqlx version does not count when every table its migration names is one that Node does not read, so a drop of a table Node no longer uses does not hold anything.
+The hook pushes its Django and sqlx results to the Prometheus Pushgateway as `node_schema_check_` metrics, so alerts can fire on a missing migration that the logs alone would hide.
+Column and table drops are the opposite case and stay code-first: remove every reader, deploy, then drop.
+The check cannot help there, because Django applies the drop while the old Node pods still read the column.
 
 ## Getting Help
 

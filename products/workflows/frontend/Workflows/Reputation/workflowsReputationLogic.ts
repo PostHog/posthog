@@ -45,7 +45,6 @@ function sendingTierIncreaseContext(
         `Project ID: ${projectId ?? 'unknown'}`,
         `Current tier: ${allowance.tier} of ${allowance.max_tier}`,
         `Emails today: ${humanFriendlyNumber(allowance.emails_sent_last_day)} of ${humanFriendlyNumber(allowance.emails_per_day)}`,
-        `Emails this hour: ${humanFriendlyNumber(allowance.emails_sent_last_hour)} of ${humanFriendlyNumber(allowance.emails_per_hour)}`,
         ...(rates
             ? [
                   `Bounce rate (last 30 days): ${percentage(rates.bounce_rate, 2, true)}`,

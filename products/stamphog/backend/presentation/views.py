@@ -57,12 +57,16 @@ from .serializers import (
     ReviewRequestResponseSerializer,
     ReviewRequestSerializer,
     ReviewRunSerializer,
+    RoutingRunDetailSerializer,
+    RoutingRunSerializer,
     StamphogAddRepositorySerializer,
     StamphogAvailableRepositoriesQuerySerializer,
     StamphogAvailableRepositoriesSerializer,
     StamphogInstallInfoSerializer,
+    StamphogOwnersFileSerializer,
     StamphogRepoConfigSerializer,
     StamphogRepoConfigWriteSerializer,
+    StamphogRoutingRunsQuerySerializer,
     StamphogSyncInstallationRequestSerializer,
     StamphogSyncInstallationResponseSerializer,
 )
@@ -79,6 +83,11 @@ _INSTALL_STATE_MAX_AGE_SECONDS = 60 * 60
 # These decide when a pull request gets reviewed, so writing either of them takes the manager level.
 # `enabled` is split by direction: turning reviews on takes editor, turning them off takes manager.
 REVIEW_POLICY_FIELDS = ("review_mode", "trigger_label")
+# Reviewer requests decide which teams get asked on every pull request, and turning them off can leave
+# pull requests with no reviewer at all, so both directions take manager. A fork label replaces a
+# team's review request on fork pull requests, so it decides who gets asked too.
+# The clean-review switch starts reviews outside review_mode, so it decides when reviews run as well.
+MANAGER_FIELDS = (*REVIEW_POLICY_FIELDS, "routing_mode", "routing_fork_labels", "review_on_clean_external_review")
 
 ReviewLevel = Literal["editor", "manager"]
 
@@ -90,7 +99,7 @@ def _required_review_level(validated_data: dict[str, Any]) -> ReviewLevel | None
     facade refetches and saves it, so a value that looks unchanged can still overwrite a manager's
     decision made in between. That is why a supplied `enabled=False` always takes manager.
     """
-    if validated_data.get("enabled") is False or any(field in validated_data for field in REVIEW_POLICY_FIELDS):
+    if validated_data.get("enabled") is False or any(field in validated_data for field in MANAGER_FIELDS):
         return "manager"
     if validated_data.get("enabled") is True:
         return "editor"
@@ -234,7 +243,7 @@ class StamphogRepoConfigViewSet(_StamphogTeamScopedViewSet, viewsets.GenericView
             return
         if level == "manager":
             raise PermissionDenied(
-                "Only a Stamphog manager can turn reviews off or change when they run. "
+                "Only a Stamphog manager can turn reviews off, change when they run, or change reviewer requests. "
                 "Ask an organization admin for manager access."
             )
         raise PermissionDenied(
@@ -306,6 +315,18 @@ class StamphogRepoConfigViewSet(_StamphogTeamScopedViewSet, viewsets.GenericView
         self._require_review_level(request, "manager")
         facade_api.disable_repo_config(self.canonical_team_id, str(pk))
         return Response(status=204)
+
+    @extend_schema(
+        description=(
+            "Check whether the repository's default branch has a root owners.yaml. Reviewer requests "
+            "(routing_mode) read the code owners from it. Makes one GitHub call, so ask only when needed."
+        ),
+        responses={200: StamphogOwnersFileSerializer},
+    )
+    @action(detail=True, methods=["GET"], url_path="owners_file", required_scopes=["stamphog:read"])
+    def owners_file(self, request: Request, pk: UUID, **kwargs) -> Response:
+        config = self._get_or_404(pk)
+        return Response(StamphogOwnersFileSerializer({"owners_file": facade_api.check_owners_file(config)}).data)
 
     @extend_schema(
         description=(
@@ -645,8 +666,9 @@ class ReviewRunViewSet(_StamphogTeamScopedViewSet, viewsets.GenericViewSet):
                     "Filter by what caused the run. Leave it unset to include runs from every trigger. "
                     "'all' is not a wildcard: it matches only runs in repos that review every pull request "
                     "event. The other values: 'label' (the repo's trigger label opted the PR in), 'manual' "
-                    "(someone requested the review through the API or MCP), and 'self_driving' (stamphog "
-                    "reviewed a bot-authored PR from the inbox)."
+                    "(someone requested the review through the API or MCP), 'reviewhog_clean' (a clean PostHog "
+                    "Review run started a silent review, which posts only an approval), and 'self_driving' "
+                    "(stamphog reviewed a bot-authored PR from the inbox)."
                 ),
             ),
         ],
@@ -740,3 +762,36 @@ class DigestRunViewSet(_StamphogTeamScopedViewSet, viewsets.GenericViewSet):
         slack_channel_id = request.query_params.get("slack_channel_id") or None
         runs = facade_api.list_digest_runs(self.canonical_team_id, slack_channel_id=slack_channel_id)
         return self.get_paginated_response(self.get_serializer(self.paginate_queryset(runs), many=True).data)
+
+
+class RoutingRunViewSet(_StamphogTeamScopedViewSet, viewsets.GenericViewSet):
+    """Reviewer routing runs: which owners each run requested, cut or left out, and why."""
+
+    scope_object = "stamphog"
+    serializer_class = RoutingRunSerializer
+
+    @extend_schema(
+        description=(
+            "List reviewer routing runs, newest first. Each run holds its decision for every owner of the "
+            "changed code: requested, cut, or not asked, with the reason. Filter by owner to answer why a "
+            "team or person was or was not asked to review. Get one run for the files each owner owns."
+        ),
+        parameters=[StamphogRoutingRunsQuerySerializer],
+        responses={200: RoutingRunSerializer(many=True)},
+    )
+    def list(self, request: Request, **kwargs) -> Response:
+        query = StamphogRoutingRunsQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        runs = facade_api.list_routing_runs(self.canonical_team_id, **query.validated_data)
+        page = self.paginate_queryset(runs)
+        return self.get_paginated_response(self.get_serializer(page, many=True).data)
+
+    @extend_schema(
+        description="One reviewer routing run, with every changed file each owner owns.",
+        responses={200: RoutingRunDetailSerializer},
+    )
+    def retrieve(self, request: Request, pk: UUID, **kwargs) -> Response:
+        run = facade_api.get_routing_run(self.canonical_team_id, str(pk))
+        if run is None:
+            raise NotFound()
+        return Response(RoutingRunDetailSerializer(run, context=self.get_serializer_context()).data)

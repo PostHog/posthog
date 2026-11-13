@@ -69,11 +69,11 @@ describe('queryScan', () => {
     })
 
     it.each([
-        ['a run that finished', {}, 'Read 8,400,000,000 rows in 19.0 s.'],
+        ['a run that finished', {}, 'Scanned 8,400,000,000 rows in 19.0 s.'],
         [
             'a run whose analysis measured the share of the date range it read',
             { analysis: { findings: [], range_share: 0.42 } },
-            'Read 8,400,000,000 rows in 19.0 s, about 42% of the events in this date range.',
+            'Scanned 8,400,000,000 rows in 19.0 s, about 42% of the events in this date range.',
         ],
         [
             'a run ClickHouse stopped',

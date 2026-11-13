@@ -45,6 +45,9 @@ from products.logs.backend.presentation.filter_group_validation import (
 
 # OTLP-safe metric name: leading letter, then letters/digits/dot/underscore/dash.
 METRIC_NAME_PATTERN = re.compile(r"^[a-zA-Z][a-zA-Z0-9._-]*$")
+# Metrics computes names under this prefix from spans and logs, so a rule must not emit one.
+# Keep in sync with DERIVED_METRIC_PREFIX in products/metrics/backend/facade/contracts.py.
+RESERVED_METRIC_NAME_PREFIX = "posthog.derived."
 
 ATTRIBUTE_KEY_PREFIXES = ("attributes.", "resource_attributes.")
 
@@ -176,6 +179,8 @@ class LogsMetricRuleSerializer(serializers.ModelSerializer):
             raise ValidationError(
                 "Metric name must start with a letter and contain only letters, digits, dots, underscores, and dashes."
             )
+        if value.startswith(RESERVED_METRIC_NAME_PREFIX):
+            raise ValidationError(f"Metric names starting with {RESERVED_METRIC_NAME_PREFIX!r} are reserved.")
         return value
 
     def validate_group_by(self, value: list[str]) -> list[str]:

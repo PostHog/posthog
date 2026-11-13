@@ -7,6 +7,7 @@ from products.signals.backend.anomaly_scores.schedule import (
 )
 from products.signals.backend.emission.conversations_schedule import create_conversations_signals_coordinator_schedule
 from products.signals.backend.emission.temporal_settings import EMIT_SIGNALS_ACTIVITIES, EMIT_SIGNALS_WORKFLOWS
+from products.signals.backend.personal_ranking.schedule import create_personal_inbox_ranking_tick_schedule
 from products.signals.backend.ranking.schedule import create_inbox_ranking_scoring_schedule
 from products.signals.backend.temporal import ACTIVITIES, SELF_DRIVING_ACTIVITIES, SELF_DRIVING_WORKFLOWS, WORKFLOWS
 from products.signals.backend.temporal.agentic.schedule import (
@@ -18,6 +19,7 @@ from products.signals.backend.temporal.emit_eval_signal import (
     EmitEvalSignalWorkflow,
     emit_eval_signal_activity,
 )
+from products.signals.backend.temporal.grouping_record_cleanup import create_signal_grouping_record_cleanup_schedule
 
 __all__ = [
     "ACTIVITIES",
@@ -33,7 +35,9 @@ __all__ = [
     "create_anomaly_scoring_tick_schedule",
     "create_conversations_signals_coordinator_schedule",
     "create_inbox_ranking_scoring_schedule",
+    "create_personal_inbox_ranking_tick_schedule",
     "create_scout_suggestions_coordinator_schedule",
+    "create_signal_grouping_record_cleanup_schedule",
     "create_signals_scout_coordinator_schedule",
     "emit_eval_signal_activity",
 ]

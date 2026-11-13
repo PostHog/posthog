@@ -1,118 +1,42 @@
-"""Curated workflow-runs query builder.
+"""The workflow runs builder: one row per run, which holds the newest attempt.
 
-Maps the raw GitHub workflow-runs warehouse snapshot into honest CI columns:
-``status`` and ``conclusion`` are passed through unchanged (a conclusion can be
-stale until the ``workflow_run`` webhook settles it — see SPEC §7), and
-``duration_seconds`` is only computed for completed runs. ``head_sha`` is the
-canonical join key back to the pull-requests builder for a PR's CI status, while
-``pr_number`` keys the per-PR push / re-run rollup and ``run_attempt`` distinguishes
-re-runs. The source table name is resolved per-team and passed in (see
-``logic.sources``); it is never hardcoded, because a warehouse table's name carries
-the user-chosen source prefix.
+``pr_number`` is the run's own-repo ``pull_requests`` association, or the PR that a merge-queue gate
+branch lands when ``is_merge_queue``. It is 0 when the run has neither. A read that counts what the
+author did (pushes, re-runs) must add ``NOT is_merge_queue``, because the queue made that head commit.
+``commit_pr_number`` is the merged PR that produced the head commit, and is the only PR key a
+default-branch push has. See SPEC §6 for both keys.
 
-``pr_number`` is the first entry of the run's ``pull_requests`` association **whose base repo
-is this run's own repo**. That filter is load-bearing, not defensive: GitHub populates the
-association with every PR in the fork network whose head SHA matches the run, so a push to
-``PostHog/posthog:master`` arrives carrying the downstream forks' open "sync from upstream"
-PRs (``Mu-L/posthog-1#1379``, ``em3ndez/posthog#3``, ...). Taking the first entry unfiltered
-credited ~14% of runs to a stranger's PR number, and — since the number was then paired with
-this repo's owner/name — linked it to an unrelated PR of ours. Only an entry whose
-``base.repo.id`` equals the run's ``repository.id`` describes a PR this run actually ran for.
-
-Two cases still extract ``0``: a run with no own-repo association (fork PRs, and pushes to a
-branch with no open PR), which is filtered out of the rollup (it only counts ``pr_number > 0``);
-and a run shared across more than one of our PRs (uncommon — one head tied to multiple open PRs),
-which is credited to its first PR only, not fanned out across all of them. That's a deliberate v1
-simplification: the rollup is an approximate friction signal (pushes / re-runs), not billing.
-
-A merge-queue gate run is the one case where the association is present but wrong for the product's
-purpose: it points at the throwaway PR the queue opened, not the PR being landed. The gate branch
-names its source PR (``trunk-merge/pr-77271/...``), so ``pr_number`` resolves through the branch
-whenever it is one, and ``is_merge_queue`` marks those rows for consumers that need the two
-populations apart. Without this a PR's cost card omits the full-suite run its own merge paid for —
-~13% of this repo's CI spend — while it lands on a PR no surface shows. See ``logic.merge_queue``
-for the branch shapes and why the branch name is a sound key here.
-
-**The rule for a new ``pr_number`` consumer**, since crediting the gate run is right for most reads
-and wrong for a few. Ask what the number is being counted *for*:
-
-- Measuring **CI** — cost, duration, pass rate, which runs ran, which failures to read — include gate
-  runs. That work happened, the PR caused it, and excluding it under-reports what landing cost.
-- Measuring **what the author did** — pushes, re-run cycles, push history — exclude them with
-  ``NOT is_merge_queue``. A gate branch's head SHA is a rebase the queue made, so counting it reports
-  activity nobody performed, once per merge attempt.
-
-Only ``push_rows_select`` (``_curated``) and the push-activity query (``pull_request_list``) are in the second
-group today. Getting this wrong is silent: the numbers stay plausible and just drift up.
-
-``commit_pr_number`` is the complementary key: it is how a push run gets PR attribution at all,
-since a merged commit on the default branch has no association of its own. Consumers prefer
-``pr_number`` and fall back to this (SPEC §6, "two PR keys, by design"); ``ci_job_history``
-exposes both under these names.
-
-It resolves in two steps. The authoritative one is a join to the PR snapshot on
-``merge_commit_sha``: the commit GitHub records when a PR merges *is* this run's ``head_sha``, so
-the merged PR that produced the commit is a lookup rather than an inference. The head commit's
-squash-merge ``(#NNNN)`` suffix is the fallback, for the two cases the join cannot serve: a repo
-whose ``pull_requests`` endpoint isn't synced (``pull_requests_table=None``), and a commit whose PR
-row hasn't landed in the snapshot yet. Measured over 30 days of ``PostHog/posthog`` default-branch
-runs, the join agreed with the suffix on all 122,743 runs the suffix resolved and attributed 35
-more that it could not (a merge-commit landing whose subject carries no ``(#NNNN)``).
-
-This is *not* the head-SHA join SPEC §6 locks out; see that entry for why a **merged** PR's
-``merge_commit_sha`` is a terminal key rather than the mutable current head the ban is about.
-
-The real GitHub source lands timestamps as **strings** and ``repository`` /
-``pull_requests`` as **Nullable** JSON, so this builder runs in two layers: an inner
-SELECT parses each timestamp with ``parseDateTimeBestEffort`` and unwraps the
-Nullable JSON with ``ifNull`` (a Nullable column cannot feed ``JSONExtractArrayRaw`` /
-``splitByChar`` — ClickHouse rejects an Array nested inside a Nullable); the outer
-SELECT derives the duration and repo identity off those parsed columns, which also
-avoids referencing a same-SELECT alias as another expression's input.
-
-Because those timestamps land as zero-padded ISO-8601 strings, they compare correctly
-lexicographically ('2026-07-11' < '2026-07-11T09:00:00'). Every windowed consumer filters
-on ``parseDateTimeBestEffort(run_started_at)``, and a predicate over a computed column cannot
-be pushed down to the parquet/S3 scan — so each windowed query full-scans the runs table. With
-``started_floor`` the builder wraps the source in an innermost prefilter on the RAW string column
-(``run_started_at >= {run_started_floor}``), a coarse floor the scan CAN prune on. The precise
-parsed ``{date_from}`` filter downstream stays the authoritative bound; the raw floor only trims
-the scan. Callers register the ``{run_started_floor}`` placeholder via ``run_started_floor_constant``
-(a date-only string one day below the window start, so it can never cut a row the parsed filter keeps).
-
-Every query module embeds this ``SELECT`` as a subquery (see ``_curated``);
-nothing registers it as a global HogQL view.
+With ``started_floor`` the caller registers the ``{run_started_floor}`` placeholder (see
+``run_started_floor_constant``). The parquet scan can prune on that raw-string floor and cannot prune
+on a predicate over the parsed ``run_started_at``.
 """
+
+from collections.abc import Sequence
 
 from products.engineering_analytics.backend.logic.merge_queue import source_pr_number_expr
 
-# The source PR of a merge-queue gate branch, corroborated against the run's actor so a
-# contributor-named branch can't re-key someone else's runs onto their PR (see logic.merge_queue).
-_MERGE_QUEUE_PR_NUMBER = source_pr_number_expr("head_branch", queue_actor_column="JSONExtractString(actor, 'login')")
+# The actor check stops a contributor from naming a branch like a gate branch to move runs onto
+# another PR (see logic.merge_queue).
+MERGE_QUEUE_PR_NUMBER = source_pr_number_expr("head_branch", queue_actor_column="JSONExtractString(actor, 'login')")
 
-# An unfinished run with no update for a day. The webhook sync can miss or misorder the final event of a
-# run, most often a workflow that GitHub skips at once, and the row then stays in_progress or queued
-# forever. A consumer that treats an unfinished run as still running would count it open until the pull
-# request merges, so the timeline reads such a run as ended at its last update. The run row then gives
-# it no outcome, and only a failed job row can mark it failed.
+# The webhook sync can miss the final event of a run, and the row then stays unfinished forever.
+# A reader treats such a run as ended at its last update. The run row gives it no outcome, so only a
+# failed job row can mark it failed.
 STOPPED_REPORTING_SQL = "(status != 'completed' AND updated_at < now() - INTERVAL 1 DAY)"
 
-# The run's PR association, narrowed to PRs based in the run's OWN repo (see module docstring).
-# ``> 0`` guards the both-missing case: JSONExtractInt yields 0 for an absent key, so a malformed
-# entry would otherwise "match" a run whose ``repository`` JSON never landed.
+# GitHub lists every PR in the fork network that shares the run's head SHA, so only an entry based in
+# the run's own repo counts. JSONExtractInt yields 0 for an absent key, so the ``> 0`` stops a
+# malformed entry from matching a run whose ``repository`` JSON is missing.
 _OWN_REPO_PR = """arrayFirst(
                     p -> JSONExtractInt(p, 'base', 'repo', 'id') > 0
                         AND JSONExtractInt(p, 'base', 'repo', 'id') = ifNull(JSONExtractInt(repository, 'id'), 0),
                     JSONExtractArrayRaw(ifNull(pull_requests, '[]'))
                 )"""
-# The PR number of that association, read off raw runs columns. A merge-queue gate run's association
-# is the gate PR the queue opened, not the PR it lands, which ``pr_number`` names instead.
+# For a merge-queue gate run this is the temporary PR the queue opened, not the PR it lands.
 ASSOCIATION_PR_NUMBER = f"JSONExtractInt({_OWN_REPO_PR}, 'number')"
 
-# The squash-merge PR number off the head commit's subject: the fallback when the merge-commit
-# join can't resolve the run (see module docstring). Anchored to a line end ((?m), the squash
-# title): an unanchored match would take the FIRST (#N) in the message, misattributing reverts
-# ('Revert "x (#A)" (#B)') to the reverted PR instead of the reverting one.
+# The fallback for ``commit_pr_number`` when the merge-commit join finds no PR. The match is anchored
+# to a line end, because the first (#N) in 'Revert "x (#A)" (#B)' names the reverted PR.
 _MESSAGE_PR_NUMBER = (
     "accurateCastOrNull("
     "regexpExtract(JSONExtractString(ifNull(head_commit, '{}'), 'message'), '(?m)[(]#([0-9]+)[)]$'), 'Int64')"
@@ -120,12 +44,10 @@ _MESSAGE_PR_NUMBER = (
 
 
 def _merged_pr_index(pull_requests_table: str) -> str:
-    """Merged PRs keyed by the commit their merge produced: the default-branch attribution lookup.
+    """One row per merge commit SHA, with the lowest number of the merged PRs that carry it.
 
-    Deduped to one row per SHA: a LEFT JOIN on a non-unique key fans one run row out into several,
-    which would silently multiply every count built on this builder. ``min`` breaks the tie
-    deterministically rather than correctly, which is the honest trade. GitHub reuses a merge SHA
-    only for PRs that landed together, and one SHA in all of ``PostHog/posthog`` carries three.
+    The join must see one row per SHA, because a duplicate key multiplies the run rows. The filter on
+    ``merged_at`` is required, because an open PR carries a temporary test-merge SHA.
     """
     return f"""
         SELECT
@@ -137,17 +59,24 @@ def _merged_pr_index(pull_requests_table: str) -> str:
     """
 
 
-def build_query(table_name: str, *, pull_requests_table: str | None = None, started_floor: bool = False) -> str:
-    # The raw floor must live in its OWN innermost SELECT, not the parsing SELECT below: that SELECT
-    # aliases parseDateTimeBestEffort(run_started_at) AS run_started_at, and ClickHouse alias resolution
-    # would make a WHERE there compare the parsed DateTime against the string. Keep it on the raw column.
+def build_query(
+    table_name: str,
+    *,
+    pull_requests_table: str | None = None,
+    started_floor: bool = False,
+    passthrough: Sequence[str] = (),
+) -> str:
+    """``passthrough`` names columns of ``table_name`` that the result carries unchanged."""
+    extra_columns = "".join(f", {column}" for column in passthrough)
+    # The floor needs its own innermost SELECT on the raw string column. The parsing SELECT below
+    # aliases the parsed value as run_started_at, so a WHERE there would compare a DateTime with the floor string.
     table_source = (
         f"(SELECT * FROM {table_name} WHERE run_started_at >= {{run_started_floor}})" if started_floor else table_name
     )
     if pull_requests_table:
         merge_join = f"LEFT JOIN ({_merged_pr_index(pull_requests_table)}) AS pr ON run.head_sha = pr.merge_commit_sha"
-        # An unmatched LEFT JOIN fills the Int with 0, not NULL (HogQL doesn't set `join_use_nulls`),
-        # so `nullIf` is what lets the message fallback fire on a miss instead of reading PR 0.
+        # HogQL does not set `join_use_nulls`, so an unmatched LEFT JOIN fills the number with 0 and
+        # the `nullIf` is what lets the message fallback apply.
         commit_pr_number = "coalesce(nullIf(pr.merged_pr_number, 0), message_pr_number)"
     else:
         merge_join = ""
@@ -175,14 +104,14 @@ def build_query(table_name: str, *, pull_requests_table: str | None = None, star
             arrayElement(repo_parts, 2) AS repo_name,
             ci_engine, native_run_id, native_workflow_run_id,
             workflow_id,
-            event
+            event{extra_columns}
         FROM (
             SELECT
                 id,
                 name AS workflow_name,
                 ci_engine, native_run_id, native_workflow_run_id,
                 workflow_id,
-                event,
+                event{extra_columns},
                 head_sha,
                 head_branch,
                 status,
@@ -193,7 +122,7 @@ def build_query(table_name: str, *, pull_requests_table: str | None = None, star
                 -- SELECT is not reliably resolvable as another expression's input (see the two-layer
                 -- note above). It is the account GitHub recorded as triggering the run, which whoever
                 -- pushed the branch cannot set — that is what makes it usable as corroboration.
-                {_MERGE_QUEUE_PR_NUMBER} AS merge_queue_pr_number,
+                {MERGE_QUEUE_PR_NUMBER} AS merge_queue_pr_number,
                 {_MESSAGE_PR_NUMBER} AS message_pr_number,
                 -- repository is GitHub's MINIMAL repository representation: identity and URLs, never a
                 -- default_branch (the PR snapshot's base.repo carries that; see query_default_branches).

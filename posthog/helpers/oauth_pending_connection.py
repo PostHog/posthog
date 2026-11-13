@@ -1,9 +1,9 @@
 """Cookie that carries a pending OAuth authorization through login and signup.
 
-`/oauth/authorize` needs a session. A visitor without one is sent to `/login?next=...`,
-and from there may go through signup and email verification before coming back. Only the
-opaque `next` URL travels with them, so nothing on those screens can name the application
-they are connecting.
+`/oauth/authorize` and the device approval page `/device` need a session. A visitor without
+one is sent to `/login?next=...`, and from there may go through signup and email verification
+before coming back. Only the opaque `next` URL travels with them, so nothing on those screens
+can name the application they are connecting.
 
 This cookie makes that context readable on every `posthog.com` host, the website included,
 which the app context cannot do because only the app's own documents receive it. The cookie
@@ -11,6 +11,7 @@ holds public application metadata only: the same name and logo the consent scree
 """
 
 import json
+from enum import StrEnum
 from typing import TYPE_CHECKING
 from urllib.parse import quote, unquote
 
@@ -50,6 +51,13 @@ def _optional_str(value: object, max_length: int) -> str | None:
     return value
 
 
+class PendingOAuthFlow(StrEnum):
+    """The grant the visitor returns to after login."""
+
+    AUTHORIZE = "authorize"
+    DEVICE = "device"
+
+
 @frozen
 class PendingOAuthConnection:
     """What the auth screens and the website may say about the application being connected."""
@@ -59,6 +67,7 @@ class PendingOAuthConnection:
     logo_uri: str | None = None
     # Host of the registered redirect URI the visitor returns to, when it is a web URL.
     redirect_host: str | None = None
+    flow: PendingOAuthFlow = PendingOAuthFlow.AUTHORIZE
 
     def to_cookie_value(self) -> str:
         payload = {
@@ -66,6 +75,8 @@ class PendingOAuthConnection:
             "client_id": self.client_id,
             "logo_uri": _optional_str(self.logo_uri, _MAX_LOGO_URI_LENGTH),
             "redirect_host": self.redirect_host,
+            # Left out for the authorize flow, so that cookie keeps the shape the website reads.
+            "flow": None if self.flow == PendingOAuthFlow.AUTHORIZE else self.flow.value,
         }
         compact = {key: value for key, value in payload.items() if value is not None}
         # Percent-encoding keeps the value inside the cookie-safe alphabet, and it is what
@@ -91,6 +102,9 @@ class PendingOAuthConnection:
             client_id=client_id,
             logo_uri=_optional_str(payload.get("logo_uri"), _MAX_LOGO_URI_LENGTH),
             redirect_host=_optional_str(payload.get("redirect_host"), _MAX_HOST_LENGTH),
+            flow=PendingOAuthFlow.DEVICE
+            if payload.get("flow") == PendingOAuthFlow.DEVICE
+            else PendingOAuthFlow.AUTHORIZE,
         )
 
 
@@ -131,16 +145,22 @@ def read_pending_oauth_connection(request: HttpRequest) -> PendingOAuthConnectio
     return PendingOAuthConnection.from_cookie_value(request.COOKIES.get(PENDING_OAUTH_CONNECTION_COOKIE))
 
 
-def apply_connector_signup_onboarding_skip(user: "User", organization: "Organization") -> None:
-    """Keep an account created through an OAuth connector out of in-app onboarding.
+def apply_pending_connection_onboarding_skip(
+    user: "User", organization: "Organization", connection: PendingOAuthConnection
+) -> None:
+    """Keep an account created through an OAuth connection out of in-app onboarding.
 
-    The person starts from inside the connecting application and goes back to it after
-    consent, so they never see the onboarding flow the app would otherwise send them to.
-    The skip is pinned to the signup organization, so another organization the person
-    joins later still shows onboarding.
+    The person starts from inside the connecting application or a terminal, and goes back to
+    it after approving, so they never see the onboarding flow the app would otherwise send
+    them to. The skip is pinned to the signup organization, so another organization the
+    person joins later still shows onboarding.
     """
     user.onboarding_skipped_at = timezone.now()
-    user.onboarding_skipped_reason = OnboardingSkippedReason.CONNECTOR
+    user.onboarding_skipped_reason = (
+        OnboardingSkippedReason.DEVICE_LOGIN
+        if connection.flow == PendingOAuthFlow.DEVICE
+        else OnboardingSkippedReason.CONNECTOR
+    )
     user.onboarding_skipped_organization_id = organization.id
     user.save(
         update_fields=["onboarding_skipped_at", "onboarding_skipped_reason", "onboarding_skipped_organization_id"]

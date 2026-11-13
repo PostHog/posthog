@@ -4,6 +4,7 @@ import json
 import time
 import uuid
 import typing
+import asyncio
 import datetime as dt
 import dataclasses
 from urllib.parse import urlparse
@@ -28,6 +29,7 @@ from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.metrics import Attributes, ExecutionTimeRecorder
 
+from products.managed_warehouse.backend.backfill_trino import data_imports_through_trino
 from products.managed_warehouse.backend.common import (
     _get_org_id_for_team,
     attach_catalog,
@@ -288,6 +290,12 @@ class DuckLakeCopyDataImportsVerificationResult:
     error: str | None = None
 
 
+async def _organization_registers_through_trino(organization_id: object) -> bool:
+    # This workflow runs DuckDB statements on duckgres, which an organization whose data imports register through
+    # Trino does not have.
+    return await asyncio.to_thread(data_imports_through_trino, str(organization_id))
+
+
 @activity.defn
 async def ducklake_copy_data_imports_gate_activity(inputs: DuckLakeCopyWorkflowGateInputs) -> bool:
     """Evaluate whether the DuckLake data imports copy workflow should run for a team."""
@@ -303,10 +311,12 @@ async def ducklake_copy_data_imports_gate_activity(inputs: DuckLakeCopyWorkflowG
     if inputs.internal_bootstrap:
         from products.managed_warehouse.backend.facade.access import internal_loading_enabled  # noqa: PLC0415
 
-        return await database_sync_to_async(internal_loading_enabled)(team.organization_id)
+        if not await database_sync_to_async(internal_loading_enabled)(team.organization_id):
+            return False
+        return not await _organization_registers_through_trino(team.organization_id)
 
     try:
-        return feature_enabled_or_false(
+        copy_enabled = feature_enabled_or_false(
             "ducklake-data-imports-copy-workflow",
             str(team.uuid),
             groups={
@@ -324,6 +334,9 @@ async def ducklake_copy_data_imports_gate_activity(inputs: DuckLakeCopyWorkflowG
             only_evaluate_locally=True,
             send_feature_flag_events=False,
         )
+        if not copy_enabled:
+            return False
+        return not await _organization_registers_through_trino(team.organization_id)
     except Exception as error:
         await logger.awarning(
             "Failed to evaluate DuckLake data imports feature flag",

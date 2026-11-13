@@ -1,6 +1,7 @@
 import json
 import uuid
 import base64
+import datetime as dt
 import dataclasses
 import collections.abc
 
@@ -10,14 +11,40 @@ from django.conf import settings
 
 import temporalio.converter
 from cryptography.fernet import InvalidToken
+from temporalio import activity, workflow
 from temporalio.api.enums.v1 import EventType
 from temporalio.client import Client
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
+from posthog.dataclasses import frozen
 from posthog.temporal.common.codec import EncryptionCodec, _load_as_bytes, _prepare_key, _resize_key
 
-from products.batch_exports.backend.facade.temporal import NoOpWorkflow, noop_activity
-from products.batch_exports.backend.facade.testing import build_noop_inputs
+
+@frozen
+class EchoWorkflowInputs:
+    arg: str
+    team_id: int
+
+
+@frozen
+class EchoActivityInputs:
+    arg: str
+
+
+@activity.defn(name="encryption-codec-test-echo")
+async def echo_activity(inputs: EchoActivityInputs) -> str:
+    return f"OK - {inputs.arg}"
+
+
+@workflow.defn(name="encryption-codec-test-echo")
+class EchoWorkflow:
+    @workflow.run
+    async def run(self, inputs: EchoWorkflowInputs) -> str:
+        return await workflow.execute_activity(
+            echo_activity,
+            EchoActivityInputs(arg=inputs.arg),
+            start_to_close_timeout=dt.timedelta(seconds=60),
+        )
 
 
 @pytest.mark.parametrize(
@@ -190,34 +217,33 @@ async def test_payloads_are_encrypted():
     workflow_id = uuid.uuid4()
     input_str = str(uuid.uuid4())
 
-    no_op_result_str = f"OK - {input_str}"
-    inputs = build_noop_inputs(arg=input_str, team_id=1, batch_export_id="123")
+    echo_result_str = f"OK - {input_str}"
+    inputs = EchoWorkflowInputs(arg=input_str, team_id=1)
 
-    # The no-op Workflow can only produce a limited set of results, so we'll check if the events match any of these.
-    # Either it's the final result (no_op_result_str), the input to an activity (no_op_activity_input_str), or the
-    # input to the workflow (inputs).
+    # The echo Workflow can only produce a limited set of results, so we'll check if the events match any of these.
+    # Either it's the final result (echo_result_str), the input to the activity, or the input to the workflow (inputs).
     expected_results = (
-        no_op_result_str,
-        {"arg": input_str, "backfill_details": None},
+        echo_result_str,
+        {"arg": input_str},
         dataclasses.asdict(inputs),
     )
 
     async with Worker(
         client,
         task_queue=settings.TEMPORAL_TASK_QUEUE,
-        workflows=[NoOpWorkflow],
-        activities=[noop_activity],
+        workflows=[EchoWorkflow],
+        activities=[echo_activity],
         workflow_runner=UnsandboxedWorkflowRunner(),
     ) as worker:
         handle = await client.start_workflow(
-            NoOpWorkflow.run,
+            EchoWorkflow.run,
             inputs,
             id=f"workflow-{workflow_id}",
             task_queue=worker.task_queue,
         )
 
         result = await handle.result()
-        assert result == no_op_result_str
+        assert result == echo_result_str
 
         async for event in handle.fetch_history_events():
             payloads = get_history_event_payloads(event)

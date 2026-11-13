@@ -143,7 +143,7 @@ def _health_inputs_flag_history(history: FlagHistory | FlagHistoryNotChecked) ->
     return {
         "checked": reason is None,
         "not_checked_reason": reason,
-        "launched_at": history.launched_at,
+        "start_date": history.start_date,
         "team_timezone": history.team_timezone,
         "changes": changes,
         "exposed_before_first": exposed_before_first,
@@ -170,6 +170,7 @@ def _health_inputs_traffic(traffic: ConditionSetTraffic) -> dict[str, Any]:
         "calls": traffic.calls,
         "remotely_evaluated_calls": traffic.remotely_evaluated_calls,
         "people_assigned_outside": traffic.people_assigned_outside,
+        "filters_test_accounts": traffic.filters_test_accounts,
     }
 
 
@@ -263,7 +264,7 @@ def health_inputs_payload(inputs: HealthInputs) -> dict[str, Any]:
         "primary_metric_count": ctx.primary_metric_count,
         "secondary_metric_count": ctx.secondary_metric_count,
         "flag": _health_inputs_flag(ctx.flag) if ctx.flag else None,
-        "flag_last_called_at": inputs.flag_last_called_at,
+        "flag_last_called_at": ctx.flag_last_called_at,
         "flag_called": ctx.flag_called,
         "flag_called_during_run": ctx.flag_called_during_run,
         "flag_called_after_end": ctx.flag_called_after_end,

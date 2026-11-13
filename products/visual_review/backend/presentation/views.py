@@ -26,7 +26,7 @@ from rest_framework.response import Response
 
 from posthog.api.mixins import TypedRequest, validated_request
 from posthog.api.pagination import FacadeLimitOffsetPagination, PrecountedLimitOffsetPagination, facade_page_response
-from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.routing import PathParameter, TeamAndOrgViewSetMixin
 from posthog.auth import is_mcp_request
 from posthog.helpers.trigram_search import MAX_SEARCH_LENGTH
 
@@ -85,19 +85,6 @@ def _actor(request: Request) -> ActorType:
     this attributes a write and must never gate one.
     """
     return ActorType.AGENT if is_mcp_request(request) else ActorType.HUMAN
-
-
-def _parse_uuid(value: str, field: str) -> UUID:
-    """Parse a parent lookup UUID, returning a 400 instead of letting a malformed value raise a 500.
-
-    `path_parameters` parses only the view's own URL kwargs, so a parent segment such as the repo
-    id in `repos/<repo_id>/runs/` reaches the viewset as a raw string. A malformed one (truncated,
-    hallucinated by an MCP client, hand-typed) would otherwise crash `UUID(...)` with an
-    uncaught `ValueError`. Convert that into a clean DRF validation error."""
-    try:
-        return UUID(value)
-    except ValueError:
-        raise ValidationError({field: "Must be a valid UUID."})
 
 
 REVIEW_STATE_PARAMETER = OpenApiParameter(
@@ -251,6 +238,7 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             baseline_file_paths=body.baseline_file_paths,
             enable_pr_comments=body.enable_pr_comments,
             debt_digest_enabled=body.debt_digest_enabled,
+            auto_quarantine_mode=body.auto_quarantine_mode,
         )
 
         try:
@@ -496,6 +484,7 @@ class SnapshotViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """
 
     scope_object = "visual_review"
+    path_parameters = {"repo_id": UUID}
     scope_object_read_actions = ["timeline"]
 
     @extend_schema(
@@ -517,7 +506,7 @@ class SnapshotViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def timeline(self, request: Request, run_type: str, identifier: str, **kwargs) -> Response:
         """Deduped baseline timeline for a snapshot identity. Newest first."""
-        repo_id = _parse_uuid(self.parents_query_dict["repo_id"], field="repo_id")
+        repo_id: UUID = self.kwargs["parent_lookup_repo_id"]
         try:
             api.get_repo(repo_id, team_id=self.team_id)
         except api.RepoNotFoundError:
@@ -538,6 +527,8 @@ class RepoRunsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """
 
     scope_object = "visual_review"
+    path_parameters = {"repo_id": UUID}
+
     pagination_class = FacadeLimitOffsetPagination
     scope_object_read_actions = ["list", "counts"]
     serializer_class = RunSerializer
@@ -563,7 +554,7 @@ class RepoRunsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 {"detail": f"search must be at most {MAX_SEARCH_LENGTH} characters"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        repo_id = _parse_uuid(self.parents_query_dict["repo_id"], field="repo_id")
+        repo_id: UUID = self.kwargs["parent_lookup_repo_id"]
         return facade_page_response(
             self,
             lambda page: api.list_runs(
@@ -576,7 +567,7 @@ class RepoRunsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @action(detail=False, methods=["get"])
     def counts(self, request: Request, **kwargs) -> Response:
         """Review state counts for runs in this repo."""
-        repo_id = _parse_uuid(self.parents_query_dict["repo_id"], field="repo_id")
+        repo_id: UUID = self.kwargs["parent_lookup_repo_id"]
         return Response(api.get_review_state_counts(self.team_id, repo_id=repo_id))
 
 
@@ -588,7 +579,12 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """
 
     scope_object = "visual_review"
-    path_parameters = {"pk": UUID, "request_id": UUID}
+    path_parameters = {
+        "pk": UUID,
+        "request_id": PathParameter(
+            type=UUID, description="UUID of a pending lift request for this run's pull request."
+        ),
+    }
 
     pagination_class = FacadeLimitOffsetPagination
     scope_object_write_actions = [
@@ -972,14 +968,6 @@ class RunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         return Response(QuarantineLiftEntrySerializer(instance=entries, many=True).data)
 
     @extend_schema(
-        parameters=[
-            OpenApiParameter(
-                "request_id",
-                OpenApiTypes.UUID,
-                OpenApiParameter.PATH,
-                description="UUID of a pending lift request for this run's pull request.",
-            ),
-        ],
         request=None,
         responses={204: None},
         description="Withdraw a pending request to lift a quarantine when this run's pull request merges.",

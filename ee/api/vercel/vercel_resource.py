@@ -11,6 +11,8 @@ from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.models.team import Team
+
 from ee.api.authentication import VercelAuthentication
 from ee.api.vercel.vercel_installation import VercelErrorResponseMixin, validate_installation_id
 from ee.api.vercel.vercel_permission import VercelPermission
@@ -171,11 +173,6 @@ class VercelResourceViewSet(VercelRegionProxyMixin, VercelErrorResponseMixin, vi
         "resource_plans": ["system"],
     }
 
-    def _validate_resource_access(self, resource_id: str, installation_id: str) -> None:
-        resource, installation = VercelIntegration._get_resource_with_installation(resource_id)
-        if installation.integration_id != installation_id:
-            raise exceptions.ValidationError({"resource": "Resource does not belong to this installation."})
-
     def _validate_response_format(self, data: dict[str, Any]) -> dict[str, Any]:
         serializer = ResourceResponseSerializer(data=data)
         serializer.is_valid(raise_exception=True)
@@ -199,9 +196,7 @@ class VercelResourceViewSet(VercelRegionProxyMixin, VercelErrorResponseMixin, vi
         """
         resource_id = validate_resource_id(self.kwargs.get("resource_id"))
         installation_id = validate_installation_id(self.kwargs.get("parent_lookup_installation_id"))
-        self._validate_resource_access(resource_id, installation_id)
-
-        response_data = VercelIntegration.get_resource(resource_id)
+        response_data = VercelIntegration.get_resource(installation_id, resource_id)
         validated_response = self._validate_response_format(response_data)
         return Response(validated_response, status=200)
 
@@ -214,9 +209,7 @@ class VercelResourceViewSet(VercelRegionProxyMixin, VercelErrorResponseMixin, vi
 
         resource_id = validate_resource_id(self.kwargs.get("resource_id"))
         installation_id = validate_installation_id(self.kwargs.get("parent_lookup_installation_id"))
-        self._validate_resource_access(resource_id, installation_id)
-
-        response_data = VercelIntegration.update_resource(resource_id, serializer.validated_data)
+        response_data = VercelIntegration.update_resource(installation_id, resource_id, serializer.validated_data)
         validated_response = self._validate_response_format(response_data)
         return Response(validated_response, status=200)
 
@@ -226,9 +219,7 @@ class VercelResourceViewSet(VercelRegionProxyMixin, VercelErrorResponseMixin, vi
         """
         resource_id = validate_resource_id(self.kwargs.get("resource_id"))
         installation_id = validate_installation_id(self.kwargs.get("parent_lookup_installation_id"))
-        self._validate_resource_access(resource_id, installation_id)
-
-        VercelIntegration.delete_resource(resource_id)
+        VercelIntegration.delete_resource(installation_id, resource_id)
         return Response(status=204)
 
     @action(detail=True, methods=["GET"], url_path="plans")
@@ -257,9 +248,7 @@ class VercelResourceViewSet(VercelRegionProxyMixin, VercelErrorResponseMixin, vi
         """
         resource_id = validate_resource_id(self.kwargs.get("resource_id"))
         installation_id = validate_installation_id(self.kwargs.get("parent_lookup_installation_id"))
-        self._validate_resource_access(resource_id, installation_id)
-
-        resource, _ = VercelIntegration._get_resource_with_installation(resource_id)
-        secrets = VercelIntegration._build_secrets(resource.team)
+        resource, _ = VercelIntegration._get_resource_with_installation(installation_id, resource_id)
+        secrets = VercelIntegration._build_secrets(Team.objects.get(pk=resource.team_id))
 
         return Response({"secrets": secrets})

@@ -64,7 +64,6 @@ function rowOptions(overrides: Partial<TraceDialogRowOptions> = {}): TraceDialog
         collapsedSpanIds: new Set(),
         fullChildListSpanIds: new Set(),
         openChainIds: new Set(),
-        foldRuns: true,
         openRunIds: new Set(),
         pinned: null,
         ...overrides,
@@ -239,8 +238,8 @@ describe('traceDialogRows', () => {
             ])
         })
 
-        // Fails when a deep link lands on a span that a folded run hides, when a run that only the pin holds
-        // open offers a fold control that would change nothing, or when a run folds with the flag off.
+        // Fails when a deep link lands on a span that a folded run hides, or when a run that only the pin holds
+        // open offers a fold control that would change nothing.
         it.each([
             { state: 'no state', options: {}, expected: ['root', 'cache-1×3'], openRunLength: undefined },
             {
@@ -259,12 +258,6 @@ describe('traceDialogRows', () => {
                 state: 'a collapsed parent',
                 options: { collapsedSpanIds: new Set(['root']) },
                 expected: ['root'],
-                openRunLength: undefined,
-            },
-            {
-                state: 'folding turned off',
-                options: { foldRuns: false },
-                expected: opened,
                 openRunLength: undefined,
             },
         ])('with $state, lists the run as expected', ({ options, expected, openRunLength }) => {
@@ -288,32 +281,22 @@ describe('traceDialogRows', () => {
         })
 
         // Fails when the cap counts spans before the fold, which shows ten reads of a run of thousands and a
-        // "more" row for the rest, when the "more" row counts a hidden run as one span, or when the cap stops
-        // counting spans with folding turned off.
-        it.each([
-            {
-                folding: 'on',
-                foldRuns: true,
-                expected: ['root', 'get0×20', ...Array.from({ length: 9 }, (_, i) => `d${i}`), '+5'],
-            },
-            {
-                folding: 'off',
-                foldRuns: false,
-                expected: ['root', ...Array.from({ length: 10 }, (_, i) => `get${i}`), '+24'],
-            },
-        ])(
-            'with folding $folding, caps the rows after the fold, and the more row counts the spans it hides',
-            ({ foldRuns, expected }) => {
-                const tree = buildSpanTree([
-                    span('root', '', 0),
-                    ...Array.from({ length: 20 }, (_, i) => opSpan(`get${i}`, 'root', 1 + i, 'cache GET')),
-                    ...Array.from({ length: 9 }, (_, i) => span(`d${i}`, 'root', 30 + i)),
-                    ...Array.from({ length: 5 }, (_, i) => opSpan(`put${i}`, 'root', 40 + i, 'cache PUT')),
-                ])
+        // "more" row for the rest, or when the "more" row counts a hidden run as one span.
+        it('caps the rows after the fold, and the more row counts the spans it hides', () => {
+            const tree = buildSpanTree([
+                span('root', '', 0),
+                ...Array.from({ length: 20 }, (_, i) => opSpan(`get${i}`, 'root', 1 + i, 'cache GET')),
+                ...Array.from({ length: 9 }, (_, i) => span(`d${i}`, 'root', 30 + i)),
+                ...Array.from({ length: 5 }, (_, i) => opSpan(`put${i}`, 'root', 40 + i, 'cache PUT')),
+            ])
 
-                expect(labels(buildTraceDialogRows(tree, rowOptions({ foldRuns })))).toEqual(expected)
-            }
-        )
+            expect(labels(buildTraceDialogRows(tree, rowOptions()))).toEqual([
+                'root',
+                'get0×20',
+                ...Array.from({ length: 9 }, (_, i) => `d${i}`),
+                '+5',
+            ])
+        })
 
         // Fails when an opened run takes ten items of the cap, which hides the spans after it behind a more row.
         it('counts an opened run as one item of the cap and lists all of its spans', () => {

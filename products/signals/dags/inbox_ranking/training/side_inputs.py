@@ -20,13 +20,15 @@ from posthog import settings
 from posthog.dataclasses import frozen
 
 from products.signals.backend.ranking.features import (
+    REPORT_SCORED_FACTS_EXTRA,
     REPORT_SOURCES_COLUMNS,
     REPORT_SOURCES_EXTRA,
+    SCORED_AT_COLUMN,
     SIGNAL_INSERTED_AT_COLUMN,
     Extras,
 )
 from products.signals.dags.inbox_ranking.common import partition_object_key, read_parquet_if_exists, snapshot_bounds
-from products.signals.dags.inbox_ranking.dataset.dag import SIGNAL_EMBEDDINGS_TABLE
+from products.signals.dags.inbox_ranking.dataset.dag import SCORED_FACTS_TABLE, SIGNAL_EMBEDDINGS_TABLE
 
 # Reads the dt=D object of one side input. Returns None when the object was never written.
 LoadFrame = Callable[[object, str, str, str], pd.DataFrame | None]
@@ -96,22 +98,16 @@ def load_side_inputs(client, bucket: str, prefix: str, partition_key: str, keys:
 REPORT_SOURCES_MARGIN_DAYS = 30
 
 
-def load_report_sources(client, bucket: str, prefix: str, partition_key: str) -> pd.DataFrame | None:
-    """The metadata columns of every `inbox_signal_embeddings` emission from the start of the
-    training lookback, less `REPORT_SOURCES_MARGIN_DAYS`, to dt=D. The log holds only each day's
-    inserts, so the frame is the union of the days. The vector column is never read. A missing
-    earlier day is left out, but a missing dt=D returns None, because that day's sources are unknown."""
+def _union_of_days(
+    client, bucket: str, prefix: str, table_name: str, partition_key: str, days: int, columns: list[str] | None = None
+) -> pd.DataFrame | None:
+    """The rows of `table_name` from dt=D back `days` days. A missing earlier day is left out, but a
+    missing dt=D returns None, because that day is unknown."""
     end = datetime.date.fromisoformat(partition_key)
-    days = settings.INBOX_RANKING_TRAINING_LOOKBACK_DAYS + REPORT_SOURCES_MARGIN_DAYS
     frames: list[pd.DataFrame] = []
     for offset in range(days + 1):
         day = (end - datetime.timedelta(days=offset)).isoformat()
-        table = read_parquet_if_exists(
-            client,
-            bucket,
-            partition_object_key(prefix, SIGNAL_EMBEDDINGS_TABLE, day),
-            columns=list(REPORT_SOURCES_COLUMNS),
-        )
+        table = read_parquet_if_exists(client, bucket, partition_object_key(prefix, table_name, day), columns=columns)
         if table is None:
             if offset == 0:
                 return None
@@ -120,6 +116,34 @@ def load_report_sources(client, bucket: str, prefix: str, partition_key: str) ->
     return pd.concat(frames, ignore_index=True)
 
 
+def load_report_sources(client, bucket: str, prefix: str, partition_key: str) -> pd.DataFrame | None:
+    """The metadata columns of every `inbox_signal_embeddings` emission from the start of the
+    training lookback, less `REPORT_SOURCES_MARGIN_DAYS`, to dt=D. The log holds only each day's
+    inserts, so the frame is the union of the days. The vector column is never read."""
+    return _union_of_days(
+        client,
+        bucket,
+        prefix,
+        SIGNAL_EMBEDDINGS_TABLE,
+        partition_key,
+        settings.INBOX_RANKING_TRAINING_LOOKBACK_DAYS + REPORT_SOURCES_MARGIN_DAYS,
+        columns=list(REPORT_SOURCES_COLUMNS),
+    )
+
+
+def load_report_scored_facts(client, bucket: str, prefix: str, partition_key: str) -> pd.DataFrame | None:
+    """The `inbox_report_scored_facts` rows of the reports created from the start of the training
+    lookback to dt=D. Each day holds that day's newborns, so the frame is the union of the days. A
+    report with no row was not scored on its birth day or was born before recording began: its facts
+    are unknown, and the loader leaves it absent rather than filling it in."""
+    return _union_of_days(
+        client, bucket, prefix, SCORED_FACTS_TABLE, partition_key, settings.INBOX_RANKING_TRAINING_LOOKBACK_DAYS
+    )
+
+
 register_side_input(
     SideInputLoader(key=REPORT_SOURCES_EXTRA, as_of_column=SIGNAL_INSERTED_AT_COLUMN, load=load_report_sources)
+)
+register_side_input(
+    SideInputLoader(key=REPORT_SCORED_FACTS_EXTRA, as_of_column=SCORED_AT_COLUMN, load=load_report_scored_facts)
 )

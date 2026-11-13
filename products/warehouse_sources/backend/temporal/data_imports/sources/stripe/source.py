@@ -412,6 +412,11 @@ If automatic creation failed with a permissions error, the fix depends on how yo
             # Publishable keys can't authenticate any of the read endpoints we sync, so every retry
             # fails identically — match Stripe's stable rejection text (the request id varies).
             "This API call cannot be made with a publishable API key": "Your Stripe API key is a publishable key, which cannot be used to sync data. Please use a secret or restricted key instead, then reconnect.",
+            # The customer pasted an Organization API key, which Stripe scopes to no single account —
+            # every request needs a target account via a Stripe-Context header, which we never send.
+            # Every endpoint we sync fails identically, so retrying can't help; Stripe's own text is
+            # stable (no request id or account id embedded).
+            "Please include the Stripe-Context header with your target account when using an Organization API key": "Your Stripe API key is an Organization API key, which isn't supported. Please use a secret or restricted API key scoped to a single Stripe account instead, then reconnect.",
             # A non-Connect key was sent with a `stripe_account` header (the source's "Account id"),
             # so Stripe rejects the whole request for the account rather than a specific scope.
             "Only Stripe Connect platforms can work with other accounts": "Stripe rejected the request because your API key isn't authorized for the configured Stripe account. The 'Account id' in your source settings only applies to Stripe Connect platform accounts — remove or correct it if your key belongs directly to the account, then reconnect.",
@@ -487,7 +492,7 @@ If automatic creation failed with a permissions error, the fix depends on how yo
 
         oauth_integration = OauthIntegration(integration)
         if oauth_integration.access_token_expired():
-            oauth_integration.refresh_access_token()
+            integration = oauth_integration.refresh_access_token()
 
         if not integration.access_token:
             raise ValueError("Stripe access token not found")

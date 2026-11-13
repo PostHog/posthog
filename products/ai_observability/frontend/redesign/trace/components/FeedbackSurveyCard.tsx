@@ -3,7 +3,6 @@ import { LemonTag } from '@posthog/lemon-ui'
 import { cn } from 'lib/utils/css-classes'
 
 import type { TraceSurveyResponseApi, TraceSurveyResponseApiUnavailable } from '../../../generated/api.schemas'
-import { FeedbackPlacement } from '../types'
 import { FeedbackSurveyName } from './FeedbackSurveyName'
 import { scrollIntoNearest } from './scrollIntoNearest'
 import { ShortTimestamp } from './ShortTimestamp'
@@ -15,16 +14,18 @@ const UNAVAILABLE_MESSAGES: Record<NonNullable<TraceSurveyResponseApiUnavailable
 }
 
 export interface FeedbackSurveyCardProps {
-    response: TraceSurveyResponseApi & FeedbackPlacement
+    response: TraceSurveyResponseApi
+    /** The Feedback mode was opened from the step this response targets. */
+    focused: boolean
     /** Brings the card into view when it mounts. */
     isScrollTarget: boolean
 }
 
-export function FeedbackSurveyCard({ response, isScrollTarget }: FeedbackSurveyCardProps): JSX.Element {
+export function FeedbackSurveyCard({ response, focused, isScrollTarget }: FeedbackSurveyCardProps): JSX.Element {
     return (
         <li
             ref={isScrollTarget ? scrollIntoNearest : undefined}
-            className={cn('flex flex-col gap-2 px-3 py-2', response.focused && 'bg-accent-highlight-secondary')}
+            className={cn('flex flex-col gap-2 px-3 py-2', focused && 'bg-accent-highlight-secondary')}
         >
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
                 <FeedbackSurveyName survey={response.survey} />

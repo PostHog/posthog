@@ -7,7 +7,6 @@ import { Provider, useValues } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
@@ -72,6 +71,13 @@ const expectProgress = (text: string): void => {
     expect(screen.getAllByText(text).length).toBeGreaterThan(0)
 }
 
+const expectBackToChannels = (): void => {
+    expect(screen.getByText('Back to workflows').closest('a')).toHaveAttribute(
+        'href',
+        expect.stringMatching(new RegExp(`${urls.workflows('channels')}$`))
+    )
+}
+
 describe('EmailDomainScene', () => {
     let backend: FakeEmailDomainBackend
 
@@ -86,7 +92,6 @@ describe('EmailDomainScene', () => {
     }
 
     const turnOnSuggestions = (on: boolean): void => {
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_EMAIL_DOMAIN_WIZARD]: true })
         organizationLogic.actions.loadCurrentOrganizationSuccess({
             ...MOCK_DEFAULT_ORGANIZATION,
             is_ai_data_processing_approved: on,
@@ -104,9 +109,6 @@ describe('EmailDomainScene', () => {
         useMocks(backend.mocks())
         initKeaTests()
         featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WORKFLOWS_EMAIL_DOMAIN_WIZARD], {
-            [FEATURE_FLAGS.WORKFLOWS_EMAIL_DOMAIN_WIZARD]: true,
-        })
     })
 
     afterEach(() => {
@@ -118,6 +120,7 @@ describe('EmailDomainScene', () => {
     it('takes a typed domain through the manual path to a verified first sender', async () => {
         await open(urls.workflowsEmailDomain('new'))
         expectStep('Which domain should your emails come from?')
+        expectBackToChannels()
 
         typeInto('email-domain-another-domain', 'acme.com')
         click('email-domain-use-custom-domain')
@@ -158,6 +161,7 @@ describe('EmailDomainScene', () => {
         backend.verifyDomain(DOMAIN)
         await flush(POLL_MS)
         expectStep(/You can send from/)
+        expectBackToChannels()
         expect(screen.getByText('Your first sender')).toBeInTheDocument()
         expect(screen.getByText(`Send your first email from ${DOMAIN}`)).toBeInTheDocument()
 
@@ -367,6 +371,13 @@ describe('EmailDomainScene', () => {
         await flush()
         expectStep('Add 8 settings at Cloudflare')
         expect(backend.requestsTo('integration_get')).toHaveLength(2)
+    })
+
+    it('says the sender no longer exists, without a retry, when it was deleted', async () => {
+        await open(urls.workflowsEmailDomain(SENDER_ID))
+        expectStep('This sending domain no longer exists')
+        expect(document.querySelector('[data-attr="email-domain-retry"]')).toBeNull()
+        expectBackToChannels()
     })
 
     it('keeps the progress on screen when a status check fails after the records were found', async () => {

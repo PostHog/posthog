@@ -90,12 +90,13 @@ class SubscriptionRequestInvalidError(ValueError):
     """The request breaks a subscription rule. The API answers 400 with `detail`.
 
     `detail` has the shape a serializer validation error carries: a message, a list of messages, or
-    a mapping from field name to messages.
+    a mapping from field name to messages. `code` names the rule for clients that act on it.
     """
 
-    def __init__(self, detail: str | list[str] | Mapping[str, list[str]]) -> None:
+    def __init__(self, detail: str | list[str] | Mapping[str, list[str]], code: str | None = None) -> None:
         super().__init__(detail)
         self.detail = detail
+        self.code = code
 
 
 class SubscriptionPermissionDeniedError(PermissionError):

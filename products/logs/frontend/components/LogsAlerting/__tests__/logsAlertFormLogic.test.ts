@@ -546,6 +546,7 @@ describe('logsAlertFormLogic', () => {
             ['alert the source owns in a team that has cut over', MOCK_ALERT, [PLATFORM_ALERT], false],
             ['alert the platform owns', PLATFORM_ALERT, [], true],
             ['alert that already groups', GROUPED_BY_SERVICE_ALERT, [], true],
+            ['new alert in a team that has no alerts', null, [], true],
             ['new alert in a team that has not cut over', null, [MOCK_ALERT], false],
             ['new alert in a team that has cut over', null, [MOCK_ALERT, PLATFORM_ALERT], true],
         ])('can group for %s', async (_, alert, teamAlerts, expected) => {

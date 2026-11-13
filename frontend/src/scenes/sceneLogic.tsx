@@ -76,6 +76,19 @@ interface MountedSceneLogic {
     unmount: () => void
 }
 
+function unmountSceneLogic(cache: Record<string, any>): void {
+    const mountedLogic: MountedSceneLogic | null = cache.mountedSceneLogic
+    if (!mountedLogic) {
+        return
+    }
+    try {
+        mountedLogic.unmount()
+    } catch (error) {
+        console.error('Error unmounting previous scene logic:', error)
+    }
+    cache.mountedSceneLogic = null
+}
+
 // A failed load must fail the scene, because code that builds queries from an empty taxonomy returns wrong results.
 function loadCoreFilterDefinitionsFor(sceneId: string, loggedIn: boolean): Promise<void> {
     const sceneConfig = sceneConfigurations[sceneId]
@@ -126,7 +139,7 @@ function leaveBlockedOrganizationPath(): boolean {
 
 // `/` and `/home` both resolve the configured homepage through this, so anything asking whether a
 // location is the homepage has to derive it the same way.
-const homepageTargetPathname = (homepage: SceneTab): string => {
+export const homepageTargetPathname = (homepage: SceneTab): string => {
     const targetPathname = addProjectIdIfMissing(homepage.pathname || urls.projectHomepage())
     return removeProjectIdIfPresent(targetPathname) === '/'
         ? addProjectIdIfMissing(urls.projectHomepage())
@@ -135,7 +148,7 @@ const homepageTargetPathname = (homepage: SceneTab): string => {
 
 // Bootstrapped by Django into APP_CONTEXT so the configured homepage is known on first paint,
 // before any async fetch — otherwise urlToAction runs with a null homepage and /home can't redirect.
-const getBootstrappedHomepage = (): SceneTab | null => {
+export const getBootstrappedHomepage = (): SceneTab | null => {
     const homepage = getAppContext()?.homepage
     if (!homepage) {
         return null
@@ -177,6 +190,8 @@ const pathPrefixesOnboardingNotRequiredFor = [
     '/agentic',
     // /cli/authorize, /cli/live (CLI auth round-trip).
     '/cli',
+    // /device, where a person approves an OAuth device login (urls.oauthDeviceAuthorize).
+    '/device',
     // /stamphog/install/callback — GitHub App install round-trip carrying a one-time OAuth code;
     // if /onboarding swallows it the installation completes on GitHub but no repos ever connect.
     '/stamphog/install/callback',
@@ -193,6 +208,28 @@ const pathPrefixesOnboardingNotRequiredFor = [
 function isRefusedProjectPath(pathname: string): boolean {
     const refusedProject = getAppContext()?.project_access_denied
     return !!refusedProject && getProjectIdentifierInPath(pathname) === refusedProject
+}
+
+function isAccountSettingsPath(pathname: string): boolean {
+    return /^\/settings\/(user|organization)/.test(removeProjectIdIfPresent(pathname))
+}
+
+function isProjectAccessDenied(sceneId: string, pathname: string, isCurrentProjectAccessDenied: boolean): boolean {
+    if (!sceneConfigurations[sceneId]?.projectBased) {
+        return false
+    }
+    // The server refused the project this address names and served the user's own one, so the page
+    // cannot load. Once the address bar names a project we do serve, the scene loads as usual.
+    if (isRefusedProjectPath(pathname)) {
+        return true
+    }
+    return isCurrentProjectAccessDenied && !isAccountSettingsPath(pathname)
+}
+
+// `isHobby` is true until preflight loads, so a cloud user must not be redirected before it loads
+function isCloudOnlySceneOnSelfHosted(sceneId: string | null): boolean {
+    const { preflight, isHobby } = preflightLogic.values
+    return !!sceneId && !!sceneConfigurations[sceneId]?.cloudOnly && !!preflight && isHobby
 }
 
 function isFirstProjectWithoutData(user: UserType): boolean {
@@ -212,6 +249,12 @@ function isFirstProjectWithoutData(user: UserType): boolean {
 export function isOnboardingNotRequiredForPath(pathname: string): boolean {
     const path = removeProjectIdIfPresent(pathname)
     return pathPrefixesOnboardingNotRequiredFor.some((prefix) => path.startsWith(prefix))
+}
+
+export function getOnboardingRedirectNextPath(nextParam: string | null | undefined, location: Location): string {
+    return (
+        getRelativeNextPath(nextParam, location) ?? `${removeProjectIdIfPresent(location.pathname)}${location.search}`
+    )
 }
 
 const DelayedLoadingSpinner = (): JSX.Element => {
@@ -413,6 +456,7 @@ export interface sceneLogicMeta {
         activeSceneId: (
             sceneId: string | null,
             isCurrentTeamUnavailable: boolean,
+            isCurrentProjectAccessDenied: boolean,
             location: {
                 hash: string
                 pathname: string
@@ -609,15 +653,22 @@ export const sceneLogic = kea<sceneLogicType>([
             { resultEqualityCheck: equal },
         ],
         activeSceneId: [
-            (s) => [s.sceneId, teamLogic.selectors.isCurrentTeamUnavailable, router.selectors.location],
-            (sceneId: string | null, isCurrentTeamUnavailable: boolean, location: { pathname: string }) => {
+            (s) => [
+                s.sceneId,
+                teamLogic.selectors.isCurrentTeamUnavailable,
+                teamLogic.selectors.isCurrentProjectAccessDenied,
+                router.selectors.location,
+            ],
+            (
+                sceneId: string | null,
+                isCurrentTeamUnavailable: boolean,
+                isCurrentProjectAccessDenied: boolean,
+                location: { pathname: string }
+            ) => {
                 const appContext = getAppContext()
                 const effectiveResourceAccessControl = appContext?.effective_resource_access_control
 
-                // The server refused the project this address names and served the user's own one,
-                // so the page cannot load. Once the address bar names a project we do serve, the
-                // scene loads as usual.
-                if (sceneId && sceneConfigurations[sceneId]?.projectBased && isRefusedProjectPath(location.pathname)) {
+                if (sceneId && isProjectAccessDenied(sceneId, location.pathname, isCurrentProjectAccessDenied)) {
                     return Scene.ErrorProjectAccessDenied
                 }
 
@@ -777,6 +828,16 @@ export const sceneLogic = kea<sceneLogicType>([
         ],
     }),
     listeners(({ values, actions, cache, props, selectors }) => ({
+        [preflightLogic.actionTypes.loadPreflightSuccess]: () => {
+            if (isCloudOnlySceneOnSelfHosted(values.loadingScene ?? values.sceneId)) {
+                router.actions.replace(urls.moveToPostHogCloud())
+            }
+        },
+        [teamLogic.actionTypes.currentProjectAccessDenied]: () => {
+            if (values.activeSceneId === Scene.ErrorProjectAccessDenied) {
+                unmountSceneLogic(cache)
+            }
+        },
         // A homepage pointing at a deleted object answers every `/` and Home with a not-found screen,
         // and the picker that would change it sits behind that screen. Drop the setting instead.
         resetUnavailableHomepage: ({ pathname }) => {
@@ -864,7 +925,8 @@ export const sceneLogic = kea<sceneLogicType>([
             }
 
             let newLogicErrored = false
-            if (exportedScene?.logic) {
+            // A scene behind the access denied screen would keep loading and polling the refused project.
+            if (exportedScene?.logic && values.activeSceneId !== Scene.ErrorProjectAccessDenied) {
                 try {
                     const builtLogicProps = { ...exportedScene?.paramsToProps?.(params) }
                     const mountedLogic = cache.mountedSceneLogic
@@ -902,15 +964,7 @@ export const sceneLogic = kea<sceneLogicType>([
                     newLogicErrored = true
                 }
             } else {
-                const mountedLogic = cache.mountedSceneLogic
-                if (mountedLogic) {
-                    try {
-                        mountedLogic.unmount()
-                    } catch (error) {
-                        console.error('Error unmounting previous scene logic:', error)
-                    }
-                    cache.mountedSceneLogic = null
-                }
+                unmountSceneLogic(cache)
             }
 
             if (newLogicErrored) {
@@ -945,6 +999,10 @@ export const sceneLogic = kea<sceneLogicType>([
             }
             if (sceneId === Scene.MoveToPostHogCloud && preflight?.cloud) {
                 router.actions.replace(urls.projectRoot())
+                return
+            }
+            if (isCloudOnlySceneOnSelfHosted(sceneId)) {
+                router.actions.replace(urls.moveToPostHogCloud())
                 return
             }
 
@@ -988,14 +1046,17 @@ export const sceneLogic = kea<sceneLogicType>([
                 }
 
                 if (sceneId !== Scene.InviteSignup) {
+                    // The agentic and OAuth consent pages pick or create the organization and project
+                    // they use, so approving there must not require either first.
+                    const isConsentPage =
+                        location.pathname.startsWith(urls.agenticAuthorize()) ||
+                        location.pathname.startsWith(urls.oauthAuthorize())
                     // Redirect to org/project creation if there's no org/project respectively, unless using invite
                     if (organizationLogic.values.isCurrentOrganizationUnavailable) {
                         if (
                             location.pathname !== urls.organizationCreateFirst() &&
                             !location.pathname.startsWith(urls.settings('user')) &&
-                            // The agentic consent page picks or creates the organization and project
-                            // it uses, so approving there must not require either first.
-                            !location.pathname.startsWith(urls.agenticAuthorize())
+                            !isConsentPage
                         ) {
                             console.warn('Organization not available, redirecting to organization creation')
                             router.actions.replace(urls.organizationCreateFirst())
@@ -1011,7 +1072,7 @@ export const sceneLogic = kea<sceneLogicType>([
                             if (
                                 location.pathname !== urls.projectCreateFirst() &&
                                 !location.pathname.startsWith('/settings') &&
-                                !location.pathname.startsWith(urls.agenticAuthorize())
+                                !isConsentPage
                             ) {
                                 console.warn(
                                     'Project not available and no other projects, redirecting to project creation'
@@ -1033,14 +1094,12 @@ export const sceneLogic = kea<sceneLogicType>([
                         !isOnboardingRedirectSuppressed(user) &&
                         !isOnboardingNotRequiredForPath(location.pathname)
                     ) {
-                        const nextUrl =
-                            getRelativeNextPath(params.searchParams.next, location) ??
-                            removeProjectIdIfPresent(location.pathname)
+                        const nextUrl = getOnboardingRedirectNextPath(params.searchParams.next, location)
 
                         // Check if user is coming from a coupon campaign link
-                        const campaign = nextUrl ? parseCouponCampaign(nextUrl) : null
-                        if (campaign) {
-                            router.actions.replace(urls.onboarding({ campaign }), { next: nextUrl })
+                        const couponCampaign = nextUrl ? parseCouponCampaign(nextUrl) : null
+                        if (couponCampaign) {
+                            router.actions.replace(urls.onboarding({ campaign: couponCampaign }), { next: nextUrl })
                             return
                         }
 
@@ -1048,7 +1107,8 @@ export const sceneLogic = kea<sceneLogicType>([
                         return
                     } else if (
                         isFirstProjectWithoutData(user) &&
-                        user.onboarding_skipped_reason === 'connector' &&
+                        (user.onboarding_skipped_reason === 'connector' ||
+                            user.onboarding_skipped_reason === 'device_login') &&
                         user.onboarding_skipped_organization_id === user.organization?.id &&
                         // Only the homepage redirects, so a deep link the connecting assistant hands out still opens.
                         removeProjectIdIfPresent(router.values.location.pathname) === urls.projectHomepage()

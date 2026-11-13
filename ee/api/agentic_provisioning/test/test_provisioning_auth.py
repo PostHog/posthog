@@ -1,5 +1,4 @@
 import json
-from ipaddress import ip_address
 
 from unittest.mock import MagicMock, patch
 
@@ -14,8 +13,10 @@ from posthog.api.oauth.cimd import _cache_key, fetch_and_upsert_cimd_application
 from posthog.api.oauth.client_assertion import PRIVATE_KEY_REQUIRED_MESSAGE
 from posthog.models.activity_logging.utils import ActivityCredential, activity_storage
 from posthog.models.oauth import OAuthApplication
+from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.user import User
+from posthog.test.anti_ssrf import mock_anti_ssrf_dns_lookup
 
 from ee.api.agentic_provisioning.authentication import ProvisioningAuthentication
 from ee.api.agentic_provisioning.test.base import (
@@ -326,6 +327,19 @@ class TestProvisioningAuthentication(ProvisioningTestBase):
         res = self._wizard_account_request("req_inactive_pkce", "inactive-pkce@example.com", challenge)
         assert res.status_code == 401
 
+    @parameterized.expand([("203.0.113.7", 200), ("198.51.100.7", 403)])
+    def test_bearer_checks_organization_ip_policy(self, ip: str, expected_status: int) -> None:
+        token = self._get_bearer_token()
+        OrganizationIPRestrictions.objects.create(organization=self.organization, ip_restrictions=["203.0.113.0/24"])
+
+        response = self._post_with_bearer("/api/agentic/provisioning/resources", {}, token=token, REMOTE_ADDR=ip)
+
+        assert response.status_code == expected_status, response.content
+        if expected_status == 403:
+            assert response.json()["status"] == "error"
+            assert response.json()["error"]["code"] == "forbidden"
+            assert "IP address" in response.json()["error"]["message"]
+
     def test_deactivated_user_bearer_token_rejected(self):
         token = self._get_bearer_token()
 
@@ -566,7 +580,7 @@ def _cimd_mock_response(metadata: dict | None, status_code: int = 200):
     return resp
 
 
-@patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("93.184.216.34")})
+@mock_anti_ssrf_dns_lookup()
 class TestCimdProvisioningRegistration(ProvisioningTestBase):
     def setUp(self):
         super().setUp()

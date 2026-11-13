@@ -206,6 +206,7 @@ export function startDetachedElementTracking(posthog: Capturable): void {
                 trackingState = trackingContext.nextState
 
                 posthog.capture('detached_elements', {
+                    $update_person_last_seen_at: false,
                     total_elements: result.totalElements,
                     detached_elements: result.totalDetachedElements,
                     detached_elements_delta: trackingContext.detachedElementsDelta,

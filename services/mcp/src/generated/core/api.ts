@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 16 enabled ops
+ * PostHog API - MCP 18 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -370,6 +370,8 @@ export const organizationsProjectsCreateBodyWorkflowsConfigReplayVisionScanTeamR
 export const organizationsProjectsCreateBodyWorkflowsConfigMarketingFrequencyCapMaxMessagesMax = 1000
 
 export const organizationsProjectsCreateBodyWorkflowsConfigMarketingFrequencyCapWindowDaysMax = 30
+
+export const organizationsProjectsCreateBodyWorkflowsConfigMarketingFrequencyCapHoldHoursMax = 168
 
 export const organizationsProjectsCreateBodyFeatureFlagPolicyConfigBlockedHostsItemMax = 2000
 
@@ -2917,6 +2919,14 @@ export const OrganizationsProjectsCreateBody = () => zod
                     .describe(
                         'Length of the rolling frequency cap window in days. Set this together with marketing_frequency_cap_max_messages. Set both to null to turn the cap off.'
                     ),
+                marketing_frequency_cap_hold_hours: zod
+                    .number()
+                    .min(1)
+                    .max(organizationsProjectsCreateBodyWorkflowsConfigMarketingFrequencyCapHoldHoursMax)
+                    .nullish()
+                    .describe(
+                        'How many hours a marketing message over the frequency cap waits for a free slot before it is skipped. Null skips it right away.'
+                    ),
             })
             .optional(),
         feature_flag_policy_config: zod
@@ -3245,6 +3255,8 @@ export const organizationsProjectsPartialUpdateBodyWorkflowsConfigReplayVisionSc
 export const organizationsProjectsPartialUpdateBodyWorkflowsConfigMarketingFrequencyCapMaxMessagesMax = 1000
 
 export const organizationsProjectsPartialUpdateBodyWorkflowsConfigMarketingFrequencyCapWindowDaysMax = 30
+
+export const organizationsProjectsPartialUpdateBodyWorkflowsConfigMarketingFrequencyCapHoldHoursMax = 168
 
 export const organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigBlockedHostsItemMax = 2000
 
@@ -5806,6 +5818,14 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                     .describe(
                         'Length of the rolling frequency cap window in days. Set this together with marketing_frequency_cap_max_messages. Set both to null to turn the cap off.'
                     ),
+                marketing_frequency_cap_hold_hours: zod
+                    .number()
+                    .min(1)
+                    .max(organizationsProjectsPartialUpdateBodyWorkflowsConfigMarketingFrequencyCapHoldHoursMax)
+                    .nullish()
+                    .describe(
+                        'How many hours a marketing message over the frequency cap waits for a free slot before it is skipped. Null skips it right away.'
+                    ),
             })
             .optional(),
         feature_flag_policy_config: zod
@@ -6031,6 +6051,64 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
     .describe(
         "A project and its settings, including the settings that live on its passthrough Team.\n\nThis shape is a superset of TeamSerializer's, so a request rewritten from \/api\/environments\/\nonto \/api\/projects\/ never loses a field."
     )
+
+export const FileSystemListParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const fileSystemListQueryIncludeContentTypeDefault = false
+export const fileSystemListQueryIncludeTagsDefault = false
+export const fileSystemListQueryLimitMax = 1000
+
+export const FileSystemListQueryParams = () => zod.object({
+    include_content_type: zod
+        .boolean()
+        .default(fileSystemListQueryIncludeContentTypeDefault)
+        .describe('Include meta.content_type for notebooks and insights on this page, without their contents.'),
+    include_tags: zod
+        .boolean()
+        .default(fileSystemListQueryIncludeTagsDefault)
+        .describe('Include meta.tags, the tag names, for dashboards and insights on this page.'),
+    limit: zod.number().max(fileSystemListQueryLimitMax).optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    parent: zod
+        .string()
+        .optional()
+        .describe("Only entries under this folder path, at any depth, such as 'Experiments\/Q4'."),
+    path: zod.string().optional().describe('Only the entry at exactly this path.'),
+    ref: zod
+        .string()
+        .optional()
+        .describe(
+            "Only entries pointing at this item: the insight or notebook short_id, or the dashboard id. Combine with type to find an item's entry in the project tree."
+        ),
+    search: zod.string().optional().describe('A search term.'),
+    type: zod
+        .string()
+        .optional()
+        .describe("Only entries of this type, such as 'insight', 'dashboard', 'notebook' or 'folder'."),
+})
+
+export const FileSystemMoveCreateParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this file system.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const FileSystemMoveCreateBody = () => zod.object({
+    new_path: zod
+        .string()
+        .describe(
+            "Full new path for the entry, including its own name as the last segment, such as 'Experiments\/Q4\/Weekly signups'. Missing parent folders are created. Escape a '\/' inside a name as '\\\/'."
+        ),
+})
 
 export const ProductEnablementCreateParams = () => zod.object({
     project_id: zod

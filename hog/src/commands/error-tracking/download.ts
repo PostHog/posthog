@@ -33,7 +33,7 @@ export default defineCommand({
     ],
 
     async run({ args, options, ctx }) {
-        const client = new SymbolSetClient(ctx.runtime, await ctx.credentials())
+        const client = new SymbolSetClient(ctx.runtime, await ctx.session())
         const byId = !options.ref && isSymbolSetId(args.symbolSet)
         const id = byId ? args.symbolSet : await resolveRef(client, args.symbolSet)
         const data = await downloadSymbolSet(client, id, ctx.runtime.fetch)

@@ -1,6 +1,7 @@
 import { Meta, StoryObj } from '@storybook/react'
 import { delay, HttpResponse } from 'msw'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { createInsightStory } from 'scenes/insights/__mocks__/createInsightScene'
 
@@ -247,3 +248,9 @@ export const LongLoading: Story = {
 }
 
 export const FunnelSingleStep: Story = createInsightStory(funnelOneStep as any)
+
+export const FunnelSingleStepQuill: Story = createInsightStory(funnelOneStep as any)
+FunnelSingleStepQuill.parameters = {
+    featureFlags: [FEATURE_FLAGS.TODAY_RAIL_NAV],
+    testOptions: { snapshotBrowsers: [] },
+}

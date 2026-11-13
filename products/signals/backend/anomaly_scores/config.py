@@ -168,6 +168,10 @@ class AnomalyScoringConfig:
     # Per-tick picks of each pass when the split is on. Score steps are cheap, so the score pass gets most slots.
     max_score_insights_per_tick: int = 20
     max_train_insights_per_tick: int = 2
+    # Train pass slots per shard that go first to projects with no trained daily model. Zero turns the lane off.
+    # The lane takes at most `first_train_insights_per_project` insights of a project, so one project cannot fill it.
+    first_train_insights_per_tick: int = 1
+    first_train_insights_per_project: int = 2
     # An insight is scored only while one of its activity signals falls in this many days, see `queue.active_insights`.
     active_window_days: int = 90
     # On, the tick plans from the stored due list, and a slow job refreshes the list. See `due_list.py`.
@@ -198,6 +202,7 @@ MAX_SCORE_QUERIES_PER_HOUR = 5000
 MAX_SCORE_QUERIES_PER_PROJECT_PER_HOUR = 1000
 MAX_SCORE_INSIGHTS_PER_TICK = 200
 MAX_TRAIN_INSIGHTS_PER_TICK = 50
+MAX_FIRST_TRAIN_INSIGHTS_PER_PROJECT = 10
 MAX_ACTIVE_WINDOW_DAYS = 365
 MAX_DUE_LIST_REFRESH_HOURS = 48
 
@@ -205,6 +210,10 @@ MAX_DUE_LIST_REFRESH_HOURS = 48
 def _positive_int(value: Any, default: int) -> int:
     # `bool` is an `int` subclass, and `true` is not a count.
     return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else default
+
+
+def _non_negative_int(value: Any, default: int) -> int:
+    return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else default
 
 
 def _percentage(value: Any, default: float) -> float:
@@ -341,6 +350,14 @@ def parse_config(payload: Any) -> AnomalyScoringConfig:
             ),
             MAX_TRAIN_INSIGHTS_PER_TICK,
         ),
+        first_train_insights_per_tick=min(
+            _non_negative_int(payload.get("first_train_insights_per_tick"), defaults.first_train_insights_per_tick),
+            MAX_TRAIN_INSIGHTS_PER_TICK,
+        ),
+        first_train_insights_per_project=min(
+            _positive_int(payload.get("first_train_insights_per_project"), defaults.first_train_insights_per_project),
+            MAX_FIRST_TRAIN_INSIGHTS_PER_PROJECT,
+        ),
         active_window_days=min(
             _positive_int(payload.get("active_window_days"), defaults.active_window_days), MAX_ACTIVE_WINDOW_DAYS
         ),
@@ -374,24 +391,32 @@ def in_rollout(config: AnomalyScoringConfig, organization_id: "uuid.UUID | str")
     return organization_rollout_bucket(organization_id) < threshold
 
 
-def covers_team(config: AnomalyScoringConfig, team: "Team") -> bool:
-    """Whether the tick scores this team's insights. The single-team form of `queue.eligible_teams`.
+def enrolls_team(config: AnomalyScoringConfig, team: "Team") -> bool:
+    """Whether the payload enrolls this team, by its list or by its percentage rollout.
 
-    The event quota check of `queue.eligible_teams` is left out. The skip list and the denylist win over every
-    enrollment. The percentage rollout enrolls only the projects that have an enabled signal source.
+    The skip list and the denylist win over every enrollment. `covers_team` also requires the Product analytics source.
     """
     organization_id = str(team.organization_id)
     if not config.enabled or team.id in config.skip_team_ids or organization_id in config.deny_organization_ids:
         return False
     if organization_id in config.organization_ids:
         return not config.allow_team_ids or team.id in config.allow_team_ids
-    if not in_rollout(config, organization_id):
+    return in_rollout(config, organization_id)
+
+
+def covers_team(config: AnomalyScoringConfig, team: "Team") -> bool:
+    """Whether the tick scores this team's insights. The single-team form of `queue.eligible_teams`.
+
+    The event quota check of `queue.eligible_teams` is left out. Every enrollment path requires the Product
+    analytics source, so turning that source off stops scoring.
+    """
+    if not enrolls_team(config, team):
         return False
-    from products.signals.backend.facade.api import (
-        has_enabled_source,  # noqa: PLC0415 — the facade imports this module through `search`
+    from products.signals.backend.facade.source_configs import (
+        analytics_source_enabled,  # noqa: PLC0415 — keeps the models off the import path of the flag payload parse
     )
 
-    return has_enabled_source(team.id)
+    return analytics_source_enabled(team.id)
 
 
 def deployment_payload(payload: Any, deployment: str | None) -> Any:

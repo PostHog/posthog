@@ -6,14 +6,16 @@
     },
     "dependencies": {
         "@pierre/diffs": "1.2.11",
+        "@posthog/quill": "workspace:*",
         "@posthog/quill-components": "workspace:*",
         "@posthog/quill-primitives": "workspace:*",
         "kea": "catalog:",
         "kea-loaders": "catalog:",
+        "kea-router": "catalog:",
         "posthog-js": "catalog:"
     },
     "devDependencies": {
-        "@testing-library/react": "^14.3.1",
+        "@testing-library/react": "^16.3.3",
         "kea-test-utils": "catalog:"
     },
     "peerDependencies": {

@@ -210,6 +210,12 @@ devbox:
     devbox:worktree:
         click: hogli_commands.devbox.worktree:devbox_worktree
         description: Give this worktree its own devbox and sync mirror
+    devbox:worktree:prune:
+        click: hogli_commands.devbox.worktree:devbox_worktree_prune
+        description: Stop or delete the devboxes of worktrees that t3code, herdr or git already removed
+    devbox:worktree:teardown:
+        click: hogli_commands.devbox.worktree:devbox_worktree_teardown
+        description: Stop the sync mirror and the devbox of this worktree before a tool removes it
     devbox:worktree:auto:
         click: hogli_commands.devbox.worktree:devbox_worktree_auto
         description: Start devbox:worktree in the background for a new worktree, if auto-provisioning is on
@@ -394,9 +400,6 @@ start:
         services:
             - redis
         hidden: true
-    start:hogql-lang-service:
-        cmd: env GOTOOLCHAIN=auto HOGQL_LANGUAGE_SERVICE_ALLOW_INSECURE=1 MAX_CATALOGS=2 CATALOG_CACHE_MAX_BYTES=268435456 go -C services/hogql-language-service run ./cmd/server
-        description: Run the HogQL language service locally with a two-catalog cache
     start:celery:
         bin_script: start-celery
         description: Start Celery worker or beat scheduler with auto-reload
@@ -542,6 +545,11 @@ build:
         cmd: pnpm --filter=@posthog/mcp run generate-cli-agent-scopes
         description: Generate the CLI `agent` login use-case scope list from the MCP
             tool definitions (must run after build:openapi-mcp-tools)
+    build:openapi-webmcp-exec-tool:
+        cmd: pnpm --filter=@posthog/mcp run generate-webmcp-exec-tool && pnpm exec oxfmt
+            products/webmcp/frontend/execTool.generated.ts
+        description: Render the MCP exec tool that WebMCP registers in the browser
+            (must run after build:openapi-mcp-tools)
     build:desktop-api-client:
         bin_script: build-desktop-api-client.sh
         description: Regenerate the desktop app's typed API client from the OpenAPI
@@ -598,6 +606,7 @@ build:
                   trap - INT TERM
                   exit "$generation_status"
             - build:openapi-cli-agent-scopes
+            - build:openapi-webmcp-exec-tool
             - build:desktop-api-client
         description: 'Generate OpenAPI schema and TypeScript types from the backend.
             Needs the dev stack running (Postgres and ClickHouse): Django starts
@@ -892,6 +901,9 @@ quality:
     lint:complexity:
         click: hogli_commands.complexity_lint:cmd_lint_complexity
         description: Check cyclomatic complexity of changed Python/TypeScript files (warn-only; test files get a relaxed limit)
+    lint:test-owners:
+        click: hogli_commands.ownership_lint:cmd_lint_test_owners
+        description: Fail when the branch leaves a test file with no team owner in owners.yaml
     lint:size:
         click: hogli_commands.size_lint:cmd_lint_size
         description: Check the size of changed Python/TypeScript files (warn-only, crossing 1000 lines)
@@ -1051,6 +1063,10 @@ tools:
         bin_script: granian_shared_socket.py
         description: Granian launcher that keeps one listen socket shared by all workers
         hidden: true
+    tool:granian-preload:
+        bin_script: granian_preload.py
+        description: Granian launcher that imports the app once so workers share its memory
+        hidden: true
     sync:storage:
         bin_script: sync-storage
         description: 'TODO: add description for sync-storage'
@@ -1138,7 +1154,7 @@ owners:
         description: Emit a CODEOWNERS projection of test-file ownership for tools that only read CODEOWNERS (-o writes a file)
     owners:unowned:
         click: owners_yaml.cli:cmd_unowned
-        description: List unowned tracked files, respecting owners:null exemptions (optional PREFIX)
+        description: List unowned tracked files, respecting owners:null exemptions (optional PREFIX; --against REF lists only what the branch leaves unowned)
     owners:lint:
         click: owners_yaml.cli:cmd_lint
         description: Validate owners.yaml schema, product.yaml conflicts, dead globs, coverage (--live checks the GitHub org)
@@ -1322,4 +1338,8 @@ environment:
     lint:semgrep-ratchet:
         bin_script: semgrep_ratchet.py
         description: 'Compare semgrep findings per file with a checked-in baseline'
+        hidden: true
+    devbox:worktree:hook:
+        bin_script: devbox-worktree-hook
+        description: 'Start or stop the devbox of this worktree from an app create or remove hook'
         hidden: true

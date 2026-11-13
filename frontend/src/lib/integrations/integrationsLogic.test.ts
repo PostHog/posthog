@@ -589,6 +589,13 @@ describe('integrationsLogic', () => {
                     ),
                     ['files:write', 'users:read'],
                 ],
+                [
+                    'the scopes from before canvases:read and channels:join',
+                    SLACK_INTEGRATION_SCOPES.filter(
+                        (scope) => scope !== 'canvases:read' && scope !== 'channels:join'
+                    ).join(','),
+                    ['canvases:read', 'channels:join'],
+                ],
                 ['no recorded scopes', undefined, null],
             ])('reports a Slack install that granted %s', async (_name, grantedScope, expectedMissing) => {
                 createdConfig = grantedScope === undefined ? {} : { scope: grantedScope }

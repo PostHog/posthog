@@ -1,9 +1,12 @@
 import { ArrowSquareOutIcon } from "@phosphor-icons/react";
 import { GITHUB_CODE_CONTEXT_MESSAGE } from "@posthog/core/integrations/connectErrors";
 import { Button } from "@posthog/quill";
+import { GITLAB_INTEGRATION_FLAG } from "@posthog/shared";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
+import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { PersonalGithubInstallationsSection } from "@posthog/ui/features/settings/sections/PersonalGithubInstallationsSection";
 import { ProjectGithubConnectionSection } from "@posthog/ui/features/settings/sections/ProjectGithubConnectionSection";
+import { SourceControlRepositoriesSection } from "@posthog/ui/features/settings/sections/SourceControlRepositoriesSection";
 import { openUrlInBrowser } from "@posthog/ui/utils/browser";
 import { getPostHogUrl } from "@posthog/ui/utils/urls";
 
@@ -12,6 +15,7 @@ const GITHUB_DOCS_URL = "https://posthog.com/docs/libraries/github?tab=Desktop";
 export function GitHubSettings() {
   const projectId = useAuthStateValue((s) => s.currentProjectId);
   const cloudRegion = useAuthStateValue((s) => s.cloudRegion);
+  const gitlabEnabled = useFeatureFlag(GITLAB_INTEGRATION_FLAG);
 
   const githubSettingsUrl = projectId
     ? getPostHogUrl(
@@ -33,6 +37,7 @@ export function GitHubSettings() {
       </div>
       <ProjectGithubConnectionSection />
       <PersonalGithubInstallationsSection />
+      {gitlabEnabled ? <SourceControlRepositoriesSection /> : null}
       <div className="flex flex-wrap items-center gap-3">
         {githubSettingsUrl ? (
           <Button

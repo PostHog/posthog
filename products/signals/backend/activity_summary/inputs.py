@@ -1,10 +1,13 @@
-"""Read one user's own tasks, activity log rows and views in one project, from in-region Postgres,
-and the calls of the user's MCP agent, from the Redis MCP intent buffer."""
+"""Read one user's own tasks, activity log rows, views and inbox report activity in one project, from
+in-region Postgres, and the calls of the user's MCP agent, from the Redis MCP intent buffer."""
 
+import json
 import datetime
 from collections.abc import Callable, Iterable
+from typing import Any
 
 from django.conf import settings
+from django.db.models import Case, TextField, Value, When
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
 
 import redis
@@ -18,7 +21,12 @@ from posthog.redis import get_client
 from products.dashboards.backend.facade.api import dashboards_by_insight
 from products.signals.backend.activity_summary.mcp_buffer import count_key, parse_record, records_key, window_days
 from products.signals.backend.activity_summary.render import (
+    INBOX_ARTEFACT_TYPES,
+    INBOX_DISMISSAL,
+    INBOX_NOTE,
+    INBOX_REVIEWER_CORRECTIONS,
     MAX_ACTIVITY_ROWS_PER_PERSON,
+    MAX_INBOX_ROWS_PER_PERSON,
     MAX_TASKS_PER_PERSON,
     MAX_VIEW_ROWS_PER_PERSON,
     NOISY_ACTIVITY_SCOPES,
@@ -26,12 +34,17 @@ from products.signals.backend.activity_summary.render import (
     SCENE_VIEW_TYPE,
     SCOUT_CLIENT_PREFIX,
     ActivityItem,
+    InboxAction,
+    InboxActivity,
+    InboxArtefact,
     McpItem,
     Parent,
     ParentLookup,
+    ReviewerChange,
     TaskItem,
     ViewItem,
 )
+from products.signals.backend.models import SignalActorKind, SignalReport, SignalReportAction, SignalReportArtefact
 from products.tasks.backend.facade.user_task_summaries import list_user_task_summaries
 
 # Tasks a person started: in PostHog AI, in Slack, or by hand in the web or desktop app. Scouts,
@@ -154,6 +167,111 @@ def user_views(team_id: int, user_id: int, start: datetime.datetime, end: dateti
     return items
 
 
+def _reviewer_change(parsed: dict[str, Any], user_uuid: str | None) -> ReviewerChange:
+    """Whether the corrections leave the person excluded or pinned. Entries are dicts with an optional `user_uuid`."""
+
+    def names_user(key: str) -> bool:
+        entries = parsed.get(key)
+        return isinstance(entries, list) and any(
+            isinstance(entry, dict) and entry.get("user_uuid") == user_uuid for entry in entries
+        )
+
+    if user_uuid and names_user("excluded"):
+        return "removed_self"
+    if user_uuid and names_user("pinned"):
+        return "added_self"
+    return "others"
+
+
+def _artefact_fields(artefact_type: str, content: str | None, user_uuid: str | None) -> dict[str, Any]:
+    """The verdict, reason and note of a dismissal, the text of a note, or the direction of a reviewer
+    correction. A row that does not parse has none."""
+    try:
+        parsed = json.loads(content) if content else None
+    except ValueError:
+        parsed = None
+    if not isinstance(parsed, dict):
+        return {}
+    if artefact_type == INBOX_REVIEWER_CORRECTIONS:
+        return {"reviewer_change": _reviewer_change(parsed, user_uuid)}
+    fields = {"note": parsed.get("note")}
+    if artefact_type == INBOX_DISMISSAL:
+        fields.update(state=parsed.get("state"), reason=parsed.get("reason"))
+    return {key: value if isinstance(value, str) else None for key, value in fields.items()}
+
+
+def user_inbox(team_id: int, user_id: int, start: datetime.datetime, end: datetime.datetime) -> InboxActivity:
+    """What the user did with inbox reports in [start, end): their report actions whose latest repeat is
+    in the window, and the work log entries they wrote in it, newest `MAX_INBOX_ROWS_PER_PERSON` of each.
+
+    Both queries filter on the user before the time, because no index covers `SignalReportAction.last_at`.
+    Deleted reports are left out."""
+    actions = (
+        SignalReportAction.objects.for_team(team_id)
+        .filter(user_id=user_id, last_at__gte=start, last_at__lt=end)
+        .exclude(report__status=SignalReport.Status.DELETED)
+        .order_by("-last_at")
+        .annotate(sentiment=KeyTextTransform("sentiment", "metadata"))
+        .values_list("report_id", "report__title", "type", "first_at", "last_at", "count", "sentiment")[
+            :MAX_INBOX_ROWS_PER_PERSON
+        ]
+    )
+    # Only dismissals, notes and reviewer corrections need their content. A summary change holds two whole summaries.
+    artefacts = (
+        SignalReportArtefact.objects.filter(
+            team_id=team_id,
+            created_by_id=user_id,
+            created_at__gte=start,
+            created_at__lt=end,
+            type__in=INBOX_ARTEFACT_TYPES,
+        )
+        .exclude(report__status=SignalReport.Status.DELETED)
+        .order_by("-created_at")
+        .annotate(
+            parsed_content=Case(
+                When(type__in=(INBOX_DISMISSAL, INBOX_NOTE, INBOX_REVIEWER_CORRECTIONS), then="content"),
+                default=Value(None),
+                output_field=TextField(),
+            )
+        )
+        .values_list(
+            "report_id",
+            "report__title",
+            "type",
+            "created_at",
+            "parsed_content",
+            "task_id",
+            "actor_kind",
+            "created_by__uuid",
+        )[:MAX_INBOX_ROWS_PER_PERSON]
+    )
+    return InboxActivity(
+        actions=tuple(
+            InboxAction(
+                report_id=str(report_id),
+                title=title or "",
+                type=action_type,
+                first_at=first_at,
+                last_at=last_at,
+                count=count,
+                sentiment=sentiment,
+            )
+            for report_id, title, action_type, first_at, last_at, count, sentiment in actions
+        ),
+        artefacts=tuple(
+            InboxArtefact(
+                report_id=str(report_id),
+                title=title or "",
+                type=artefact_type,
+                at=created_at,
+                by_agent=bool(task_id) or actor_kind not in (None, SignalActorKind.USER),
+                **_artefact_fields(artefact_type, content, str(user_uuid) if user_uuid else None),
+            )
+            for report_id, title, artefact_type, created_at, content, task_id, actor_kind, user_uuid in artefacts
+        ),
+    )
+
+
 @frozen
 class McpRead:
     """The buffered MCP calls of one user in one project, oldest first, and what the read saw."""
@@ -164,7 +282,7 @@ class McpRead:
     read_error: bool = False
 
 
-def _mcp_redis_client() -> redis.Redis:
+def mcp_redis_client() -> redis.Redis:
     return get_client(
         settings.ACTIVITY_SUMMARY_MCP_BUFFER_REDIS_URL or None,
         socket_timeout=MCP_READ_TIMEOUT_SECONDS,
@@ -179,7 +297,7 @@ def user_mcp_records(
     end: datetime.datetime,
     *,
     max_days: int,
-    redis_client: Callable[[], redis.Redis] = _mcp_redis_client,
+    redis_client: Callable[[], redis.Redis] = mcp_redis_client,
 ) -> McpRead:
     """The user's buffered MCP calls in [start, end), from the newest `max_days` UTC days, in one pipeline.
 

@@ -1,3 +1,4 @@
+import re
 import math
 from typing import Any, cast
 
@@ -199,16 +200,14 @@ class TestTwoSidedTTest(TestCase):
 
     @parameterized.expand(
         [
-            (f"{name}_{mode}", treatment, control, sequential)
-            for name, treatment, control in DEGENERATE_QUANTILE_CASES
+            (f"{name}_{mode}", treatment, control, error, sequential)
+            for name, treatment, control, error in DEGENERATE_QUANTILE_CASES
             for mode, sequential in [("fixed_horizon", False), ("sequential", True)]
         ]
     )
-    def test_rejects_quantile_with_zero_variance(self, _name, treatment, control, sequential):
+    def test_rejects_quantile_without_usable_variance(self, _name, treatment, control, error, sequential):
         method = FrequentistMethod(FrequentistConfig(sequential_testing_enabled=sequential))
-        with self.assertRaisesRegex(
-            StatisticError, "Treatment statistic validation failed: Quantile has zero variance"
-        ):
+        with self.assertRaisesRegex(StatisticError, re.escape(f"Treatment statistic validation failed: {error}")):
             method.run_test(treatment, control)
 
 
@@ -321,6 +320,24 @@ class TestSequentialTwoSidedTTest(TestCase):
     def test_invalid_tuning_parameter_raises(self):
         with self.assertRaises(StatisticError):
             SequentialTwoSidedTTest(alpha=0.05, sequential_tuning_parameter=0)
+
+    def test_quantile_statistic_uses_exposed_users_as_the_sample_size(self):
+        tuning_parameter = 800
+        result = SequentialTwoSidedTTest(alpha=0.05, sequential_tuning_parameter=tuning_parameter).run_test(
+            QUANTILE_TREATMENT, QUANTILE_CONTROL, DifferenceType.RELATIVE
+        )
+
+        pooled_variance = calculate_variance_pooled(QUANTILE_TREATMENT, QUANTILE_CONTROL, DifferenceType.RELATIVE)
+        users = QUANTILE_TREATMENT.n_clusters + QUANTILE_CONTROL.n_clusters
+        halfwidth = sequential_interval_halfwidth(pooled_variance * users, users, tuning_parameter, alpha=0.05)
+        self.assertAlmostEqual(result.confidence_interval[0], result.point_estimate - halfwidth, places=12)
+        self.assertAlmostEqual(result.confidence_interval[1], result.point_estimate + halfwidth, places=12)
+        self.assertAlmostEqual(
+            result.p_value,
+            sequential_p_value(result.point_estimate, pooled_variance, users, tuning_parameter, alpha=0.05),
+            places=12,
+        )
+        self.assertLess(result.p_value, 1.0)
 
 
 class TestSequentialTwoSidedTTestGoldenValues(TestCase):
