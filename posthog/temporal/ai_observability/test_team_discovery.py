@@ -10,6 +10,7 @@ from django.db import InterfaceError, OperationalError
 
 from parameterized import parameterized
 
+from posthog.dataclasses import frozen
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai_observability.evaluation_clustering.coordinator import (
     AIObservabilityEvaluationClusteringCoordinatorWorkflow,
@@ -179,7 +180,13 @@ class TestGetTeamIdsForAIObservability:
     @pytest.mark.django_db(transaction=True)
     @patch(FF_PAYLOAD_PATH)
     async def test_only_opted_in_consented_projects_are_discovered(self, mock_ff: MagicMock) -> None:
-        def create_projects() -> tuple[int, int, int]:
+        @frozen
+        class Projects:
+            off: int
+            on: int
+            no_consent: int
+
+        def create_projects() -> Projects:
             from posthog.models import Organization, Team
 
             from products.ai_observability.backend.models.clustering_config import ClusteringConfig
@@ -191,13 +198,13 @@ class TestGetTeamIdsForAIObservability:
             no_consent = Team.objects.create(organization=unapproved)
             ClusteringConfig.objects.create(team=on, enabled=True)
             ClusteringConfig.objects.create(team=no_consent, enabled=True)
-            return off.id, on.id, no_consent.id
+            return Projects(off=off.id, on=on.id, no_consent=no_consent.id)
 
-        off, on, no_consent = await database_sync_to_async(create_projects)()
-        mock_ff.return_value = {"guaranteed_team_ids": [off, no_consent], "sample_percentage": 0}
-        assert await get_team_ids_for_ai_observability(TeamDiscoveryInput()) == [on]
+        projects = await database_sync_to_async(create_projects)()
+        mock_ff.return_value = {"guaranteed_team_ids": [projects.off, projects.no_consent], "sample_percentage": 0}
+        assert await get_team_ids_for_ai_observability(TeamDiscoveryInput()) == [projects.on]
 
-        mock_ff.return_value = {"skip_team_ids": [on]}
+        mock_ff.return_value = {"skip_team_ids": [projects.on]}
         assert await get_team_ids_for_ai_observability(TeamDiscoveryInput()) == []
 
     @patch(FF_PAYLOAD_PATH, return_value=None)

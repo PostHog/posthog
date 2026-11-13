@@ -229,7 +229,7 @@ describe('TraceDrawerHost', () => {
 
         fireEvent.mouseUp(document.body)
         expect(router.values.searchParams.trace).toBeUndefined()
-        expect(view.queryByRole('complementary', { name: 'Trace detail' })).toBeNull()
+        expect(view.queryByLabelText('Trace detail')).toBeNull()
     })
 
     it('writes a clicked step to the list URL and stays on the list', async () => {

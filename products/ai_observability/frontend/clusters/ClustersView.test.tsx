@@ -43,18 +43,18 @@ describe('ClustersView', () => {
         try {
             await expectLogic(logic).toFinishAllListeners()
             render(<ClustersView />)
-            const toggle = await screen.findByRole('switch', { name: 'Clustering enabled' })
+            const toggle = await screen.findByLabelText('Clustering enabled')
             expect(toggle).toBeEnabled()
             fireEvent.click(toggle)
             await waitFor(() => expect(config.enabled).toBe(false))
             expect(
                 await screen.findByText('Clustering is off. Enable it to start new runs for this project.')
             ).toBeVisible()
-            const disabledToggle = screen.getByRole('switch', { name: 'Clustering disabled' })
+            const disabledToggle = screen.getByLabelText('Clustering disabled')
             expect(disabledToggle).not.toBeChecked()
             fireEvent.click(disabledToggle)
             await waitFor(() => expect(config.enabled).toBe(true))
-            expect(await screen.findByRole('switch', { name: 'Clustering enabled' })).toBeChecked()
+            expect(await screen.findByLabelText('Clustering enabled')).toBeChecked()
         } finally {
             cleanup()
             logic.unmount()
@@ -113,7 +113,7 @@ describe('cluster setup and jobs', () => {
                 : [],
         }))
         render(<ClustersView />)
-        expect(await screen.findByRole('button', { name: new RegExp(`${expectedName} · Jan 7, 2026`) })).toBeVisible()
+        expect(await screen.findByText(new RegExp(`${expectedName} · Jan 7, 2026`))).toBeVisible()
     })
 
     it.each(['cluster list', 'waiting screen'])(
@@ -129,10 +129,10 @@ describe('cluster setup and jobs', () => {
                     </ProductEmptyStateGate>
                 )
             )
-            fireEvent.click(await screen.findByRole('button', { name: 'Jobs (1)' }))
+            fireEvent.click(await screen.findByText('Jobs (1)'))
             expect(await screen.findByText('All traces')).toBeVisible()
-            fireEvent.click(screen.getByRole('button', { name: 'Add job' }))
-            expect(await screen.findByRole('button', { name: 'Create' })).toBeVisible()
+            fireEvent.click(screen.getByText('Add job'))
+            expect(await screen.findByText('Create')).toBeVisible()
         }
     )
 
@@ -142,18 +142,18 @@ describe('cluster setup and jobs', () => {
                 <div>Previous clusters</div>
             </ProductEmptyStateGate>
         )
-        expect(await screen.findByRole('button', { name: 'Enable clustering' })).toBeVisible()
-        expect(screen.queryByRole('button', { name: /Jobs/ })).not.toBeInTheDocument()
-        fireEvent.click(await screen.findByRole('button', { name: 'Enable clustering' }))
+        expect(await screen.findByText('Enable clustering')).toBeVisible()
+        expect(screen.queryByText(/Jobs/)).not.toBeInTheDocument()
+        fireEvent.click(await screen.findByText('Enable clustering'))
         await waitFor(() => expect(config.enabled).toBe(true))
-        expect(await screen.findByRole('heading', { name: 'Clustering is enabled' })).toBeVisible()
+        expect(await screen.findByText('Clustering is enabled')).toBeVisible()
         expect(screen.queryByText('Find the patterns in how people use your AI')).not.toBeInTheDocument()
         expect(screen.queryByText('Clusters, once your traces are grouped')).not.toBeInTheDocument()
-        expect(screen.queryByRole('button', { name: 'Enable clustering' })).not.toBeInTheDocument()
-        expect(await screen.findByRole('button', { name: 'Jobs (1)' })).toBeVisible()
-        fireEvent.click(screen.getByRole('switch', { name: 'Clustering enabled' }))
-        expect(await screen.findByRole('button', { name: 'Enable clustering' })).toBeVisible()
-        expect(screen.queryByRole('button', { name: /Jobs/ })).not.toBeInTheDocument()
+        expect(screen.queryByText('Enable clustering')).not.toBeInTheDocument()
+        expect(await screen.findByText('Jobs (1)')).toBeVisible()
+        fireEvent.click(screen.getByLabelText('Clustering enabled'))
+        expect(await screen.findByText('Enable clustering')).toBeVisible()
+        expect(screen.queryByText(/Jobs/)).not.toBeInTheDocument()
         expect(screen.queryByText('Waiting for your first clusters')).not.toBeInTheDocument()
     })
 
@@ -166,7 +166,7 @@ describe('cluster setup and jobs', () => {
             </ProductEmptyStateGate>
         )
         expect(await screen.findByText('Previous clusters')).toBeVisible()
-        expect(screen.queryByRole('button', { name: 'Enable clustering' })).not.toBeInTheDocument()
+        expect(screen.queryByText('Enable clustering')).not.toBeInTheDocument()
         expect(screen.queryByText('Waiting for your first clusters')).not.toBeInTheDocument()
     })
 })

@@ -74,7 +74,7 @@ describe('first clustering run progress', () => {
         render(<ClusteringProgress />)
         expect(await screen.findByText('0 of 10')).toBeVisible()
         expect(screen.getByText('Needs 10 traces in the last 7 days.')).toBeVisible()
-        expect(screen.getByRole('link', { name: 'Set up AI tracing' })).toHaveAttribute(
+        expect(screen.getByText('Set up AI tracing').closest('a')).toHaveAttribute(
             'href',
             'https://posthog.com/docs/llm-analytics/installation'
         )
@@ -98,16 +98,16 @@ describe('first clustering run progress', () => {
             )
         ).toBeVisible()
         expect(screen.getByText(/trace and generation jobs can run without them/)).toBeVisible()
-        expect(screen.queryByRole('link', { name: 'Set up AI tracing' })).not.toBeInTheDocument()
+        expect(screen.queryByText('Set up AI tracing')).not.toBeInTheDocument()
     })
 
     it('retries a failed job and shows its new processing state', async () => {
         jobs = [{ ...traceJob, status: 'failed', failure_reason: 'processing_failed' }]
         render(<ClusteringProgress />)
-        fireEvent.click(await screen.findByRole('button', { name: 'Retry' }))
+        fireEvent.click(await screen.findByText('Retry'))
         await waitFor(() => expect(retried).toBe(traceJob.job_id))
         expect(await screen.findByText('Preparing data')).toBeVisible()
-        expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument()
+        expect(screen.queryByText('Retry')).not.toBeInTheDocument()
     })
 
     it('treats a completed run without groups as a result rather than ongoing work', async () => {

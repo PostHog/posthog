@@ -1,7 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import { fireEvent, within } from '@testing-library/dom'
 
-
 import { mswDecorator } from '~/mocks/browser'
 
 import { ClustersView } from './ClustersView'

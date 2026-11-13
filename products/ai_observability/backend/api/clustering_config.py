@@ -14,7 +14,7 @@ from posthog.event_usage import report_user_action
 from posthog.permissions import AccessControlPermission
 
 from ..models.clustering_config import ClusteringConfig
-from ..models.clustering_job import DEFAULT_LEVEL_SPECS, ClusteringJob
+from ..models.clustering_job import DEFAULT_LEVEL_SPECS, ClusteringAnalysisLevel, ClusteringJob
 from ..models.clustering_run import ClusteringRunStatus
 from .metrics import llma_track_latency
 
@@ -56,7 +56,7 @@ class ClusteringJobProgressSerializer(serializers.Serializer):
     job_id = serializers.UUIDField(help_text="The clustering job whose first run is tracked.")
     name = serializers.CharField(help_text="Job name.")
     analysis_level = serializers.ChoiceField(
-        choices=["trace", "generation", "evaluation"], help_text="Items grouped by this job."
+        choices=ClusteringAnalysisLevel.choices, help_text="Items grouped by this job."
     )
     has_filters = serializers.BooleanField(help_text="Whether the job only includes items matching saved filters.")
     minimum = serializers.IntegerField(help_text="Minimum eligible items needed to attempt clustering.")

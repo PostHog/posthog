@@ -3,6 +3,12 @@ from django.db import models
 from posthog.models.utils import UUIDModel
 
 
+class ClusteringAnalysisLevel(models.TextChoices):
+    TRACE = "trace", "trace"
+    GENERATION = "generation", "generation"
+    EVALUATION = "evaluation", "evaluation"
+
+
 class ClusteringJob(UUIDModel):
     """A named clustering configuration for a team.
 
@@ -18,7 +24,7 @@ class ClusteringJob(UUIDModel):
     name = models.CharField(max_length=100)
     analysis_level = models.CharField(
         max_length=20,
-        choices=[("trace", "trace"), ("generation", "generation"), ("evaluation", "evaluation")],
+        choices=ClusteringAnalysisLevel.choices,
     )
     event_filters = models.JSONField(default=list, blank=True)
     enabled = models.BooleanField(default=True)

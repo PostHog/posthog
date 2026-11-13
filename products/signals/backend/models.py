@@ -3416,12 +3416,7 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
                     touched.add("status_changed_at")
             if fields is not None:
                 kwargs["update_fields"] = fields | touched
-        from products.signals.backend.trial.scouts import (
-            scout_capacity,  # noqa: PLC0415 -- capacity policy depends on this model
-        )
-
-        with scout_capacity(self):
-            super().save(*args, **kwargs)
+        super().save(*args, **kwargs)
 
     @classmethod
     def _pause_reasons_share_writer(cls, current: str | None, incoming: "SignalScoutConfig.PauseReason") -> bool:
