@@ -294,16 +294,13 @@ describe('createQueryWrapper output_format handling', () => {
         expect(result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toBe('formatted-text')
     })
 
-    it('passes warehouse_suggestions through to the agent', async () => {
+    it('passes agent notices through for guidance', async () => {
         const note = {
-            id: 'suggestion-1',
-            kind: 'materialize',
-            view_name: 'orders',
-            message: 'Materializing `orders` would save people about 40 minutes of waiting a month (estimated).',
-            url: 'http://localhost:8010/project/1/models/view-1?lookup=saved_query',
-            can_act: true,
+            source: 'warehouse-suggestions',
+            key: 'suggestion-1',
+            text: 'Materializing `orders` would save people about 40 minutes of waiting a month (estimated).',
         }
-        const runQuery = vi.fn().mockResolvedValue({ results: [], warehouse_suggestions: [note] })
+        const runQuery = vi.fn().mockResolvedValue({ results: [], agent_notices: [note] })
         const tool = createQueryWrapper({
             name: 'test',
             schema: schemaWithOutputFormat,
@@ -315,7 +312,7 @@ describe('createQueryWrapper output_format handling', () => {
             series: [{ kind: 'EventsNode', event: '$pageview' }],
         })) as any
 
-        expect(result.warehouse_suggestions).toEqual([note])
+        expect(result.agent_notices).toEqual([note])
     })
 
     it('skips formatted_results when caller requests output_format: json', async () => {

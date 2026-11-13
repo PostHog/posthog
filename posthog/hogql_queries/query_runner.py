@@ -3178,7 +3178,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             # response time covers the same work as on a cache hit.
             self._serve_query_scan(response, query_run.user)
             notes_outcome = serve_warehouse_suggestions(
-                self.team, response, query_run.user, query_stats.saved_query_ids, query_run.trigger
+                self.team, query_run.user, query_stats.saved_query_ids, query_run.trigger
             )
             phase_times = compute_phase_times(self.timings.to_dict(), before=self._timings_before_run)
             query_executed_props = {

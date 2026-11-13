@@ -73,6 +73,7 @@ from posthog.event_usage import (
 )
 from posthog.exceptions import InsufficientScope
 from posthog.exceptions_capture import capture_exception
+from posthog.hogql_queries.agent_notices import collect_agent_notices
 from posthog.hogql_queries.apply_dashboard_filters import apply_dashboard_filters, apply_dashboard_variables
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.query_failure_handling import captured_elsewhere
@@ -419,16 +420,17 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 set_query_id_on_span(process_span, client_query_id)
                 if limit_context is not None:
                     process_span.set_attribute("query.limit_context", limit_context.value)
-                result = process_query_model(
-                    self.team,
-                    query,
-                    execution_mode=execution_mode,
-                    query_id=client_query_id,
-                    user=request.user,  # type: ignore[arg-type]
-                    is_query_service=is_query_service,
-                    limit_context=limit_context,
-                    analytics_props=analytics_props,
-                )
+                with collect_agent_notices() as agent_notices:
+                    result = process_query_model(
+                        self.team,
+                        query,
+                        execution_mode=execution_mode,
+                        query_id=client_query_id,
+                        user=request.user,  # type: ignore[arg-type]
+                        is_query_service=is_query_service,
+                        limit_context=limit_context,
+                        analytics_props=analytics_props,
+                    )
                 if isinstance(result, BaseModel):
                     result = result.model_dump(by_alias=True)
 
@@ -467,6 +469,9 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                     llm_span.set_attribute("query.formatted", formatted is not None)
                     if formatted is not None:
                         result["formatted_results"] = formatted
+
+            if agent_notices:
+                result["agent_notices"] = agent_notices
 
             response = Response(result, status=response_status)
             cost = get_request_query_cost()

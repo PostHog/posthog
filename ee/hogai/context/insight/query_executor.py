@@ -2,6 +2,7 @@ import re
 import json
 import time
 import asyncio
+from collections.abc import Sequence
 from dataclasses import field
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Optional
@@ -70,6 +71,7 @@ from posthog.exceptions import (
     ClickHouseQueryTimeOut,
     QueryRanConcurrently,
 )
+from posthog.hogql_queries.agent_notices import AgentNotice, claim_agent_notices
 from posthog.hogql_queries.query_runner import BLOCKING_EXECUTION_MODES, ExecutionMode
 from posthog.hogql_queries.utils.result_series import get_action_names
 from posthog.models import Team
@@ -325,7 +327,9 @@ class AssistantQueryExecutor:
                     # Including insight ID for insight search
                     tag_queries(insight_id=insight_id)
                 execute_start = time.time()
-                response_dict = await self.aexecute_query(query, execution_mode, debug_timing=debug_timing)
+                with claim_agent_notices() as claimed_notices:
+                    response_dict = await self.aexecute_query(query, execution_mode, debug_timing=debug_timing)
+                notices = claimed_notices or []
                 execute_elapsed = time.time() - execute_start
                 if debug_timing:
                     logger.warning(f"{TIMING_LOG_PREFIX} aexecute_query completed in {execute_elapsed:.3f}s")
@@ -334,7 +338,7 @@ class AssistantQueryExecutor:
                 # Attempt to format results using query-specific formatters
                 format_start = time.time()
                 formatted_results = await self._compress_results(
-                    query, response_dict, debug_timing=debug_timing, truncate_results=truncate_results
+                    query, response_dict, notices, debug_timing=debug_timing, truncate_results=truncate_results
                 )
                 format_elapsed = time.time() - format_start
                 total_elapsed = time.time() - start_time
@@ -350,7 +354,7 @@ class AssistantQueryExecutor:
                 # Fallback to raw JSON if formatting fails - ensures robustness
                 fallback_start = time.time()
                 fallback_results = json.dumps(response_dict["results"], cls=DjangoJSONEncoder, separators=(",", ":"))
-                suggestions = self._suggestions_that_fit_budget(response_dict, self._max_sql_result_chars)
+                suggestions = self._suggestions_that_fit_budget(notices, self._max_sql_result_chars)
                 if isinstance(query, AssistantHogQLQuery | HogQLQuery | DataVisualizationNode):
                     fallback_results = SQLResultsFormatter.bound_fallback(
                         fallback_results, _budget_left_after(self._max_sql_result_chars, suggestions)
@@ -666,6 +670,7 @@ class AssistantQueryExecutor:
         self,
         query: AnyPydanticModelQuery | AnyAssistantGeneratedQuery,
         response: dict,
+        notices: Sequence[AgentNotice] = (),
         debug_timing=False,
         truncate_results: bool = True,
     ) -> str:
@@ -699,7 +704,7 @@ class AssistantQueryExecutor:
                     "[SQL result preview omitted because query warnings exceed the preview budget.]\n" + warning_prefix,
                     self._max_sql_result_chars,
                 )
-        suggestions = self._suggestions_that_fit_budget(response, result_budget if is_sql else None)
+        suggestions = self._suggestions_that_fit_budget(notices, result_budget if is_sql else None)
         if is_sql:
             result_budget = _budget_left_after(result_budget, suggestions)
 
@@ -784,8 +789,8 @@ class AssistantQueryExecutor:
             raise
 
     @staticmethod
-    def _suggestions_that_fit_budget(response: dict[str, Any], result_budget: int | None) -> str:
-        suggestions = format_warehouse_suggestions(response)
+    def _suggestions_that_fit_budget(notices: Sequence[AgentNotice], result_budget: int | None) -> str:
+        suggestions = format_warehouse_suggestions(notices)
         if result_budget is None or result_budget - len(suggestions) >= SQLResultsFormatter.MIN_RESULT_CHARS:
             return suggestions
         return ""

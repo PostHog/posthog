@@ -29,6 +29,7 @@ export const executeSqlHandler: ToolBase<typeof schema, ExecuteSqlResult>['handl
               ...result.structured_content,
               results: result.content,
               [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: result.content,
+              ...(result.agent_notices?.length ? { agent_notices: result.agent_notices } : {}),
           }
         : result.content
 }

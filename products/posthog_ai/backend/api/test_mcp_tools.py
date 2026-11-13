@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from typing import Any
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, Mock, patch
@@ -38,6 +39,7 @@ from posthog.exceptions import (
     ClickHouseQueryTimeOut,
 )
 from posthog.exceptions_capture import ambient_exception_properties, capture_exception
+from posthog.hogql_queries.agent_notices import hand_off_agent_notices
 from posthog.models import Organization, Team
 
 from products.access_control.backend.facade.user_access_control import UserAccessControlError
@@ -116,18 +118,27 @@ class TestMCPToolsAPI(APIBaseTest):
             },
         )
 
-    @parameterized.expand([("text_only", False), ("structured_query", True)])
+    @parameterized.expand(
+        [("text_only", False, False), ("structured_query", True, False), ("handed_off_notice", True, True)]
+    )
     @patch("ee.hogai.tools.execute_sql.mcp_tool.ExecuteSQLMCPTool.execute", new_callable=AsyncMock)
-    def test_invoke_execute_sql_success(self, _name: str, structured: bool, mock_execute: AsyncMock) -> None:
+    def test_invoke_execute_sql_success(
+        self, _name: str, structured: bool, with_notice: bool, mock_execute: AsyncMock
+    ) -> None:
         content = "event | cnt\ntest_event | 5"
         query = {
             "kind": "HogQLQuery",
             "query": "SELECT {variables.org}",
             "variables": {"example-variable": {"variableId": "example-variable", "code_name": "org"}},
         }
-        mock_execute.return_value = (
-            MCPToolResult(content=content, structured_content={"query": query}) if structured else content
-        )
+        notice = {"source": "warehouse-suggestions", "key": "s1", "text": "Materializing `orders` would save time."}
+
+        async def execute(_args: Any) -> MCPToolResult | str:
+            if with_notice:
+                hand_off_agent_notices([notice])
+            return MCPToolResult(content=content, structured_content={"query": query}) if structured else content
+
+        mock_execute.side_effect = execute
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/mcp_tools/execute_sql/",
@@ -143,6 +154,10 @@ class TestMCPToolsAPI(APIBaseTest):
             self.assertEqual(data["structured_content"], {"query": query})
         else:
             self.assertNotIn("structured_content", data)
+        if with_notice:
+            self.assertEqual(data["agent_notices"], [notice])
+        else:
+            self.assertNotIn("agent_notices", data)
         mock_execute.assert_called_once()
 
     @patch("ee.hogai.utils.helpers.TeamTaxonomyQueryRunner")

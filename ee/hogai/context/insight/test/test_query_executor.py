@@ -50,6 +50,7 @@ from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tags_context
 from posthog.errors import CHQueryErrorIllegalTypeOfArgument, ExposedCHQueryError, InternalCHQueryError
 from posthog.exceptions import ClickHouseAtCapacity, QueryRanConcurrently
+from posthog.hogql_queries.agent_notices import collect_agent_notices, hand_off_agent_notices
 from posthog.models import Organization, Team, User
 
 from ee.hogai.context.insight.context import InsightContext
@@ -90,19 +91,20 @@ class TestHogQLErrorCode(SimpleTestCase):
 
 
 class TestSQLResultBudgets(SimpleTestCase):
-    @parameterized.expand(["table", "fallback", "warnings"])
-    async def test_sql_result_budget_reaches_formatting_and_fallback(self, kind: str) -> None:
-        response: dict[str, Any] = {
-            "results": [["x" * 2000] for _ in range(100)],
-            "warehouse_suggestions": [
-                {"message": f"Materializing `view_{index}` would save time.", "url": f"https://example.com/{index}"}
-                for index in range(3)
-            ],
+    NOTICES = [
+        {
+            "source": "warehouse-suggestions",
+            "key": f"s{index}",
+            "text": f"Materializing `view_{index}` would save time.",
         }
-        if kind != "fallback":
-            response["columns"] = ["example"]
-        if kind == "warnings":
-            response["warnings"] = [{"type": "warehouse_sync", "message": "Sync is delayed. " * 100}]
+        for index in range(3)
+    ]
+
+    async def _execute(self, response: dict[str, Any]) -> str:
+        def run_query(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+            hand_off_agent_notices(self.NOTICES)
+            return response
+
         context = InsightContext(
             team=Team(id=1, organization=Organization()),
             user=User(),
@@ -110,10 +112,19 @@ class TestSQLResultBudgets(SimpleTestCase):
             max_sql_result_chars=2000,
         )
         with (
-            patch("ee.hogai.context.insight.query_executor.process_query_dict", return_value=response),
+            patch("ee.hogai.context.insight.query_executor.process_query_dict", side_effect=run_query),
             patch("ee.hogai.context.insight.query_executor.capture_exception"),
         ):
-            result = await context.execute_and_format(prompt_template="{{{results}}}", include_prompt_framing=False)
+            return await context.execute_and_format(prompt_template="{{{results}}}", include_prompt_framing=False)
+
+    @parameterized.expand(["table", "fallback", "warnings"])
+    async def test_sql_result_budget_reaches_formatting_and_fallback(self, kind: str) -> None:
+        response: dict[str, Any] = {"results": [["x" * 2000] for _ in range(100)]}
+        if kind != "fallback":
+            response["columns"] = ["example"]
+        if kind == "warnings":
+            response["warnings"] = [{"type": "warehouse_sync", "message": "Sync is delayed. " * 100}]
+        result = await self._execute(response)
         self.assertLessEqual(len(result), 2000)
         self.assertIn("SQL result preview", result)
         self.assertEqual(response["results"][0][0], "x" * 2000)
@@ -123,6 +134,12 @@ class TestSQLResultBudgets(SimpleTestCase):
             self.assertNotIn("Warehouse suggestions", result)
         else:
             self.assertTrue(result.endswith("- Materializing `view_2` would save time."))
+
+    async def test_an_outer_collector_takes_the_notices_instead_of_the_results(self) -> None:
+        with collect_agent_notices() as collected:
+            result = await self._execute({"results": [["x"]], "columns": ["example"]})
+        self.assertNotIn("Warehouse suggestions", result)
+        self.assertEqual(collected, self.NOTICES)
 
     def test_synchronous_execution_keeps_sql_budget(self) -> None:
         runner = AssistantQueryExecutor(

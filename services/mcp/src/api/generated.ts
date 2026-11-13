@@ -14089,6 +14089,12 @@ export namespace Schemas {
       models: AgentModelOption[];
     }
 
+    export interface AgentNotice {
+      source: string;
+      key: string;
+      text: string;
+    }
+
     export interface AgentSource {
       /** Distinct people whose agents ran the query, without scouts. */
       people: number;
@@ -70413,6 +70419,8 @@ export namespace Schemas {
       content: string;
       /** Structured tool output for native widgets. */
       structured_content?: MCPToolResponseStructuredContent;
+      /** Optional suggestions the MCP server shows through guidance, not as output. */
+      agent_notices?: AgentNotice[] | null;
       /** Whether the tool completed successfully. */
       success: boolean;
       /** Failure category for MCP analytics. */

@@ -49,7 +49,9 @@ describe('viewGetHooks.afterResponse', () => {
             open_suggestions: [
                 { id: 'suggestion-1', kind: 'materialize', payload: { subject_name: 'orders' }, can_act: canAct },
             ],
-            open_suggestions_note: expect.stringContaining(note),
+            agent_notices: [
+                { source: 'warehouse-suggestions', key: `view:${VIEW.id}`, text: expect.stringContaining(note) },
+            ],
         })
     })
 

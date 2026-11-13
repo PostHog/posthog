@@ -1,3 +1,4 @@
+from contextlib import nullcontext
 from uuid import UUID
 
 from posthog.test.base import BaseTest
@@ -13,6 +14,7 @@ from posthog.hogql.query_stats import get_active
 
 from posthog.clickhouse.query_tagging import AccessMethod, Product, tags_context
 from posthog.event_usage import EventSource
+from posthog.hogql_queries.agent_notices import collect_agent_notices
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.hogql_queries.test.test_query_runner import (
     _calculate_recording_clickhouse_stats,
@@ -37,7 +39,9 @@ NOTE = WarehouseSuggestionNote(
 
 
 class TestWarehouseSuggestionNotes(BaseTest):
-    def _run(self, user, *, execution_mode: ExecutionMode = ExecutionMode.CALCULATE_BLOCKING_ALWAYS):
+    def _run(
+        self, user, *, execution_mode: ExecutionMode = ExecutionMode.CALCULATE_BLOCKING_ALWAYS, collect: bool = True
+    ):
         runner_class = setup_test_query_runner_class()
         runner = runner_class(query={"some_attr": "bla"}, team=self.team)
         with (
@@ -45,9 +49,10 @@ class TestWarehouseSuggestionNotes(BaseTest):
                 runner_class, "_calculate", autospec=True, side_effect=_calculate_recording_clickhouse_stats
             ),
             mock.patch(REPORT) as report,
+            collect_agent_notices() if collect else nullcontext([]) as notices,
         ):
             response = runner.run(execution_mode=execution_mode, user=user)
-        return response, report.call_args.args[1]
+        return response, report.call_args.args[1], notices
 
     @parameterized.expand(
         [
@@ -57,14 +62,21 @@ class TestWarehouseSuggestionNotes(BaseTest):
     )
     def test_agent_gets_notes_on_the_fresh_run_and_none_on_the_cache_hit(self, _name: str, tags: dict) -> None:
         with tags_context(**tags), mock.patch(FACADE, return_value=[NOTE]) as facade:
-            fresh, fresh_props = self._run(self.user)
-            cached, _ = self._run(self.user, execution_mode=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE)
+            _, fresh_props, fresh_notices = self._run(self.user)
+            cached, _, cached_notices = self._run(self.user, execution_mode=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE)
 
-        assert [note.message for note in fresh.warehouse_suggestions] == [NOTE.message]
+        assert fresh_notices == [{"source": "warehouse-suggestions", "key": str(NOTE.id), "text": NOTE.message}]
         assert fresh_props["warehouse_suggestion_ids"] == [str(NOTE.id)]
         assert facade.call_args.args[2] == {"view-a"}
         assert cached.is_cached is True
-        assert cached.warehouse_suggestions is None
+        assert cached_notices == []
+
+    def test_an_agent_run_nobody_collects_for_skips_the_lookup(self) -> None:
+        with tags_context(source=EventSource.MCP), mock.patch(FACADE, return_value=[NOTE]) as facade:
+            _, props, _ = self._run(self.user, collect=False)
+
+        assert props["warehouse_suggestions_skipped_reason"] == "not_collected"
+        facade.assert_not_called()
 
     @parameterized.expand(
         [
@@ -78,9 +90,9 @@ class TestWarehouseSuggestionNotes(BaseTest):
     def test_non_agent_callers_get_no_notes(self, _name: str, tags: dict, shared_link: bool) -> None:
         user = _shared_link_user(self.team) if shared_link else self.user
         with tags_context(**tags), mock.patch(FACADE, return_value=[NOTE]) as facade:
-            response, props = self._run(user)
+            _, props, notices = self._run(user)
 
-        assert response.warehouse_suggestions is None
+        assert notices == []
         assert props["warehouse_suggestions_skipped_reason"] == "not_agent"
         facade.assert_not_called()
 
@@ -105,9 +117,9 @@ class TestWarehouseSuggestionNotes(BaseTest):
     )
     def test_a_token_without_warehouse_read_scope_gets_no_notes(self, _name: str, tags: dict) -> None:
         with tags_context(source=EventSource.MCP, **tags), mock.patch(FACADE, return_value=[NOTE]) as facade:
-            response, props = self._run(self.user)
+            _, props, notices = self._run(self.user)
 
-        assert response.warehouse_suggestions is None
+        assert notices == []
         assert props["warehouse_suggestions_skipped_reason"] == "no_scope"
         facade.assert_not_called()
 
@@ -121,10 +133,10 @@ class TestWarehouseSuggestionNotes(BaseTest):
         self, _name: str, facade_behavior: dict, reason: str
     ) -> None:
         with tags_context(product=Product.MAX_AI), mock.patch(FACADE, **facade_behavior):
-            response, props = self._run(self.user)
+            response, props, notices = self._run(self.user)
 
         assert response.results == []
-        assert response.warehouse_suggestions is None
+        assert notices == []
         assert props["warehouse_suggestions_skipped_reason"] == reason
 
     def test_too_many_views_skips_the_lookup(self) -> None:
@@ -140,6 +152,7 @@ class TestWarehouseSuggestionNotes(BaseTest):
         runner = runner_class(query={"some_attr": "bla"}, team=self.team)
         with (
             tags_context(product=Product.MAX_AI),
+            collect_agent_notices(),
             mock.patch(FACADE) as facade,
             mock.patch.object(runner_class, "_calculate", autospec=True, side_effect=calculate_reading_many_views),
             mock.patch(REPORT) as report,
