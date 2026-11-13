@@ -15,6 +15,7 @@ from products.warehouse_sources.sources.sdk import (
     ResumableSourceManager,
     SinglePagePaginator,
     SourceResponse,
+    make_parent_key_name,
     make_tracked_session,
     rest_api_resource,
     rest_api_resources,
@@ -22,6 +23,7 @@ from products.warehouse_sources.sources.sdk import (
 from products.warehouse_sources.sources.trello.settings import TRELLO_ENDPOINTS, TrelloEndpointConfig
 
 TRELLO_BASE_URL = "https://api.trello.com/1"
+_PARENT_BOARD_ID_KEY = make_parent_key_name("boards", "id")
 
 
 @dataclasses.dataclass(frozen=False)
@@ -63,6 +65,11 @@ def _add_created_at(item: dict[str, Any]) -> dict[str, Any]:
         if created_at is not None:
             item["created_at"] = created_at
     return item
+
+
+def _add_board_id_and_created_at(item: dict[str, Any]) -> dict[str, Any]:
+    item["board_id"] = item.pop(_PARENT_BOARD_ID_KEY, None)
+    return _add_created_at(item)
 
 
 def _format_incremental_value(value: Any) -> str:
@@ -192,15 +199,23 @@ def _board_resource(
         TrelloActionsPaginator(limit=config.page_size) if config.paginated else SinglePagePaginator()
     )
 
+    child_params: dict[str, Any] = {
+        "board_id": {"type": "resolve", "resource": "boards", "field": "id"},
+        **config.params,
+    }
+    if config.send_limit:
+        child_params["limit"] = config.page_size
+
     child_endpoint: Endpoint = {
         "path": f"/boards/{{board_id}}/{config.path}",
-        "params": {
-            "board_id": {"type": "resolve", "resource": "boards", "field": "id"},
-            "limit": config.page_size,
-        },
+        "params": child_params,
         "paginator": child_paginator,
-        "data_selector_required": True,
     }
+    if config.data_selector is not None:
+        # A board with no nested rows matches nothing, so the selector can't be required.
+        child_endpoint["data_selector"] = config.data_selector
+    else:
+        child_endpoint["data_selector_required"] = True
     # Only ``actions`` has a server-side ``since`` filter, and only on an incremental run with a
     # watermark; a full refresh (last_value is None) omits it.
     if config.paginated and db_incremental_field_last_value is not None:
@@ -226,8 +241,8 @@ def _board_resource(
             {
                 "name": config.name,
                 "endpoint": child_endpoint,
-                "include_from_parent": [],
-                "data_map": _add_created_at,
+                "include_from_parent": ["id"] if config.include_board_id else [],
+                "data_map": _add_board_id_and_created_at if config.include_board_id else _add_created_at,
             },
         ],
     }
@@ -278,7 +293,7 @@ def trello_source(
     return SourceResponse(
         name=endpoint,
         items=lambda: items,
-        primary_keys=[config.primary_key],
+        primary_keys=config.primary_keys,
         sort_mode=config.sort_mode,
         partition_count=1,
         partition_size=1,

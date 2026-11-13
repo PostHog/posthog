@@ -103,11 +103,13 @@ from products.managed_warehouse.backend.facade.backfill_trino import backfills_t
 from products.managed_warehouse.backend.facade.client import (
     ServiceCredential,
     ServiceCredentialUnavailable,
+    classify_duckgres_refusal,
     make_duckgres_conninfo,
     mint_service_credential,
     refresh_service_credential,
 )
 from products.managed_warehouse.backend.facade.contracts import (
+    DuckgresOrganizationUnavailable,
     DuckLakeDayReplacement,
     DuckLakeTableLayoutError,
     DuckLakeTableReplacement,
@@ -370,43 +372,6 @@ def _mint_backfill_service_credential(target: DucklingTarget) -> ServiceCredenti
         return None
 
 
-_DUCKGRES_HOSTNAME_REFUSAL = re.compile(r"this server requires connecting via ([^\n]+)")
-_DUCKGRES_MANAGED_SUFFIX = re.compile(r"<org-id>(\S+)")
-
-
-class DuckgresConnectionRefused(Exception):
-    """duckgres refused the connection because of its hostname, so no retry can succeed."""
-
-
-class DuckgresOrganizationUnavailable(DuckgresConnectionRefused):
-    """duckgres has no organization for the managed warehouse hostname of the connection."""
-
-
-def _duckgres_refusal(
-    conninfo: str, organization_id: str, error: psycopg.OperationalError
-) -> DuckgresConnectionRefused | None:
-    """The refusal that `error` carries, or None when duckgres did not refuse the hostname.
-
-    duckgres sends "this server requires connecting via <hint>" both for a hostname that is not a managed warehouse
-    hostname and for a managed hostname whose organization it does not have. The hint names each managed suffix, as in
-    "<org-id>.dw.us.postwh.com". hogtower creates new warehouses without a duckgres organization, so their connections
-    get the second refusal.
-    """
-    match = _DUCKGRES_HOSTNAME_REFUSAL.search(str(error))
-    if match is None:
-        return None
-    hint = match[1].strip()
-    host = str(conninfo_to_dict(conninfo).get("host") or "")
-    if any(host.endswith(suffix) for suffix in _DUCKGRES_MANAGED_SUFFIX.findall(hint)):
-        return DuckgresOrganizationUnavailable(
-            f"duckgres has no organization for org {organization_id}, so it refuses the connection to {host}"
-        )
-    return DuckgresConnectionRefused(
-        f"duckgres refused the connection to {host or 'the configured host'}, because it is not a managed warehouse "
-        f"hostname. duckgres expects {hint}"
-    )
-
-
 @retry(
     # The duckgres CP absorbs a warm-pool miss by blocking the connect itself for
     # up to the outer workerQueueTimeout (5m) waiting for a colocated worker — so a
@@ -459,7 +424,9 @@ def _connect_duckgres(
         )
     except psycopg.OperationalError as error:
         # The retry above does not catch a refusal, because no later attempt to the same host can succeed.
-        refusal = _duckgres_refusal(conninfo, target.organization_id, error)
+        refusal = classify_duckgres_refusal(
+            str(conninfo_to_dict(conninfo).get("host") or ""), target.organization_id, error
+        )
         if refusal is not None:
             raise refusal from error
         raise

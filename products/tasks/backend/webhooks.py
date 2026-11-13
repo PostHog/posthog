@@ -20,7 +20,10 @@ from products.signals.backend.facade.github import (
 from products.tasks.backend.constants import PR_LOOP_ENABLED_STATE_KEY
 from products.tasks.backend.facade.api import post_pr_created_thread_update, signal_workflow_completion
 from products.tasks.backend.facade.cancellation import cancel_task_run
-from products.tasks.backend.metrics import observe_github_webhook_task_run_lookup
+from products.tasks.backend.metrics import (
+    observe_github_webhook_task_lookup_shadow,
+    observe_github_webhook_task_run_lookup,
+)
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.pr_urls import (
     canonical_github_pull_request_url,
@@ -29,6 +32,7 @@ from products.tasks.backend.pr_urls import (
     read_pr_urls,
 )
 from products.tasks.backend.prompts import WIZARD_HEAD_BRANCH_PREFIX
+from products.tasks.backend.task_run_sync import sync_task_pr_urls_on_commit
 
 logger = structlog.get_logger(__name__)
 
@@ -71,6 +75,65 @@ def find_task_run(
         logger.info("github_webhook_task_run_lookup_unscoped", pr_url=pr_url, branch=branch, repository=repository)
         return None
 
+    task_run, leg = _find_task_run_by_run_state(pr_url, branch, repository, team_ids=team_ids)
+    _shadow_task_lookup(task_run, leg, pr_url=pr_url, branch=branch, repository=repository, team_ids=team_ids)
+    return task_run
+
+
+def find_task_id_by_pull_request(
+    pr_url: str | None, branch: str | None, repository: str | None, *, team_ids: list[int]
+) -> UUID | None:
+    tasks = Task.objects.filter(team_id__in=team_ids).exclude(origin_product=Task.OriginProduct.REVIEW_HOG)
+    if pr_url:
+        canonical_url = canonical_github_pull_request_url(pr_url)
+        urls = list(dict.fromkeys([pr_url, *([canonical_url] if canonical_url else [])]))
+        task_id = (
+            tasks.filter(pr_urls__overlap=urls).order_by("-created_at", "-id").values_list("id", flat=True).first()
+        )
+        if task_id is not None:
+            return task_id
+    if branch and repository:
+        normalized = repository.lower()
+        return (
+            tasks.filter(Q(repositories__contains=[normalized]) | Q(repository__iexact=normalized))
+            .filter(head_branch=branch, deleted=False)
+            .order_by("-created_at", "-id")
+            .values_list("id", flat=True)
+            .first()
+        )
+    return None
+
+
+def _shadow_task_lookup(
+    task_run: TaskRun | None,
+    leg: str,
+    *,
+    pr_url: str | None,
+    branch: str | None,
+    repository: str | None,
+    team_ids: list[int],
+) -> None:
+    try:
+        with transaction.atomic():
+            task_id = find_task_id_by_pull_request(pr_url, branch, repository, team_ids=team_ids)
+    except Exception:
+        logger.warning("github_webhook_task_lookup_shadow_failed", exc_info=True)
+        return
+    run_task_id = task_run.task_id if task_run is not None else None
+    if run_task_id == task_id:
+        outcome = "match"
+    elif run_task_id is None:
+        outcome = "task_only"
+    elif task_id is None:
+        outcome = "run_only"
+    else:
+        outcome = "different"
+    observe_github_webhook_task_lookup_shadow(leg=leg, outcome=outcome)
+
+
+def _find_task_run_by_run_state(
+    pr_url: str | None, branch: str | None, repository: str | None, *, team_ids: list[int]
+) -> tuple[TaskRun | None, str]:
     indexed_candidates = TaskRun.objects.filter(team_id__in=team_ids)
     candidates = TaskRun.objects.filter(team_id__in=team_ids)
     # ReviewHog runs check out the PR head branch to review it, but they never author a PR, so no
@@ -107,7 +170,7 @@ def find_task_run(
             .first()
         )
         if task_run:
-            return task_run
+            return task_run, "verified_pr_url"
 
     # Branch-only lookups must be scoped to the repository the webhook came from.
     # Without this, a PR opened on an unrelated repo with a colliding branch name
@@ -131,7 +194,7 @@ def find_task_run(
             .first()
         )
         if task_run:
-            return task_run
+            return task_run, "self_driving_branch"
 
         # Signed commits report every pushed repository/branch pair separately
         # from ``branch``. The latter controls provisioning's next checkout and
@@ -148,7 +211,7 @@ def find_task_run(
             .first()
         )
         if task_run:
-            return task_run
+            return task_run, "head_branches"
 
         # Wizard cloud runs push to a server-generated head branch stored in run state.
         # The prefix check keeps this leg off the hot path for ordinary PR webhooks, and
@@ -166,7 +229,7 @@ def find_task_run(
                 .first()
             )
             if task_run:
-                return task_run
+                return task_run, "wizard_branch"
 
         # Desktop clients can attach a PR URL and branch without reporting head_branches.
         if pr_url:
@@ -179,7 +242,7 @@ def find_task_run(
             reported_candidate_ids.update(
                 _indexed_candidate_ids(reported_candidates.filter(output__pr_urls__contains=[pr_url]))
             )
-            return (
+            task_run = (
                 candidates.filter(
                     _run_repository_filter(repository),
                     id__in=reported_candidate_ids,
@@ -188,8 +251,10 @@ def find_task_run(
                 .select_related(*TASK_RUN_SELECT_RELATED)
                 .first()
             )
+            if task_run:
+                return task_run, "pr_url_branch"
 
-    return None
+    return None, "none"
 
 
 def _capture_task_pr_event(payload: dict, task_run: TaskRun | None, event: GitHubWebhookAnalyticsEvent) -> None:
@@ -438,6 +503,8 @@ def _append_run_pr_url(task_run: TaskRun, pr_url: str) -> bool:
                 [*(existing_verified if isinstance(existing_verified, list) else []), pr_url]
             )
             locked.state = {**state, "verified_pr_urls": verified_pr_urls}
+            if verified_pr_urls != existing_verified:
+                sync_task_pr_urls_on_commit(locked.task_id)
             if pr_url in read_pr_urls(locked.output):
                 if verified_pr_urls != existing_verified:
                     # Restart report linking when its earlier attempt ran before verification.

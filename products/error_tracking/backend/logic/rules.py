@@ -80,8 +80,15 @@ _ReorderableRule = TypeVar(
 )
 
 
+def _parse_rule_id(rule_id: str) -> UUID | None:
+    try:
+        return UUID(str(rule_id))
+    except ValueError:
+        return None
+
+
 def _reorder_rules(team_rules: QuerySet[_ReorderableRule], orders: dict[str, int]) -> None:
-    rules = list(team_rules.filter(id__in=orders.keys()))
+    rules = list(team_rules.filter(id__in=[key for key in orders if _parse_rule_id(key) is not None]))
     for rule in rules:
         rule.order_key = orders[str(rule.id)]
     team_rules.bulk_update(rules, ["order_key"])
@@ -115,7 +122,10 @@ def list_assignment_rules(team_id: int) -> QuerySet[ErrorTrackingAssignmentRule]
 
 
 def get_assignment_rule(team_id: int, rule_id: str) -> ErrorTrackingAssignmentRule | None:
-    return ErrorTrackingAssignmentRule.objects.filter(team_id=team_id, id=rule_id).first()
+    parsed_id = _parse_rule_id(rule_id)
+    if parsed_id is None:
+        return None
+    return ErrorTrackingAssignmentRule.objects.filter(team_id=team_id, id=parsed_id).first()
 
 
 def create_assignment_rule(
@@ -153,7 +163,10 @@ def update_assignment_rule(
 
 
 def delete_assignment_rule(team_id: int, rule_id: str) -> bool:
-    deleted, _ = ErrorTrackingAssignmentRule.objects.filter(team_id=team_id, id=rule_id).delete()
+    parsed_id = _parse_rule_id(rule_id)
+    if parsed_id is None:
+        return False
+    deleted, _ = ErrorTrackingAssignmentRule.objects.filter(team_id=team_id, id=parsed_id).delete()
     return deleted > 0
 
 
@@ -166,7 +179,10 @@ def list_severity_rules(team_id: int) -> QuerySet[ErrorTrackingSeverityRule]:
 
 
 def get_severity_rule(team_id: int, rule_id: str) -> ErrorTrackingSeverityRule | None:
-    return ErrorTrackingSeverityRule.objects.filter(team_id=team_id, id=rule_id).first()
+    parsed_id = _parse_rule_id(rule_id)
+    if parsed_id is None:
+        return None
+    return ErrorTrackingSeverityRule.objects.filter(team_id=team_id, id=parsed_id).first()
 
 
 def _validate_severity_rule_bytecode(bytecode: list[Any]) -> None:
@@ -223,7 +239,10 @@ def update_severity_rule(
 
 
 def delete_severity_rule(team_id: int, rule_id: str) -> bool:
-    deleted, _ = ErrorTrackingSeverityRule.objects.filter(team_id=team_id, id=rule_id).delete()
+    parsed_id = _parse_rule_id(rule_id)
+    if parsed_id is None:
+        return False
+    deleted, _ = ErrorTrackingSeverityRule.objects.filter(team_id=team_id, id=parsed_id).delete()
     return deleted > 0
 
 
@@ -248,7 +267,10 @@ def grouping_rule_issue_map(team_id: int, rule_ids: list[str]) -> dict[str, tupl
 
 
 def get_grouping_rule(team_id: int, rule_id: str) -> ErrorTrackingGroupingRule | None:
-    return ErrorTrackingGroupingRule.objects.filter(team_id=team_id, id=rule_id).first()
+    parsed_id = _parse_rule_id(rule_id)
+    if parsed_id is None:
+        return None
+    return ErrorTrackingGroupingRule.objects.filter(team_id=team_id, id=parsed_id).first()
 
 
 def create_grouping_rule(
@@ -280,7 +302,10 @@ def update_grouping_rule(
 
 
 def delete_grouping_rule(team_id: int, rule_id: str) -> bool:
-    deleted, _ = ErrorTrackingGroupingRule.objects.filter(team_id=team_id, id=rule_id).delete()
+    parsed_id = _parse_rule_id(rule_id)
+    if parsed_id is None:
+        return False
+    deleted, _ = ErrorTrackingGroupingRule.objects.filter(team_id=team_id, id=parsed_id).delete()
     return deleted > 0
 
 
@@ -298,7 +323,10 @@ def list_suppression_rules(team_id: int) -> QuerySet[ErrorTrackingSuppressionRul
 
 
 def get_suppression_rule(team_id: int, rule_id: str) -> ErrorTrackingSuppressionRule | None:
-    return _custom_suppression_rules(team_id).filter(id=rule_id).first()
+    parsed_id = _parse_rule_id(rule_id)
+    if parsed_id is None:
+        return None
+    return _custom_suppression_rules(team_id).filter(id=parsed_id).first()
 
 
 def create_suppression_rule(
@@ -341,7 +369,10 @@ def update_suppression_rule(
 
 
 def delete_suppression_rule(team_id: int, rule_id: str) -> bool:
-    deleted, _ = _custom_suppression_rules(team_id).filter(id=rule_id).delete()
+    parsed_id = _parse_rule_id(rule_id)
+    if parsed_id is None:
+        return False
+    deleted, _ = _custom_suppression_rules(team_id).filter(id=parsed_id).delete()
     return deleted > 0
 
 
@@ -354,7 +385,10 @@ def list_bypass_rules(team_id: int) -> QuerySet[ErrorTrackingBypassRule]:
 
 
 def get_bypass_rule(team_id: int, rule_id: str) -> ErrorTrackingBypassRule | None:
-    return ErrorTrackingBypassRule.objects.filter(team_id=team_id, id=rule_id).first()
+    parsed_id = _parse_rule_id(rule_id)
+    if parsed_id is None:
+        return None
+    return ErrorTrackingBypassRule.objects.filter(team_id=team_id, id=parsed_id).first()
 
 
 def create_bypass_rule(team_id: int, *, filters: dict) -> ErrorTrackingBypassRule:
@@ -384,7 +418,10 @@ def update_bypass_rule(
 
 
 def delete_bypass_rule(team_id: int, rule_id: str) -> bool:
-    deleted, _ = ErrorTrackingBypassRule.objects.filter(team_id=team_id, id=rule_id).delete()
+    parsed_id = _parse_rule_id(rule_id)
+    if parsed_id is None:
+        return False
+    deleted, _ = ErrorTrackingBypassRule.objects.filter(team_id=team_id, id=parsed_id).delete()
     return deleted > 0
 
 

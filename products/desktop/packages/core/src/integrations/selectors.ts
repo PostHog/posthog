@@ -27,8 +27,21 @@ export interface Integration {
 export interface ClassifiedIntegrations {
   githubIntegrations: Integration[];
   hasGithubIntegration: boolean;
+  /** GitLab connections that coding tasks can use: gitlab.com only. */
+  gitlabTaskIntegrations: Integration[];
   slackIntegrations: Integration[];
   hasSlackIntegration: boolean;
+}
+
+const GITLAB_COM_HOSTNAME = "https://gitlab.com";
+
+function isGitlabComIntegration(integration: Integration): boolean {
+  const hostname = integration.config?.hostname;
+  return (
+    integration.kind === "gitlab" &&
+    typeof hostname === "string" &&
+    hostname.trim().replace(/\/+$/, "").toLowerCase() === GITLAB_COM_HOSTNAME
+  );
 }
 
 export function classifyIntegrations(
@@ -40,6 +53,7 @@ export function classifyIntegrations(
   return {
     githubIntegrations,
     hasGithubIntegration: githubIntegrations.length > 0,
+    gitlabTaskIntegrations: integrations.filter(isGitlabComIntegration),
     slackIntegrations,
     hasSlackIntegration: slackIntegrations.length > 0,
   };

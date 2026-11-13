@@ -8,7 +8,7 @@ from django.db import transaction
 import structlog
 import temporalio
 from asgiref.sync import async_to_sync
-from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field
+from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field, extend_schema_view
 from rest_framework import filters, serializers, status, viewsets
 from rest_framework.exceptions import MethodNotAllowed, PermissionDenied, ValidationError
 from rest_framework.request import Request
@@ -53,6 +53,7 @@ from products.warehouse_sources.backend.facade.contracts import (
     LegacyHistoryTableError,
     UndecryptedConfigError,
 )
+from products.warehouse_sources.backend.facade.incremental_field_model import apply_stored_suggestion
 from products.warehouse_sources.backend.facade.models import (
     CDC_SNAPSHOT_LANE_KEY,
     INCREMENTAL_HISTORY_KEY,
@@ -132,13 +133,13 @@ from products.warehouse_sources.backend.facade.source_management import (
 from products.warehouse_sources.backend.facade.types import (
     IncrementalFieldType,
     IncrementalSyncBlockedReason,
-    SettableSyncFrequency,
     WarehouseColumnSensitivity,
 )
 from products.warehouse_sources.backend.presentation.history_tracking import (
     report_history_change,
     report_history_table_deleted,
 )
+from products.warehouse_sources.backend.presentation.sync_frequency_field import SyncFrequencyField
 from products.warehouse_sources.backend.presentation.views.destination_links import (
     DestinationLinkSerializer,
     SchemaDestinationsSerializer,
@@ -975,15 +976,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "Maximum 5184000 (60 days)."
         ),
     )
-    sync_frequency = serializers.ChoiceField(
-        choices=SettableSyncFrequency.choices,
-        required=False,
-        allow_null=True,
-        help_text="How often to sync. The fastest sync frequency is 5 minutes.",
-        error_messages={
-            "invalid_choice": '"{input}" is not a valid sync frequency. The fastest sync frequency is 5 minutes.'
-        },
-    )
+    sync_frequency = SyncFrequencyField(required=False, allow_null=True)
     sync_time_of_day = serializers.TimeField(
         required=False, allow_null=True, help_text="UTC time of day to run the sync (HH:MM:SS)."
     )
@@ -1363,16 +1356,6 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             return None
         return api_version_deprecation_payload(schema.source.source_type, schema.api_version)
 
-    def validate_sync_frequency(self, value: str | None) -> str | None:
-        # "never" maps to a null interval, which the schedule builder cannot turn into a cadence.
-        # The choices still list it, so callers do send it. The message names should_sync because
-        # that is what stops a sync.
-        if value == "never":
-            raise ValidationError(
-                '"never" is not a sync frequency. To stop syncing this table, set should_sync to false.'
-            )
-        return value
-
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         instance = cast(Optional[ExternalDataSchema], self.instance)
         override = attrs["api_version"] if "api_version" in attrs else (instance.api_version if instance else None)
@@ -1561,7 +1544,8 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
 
         # Pop non-model fields from validated_data so super().update() doesn't try to set them
         validated_data.pop("sync_type", None)
-        validated_data.pop("sync_frequency", None)
+        # The validated value is canonical; the raw payload can carry a synonym such as "daily".
+        sync_frequency = validated_data.pop("sync_frequency", None)
         validated_data.pop("sync_time_of_day", None)
         validated_data.pop("incremental_field", None)
         validated_data.pop("incremental_field_type", None)
@@ -1959,7 +1943,6 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         )
 
         should_sync = validated_data.get("should_sync", None)
-        sync_frequency = data.get("sync_frequency", None)
         sync_time_of_day_in_payload = "sync_time_of_day" in data
         sync_time_of_day = data.get("sync_time_of_day", None)
         was_sync_frequency_updated = False
@@ -2213,6 +2196,12 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             self._empty_history_table_for_mask(instance, keep_record=resulting_keeps_history)
         elif adds_a_mask:
             self._purge_history_staging_for_mask(instance)
+
+        if should_sync is False:
+            # The customer chose to keep the schema off, so it no longer counts as stopped by PostHog.
+            # Staff tools re-enable only stopped schemas, and the failure digest reports only those.
+            # Cleared whatever this request loaded, because a stop can commit after the load.
+            validated_data["auto_disabled_at"] = None
 
         # Persist under a row lock, replaying only the sync_type_config keys this request changed
         # so a concurrent CDC extract activity's writes aren't reverted by the full-instance save.
@@ -2846,6 +2835,86 @@ class ExternalDataSchemaListSerializer(serializers.ModelSerializer):
         return ret
 
 
+COMPACT_ERROR_MAX_LENGTH = 500
+ERROR_REDACTION_VALUES_BY_SOURCE_CONTEXT_KEY = "error_redaction_values_by_source"
+
+
+def truncate_error(message: str | None, max_length: int = COMPACT_ERROR_MAX_LENGTH) -> str | None:
+    if message is None or len(message) <= max_length:
+        return message
+    return f"{message[:max_length]}… [truncated, {len(message)} characters]"
+
+
+class ExternalDataSchemaSummarySerializer(serializers.ModelSerializer):
+    """One summary row per table, for the compact source responses that agents read.
+
+    It reads only stored schema columns, so it adds no query per row. The error is redacted, then truncated.
+    """
+
+    status = serializers.SerializerMethodField(read_only=True, help_text="Current sync status for this table.")
+    latest_error = serializers.SerializerMethodField(
+        read_only=True,
+        help_text=(
+            f"The latest sync error with secrets redacted, cut to {COMPACT_ERROR_MAX_LENGTH} characters. "
+            "Null when the last sync did not fail."
+        ),
+    )
+
+    class Meta:
+        model = ExternalDataSchema
+        fields = ["id", "name", "should_sync", "status", "last_synced_at", "latest_error"]
+        read_only_fields = fields
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_status(self, schema: ExternalDataSchema) -> str | None:
+        return schema_display_status(schema)
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_latest_error(self, schema: ExternalDataSchema) -> str | None:
+        if not schema.latest_error:
+            return schema.latest_error
+        by_source: dict[uuid.UUID, frozenset[str]] = self.context.get(ERROR_REDACTION_VALUES_BY_SOURCE_CONTEXT_KEY, {})
+        secret_values = by_source.get(schema.source_id)
+        if secret_values is not None:
+            redacted = source_helpers.redact_error_message(schema.latest_error, secret_values)
+        else:
+            redacted = redact_schema_error(schema, self.context)
+        return truncate_error(redacted)
+
+
+class ExternalDataSchemaCompactSerializer(ExternalDataSchemaSummarySerializer):
+    """The compact row of the schemas list: the summary row plus the source it belongs to and its sync type."""
+
+    class Meta(ExternalDataSchemaSummarySerializer.Meta):
+        fields = ["id", "name", "source_id", "should_sync", "sync_type", "status", "last_synced_at", "latest_error"]
+        read_only_fields = fields
+
+
+def error_redaction_values_by_source(schemas: Iterable[ExternalDataSchema]) -> dict[uuid.UUID, frozenset[str]]:
+    """The secret values of each source that has a failed table, read with one inputs query for all of them."""
+    sources = {schema.source_id: schema.source for schema in schemas if schema.latest_error}
+    if not sources:
+        return {}
+    inputs = SourceInputsStore.load_many(sources.values())
+    # A source left out of `inputs` falls back to the per-schema lookup, which handles unreadable inputs.
+    return {
+        source_id: source_helpers.get_error_redaction_values(source, inputs[source_id])
+        for source_id, source in sources.items()
+        if source_id in inputs
+    }
+
+
+class ExternalDataSchemaListQuerySerializer(serializers.Serializer):
+    compact = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Return one short row per table (id, name, source_id, should_sync, sync_type, status, last_synced_at "
+            "and a truncated latest_error) instead of the full sync configuration. Use it to check table health."
+        ),
+    )
+
+
 class SimpleExternalDataSchemaSerializer(serializers.ModelSerializer):
     class Meta:
         model = ExternalDataSchema
@@ -2889,6 +2958,7 @@ class WarehouseTableAccessPermission(AccessControlPermission):
 
 
 @extend_schema(extensions={"x-product": "warehouse_sources"})
+@extend_schema_view(list=extend_schema(parameters=[ExternalDataSchemaListQuerySerializer]))
 class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "external_data_source"
     permission_classes = [WarehouseTableAccessPermission]
@@ -2933,19 +3003,43 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # otherwise route POST here, whose serializer create path skips the api_version guards.
         raise MethodNotAllowed("POST")
 
+    def _is_compact_list(self) -> bool:
+        if getattr(self, "action", None) != "list" or getattr(self, "swagger_fake_view", False):
+            return False
+        cached: bool | None = getattr(self, "_compact_list", None)
+        if cached is None:
+            query = ExternalDataSchemaListQuerySerializer(data=self.request.query_params)
+            query.is_valid(raise_exception=True)
+            cached = bool(query.validated_data["compact"])
+            self._compact_list = cached
+        return cached
+
+    def get_serializer_class(self) -> type[serializers.BaseSerializer]:
+        if self._is_compact_list():
+            return ExternalDataSchemaCompactSerializer
+        return super().get_serializer_class()
+
     def get_serializer(self, *args: Any, **kwargs: Any) -> serializers.BaseSerializer:
         if "context" not in kwargs:
             kwargs["context"] = self.get_serializer_context()
         if kwargs.get("many") and args:
             context = kwargs["context"]
-            context[PINNED_TABLE_IDS_CONTEXT_KEY] = pinned_table_ids(args[0], self.team_id)
-            context[WEBHOOK_MISSING_BY_SOURCE_CONTEXT_KEY] = sources_missing_webhook(self.team_id, args[0])
+            if self._is_compact_list():
+                schemas = list(args[0])
+                args = (schemas, *args[1:])
+                context[ERROR_REDACTION_VALUES_BY_SOURCE_CONTEXT_KEY] = error_redaction_values_by_source(schemas)
+            else:
+                context[PINNED_TABLE_IDS_CONTEXT_KEY] = pinned_table_ids(args[0], self.team_id)
+                context[WEBHOOK_MISSING_BY_SOURCE_CONTEXT_KEY] = sources_missing_webhook(self.team_id, args[0])
         serializer_class = self.get_serializer_class()
         return serializer_class(*args, **kwargs)
 
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
         if getattr(self, "swagger_fake_view", False):
+            return context
+        if self._is_compact_list():
+            # The compact row reads no columns, so it skips building the HogQL database.
             return context
         context["database"] = Database.create_for(team_id=self.team_id, user=cast(User, self.request.user))
         # Only the single-schema retrieve embeds the parent-source summary (see ExternalDataSchemaSerializer.get_source).
@@ -3286,7 +3380,8 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             if direct_engine_adapter is not None:
                 direct_engine_adapter.hide_table(instance.table)
             instance.should_sync = False
-            instance.save(update_fields=["should_sync", "updated_at"])
+            instance.auto_disabled_at = None
+            instance.save(update_fields=["should_sync", "auto_disabled_at", "updated_at"])
             return Response(status=status.HTTP_200_OK)
 
         # Turn syncing off first, or the next scheduled run rebuilds the deleted table. The serializer
@@ -3440,6 +3535,9 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return Response(
                 status=status.HTTP_400_BAD_REQUEST, data={"message": f"Schema with name {instance.name} not found"}
             )
+        # The form keeps a configured cursor, so it needs no recommendation.
+        if not instance.incremental_field:
+            apply_stored_suggestion(schema, instance.sync_type_config, team=self.team, schema_id=str(instance.id))
 
         # job_inputs is an EncryptedJSONField: booleans round-trip as "True"/"False"
         # strings, so bool(...) would treat "False" as truthy. str_to_bool decodes both.

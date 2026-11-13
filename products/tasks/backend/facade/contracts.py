@@ -298,6 +298,15 @@ class TaskArtifactSlackUnfurlDTO:
 
 
 @dataclass(frozen=True)
+class TaskRepositoryState:
+    repository: str | None
+    repositories: list[str]
+    github_integration: int | None
+    github_user_integration: UUID | None
+    repository_integration: int | None
+
+
+@dataclass(frozen=True)
 class TaskDetailDTO:
     """The HTTP detail representation of a task.
 
@@ -341,6 +350,7 @@ class TaskDetailDTO:
     client_provenance: str | None = None
     last_client: str | None = None
     last_client_at: datetime | None = None
+    repository_integration: int | None = None
 
 
 @dataclass(frozen=True)
@@ -1097,6 +1107,13 @@ class WarmTaskDTO:
 
     task_id: UUID
     run_id: UUID
+
+
+@dataclass(frozen=True)
+class TaskStatusMismatchRow:
+    stored_status: str
+    derived_status: str
+    count: int
 
 
 @dataclass(frozen=True)

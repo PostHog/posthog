@@ -65,6 +65,8 @@ AI_GATEWAY_TIMEOUT_COOLDOWN_SECONDS = 300.0
 
 AI_GATEWAY_SERVED_KEY = "ai_gateway_served"
 
+AI_GATEWAY_RUNNERLESS_OPENAI_PRODUCTS = frozenset({"pulse"})
+
 AI_GATEWAY_BILLABLE_PRODUCTS = frozenset(
     {
         "posthog_ai",
@@ -380,14 +382,17 @@ class MaxChatMixin(BaseModel):
         """Other products keep their capture and billing on the direct path."""
         if self.ai_gateway_fallback is None:
             return None
-        configurable = ensure_config().get("configurable") or {}
-        if configurable.get("ai_product") != POSTHOG_AI_PRODUCT:
-            return None
-        if (self.posthog_properties or {}).get("ai_product", POSTHOG_AI_PRODUCT) != POSTHOG_AI_PRODUCT:
-            return None
+        posthog_properties = kwargs["metadata"]["posthog_properties"]
+        ai_product = posthog_properties["ai_product"]
+        if ai_product not in AI_GATEWAY_RUNNERLESS_OPENAI_PRODUCTS:
+            configurable = ensure_config().get("configurable") or {}
+            if configurable.get("ai_product") != POSTHOG_AI_PRODUCT:
+                return None
+            if ai_product != POSTHOG_AI_PRODUCT:
+                return None
         return self._ai_gateway_route_attributed(
-            ai_product=POSTHOG_AI_PRODUCT,
-            billable=kwargs["metadata"]["posthog_properties"]["$ai_billable"],
+            ai_product=ai_product,
+            billable=posthog_properties["$ai_billable"],
             handler=None,
         )
 
@@ -623,7 +628,7 @@ class MaxChatOpenAI(MaxChatMixin, ChatOpenAI):
             "api_key": ai_gateway.api_key,
             "http_client": httpx.Client(trust_env=False, verify=_ai_gateway_ssl_context()),
             "http_async_client": httpx.AsyncClient(trust_env=False, verify=_ai_gateway_ssl_context()),
-            "timeout": AI_GATEWAY_TIMEOUT,
+            "timeout": data.get("timeout") or data.get("request_timeout") or AI_GATEWAY_TIMEOUT,
             "max_retries": 0,
             "ai_gateway_fallback": cls(**data, ai_gateway_fallback=None),
         }

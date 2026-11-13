@@ -543,10 +543,11 @@ class TestFlagStateOfAnEndedExperiment(BaseTest):
         [
             ("running_experiment_on_the_flag", False, not_applicable(OTHER_EXPERIMENT_DECIDES)),
             ("deleted_experiment_on_the_flag", True, "ended_but_multiple_variants_rolled_out"),
+            ("a_reader_who_cant_read_the_calls", True, "ended_flag_calls_unknown", False),
         ]
     )
-    def test_reads_the_other_experiments_on_the_flag(
-        self, _name: str, other_deleted: bool, expected: str | CheckSkip
+    def test_reads_the_flag_and_its_other_experiments(
+        self, _name: str, other_deleted: bool, expected: str | CheckSkip, can_read_flag_calls: bool = True
     ) -> None:
         flag = FeatureFlag.objects.create(
             team=self.team,
@@ -574,6 +575,6 @@ class TestFlagStateOfAnEndedExperiment(BaseTest):
             override_settings(FEATURE_FLAG_LAST_CALLED_AT_SYNC_SOURCE="events"),
             time_machine.travel(datetime(2026, 10, 20, 12, 0, tzinfo=UTC), tick=False),
         ):
-            finding = flag_state(load_health_context(experiment))
+            finding = flag_state(load_health_context(experiment, can_read_flag_calls=can_read_flag_calls))
 
         self.assertEqual(finding.subcode if isinstance(finding, ExperimentHealthFinding) else finding, expected)

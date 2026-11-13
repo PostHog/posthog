@@ -1,1 +1,1 @@
-0378_hobby_query_log_archive_v3_one_layer
+0381_drop_legacy_metrics_on_logs
