@@ -1,4 +1,3 @@
-from enum import StrEnum
 from typing import Any, cast
 from uuid import UUID
 
@@ -9,12 +8,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.schema import (
-    MarketingAnalyticsRecommendationIdentity,
-    MarketingAnalyticsRecommendationIdentitySourceType,
-    MarketingAnalyticsRecommendationResolutionState,
-    MarketingAnalyticsRecommendationRule,
-)
+from posthog.schema import MarketingAnalyticsRecommendationIdentity, MarketingAnalyticsRecommendationResolutionState
 
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -22,6 +16,9 @@ from posthog.models.user import User
 
 from products.marketing_analytics.backend.facade.api import (
     InvalidRecommendationIdentity,
+    RecommendationResolutionState,
+    RecommendationRule,
+    RecommendationSourceType,
     can_resolve_recommendations,
     resolve_recommendation,
     restore_recommendation,
@@ -30,18 +27,13 @@ from products.marketing_analytics.backend.facade.api import (
 MAX_SUBJECT_LENGTH = 10_000
 
 
-def _labels(enum: type[StrEnum]) -> dict[str, str]:
-    # Same labels as the model's TextChoices, so the OpenAPI enums keep the names derived from those classes.
-    return {member.value: member.name.replace("_", " ").title() for member in enum}
-
-
 class RecommendationIdentitySerializer(serializers.Serializer):
     rule = serializers.ChoiceField(
-        choices=list(_labels(MarketingAnalyticsRecommendationRule).items()),
+        choices=RecommendationRule.choices,
         help_text="The rule that produced the recommendation.",
     )
     source_type = serializers.ChoiceField(
-        choices=list(_labels(MarketingAnalyticsRecommendationIdentitySourceType).items()),
+        choices=RecommendationSourceType.choices,
         help_text="The ad platform the ids belong to.",
     )
     customer_id = serializers.CharField(
@@ -68,7 +60,7 @@ class RecommendationResolutionRequestSerializer(serializers.Serializer):
         help_text="The recommendation's `identity` from the recommendations query, sent as is."
     )
     resolution = serializers.ChoiceField(
-        choices=list(_labels(MarketingAnalyticsRecommendationResolutionState).items()),
+        choices=RecommendationResolutionState.choices,
         help_text="Dismissed hides the recommendation. Applied marks that someone made the change it suggests.",
     )
 
@@ -89,7 +81,7 @@ class RecommendationResolutionSerializer(serializers.Serializer):
         help_text="Opaque id of `identity`, the same as the `key` of the recommendation in the recommendations query."
     )
     resolution = serializers.ChoiceField(
-        choices=list(_labels(MarketingAnalyticsRecommendationResolutionState).items()),
+        choices=RecommendationResolutionState.choices,
         help_text="Dismissed hides the recommendation. Applied marks that someone made the change it suggests.",
     )
     resolved_by = RecommendationResolverSerializer(

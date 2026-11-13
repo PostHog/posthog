@@ -15,14 +15,22 @@ from products.marketing_analytics.backend.hogql_queries.recommendation_identity 
     InvalidRecommendationIdentity,
     RecommendationKey,
 )
-from products.marketing_analytics.backend.models.recommendation_resolution import RecommendationResolution
+from products.marketing_analytics.backend.models.recommendation_resolution import (
+    RecommendationResolution,
+    RecommendationResolutionState,
+    RecommendationRule,
+    RecommendationSourceType,
+)
 
 if TYPE_CHECKING:
     from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 __all__ = [
     "InvalidRecommendationIdentity",
+    "RecommendationResolutionState",
     "RecommendationResolver",
+    "RecommendationRule",
+    "RecommendationSourceType",
     "ResolveOutcome",
     "ResolvedRecommendation",
     "can_resolve_recommendations",
