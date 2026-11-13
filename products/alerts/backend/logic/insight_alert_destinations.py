@@ -260,6 +260,7 @@ def build_insight_alert_url_config(
     """A Discord, Microsoft Teams or webhook destination that hears the alert's firings."""
     destination_type = data["type"]
     url = data["webhook_url"]
+    inputs: dict[str, Any]
     if destination_type == DestinationType.DISCORD:
         label, inputs = "Discord", {"content": {"value": _DISCORD_CONTENT}, "webhookUrl": {"value": url}}
     elif destination_type == DestinationType.TEAMS:

@@ -3190,6 +3190,7 @@ class TestAlertDestinations(APIBaseTest):
         [
             ("discord_on_another_host", "discord", "https://example.com/api/webhooks/1/secret"),
             ("plain_http_webhook", "webhook", "http://hooks.example.com/secret"),
+            ("backslash_before_the_path", "webhook", "https://hooks.example.com\\\\secret"),
         ]
     )
     def test_a_url_the_provider_refuses_is_refused_without_a_platform_copy(
