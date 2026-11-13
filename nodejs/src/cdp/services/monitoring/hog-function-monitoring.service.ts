@@ -176,6 +176,7 @@ export class HogFunctionMonitoringService {
             metric_kind: metric.metric_kind,
             metric_name: metric.metric_name,
             count: metric.count,
+            timestamp: metric.timestamp,
         })
 
         // Guarded on the type rather than truthiness: a flow loaded without its `version` column would
@@ -190,6 +191,7 @@ export class HogFunctionMonitoringService {
                 metric_kind: metric.metric_kind,
                 metric_name: metric.metric_name,
                 count: metric.count,
+                timestamp: metric.timestamp,
             })
         }
     }
@@ -230,8 +232,7 @@ export class HogFunctionMonitoringService {
                 : result.invocation.functionId
             // Stamped here rather than at each of the ~10 sites that push onto `result.metrics`
             // (executor, action handlers, billing). The workflow is re-read from the manager on every
-            // dequeue, so this is the version that actually executed the step — a run started on v2
-            // that reaches its email step after v3 is published attributes that step to v3.
+            // dequeue, so this is the version that actually executed the step.
             const appSourceVersion = isHogFlowResult(result)
                 ? { id: result.invocation.hogFlow.id, version: result.invocation.hogFlow.version }
                 : undefined

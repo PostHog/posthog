@@ -11,6 +11,8 @@ export const ProjectIdSchema = z
     .union([z.string(), z.int()], { error: PROJECT_ID_ERROR })
     .transform(String)
     .pipe(z.string().regex(/^\d+$/, { error: PROJECT_ID_ERROR }))
+    // Without leading zeros, so "02" and "2" name the same login.
+    .transform((id) => id.replace(/^0+(?=\d)/, ''))
     .brand<'ProjectId'>()
 
 export type ProjectId = z.output<typeof ProjectIdSchema>
@@ -22,6 +24,31 @@ export const OrganizationIdSchema = z
     .brand<'OrganizationId'>()
 
 export type OrganizationId = z.output<typeof OrganizationIdSchema>
+
+// A query ID hog prints in a command and takes back with `--wait`. Every ID PostHog makes fits, as
+// a UUID or hex. Another caller's own `client_query_id` may not, and an ID that needs quoting is
+// never printed, because no quoting is safe in every shell.
+export const QueryIdSchema = z
+    .string()
+    .regex(/^[A-Za-z0-9_-]{1,200}$/, {
+        error: 'The query ID must be the `queryId` that `hog query run` returned: up to 200 letters, digits, `_` or `-`.',
+    })
+    .brand<'QueryId'>()
+
+export type QueryId = z.output<typeof QueryIdSchema>
+
+export function parseQueryId(raw: unknown, failure?: Partial<ParseFailure>): QueryId {
+    return parseOrThrow(QueryIdSchema, raw, {
+        code: 'invalid_query_id',
+        hint: 'Pass the `queryId` from the answer that said the query is still running.',
+        ...failure,
+    })
+}
+
+export function resumableQueryId(id: string): QueryId | undefined {
+    const parsed = QueryIdSchema.safeParse(id)
+    return parsed.success ? parsed.data : undefined
+}
 
 export function parseProjectId(raw: unknown, failure?: Partial<ParseFailure>): ProjectId {
     return parseOrThrow(ProjectIdSchema, raw, {

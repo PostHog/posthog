@@ -363,10 +363,11 @@ def test_google_sheets_source_retries_transient_error_on_data_reads():
     assert mock_worksheet.get.call_count == 2
 
 
-def _read_sheet(header_row: list[str], data_rows: list[list[str]]) -> list[Any]:
+def _read_sheet(header_row: list[str], data_rows: list[list[str]], locale: str = "en_US") -> list[Any]:
     config = GoogleSheetsSourceConfig(spreadsheet_url="https://docs.google.com/spreadsheets/d/fake")
 
     mock_worksheet = mock.MagicMock()
+    mock_worksheet.spreadsheet.locale = locale
     mock_worksheet.get_all_values.return_value = [header_row]
     mock_worksheet.get.return_value = [header_row, *data_rows]
 
@@ -398,6 +399,81 @@ def test_google_sheets_source_keeps_cell_text_in_a_column_mixing_numbers_and_tex
         {"id": 3, "code": None},
         {"id": 4, "code": "42"},
     ]
+
+
+_DOT_GROUPED_DECIMAL_COMMA_LOCALES = ["de_DE", "es_ES", "it_IT", "nl_NL", "pt_BR", "tr_TR", "id_ID"]
+_SPACE_GROUPED_DECIMAL_COMMA_LOCALES = ["fr_FR", "pl_PL", "ru_RU", "cs_CZ", "sv_SE", "pt_PT", "uk_UA", "nb_NO"]
+_SPACES = {"space": " ", "no_break_space": " ", "narrow_no_break_space": " "}
+_ONE_LOCALE_PER_PATH = ["de_DE", "fr_FR", "en_US"]
+
+
+@pytest.mark.parametrize(
+    "locale,cells,expected",
+    [
+        *(
+            pytest.param(
+                locale,
+                ["0,5", "1.200", "1.234,5", "-1.234,5", "1.234.567,89", ""],
+                [0.5, 1200, 1234.5, -1234.5, 1234567.89, None],
+                id=f"decimal_comma_dot_grouped_{locale}",
+            )
+            for locale in _DOT_GROUPED_DECIMAL_COMMA_LOCALES
+        ),
+        *(
+            pytest.param(
+                locale,
+                ["0,5", f"1{space}234,5", f"-12{space}345", f"1{space}234{space}567,89"],
+                [0.5, 1234.5, -12345, 1234567.89],
+                id=f"decimal_comma_space_grouped_{locale}_{space_name}",
+            )
+            for locale in _SPACE_GROUPED_DECIMAL_COMMA_LOCALES
+            for space_name, space in _SPACES.items()
+        ),
+        pytest.param("de_DE", ["1.5", "2,5"], ["1.5", "2,5"], id="ambiguous_text_keeps_the_column_as_text"),
+        pytest.param("fr_FR", ["12 34", "0,5"], ["12 34", "0,5"], id="misplaced_group_space_keeps_the_column_as_text"),
+        pytest.param("de_DE", ["15.01.2024"], ["15.01.2024"], id="date_stays_text"),
+        pytest.param("de_DE", ["50 %", "1.234,50 €"], ["50 %", "1.234,50 €"], id="percent_and_currency_stay_text"),
+        pytest.param(
+            "fr_FR", ["50 %", "1 234,50 €"], ["50 %", "1 234,50 €"], id="space_grouped_percent_and_currency_stay_text"
+        ),
+        pytest.param(
+            "de_DE",
+            ["1.5E+30", "1.000000000E+999999999", "1.234.567.890.123.456.789.012.345.678"],
+            ["1.5E+30", "1.000000000E+999999999", "1.234.567.890.123.456.789.012.345.678"],
+            id="grouped_text_beyond_decimal_precision_stays_text",
+        ),
+        pytest.param("fr_FR", ["1 5E+30"], ["1 5E+30"], id="space_grouped_text_beyond_decimal_precision_stays_text"),
+        *(
+            pytest.param(locale, ["1_000", "12_34"], ["1_000", "12_34"], id=f"underscores_stay_text_{locale}")
+            for locale in _ONE_LOCALE_PER_PATH
+        ),
+        *(
+            pytest.param(locale, ["sNaN"], ["sNaN"], id=f"signaling_nan_stays_text_{locale}")
+            for locale in _ONE_LOCALE_PER_PATH
+        ),
+        # The pipeline stores a float that is not finite as null.
+        *(
+            pytest.param(
+                locale,
+                ["inf", "-inf", "Infinity", "NaN"],
+                [None, None, None, None],
+                id=f"non_finite_text_imports_as_null_{locale}",
+            )
+            for locale in _ONE_LOCALE_PER_PATH
+        ),
+        *(
+            pytest.param(locale, ["1E+20", "1e400"], [1e20, None], id=f"exponent_parses_as_float_{locale}")
+            for locale in _ONE_LOCALE_PER_PATH
+        ),
+        pytest.param("de_DE", ["2,5E-3"], [0.0025], id="exponent_with_decimal_comma"),
+        pytest.param("en_US", ["1,200", "1.5"], [1200, 1.5], id="decimal_point_drops_group_commas"),
+        pytest.param("xx_UNKNOWN", ["1,200"], [1200], id="unknown_locale_parses_as_decimal_point"),
+    ],
+)
+def test_google_sheets_source_parses_cell_text_in_the_spreadsheet_locale(locale, cells, expected):
+    tables = _read_sheet(["value"], [[cell] for cell in cells], locale=locale)
+
+    assert tables[0].column("value").to_pylist() == expected
 
 
 @pytest.mark.parametrize(

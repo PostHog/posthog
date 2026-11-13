@@ -1,6 +1,10 @@
 import dataclasses
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import TYPE_CHECKING, Any, Optional
 
+from django.db import transaction
 from django.db.models import CharField, Exists, F, Model, OuterRef, Q, QuerySet
 from django.db.models.functions import Cast
 from django.db.models.signals import post_delete, post_save
@@ -12,6 +16,22 @@ if TYPE_CHECKING:
     from posthog.models.team import Team
 from posthog.models.file_system.constants import DEFAULT_SURFACE, surface_q
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
+
+_file_system_sync_enabled: ContextVar[bool] = ContextVar("file_system_sync_enabled", default=True)
+
+
+@contextmanager
+def file_system_sync(enabled: bool) -> Iterator[None]:
+    """Turn the save and delete signals' file row writes off for the saves inside the block.
+
+    A view whose caller may change an object but not its file in the tree saves inside
+    `file_system_sync(False)`. The object saves, and its file keeps its name, folder and existence.
+    """
+    token = _file_system_sync_enabled.set(enabled)
+    try:
+        yield
+    finally:
+        _file_system_sync_enabled.reset(token)
 
 
 class FileSystemSyncMixin(Model):
@@ -25,7 +45,7 @@ class FileSystemSyncMixin(Model):
     class Meta:
         abstract = True
 
-    def __init__(self, *args, _create_in_folder: Optional[str] = None, **kwargs):
+    def __init__(self, *args: Any, _create_in_folder: object = None, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self._create_in_folder = _create_in_folder
 
@@ -35,17 +55,21 @@ class FileSystemSyncMixin(Model):
 
         @receiver(post_save, sender=cls, weak=False)
         def _file_system_post_save(sender, instance: "FileSystemSyncMixin", created, **kwargs):
-            instance.sync_file_system()
+            if _file_system_sync_enabled.get():
+                instance.sync_file_system()
 
         @receiver(post_delete, sender=cls, weak=False)
         def _file_system_post_delete(sender, instance: "FileSystemSyncMixin", **kwargs):
             from posthog.models.file_system.file_system import delete_file
             from posthog.models.team import Team
 
+            if not _file_system_sync_enabled.get():
+                return
             fs_data = instance.get_file_system_representation()
             try:
                 team = instance.team  # type: ignore
-                delete_file(team=team, file_type=fs_data.type, ref=fs_data.ref, surface=fs_data.surface)
+                with transaction.atomic():
+                    delete_file(team=team, file_type=fs_data.type, ref=fs_data.ref, surface=fs_data.surface)
             except Team.DoesNotExist:
                 # Team was already deleted
                 pass
@@ -58,25 +82,42 @@ class FileSystemSyncMixin(Model):
 
         fs_data = self.get_file_system_representation()
         try:
-            team = self.team  # type: ignore
-            if fs_data.should_delete:
-                delete_file(team=team, file_type=fs_data.type, ref=fs_data.ref, surface=fs_data.surface)
-            else:
-                create_or_update_file(
-                    team=team,
-                    base_folder=fs_data.base_folder,
-                    name=fs_data.name,
-                    file_type=fs_data.type,
-                    ref=fs_data.ref,
-                    href=fs_data.href,
-                    meta=fs_data.meta,
-                    created_at=fs_data.meta.get("created_at") or getattr(self, "created_at", None),
-                    created_by_id=fs_data.meta.get("created_by") or getattr(self, "created_by_id", None),
-                    surface=fs_data.surface,
-                )
+            with transaction.atomic():
+                team = self.team  # type: ignore
+                if fs_data.should_delete:
+                    delete_file(team=team, file_type=fs_data.type, ref=fs_data.ref, surface=fs_data.surface)
+                elif self.files_new_rows() or self._has_file_system_row(team, fs_data):
+                    create_or_update_file(
+                        team=team,
+                        base_folder=fs_data.base_folder,
+                        name=fs_data.name,
+                        file_type=fs_data.type,
+                        ref=fs_data.ref,
+                        href=fs_data.href,
+                        meta=fs_data.meta,
+                        created_at=fs_data.meta.get("created_at") or getattr(self, "created_at", None),
+                        created_by_id=fs_data.meta.get("created_by") or getattr(self, "created_by_id", None),
+                        surface=fs_data.surface,
+                    )
         except Exception as e:
             # Don't raise exceptions in signals
             capture_exception(e, additional_properties=dataclasses.asdict(fs_data))
+
+    def files_new_rows(self) -> bool:
+        return True
+
+    @staticmethod
+    def _has_file_system_row(team: "Team", fs_data: FileSystemRepresentation) -> bool:
+        from posthog.models.file_system.file_system import FileSystem
+        from posthog.models.file_system.refs import file_refs_q
+
+        return FileSystem.objects.filter(
+            surface_q(fs_data.surface),
+            file_refs_q(fs_data.type, [fs_data.ref]),
+            ~Q(shortcut=True),
+            team=team,
+            type=fs_data.type,
+        ).exists()
 
     @classmethod
     def get_file_system_unfiled(cls, team: "Team", surface: str = DEFAULT_SURFACE) -> QuerySet[Any]:
@@ -112,11 +153,12 @@ class FileSystemSyncMixin(Model):
         then exclude rows that are already saved to FileSystem for (team, surface, file_type).
         """
         from posthog.models.file_system.file_system import FileSystem
+        from posthog.models.file_system.refs import same_file_ref
 
         if type:
             types = [type] if isinstance(type, str) else type
             already_saved = FileSystem.objects.filter(
-                surface_q(surface), team=team, type__in=types, ref=OuterRef("ref_id")
+                surface_q(surface), same_file_ref(types, "ref", OuterRef("ref_id")), team=team, type__in=types
             ).filter(~Q(shortcut=True))
         elif type__startswith:
             already_saved = FileSystem.objects.filter(

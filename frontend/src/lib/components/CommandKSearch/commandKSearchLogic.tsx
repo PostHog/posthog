@@ -75,6 +75,7 @@ import {
     ViewAll,
     buildSections,
     buildSuggestions,
+    cachedPage,
     emptyRemoteSlots,
     isSelectable,
     pickDisplayedQuery,
@@ -84,6 +85,7 @@ import {
 import {
     REMOTE_REQUESTS,
     RemoteContext,
+    RemotePage,
     RemoteResults,
     RemoteSource,
     requestDebounceMs,
@@ -263,7 +265,7 @@ export interface commandKSearchLogicActions {
         results: Partial<
             Record<
                 'accounts' | 'events' | 'groups' | 'persons' | 'properties' | 'results' | 'tickets' | 'workflows',
-                SearchItem[]
+                RemotePage
             >
         >
     }
@@ -533,11 +535,13 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
             {
                 remoteLoaded: (state, { query, results, failed }) => {
                     const next = { ...state }
-                    for (const [source, items] of Object.entries(results) as [RemoteSource, SearchItem[]][]) {
+                    for (const [source, page] of Object.entries(results) as [RemoteSource, RemotePage][]) {
                         const { [query]: _, ...stillFailed } = state[source].failed ?? {}
+                        const { [query]: _more, ...stillMore } = state[source].more ?? {}
                         next[source] = {
-                            cache: { ...state[source].cache, [query]: items },
+                            cache: { ...state[source].cache, [query]: page.items },
                             failed: failed ? { ...stillFailed, [query]: true } : stillFailed,
+                            more: page.more ? { ...stillMore, [query]: true } : stillMore,
                         }
                     }
                     return next
@@ -555,7 +559,7 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                     for (const [source, query] of retried) {
                         const { [query]: _items, ...cache } = next[source].cache
                         const { [query]: _failed, ...failed } = next[source].failed ?? {}
-                        next[source] = { cache, failed }
+                        next[source] = { ...next[source], cache, failed }
                     }
                     return next
                 },
@@ -890,6 +894,8 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
             posthog.capture('command k result opened', {
                 section: row.kind === 'item' ? row.section : 'ask-ai',
                 ranked_section: row.key.split('/')[0],
+                result_category: item?.category ?? null,
+                result_type: item?.itemType ?? null,
                 position: values.selectableRows.findIndex((candidate) => candidate.key === row.key),
                 has_filters: values.chips.length > 0,
                 filter_keys: values.chips.map((chip) => chip.key),
@@ -941,12 +947,13 @@ export const commandKSearchLogic = kea<commandKSearchLogicType>([
                     cache.disposables.dispose(`request-${request.id}`)
                     continue
                 }
-                const cached = request.sources.map((source) => values.remote[source].cache[query])
-                if (cached.every(Boolean)) {
+                if (request.sources.every((source) => query in values.remote[source].cache)) {
                     cache.disposables.dispose(`request-${request.id}`)
                     actions.remoteLoaded(
                         query,
-                        Object.fromEntries(request.sources.map((source, index) => [source, cached[index]]))
+                        Object.fromEntries(
+                            request.sources.map((source) => [source, cachedPage(values.remote[source], query)])
+                        )
                     )
                     continue
                 }

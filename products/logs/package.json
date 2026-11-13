@@ -14,7 +14,7 @@
         "posthog-js": "catalog:"
     },
     "devDependencies": {
-        "@testing-library/react": "^14.3.1",
+        "@testing-library/react": "^16.3.3",
         "kea-test-utils": "catalog:"
     },
     "peerDependencies": {

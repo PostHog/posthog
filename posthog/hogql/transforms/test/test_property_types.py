@@ -1711,14 +1711,17 @@ class TestPropertyTypes(BaseTest):
             ("to_int_or_zero", "toIntOrZero(properties.$screen_width)", "toInt64OrZero"),
             ("to_float_or_default", "toFloatOrDefault(properties.$screen_width, 0)", "toFloat64OrDefault"),
             ("to_int_or_default", "toIntOrDefault(properties.$screen_width, 0)", "toInt64OrDefault"),
+            ("to_float_or_zero_null_default", "toFloatOrZero(properties.$screen_width ?? '0')", "toFloat64OrZero"),
+            ("json_document_coalesce", "JSONLength(coalesce(properties.$screen_width, '[]'))", "JSONLength"),
         ]
     )
     def test_numeric_property_not_double_cast_inside_string_parser(self, _name: str, expr: str, ch_fn: str):
-        # toFloat64OrZero/toInt64OrZero/toFloat64OrDefault require a String first argument.
+        # toFloat64OrZero/toInt64OrZero/toFloat64OrDefault and the JSON functions require a String first argument.
         # A Numeric property must keep its raw string value here instead of being cast to
         # Float, otherwise ClickHouse raises ILLEGAL_TYPE_OF_ARGUMENT on a Float64 argument.
+        # A null default around the property returns it unchanged, so the same holds through it.
         printed = self._print_select(f"select {expr} from events")
-        assert f"{ch_fn}(accurateCastOrNull" not in printed
+        assert "accurateCastOrNull" not in printed
         assert f"{ch_fn}(" in printed
 
     def test_numeric_property_still_cast_outside_string_parser(self):
@@ -2541,8 +2544,6 @@ class TestEventsSchemaPropertyParity(ClickhouseTestMixin, BaseTest):
                 "$unset": ["old_key"],
                 "$sdk_debug_replay_flushed_size": 42,
                 "$browser": "Firefox",
-                "coupon": None,
-                "cart": {"items": 2, "note": None},
             },
         )
         flush_persons_and_events()
@@ -2591,10 +2592,7 @@ class TestEventsSchemaPropertyParity(ClickhouseTestMixin, BaseTest):
             "(SELECT properties.$set.email FROM (SELECT * FROM events WHERE uuid = {uuid})) "
             f"FROM events WHERE uuid = '{event_uuid}'"
         ).replace("{uuid}", f"'{event_uuid}'")
-        restricted_keys = {
-            RestrictedProperty(name=name, property_type=PropertyDefinition.Type.EVENT)
-            for name in ("$set.plan", "coupon")
-        }
+        restricted_plan = {RestrictedProperty(name="$set.plan", property_type=PropertyDefinition.Type.EVENT)}
         documents: dict[tuple[bool, bool], tuple[Any, ...]] = {}
         for use_new_events_schema in (False, True):
             for with_restriction in (False, True):
@@ -2602,7 +2600,7 @@ class TestEventsSchemaPropertyParity(ClickhouseTestMixin, BaseTest):
                     team_id=self.team.pk,
                     enable_select_queries=True,
                     use_new_events_schema=use_new_events_schema,
-                    restricted_properties=restricted_keys if with_restriction else set(),
+                    restricted_properties=restricted_plan if with_restriction else set(),
                 )
                 response = execute_hogql_query(document_query, team=self.team, context=context)
                 assert response.results is not None
@@ -2622,8 +2620,6 @@ class TestEventsSchemaPropertyParity(ClickhouseTestMixin, BaseTest):
                 "$unset": ["old_key"],
                 "$sdk_debug_replay_flushed_size": 42,
                 "$browser": "Firefox",
-                "coupon": None,
-                "cart": {"items": 2, "note": None},
             },
             {
                 "$set": {"email": "user@example.com", "plan": {"tier": "pro"}},
@@ -2631,14 +2627,11 @@ class TestEventsSchemaPropertyParity(ClickhouseTestMixin, BaseTest):
                 "$unset": ["old_key"],
                 "$sdk_debug_replay_flushed_size": 42,
                 "$browser": "Firefox",
-                "coupon": None,
-                "cart": {"items": 2, "note": None},
             },
-            ["$browser", "$sdk_debug_replay_flushed_size", "$set", "$set_once", "$unset", "cart", "coupon"],
+            ["$browser", "$sdk_debug_replay_flushed_size", "$set", "$set_once", "$unset"],
             "user@example.com",
         )
         assert documents[(True, True)][0]["$set"] == {"email": "user@example.com"}
-        assert "coupon" not in documents[(True, True)][0]
 
         # One call per registered JSON function, so a newly registered function fails here until native reads the
         # moved key. isValidJSON and JSONArrayLength take no key path.

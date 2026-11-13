@@ -80,6 +80,7 @@ class Edge(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
 
     class Meta:
         db_table = "posthog_datamodelingedge"
+        indexes = [models.Index(fields=["team", "dag"], name="dmedge_team_dag")]
 
     def save(self, *args, skip_validation: bool = False, **kwargs):
         if skip_validation:

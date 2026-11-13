@@ -4,7 +4,7 @@ import re
 import json
 import logging
 from collections import Counter
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime
@@ -21,7 +21,8 @@ from social_django.models import UserSocialAuth
 from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
-from posthog.models.integration import GitHubIntegration, Integration
+from posthog.integrations import CrossTeamFilter, IntegrationManager
+from posthog.models.integration import GitHubIntegration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -1009,7 +1010,7 @@ def get_org_member_github_logins_by_user_uuid(team_id: int, user_uuids: list[str
     users = User.objects.filter(id__in=org_member_user_ids).prefetch_related(*_github_identity_prefetches())
 
     user_uuid_to_login: dict[str, str] = {}
-    for user in users:
+    for user in _with_team_github_integrations(users):
         login = user.get_github_login()
         if login:
             user_uuid_to_login[str(user.uuid)] = login.lower()
@@ -1018,6 +1019,7 @@ def get_org_member_github_logins_by_user_uuid(team_id: int, user_uuids: list[str
 
 
 MAX_PROJECT_MEMBERS = 200
+_GITHUB_IDENTITY_PAGE_SIZE = 500
 
 
 @frozen
@@ -1086,7 +1088,7 @@ def list_project_members(
         # handful of rows. The cap waits for the maintainer ordering, which needs the whole team.
         users = _users_holding_logins(users, team, _logins_on_team(roster, team_slug))
     members: list[ProjectMemberIdentity] = []
-    for user in users:
+    for user in _with_team_github_integrations(users):
         login = raw.lower() if (raw := user.get_github_login()) else None
         members.append(
             ProjectMemberIdentity(
@@ -1157,7 +1159,7 @@ def resolve_org_github_login_to_users(team_id: int, github_logins: Iterable[str]
     users = User.objects.filter(id__in=candidate_ids).prefetch_related(*_github_identity_prefetches()).order_by("id")
 
     login_to_user: dict[str, User] = {}
-    for user in users:
+    for user in _with_team_github_integrations(users):
         gl = user.get_github_login()
         if not gl:
             continue
@@ -1187,15 +1189,12 @@ def _candidate_user_ids_for_org_and_logins(org_id: str, logins_lower: frozenset[
             logins_lower,
         ).values_list("user_id", flat=True)
     )
-    candidates.update(
-        _filter_github_login_field_lc(
-            Integration.objects.filter(kind="github", created_by_id__in=mid_sq).exclude(
-                config__connecting_user_github_login=None
-            ),
-            "config__connecting_user_github_login",
-            logins_lower,
-        ).values_list("created_by_id", flat=True)
-    )
+    member_ids = list(OrganizationMembership.objects.filter(organization_id=org_id).values_list("user_id", flat=True))
+    # One paged read of the members' rows, matched here: the SDK compares one login per filter without case.
+    for row in _iter_team_github_identity_rows(member_ids):
+        login = row.config.get("connecting_user_github_login")
+        if isinstance(login, str) and login.lower() in logins_lower:
+            candidates.add(row.created_by_id)
     return candidates
 
 
@@ -1219,6 +1218,42 @@ def _filter_github_login_field_lc(
     )
 
 
+def _iter_team_github_identity_rows(created_by_ids: Iterable[int]) -> Iterator[Any]:
+    """Team GitHub rows created by ``created_by_ids`` that hold a connecting user's login, in pages."""
+    user_ids = tuple(created_by_ids)
+    if not user_ids:
+        return
+    after_id: int | None = None
+    while True:
+        page = IntegrationManager.github.any.list_across_teams(
+            CrossTeamFilter(
+                created_by_ids=user_ids,
+                has_config_key="connecting_user_github_login",
+                limit=_GITHUB_IDENTITY_PAGE_SIZE,
+                after_id=after_id,
+            )
+        )
+        for row in page:
+            if row.created_by_id is not None and row.config.get("connecting_user_github_login") is not None:
+                yield row
+        if len(page) < _GITHUB_IDENTITY_PAGE_SIZE:
+            return
+        after_id = page[-1].id
+
+
+def _with_team_github_integrations(users: Iterable[User]) -> list[User]:
+    """Load ``users`` and give each the team GitHub rows that ``User.get_github_login()`` reads."""
+    loaded = list(users)
+    if not loaded:
+        return loaded
+    rows_by_user: dict[int, list[Any]] = {user.id: [] for user in loaded}
+    for row in _iter_team_github_identity_rows(rows_by_user):
+        rows_by_user[row.created_by_id].append(row)
+    for user in loaded:
+        user._prefetched_github_integrations = rows_by_user[user.id]  # type: ignore[attr-defined]
+    return loaded
+
+
 def _github_identity_prefetches() -> tuple[Prefetch, ...]:
     """Prefetch relations read by `User.get_github_login()`."""
     return (
@@ -1228,11 +1263,4 @@ def _github_identity_prefetches() -> tuple[Prefetch, ...]:
             to_attr="_prefetched_github_user_integrations",
         ),
         Prefetch("social_auth", UserSocialAuth.objects.filter(provider="github")),
-        Prefetch(
-            "integration_set",
-            Integration.objects.filter(kind="github")
-            .exclude(config__connecting_user_github_login=None)
-            .only("config", "id", "created_by_id"),
-            to_attr="_prefetched_github_integrations",
-        ),
     )

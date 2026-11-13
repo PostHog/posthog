@@ -5,6 +5,12 @@ This file records how it maps to React Native.
 
 ## App icon
 
+On iOS, the Icon Composer bundles in `assets/` keep the background and hedgehog on separate layers.
+Default uses the color mark on white. Dark uses the white square logomark on a dark fill.
+Clear and Tinted use the monochrome mark with the system's glass and tint effects. Dev and Preview add
+their labels on a separate layer. Preview all four appearances on the iOS Home Screen when
+changing the icon. [Apple's Icon Composer guide](https://developer.apple.com/documentation/xcode/creating-your-app-icon-using-icon-composer)
+
 Android adaptive icon layers use a 108dp canvas, with a central 72dp viewport and a 66dp safe circle.
 `plugins/withAndroidAdaptiveIconInsets.js` adds a proportional 18dp inset on every side during
 prebuild, so the hedgehog and the DEV or PREVIEW label fit inside launcher masks. The inset
@@ -13,6 +19,14 @@ applies to both regular and round adaptive icons for all three build variants.
 Keep the 1024px source images at their existing scale; the plugin supplies Android's extra
 spacing. Icon changes need a new native build and cannot ship through an over-the-air update.
 See [Android's adaptive icon guidelines](https://developer.android.com/develop/ui/compose/system/icon_design_adaptive).
+
+## Splash and in-app branding
+
+The native splash follows the device appearance. The animated splash and in-app logos
+use the app's Appearance setting. Light uses the gradient artwork. Dark uses the
+[official white artwork](https://brand.posthog.com/logo) for the logomark and landscape logo.
+The checked-in artwork comes from `@posthog/brand`. With `rsvg-convert` installed, run
+`pnpm brand:generate app` from `products/mobile` to refresh the in-app SVGs and dark splash PNG.
 
 ## Tokens
 
@@ -28,7 +42,6 @@ Scheme-independent values live in `src/ui/tokens.ts`. Colors and everything deri
   `surface` for cards, pills, sheets, floating cards, text fields and menus;
   `onInk` for text and icons on an `ink` fill; `onAccent` for text and icons on an `accent` fill.
   `white` is literal white in both schemes, only for text on a fixed color, such as avatar initials.
-  The logomark's head and the wordmark use `ink`, so they stay visible on a dark background.
 - `accent` (`accentHover` when pressed) fills the primary call to action: Sign in, Hand off, Send a decision.
   `orange` stays for warnings, failures, destructive actions, the P0/P1 priority and the report `alert` accent.
 - Some roles shared `border` or `ink` in light but need their own value in dark:
@@ -185,7 +198,7 @@ Optional recovery actions sit below the message and wrap on narrow screens.
 | `BlurEdge`                            | `ui/BlurEdge.tsx`                                          | Masked blur of the content under floating top chrome                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | `BackChip`                            | `ui/BackChip.tsx`                                          | Report and Settings back button                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | `EnvironmentRibbon`                   | `ui/EnvironmentRibbon.tsx`                                 | 28pt band above the sign-in logo and under the Settings title: amber for dev builds, purple for preview builds, red for a store build on a host that is not PostHog Cloud. Hidden in a store build on Cloud. Colors in `environmentRibbonColors`, text from `environmentBadge()`                                                                                                                                                                                                                                                                                                                                                    |
-| `StateView`, `LoadingView`            | `ui/StateView.tsx`                                         | Empty and error screens with a next action; loading spinner                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `StateView`, `LoadingView`            | `ui/StateView.tsx`                                         | Empty and error screens with a next action, or a disabled action with its reason; loading spinner                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `PostHogLogomark`, `PostHogLogo`      | `ui/icons/PostHogLogomark.tsx`, `ui/icons/PostHogLogo.tsx` | Brand logomark and landscape lockup as SVG, sized by `height`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | Icons                                 | `ui/icons/*.tsx`                                           | One component per glyph, ported from the prototype's SVG paths                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 
@@ -195,21 +208,22 @@ Optional recovery actions sit below the message and wrap on narrow screens.
   It uses a gentle 720ms hop every 1.4 seconds, with 45ms between parts and a smooth start and landing.
   All four parts share one animation clock, and the logo stays still with reduced motion enabled.
   The native launch screen fades into this animation once the animated splash lays out.
-  The splash stays above the app until the session and first screen are ready, with the existing eight-second inbox timeout.
-- **Tabs header** (`features/tabs/TabsHeader.tsx`): Inbox, Chats and Views share one header that the
-  tabs layout draws once, like the bottom bar. The logomark and the tab's title sit at the same spot on
+  The splash stays above the app until the session is ready and, when the app opens on the inbox, until the inbox loads, with an eight-second timeout.
+- **Tabs header** (`features/tabs/TabsHeader.tsx`): Home, Inbox, Chats and Views share one header that the
+  tabs layout draws once, like the bottom bar. Home is titled "Live", after the screen it shows.
+  Home's metrics card and the Chats and Views search fields start at the same position, 4pt below the shared content offset.
+  The logomark and the tab's title sit at the same spot on
   every tab. The pill on the right holds More on every tab, and a filter button left of it on a tab that
-  publishes one (the Inbox); Views in Edit pins swaps the pill for Done. Pull to refresh is the only manual
+  publishes one (the Inbox), or a Pause or Resume button on Home; Views in Edit pins swaps the pill for Done. Pull to refresh is the only manual
   refresh, so the header has no refresh button. A tab may add a status line under the title (Views does); it
   and the refresh hint are absolutely positioned, so they never move the title row. Each screen publishes its
-  refresh hint, status line, filter button and menu rows to its own slot in `tabHeaderStore` with `useTabHeader`, and the header reads the focused tab's slot.
+  refresh hint, status line, filter button, Pause button and menu rows to its own slot in `tabHeaderStore` with `useTabHeader`, and the header reads the focused tab's slot.
   The logomark plays the splash's hop while the focused Inbox, Chats or Views page refreshes, including pull-to-refresh and automatic refreshes.
   It finishes its current hop when refreshing ends and stays still with reduced motion enabled.
 - **Inbox**: rows (source · `#123` PR tag when the report has a PR, green when open, purple when merged, gray otherwise · time),
-  pull to refresh, floating nav pill (Home selected,
-  Chats, Products) and the Chat button. Chats in the pill opens the Chats screen; the Chat button
-  opens a new chat sheet. Products opens the project's product library in the web app, and is
-  dimmed in demo mode or when the session has no project. A long press on a row (or the screen
+  pull to refresh, floating nav pill (Home, Inbox selected, Chats, Views) and the Chat button.
+  The Inbox slot has an 8pt blue dot while the loaded list has an unread report. Chats in the pill opens the Chats
+  screen; the Chat button opens a new chat sheet. A long press on a row (or the screen
   reader's "Show report actions") opens a menu with Hand off to the saved agent (PostHog,
   Claude Code or Codex), Reassign, Resolve, Dismiss, Chat and Mark as read (for an unread report) or Mark as unread.
   A full swipe on a row changes its read state: swipe right past 30% of the row marks the report read (blue),
@@ -233,8 +247,8 @@ Optional recovery actions sit below the message and wrap on narrow screens.
   and an origin label, a status dot and the time under the title. A row opens the chat sheet on that
   task: the agent's thread, its PR card, and a pending decision above the composer. The nav pill
   shows Chats selected. Loading, error, empty and "No matches" are separate screens.
-- **Nav menu** (More in the tabs header): project name (opens the Project card), then on Views a section with
-  Edit pins, then Settings and Sign out.
+- **Nav menu** (More in the tabs header): project name (opens the Project card), then on Home a section with
+  Open on web and on Views a section with Edit pins, then Settings and Sign out.
 - **Report**: top chrome, headline, the byline with the Owner and Priority chips (`ReportMeta`), lede,
   "Read the full report" (only when there is a summary or a signal), evidence (trace, quotes, replay), facts,
   the observation card, impact tiles, charts, activity, and the action bar.
@@ -279,10 +293,12 @@ Optional recovery actions sit below the message and wrap on narrow screens.
   within each organization. It initially shows five projects in total. See more expands the full list,
   and See less collapses it again. Organization labels stay visible for accounts with multiple organizations.
   Appearance is Match system, Light or Dark, saved on the device; screens wait for it to load so they never paint in the wrong scheme.
-  Start page picks the tab the app opens on (Inbox, Chats or Views) and is saved on the device (`defaultPageStore`).
+  Start page picks the tab the app opens on (Home, Inbox, Chats or Views) and is saved on the device (`defaultPageStore`).
   Sign in also lands there, and so do Back on Settings or a view and closing the chat when there is no screen to go back to.
-  Until the person picks one, the app saves a start page once, on the first launch that knows whether the selected project's organization approved AI data processing: Views if it did not, Inbox if it did.
-  While that status is unknown, the app opens the inbox and saves nothing.
+  Until the person picks one, the app opens Home.
+  A start page that an earlier version saved as Inbox or Web analytics goes back to no choice once, and sends `mobile_default_page_migrated` (`from`, `to`),
+  because that version saved Inbox on its own for every organization that approved AI.
+  A saved Views stays: that version also saved Views on its own for organizations without AI approval, but most saved Views values were chosen in Settings.
 - **Errors list** (`features/errors/ErrorsListScreen.tsx`): one body in two chromes. Pushed from the Views Browse
   row, it draws the Back chip and More over a 28pt "Errors" title and the "Most users first · updated 5m ago" line; as
   a pinned tab, the tabs header draws the title and that line. Under them sit the 24h and 7d `SegmentedPill` and the New,
@@ -335,3 +351,5 @@ Optional recovery actions sit below the message and wrap on narrow screens.
   rows with the event name as the chip and the offset as the time; errors and rage clicks draw in orange, and an error
   with an issue opens it. The round ink Chat button sits bottom right. Loading is a skeleton of the screen; "Couldn't
   find this recording" (expired or deleted) and "Couldn't load this session" are separate states.
+  With `mobile-replay-video` on, the pill's icon is a play glyph labeled Watch replay, and More starts with Open in PostHog.
+  Watch replay opens `ReplayVideoPlayer`, a full-screen modal: "Session replay" and a close button, then "Preparing video" with a spinner and the time waited, the video on black with native controls, or "Couldn't play this recording" with Try again and Open in PostHog.

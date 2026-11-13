@@ -35,7 +35,7 @@ from posthog.schema import HogQLQueryModifiers, MaterializationMode
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.models import ActivityLog, Comment, Organization, Tag, Team, User
+from posthog.models import ActivityLog, Comment, Organization, Tag, TaggedItem, Team, User
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.uploaded_media import UploadedMedia
@@ -48,8 +48,10 @@ from products.access_control.backend.models.role import Role
 from products.conversations.backend import reply_dedupe
 from products.conversations.backend.api.ticket_filters import query_params_to_view_filters
 from products.conversations.backend.api.tickets import (
+    MAX_TAGS_ADDED_PER_UPDATE,
     ComposeTicketSerializer,
     TicketReplyRequestSerializer,
+    TicketUpdateRequestSerializer,
     TicketViewSet,
 )
 from products.conversations.backend.models import (
@@ -95,6 +97,25 @@ class TestComposeTicketSerializer(SimpleTestCase):
     def test_accepts_up_to_100_tags(self):
         serializer = ComposeTicketSerializer(data=self._payload(tags=[f"t{i}" for i in range(100)]))
         assert serializer.is_valid(), serializer.errors
+
+
+class TestTicketUpdateRequestSerializer(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("at_the_cap", MAX_TAGS_ADDED_PER_UPDATE, True),
+            ("over_the_cap", MAX_TAGS_ADDED_PER_UPDATE + 1, False),
+        ]
+    )
+    def test_caps_new_tags_and_not_the_list_length(self, _name: str, new_tag_count: int, expected_valid: bool) -> None:
+        current = [f"current-{i}" for i in range(MAX_TAGS_ADDED_PER_UPDATE + 50)]
+        ticket = Ticket()
+        ticket.prefetched_tags = [TaggedItem(tag=Tag(name=name)) for name in current]  # type: ignore[attr-defined]
+        resent = [f" {name.upper()} " for name in current]
+        tags = [*resent, *(f"new-{i}" for i in range(new_tag_count))]
+
+        serializer = TicketUpdateRequestSerializer(ticket, data={"tags": tags}, partial=True)
+
+        assert serializer.is_valid() is expected_valid, serializer.errors
 
 
 # Patch on_commit to execute immediately in tests

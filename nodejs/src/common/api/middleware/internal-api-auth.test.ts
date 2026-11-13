@@ -1,4 +1,7 @@
-import { Request, Response } from 'ultimate-express'
+import supertest from 'supertest'
+import type { Application, Request, Response } from 'ultimate-express'
+
+import { setupExpressApp } from '~/common/api/router'
 
 import { createInternalApiAuthMiddleware } from './internal-api-auth'
 
@@ -194,6 +197,9 @@ describe('createInternalApiAuthMiddleware', () => {
             ['/api/projects/1/hog_flows/some-uuid/batch_jobs/some-job-id/cancel'],
             ['/api/projects/1/hog_flows/some-uuid/transactional_email'],
             ['/api/projects/1/hog_flows/some-uuid/transactional_email/send'],
+            ['/api/projects/1/transactional_emails/some-uuid/cancel'],
+            ['/api/projects/1/transactional_emails/some-uuid/reschedule'],
+            ['/api/projects/1/hog_flows/some-uuid/manual_invocations'],
         ])('should skip auth for scoped-JWT route %s, which authenticates in its handler', (path) => {
             const middleware = createInternalApiAuthMiddleware({ secret: 'test-secret' })
             const req = mockRequest(path, {})
@@ -213,6 +219,8 @@ describe('createInternalApiAuthMiddleware', () => {
             ['/api/some/other/route/cancel'],
             ['/api/projects/1/hog_flows/some-uuid/reschedule_parked/extra'],
             ['/api/projects/1/hog_flows/some-uuid/transactional_email/send/extra'],
+            ['/api/projects/1/transactional_emails/some-uuid/cancel/extra'],
+            ['/api/projects/1/hog_flows/some-uuid/manual_invocations/extra'],
         ])('should still require the secret for %s despite resembling a scoped route', (path) => {
             const middleware = createInternalApiAuthMiddleware({ secret: 'test-secret' })
             const req = mockRequest(path, {})
@@ -250,6 +258,40 @@ describe('createInternalApiAuthMiddleware', () => {
 
             expect(next).not.toHaveBeenCalled()
             expect(res.status).toHaveBeenCalledWith(401)
+        })
+    })
+
+    describe('attachment upload route on a real express app', () => {
+        const uploadsPath = '/api/projects/1/transactional_email/attachments/uploads'
+        let app: Application
+        let server: ReturnType<Application['listen']>
+
+        beforeAll(() => {
+            app = setupExpressApp({ internalApiSecret: 'test-secret' })
+            const reached = (req: Request, res: Response) => {
+                res.status(200).json({ reached: req.path })
+            }
+            app.post('/api/projects/:team_id/transactional_email/attachments/uploads', reached)
+            app.post('/api/projects/:team_id/transactional_email/attachments/uploads/extra', reached)
+            server = app.listen(0, () => {})
+        })
+
+        afterAll(() => {
+            server.close()
+        })
+
+        it('lets a request without the shared secret reach the upload handler, which checks its own token', async () => {
+            const res = await supertest(app).post(uploadsPath).send({})
+
+            expect(res.status).toEqual(200)
+            expect(res.body).toEqual({ reached: uploadsPath })
+        })
+
+        it('answers 401 without the shared secret for a path that only starts with the upload route', async () => {
+            const res = await supertest(app).post(`${uploadsPath}/extra`).send({})
+
+            expect(res.status).toEqual(401)
+            expect(res.body).toEqual({ error: 'Unauthorized: Missing authentication header' })
         })
     })
 })

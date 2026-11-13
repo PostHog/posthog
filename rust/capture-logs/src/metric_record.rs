@@ -3,7 +3,7 @@ use std::hash::Hasher;
 
 use anyhow::Result;
 use base64::{prelude::BASE64_STANDARD, Engine};
-use chrono::serde::ts_microseconds;
+use chrono::serde::{ts_microseconds, ts_microseconds_option};
 use chrono::DateTime;
 use chrono::Utc;
 use opentelemetry_proto::tonic::{
@@ -53,6 +53,8 @@ pub struct KafkaMetricRow {
     pub series_fingerprint: i64,
     pub has_labels: bool,
     pub retention_days: Option<i32>,
+    #[serde(with = "ts_microseconds_option")]
+    pub start_timestamp: Option<DateTime<Utc>>,
 }
 
 const POINT_BYTES: u64 = 24;
@@ -275,7 +277,7 @@ fn build_number_row(
     service_name: &str,
     instrumentation_scope: &str,
     time_unix_nano: u64,
-    _start_time_unix_nano: u64,
+    start_time_unix_nano: u64,
     dp_attributes: &[KeyValue],
     value: f64,
     histogram_bounds: Option<Vec<f64>>,
@@ -363,9 +365,20 @@ fn build_number_row(
         series_fingerprint,
         has_labels: true,
         retention_days: None,
+        start_timestamp: start_timestamp(start_time_unix_nano),
     };
 
     Ok((row, was_overridden))
+}
+
+// OTLP uses 0 for an unset start time. A value past i64 nanoseconds cannot be a real time.
+fn start_timestamp(start_time_unix_nano: u64) -> Option<DateTime<Utc>> {
+    match start_time_unix_nano {
+        0 => None,
+        nanos => i64::try_from(nanos)
+            .ok()
+            .map(DateTime::<Utc>::from_timestamp_nanos),
+    }
 }
 
 /// Stable, order-independent 64-bit identity for a metric series, assigned at ingest.
@@ -501,7 +514,7 @@ fn extract_string_from_map(attributes: &HashMap<String, String>, key: &str) -> S
     }
 }
 
-fn extract_resource_attributes(resource: Option<&Resource>) -> HashMap<String, String> {
+pub(crate) fn extract_resource_attributes(resource: Option<&Resource>) -> HashMap<String, String> {
     let Some(resource) = resource else {
         return HashMap::new();
     };
@@ -649,12 +662,33 @@ mod tests {
     }
 
     #[test]
-    fn test_has_labels_and_retention_days_serialise_into_avro_payload() {
+    fn test_has_labels_retention_days_and_start_timestamp_serialise_into_avro_payload() {
         use crate::metrics_avro_schema::METRICS_AVRO_SCHEMA;
         use apache_avro::types::Value;
         use apache_avro::{Codec, Reader, Schema, Writer};
 
-        let mut row = build_test_row(&[]);
+        assert_eq!(
+            build_test_row(&[]).start_timestamp,
+            None,
+            "OTLP start time 0 means unset"
+        );
+        let (mut row, _) = build_number_row(
+            "test.metric",
+            "sum",
+            "",
+            &HashMap::new(),
+            "test-service",
+            "test-scope@1.0",
+            1_700_000_000_000_000_000,
+            1_699_999_990_000_000_000,
+            &[],
+            1.0,
+            None,
+            None,
+            &[],
+            0,
+        )
+        .expect("build_number_row should succeed");
         row.has_labels = false;
         row.retention_days = Some(30);
 
@@ -666,6 +700,7 @@ mod tests {
         let reader = Reader::new(payload.as_slice()).expect("reader ok");
         let mut found_has_labels = None;
         let mut found_retention_days = None;
+        let mut found_start_timestamp = None;
         for value in reader {
             let Value::Record(fields) = value.expect("decode ok") else {
                 panic!("expected a record");
@@ -678,12 +713,18 @@ mod tests {
                             found_retention_days = Some(v);
                         }
                     }
+                    ("start_timestamp", Value::Union(_, inner)) => {
+                        if let Value::TimestampMicros(v) = *inner {
+                            found_start_timestamp = Some(v);
+                        }
+                    }
                     _ => {}
                 }
             }
         }
         assert_eq!(found_has_labels, Some(false));
         assert_eq!(found_retention_days, Some(30));
+        assert_eq!(found_start_timestamp, Some(1_699_999_990_000_000));
     }
 
     #[test]

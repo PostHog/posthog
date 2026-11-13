@@ -1,20 +1,29 @@
+import re
 import json
 import hashlib
+from contextlib import nullcontext
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
 import time_machine
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events, materialized
 from unittest.mock import patch
 
 from django.core.cache import cache
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
-from posthog.schema import AnyPropertyFilterDiscriminated, EventPropertyFilter, PersonPropertyFilter, PropertyOperator
+from posthog.schema import (
+    AnyPropertyFilterDiscriminated,
+    EventPropertyFilter,
+    PersonPropertyFilter,
+    PropertyOperator,
+    SessionPropertyFilter,
+)
 
 from posthog.hogql.database.database import Database
+from posthog.hogql.query import execute_hogql_query
 
 from posthog.constants import AvailableFeature
 from posthog.models.utils import uuid7
@@ -229,6 +238,69 @@ class TestListMCPSessions(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin,
         assert listed(None, False) == {"kept", "dropped"}
         assert listed(properties, filter_test_accounts) == expected
 
+    @parameterized.expand(
+        [
+            ("no_filter", None, False, 2),
+            ("json_property_filter", _tool_name_filter("query_run"), False, 3),
+            ("materialized_property_filter", _tool_name_filter("query_run"), True, 2),
+        ]
+    )
+    # Materialized columns exist only on the legacy events table.
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
+    def test_narrows_to_window_sessions_only_when_a_filter_reads_the_properties_json(
+        self,
+        _name: str,
+        properties: list[AnyPropertyFilterDiscriminated] | None,
+        materialize_tool_name: bool,
+        event_scans: int,
+    ) -> None:
+        session_id = str(uuid7())
+        self._seed_session(session_id, ["query_run"])
+        flush_persons_and_events()
+
+        printed: list[str] = []
+
+        def execute_and_record(*args: Any, **kwargs: Any) -> Any:
+            response = execute_hogql_query(*args, **kwargs)
+            printed.append(response.clickhouse or "")
+            return response
+
+        with (
+            materialized("events", "$mcp_tool_name") if materialize_tool_name else nullcontext(),
+            patch.object(logic, "execute_hogql_query", side_effect=execute_and_record),
+        ):
+            page = api.list_mcp_sessions(self.team, limit=50, offset=0, properties=properties)
+
+        assert [s.session_id for s in page.results] == [session_id]
+        assert [len(re.findall(r"\bFROM\s+events\b", sql)) for sql in printed] == [event_scans]
+
+    @parameterized.expand(
+        [
+            ("event_filter", _tool_name_filter("query_run"), False),
+            ("person_filter", _person_email_filter("kept@example.com"), False),
+            (
+                "session_filter",
+                [SessionPropertyFilter(key="$entry_current_url", value=["x"], operator=PropertyOperator.IS_NOT)],
+                True,
+            ),
+        ]
+    )
+    def test_loads_the_warehouse_catalog_only_for_filters_that_need_it(
+        self, _name: str, properties: list[AnyPropertyFilterDiscriminated], loads_catalog: bool
+    ) -> None:
+        create_person(team=self.team, distinct_ids=["kept_user"], properties={"email": "kept@example.com"})
+        session_id = str(uuid7())
+        self._seed_session(session_id, ["query_run"], distinct_id="kept_user")
+        flush_persons_and_events()
+
+        with patch.object(Database, "create_for", wraps=Database.create_for) as create_database:
+            sessions = api.list_mcp_sessions(self.team, limit=50, offset=0, properties=properties)
+            calls = api.list_mcp_tool_calls(self.team, session_id=session_id, limit=50, offset=0, properties=properties)
+
+        assert create_database.called == loads_catalog
+        assert [s.session_id for s in sessions.results] == [session_id]
+        assert [c.tool_name for c in calls.results] == ["query_run"]
+
     def test_test_account_filter_changes_invalidate_the_session_cache(self) -> None:
         external_session_id = str(uuid7())
         internal_session_id = str(uuid7())
@@ -414,22 +486,24 @@ class TestListMCPSessions(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin,
         assert order("password") == [new_id, big_id, old_id]
         assert order("-DROP TABLE") == [new_id, big_id, old_id]
 
-    def test_has_next_signals_more_pages(self) -> None:
-        # Identical session_end across all three so only the session_id tiebreaker
+    # 100 is the endpoint's default page size, and HogQL's default row limit for a query without one.
+    @parameterized.expand([("small_page", 2), ("default_page", 100)])
+    def test_has_next_signals_more_pages(self, _name: str, limit: int) -> None:
+        # Identical session_end across all sessions so only the session_id tiebreaker
         # gives a stable order — the assertion below would flake without it.
         # IDs are pre-sorted so the tiebreaker resolves deterministically.
         ts = datetime.now(tz=UTC) - timedelta(minutes=5)
-        ids = _sorted_uuid7s(3)
+        ids = _sorted_uuid7s(limit + 1)
         for session_id in ids:
             self._seed_session(session_id, ["query_run"], session_start=ts, session_end=ts)
 
         # Over-fetch (limit+1) lets the first page know more exists without a count query.
-        first = api.list_mcp_sessions(self.team, limit=2, offset=0)
-        assert len(first.results) == 2
+        first = api.list_mcp_sessions(self.team, limit=limit, offset=0)
+        assert len(first.results) == limit
         assert first.has_next is True
 
         # Last page returns the remainder and reports no further pages.
-        second = api.list_mcp_sessions(self.team, limit=2, offset=2)
+        second = api.list_mcp_sessions(self.team, limit=limit, offset=limit)
         assert len(second.results) == 1
         assert second.has_next is False
 
@@ -578,7 +652,8 @@ class TestListMCPSessions(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin,
 
         assert session_id not in results
 
-    def test_detail_shows_all_events_for_overlapping_session(self) -> None:
+    @parameterized.expand([("unbounded", False), ("bounded_by_session_end", True)])
+    def test_detail_shows_all_events_for_overlapping_session(self, _name: str, bound_by_session_end: bool) -> None:
         # Clicking an overlapping session shows every event: the UI passes the full
         # session_start as the scan bound, so the pre-window event is included too.
         session_id = str(uuid7())
@@ -597,7 +672,12 @@ class TestListMCPSessions(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin,
             if s.session_id == session_id
         )
         page = api.list_mcp_tool_calls(
-            self.team, session_id=session_id, limit=500, offset=0, date_from=session.session_start
+            self.team,
+            session_id=session_id,
+            limit=500,
+            offset=0,
+            date_from=session.session_start,
+            date_to=session.session_end if bound_by_session_end else None,
         )
 
         assert [c.tool_name for c in page.results] == ["before_window", "in_window"]

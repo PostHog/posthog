@@ -172,13 +172,6 @@ export function resolveAiProduct({
   return product;
 }
 
-export function getGatewayUsageUrl(
-  posthogHost: string,
-  product: GatewayProduct = "posthog_code",
-): string {
-  return `${getGatewayBaseUrl(posthogHost)}/v1/usage/${legacyProduct(product)}`;
-}
-
 export interface GatewayTarget {
   /** Base URL: slugless for the Go gateway, product-slugged for the Python one. */
   baseUrl: string;

@@ -434,8 +434,9 @@ function DataTableVisualizationContent({
                 ? {
                       ...dateAxis,
                       tickFormatter: (value: string, index: number): string | null => {
-                          const label = aliasFormatter(value)
-                          return label !== value
+                          const rawValue = chartXData?.data[index]
+                          const label = aliasFormatter(rawValue)
+                          return label !== rawValue
                               ? label
                               : fallbackTickFormatter
                                 ? fallbackTickFormatter(value, index)
@@ -842,7 +843,7 @@ function DataTableVisualizationContent({
                 {!readOnly && showResultControls && (
                     <>
                         <LemonDivider className="my-0" />
-                        <div className="flex items-center gap-2 flex-wrap px-2">
+                        <div className="DataVisualization__controls flex items-center gap-2 flex-wrap px-2">
                             <div className="flex gap-2 items-center">
                                 <Reload size={controlSize} />
                                 <ElapsedTime />

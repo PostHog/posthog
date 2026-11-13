@@ -51,9 +51,9 @@ export const config = {
     screenshotJpegQuality: parsePositiveInt(process.env.SCREENSHOT_JPEG_QUALITY, 80),
     metricsPort: parsePositiveInt(process.env.METRICS_PORT, 6738),
 
-    // Encryption
-    secretKey: process.env.TEMPORAL_SECRET_KEY || process.env.SECRET_KEY,
-    fallbackKeys: parseList(process.env.TEMPORAL_FALLBACK_SECRET_KEYS ?? process.env.SECRET_KEY).filter(Boolean),
+    // Encryption. There is no SECRET_KEY fallback, so a deployment never has to give this pod that key.
+    secretKey: process.env.TEMPORAL_SECRET_KEY,
+    fallbackKeys: parseList(process.env.TEMPORAL_FALLBACK_SECRET_KEYS).filter(Boolean),
 
     // S3
     s3Endpoint: process.env.VIDEO_EXPORT_OBJECT_STORAGE_ENDPOINT,

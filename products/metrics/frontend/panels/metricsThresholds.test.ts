@@ -1,4 +1,4 @@
-import { safeColorToken, thresholdColor } from './metricsThresholds'
+import { safeColorToken, thresholdColor, thresholdColorToken } from './metricsThresholds'
 
 const FALLBACK = 'data-color-1'
 
@@ -50,5 +50,24 @@ describe('safeColorToken', () => {
         expect(safeColorToken('x) fixed inset-0 z-50', 'data-color-1')).toBe('data-color-1')
         expect(safeColorToken('red blue', 'data-color-1')).toBe('data-color-1')
         expect(safeColorToken('text-(--x)', 'data-color-1')).toBe('data-color-1')
+    })
+})
+
+describe('thresholdColorToken', () => {
+    test.each([
+        ['warning', 'warning'],
+        ['data-color-3', 'data-color-3'],
+        ['orange', 'warning'],
+        ['yellow', 'warning'],
+        ['dark-green', 'success'],
+        ['Red', 'danger'],
+        ['chartreuse', FALLBACK],
+        ['', FALLBACK],
+    ])('resolves %p to a color variable that exists', (color, expected) => {
+        expect(thresholdColorToken(5, [{ value: 0, color }], FALLBACK)).toBe(expected)
+    })
+
+    it('returns fallback when value is null', () => {
+        expect(thresholdColorToken(null, [{ value: 0, color: 'orange' }], FALLBACK)).toBe(FALLBACK)
     })
 })

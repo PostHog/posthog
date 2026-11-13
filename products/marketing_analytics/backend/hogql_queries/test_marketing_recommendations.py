@@ -4,17 +4,23 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from posthog.schema import MarketingAnalyticsRecommendationResolution
+
 from products.marketing_analytics.backend.hogql_queries.marketing_recommendations import (
     SEARCH_CONSOLE_PERFORMANCE_URL,
     CampaignStats,
+    KeywordTracking,
     OrganicQueryStats,
     RankingPage,
     RecommendationInputs,
     SearchTermStats,
     TermKeywordStats,
+    apply_resolutions,
     brands_from_site_urls,
+    dedupe_account_agnostic_rules,
     recommend,
 )
+from products.marketing_analytics.backend.hogql_queries.recommendation_identity import validate_identity
 
 
 def _campaign(**overrides: object) -> CampaignStats:
@@ -64,39 +70,313 @@ def _inputs(
         site_urls=("sc-domain:example.com",),
         currency="USD",
         days=30,
+        customer_id="1234567890",
     )
 
 
 class TestMarketingRecommendations(SimpleTestCase):
     @parameterized.expand(
         [
-            ("google_recommends_more", ("BUDGET_CONSTRAINED",), "ELIGIBLE", 300.0, True),
-            ("no_google_recommendation", ("BUDGET_CONSTRAINED",), "ELIGIBLE", None, False),
-            ("not_budget_constrained", ("UNKNOWN",), "ELIGIBLE", 300.0, False),
-            ("paused_campaign", ("BUDGET_CONSTRAINED",), "PAUSED", 300.0, False),
+            ("cpa_below_target", ("BUDGET_CONSTRAINED",), "ELIGIBLE", 300.0, {"target_cpa": 200.0}, (), True),
+            ("no_google_recommendation", ("BUDGET_CONSTRAINED",), "ELIGIBLE", None, {}, (), False),
+            ("not_budget_constrained", ("UNKNOWN",), "ELIGIBLE", 300.0, {}, (), False),
+            ("paused_campaign", ("BUDGET_CONSTRAINED",), "PAUSED", 300.0, {}, (), False),
+            ("cpa_above_target", ("BUDGET_CONSTRAINED",), "ELIGIBLE", 300.0, {"target_cpa": 50.0}, (), False),
+            (
+                "brand_campaign",
+                ("BUDGET_CONSTRAINED",),
+                "ELIGIBLE",
+                300.0,
+                {"target_cpa": 200.0},
+                (_term("example login", "c1", 1000, 10),),
+                False,
+            ),
         ]
     )
-    def test_budget_rule_needs_a_budget_limit_and_google_recommendation(
-        self, _name: str, reasons: tuple[str, ...], status: str, recommended: float | None, expected: bool
+    def test_budget_rule_needs_a_budget_limit_google_recommendation_and_cpa_within_benchmark(
+        self,
+        _name: str,
+        reasons: tuple[str, ...],
+        status: str,
+        recommended: float | None,
+        overrides: dict[str, object],
+        terms: tuple[SearchTermStats, ...],
+        expected: bool,
     ) -> None:
-        campaign = _campaign(status_reasons=reasons, primary_status=status, recommended_daily_budget=recommended)
-        rules = [rec for rec in recommend(_inputs((campaign,))) if rec.rule == "budget_constrained"]
+        campaign = _campaign(
+            status_reasons=reasons, primary_status=status, recommended_daily_budget=recommended, **overrides
+        )
+        rules = [rec for rec in recommend(_inputs((campaign,), terms)) if rec.rule == "budget_constrained"]
         assert bool(rules) == expected
         if expected:
             assert rules[0].action == "Raise the daily budget from $100 to $300"
             assert rules[0].impact == 6000
+            assert rules[0].cpa is not None
+            assert (rules[0].cpa.value, rules[0].cpa.benchmark) == (100, 200)
+
+    @parameterized.expand(
+        [
+            (
+                "cheap_campaign_losing_impressions",
+                "Cheap",
+                None,
+                "scale_campaign",
+                50.0,
+                133.33,
+                "account",
+                "at or below the account's",
+            ),
+            ("expensive_campaign", "Expensive", None, "review_campaign", 600.0, 133.33, "account", "4.5x"),
+            ("bids_to_a_target_cpa", "Expensive", 150.0, "review_campaign", 600.0, 150.0, "target_cpa", "4.0x"),
+        ]
+    )
+    def test_campaign_cpa_fields_and_reason_name_the_benchmark(
+        self,
+        _name: str,
+        subject: str,
+        target_cpa: float | None,
+        rule: str,
+        value: float,
+        benchmark: float,
+        source: str,
+        reason_benchmark: str,
+    ) -> None:
+        campaigns = (
+            _campaign(id="a", name="Cheap", cost=1000, conversions=20, lost_to_budget=0.3, lost_to_rank=0.2),
+            _campaign(id="b", name="Expensive", cost=3000, conversions=5, target_cpa=target_cpa),
+            _campaign(id="c", name="Average", cost=2000, conversions=20),
+        )
+
+        rec = next(rec for rec in recommend(_inputs(campaigns)) if rec.subject == subject)
+
+        assert rec.rule == rule
+        assert rec.cpa is not None
+        assert rec.cpa.model_dump(mode="json") == {
+            "value": value,
+            "benchmark": benchmark,
+            "benchmarkSource": source,
+            "bestCampaign": 50.0,
+            "worstCampaign": 600.0,
+        }
+        assert reason_benchmark in rec.reason
+
+    @parameterized.expand(
+        [
+            ("spent_less_than_the_bar", 200.0, 0.0, None),
+            (
+                "spent_past_the_bar",
+                360.0,
+                0.0,
+                "Spent $360 (4.3x the account's non-brand CPA) with no non-brand conversions.",
+            ),
+            ("only_brand_spend_past_the_bar", 360.0, 160.0, None),
+        ]
+    )
+    def test_campaign_without_conversions_needs_enough_spend_to_review(
+        self, _name: str, cost: float, brand_cost: float, reason: str | None
+    ) -> None:
+        campaigns = (
+            _campaign(id="a", name="Converting", cost=1000, conversions=20),
+            _campaign(id="b", name="Silent", cost=cost, conversions=0),
+            _campaign(id="c", name="Average", cost=2000, conversions=20),
+        )
+        terms = (
+            (
+                _term("example", "b", cost=brand_cost, conversions=0),
+                _term("other", "b", cost=cost - brand_cost, conversions=0),
+            )
+            if brand_cost
+            else ()
+        )
+
+        reviews = [rec for rec in recommend(_inputs(campaigns, terms)) if rec.rule == "review_campaign"]
+
+        pause = (
+            "If after two weeks it still has no non-brand conversions, or its non-brand CPA is more than 3x "
+            "the account's non-brand CPA, pause it in Campaigns."
+        )
+        assert [(rec.subject, rec.reason, (rec.steps or [])[-1].text) for rec in reviews] == (
+            [("Silent", reason, pause)] if reason else []
+        )
+
+    def test_conversions_without_cost_leave_no_benchmark(self) -> None:
+        campaigns = (
+            _campaign(id="c1", cost=0, conversions=20),
+            _campaign(id="c2", name="Other", cost=500, conversions=0, channel_type="PERFORMANCE_MAX"),
+        )
+        terms = (_term("free", "c1", cost=0, conversions=20), _term("waste", "c2", cost=500, conversions=0))
+
+        recs = recommend(_inputs(campaigns, terms))
+
+        assert all(rec.cpa is None or rec.cpa.benchmark is None for rec in recs)
+
+    @parameterized.expand(
+        [
+            ("few_conversions_use_the_account", 10, None, 100.0, "account", "3.0x the account's non-brand CPA"),
+            ("enough_conversions_use_the_campaign", 20, None, 50.0, "campaign", "6.0x the campaign's non-brand CPA"),
+            ("target_cpa_wins", 20, 120.0, 120.0, "target_cpa", "2.5x the campaign's target CPA"),
+            (
+                "performance_max_only_account",
+                10,
+                None,
+                100.0,
+                "account",
+                "3.0x the account's non-brand CPA",
+                "PERFORMANCE_MAX",
+            ),
+        ]
+    )
+    def test_search_terms_are_judged_against_their_campaigns_benchmark(
+        self,
+        _name: str,
+        conversions: float,
+        target_cpa: float | None,
+        benchmark: float,
+        source: str,
+        reason: str,
+        channel: str = "SEARCH",
+    ) -> None:
+        campaigns = (
+            _campaign(id="brand", name="Brand", cost=100, conversions=100),
+            _campaign(id="c1", cost=1000, conversions=conversions, target_cpa=target_cpa, channel_type=channel),
+            _campaign(id="c2", name="Other", cost=1000, conversions=20 - conversions, channel_type=channel),
+        )
+        terms = (
+            _term("example", "brand", cost=100, conversions=100),
+            _term("converter", "c1", cost=700, conversions=conversions),
+            _term("waste", "c1", cost=300, conversions=0),
+        )
+
+        waste = next(rec for rec in recommend(_inputs(campaigns, terms)) if rec.subject == "waste")
+
+        assert waste.rule == "spend_without_conversions"
+        assert waste.cpa is not None
+        assert (waste.cpa.benchmark, waste.cpa.benchmarkSource) == (benchmark, source)
+        assert reason in waste.reason
 
     def test_campaigns_sharing_a_budget_get_one_budget_recommendation(self) -> None:
         shared = {"status_reasons": ("BUDGET_CONSTRAINED",), "recommended_daily_budget": 300.0, "budget_id": "b1"}
         campaigns = (
-            _campaign(id="c1", **shared),
             _campaign(id="c2", name="Search 2", **shared),
+            _campaign(id="c1", **shared),
             _campaign(id="c3", name="Search 3", status_reasons=("BUDGET_CONSTRAINED",), recommended_daily_budget=200.0),
         )
 
         budget_rows = [rec for rec in recommend(_inputs(campaigns)) if rec.rule == "budget_constrained"]
 
-        assert len(budget_rows) == 2
+        assert [(rec.subject, rec.identity.campaign_id, rec.identity.subject) for rec in budget_rows] == [
+            ("Search", "", "b1"),
+            ("Search 3", "c3", ""),
+        ]
+
+    @parameterized.expand(
+        [
+            (
+                "campaign_renamed",
+                (_campaign(name="Search", status_reasons=("HAS_ADS_DISAPPROVED",)),),
+                (_campaign(name="Search 2026", status_reasons=("HAS_ADS_DISAPPROVED",)),),
+                (),
+                (),
+                ("policy_limited", "1234567890", "c1", ""),
+            ),
+            (
+                "another_campaign_spends_most_on_the_term_in_the_new_range",
+                (_campaign(), _campaign(id="c2", name="Replay")),
+                (_campaign(), _campaign(id="c2", name="Replay")),
+                (_term("spy website traffic", "c1", 500, 0), _term("product analytics", "c1", 500, 10)),
+                (_term("spy website traffic", "c2", 500, 0), _term("product analytics", "c1", 500, 10)),
+                ("spend_without_conversions", "1234567890", "", "spy website traffic"),
+            ),
+        ]
+    )
+    def test_identity_stays_the_same_across_runs(
+        self,
+        _name: str,
+        campaigns_before: tuple[CampaignStats, ...],
+        campaigns_after: tuple[CampaignStats, ...],
+        terms_before: tuple[SearchTermStats, ...],
+        terms_after: tuple[SearchTermStats, ...],
+        expected: tuple[str, str, str, str],
+    ) -> None:
+        rule = expected[0]
+        before, after = (
+            [rec for rec in recommend(_inputs(campaigns, terms)) if rec.rule == rule]
+            for campaigns, terms in ((campaigns_before, terms_before), (campaigns_after, terms_after))
+        )
+
+        identity = [
+            (rec.identity.rule, rec.identity.customer_id, rec.identity.campaign_id, rec.identity.subject)
+            for rec in before
+        ]
+        assert identity == [expected]
+        assert [rec.key for rec in before] == [rec.key for rec in after]
+        for rec in before:
+            validate_identity(rec.identity)
+
+    def test_per_rule_limit_shows_the_top_unresolved_recommendations(self) -> None:
+        terms = (
+            *(_term(f"waste term {i:02d}", "c1", cost=500 + i, conversions=0) for i in range(12)),
+            _term("product analytics", "c1", cost=500, conversions=100),
+        )
+        candidates = recommend(_inputs((_campaign(),), terms))
+
+        def wasted(
+            resolutions: dict[str, MarketingAnalyticsRecommendationResolution], include_resolved: bool
+        ) -> list[tuple[str, str | None]]:
+            return [
+                (rec.subject, rec.resolution.resolution if rec.resolution else None)
+                for rec in apply_resolutions(candidates, resolutions, include_resolved=include_resolved)
+                if rec.rule == "spend_without_conversions"
+            ]
+
+        first = wasted({}, include_resolved=False)
+        assert len(first) == 10
+        dismissed = {
+            rec.key: MarketingAnalyticsRecommendationResolution(
+                id=str(i), resolution="dismissed", resolved_at="2026-01-01T00:00:00+00:00"
+            )
+            for i, rec in enumerate(candidates)
+            if (rec.subject, None) in first
+        }
+
+        assert wasted(dismissed, include_resolved=False) == [("waste term 01", None), ("waste term 00", None)]
+        annotated = wasted(dismissed, include_resolved=True)
+        assert annotated[:2] == [("waste term 01", None), ("waste term 00", None)]
+        assert sorted(annotated[2:]) == sorted((subject, "dismissed") for subject, _ in first)
+
+        organic = tuple(
+            OrganicQueryStats(query=f"{word} analysis", clicks=20, impressions=2000, position=12.0)
+            for word in (
+                *("funnel", "cohort", "retention", "trend", "path", "lifecycle"),
+                *("stickiness", "survey", "experiment", "heatmap", "replay", "warehouse"),
+            )
+        )
+        cheap_account = recommend(
+            _inputs(
+                (_campaign(),),
+                tuple(_term(query.query, "c1", cost=100, conversions=5) for query in organic[:6]),
+                organic,
+            )
+        )
+        costly_account = recommend(
+            replace(
+                _inputs(
+                    (_campaign(),),
+                    tuple(_term(query.query, "c1", cost=900, conversions=5) for query in organic[6:]),
+                    organic,
+                ),
+                customer_id="9876543210",
+            )
+        )
+        striking = [
+            rec.subject
+            for rec in apply_resolutions(
+                dedupe_account_agnostic_rules(cheap_account + costly_account), {}, include_resolved=False
+            )
+            if rec.rule == "striking_distance"
+        ]
+        assert len(striking) == 10
+        assert {query.query for query in organic[6:]} <= set(striking)
 
     @parameterized.expand(
         [
@@ -130,6 +410,60 @@ class TestMarketingRecommendations(SimpleTestCase):
         assert (leak.subject, leak.action) == ("Generic", 'Add "example" as a negative keyword')
         assert [step.copyValue for step in leak.steps or [] if step.copyValue] == ["Generic", '"example"']
         assert not any(rec.rule == "scale_campaign" and rec.subject == "Generic" for rec in recs)
+
+    @parameterized.expand(
+        [
+            ("misspelling_is_blocked_too", "NONE", '"example"\n"exampel"'),
+            ("misspelling_bought_on_purpose", "ADDED", '"example"'),
+        ]
+    )
+    def test_brand_leak_negates_the_brand_when_the_top_search_is_a_misspelling(
+        self, _name: str, misspelling_status: str, negatives: str
+    ) -> None:
+        campaign = _campaign(id="generic", name="Generic", cost=2000, conversions=20)
+        terms = (
+            replace(_term("exampel", "generic", cost=600, conversions=1), status=misspelling_status),
+            _term("example pricing", "generic", cost=200, conversions=1),
+            _term("analytics tool", "generic", cost=100, conversions=1),
+            _term("product analytics", "generic", cost=1200, conversions=18),
+        )
+        # A generic search the site ranks first for also counts as brand, but it is no misspelling.
+        organic = (
+            OrganicQueryStats(query="exampel", clicks=100, impressions=200, position=1.0),
+            OrganicQueryStats(query="analytics tool", clicks=90, impressions=200, position=1.0),
+        )
+
+        recs = recommend(_inputs((campaign,), terms, organic))
+
+        leak = next(rec for rec in recs if rec.rule == "brand_leak")
+        assert leak.action == 'Add "example" as a negative keyword'
+        assert [step.copyValue for step in leak.steps or [] if step.copyValue] == ["Generic", negatives]
+
+    def test_brand_leaking_in_several_campaigns_gets_one_shared_negative_list(self) -> None:
+        campaigns = (
+            _campaign(id="a", name="Alpha", cost=2000, conversions=20),
+            _campaign(id="b", name="Beta", cost=2000, conversions=20),
+            _campaign(id="pmax", name="PMax", channel_type="PERFORMANCE_MAX", cost=1000, conversions=10),
+        )
+        terms = (
+            _term("example pricing", "a", cost=300, conversions=1),
+            _term("product analytics", "a", cost=1700, conversions=19),
+            _term("example login", "b", cost=500, conversions=1),
+            _term("session replay", "b", cost=1500, conversions=19),
+            _term("example", "pmax", cost=200, conversions=1),
+            _term("project planning software", "pmax", cost=800, conversions=9),
+        )
+
+        leaks = [rec for rec in recommend(_inputs(campaigns, terms)) if rec.rule == "brand_leak"]
+
+        assert sorted((rec.level, rec.subject, rec.action) for rec in leaks) == [
+            ("account", "2 non-brand campaigns", 'Add "example" to a shared negative keyword list'),
+            ("campaign", "PMax", 'Add a brand exclusion for "example"'),
+        ]
+        shared = next(rec for rec in leaks if rec.level == "account")
+        assert [step.copyValue for step in shared.steps or [] if step.copyValue] == ['"example"', "Beta\nAlpha"]
+        assert (shared.identity.campaign_id, shared.identity.subject) == ("", "example")
+        validate_identity(shared.identity)
 
     def test_review_campaign_steps_start_with_the_searches_that_waste_spend(self) -> None:
         good = _campaign(id="c1", name="Good", cost=1000, conversions=10)
@@ -214,23 +548,33 @@ class TestMarketingRecommendations(SimpleTestCase):
 
         recs = recommend(_inputs((_campaign(),), terms, organic))
 
-        rules = {rec.rule for rec in recs if rec.subject == "funnel analysis"} & {"content_gap", "striking_distance"}
-        assert rules == expected
+        organic_recs = [rec for rec in recs if rec.rule in ("content_gap", "striking_distance")]
+        assert {rec.rule for rec in organic_recs if rec.subject == "funnel analysis"} == expected
+        assert all(rec.identity.customer_id == rec.identity.campaign_id == "" for rec in organic_recs)
+        other_account = recommend(replace(_inputs((_campaign(),), terms, organic), customer_id="9876543210"))
+        merged = [
+            rec.rule for rec in dedupe_account_agnostic_rules(recs + other_account) if rec.subject == "funnel analysis"
+        ]
+        assert sorted(merged) == sorted(expected)
+        assert all(rec.cpa is None for rec in recs if rec.rule == "striking_distance")
 
     @parameterized.expand(
         [
             ("another_ad_often_shows_above", 0.6, "keep", "Keep the ad"),
             ("ad_owns_the_top_spot", 0.95, "save", "Test pausing"),
             ("top_spot_not_measured", None, "save", "Check whether other ads show above yours"),
+            ("account_without_conversions", 0.6, "keep", "Keep the ad", 0),
         ]
     )
     def test_brand_overlap_keeps_the_ad_when_another_ad_shows_above(
-        self, _name: str, absolute_top: float | None, direction: str, action_start: str
+        self, _name: str, absolute_top: float | None, direction: str, action_start: str, conversions: float = 5
     ) -> None:
         brand = _campaign(id="brand", name="Brand")
         terms = (
-            replace(_term("example", "brand", cost=1000, conversions=5), absolute_top_percentage=absolute_top),
-            _term("analytics", "brand", cost=100, conversions=5),
+            replace(
+                _term("example", "brand", cost=1000, conversions=conversions), absolute_top_percentage=absolute_top
+            ),
+            _term("analytics", "brand", cost=100, conversions=conversions),
         )
         organic = (OrganicQueryStats(query="example", clicks=500, impressions=1000, position=1.0),)
 
@@ -238,6 +582,7 @@ class TestMarketingRecommendations(SimpleTestCase):
 
         assert [(rec.subject, rec.impactDirection) for rec in overlap] == [("example", direction)]
         assert overlap[0].action.startswith(action_start)
+        assert overlap[0].cpa is None
 
     @parameterized.expand(
         [
@@ -258,14 +603,14 @@ class TestMarketingRecommendations(SimpleTestCase):
         organic += (OrganicQueryStats(query=query, clicks=1, impressions=5000, position=25),)
 
         gaps = {
-            rec.subject: rec.campaign
+            rec.subject: (rec.campaign, rec.identity.customer_id, rec.identity.campaign_id)
             for rec in recommend(_inputs(campaigns, terms, organic))
             if rec.rule == "keyword_gap"
         }
 
         assert (query in gaps) == expected
         if expected:
-            assert gaps[query] == "Search"
+            assert gaps[query] == ("Search", "", "")
 
     def test_performance_max_gets_brand_exclusion_and_rank_advice(self) -> None:
         pmax = _campaign(
@@ -287,6 +632,7 @@ class TestMarketingRecommendations(SimpleTestCase):
             ("scale_campaign", "Raise the target CPA or improve its asset groups"),
             ("policy_limited", "Check the affected ads in Policy manager"),
         }
+        assert all(rec.cpa is None for rec in recs)
         leak = next(rec for rec in recs if rec.rule == "brand_leak")
         assert [step.copyValue for step in leak.steps or [] if step.copyValue] == ["PMax", "example"]
 
@@ -338,7 +684,7 @@ class TestMarketingRecommendations(SimpleTestCase):
             if rec.rule == "spend_without_conversions"
         ]
 
-        assert [rec.action for rec in recs] == [expected]
+        assert [(rec.action, rec.campaign, rec.identity.campaign_id) for rec in recs] == [(expected, "Search", "")]
         assert [
             (step.copyValue, (step.url or "").removeprefix("https://ads.google.com/aw/"))
             for step in recs[0].steps or []
@@ -383,3 +729,41 @@ class TestMarketingRecommendations(SimpleTestCase):
             "trackly logs": "Competitor term: decide whether conquesting is worth it.",
             "app analytics": "Review the bid and landing page, or add it as a negative",
         }
+
+    @parameterized.expand(
+        [
+            ("keyword_missing", {}, {}, True),
+            (
+                "set_in_the_account_suffix",
+                {"account_final_url_suffix": "utm_source=google&utm_term={keyword}"},
+                {},
+                False,
+            ),
+            ("passed_under_another_name", {"account_final_url_suffix": "kw={keyword}"}, {}, True),
+            ("set_in_the_account_template", {"account_tracking_url_template": "{lpurl}?utm_term={keyword}"}, {}, False),
+            (
+                "campaign_template_replaces_the_accounts",
+                {"account_tracking_url_template": "{lpurl}?utm_term={keyword}"},
+                {"tracking_url_template": "{lpurl}?utm_source=google"},
+                True,
+            ),
+            ("set_on_every_search_campaign", {}, {"tracking_url_template": "{lpurl}?utm_term={keyword}"}, False),
+            ("most_sessions_carry_it", {"sessions_with_keyword": 40}, {}, False),
+            ("too_few_sessions", {"sessions": 20, "sessions_with_keyword": 0}, {}, False),
+            ("no_search_campaign", {}, {"channel_type": "PERFORMANCE_MAX"}, False),
+            ("search_campaign_paused", {}, {"primary_status": "PAUSED"}, False),
+        ]
+    )
+    def test_keyword_tracking_needs_search_ads_sessions_without_utm_term(
+        self, _name: str, tracking: dict[str, object], campaign: dict[str, object], expected: bool
+    ) -> None:
+        values: dict = {"account_name": "Acme Ads", "sessions": 400, "sessions_with_keyword": 4, **tracking}
+        inputs = replace(_inputs((_campaign(**campaign),)), keyword_tracking=KeywordTracking(**values))
+
+        rows = [rec for rec in recommend(inputs) if rec.rule == "keyword_tracking"]
+
+        assert [(rec.level, rec.subject, rec.reason[:4]) for rec in rows] == (
+            [("account", "Acme Ads", "99% ")] if expected else []
+        )
+        if expected:
+            assert [step.copyValue for step in rows[0].steps or [] if step.copyValue] == ["utm_term={keyword}"]

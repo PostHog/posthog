@@ -35,7 +35,14 @@ export const LOG_GROUP_MAX_SLICE_ROWS = 1_000_000
 
 export type LogsViewerLogicProps = {
     logicKey?: string
-    sourceType: 'hog_function' | 'hog_flow' | 'batch_exports' | 'external_data_jobs' | 'data_modeling_run' | 'endpoints'
+    sourceType:
+        | 'hog_function'
+        | 'hog_flow'
+        | 'batch_exports'
+        | 'external_data_jobs'
+        | 'data_modeling_run'
+        | 'endpoints'
+        | 'warehouse_property_run'
     sourceId: string
     groupByInstanceId?: boolean
     searchGroups?: string[]

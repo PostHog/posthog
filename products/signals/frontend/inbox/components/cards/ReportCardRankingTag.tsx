@@ -1,4 +1,3 @@
-import clsx from 'clsx'
 import { useValues } from 'kea'
 import { useCallback } from 'react'
 
@@ -10,7 +9,7 @@ import { INBOX_RANKING_SCORES, InboxRankingScore, rankingScoreForField } from '.
 import { captureInboxRankingDetailsViewed } from '../../inboxAnalytics'
 import type { InboxRankingSortField } from '../../logics/inboxFiltersLogic'
 import { SignalReport } from '../../types'
-import { rankingPrediction } from '../../utils/reportOrdering'
+import { rankingLift, rankingPrediction, rankingProbability } from '../../utils/reportOrdering'
 import {
     formatRankingLift,
     formatRankingLiftComparison,
@@ -19,7 +18,9 @@ import {
     RankingStrength,
     rankingStrength,
 } from './rankingFormat'
-import { RankingLiftBar } from './RankingLiftBar'
+import { RankingModelHeader } from './RankingModelHeader'
+import { RankingScaleNote } from './RankingScaleNote'
+import { RankingScoreRows } from './RankingScoreRows'
 
 type Ranking = NonNullable<SignalReport['ranking']>
 
@@ -28,17 +29,6 @@ const STRENGTH_TAG_TYPES: Record<RankingStrength, LemonTagType> = {
     likely: 'highlight',
     average: 'default',
     unlikely: 'muted',
-}
-
-function rankingLift(ranking: Ranking, outcome: string): number | null {
-    const lift = rankingPrediction(ranking, outcome)?.lift
-    return typeof lift === 'number' && Number.isFinite(lift) ? lift : null
-}
-
-/** The inbox shows raw probabilities and the model key to staff only. Other users see lifts alone. */
-function rankingProbability(ranking: Ranking, outcome: string, isStaff: boolean): number | null {
-    const probability = isStaff ? rankingPrediction(ranking, outcome)?.probability : undefined
-    return typeof probability === 'number' ? probability : null
 }
 
 /**
@@ -88,45 +78,10 @@ export function RankingHoverCard({
                     )}
                 </>
             ) : (
-                <div>
-                    <div className="text-sm font-semibold">We trained an ML model. Yay!</div>
-                    <div className="opacity-70">How likely, compared with the average report</div>
-                </div>
+                <RankingModelHeader />
             )}
-            <div className="flex flex-col gap-1">
-                {scores.map((score) => {
-                    const scoreLift = rankingLift(ranking, score.outcome)
-                    const probability = rankingProbability(ranking, score.outcome, isStaff)
-                    return (
-                        <div key={score.outcome}>
-                            <div className={clsx('flex items-center gap-2', score === active && 'font-bold')}>
-                                <span className="w-16 shrink-0">{score.name}</span>
-                                <span className="flex-1">
-                                    <RankingLiftBar lift={scoreLift} />
-                                </span>
-                                <span className="w-9 shrink-0 text-right tabular-nums">
-                                    {scoreLift !== null ? formatRankingLift(scoreLift) : null}
-                                </span>
-                                <span className="w-24 shrink-0 text-right whitespace-nowrap">
-                                    {scoreLift !== null ? RANKING_STRENGTH_LABELS[rankingStrength(scoreLift)] : null}
-                                </span>
-                                {probability !== null && (
-                                    <span className="w-10 shrink-0 text-right font-normal tabular-nums opacity-70">
-                                        {formatRankingProbability(probability)}
-                                    </span>
-                                )}
-                            </div>
-                            {!active && (
-                                <div className="opacity-70">{score.hoverCardDescription ?? score.description}</div>
-                            )}
-                        </div>
-                    )
-                })}
-            </div>
-            <div className="opacity-70">
-                Very likely means 2x the average or more. Every report people open, act on or fix helps train the next
-                version.
-            </div>
+            <RankingScoreRows ranking={ranking} scores={scores} active={active} isStaff={isStaff} />
+            <RankingScaleNote />
             {!active && (
                 <div className="opacity-70">
                     Here to help you find the good stuff faster. Your agent gets these too, through the inbox MCP tools.

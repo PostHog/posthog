@@ -42,6 +42,7 @@ from django.db.models.fields.json import KeyTextTransform
 from django.db.models.functions import Cast, Coalesce, Substr
 from django.utils import timezone
 
+import httpx
 import structlog
 
 from posthog.api.embedding_worker import EmbeddingResponse, async_generate_embedding, generate_embedding
@@ -65,6 +66,7 @@ from .constants import (
     BK_LIBRARY_SEMANTIC_DOCUMENT_CAP,
     BK_LIBRARY_SEMANTIC_UNFILTERED_LIMIT,
     BK_QUERY_EMBEDDING_TIMEOUT,
+    BK_RERANK_MAX_RETRIES,
     BK_RERANK_MODEL,
     BK_RERANK_SNIPPET_CHARS,
     BK_RERANK_TIMEOUT,
@@ -117,7 +119,7 @@ from .models import (
     SourceStatus,
     SourceType,
 )
-from .models.constants import RefreshStatus
+from .models.constants import RefreshStatus, SearchMatch
 from .url_fetch import sha256_of
 
 logger = structlog.get_logger(__name__)
@@ -231,6 +233,12 @@ SupersessionOutcome = Literal[
     "same_source",
     "nothing_to_supersede",
 ]
+
+
+@frozen
+class UrlSourceUpdate:
+    source: KnowledgeSource
+    is_refresh_claimed: bool
 
 
 @frozen
@@ -1166,13 +1174,13 @@ def update_url_source(
     crawl_config: dict | None = None,
     refresh_interval: str | None = None,
     always_include: bool | None = None,
-) -> KnowledgeSource | None:
+) -> UrlSourceUpdate | None:
     """
-    Update a URL source's metadata and optionally re-crawl.
+    Update a URL source's metadata and optionally claim a re-crawl.
 
     - name-only: single UPDATE, no network.
-    - url/crawl_mode/crawl_config change: update the fields, then trigger a
-      full refresh so the content matches the new config.
+    - url/crawl_mode/crawl_config change: update the fields, then claim a
+      refresh. The caller runs the claimed refresh, so the request never crawls.
     """
     try:
         source = KnowledgeSource.objects.get(id=source_id, team_id=team_id)
@@ -1225,7 +1233,9 @@ def update_url_source(
 
     if needs_recrawl:
         try:
-            return refresh_source(source_id=source.id, team_id=team_id)
+            claimed_source = claim_refresh_source(source_id=source.id, team_id=team_id)
+        except KnowledgeSource.DoesNotExist:
+            return None
         except SourceBusyError:
             # Refresh never started — revert config so the source doesn't
             # end up with a new URL but old content and no error signal.
@@ -1233,8 +1243,9 @@ def update_url_source(
                 setattr(source, field, value)
             source.save(update_fields=[*list(old_values.keys()), "updated_at"])
             raise
+        return UrlSourceUpdate(source=claimed_source, is_refresh_claimed=True)
 
-    return get_for_team(source.id, team_id) or source
+    return UrlSourceUpdate(source=get_for_team(source.id, team_id) or source, is_refresh_claimed=False)
 
 
 @with_team_scope(canonical=True)
@@ -2711,9 +2722,27 @@ class KnowledgeSearchResult:
     content: str
     is_generated: bool = False
     url: str = ""
+    matched_by: SearchMatch = SearchMatch.CONTEXT
+    # 1 - cosine distance to the query. None when the semantic index did not return this chunk.
+    similarity: float | None = None
 
 
-def _result_from_chunk(chunk: KnowledgeChunk) -> KnowledgeSearchResult:
+def _search_match(*, keyword: bool, semantic: bool) -> SearchMatch:
+    if keyword and semantic:
+        return SearchMatch.BOTH
+    if keyword:
+        return SearchMatch.KEYWORD
+    if semantic:
+        return SearchMatch.SEMANTIC
+    return SearchMatch.CONTEXT
+
+
+def _result_from_chunk(
+    chunk: KnowledgeChunk,
+    *,
+    matched_by: SearchMatch = SearchMatch.CONTEXT,
+    semantic_distance: float | None = None,
+) -> KnowledgeSearchResult:
     return KnowledgeSearchResult(
         chunk_id=chunk.id,
         source_id=chunk.source_id,
@@ -2726,6 +2755,8 @@ def _result_from_chunk(chunk: KnowledgeChunk) -> KnowledgeSearchResult:
         content=chunk.content,
         is_generated=bool(chunk.source.is_generated),
         url=chunk.document.url,
+        matched_by=matched_by,
+        similarity=None if semantic_distance is None else round(1.0 - semantic_distance, 3),
     )
 
 
@@ -2833,6 +2864,11 @@ def _search_knowledge(
                 .values_list("id", flat=True)
             )
             semantic_candidates = [c for c in semantic_candidates if c.chunk_id in member_ids]
+    keyword_ids = set(fts_anchor_ids)
+    semantic_distances: dict[UUID, float] = {}
+    for candidate in semantic_candidates:
+        # Candidates arrive closest first, and a re-emitted chunk can appear twice.
+        semantic_distances.setdefault(candidate.chunk_id, candidate.distance)
 
     # --- Fusion or FTS-only ---
     # Fusion requires an actual embedding; when it's None (e.g. embedding-service
@@ -2897,7 +2933,14 @@ def _search_knowledge(
 
     ordered = sorted(chunks, key=lambda c: (doc_rank.get(c.document_id, len(anchor_chunks)), c.ordinal))
 
-    return [_result_from_chunk(c) for c in ordered]
+    return [
+        _result_from_chunk(
+            c,
+            matched_by=_search_match(keyword=c.id in keyword_ids, semantic=c.id in semantic_distances),
+            semantic_distance=semantic_distances.get(c.id),
+        )
+        for c in ordered
+    ]
 
 
 def _capture_query_embedding(team_id: int, response: EmbeddingResponse, trace: RetrievalTrace) -> None:
@@ -3024,11 +3067,16 @@ def rerank_chunks(
     *,
     top_k: int,
     trace: RetrievalTrace,
+    timeout: httpx.Timeout = BK_RERANK_TIMEOUT,
+    max_retries: int = BK_RERANK_MAX_RETRIES,
 ) -> list[KnowledgeSearchResult]:
     """
     Listwise LLM rerank over BK search candidates. On any model/parse failure,
     returns the input order (RRF order from ``search_knowledge``) trimmed to
     ``top_k``.
+
+    ``timeout`` applies to each attempt, so the worst case is ``timeout`` times
+    ``max_retries + 1``. A caller with a request deadline passes a budget below it.
     """
     if not results:
         return []
@@ -3052,7 +3100,7 @@ def rerank_chunks(
             team_id=team.id,
             properties={"ai_feature": llm_telemetry.RETRIEVAL_RERANK_FEATURE, "surface": trace.surface},
         )
-        with client.with_options(timeout=BK_RERANK_TIMEOUT, max_retries=3) as bounded:
+        with client.with_options(timeout=timeout, max_retries=max_retries) as bounded:
             response = bounded.messages.create(
                 model=BK_RERANK_MODEL,
                 max_tokens=1024,

@@ -5,11 +5,16 @@ import { useActions } from 'kea'
 import { router } from 'kea-router'
 import React from 'react'
 
+import { Button } from '@posthog/quill'
+
 import { Resizeable } from 'lib/components/Cards/CardMeta'
+import { DashboardTileShell } from 'lib/components/Cards/DashboardTileShell'
 import { DashboardResizeHandles } from 'lib/components/Cards/handles'
-import { EditModeEdge, EditModeEdgeOverlay } from 'lib/components/Cards/InsightCard/EditModeEdgeOverlay'
+import { QuillCardMoreMenu } from 'lib/components/Cards/QuillCardMoreMenu'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More, MoreProps } from 'lib/lemon-ui/LemonButton/More'
+import { quillButtonVariant } from 'lib/lemon-ui/LemonButton/quillButtonVariant'
 
 import { DashboardPlacement, DashboardTile } from '~/types'
 
@@ -17,10 +22,9 @@ interface ButtonTileCardProps extends React.HTMLAttributes<HTMLDivElement>, Resi
     buttonTile: DashboardTile
     placement: DashboardPlacement
     children?: JSX.Element
-    canEnterEditModeFromEdge?: boolean
-    onEnterEditModeFromEdge?: (event: React.MouseEvent<HTMLDivElement>, edge: EditModeEdge) => void
     moreButtonOverlay?: MoreProps['overlay']
-    onDragHandleMouseDown?: React.MouseEventHandler<HTMLDivElement>
+    /** Quill rows for the "more" menu, shown instead of `moreButtonOverlay`. */
+    quillMenuItems?: JSX.Element
     /** Whether editing controls (three-dots menu) should be shown. False hides them on template dashboards in view mode. */
     showEditingControls?: boolean
     /** Suppresses button click navigation while the tile is being dragged. */
@@ -34,10 +38,8 @@ function ButtonTileCardInternal(
         children,
         className,
         moreButtonOverlay,
+        quillMenuItems,
         placement,
-        canEnterEditModeFromEdge,
-        onEnterEditModeFromEdge,
-        onDragHandleMouseDown,
         showEditingControls,
         isDraggingRef,
         ...divProps
@@ -46,6 +48,7 @@ function ButtonTileCardInternal(
 ): JSX.Element {
     const { button_tile } = tile
     const { push } = useActions(router)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     if (!button_tile) {
         throw new Error('ButtonTileCard requires button_tile')
@@ -74,20 +77,21 @@ function ButtonTileCardInternal(
     const isTransparent = tile.transparent_background
 
     return (
-        <div
-            className={clsx(
-                'DashboardTileCard ButtonTileCard rounded flex flex-col',
-                !isTransparent && 'bg-surface-primary border',
-                isTransparent && showResizeHandles && 'border border-dashed border-border',
-                className
-            )}
+        <DashboardTileShell
+            transparent={isTransparent}
+            showResizeHandles={showResizeHandles}
+            className={clsx('DashboardTileCard ButtonTileCard flex flex-col', className)}
             data-attr="button-tile-card"
             {...divProps}
             ref={ref}
         >
-            {moreButtonOverlay && !shouldHideMoreButton && (
+            {(quillMenuItems || moreButtonOverlay) && !shouldHideMoreButton && (
                 <div className="absolute right-4 top-4">
-                    <More overlay={moreButtonOverlay} />
+                    {quillMenuItems ? (
+                        <QuillCardMoreMenu items={quillMenuItems} />
+                    ) : (
+                        <More overlay={moreButtonOverlay} />
+                    )}
                 </div>
             )}
 
@@ -95,22 +99,27 @@ function ButtonTileCardInternal(
                 className={clsx(
                     'DashboardTileCard__body ButtonTileCard__body flex w-full flex-1 p-4 items-center',
                     !shouldHideMoreButton && 'pr-14',
-                    button_tile.placement === 'right' ? 'md:justify-end' : 'justify-start',
-                    onDragHandleMouseDown && 'cursor-grab'
+                    button_tile.placement === 'right' ? 'md:justify-end' : 'justify-start'
                 )}
-                onMouseDown={onDragHandleMouseDown}
             >
-                <LemonButton type={button_tile.style} onClick={handleClick} data-attr="button-tile-action">
-                    {button_tile.text}
-                </LemonButton>
+                {todayRailNav ? (
+                    <Button
+                        variant={quillButtonVariant(button_tile.style)}
+                        onClick={handleClick}
+                        data-attr="button-tile-action"
+                    >
+                        {button_tile.text}
+                    </Button>
+                ) : (
+                    <LemonButton type={button_tile.style} onClick={handleClick} data-attr="button-tile-action">
+                        {button_tile.text}
+                    </LemonButton>
+                )}
             </div>
 
-            {(canEnterEditModeFromEdge || showResizeHandles) && onEnterEditModeFromEdge && (
-                <EditModeEdgeOverlay onEnterEditMode={onEnterEditModeFromEdge} />
-            )}
             {showResizeHandles && <DashboardResizeHandles />}
             {children}
-        </div>
+        </DashboardTileShell>
     )
 }
 

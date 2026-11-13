@@ -60,7 +60,7 @@ const BAND_LABELS = ['total']
 
 export function ProportionBar<Meta = unknown>({ onError, ...rest }: ProportionBarProps<Meta>): React.ReactElement {
     return (
-        <ChartErrorBoundary onError={onError}>
+        <ChartErrorBoundary onError={onError} resetKey={rest.series}>
             <ProportionBarInner {...rest} onError={onError} />
         </ChartErrorBoundary>
     )

@@ -4,15 +4,19 @@ from typing import Any, Optional, Union, cast
 from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, patch
 
+from django.core.cache import cache
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import ActivityLog, Organization, Team
+from posthog.taxonomy import definition_search
 from posthog.taxonomy.property_definition_api import (
     PropertyDefinitionQuerySerializer,
+    PropertyDefinitionSerializer,
     PropertyDefinitionViewSet,
+    PropertyUsageMetricsRequestSerializer,
     QueryContext,
 )
 
@@ -66,13 +70,36 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         EventProperty.objects.get_or_create(team=self.team, event="$pageview", property="first_visit")
         EventProperty.objects.create(team=self.team, event="another_event", property="first_visit")
 
-    def test_individual_property_formats(self):
+    @parameterized.expand(
+        [
+            ("event", PropertyDefinition.Type.EVENT, None, "event", None),
+            ("group", PropertyDefinition.Type.GROUP, 0, "group", 0),
+        ]
+    )
+    def test_individual_property_formats(
+        self,
+        _name: str,
+        definition_type: int,
+        group_type_index: Optional[int],
+        expected_type: str,
+        expected_group_type_index: Optional[int],
+    ):
         property = PropertyDefinition.objects.create(
-            team=self.team, name="timestamp_property", property_type="DateTime"
+            team=self.team,
+            name="timestamp_property",
+            property_type="DateTime",
+            type=definition_type,
+            group_type_index=group_type_index,
         )
         response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/{property.id}")
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["property_type"] == "DateTime"
+        expected = {
+            "property_type": "DateTime",
+            "type": expected_type,
+            "group_type_index": expected_group_type_index,
+        }
+        assert {key: response.json()[key] for key in expected} == expected
+        assert {key: PropertyDefinitionSerializer(property).data[key] for key in expected} == expected
 
     def test_warehouse_origin_provenance_is_exposed(self):
         origin = {"source_id": "s1", "table_name": "github.issues", "column": "plan_tier"}
@@ -301,16 +328,39 @@ class TestPropertyDefinitionAPI(APIBaseTest):
             ("URL-encoded search for properties starting with '$cur'", "$cur", ["$current_url"]),
             ("Fuzzy search: 'hase ' matches properties containing 'chase'", "hase ", ["purchase", "purchase_value"]),
             ("Search matching multiple properties", "brow", ["$browser", "$browser_version"]),
-            ("Shorter name preferred: 'visit' before 'first_visit'", "visit", ["visit", "first_visit"]),
+            ("Shorter name preferred: 'visit' before 'first_visit'", "visit", ["visit", "first_visit"], ["visit"]),
+            *[
+                (
+                    f"Underscore matches only an underscore, large project: {large_project}",
+                    "$mcp_tool_name",
+                    ["$mcp_tool_name"],
+                    ["$mcp_tool_name", "$mcpXtoolXname"],
+                    large_project,
+                )
+                for large_project in (False, True)
+            ],
         ]
     )
     def test_property_search_returns_expected_results(
-        self, _name: str, search_term: str, expected_property_names: list[str]
+        self,
+        _name: str,
+        search_term: str,
+        expected_property_names: list[str],
+        extra_property_names: Optional[list[str]] = None,
+        large_project: bool = False,
     ) -> None:
-        if search_term == "visit":
-            PropertyDefinition.objects.create(team=self.team, name="visit")
+        for name in extra_property_names or []:
+            PropertyDefinition.objects.create(team=self.team, name=name)
+        if large_project:
+            cache.clear()
+            self.addCleanup(cache.clear)
 
-        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?search={search_term}")
+        with patch.object(
+            definition_search,
+            "PROJECT_SCAN_MAX_DEFINITIONS",
+            2 if large_project else definition_search.PROJECT_SCAN_MAX_DEFINITIONS,
+        ):
+            response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?search={search_term}")
         assert response.status_code == status.HTTP_200_OK
 
         assert [prop["name"] for prop in response.json()["results"]] == expected_property_names
@@ -1133,3 +1183,78 @@ class TestPropertyDefinitionQuerySerializer(SimpleTestCase):
     )
     def test_invalid_query(self, _name: str, data: dict[str, Any]) -> None:
         assert not PropertyDefinitionQuerySerializer(data=data).is_valid()
+
+
+class TestPropertyUsageMetricsRequestSerializer(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ["empty list", {"properties": []}],
+            ["too many properties", {"properties": [{"name": f"p{i}"} for i in range(101)]}],
+            ["missing name", {"properties": [{"type": "event"}]}],
+            ["invalid type", {"properties": [{"type": "insight", "name": "$browser"}]}],
+            ["group without group type index", {"properties": [{"type": "group", "name": "industry"}]}],
+            ["group type index on an event property", {"properties": [{"name": "$browser", "group_type_index": 0}]}],
+            [
+                "group type index out of range",
+                {"properties": [{"type": "group", "name": "industry", "group_type_index": 5}]},
+            ],
+        ]
+    )
+    def test_invalid_payload(self, _name: str, data: dict[str, Any]) -> None:
+        assert not PropertyUsageMetricsRequestSerializer(data=data).is_valid()
+
+    def test_type_defaults_to_event(self) -> None:
+        serializer = PropertyUsageMetricsRequestSerializer(data={"properties": [{"name": "$browser"}]})
+        assert serializer.is_valid()
+        assert serializer.validated_data["properties"] == [{"type": "event", "name": "$browser"}]
+
+    def test_keeps_surrounding_whitespace_in_names(self) -> None:
+        serializer = PropertyUsageMetricsRequestSerializer(data={"properties": [{"name": " plan "}]})
+        assert serializer.is_valid()
+        assert serializer.validated_data["properties"][0]["name"] == " plan "
+
+
+class TestPropertyUsageMetricsAPI(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        cache.clear()
+
+    @patch("posthog.taxonomy.property_definition_api.sync_execute")
+    def test_returns_counts_zero_fills_and_caches(self, mock_sync_execute) -> None:
+        mock_sync_execute.return_value = [("property:event:$browser", 42), ("property:group:1:industry", 7)]
+        payload = {
+            "properties": [
+                {"type": "event", "name": "$browser"},
+                {"name": "$os"},
+                {"type": "group", "name": "industry", "group_type_index": 0},
+                {"type": "group", "name": "industry", "group_type_index": 1},
+            ]
+        }
+
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/property_definitions/usage_metrics/", payload, format="json"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {
+            "results": [
+                {"type": "event", "name": "$browser", "group_type_index": None, "query_usage_30_day": 42},
+                {"type": "event", "name": "$os", "group_type_index": None, "query_usage_30_day": 0},
+                {"type": "group", "name": "industry", "group_type_index": 0, "query_usage_30_day": 0},
+                {"type": "group", "name": "industry", "group_type_index": 1, "query_usage_30_day": 7},
+            ]
+        }
+        assert mock_sync_execute.call_args.kwargs["team_id"] == self.team.pk
+
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/property_definitions/usage_metrics/", payload, format="json"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert mock_sync_execute.call_count == 1
+
+    def test_rejects_empty_property_list(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/property_definitions/usage_metrics/", {"properties": []}, format="json"
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST

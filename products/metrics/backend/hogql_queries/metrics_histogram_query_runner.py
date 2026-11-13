@@ -167,7 +167,7 @@ class MetricsHistogramQueryRunner(AnalyticsQueryRunner[MetricsHistogramQueryResp
             query_type="MetricsHistogramQuery",
             query=query,
             team=self.team,
-            workload=Workload.LOGS,
+            workload=Workload.METRICS,
             settings=_QUERY_SETTINGS,
         )
         try:

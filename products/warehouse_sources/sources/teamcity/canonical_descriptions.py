@@ -132,4 +132,25 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "build_finish_date": "Finish timestamp of the parent build (injected; used as the incremental cursor).",
         },
     },
+    "build_statistics": {
+        "description": "A statistic value reported for a finished build (duration, test counts, artifact size, coverage, custom metrics). One row per statistic per build.",
+        "docs_url": "https://www.jetbrains.com/help/teamcity/custom-chart.html#Default+Statistics+Values+Provided+by+TeamCity",
+        "columns": {
+            "name": "Name of the statistic (e.g. BuildDuration, PassedTestCount, ArtifactsSize, or a custom key).",
+            "value": "Value of the statistic as reported by TeamCity, as a string.",
+            "build_id": "Numeric id of the parent build (injected for joins against the builds table).",
+            "build_finish_date": "Finish timestamp of the parent build (injected; used as the incremental cursor).",
+        },
+    },
+    "users": {
+        "description": "A TeamCity user account, for resolving the users referenced by builds and changes.",
+        "docs_url": "https://www.jetbrains.com/help/teamcity/rest/user.html",
+        "columns": {
+            "id": "Unique numeric identifier of the user account.",
+            "username": "Login name of the user.",
+            "name": "Display name of the user, when set.",
+            "email": "Email address of the user, when set.",
+            "lastLogin": "Timestamp of the user's last login to TeamCity.",
+        },
+    },
 }

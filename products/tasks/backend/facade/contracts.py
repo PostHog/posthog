@@ -182,6 +182,9 @@ class TaskRunSpend:
     is_terminal: bool
     stage: str
     accounting_failed: bool
+    compute_cost_microusd: int = 0
+    trial_grant_id: str | None = None
+    billing_exempt: bool = False
 
 
 @dataclass(frozen=True)
@@ -276,7 +279,7 @@ class TaskSlackUnfurlDTO:
     id: UUID
     title: str
     created_by_id: int | None
-    latest_run_status: str | None
+    status: str | None
 
 
 @dataclass(frozen=True)
@@ -292,6 +295,15 @@ class TaskArtifactSlackUnfurlDTO:
     run_id: UUID
     artifact_id: str
     download_path: str
+
+
+@dataclass(frozen=True)
+class TaskRepositoryState:
+    repository: str | None
+    repositories: list[str]
+    github_integration: int | None
+    github_user_integration: UUID | None
+    repository_integration: int | None
 
 
 @dataclass(frozen=True)
@@ -336,6 +348,12 @@ class TaskDetailDTO:
     slack_thread_references: list[SlackThreadReferenceDTO] = Field(default_factory=list)
     origin_key: str | None = None
     client_provenance: str | None = None
+    last_client: str | None = None
+    last_client_at: datetime | None = None
+    repository_integration: int | None = None
+    status: str | None = None
+    status_reason: str | None = None
+    status_detail: str | None = None
 
 
 @dataclass(frozen=True)
@@ -572,6 +590,8 @@ class TaskSummaryDTO:
     updated_at: datetime
     origin_product: str = ""
     latest_run: TaskLatestRunSummaryDTO | None = None
+    status: str | None = None
+    status_reason: str | None = None
 
 
 class TaskAnalysisError(Exception):
@@ -1095,6 +1115,13 @@ class WarmTaskDTO:
 
 
 @dataclass(frozen=True)
+class TaskStatusMismatchRow:
+    stored_status: str
+    derived_status: str
+    count: int
+
+
+@dataclass(frozen=True)
 class TaskRunGaugeRow:
     """One metric value keyed by (status, environment, origin_product)."""
 
@@ -1169,3 +1196,25 @@ class RunPlan:
 
     plan_name: str
     owner_user_id: int | None
+
+
+@dataclass(frozen=True)
+class TaskRunLogLink:
+    """A short-lived download link for a run's log, or why there is none."""
+
+    url: str | None
+    unavailable_reason: str | None = None
+
+
+@dataclass(frozen=True, kw_only=True)
+class AgentEgressRegistrationDTO:
+    run_id: UUID
+    team_id: int
+    execution_id: UUID
+    actor_id: int
+    actor_epoch: int
+    relay_key_sha256: str
+    authority: str
+    region: str
+    lease_expires_at: datetime
+    revoked: bool

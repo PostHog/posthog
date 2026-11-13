@@ -463,6 +463,30 @@ describe('taxonomicFilterPinnedPropertiesLogic', () => {
                 expected: { name: 'Alice', distinct_ids: ['d1'] },
             },
             {
+                description: 'drops the stand-in marker so a pinned stand-in reports as a normal pick',
+                input: { _type: 'hidden_event_stand_in', name: '$feature_flag_called', value: '$feature_flag_called' },
+                fallback: '$feature_flag_called',
+                expected: { name: '$feature_flag_called', value: '$feature_flag_called' },
+            },
+            {
+                description: 'keeps the quick filter marker so a pinned keyword shortcut still applies its filter',
+                input: {
+                    _type: 'quick_filter',
+                    name: 'Click (autocapture)',
+                    filterValue: 'click',
+                    eventName: '$autocapture',
+                    propertyKey: '$event_type',
+                },
+                fallback: 'Click (autocapture)',
+                expected: {
+                    _type: 'quick_filter',
+                    name: 'Click (autocapture)',
+                    filterValue: 'click',
+                    eventName: '$autocapture',
+                    propertyKey: '$event_type',
+                },
+            },
+            {
                 description: 'uses fallback value when name is missing',
                 input: { id: 5 },
                 fallback: 'fb',

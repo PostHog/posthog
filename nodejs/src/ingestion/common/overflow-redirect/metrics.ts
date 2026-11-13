@@ -47,6 +47,12 @@ export const overflowRedirectRateLimitDecisions = new Counter({
     labelNames: ['type', 'strategy', 'decision'], // decision: 'allowed' | 'exceeded'
 })
 
+export const overflowRedirectRateLimiterBuckets = new Gauge({
+    name: 'overflow_redirect_rate_limiter_buckets',
+    help: 'Current number of token buckets held in memory by the rate limiter',
+    labelNames: ['type', 'strategy'],
+})
+
 // Redirect source metrics - tracks WHERE the redirect decision came from
 export const overflowRedirectSourceEventsTotal = new Counter({
     name: 'overflow_redirect_source_events_total',

@@ -11,7 +11,8 @@
                 "backend/signals.py",
                 "backend/models.py",
                 "backend/migrations/**",
-                "backend/scopes.py"
+                "backend/scopes.py",
+                "backend/task_profiles.py"
             ],
             "outputs": [],
             "cache": true

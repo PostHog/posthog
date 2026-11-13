@@ -1,5 +1,23 @@
 # @posthog/toolbar-extension
 
+## 0.5.0
+
+### Minor changes
+
+- [6febaaf5f2e](https://github.com/PostHog/posthog/commit/6febaaf5f2e9c6e4b2627c0e8c3f7638e86ef734) Compare the page with a feature flag off and on, side by side, from the flags tool.
+
+## 0.4.0
+
+### Minor changes
+
+- [804aa444ede](https://github.com/PostHog/posthog/commit/804aa444edea74001d07709ca21425cc773e95b8) Filter the heatmap and clickmap by feature flag variant, and search flags and variants. Not every account has it yet.
+
+## 0.3.0
+
+### Minor changes
+
+- [4904c8a8819](https://github.com/PostHog/posthog/commit/4904c8a88199ea8e91647b5b0927467bbed310ee) Let the PostHog app check that the extension is installed, and open an authorized URL with the side panel from the app's toolbar page.
+
 ## 0.2.0
 
 ### Minor changes

@@ -19,6 +19,7 @@ import { STATUS_PAGE_BASE } from 'lib/lemon-ui/LemonToast/incidentStatus'
 
 import sdkVersions from '~/mocks/fixtures/api/sdk_versions.json'
 import teamSdkVersions from '~/mocks/fixtures/api/team_sdk_versions.json'
+import todayAnalyticsSidebar from '~/mocks/fixtures/api/today_analytics_sidebar.json'
 import { SharingConfigurationType } from '~/types'
 
 import { getAvailableProductFeatures } from './features'
@@ -53,6 +54,10 @@ const hogFunctionTemplateRetrieveMock: MockSignature = ({ params }) => {
     }
     return HttpResponse.json({ ...hogFunctionTemplate })
 }
+
+// The tags endpoint pages its response only when the request carries `search`.
+const tagsMock: MockSignature = ({ request }) =>
+    HttpResponse.json(new URL(request.url).searchParams.has('search') ? EMPTY_PAGINATED_RESPONSE : [])
 
 const hogFunctionTemplatesMock: MockSignature = ({ request }) => {
     const types = new URL(request.url).searchParams.get('types')
@@ -101,6 +106,7 @@ export const defaultMocks: Mocks = {
         '/api/projects/:team_id/marketing_analytics/source_validation/': { errors_by_source: {} },
         '/api/projects/:team_id/my_notifications/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/tasks/': EMPTY_PAGINATED_RESPONSE,
+        '/api/projects/:team_id/ui_customization/analytics_sidebar/': todayAnalyticsSidebar,
         '/api/projects/:team_id/actions/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/events_retention/': {
             retention_months: null,
@@ -388,7 +394,7 @@ export const defaultMocks: Mocks = {
         '/api/projects/:team_id/feature_flags/:feature_flag_id/dependent_flags/': EMPTY_PAGINATED_RESPONSE,
         '/api/environments/:team_id/llm_prompts/resolve/': {},
         '/api/environments/:team_id/llm_analytics/': {},
-        '/api/projects/:team_id/tags/': [],
+        '/api/projects/:team_id/tags/': tagsMock,
     },
     post: {
         'https://us.i.posthog.com/e/': posthogCORSResponse,

@@ -679,7 +679,7 @@ export const NotebooksKernelStopCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Run every SQL and Python cell of a markdown notebook, in document order, stopping at the first cell that does not finish. Returns as soon as the run starts; poll the run status endpoint until the status is terminal. Flag-gated (revamped-py-notebooks).
+ * Run every SQL and Python cell of a markdown notebook, in document order, stopping at the first cell that does not finish. Returns as soon as the run starts; poll the run status endpoint until the status is terminal.
  */
 export const notebooksRunsCreateBodyIncludePreparedInsightsDefault = false
 export const notebooksRunsCreateBodyVariablesItemNameMax = 200
@@ -720,7 +720,7 @@ export const NotebooksRunsCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Dispatch an asynchronous run of a notebook SQL or Python cell. Returns a run_id immediately; poll the run result endpoint until the status is terminal. One run at a time per notebook. Python notebooks enable all run types. HogQL runs without a connection or kernel are always available.
+ * Dispatch an asynchronous run of a notebook SQL or Python cell. Returns a run_id immediately; poll the run result endpoint until the status is terminal. One run at a time per notebook. HogQL runs without a connection or kernel are always available.
  */
 export const notebooksSqlV2RunCreateBodyReuseResultsDefault = false
 export const notebooksSqlV2RunCreateBodyNodeTypeDefault = `hogql`

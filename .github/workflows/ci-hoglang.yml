@@ -82,6 +82,7 @@ jobs:
                         - 'common/hogvm/**/*'
                         - 'posthog/hogql/**/*'
                         - 'bin/hoglang'
+                        - 'tools/hogvm_compile.py'
                         - 'package.json'
                         - requirements.txt
                         - requirements-dev.txt
@@ -176,7 +177,6 @@ jobs:
 
             - name: Run HogLang tests
               run: |
-                  pnpm --filter=@posthog/hogvm compile:stl
                   cd common/hogvm
                   ./test.sh && git diff --exit-code
               env:
