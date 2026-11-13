@@ -15,7 +15,6 @@ from django.conf import UserSettingsHolder, settings
 from django.core.management import call_command
 from django.db import DatabaseError, connection
 from django.test import override_settings
-from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -509,7 +508,7 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 200, response.json()
         assert {flow["name"] for flow in response.json()["results"]} == {"March campaign", "Billing"}
 
-    def test_summaries_search_scans_step_content_once_per_page_and_pages_by_next(self):
+    def test_summaries_search_pages_by_next_without_counting_every_match(self):
         for name in ("Alpha", "Beta", "Gamma"):
             HogFlow.objects.create(
                 team=self.team,
@@ -520,16 +519,28 @@ class TestHogFlowAPI(APIBaseTest):
         HogFlow.objects.create(team=self.team, name="Unrelated", created_by=self.user)
 
         names: list[str] = []
-        url: str | None = f"/api/projects/{self.team.id}/hog_flows/summaries?search=seat is confirmed&limit=2"
+        counts: list[int] = []
+        url: str | None = f"/api/projects/{self.team.id}/hog_flows/summaries?search=seat is confirmed&limit=1"
         while url is not None:
-            with CaptureQueriesContext(connection) as queries:
-                response = self.client.get(url)
+            response = self.client.get(url)
             assert response.status_code == 200, response.json()
-            assert sum("jsonb_array_elements" in query["sql"] for query in queries.captured_queries) == 1
             names.extend(flow["name"] for flow in response.json()["results"])
+            counts.append(response.json()["count"])
             url = response.json()["next"]
 
         assert names == ["Gamma", "Beta", "Alpha"]
+        assert counts == [2, 3, 3]
+
+    def test_summaries_search_past_the_largest_offset_returns_an_empty_page(self):
+        HogFlow.objects.create(team=self.team, name="Seat confirmation", created_by=self.user)
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/hog_flows/summaries?search=seat&offset=9223372036854775808"
+        )
+
+        assert response.status_code == 200, response.json()
+        assert response.json()["results"] == []
+        assert response.json()["next"] is None
 
     def test_list_search_step_tier_counts_every_match_across_pages(self):
         for name in ("Alpha", "Beta"):

@@ -9,6 +9,8 @@ from django.db.models import Field, Model, Q, QuerySet
 
 from posthog.paging import CursorPageRequest, Page, PageRequest
 
+_POSTGRES_BIGINT_MAX = 2**63 - 1
+
 
 def stable_queryset_ordering(queryset: QuerySet) -> QuerySet:
     """Add the primary key as a final ordering term for a paginated queryset."""
@@ -52,6 +54,10 @@ def select_page_without_count[M: Model](queryset: QuerySet[M], page: PageRequest
     through this page, plus one when another page follows, so that a limit/offset paginator sets `next`
     exactly when more rows exist.
     """
+    # PostgreSQL takes OFFSET and LIMIT as bigint and fails the query when a bound overflows it. No table
+    # holds that many rows, so such a page is empty, the same answer `select_page` gives past the last row.
+    if page.offset + page.limit + 1 > _POSTGRES_BIGINT_MAX:
+        return Page(results=[], count=page.offset)
     rows = list(stable_queryset_ordering(queryset)[page.offset : page.offset + page.limit + 1])
     more = len(rows) > page.limit
     results = rows[: page.limit]
