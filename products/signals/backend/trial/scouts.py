@@ -40,4 +40,4 @@ def trial_scout_runtime(team: "Team") -> AgentRuntime | None:
     # saved card before activating a subscription, so keep its normal model too.
     if team.organization.customer_id:
         return None
-    return AgentRuntime(runtime_adapter="codex", model="gpt-6-luna")
+    return AgentRuntime(runtime_adapter="codex", model="gpt-5.6-luna", service_tier="flex")

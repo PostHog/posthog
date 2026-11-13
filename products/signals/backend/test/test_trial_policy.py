@@ -229,7 +229,8 @@ class TestTrialPolicy(BaseTest):
         if use_luna:
             assert runtime is not None
             assert runtime.runtime_adapter == "codex"
-            assert runtime.model == "gpt-6-luna"
+            assert runtime.model == "gpt-5.6-luna"
+            assert runtime.service_tier == "flex"
         else:
             assert runtime is None
 
