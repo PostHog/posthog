@@ -276,7 +276,7 @@ export async function trackExecuteSqlGeneration(
     meta: ExecuteSqlGenerationMeta,
     analyticsMeta?: ToolCallAnalyticsMeta
 ): Promise<void> {
-    if (toolName !== EXECUTE_SQL_TOOL_NAME) {
+    if (toolName !== EXECUTE_SQL_TOOL_NAME || !shouldCaptureToolCall(toolName, args)) {
         return
     }
     const query = (args as { query?: unknown } | null | undefined)?.query

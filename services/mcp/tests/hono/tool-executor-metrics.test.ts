@@ -135,6 +135,11 @@ describe('ToolExecutor metrics', () => {
         'classifies backend result errors without capturing caller content: %j',
         async ({ tool, useSingleExec, type, filtered }) => {
             const captureException = vi.spyOn(getPostHogClient(), 'captureException').mockImplementation(() => {})
+            const capture = vi.spyOn(getPostHogClient(), 'capture').mockImplementation(() => {})
+            if (filtered) {
+                const analytics = await vi.importActual<typeof import('@/hono/analytics')>('@/hono/analytics')
+                vi.mocked(trackExecuteSqlGeneration).mockImplementationOnce(analytics.trackExecuteSqlGeneration)
+            }
             const tools = catalog
                 .getPreBuiltEntries()
                 .map((entry) => toolFromPreBuilt(catalog.getToolByName(entry.name)!, entry))
@@ -184,6 +189,7 @@ describe('ToolExecutor metrics', () => {
             if (filtered) {
                 expect(captureException.mock.calls[0]?.[2]).toMatchObject({ suppress_analytics: true })
             }
+            expect(capture).not.toHaveBeenCalled()
             const properties = trackToolCallExtras(tool)
             expect(properties).toMatchObject({ $mcp_error_type: type, $mcp_error_message: `Tool failed: ${type}` })
             if (type === 'validation') {

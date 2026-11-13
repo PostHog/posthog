@@ -624,6 +624,7 @@ describe('Hono MCP analytics contexts', () => {
             ['a different tool', 'query-logs', { query: 'SELECT 1' }],
             ['a missing query', 'execute-sql', {}],
             ['a non-string query', 'execute-sql', { query: 42 }],
+            ['editor filters', 'execute-sql', { query: 'SELECT count() FROM events WHERE {filters}', filters: {} }],
         ])('does not emit for %s', async (_case, toolName, args) => {
             await trackExecuteSqlGeneration(toolName, args, makeState(), { durationMs: 5, isError: false })
 
