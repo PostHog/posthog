@@ -15,11 +15,15 @@ describe('TodayPhoneHeader', () => {
     })
 
     test.each([
-        ['/project/1/home', true],
-        ['/project/1/home/reports/abc', false],
-        ['/project/1/insights', false],
-    ])('on %s, mounts one project menu, in the header: %s', (pathname, inHeader) => {
+        { label: 'Home', pathname: '/project/1/home', pane: null, inHeader: true },
+        { label: 'the Products pane over Home', pathname: '/project/1/home', pane: 'products', inHeader: false },
+        { label: 'a Home report', pathname: '/project/1/home/reports/abc', pane: null, inHeader: false },
+        { label: 'Insights', pathname: '/project/1/insights', pane: null, inHeader: false },
+    ] as const)('on $label, mounts one project menu, in the header: $inHeader', ({ pathname, pane, inHeader }) => {
         router.actions.push(pathname)
+        if (pane) {
+            todayShellLogic.actions.clickRailPane(pane)
+        }
 
         const { container, unmount } = render(
             <>

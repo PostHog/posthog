@@ -10,11 +10,11 @@ import { todayShellLogic } from './todayShellLogic'
  * sit here instead: organization, project, then account.
  */
 export function TodaySidebarFooter(): JSX.Element {
-    const { onHomePage } = useValues(todayShellLogic)
+    const { phoneHeaderHasProjectMenu } = useValues(todayShellLogic)
     return (
         <div className="grid flex-none grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-1 border-t border-[var(--border)] px-2 pt-2 pb-2">
             <TodayOrgMenu />
-            <div className="flex min-w-0">{!onHomePage && <TodayProjectMenu />}</div>
+            <div className="flex min-w-0">{!phoneHeaderHasProjectMenu && <TodayProjectMenu />}</div>
             <TodayAccountMenu placement="phone-footer" />
         </div>
     )

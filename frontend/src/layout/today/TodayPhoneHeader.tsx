@@ -16,7 +16,7 @@ import { todayShellLogic } from './todayShellLogic'
 export function TodayPhoneHeader(): JSX.Element {
     const { sceneBreadcrumbs } = useValues(breadcrumbsLogic)
     const { scenePanelIsPresent } = useValues(sceneLayoutLogic)
-    const { onAiPage, onHomePage, phoneCanGoBack, paneHasSidebar } = useValues(todayShellLogic)
+    const { onAiPage, phoneHeaderHasProjectMenu, phoneCanGoBack, paneHasSidebar } = useValues(todayShellLogic)
     const { goBackOnPhone, setMobileSidebarOpen } = useActions(todayShellLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const [scrolled, setScrolled] = useState(false)
@@ -49,7 +49,7 @@ export function TodayPhoneHeader(): JSX.Element {
                     <IconShowSidebar />
                 </Button>
             ) : null}
-            {onHomePage ? (
+            {phoneHeaderHasProjectMenu ? (
                 <div className="flex min-w-0 flex-1">
                     <TodayProjectMenu placement="phone-header" />
                 </div>
