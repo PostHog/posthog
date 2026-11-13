@@ -870,6 +870,23 @@ def test_regex_character_classes_keep_clickhouse_meaning(pattern: str, expected:
             "TRY_CAST(truncate(",
         ),
         ("SELECT toInt(toDecimal(id, 2)) FROM users", "TRY_CAST(truncate(CAST(", "__hogql_accurate_cast_value"),
+        # Trino has no sum() or avg() over varchar, so property and text values are summed as numbers.
+        (
+            "SELECT sumIf(properties.amount, id > 0) FROM users",
+            'sum(CAST(json_extract_scalar("users"."properties", \'$["amount"]\') AS DOUBLE)) FILTER',
+            "sum(json_extract_scalar(",
+        ),
+        (
+            "SELECT avg(properties.amount) FROM users",
+            'avg(CAST(json_extract_scalar("users"."properties", \'$["amount"]\') AS DOUBLE))',
+            "avg(json_extract_scalar(",
+        ),
+        ("SELECT avgIf(user_id, id > 0) FROM users", 'avg(TRY_CAST("users"."user_id" AS DOUBLE)) FILTER', 'avg("users'),
+        (
+            "SELECT sum(coalesce(properties.amount, 0)) FROM users",
+            "sum(TRY_CAST(coalesce(json_extract_scalar(",
+            "sum(coalesce(",
+        ),
         # ClickHouse filters on any non-zero number, but a Trino filter clause must be a boolean.
         ("SELECT user_id FROM users WHERE id % 2", 'WHERE CAST(MOD("users"."id", 2) AS BOOLEAN)', "WHERE MOD("),
         (

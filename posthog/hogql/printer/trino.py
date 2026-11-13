@@ -1014,16 +1014,12 @@ class TrinoPrinter(PostgresPrinter):
             return f"date_diff({', '.join(rendered_args)})"
         if name == "length" and node.args and isinstance(self._resolve_type(node.args[0]), ast.ArrayType):
             return self._visit_unary_function(node, "cardinality")
-        if name in {"sum", "avg"} and len(node.args) == 1 and not self._is_dynamic_property(node.args[0]):
-            arg_type = self._resolve_type(node.args[0])
-            if isinstance(arg_type, ast.StringType):
+        if (name in {"sum", "avg"} and len(node.args) == 1) or (name in {"sumif", "avgif"} and len(node.args) == 2):
+            numeric_value = self._numeric_aggregate_value(node.args[0])
+            if numeric_value is not None:
                 lowered = clone_expr(node, clear_types=False)
-                lowered.args[0] = ast.TryCast(expr=lowered.args[0], type_name="double")
-                return super().visit_call(lowered)
-            if isinstance(arg_type, ast.BooleanType):
-                lowered = clone_expr(node, clear_types=False)
-                lowered.args[0] = ast.TypeCast(expr=lowered.args[0], type_name="bigint")
-                return super().visit_call(lowered)
+                lowered.args[0] = numeric_value
+                return self.visit_call(lowered)
         if name in {"toint", "tointorzero", "tointordefault", "_touint64"} and node.args:
             arg = node.args[0]
             arg_type = self._resolve_type(arg)
@@ -1142,10 +1138,6 @@ class TrinoPrinter(PostgresPrinter):
                 f"CASE WHEN {binary_args.left} IS NULL OR {binary_args.right} IS NULL THEN NULL "
                 f"ELSE array_join(repeat({binary_args.left}, {binary_args.right}), '') END"
             )
-        if name == "sum" and len(node.args) == 1 and self._is_dynamic_property(node.args[0]):
-            lowered = clone_expr(node)
-            lowered.args = [ast.TypeCast(expr=lowered.args[0], type_name="double")]
-            return super().visit_call(lowered)
         if name in {
             "jsonextract",
             "jsonextractstring",
@@ -1627,6 +1619,15 @@ class TrinoPrinter(PostgresPrinter):
                 self._is_dynamic_property(arg) for arg in node.args
             ):
                 return ast.BooleanType()
+            argument_types = [self._resolve_type(arg) for arg in node.args]
+            if any(isinstance(arg_type, ast.StringType) for arg_type in argument_types) and any(
+                self._is_numeric(arg) for arg in node.args
+            ):
+                # The printer casts the numeric arguments to VARCHAR, so the call returns text.
+                nullable = node.name.lower() == "nullif" or all(
+                    arg_type is None or arg_type.nullable for arg_type in argument_types
+                )
+                return ast.StringType(nullable=nullable)
         if (
             isinstance(node, ast.Call)
             and node.name.lower() in _FIRST_ARGUMENT_TYPE_AGGREGATES
@@ -1873,6 +1874,18 @@ class TrinoPrinter(PostgresPrinter):
         }:
             return self._is_integer_operand(node.left) and self._is_integer_operand(node.right)
         return False
+
+    def _numeric_aggregate_value(self, node: ast.Expr) -> ast.Expr | None:
+        """The value to pass to sum() or avg() when Trino would reject the argument's type, or None to keep it."""
+        # A property is typed as text, though a numeric property definition makes ClickHouse read it as a number.
+        if self._is_dynamic_property(node):
+            return ast.TypeCast(expr=node, type_name="double")
+        value_type = self._resolve_type(node)
+        if isinstance(value_type, ast.StringType):
+            return ast.TryCast(expr=node, type_name="double")
+        if isinstance(value_type, ast.BooleanType):
+            return ast.TypeCast(expr=node, type_name="bigint")
+        return None
 
     def _is_numeric(self, node: ast.Expr) -> bool:
         return isinstance(self._resolve_type(node), (ast.IntegerType, ast.FloatType, ast.DecimalType))
