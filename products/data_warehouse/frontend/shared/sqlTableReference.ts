@@ -11,6 +11,9 @@ function referenceInJoin(ast: ASTNode, offset: number, ctes: Set<string>): SqlTa
         return null
     }
     const field = ast.table
+    if (field.start?.offset == null || field.end?.offset == null) {
+        return null
+    }
     const name = field.chain.join('.')
     return offset >= field.start.offset && offset < field.end.offset && !ctes.has(name)
         ? { name, start: field.start.offset, end: field.end.offset }

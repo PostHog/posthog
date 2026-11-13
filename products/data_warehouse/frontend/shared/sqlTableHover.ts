@@ -17,13 +17,19 @@ export async function findSqlTableReference(query: string, offset: number): Prom
     if (!statement) {
         return null
     }
-    const characterOffset = Array.from(statement.query.slice(0, offset - statement.start)).length
-    const reference = await analyzeTableReference(statement.query, characterOffset)
+    const statementQuery = statement.query.trim()
+    const statementStart = statement.start + statement.query.indexOf(statementQuery)
+    const localOffset = offset - statementStart
+    if (localOffset < 0 || localOffset >= statementQuery.length) {
+        return null
+    }
+    const characterOffset = Array.from(statementQuery.slice(0, localOffset)).length
+    const reference = await analyzeTableReference(statementQuery, characterOffset)
     return reference
         ? {
               ...reference,
-              start: characterOffsetToUtf16(statement.query, reference.start) + statement.start,
-              end: characterOffsetToUtf16(statement.query, reference.end) + statement.start,
+              start: characterOffsetToUtf16(statementQuery, reference.start) + statementStart,
+              end: characterOffsetToUtf16(statementQuery, reference.end) + statementStart,
           }
         : null
 }
