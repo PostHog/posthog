@@ -1,6 +1,6 @@
 from django.db import models
 
-from posthog.models.scoping.root_mixin import TeamScopedRootMixin
+from posthog.models.scoping.manager import EnvironmentScopedManager
 from posthog.models.utils import UUIDModel
 
 
@@ -36,7 +36,7 @@ class EvalSuggestionRunTrigger(models.TextChoices):
     MANUAL = "manual", "Manual"
 
 
-class EvalSuggestionRun(TeamScopedRootMixin, UUIDModel):
+class EvalSuggestionRun(UUIDModel):
     """One pipeline run for one team. The API shows the suggestions of the team's latest completed run,
     so a run that fails halfway never replaces a complete set of cards with a partial one."""
 
@@ -60,6 +60,9 @@ class EvalSuggestionRun(TeamScopedRootMixin, UUIDModel):
     created_at = models.DateTimeField(auto_now_add=True)
     completed_at = models.DateTimeField(null=True, blank=True)
 
+    # Each environment's runs and cards come from its own traces, so a child environment never reads its parent's.
+    objects = EnvironmentScopedManager()
+
     class Meta:
         indexes = [
             models.Index(fields=["team", "status", "-completed_at"], name="llma_evalsugg_run_latest"),
@@ -67,7 +70,7 @@ class EvalSuggestionRun(TeamScopedRootMixin, UUIDModel):
         ]
 
 
-class EvalSuggestion(TeamScopedRootMixin, UUIDModel):
+class EvalSuggestion(UUIDModel):
     team = models.ForeignKey(
         "posthog.Team", on_delete=models.CASCADE, db_constraint=False, db_index=False, related_name="+"
     )
@@ -117,6 +120,8 @@ class EvalSuggestion(TeamScopedRootMixin, UUIDModel):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    objects = EnvironmentScopedManager()
+
     class Meta:
         constraints = [
             models.UniqueConstraint(fields=["run", "dedupe_key"], name="llma_evalsugg_unique_per_run"),
@@ -126,7 +131,7 @@ class EvalSuggestion(TeamScopedRootMixin, UUIDModel):
         ]
 
 
-class EvalSuggestionTeamState(TeamScopedRootMixin):
+class EvalSuggestionTeamState(models.Model):
     """Team extension: when someone last loaded the suggestions, and the day of the last first-visit run."""
 
     team = models.OneToOneField(
@@ -134,3 +139,5 @@ class EvalSuggestionTeamState(TeamScopedRootMixin):
     )
     last_visited_at = models.DateTimeField(null=True, blank=True, db_index=True)
     first_visit_run_on = models.DateField(null=True, blank=True)
+
+    objects = EnvironmentScopedManager()

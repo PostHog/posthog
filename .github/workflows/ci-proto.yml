@@ -156,10 +156,10 @@ jobs:
               run: buf breaking proto/ --against .proto-baseline/proto/
 
     python-codegen:
-        name: Check Python proto stubs are up to date (depot-ubuntu-22.04-4)
+        name: Check Python proto stubs are up to date (depot-ubuntu-22.04)
         needs: changes
         if: needs.changes.outputs.proto == 'true'
-        runs-on: depot-ubuntu-22.04-4
+        runs-on: depot-ubuntu-22.04
         timeout-minutes: 10
 
         steps:

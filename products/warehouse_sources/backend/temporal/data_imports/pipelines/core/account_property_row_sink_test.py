@@ -25,8 +25,19 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.acc
     AccountPropertyRowSink,
     _is_missing_object_error,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.staging_object_store import (
+    ObjectStoreConfigurationError,
+)
 
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.account_property_row_sink"
+_STAGING_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.staging_object_store"
+
+
+def _aws_write_error(code: str, detail: str) -> OSError:
+    return OSError(
+        "When initiating multiple part upload for key 'chunk_0.parquet' in bucket 'example-bucket': "
+        f"AWS Error {code} during CreateMultipartUpload operation: {detail}"
+    )
 
 
 def _sink() -> AccountPropertyRowSink:
@@ -116,6 +127,46 @@ async def test_stages_only_columns_from_sources_with_a_present_key() -> None:
     assert to_thread.await_args.args[1].column_names == ["mrr", "organization_id"]
     expected_root = settings.BUCKET_URL.removeprefix("s3://").rstrip("/")
     assert to_thread.await_args.args[2].startswith(f"{expected_root}/account_property_sync/7/model_")
+
+
+@pytest.mark.parametrize(
+    ("error", "expected_attempts", "raises"),
+    [
+        (
+            _aws_write_error("INTERNAL_FAILURE", "We encountered an internal error. Please try again."),
+            2,
+            None,
+        ),
+        (_aws_write_error("ACCESS_DENIED", "Access Denied"), 1, ObjectStoreConfigurationError),
+        (RuntimeError("staging blew up"), 1, RuntimeError),
+    ],
+)
+@pytest.mark.asyncio
+async def test_stage_chunk_retries_only_a_transient_object_store_failure(error, expected_attempts, raises) -> None:
+    # Creating the multipart upload is a single network call, so a SLOW_DOWN/InternalError blip on
+    # it used to drop the whole chunk and abort the entire multi-chunk staging activity, forcing a
+    # Temporal-level retry that redoes every earlier chunk. Mirrors person_property_row_sink's
+    # equivalent coverage now that stage_chunk retries the write the same way.
+    sink = _sink()
+    to_thread = AsyncMock(side_effect=[error, None])
+    projection = [
+        AccountPropertySourceProjection(key_column="organization_id", columns=frozenset({"organization_id", "mrr"}))
+    ]
+
+    with (
+        patch(f"{_MODULE}.account_property_projection_for", return_value=projection),
+        patch.object(sink, "_get_fs", return_value=MagicMock()),
+        patch(f"{_MODULE}.asyncio.to_thread", new=to_thread),
+        patch(f"{_STAGING_MODULE}.asyncio.sleep", new=AsyncMock()),
+    ):
+        table = pa.table({"organization_id": ["org-1"], "mrr": [100]})
+        if raises is not None:
+            with pytest.raises(raises):
+                await sink.stage_chunk(chunk=0, table=table)
+        else:
+            await sink.stage_chunk(chunk=0, table=table)
+
+    assert to_thread.await_count == expected_attempts
 
 
 @pytest.mark.asyncio

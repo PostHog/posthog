@@ -75,7 +75,11 @@ const SelectContent = React.forwardRef<
          * mask. Use position: absolute — in-flow content here resizes the box the positioner measures.
          */
         popupSibling?: React.ReactNode
-    } & Pick<SelectPrimitive.Positioner.Props, 'align' | 'alignOffset' | 'side' | 'sideOffset' | 'alignItemWithTrigger'>
+    } & Pick<
+            SelectPrimitive.Positioner.Props,
+            'align' | 'alignOffset' | 'side' | 'sideOffset' | 'alignItemWithTrigger'
+        > &
+        Pick<SelectPrimitive.Portal.Props, 'container'>
 >(function SelectContent(
     {
         className,
@@ -86,12 +90,13 @@ const SelectContent = React.forwardRef<
         align = 'center',
         alignOffset = 0,
         alignItemWithTrigger = true,
+        container,
         ...props
     },
     ref
 ) {
     return (
-        <SelectPrimitive.Portal>
+        <SelectPrimitive.Portal container={container}>
             <SelectPrimitive.Positioner
                 data-quill
                 data-quill-portal="popover"

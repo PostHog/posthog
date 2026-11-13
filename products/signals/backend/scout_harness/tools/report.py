@@ -95,7 +95,12 @@ from products.signals.backend.report_metrics import (
 from products.signals.backend.report_prompts import normalize_suggested_prompts, suggested_prompts_batch_error
 from products.signals.backend.report_tags import normalize_report_tags
 from products.signals.backend.report_urls import ReportLinkSource, build_report_url
-from products.signals.backend.reviewer_rules import ReviewerProposal, ReviewerRules, StaleReviewerProposal
+from products.signals.backend.reviewer_rules import (
+    ReviewerProposal,
+    ReviewerRules,
+    StaleReviewerProposal,
+    contains_reviewer,
+)
 from products.signals.backend.scout_harness.prompt import SELF_IMPROVEMENT_REPORT_TITLE_PREFIX
 from products.signals.backend.scout_harness.skill_loader import resolve_skill_owner_user_uuids
 from products.signals.backend.scout_harness.slack_delivery_queue import queue_configured_scout_slack_delivery
@@ -119,6 +124,7 @@ from products.signals.backend.scout_report import (
     ReviewerClearNeedsReason,
     ScoutReportAlreadyEmittedError,
     ScoutReportSignal,
+    add_scout_report_reviewers,
     append_report_evidence,
     append_report_links,
     append_report_note,
@@ -162,7 +168,11 @@ from products.signals.backend.scout_report.judge import (
     judge_scout_report,
 )
 from products.signals.backend.slack_formatting import strip_chart_references
-from products.signals.backend.source_issues import parse_source_issue_url
+from products.signals.backend.source_issues import (
+    parse_source_issue_url,
+    source_issue_author_reviewers,
+    source_issues_by_report,
+)
 from products.signals.backend.supersession import NO_IMPLEMENTATION_CONTEXT
 from products.signals.backend.trial.direct_reports import funded_report, funded_report_sync
 from products.tasks.backend.facade import api as tasks_facade
@@ -1523,6 +1533,34 @@ def _stamp_owner_provenance(team: Team, reviewers: SuggestedReviewers, *, skill_
     return SuggestedReviewers(root=entries)
 
 
+def _with_source_issue_authors(
+    reviewers: SuggestedReviewers | None, authors: Sequence[SuggestedReviewerEntry]
+) -> SuggestedReviewers | None:
+    """The scout's picks, then the source issue authors it did not pick, within the reviewer cap.
+
+    The person who filed the issue a report is about is evidence for routing, so the report reaches
+    them even when the scout leaves them out. The scout's order stays the routing order, and a scout
+    that fills the cap keeps its whole list.
+    """
+    picks = tuple(reviewers.root) if reviewers is not None else ()
+    added = [entry for entry in authors if not contains_reviewer(picks, entry)]
+    if not added:
+        return reviewers
+    return SuggestedReviewers(root=[*picks, *added][:MAX_SUGGESTED_REVIEWERS])
+
+
+def _new_source_issue_authors(
+    team: Team, report_id: str, source_issues: Sequence[SourceIssue] | None
+) -> list[SuggestedReviewerEntry]:
+    """The authors of the source issues this edit adds, skipping the issues the report already names,
+    so a retried edit makes no GitHub calls."""
+    if not source_issues:
+        return []
+    held = source_issues_by_report(team_id=team.id, report_ids=[report_id]).get(report_id, [])
+    new_issues = [issue for issue in source_issues if issue not in held]
+    return source_issue_author_reviewers(team_id=team.id, issues=new_issues) if new_issues else []
+
+
 def _reviewer_reasons(reviewers: SuggestedReviewers | None, proposal: ReviewerProposal | None = None) -> list[str]:
     """The scout-authored `reason` strings from resolved reviewer picks, for the safety judge.
 
@@ -2369,6 +2407,11 @@ async def emit_report(
             repo_selection = await database_sync_to_async(_with_scout_research_context, thread_sensitive=False)(
                 team, run, repo_selection
             )
+        if surfaced and built_source_issues:
+            authors = await database_sync_to_async(source_issue_author_reviewers, thread_sensitive=False)(
+                team_id=team.id, issues=built_source_issues
+            )
+            reviewers = _with_source_issue_authors(reviewers, authors)
         if surfaced and reviewers is not None:
             # Re-stamp owner provenance from the live owner set after the judge wait (see
             # `_stamp_owner_provenance`) — autostart trusts the stored stamp.
@@ -2577,6 +2620,10 @@ def emit_report_sync(
         )
         if surfaced:
             repo_selection = _with_scout_research_context(team, run, repo_selection)
+        if surfaced and built_source_issues:
+            reviewers = _with_source_issue_authors(
+                reviewers, source_issue_author_reviewers(team_id=team.id, issues=built_source_issues)
+            )
         if surfaced and reviewers is not None:
             # Re-stamp owner provenance from the live owner set after the judge wait (see
             # `_stamp_owner_provenance`) — autostart trusts the stored stamp.
@@ -2681,8 +2728,9 @@ def _do_edit_report(
     `reviewers` arrives already resolved (`_build_suggested_reviewers` in the entrypoints, before the
     safety judge): resolution is the only step that can reject caller input, so a combined edit with a
     bad reviewer fails before the judge spends an LLM call and before any write. None leaves existing
-    reviewers untouched; a supplied set replaces them verbatim (nothing injected), with owner
-    provenance stamped so a picked owner can't become the autostart identity."""
+    reviewers untouched; a supplied set replaces them, with owner provenance stamped so a picked owner
+    can't become the autostart identity. The only entries added to the scout's picks are the authors
+    of source issues this edit adds (`_with_source_issue_authors`)."""
     _assert_edit_gates(team, author, report_id)
     if corroboration_only and not append_note:
         raise InvalidScoutReportError("corroboration_only requires append_note")
@@ -2720,11 +2768,15 @@ def _do_edit_report(
         if pull_requests
         else []
     )
+    # Read before the transaction for the same reason: each issue the report does not name yet costs a
+    # GitHub call to find who filed it.
+    source_issue_authors = _new_source_issue_authors(team, report_id, source_issues)
     updated_fields: list[str] = []
     note_appended = False
     repository_set = False
     links_appended = 0
     source_issues_appended = 0
+    source_issue_authors_added = False
     pull_requests_linked = 0
     evidence_document_ids: list[str] = []
     charts_changed = False
@@ -2790,6 +2842,12 @@ def _do_edit_report(
                     author=author.skill_name,
                     implementation_context=implementation_context,
                 )
+        if (
+            source_issue_authors
+            and reviewers is not None
+            and (reviewer_proposal is None or reviewer_proposal.outcome == "selected")
+        ):
+            reviewers = _with_source_issue_authors(reviewers, source_issue_authors)
         # Re-stamp owner provenance from the live owner set at the write: the safety-judge call sits
         # between resolution and this transaction, autostart trusts the stored stamp, and an owner
         # added during that wait must not remain an identity candidate.
@@ -2873,6 +2931,19 @@ def _do_edit_report(
                 source_issues=source_issues,
                 attribution=attribution,
             )
+            # An edit that sets no reviewers keeps the report's list and adds the new issues' authors to it.
+            if source_issues_appended and source_issue_authors and reviewers is None:
+                source_issue_authors_added = add_scout_report_reviewers(
+                    team_id=team.id,
+                    report_id=report_id,
+                    additions=_stamp_owner_provenance(
+                        team, SuggestedReviewers(root=source_issue_authors), skill_name=author.skill_name
+                    ).root,
+                    max_reviewers=MAX_SUGGESTED_REVIEWERS,
+                    attribution=attribution,
+                    author=author.skill_name,
+                    service=assignment,
+                )
         # Additive like the source issues above. A linked pull request makes the report resolve when it
         # merges, so a scout that found the fix records it here instead of only naming it in the summary.
         if pull_request_details:
@@ -3083,7 +3154,7 @@ def _do_edit_report(
     is_content_revision = bool(updated_fields)
     # Routing changes, a new work decision, and a new replacement decision each need an autostart
     # evaluation. Run it after the commit because it spawns a task.
-    if reviewers_set or repository_set or decision_fields_set or supersede_recorded:
+    if reviewers_set or source_issue_authors_added or repository_set or decision_fields_set or supersede_recorded:
         async_to_sync(_maybe_autostart_report)(team_id=team.id, report_id=report_id)
     logger.info(
         "signals_scout.edit_report: edited",

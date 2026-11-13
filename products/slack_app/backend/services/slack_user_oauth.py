@@ -41,7 +41,7 @@ from posthog.dataclasses import frozen
 from posthog.egress.slack.client import SlackWebClient as WebClient
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
-from posthog.models.user_integration import UserIntegration
+from posthog.models.user_integration import UserIntegration, slack_link_scopes
 
 logger = structlog.get_logger(__name__)
 
@@ -72,7 +72,7 @@ def linked_user_token(*, slack_user_id: str, slack_team_id: str) -> LinkedUserTo
     token = (link.sensitive_config or {}).get("user_access_token") if link else None
     if link is None or not token:
         return None
-    return LinkedUserToken(access_token=token, scopes=granted_user_scopes(str((link.config or {}).get("scope") or "")))
+    return LinkedUserToken(access_token=token, scopes=slack_link_scopes(link))
 
 
 def linked_search_token(*, slack_user_id: str, slack_team_id: str) -> LinkedUserToken | None:
@@ -337,7 +337,14 @@ def _credentials() -> tuple[str, str]:
     return client_id, client_secret
 
 
-def build_authorize_url(*, redirect_uri: str, state: str, slack_team_id: str, search_scopes: bool = False) -> str:
+def build_authorize_url(
+    *,
+    redirect_uri: str,
+    state: str,
+    slack_team_id: str,
+    search_scopes: bool = False,
+    mcp_user_scopes: tuple[str, ...] = (),
+) -> str:
     """The full Slack OIDC URL the user is redirected to. Only identity
     scopes are requested — bot scopes belong to the separate workspace
     install flow, so the user doesn't see a permissions prompt for things
@@ -345,12 +352,16 @@ def build_authorize_url(*, redirect_uri: str, state: str, slack_team_id: str, se
 
     With ``search_scopes``, the URL asks for user scopes at ``oauth.v2.authorize`` instead, because Sign in with
     Slack cannot grant the search scopes. ``team`` keeps the consent screen on the invite's workspace.
+    ``mcp_user_scopes``, the Slack MCP's allowlist, replaces them: the MCP store sends the link's token upstream, so
+    the link must hold exactly what the server may read. The work focus needs nothing outside that list.
     """
     client_id, _ = _credentials()
     if search_scopes:
         search_params = {
             "client_id": client_id,
-            "user_scope": ",".join((*SEARCH_USER_SCOPES, *OPTIONAL_SEARCH_USER_SCOPES)),
+            "user_scope": ",".join(
+                dict.fromkeys(mcp_user_scopes or (*SEARCH_USER_SCOPES, *OPTIONAL_SEARCH_USER_SCOPES))
+            ),
             "redirect_uri": redirect_uri,
             "state": state,
             "team": slack_team_id,
