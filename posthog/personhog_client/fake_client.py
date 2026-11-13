@@ -32,6 +32,7 @@ from personhog.types.v1 import cohort_pb2, feature_flag_pb2, group_pb2, person_p
 
 from posthog.dataclasses import frozen
 from posthog.models.person.missing_person import uuidFromDistinctId
+from posthog.personhog_client.client import PersonHogLifecycleUnavailable
 from posthog.personhog_client.interceptor import SEMANTIC_REFUSAL_METADATA_KEY
 from posthog.utils import is_anonymous_id
 
@@ -43,6 +44,54 @@ class _Call:
     response: Any = None
     # The per-call deadline the caller passed, for the lifecycle sagas; None means the channel default.
     timeout: float | None = None
+
+
+# FILTERED_PERSON_UPDATE_PROPERTIES in rust/personhog-leader/src/person_update.rs: a new value for one of
+# these keys alone does not make the leader write the person.
+_FILTERED_PERSON_UPDATE_PROPERTIES = frozenset(
+    {
+        "$current_url",
+        "$pathname",
+        "$referring_domain",
+        "$referrer",
+        "$screen_height",
+        "$screen_width",
+        "$viewport_height",
+        "$viewport_width",
+        "$browser",
+        "$browser_version",
+        "$device_type",
+        "$raw_user_agent",
+        "$os",
+        "$os_name",
+        "$os_version",
+        "$geoip_postal_code",
+        "$geoip_time_zone",
+        "$geoip_latitude",
+        "$geoip_longitude",
+        "$geoip_accuracy_radius",
+        "$geoip_subdivision_1_code",
+        "$geoip_subdivision_1_name",
+        "$geoip_subdivision_2_code",
+        "$geoip_subdivision_2_name",
+        "$geoip_subdivision_3_code",
+        "$geoip_subdivision_3_name",
+        "$geoip_city_confidence",
+        "$geoip_country_confidence",
+        "$geoip_postal_code_confidence",
+        "$geoip_subdivision_1_confidence",
+        "$geoip_subdivision_2_confidence",
+    }
+)
+
+
+def _filtered_only(before: dict, after: dict) -> bool:
+    # A new key or a removed one always counts. Only a new value for a key the person holds can be filtered.
+    changed = {key for key in before.keys() | after.keys() if before.get(key, _MISSING) != after.get(key, _MISSING)}
+    return all(key in _FILTERED_PERSON_UPDATE_PROPERTIES and key in before and key in after for key in changed)
+
+
+_MISSING = object()
 
 
 class _FakeRpcError(grpc.RpcError):
@@ -98,7 +147,7 @@ class _FakeLifecycleClient:
 
     @property
     def configured(self) -> bool:
-        return True
+        return self._fake.leader_path_configured
 
     def delete_persons(
         self, request: lifecycle_pb2.DeletePersonsRequest, timeout: float | None = None
@@ -116,6 +165,11 @@ class FakePersonHogClient:
     def __init__(self) -> None:
         self.calls: list[_Call] = []
         self.lifecycle = _FakeLifecycleClient(self)
+        # The real client reaches the lifecycle service and the leader over one channel, which exists only
+        # with PERSONHOG_LIFECYCLE_ADDR. False makes both unavailable.
+        self.leader_path_configured = True
+        # keyed by (team_id, person_id): the status codes the next UpdatePersonProperties calls fail with
+        self._update_failures: dict[tuple[int, int], list[grpc.StatusCode]] = {}
 
         # keyed by (team_id, person_id)
         self._persons_by_id: dict[tuple[int, int], person_pb2.Person] = {}
@@ -1247,10 +1301,19 @@ class FakePersonHogClient:
             written.version = request.min_version
         return person_pb2.RaisePersonVersionResponse(person=written, raised=raised)
 
+    def fail_updates(self, team_id: int, person_id: int, *codes: grpc.StatusCode) -> None:
+        """Make the person's next UpdatePersonProperties calls fail with these codes, one per call."""
+        self._update_failures[(team_id, person_id)] = list(codes)
+
     def update_person_properties(
         self, request: person_pb2.UpdatePersonPropertiesRequest, timeout: float | None = None
     ) -> person_pb2.UpdatePersonPropertiesResponse:
         self.calls.append(_Call("update_person_properties", request))
+        if not self.leader_path_configured:
+            raise PersonHogLifecycleUnavailable("personhog leader path not configured (PERSONHOG_LIFECYCLE_ADDR)")
+        if failures := self._update_failures.get((request.team_id, request.person_id)):
+            code = failures.pop(0)
+            raise _FakeRpcError(code, f"scripted {code.name}")
         person = self._live(self._persons_by_id.get((request.team_id, request.person_id)))
         if person is None:
             return person_pb2.UpdatePersonPropertiesResponse(updated=False)
@@ -1262,6 +1325,9 @@ class FakePersonHogClient:
         for key in request.unset_properties:
             updated.pop(key, None)
         changed = updated != properties
+        if changed and not request.force_update and _filtered_only(properties, updated):
+            # The leader answers a change to filtered keys alone without writing it.
+            changed = False
         if changed:
             person.properties = json.dumps(updated).encode()
             person.version += 1
