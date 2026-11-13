@@ -2,11 +2,15 @@ from datetime import UTC, datetime
 
 import time_machine
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
+
+from django.test import override_settings
 
 from parameterized import parameterized
 
-from posthog.schema import DateRange
+from posthog.schema import DateRange, HogQLQueryModifiers, RecordingsQuery, SessionTableVersion
 
+from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 from posthog.session_recordings.queries.sub_queries.base_query import SessionRecordingsQueryDateRange
 
 
@@ -68,3 +72,39 @@ class TestSessionRecordingsQueryDateRange(APIBaseTest):
 
         assert query_date_range.date_from() == expected_date_from
         assert query_date_range.date_to() == expected_date_to
+
+
+@time_machine.travel("2026-11-13T12:00:00", tick=False)
+class TestReplaySessionsTableVersion(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("recent_range_in_a_covered_region", "-7d", "US", None, None, SessionTableVersion.V3),
+            ("last_30_days_in_a_covered_region", "-30d", "US", None, None, SessionTableVersion.V3),
+            ("range_longer_than_30_days", "-60d", "US", None, None, None),
+            ("range_before_the_coverage_start", "2026-09-25", "US", None, None, None),
+            ("region_without_coverage", "-7d", "EU", None, None, None),
+            ("team_pins_v2", "-7d", "US", "v2", None, None),
+            ("request_pins_v2", "-7d", "US", None, SessionTableVersion.V2, SessionTableVersion.V2),
+        ]
+    )
+    def test_recent_ranges_read_sessions_v3(
+        self, _name, date_from, region, team_version, requested_version, expected_version
+    ) -> None:
+        if team_version:
+            self.team.modifiers = {"sessionTableVersion": team_version}
+            self.team.save()
+        query = SessionRecordingListFromQuery(
+            team=self.team,
+            query=RecordingsQuery(date_from=date_from),
+            hogql_query_modifiers=HogQLQueryModifiers(sessionTableVersion=requested_version)
+            if requested_version
+            else None,
+        )
+
+        with (
+            patch("posthog.session_recordings.queries.session_recording_list_from_query.is_cloud", return_value=True),
+            override_settings(CLOUD_DEPLOYMENT=region),
+        ):
+            modifiers = query._execution_modifiers
+
+        assert (modifiers.sessionTableVersion if modifiers else None) == expected_version

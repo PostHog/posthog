@@ -1,6 +1,9 @@
 import struct
 from datetime import UTC, datetime, timedelta
+from functools import cached_property
 from typing import TYPE_CHECKING, Any, Literal, Optional, Union, cast
+
+from django.conf import settings
 
 import structlog
 from dateutil.relativedelta import relativedelta
@@ -14,16 +17,19 @@ from posthog.schema import (
     RecordingOrder,
     RecordingPropertyFilter,
     RecordingsQuery,
+    SessionTableVersion,
 )
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.database.schema.sessions_v3 import SESSIONS_V3_COVERAGE_START_BY_REGION
 from posthog.hogql.parser import parse_select
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import tags_context
+from posthog.cloud_utils import is_cloud
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.paginators import HogQLCursorPaginator, HogQLHasMorePaginator
 from posthog.models import Team, User
@@ -62,6 +68,16 @@ tracer = trace.get_tracer(__name__)
 UNSCORED_SURFACING_SCORE = 0.36
 # Match the Float32 storage precision so a score equal to the cutoff stays excluded after promotion.
 RECOMMENDED_SURFACING_SCORE_THRESHOLD = struct.unpack("!f", struct.pack("!f", 0.36))[0]
+
+
+# A "last 30 days" range starts at midnight in the team's timezone, up to a day before now minus 30 days.
+REPLAY_SESSIONS_V3_MAX_RANGE = timedelta(days=31)
+
+
+def _sessions_v3_coverage_start() -> datetime | None:
+    if not is_cloud():
+        return None
+    return SESSIONS_V3_COVERAGE_START_BY_REGION.get((settings.CLOUD_DEPLOYMENT or "").upper())
 
 
 class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
@@ -256,6 +272,24 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         self._skip_negative_blocklists = skip_negative_blocklists
         self._experiment_exposure_linkage: Optional[ExperimentExposureLinkage] = None
 
+    @cached_property
+    def _execution_modifiers(self) -> HogQLQueryModifiers | None:
+        # sessions v3 holds complete data only from its coverage start, so a team on the default table version
+        # reads it only for recent ranges inside that coverage. An explicit version, requested or stored, wins.
+        requested = self._hogql_query_modifiers
+        if requested is not None and requested.sessionTableVersion not in (None, SessionTableVersion.AUTO):
+            return requested
+        stored = self._team.modifiers.get("sessionTableVersion") if isinstance(self._team.modifiers, dict) else None
+        if stored not in (None, SessionTableVersion.AUTO.value):
+            return requested
+        coverage_start = _sessions_v3_coverage_start()
+        date_from = self.query_date_range.date_from()
+        if coverage_start is None or date_from is None:
+            return requested
+        if date_from < max(coverage_start, datetime.now(UTC) - REPLAY_SESSIONS_V3_MAX_RANGE):
+            return requested
+        return (requested or HogQLQueryModifiers()).model_copy(update={"sessionTableVersion": SessionTableVersion.V3})
+
     @tracer.start_as_current_span("SessionRecordingListFromQuery.run")
     def run(self) -> SessionRecordingQueryResult:
         # An explicitly empty id set matches nothing, but ClickHouse only finds that out after it
@@ -317,7 +351,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                     team=self._team,
                     user=self._user,
                     query_type="SessionRecordingListQuery",
-                    modifiers=self._hogql_query_modifiers,
+                    modifiers=self._execution_modifiers,
                     settings=HogQLGlobalSettings(**settings_args),
                 )
 
@@ -336,7 +370,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                     self._team,
                     self._query,
                     self._allow_event_property_expansion,
-                    hogql_query_modifiers=self._hogql_query_modifiers,
+                    hogql_query_modifiers=self._execution_modifiers,
                 ).check_negative_blocklist_truncation()
 
         with tracer.start_as_current_span("SessionRecordingListFromQuery._data_to_return"):
@@ -586,7 +620,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                     # Same user as the listing query, so per-user property restrictions apply here too.
                     user=self._user,
                     query_type="SessionRecordingListPersonPropertyCheck",
-                    modifiers=self._hogql_query_modifiers,
+                    modifiers=self._execution_modifiers,
                     settings=self._person_check_query_settings(),
                 )
                 blocked_distinct_ids |= {row[0] for row in response.results or []}
@@ -642,7 +676,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             team=self._team,
             user=self._user,
             query_type="SessionRecordingListPersonPropertyCheckDistinctIds",
-            modifiers=self._hogql_query_modifiers,
+            modifiers=self._execution_modifiers,
             settings=self._person_check_query_settings(),
         )
         session_distinct_ids: dict[str, set[str]] = {}
