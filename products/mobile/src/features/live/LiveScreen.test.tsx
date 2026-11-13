@@ -69,6 +69,7 @@ describe('LiveScreen', () => {
         mockFeed = feed()
         const view = render(screen())
         expect(within(view.getByTestId('live-top-screens')).getByText('Screen')).toBeTruthy()
+        expect(useTabHeaderStore.getState().slots.live?.status).toBeNull()
 
         mockFeed = { ...mockFeed, state: 'web', status: 'reconnecting' }
         view.rerender(screen())
@@ -77,12 +78,18 @@ describe('LiveScreen', () => {
         expect(table.getByText('Screen')).toBeTruthy()
         expect(table.getByText('Home')).toBeTruthy()
         expect(view.queryByTestId('live-top-pages')).toBeNull()
+        expect(useTabHeaderStore.getState().slots.live?.status).toBe('Reconnecting…')
+
+        view.unmount()
+        const revisited = render(screen())
+        expect(useTabHeaderStore.getState().slots.live?.status).toBe('Reconnecting…')
 
         mockFeed = { ...mockFeed, snapshot: { ...mockFeed.snapshot, topPagesMode: 'pages' }, status: 'live' }
-        view.rerender(screen())
-        expect(within(view.getByTestId('live-top-pages')).getByText('Path')).toBeTruthy()
-        expect(view.queryByTestId('live-top-screens')).toBeNull()
-        view.unmount()
+        revisited.rerender(screen())
+        expect(within(revisited.getByTestId('live-top-pages')).getByText('Path')).toBeTruthy()
+        expect(revisited.queryByTestId('live-top-screens')).toBeNull()
+        expect(useTabHeaderStore.getState().slots.live?.status).toBeNull()
+        revisited.unmount()
     })
 
     test('gives the tabs header a Pause that follows the feed, and none for a project without events', () => {

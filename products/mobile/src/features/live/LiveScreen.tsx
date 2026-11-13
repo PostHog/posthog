@@ -260,7 +260,7 @@ function LiveBody({ chrome, scope, scrollTitle, toasts }: LiveBodyProps): ReactE
             {tab ? (
                 <TabHeaderPublisher
                     tab="live"
-                    status={null}
+                    status={feed.status === 'reconnecting' ? 'Reconnecting…' : null}
                     pause={pausable ? { paused: feed.paused, onPress: togglePause } : null}
                 />
             ) : null}

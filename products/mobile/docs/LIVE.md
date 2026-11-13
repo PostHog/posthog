@@ -7,7 +7,11 @@ Live is the Home tab (`app/(tabs)/live/`, `/live`): the first slot of the bottom
 Views has no Browse row for Live, because Live is Home.
 Live also opens as a pushed screen at `/views/live?from={entry}` (`app/views/live.tsx`) with the usual Back and More chrome, from the Live chip on Web analytics (`from=web_analytics`) and from deep links.
 More has "Open on web", which opens `/web/live`. Live is not a navigation pin, because it is Home.
-`LiveScreen({ from, chrome })` draws both: on Home (`chrome="tab"`) the tabs header draws the title "Live" and a Pause or Resume button (`live-pause`) left of More, the content starts with the cards, and the tabs menu has Open on web. Home has no dot and no status line.
+`LiveScreen({ from, chrome })` draws both: on Home (`chrome="tab"`) the tabs header draws the title "Live" and a Pause or Resume button (`live-pause`) left of More, the content starts with the cards, and the tabs menu has Open on web.
+Home has no dot or status line while updates succeed.
+When polling keeps failing, the header shows "Reconnecting…" until updates recover.
+The warning waits for the check in **Failures** below.
+When the person comes back to Home during the same failure streak, the check runs again before the warning shows.
 Deep link: `posthog://views/live` opens the pushed screen.
 Live needs `query:read`, so it reuses the Views access check (`useFeatureAccess('views')`) and `ViewsReauthState`.
 
@@ -79,7 +83,7 @@ The Live chip on the Web analytics screen reads users online alone: the stats re
 - **Slower after 10 minutes.** After 10 minutes of polling with no user action, the read comes every 60 seconds instead of 30. Pull to refresh, Try again, Resume, reopening the screen, and coming back to the foreground after reads stopped set it back to 30 seconds and start the 10 minutes again. Scrolling does not count. The pushed screen's status line still says when the last update came. The stats read keeps its 10-second interval.
 - **Pause** stops every timer and aborts the read in flight. Resume reads at once, then polls again.
 - **Pull to refresh** reads now. While paused it reads once and stays paused.
-- **Failures.** A job that fails, or answers with a query that still runs, keeps its card's last value. After a failed read, the pushed screen's status line keeps its previous state for 10 seconds, then retries once or joins a read already in progress. If that check fails or has not completed after 5 more seconds, it shows "Reconnecting…" and the toast "Couldn't update live data. Retrying…" once per failure streak. A successful check cancels the warning. This extra read uses the existing query budget and does not reset the inactivity slowdown. Subsequent reads use the normal interval (30 or 60 seconds), with total failures doubling the delay up to 5 minutes. A first read that fails shows "Couldn't load live data" with Try again.
+- **Failures.** A job that fails, or answers with a query that still runs, keeps its card's last value. After a failed read, the status keeps its previous state for 10 seconds, then retries once or joins a read already in progress. If that check fails or has not completed after 5 more seconds, Home's header and the pushed screen's status line show "Reconnecting…" until updates recover. The toast "Couldn't update live data. Retrying…" appears once per failure streak. A successful check cancels the warning. This extra read uses the existing query budget and does not reset the inactivity slowdown. Subsequent reads use the normal interval (30 or 60 seconds), with total failures doubling the delay up to 5 minutes. A first read that fails shows "Couldn't load live data" with Try again.
 - **A missing scope** (403 naming `query:read`) reports a Views scope error, so the screen shows the sign-in state.
 
 Visitors by country does not run Live's read. Pushing it takes the focus from Live, so Live's poller stops at once, and the screen runs its own poller (`useLiveWorld`) with the `geo` job alone and the same rules: 30 seconds, 60 after 10 minutes, focus, background grace and backoff.
