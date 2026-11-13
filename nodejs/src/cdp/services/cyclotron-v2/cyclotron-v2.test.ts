@@ -2733,23 +2733,28 @@ describe('Cyclotron V2', () => {
         })
 
         it.each([
-            ['for now, as a queue hop does', 0, 0],
-            ['250 ms ahead, as a reserved send slot can', 250, 1],
-            ['a second ahead', 1_000, 1],
-            ['five minutes ahead', 300_000, 0],
-        ])('counts a weeks-old job at the counter clamp rescheduled %s', async (_label, parkMs, expected) => {
-            const before = await churnCountForQueue(QUEUE)
-            const id = await manager.createJob({ teamId: 1, queueName: QUEUE })
-            await assertPool.query(
-                `UPDATE cyclotron_jobs SET transition_count = $1, created = NOW() - interval '400 hours' WHERE id = $2`,
-                [CYCLOTRON_COUNTER_MAX, id]
-            )
+            ['for now, as a fetch yield does', QUEUE, 0, undefined, 0],
+            ['250 ms ahead, as a reserved send slot can', QUEUE, 250, undefined, 1],
+            ['a second ahead', QUEUE, 1_000, undefined, 1],
+            ['five minutes ahead', QUEUE, 300_000, undefined, 0],
+            ['on the email queue after its retry fell due', 'email', -500, undefined, 1],
+            ['from the email queue back to its flow', 'email', 0, QUEUE, 0],
+        ])(
+            'counts a weeks-old job at the counter clamp rescheduled %s',
+            async (_label, queue, parkMs, nextQueue, expected) => {
+                const before = await churnCountForQueue(queue)
+                const id = await manager.createJob({ teamId: 1, queueName: queue })
+                await assertPool.query(
+                    `UPDATE cyclotron_jobs SET transition_count = $1, created = NOW() - interval '400 hours' WHERE id = $2`,
+                    [CYCLOTRON_COUNTER_MAX, id]
+                )
 
-            const [job] = await dequeueOneBatch(createWorker())
-            await job.reschedule({ scheduledAt: new Date(Date.now() + parkMs) })
+                const [job] = await dequeueOneBatch(createWorker(queue))
+                await job.reschedule({ scheduledAt: new Date(Date.now() + parkMs), queueName: nextQueue })
 
-            expect((await churnCountForQueue(QUEUE)) - before).toBe(expected)
-        })
+                expect((await churnCountForQueue(queue)) - before).toBe(expected)
+            }
+        )
     })
 
     describe('polling cost with a backlog scheduled for later', () => {

@@ -63,12 +63,13 @@ function isChurning(row: RawJobRow): boolean {
     return row.transition_count >= CYCLOTRON_TRANSITION_CHURN_RATE_PER_HOUR * ageHours
 }
 
-function isChurningAtCap(row: RawJobRow, scheduled: Date): boolean {
+function isChurningAtCap(row: RawJobRow, scheduled: Date, nextQueue: string): boolean {
     if (row.transition_count < CYCLOTRON_COUNTER_MAX) {
         return false
     }
     const parkMs = scheduled.getTime() - Date.now()
-    return parkMs > 0 && parkMs < CHURN_PARK_MS
+    const retriesOnEmailQueue = row.queue_name === 'email' && nextQueue === 'email'
+    return parkMs < CHURN_PARK_MS && (parkMs > 0 || retriesOnEmailQueue)
 }
 
 // The loop swallows the error and retries, so without this counter a queue whose every
@@ -515,7 +516,7 @@ export class CyclotronV2Worker {
             reschedule: releaseWrite('reschedule', async (input?: CyclotronV2RescheduleOptions) => {
                 const options = input ? CyclotronV2RescheduleOptionsSchema.parse(input) : undefined
                 const scheduled = options?.scheduledAt ?? new Date()
-                if (isChurningAtCap(row, scheduled)) {
+                if (isChurningAtCap(row, scheduled, options?.queueName ?? row.queue_name)) {
                     highTransitionDequeuesCounter.labels({ queue: row.queue_name }).inc()
                 }
 
