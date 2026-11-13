@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 
-import { EXIT_NEEDS_PERSON, HogError } from '@/core/errors'
+import { HogError } from '@/core/errors'
 import { parseJsonOrUndefined } from '@/core/json'
 import type { Runtime } from '@/core/runtime'
 
@@ -24,8 +24,7 @@ function keychainError(error: unknown): HogError {
         return new HogError(
             'keychain_access_denied',
             "PostHog wasn't allowed to use the keychain.",
-            'Run the command again and allow PostHog to use the keychain. Choose "Always Allow" so it doesn\'t ask again.',
-            EXIT_NEEDS_PERSON
+            'Run the command again and allow PostHog to use the keychain. Choose "Always Allow" so it doesn\'t ask again.'
         )
     }
     return new HogError(
@@ -56,8 +55,7 @@ async function keychainCall<T>(
         throw new HogError(
             'keychain_access_timeout',
             `hog stopped after waiting ${KEYCHAIN_TIMEOUT_MS / 1000} seconds for access to the keychain.`,
-            'Close the keychain dialog that is still open. Then run the command again and click "Always Allow".',
-            EXIT_NEEDS_PERSON
+            'Close the keychain dialog that is still open. Then run the command again and click "Always Allow".'
         )
     })
     const pending = operation()

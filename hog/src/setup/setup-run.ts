@@ -1,5 +1,5 @@
 import type { Context } from '@/core/context'
-import { EXIT_NEEDS_PERSON, EXIT_USAGE, HogError } from '@/core/errors'
+import { EXIT_USAGE, HogError } from '@/core/errors'
 import type { PostHogApi } from '@/posthog/api'
 import { cloudRegion, REGIONS, sameHost, type Host } from '@/posthog/host'
 import type { ProjectId } from '@/posthog/ids'
@@ -85,8 +85,7 @@ export class SetupRun {
             throw new HogError(
                 'not_authenticated',
                 "You aren't logged in to this folder's project.",
-                `Run \`${SETUP_NEXT}\` to log in.`,
-                EXIT_NEEDS_PERSON
+                `Run \`${SETUP_NEXT}\` to log in.`
             )
         }
 

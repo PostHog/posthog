@@ -3,7 +3,7 @@ import { z } from 'zod'
 import type { ApiKeyAccess } from '@posthog/mcp/src/cli/library-types'
 
 import type { WorkloadProvider } from '@/ci/providers/registry'
-import { EXIT_FAILURE, EXIT_NEEDS_PERSON, HogError } from '@/core/errors'
+import { HogError } from '@/core/errors'
 import { parseJsonOrUndefined } from '@/core/json'
 import type { Runtime } from '@/core/runtime'
 import { parseOrThrow } from '@/core/schema'
@@ -67,19 +67,12 @@ function exchangeHint(
     }
 }
 
-const NEEDS_ADMIN = new Set(['workload_no_matching_policy', 'workload_policy_request_pending'])
-
 function exchangeError(status: number, raw: unknown, provider: WorkloadProvider, projectId: ProjectId): HogError {
     const body = ExchangeErrorBody.safeParse(raw).data ?? {}
     const message = body.error_description ?? `PostHog refused the workload token exchange with HTTP ${status}.`
     const code = body.error_code ?? (status >= 500 ? 'workload_exchange_unavailable' : 'workload_exchange_failed')
     const claims = body.claims ? ` The job sent: ${JSON.stringify(body.claims)}.` : ''
-    return new HogError(
-        code,
-        `${message}${claims}`,
-        exchangeHint(code, body, provider, projectId),
-        NEEDS_ADMIN.has(code) ? EXIT_NEEDS_PERSON : EXIT_FAILURE
-    )
+    return new HogError(code, `${message}${claims}`, exchangeHint(code, body, provider, projectId))
 }
 
 interface WorkloadKeyFields {

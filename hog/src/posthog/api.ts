@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-import { EXIT_FAILURE, EXIT_NEEDS_PERSON, HogError } from '@/core/errors'
+import { EXIT_NEEDS_PERSON, HogError, type ErrorPatch } from '@/core/errors'
 import { parseLosslessJson } from '@/core/json'
 import type { RuntimeFetch } from '@/core/runtime'
 import { parseOrThrow, type Schema } from '@/core/schema'
@@ -80,45 +80,37 @@ function transportReason(error: unknown): string {
     return typeof code === 'string' && /^[A-Z][A-Za-z0-9_]*$/.test(code) ? ` (${code})` : ''
 }
 
-// A non-2xx answer from PostHog. `type` is the DRF error type, such as `validation_error`.
+export interface ApiErrorOptions {
+    // The DRF error type, such as `validation_error`.
+    type?: string
+    hint?: string
+    details?: Readonly<Record<string, unknown>>
+    serverDetail?: string
+    exitCode?: number
+}
+
+// A non-2xx answer from PostHog.
 export class ApiError extends HogError {
+    readonly type: string | undefined
+
     constructor(
         readonly status: number,
-        readonly type: string | undefined,
         code: string,
         message: string,
-        hint?: string,
-        details?: Readonly<Record<string, unknown>>,
-        serverDetail?: string,
-        exitCode = EXIT_FAILURE
+        { type, hint, details, serverDetail, exitCode }: ApiErrorOptions = {}
     ) {
         super(code, message, hint, exitCode, details, serverDetail)
+        this.type = type
     }
 
-    override withMessage(message: string): ApiError {
-        return new ApiError(
-            this.status,
-            this.type,
-            this.code,
-            message,
-            this.hint,
-            this.details,
-            this.serverDetail,
-            this.exitCode
-        )
-    }
-
-    override withHint(hint: string): ApiError {
-        return new ApiError(
-            this.status,
-            this.type,
-            this.code,
-            this.message,
-            hint,
-            this.details,
-            this.serverDetail,
-            this.exitCode
-        )
+    protected override copy(patch: ErrorPatch): ApiError {
+        return new ApiError(this.status, this.code, patch.message ?? this.message, {
+            type: this.type,
+            hint: patch.hint ?? this.hint,
+            details: this.details,
+            serverDetail: this.serverDetail,
+            exitCode: this.exitCode,
+        })
     }
 }
 
@@ -131,16 +123,10 @@ export function stepUpRequired(
 ): ApiError {
     const named = scopes.filter(isScopeName)
     const command = stepUpCommand(named, host)
-    return new ApiError(
-        403,
-        undefined,
-        'step_up_required',
-        message,
-        `Run \`${command}\` to add the scopes to your login, then run the command again.`,
-        { scopes: named, command },
-        undefined,
-        EXIT_NEEDS_PERSON
-    )
+    return new ApiError(403, 'step_up_required', message, {
+        hint: `Run \`${command}\` to add the scopes to your login, then run the command again.`,
+        details: { scopes: named, command },
+    })
 }
 
 // A DRF error body. `type` is the DRF error type, such as `validation_error`.
@@ -220,16 +206,10 @@ export class PostHogApi {
             missing = await this.missingScopes(response)
         }
         if (missing && workload) {
-            throw new ApiError(
-                403,
-                undefined,
-                'missing_scopes',
-                `The job's token needs ${missing.join(', ')} for this.`,
-                workloadScopesHint(missing),
-                undefined,
-                undefined,
-                EXIT_NEEDS_PERSON
-            )
+            throw new ApiError(403, 'missing_scopes', `The job's token needs ${missing.join(', ')} for this.`, {
+                hint: workloadScopesHint(missing),
+                exitCode: EXIT_NEEDS_PERSON,
+            })
         }
         if (missing) {
             throw stepUpRequired(missing, { host: this.session.current.host })
@@ -239,7 +219,7 @@ export class PostHogApi {
             const hint = response.status === 404 ? 'Check the host and the project ID.' : undefined
             throw response.ok
                 ? new HogError('unexpected_response', message, hint)
-                : new ApiError(response.status, undefined, 'unexpected_response', message, hint)
+                : new ApiError(response.status, 'unexpected_response', message, { hint })
         }
         if (!response.ok) {
             const answer = answers.includes(response.status) ? schema.safeParse(response.json) : undefined
@@ -279,14 +259,10 @@ export class PostHogApi {
             403: 'Check that the personal API key has access to this project.',
             404: 'Check the host and the project ID.',
         }
-        return new ApiError(
-            status,
-            error.type,
-            error.code ?? `http_${status}`,
-            `PostHog answered with HTTP ${status}.`,
-            hints[status],
-            undefined,
-            error.detail
-        )
+        return new ApiError(status, error.code ?? `http_${status}`, `PostHog answered with HTTP ${status}.`, {
+            type: error.type,
+            hint: hints[status],
+            serverDetail: error.detail,
+        })
     }
 }

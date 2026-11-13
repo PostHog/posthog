@@ -96,9 +96,10 @@ The exit code says what happened, so a script or an agent can branch without rea
 | 2    | A usage error, such as an unknown command or a missing or invalid option. Input an agent can pass as an option counts here                                                                    |
 | 3    | A person has to act before the command can go on: log in, approve in the browser, add a scope, or answer a question only they can. The hint or the output says what                           |
 | 4    | The work started and is still running. The output names the `--wait` command that resumes it                                                                                                  |
+| 130  | Cancelled with Ctrl-C at a prompt                                                                                                                                                             |
 
 `hog auth login`, `hog auth add` and `hog ci setup` exit with 3 when they return a link for a person to approve, and `hog setup` and `hog setup next` do when setup waits for an answer or an approval from the person.
-`--no-fail` turns 1, 3 and 4 into 0, so a build never breaks on hog. Usage errors keep code 2. `hog commands -o json` lists the codes under `exitCodes`.
+`--no-fail` turns 1, 3 and 4 into 0, so a build never breaks on hog. Usage errors and Ctrl-C keep their codes. `hog commands -o json` lists the codes under `exitCodes`.
 
 ## Slow queries
 
