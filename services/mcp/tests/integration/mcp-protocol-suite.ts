@@ -1557,9 +1557,6 @@ export function defineResourceCatalogTests(
             expect(cmRead.contents[0]?.uri).toBe(cm.uri)
         })
 
-        // Where the email editor stores images: the media library, on its CDN or on the app host,
-        // PostHog's Unlayer project, and Unlayer's social icons. Most hosts mount the email view
-        // through render-ui, so the umbrella has to advertise them too.
         const emailImageSources = [
             'https://us-media.posthog.com/uploaded_media/',
             'https://eu-media.posthog.com/uploaded_media/',
@@ -1591,8 +1588,6 @@ export function defineResourceCatalogTests(
             }
         )
 
-        // Hosts load scripts from these sources too, so any source render-ui gains past its own
-        // hosts has to be reviewed here.
         it('adds only the email image sources to render-ui', async () => {
             const renderUi = await client.readResource({ uri: 'ui://posthog/render-ui.html' })
             const debug = await client.readResource({ uri: 'ui://posthog/debug.html' })

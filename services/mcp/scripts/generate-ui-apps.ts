@@ -350,10 +350,6 @@ interface RegistryEntry {
 
 const RENDER_UI_APP_KEY = 'render-ui'
 
-/**
- * The render-ui umbrella app mounts every dispatchable view inside its own iframe, so the host
- * applies the umbrella's CSP to them. It must allow every source those views declare.
- */
 function withRenderUiResourceDomains(entries: RegistryEntry[], dispatchApps: DispatchApp[]): RegistryEntry[] {
     const viewDomains = dispatchApps.flatMap((app) => (app.type === 'list' ? [] : (app.config.resource_domains ?? [])))
     return entries.map((entry) => {

@@ -707,8 +707,6 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             (s) => [s.preflight],
             (preflight: PreflightStatus | null) => {
                 if (preflight?.realm === Realm.Cloud || preflight?.is_debug) {
-                    // The MCP email template preview allows this project's uploads by path, in
-                    // products/workflows/mcp/email_templates.yaml. Change both together.
                     return 275430
                 }
             },
