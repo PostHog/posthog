@@ -71612,6 +71612,8 @@ export namespace Schemas {
     }
 
     export interface MessageTemplate {
+      /** Project folder for the new email template. */
+      _create_in_folder?: string;
       readonly id: string;
       /**
          * Human-readable template name shown in the library.
@@ -71654,6 +71656,14 @@ export namespace Schemas {
       draft_content?: MessageTemplateContent | null;
       /** Whether the template has unpublished edits in `draft_content`. */
       readonly has_draft: boolean;
+    }
+
+    export interface MessageTemplatePlacement {
+      /**
+         * Project tree path of the template's own file, such as 'Campaigns/Welcome'. Null when the template has no file.
+         * @nullable
+         */
+      path: string | null;
     }
 
     export interface MessagingError {
@@ -90933,6 +90943,8 @@ export namespace Schemas {
     }
 
     export interface PatchedMessageTemplate {
+      /** Project folder for the new email template. */
+      _create_in_folder?: string;
       readonly id?: string;
       /**
          * Human-readable template name shown in the library.
