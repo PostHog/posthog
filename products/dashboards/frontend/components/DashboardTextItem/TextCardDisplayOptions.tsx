@@ -7,10 +7,12 @@ export function TextCardDisplayOptions({
     tile,
     onUpdateDisplayOptions,
     saving,
+    dataAttr = 'text-card-menu-transparent-background',
 }: {
     tile: DashboardTile
     onUpdateDisplayOptions: (displayOptions: TileDisplayOptions) => void
     saving?: boolean
+    dataAttr?: string
 }): JSX.Element {
     return (
         <ChartOptionSwitch
@@ -18,7 +20,7 @@ export function TextCardDisplayOptions({
             checked={!!tile.transparent_background}
             onChange={(checked) => onUpdateDisplayOptions({ transparent_background: checked })}
             disabledReason={saving ? 'Saving…' : null}
-            data-attr="text-card-menu-transparent-background"
+            data-attr={dataAttr}
         />
     )
 }

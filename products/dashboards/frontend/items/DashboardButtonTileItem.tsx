@@ -1,6 +1,8 @@
 import { useValues } from 'kea'
 import React from 'react'
 
+import { IconChevronRight } from '@posthog/icons'
+
 import { ButtonTileCard } from 'lib/components/Cards/ButtonTileCard/ButtonTileCard'
 import { dashboardWidgetMenusLogic } from 'lib/components/Cards/InsightCard/dashboardWidgetMenusLogic'
 import {
@@ -10,9 +12,12 @@ import {
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
+import type { TileDisplayOptions } from 'scenes/dashboard/dashboardLogic'
 
 import type { DashboardPlacement, DashboardTile, DashboardType } from '~/types'
 
+import { TextCardDisplayOptions } from '../components/DashboardTextItem/TextCardDisplayOptions'
 import { QuillDashboardTileMenuItems } from '../components/QuillDashboardTileMenuItems'
 
 type BaseButtonTileCardProps = React.ComponentProps<typeof ButtonTileCard>
@@ -27,6 +32,8 @@ interface DashboardButtonTileItemProps
     onEdit: () => void
     onMoveToDashboard?: (target: Pick<DashboardType, 'id' | 'name'>) => void
     onDuplicate: () => void
+    onUpdateDisplayOptions?: (displayOptions: TileDisplayOptions) => void
+    displayOptionsSaving?: boolean
     onRemove?: () => void
 }
 
@@ -40,6 +47,8 @@ function DashboardButtonTileItemInternal(
         tileGroupMoveOptions,
         onMoveToTileGroup,
         onDuplicate,
+        onUpdateDisplayOptions,
+        displayOptionsSaving,
         onRemove,
         ...buttonTileCardProps
     }: DashboardButtonTileItemProps,
@@ -53,6 +62,14 @@ function DashboardButtonTileItemInternal(
     }
     const { copyToDestinations } = useValues(dashboardWidgetMenusLogic(dashboardWidgetMenusLogicProps))
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const displayOptions = onUpdateDisplayOptions ? (
+        <TextCardDisplayOptions
+            tile={tile}
+            onUpdateDisplayOptions={onUpdateDisplayOptions}
+            saving={displayOptionsSaving}
+            dataAttr="button-tile-menu-transparent-background"
+        />
+    ) : null
 
     return (
         <ButtonTileCard
@@ -75,6 +92,7 @@ function DashboardButtonTileItemInternal(
                         duplicateDataAttr="duplicate-button-tile-from-dashboard"
                         onRemove={onRemove}
                         removeDataAttr="remove-button-tile-from-dashboard"
+                        displayOptions={displayOptions}
                     />
                 ) : undefined
             }
@@ -83,6 +101,22 @@ function DashboardButtonTileItemInternal(
                     <LemonButton fullWidth onClick={onEdit} data-attr="edit-button-tile">
                         Edit button
                     </LemonButton>
+                    {displayOptions && (
+                        <LemonDropdown
+                            overlay={<div className="w-60 px-2 py-1">{displayOptions}</div>}
+                            closeOnClickInside={false}
+                            placement="right-start"
+                            fallbackPlacements={['left-start']}
+                        >
+                            <LemonButton
+                                fullWidth
+                                sideIcon={<IconChevronRight className="size-3" />}
+                                data-attr="dashboard-tile-display-options"
+                            >
+                                Display options
+                            </LemonButton>
+                        </LemonDropdown>
+                    )}
 
                     <DashboardWidgetPlacementMenus
                         placementDestinations={copyToDestinations}
