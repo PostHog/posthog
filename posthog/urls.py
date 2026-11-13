@@ -22,6 +22,7 @@ from posthog.api import (
     uploaded_media,
     user,
 )
+from posthog.api.cli_catalog import cli_catalog
 from posthog.api.github_callback.views import github_oauth_callback, github_setup_callback
 from posthog.api.integration_connect import integration_connect_redirect
 from posthog.api.livestream import LivestreamAuthorizationView
@@ -176,6 +177,7 @@ urlpatterns = [
     *signals_user_urlpatterns,
     path("api/projects/<int:team_id>/messaging/customerio/webhook/", csrf_exempt(CustomerIOWebhookView.as_view())),
     path("api/sdk_health/", sdk_health),
+    path("api/cli/catalog.json", cli_catalog),
     # Conversations serves its widget and channel API from backend/api/, which its routes module
     # may not import (import-linter contract "routes must only import presentation"), so the mount
     # stays here until those views move into presentation/.
