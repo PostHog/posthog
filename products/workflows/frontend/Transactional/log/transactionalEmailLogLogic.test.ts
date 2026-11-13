@@ -137,10 +137,10 @@ describe('transactionalEmailLogLogic', () => {
     })
 
     it.each([
-        ['page=4', 4, '150'],
-        ['page=0', 1, '0'],
-        ['page=abc', 1, '0'],
-    ])('reads filters from a shared link with %s', async (pageParam, page, offset) => {
+        ['page=4', '150'],
+        ['page=0', '0'],
+        ['page=abc', '0'],
+    ])('reads filters from a shared link with %s', async (pageParam, offset) => {
         logic.actions.setFilters({ search: 'ada' })
         await expectLogic(logic).toFinishAllListeners()
 

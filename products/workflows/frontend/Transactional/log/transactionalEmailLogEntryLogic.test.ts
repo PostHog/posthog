@@ -67,7 +67,8 @@ describe('transactionalEmailLogEntryLogic', () => {
             },
             post: {
                 '/api/environments/:team_id/query/:kind/': async ({ request }) => {
-                    const rows = (await request.json()).query.query.includes("'user-1'") ? PERSON_ROWS : []
+                    const { query } = (await request.json()) as { query: { query: string } }
+                    const rows = query.query.includes("'user-1'") ? PERSON_ROWS : []
                     return serve('person', () => [200, { results: rows }])
                 },
             },
