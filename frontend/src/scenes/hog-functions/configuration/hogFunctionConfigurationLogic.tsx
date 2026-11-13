@@ -23,7 +23,7 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
+import api, { ApiConfig } from 'lib/api'
 import { ApiError } from 'lib/api-error'
 import {
     CyclotronJobInputsValidation,
@@ -1059,7 +1059,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     let res: HogFunctionTemplateType
                     try {
                         res = (await hogFunctionTemplatesRetrieve(
-                            String(values.currentProjectId),
+                            String(ApiConfig.getCurrentProjectId()),
                             props.templateId
                         )) as HogFunctionTemplateType
                     } catch (e) {
