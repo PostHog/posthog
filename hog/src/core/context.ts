@@ -9,12 +9,12 @@ import {
     type CredentialOptions,
     type Credentials,
 } from '@/posthog/credentials'
-import { parseHost, REGIONS, type Host } from '@/posthog/host'
+import { cloudRegion, REGIONS, type Host } from '@/posthog/host'
 import { parseProjectId } from '@/posthog/ids'
 import { KeySession } from '@/posthog/key-session'
-import type { LoginQuery } from '@/posthog/login/choose'
+import { chooseLogin, type LoginQuery } from '@/posthog/login/choose'
 import { canStepUp } from '@/posthog/scope-challenge'
-import { fallbackHost, readSettings } from '@/posthog/settings'
+import { fallbackHost, readSettings, type HogSettings } from '@/posthog/settings'
 
 import type { Mode } from './agent'
 import type { CommandTree } from './command'
@@ -137,30 +137,38 @@ export class Context {
         return library
     }
 
-    // The host API calls go to, found without reading the keychain, since browsing tools needs no login.
+    // The host API calls go to, picked the way `resolveCredentials` picks it but without reading the
+    // keychain, since browsing tools needs no login. The catalog sets each call's method and path, so it
+    // must come from the PostHog that gets the calls.
     private async apiHost(): Promise<Host | undefined> {
         const requested = await this.requestedCredentials?.catch(() => undefined)
         if (requested) {
             return requested.key.host
         }
+        const options = await this.credentialOptions().catch(() => undefined)
+        if (options === undefined) {
+            return this.globals.host
+        }
         // A key in the environment or --dotenv-file carries its own host, and reading it needs no keychain.
-        const fromEnv = await this.credentialOptions()
-            .then((options) => resolveCredentials(this.runtime, { ...options, envOnly: true }))
-            .catch(() => undefined)
+        const fromEnv = await resolveCredentials(this.runtime, { ...options, envOnly: true }).catch(() => undefined)
         if (fromEnv) {
             return fromEnv.key.host
         }
-        const configHost = (await this.config().catch(() => undefined))?.config.host
-        const raw = this.globals.host ?? configHost
-        if (raw !== undefined) {
-            try {
-                return parseHost(raw)
-            } catch {
-                return undefined
-            }
+        const settings = await readSettings(this.runtime).catch(() => undefined)
+        // A login is for one path on its origin, and calls go there even when posthog.json names
+        // another path on the same origin.
+        const loginHost = settings && this.storedLoginHost(settings, options)
+        if (loginHost) {
+            return loginHost
         }
+        // posthog.json comes with the repository, so on its own it only picks a Cloud region.
+        return options.host ?? cloudRegion(options.configHost) ?? (settings && fallbackHost(settings))
+    }
+
+    // Undefined when HOG_PROJECT_ID is not a project ID, which fails the command once it needs credentials.
+    private storedLoginHost(settings: HogSettings, options: CredentialOptions): Host | undefined {
         try {
-            return fallbackHost(await readSettings(this.runtime))
+            return chooseLogin(settings, loginQuery(this.runtime, options)).record?.host
         } catch {
             return undefined
         }

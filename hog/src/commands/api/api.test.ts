@@ -365,7 +365,12 @@ function catalog(names: string[], extra: Record<string, unknown> = {}): Record<s
 const US = 'https://us.posthog.com'
 const CATALOG_URL = `${US}/api/cli/catalog.json`
 
-function cached(names: string[], ageMs: number, extra: Record<string, unknown> = {}): Record<string, string> {
+function cached(
+    names: string[],
+    ageMs: number,
+    extra: Record<string, unknown> = {},
+    host = US
+): Record<string, string> {
     const entry = {
         fetchedAt: NOW - ageMs,
         etag: '"v1"',
@@ -373,7 +378,7 @@ function cached(names: string[], ageMs: number, extra: Record<string, unknown> =
         retryAfter: null,
         failure: null,
     }
-    return { [CACHE]: JSON.stringify({ hosts: { [US]: entry } }) }
+    return { [CACHE]: JSON.stringify({ hosts: { [host]: entry } }) }
 }
 
 function catalogLibrary(dropped: ApiCatalogDroppedTool[] = []): {
@@ -533,6 +538,20 @@ describe('hog api tool catalog', () => {
     const DOTENV = {
         '/work/p.env': 'HOG_PERSONAL_API_KEY=phx_test\nHOG_PROJECT_ID=7\nHOG_HOST=https://eu.posthog.com\n',
     }
+    const SELF_HOSTED = 'https://ph.example.com'
+    const LOGIN_UNDER_PATH = {
+        '/home/test/.config/hog/settings.json': JSON.stringify({
+            logins: {
+                [SELF_HOSTED]: {
+                    store: 'keychain',
+                    type: 'personal_api_key',
+                    projectId: '42',
+                    host: `${SELF_HOSTED}/posthog`,
+                    loggedInAt: NOW,
+                },
+            },
+        }),
+    }
 
     test.each([
         ['an EU host', [], { HOG_HOST: 'https://eu.posthog.com' }, {}, 'https://eu.posthog.com/api/cli/catalog.json'],
@@ -557,6 +576,27 @@ describe('hog api tool catalog', () => {
             {},
             DOTENV,
             'https://eu.posthog.com/api/cli/catalog.json',
+        ],
+        [
+            'a self-hosted path, though another path on its origin has a fresh saved catalog',
+            [],
+            { HOG_HOST: `${SELF_HOSTED}/posthog` },
+            cached(['flag-old'], HOUR, {}, SELF_HOSTED),
+            'https://ph.example.com/posthog/api/cli/catalog.json',
+        ],
+        [
+            'the login, when posthog.json names another path on its origin',
+            [],
+            {},
+            { ...LOGIN_UNDER_PATH, '/work/posthog.json': JSON.stringify({ host: `${SELF_HOSTED}/other` }) },
+            'https://ph.example.com/posthog/api/cli/catalog.json',
+        ],
+        [
+            'US Cloud, when only posthog.json names a self-hosted host',
+            [],
+            {},
+            { '/work/posthog.json': JSON.stringify({ host: SELF_HOSTED }) },
+            CATALOG_URL,
         ],
     ])('downloads the catalog from the app of %s', async (_name, flags, env, files, url) => {
         const library = catalogLibrary()

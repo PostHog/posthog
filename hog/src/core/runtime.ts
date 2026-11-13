@@ -81,7 +81,7 @@ export interface Runtime {
     telemetryToken: string | undefined
     // Accepts any TLS certificate from here on, for every request, including the API tools' own.
     skipTlsVerification: () => void
-    // The MCP server's tool catalog, which `hog api` browses and calls. Loaded on first use: it is large.
+    // The tools `hog api` browses and calls, built in or from a downloaded catalog. Loaded on first use: it is large.
     loadApiTools: (options?: ApiToolLibraryOptions) => Promise<ApiToolLibrary>
     // The PostHog agent skills `hog skills read` serves. Loaded on first use, like the tool catalog.
     loadSkills: (options: SkillsLibraryOptions) => Promise<SkillsLibrary>
