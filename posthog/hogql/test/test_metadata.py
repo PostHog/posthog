@@ -508,7 +508,6 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 _move_notices("https://example.com/announcement"),
                 "https://example.com/announcement",
                 mode=FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
-                union_enabled=True,
                 expected_union_notices=1,
                 union_notice=FLAG_CALLED_FROM_BOTH_TABLES_NOTICE,
             ),

@@ -57,6 +57,12 @@ def get_flag_evaluations_read_mode(organization_id: UUID) -> int:
     return mode
 
 
+def is_flag_calls_union_disabled() -> bool:
+    """Whether FLAG_EVALUATIONS_UNION_DISABLED is on. HogQL then reads the flag calls of a query that mixes them with
+    other events from events only, for every organization."""
+    return bool(get_instance_setting("FLAG_EVALUATIONS_UNION_DISABLED"))
+
+
 def reads_flag_calls_from_flag_evaluations(team: "Team", modifiers: "HogQLQueryModifiers | None" = None) -> bool:
     """Whether a reader that picks its own table reads the team's flag calls from flag_evaluations. A team that reads
     the native JSON events table reads them there on every mode, because that table holds no flag calls. HogQL's

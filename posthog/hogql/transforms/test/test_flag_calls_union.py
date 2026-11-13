@@ -1,6 +1,7 @@
 import re
 import json
 import uuid
+from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
@@ -48,6 +49,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.escape import substitute_params
 from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.constants import AvailableFeature
+from posthog.models.instance_setting import override_instance_config
 from posthog.test.persons import create_group_type_mapping
 
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
@@ -229,12 +231,18 @@ def _set_mode(organization, mode: FlagEvaluationsMode) -> None:
     )
 
 
-def _enabled_flags(union: bool):
-    enabled = {"hogql-flag-calls-union"} if union else set()
-    return patch(
-        "posthog.hogql.database.database.feature_enabled_or_false",
-        side_effect=lambda key, *args, **kwargs: key in enabled,
-    )
+@contextmanager
+def _enabled_flags(union: bool, union_flag: bool | None = None):
+    # Mode 2 reads the union without the flag. Turning the union off therefore turns on the kill switch.
+    enabled = {"hogql-flag-calls-union"} if (union if union_flag is None else union_flag) else set()
+    with (
+        patch(
+            "posthog.hogql.database.database.feature_enabled_or_false",
+            side_effect=lambda key, *args, **kwargs: key in enabled,
+        ),
+        override_instance_config("FLAG_EVALUATIONS_UNION_DISABLED", not union),
+    ):
+        yield
 
 
 def _flag_evaluations_table_in_catalog():
@@ -779,6 +787,7 @@ class TestReadFlagCallsWithUnion(BaseTest):
         *,
         mode: FlagEvaluationsMode = READ,
         union: bool = True,
+        union_flag: bool | None = None,
         persons_on_events: PersonsOnEventsMode | None = None,
         new_events_schema: bool | None = None,
         person_id_pushdown: bool | None = None,
@@ -788,7 +797,7 @@ class TestReadFlagCallsWithUnion(BaseTest):
         rewrite_flag_calls: bool = True,
     ) -> str:
         _set_mode(self.organization, mode)
-        with _enabled_flags(union=union), _flag_evaluations_table_in_catalog():
+        with _enabled_flags(union=union, union_flag=union_flag), _flag_evaluations_table_in_catalog():
             sql, context = HogQLQueryExecutor(
                 query=query,
                 team=self.team,
@@ -815,8 +824,39 @@ class TestReadFlagCallsWithUnion(BaseTest):
 
     @parameterized.expand(
         [
-            ("mixed_query", f"SELECT count() FROM events WHERE {MIXED}", True, True),
-            ("mixed_query_with_the_flag_off", f"SELECT count() FROM events WHERE {MIXED}", False, False),
+            param("events_mode_with_the_flag", EVENTS, False, union_flag=True),
+            param("read_mode", READ, False),
+            param("read_mode_with_the_flag", READ, True, union_flag=True),
+            param("read_mode_with_the_flag_and_the_union_disabled", READ, False, union_flag=True, union=False),
+            param("only_mode", ONLY, True),
+            param("only_mode_with_the_union_disabled", ONLY, False, union=False),
+            # The native JSON events table holds no flag calls on any mode.
+            param("native_events_on_events_mode", EVENTS, True, new_events_schema=True),
+            param("native_events_with_the_union_disabled", EVENTS, False, new_events_schema=True, union=False),
+        ]
+    )
+    def test_union_follows_the_mode_and_the_kill_switch(
+        self,
+        _name: str,
+        mode: FlagEvaluationsMode,
+        expected_union: bool,
+        union_flag: bool = False,
+        union: bool = True,
+        new_events_schema: bool | None = None,
+    ):
+        sql = self._sql(
+            f"SELECT count() FROM events WHERE {MIXED}",
+            mode=mode,
+            union=union,
+            union_flag=union_flag,
+            new_events_schema=new_events_schema,
+        )
+
+        assert ("UNION ALL" in sql) is expected_union
+        assert (re.search(r"FROM flag_evaluations\b", sql) is not None) is expected_union
+
+    @parameterized.expand(
+        [
             (
                 "query_phase_1_swaps",
                 "SELECT count() FROM events WHERE event = '$feature_flag_called' "
