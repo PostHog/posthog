@@ -296,6 +296,7 @@ export interface analyticsListLogicActions {
             entries: FileSystemEntry[]
             folder: string
             hasMore: boolean
+            search: string
             users: UserBasicType[]
         } | null,
         payload?: void
@@ -304,6 +305,7 @@ export interface analyticsListLogicActions {
             entries: FileSystemEntry[]
             folder: string
             hasMore: boolean
+            search: string
             users: UserBasicType[]
         } | null
         payload?: void
