@@ -18,18 +18,19 @@ export function TodayMonitorProductRow({
 }): JSX.Element {
     // The shared card stores the payload, so it must keep its identity between renders.
     const preview = useMemo(() => productPreview(product.label, product.item), [product.label, product.item])
-    const row = (
-        <SidebarRow
-            value={`product:${product.key}`}
-            label={product.label}
-            icon={iconForType(
-                (product.item.iconType ?? product.item.type) as FileSystemIconType,
-                product.item.iconColor
-            )}
-            to={product.href}
-            active={active}
-            dataAttr={`${dataAttr}-${product.key}`}
-        />
+    return (
+        <TodayPreviewTrigger payload={preview}>
+            <SidebarRow
+                value={`product:${product.key}`}
+                label={product.label}
+                icon={iconForType(
+                    (product.item.iconType ?? product.item.type) as FileSystemIconType,
+                    product.item.iconColor
+                )}
+                to={product.href}
+                active={active}
+                dataAttr={`${dataAttr}-${product.key}`}
+            />
+        </TodayPreviewTrigger>
     )
-    return preview.description ? <TodayPreviewTrigger payload={preview}>{row}</TodayPreviewTrigger> : row
 }
