@@ -289,14 +289,14 @@ class TestSlackThreadHandler(SimpleTestCase):
         kwargs = mock_client.chat_postMessage.call_args.kwargs
         assert kwargs["channel"] == "C001"
         assert kwargs["thread_ts"] == "1234.5678"
-        assert "Pull request opened" in kwargs["text"]
+        assert "Hedgehog shipped a PR" in kwargs["text"]
         assert [_button_texts(block) for block in _action_blocks(kwargs)] == [["View PR"]]
         assert _context_texts(kwargs) == ["<https://posthog.com/task/1|View session>"]
 
     @parameterized.expand(
         [
-            ("closed", False, "<@U456> *Pull request closed without merging*", True),
-            ("merged", True, "<@U456> *Pull request merged* :tada:", False),
+            ("closed", False, "<@U456> *PR closed, the hedgehog lets it go* :fallen_leaf:", True),
+            ("merged", True, "<@U456> *Merged! The hedgehog is proud* :tada:", False),
         ]
     )
     @patch.object(SlackThreadHandler, "_get_integration", return_value=Integration(config={}, integration_id="T1"))
@@ -349,7 +349,7 @@ class TestSlackThreadHandler(SimpleTestCase):
 
         mock_client.chat_postMessage.assert_called_once()
         kwargs = mock_client.chat_postMessage.call_args.kwargs
-        assert kwargs["text"] == f"*Task Failed* :x:\n{UPSTREAM_PROVIDER_FAILURE_MESSAGE}"
+        assert kwargs["text"] == f"*The hedgehog hit a snag* :hedgehog: :boom:\n{UPSTREAM_PROVIDER_FAILURE_MESSAGE}"
         assert kwargs["blocks"][1]["text"]["text"] == UPSTREAM_PROVIDER_FAILURE_MESSAGE
         assert "retry" in kwargs["blocks"][2]["text"]["text"]
         assert _action_blocks(kwargs) == []
@@ -491,8 +491,8 @@ class TestPostPrOpenedReplyTarget(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("explicit_actor_tags_them", "ULATEST", "<@ULATEST> *Pull request opened* :rocket:"),
-            ("none_means_no_tag", None, "*Pull request opened* :rocket:"),
+            ("explicit_actor_tags_them", "ULATEST", "<@ULATEST> *Hedgehog shipped a PR* :hedgehog: :rocket:"),
+            ("none_means_no_tag", None, "*Hedgehog shipped a PR* :hedgehog: :rocket:"),
         ]
     )
     @patch.object(SlackThreadHandler, "delete_progress")
@@ -1020,4 +1020,4 @@ class TestMobileTaskNotificationTargets(SimpleTestCase):
             RunFooter(run_id="run-1"),
         )
         handler.post_pr_opened("https://example.com/pr/1", None, reply_target_slack_user_id="U123")
-        assert post.call_args.args[0] == "*Pull request opened* :rocket:"
+        assert post.call_args.args[0] == "*Hedgehog shipped a PR* :hedgehog: :rocket:"

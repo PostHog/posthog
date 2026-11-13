@@ -786,7 +786,7 @@ class SlackThreadHandler:
         """
         reply_target_slack_user_id = self.notification_target(reply_target_slack_user_id)
         mention_prefix = f"<@{reply_target_slack_user_id}> " if reply_target_slack_user_id else ""
-        header = f"{mention_prefix}*Pull request opened* :rocket:"
+        header = f"{mention_prefix}*Hedgehog shipped a PR* :hedgehog: :rocket:"
 
         blocks: list[dict[str, Any]] = [
             {"type": "section", "text": {"type": "mrkdwn", "text": header}},
@@ -814,7 +814,9 @@ class SlackThreadHandler:
         """
         reply_target_slack_user_id = self.notification_target(reply_target_slack_user_id)
         mention_prefix = f"<@{reply_target_slack_user_id}> " if reply_target_slack_user_id else ""
-        outcome = "*Pull request merged* :tada:" if merged else "*Pull request closed without merging*"
+        outcome = (
+            "*Merged! The hedgehog is proud* :tada:" if merged else "*PR closed, the hedgehog lets it go* :fallen_leaf:"
+        )
         header = f"{mention_prefix}{outcome}"
         blocks: list[dict[str, Any]] = [
             {"type": "section", "text": {"type": "mrkdwn", "text": header}},
@@ -958,7 +960,7 @@ class SlackThreadHandler:
         semantics). This card is the "task finished without opening a PR"
         terminal state.
         """
-        header = "*Task Completed* :hedgehog:"
+        header = "*All done, hedgehog out* :hedgehog:"
 
         blocks: list[dict[str, Any]] = [
             {"type": "section", "text": {"type": "mrkdwn", "text": header}},
@@ -972,7 +974,7 @@ class SlackThreadHandler:
         self, error: str, task_url: str | None, recovery_hint: str | None = DEFAULT_FAILURE_RECOVERY_HINT
     ) -> None:
         """Post the error message. The session link is in the footer."""
-        header = "*Task Failed* :x:"
+        header = "*The hedgehog hit a snag* :hedgehog: :boom:"
         error = _format_task_error(error)
         truncated_error = error[:200] if len(error) > 200 else error
 

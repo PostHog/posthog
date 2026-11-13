@@ -93,7 +93,7 @@ _RECOVERY_PROMPTS = {
     SLACK_RECOVERY_STRATEGY_RECONNECT_GITHUB: _RECONNECT_GITHUB_PROMPT.format(connect=_RECONNECT_GITHUB_CONNECT_LABEL),
 }
 
-SLACK_DENIAL_STOP_MESSAGE = "Stopped after the denied action — reply here to continue with a different approach."
+SLACK_DENIAL_STOP_MESSAGE = "Stopped, because you said no. Reply here to try a different way."
 
 
 @dataclass(frozen=False)
