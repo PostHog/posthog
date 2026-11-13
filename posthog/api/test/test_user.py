@@ -425,6 +425,29 @@ class TestUserAPI(APIBaseTest):
         assert response.json()["requires_credential_review"] is False
         assert response.json()["is_impersonated"] is False
 
+    def test_me_with_a_key_scoped_to_one_organization_hides_the_others(self) -> None:
+        other_organization, _, other_team = Organization.objects.bootstrap(self.user)
+        self.user.current_team = other_team
+        self.user.current_organization = other_organization
+        self.user.save()
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="Organization-scoped key",
+            secure_value=hash_key_value(token),
+            scopes=["user:read"],
+            scoped_organizations=[str(self.organization.id)],
+        )
+        self.client.logout()
+
+        response = self.client.get("/api/users/@me/", headers={"authorization": f"Bearer {token}"})
+
+        assert response.status_code == 200, response.content
+        body = response.json()
+        assert body["team"] is None
+        assert body["organization"] is None
+        assert [organization["id"] for organization in body["organizations"]] == [str(self.organization.id)]
+
     def test_requires_credential_review_unverified_passkey(self):
         # Unverified passkeys are the realistic pre-claim attack artifact - a partner
         # session can register a credential without ever completing verification.

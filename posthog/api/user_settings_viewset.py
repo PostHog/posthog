@@ -1,8 +1,8 @@
 """A base for settings the requesting user keeps for themselves, under `/api/<route>/@me/`.
 
-Staff may name another user by UUID. A subclass that reads or writes data of the user's current
-project must call `check_team_within_credential_organizations`, because `APIScopePermission` skips
-the tenant check for `scope_object = "user"`.
+Staff may name another user by UUID. A subclass reaches the user's current project only through
+`_current_team_id`, which refuses a credential confined to other organizations, because
+`APIScopePermission` skips the tenant check for `scope_object = "user"`.
 
 The base class carries no docstring: drf-spectacular reads a view's docstring through its MRO, so
 one here would become the published description of every subclass's endpoints.
@@ -12,7 +12,7 @@ from typing import cast
 
 from django.db.models import QuerySet
 
-from rest_framework import exceptions, viewsets
+from rest_framework import exceptions, serializers, viewsets
 from rest_framework.permissions import IsAuthenticated
 
 from posthog.auth import (
@@ -22,7 +22,7 @@ from posthog.auth import (
     SessionAuthentication,
 )
 from posthog.models import User
-from posthog.permissions import APIScopePermission
+from posthog.permissions import APIScopePermission, check_team_within_credential_organizations
 from posthog.rate_limit import UserAuthenticationThrottle
 
 
@@ -59,3 +59,10 @@ class UserSettingsViewSet(viewsets.GenericViewSet):
         if not self.request.user.is_staff:
             queryset = queryset.filter(id=self.request.user.id)
         return queryset
+
+    def _current_team_id(self, instance: User, missing_message: str) -> int:
+        team_id = instance.current_team_id
+        if not team_id:
+            raise serializers.ValidationError(missing_message)
+        check_team_within_credential_organizations(self.request, team_id)
+        return team_id

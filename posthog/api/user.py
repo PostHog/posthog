@@ -131,7 +131,7 @@ from posthog.permissions import (
     APIScopePermission,
     TimeSensitiveActionPermission,
     UserNoOrgMembershipDeletePermission,
-    get_authenticator_scoped_organization_ids,
+    credential_admits_organization,
 )
 from posthog.rate_limit import (
     OnboardingSkipThrottle,
@@ -704,20 +704,14 @@ class UserSerializer(serializers.ModelSerializer):
             for invite in invites
         ]
 
-    def _scoped_organization_ids(self) -> list[str] | None:
-        request = self.context.get("request")
-        return get_authenticator_scoped_organization_ids(getattr(request, "successful_authenticator", None))
-
-    def _within_credential_organizations(self, organization_id: object) -> bool:
-        scoped_organizations = self._scoped_organization_ids()
-        return scoped_organizations is None or str(organization_id) in scoped_organizations
-
     def validate_set_current_organization(self, value: str) -> Organization:
         try:
             organization = Organization.objects.get(id=value)
-            if not self._within_credential_organizations(organization.id):
-                raise serializers.ValidationError(f"Object with id={value} does not exist.", code="does_not_exist")
-            if organization.memberships.filter(user=self.context["request"].user).exists():
+            request = self.context["request"]
+            if (
+                credential_admits_organization(request, organization.id)
+                and organization.memberships.filter(user=request.user).exists()
+            ):
                 # A member the org no longer admits can't point their session back at it — this
                 # endpoint is on the enforcement whitelist, so it must refuse on its own.
                 if OrganizationDomain.objects.is_email_blocked_by_domain_enforcement(
@@ -733,9 +727,11 @@ class UserSerializer(serializers.ModelSerializer):
     def validate_set_current_team(self, value: str) -> Team:
         try:
             team = Team.objects.get(pk=value)
-            if not self._within_credential_organizations(team.organization_id):
-                raise serializers.ValidationError(f"Object with id={value} does not exist.", code="does_not_exist")
-            if self.context["request"].user.teams.filter(pk=team.pk).exists():
+            request = self.context["request"]
+            if (
+                credential_admits_organization(request, team.organization_id)
+                and request.user.teams.filter(pk=team.pk).exists()
+            ):
                 return team
         except Team.DoesNotExist:
             pass
@@ -931,18 +927,18 @@ class UserSerializer(serializers.ModelSerializer):
 
         # `/api/users/@me/` has no tenant target, so `APIScopePermission` leaves a credential confined to
         # some organizations free to read the user's current project and organization in any other one.
-        scoped_organizations = self._scoped_organization_ids()
-        if scoped_organizations is not None:
-            if data.get("team") is not None and str(data["team"]["organization"]) not in scoped_organizations:
-                data["team"] = None
-            if data.get("organization") is not None and str(data["organization"]["id"]) not in scoped_organizations:
-                data["organization"] = None
-            if data.get("organizations") is not None:
-                data["organizations"] = [
-                    organization
-                    for organization in data["organizations"]
-                    if str(organization["id"]) in scoped_organizations
-                ]
+        if data.get("team") is not None and not credential_admits_organization(request, data["team"]["organization"]):
+            data["team"] = None
+        if data.get("organization") is not None and not credential_admits_organization(
+            request, data["organization"]["id"]
+        ):
+            data["organization"] = None
+        if data.get("organizations") is not None:
+            data["organizations"] = [
+                organization
+                for organization in data["organizations"]
+                if credential_admits_organization(request, organization["id"])
+            ]
 
         # Backfill shortcut_position default for frontend if null
         with tracer.start_as_current_span("user_serializer.shortcut_position_backfill"):

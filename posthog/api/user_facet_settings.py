@@ -8,7 +8,6 @@ from rest_framework.response import Response
 from posthog.api.user_settings_viewset import UserSettingsViewSet
 from posthog.models import User, UserFacetSettings
 from posthog.models.scoping import team_scope
-from posthog.permissions import check_team_within_credential_organizations
 
 
 class UserFacetSettingsEntrySerializer(serializers.Serializer):
@@ -113,8 +112,4 @@ class UserFacetSettingsViewSet(UserSettingsViewSet):
     def _get_team_id(self, instance: User) -> int:
         # The id column on the user row is enough — dereferencing `current_team` would fetch the
         # whole (wide) Team row on every request.
-        team_id = instance.current_team_id
-        if not team_id:
-            raise serializers.ValidationError("Current team is required to manage custom facets.")
-        check_team_within_credential_organizations(self.request, team_id)
-        return team_id
+        return self._current_team_id(instance, "Current team is required to manage custom facets.")

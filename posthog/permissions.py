@@ -854,17 +854,23 @@ def get_authenticator_scoped_organization_ids(authenticator) -> list[str] | None
     return None
 
 
+def credential_admits_organization(request: Request | None, organization_id: object) -> bool:
+    """Whether the request's credential may reach `organization_id`. Always true for credentials with no
+    organization restriction, such as session auth."""
+    scoped_organizations = get_authenticator_scoped_organization_ids(getattr(request, "successful_authenticator", None))
+    return scoped_organizations is None or str(organization_id) in scoped_organizations
+
+
 def check_team_within_credential_organizations(request: Request, team_id: int) -> None:
     """Refuse a user-scoped route that acts on `team_id` when the credential is confined to other organizations.
 
     `APIScopePermission` skips the tenant check for `scope_object = "user"` routes, so a route that
     reads or writes data of the user's current team has to make this check itself.
     """
-    scoped_organizations = get_authenticator_scoped_organization_ids(getattr(request, "successful_authenticator", None))
-    if scoped_organizations is None:
+    if get_authenticator_scoped_organization_ids(getattr(request, "successful_authenticator", None)) is None:
         return
     organization_id = Team.objects.filter(id=team_id).values_list("organization_id", flat=True).first()
-    if str(organization_id) not in scoped_organizations:
+    if not credential_admits_organization(request, organization_id):
         raise PermissionDenied("This token cannot access the organization of your current project.")
 
 

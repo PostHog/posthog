@@ -1368,15 +1368,18 @@ class TestIDJagAccessTokenAuthentication(APIBaseTest):
         self.assertIsNone(body["organization"])
         self.assertEqual([organization["id"] for organization in body["organizations"]], [str(self.organization.id)])
 
-    def test_me_refuses_to_switch_to_a_project_outside_the_tokens_organization(self) -> None:
-        _, _, other_team = Organization.objects.bootstrap(self.user)
+    @parameterized.expand([("set_current_team",), ("set_current_organization",)])
+    def test_me_refuses_to_switch_outside_the_tokens_organization(self, field: str) -> None:
+        other_organization, _, other_team = Organization.objects.bootstrap(self.user)
         self.user.current_team = self.team
+        self.user.current_organization = self.organization
         self.user.save()
+        target = other_team.id if field == "set_current_team" else str(other_organization.id)
 
         token = self._mint_access_token(scope="user:write")
         resp = self.client.patch(
             "/api/users/@me/",
-            {"set_current_team": other_team.id},
+            {field: target},
             content_type="application/json",
             HTTP_AUTHORIZATION=f"Bearer {token}",
         )
@@ -1384,6 +1387,7 @@ class TestIDJagAccessTokenAuthentication(APIBaseTest):
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST, resp.content)
         self.user.refresh_from_db()
         self.assertEqual(self.user.current_team_id, self.team.id)
+        self.assertEqual(self.user.current_organization_id, self.organization.id)
 
     def test_organization_list_holds_only_the_tokens_organization(self) -> None:
         Organization.objects.bootstrap(self.user)

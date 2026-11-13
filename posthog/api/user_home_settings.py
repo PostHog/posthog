@@ -1,5 +1,5 @@
 from collections.abc import Iterable
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from drf_spectacular.utils import extend_schema, extend_schema_view
 from rest_framework import serializers
@@ -7,7 +7,6 @@ from rest_framework.response import Response
 
 from posthog.api.user_settings_viewset import UserSettingsViewSet
 from posthog.models import Team, User, UserHomeSettings
-from posthog.permissions import check_team_within_credential_organizations
 
 
 class PinnedSceneTabSerializer(serializers.Serializer):
@@ -176,11 +175,8 @@ class UserHomeSettingsViewSet(UserSettingsViewSet):
         )
 
     def _current_team(self, instance: User) -> Team:
-        team = instance.current_team
-        if not team:
-            raise serializers.ValidationError("Current team is required to manage pinned scene tabs.")
-        check_team_within_credential_organizations(self.request, team.id)
-        return team
+        self._current_team_id(instance, "Current team is required to manage pinned scene tabs.")
+        return cast(Team, instance.current_team)
 
     def _sanitize_tabs(self, tabs: Iterable[Optional[dict[str, Any]]]) -> tuple[list[dict[str, Any]], bool]:
         sanitized_tabs: list[dict[str, Any]] = []
