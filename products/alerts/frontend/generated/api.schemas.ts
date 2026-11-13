@@ -1011,11 +1011,6 @@ export interface AlertCreatePagerDutyDestinationApi {
     pagerduty_region?: PagerDutyRegionEnumApi
 }
 
-export interface AlertTransferOwnershipApi {
-    /** New owner's user UUID. Must be an active organization member. Defaults to yourself. */
-    user_uuid?: string
-}
-
 /**
  * * `discord` - discord
  * * `teams` - teams
@@ -1039,6 +1034,11 @@ export interface AlertCreateUrlDestinationApi {
     type: AlertCreateUrlDestinationTypeEnumApi
     /** The https URL to send to. Its path and query are a credential, so reads show only the host. */
     webhook_url: string
+}
+
+export interface AlertTransferOwnershipApi {
+    /** New owner's user UUID. Must be an active organization member. Defaults to yourself. */
+    user_uuid?: string
 }
 
 /**
