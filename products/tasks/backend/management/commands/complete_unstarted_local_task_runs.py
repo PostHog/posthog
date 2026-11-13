@@ -2,13 +2,15 @@ import time
 from collections.abc import Iterator
 from datetime import timedelta
 from typing import Any
+from uuid import UUID
 
 from django.core.management.base import BaseCommand, CommandParser
+from django.db import transaction
 from django.db.models import F, QuerySet
 from django.utils import timezone
 
 from products.tasks.backend.management.backfill import MAX_BATCH_SIZE, NIL_UUID
-from products.tasks.backend.models import TaskRun
+from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.task_run_sync import BACKFILL_ACTOR, sync_task_status
 
 IDLE_FOR = timedelta(hours=24)
@@ -22,6 +24,14 @@ def _unstarted_local_runs(team_id: int | None) -> QuerySet[TaskRun]:
         updated_at__lt=timezone.now() - IDLE_FOR,
     )
     return runs if team_id is None else runs.filter(team_id=team_id)
+
+
+def _complete_for_task(runs: QuerySet[TaskRun], task_id: UUID, run_ids: list[UUID]) -> int:
+    with transaction.atomic():
+        Task.objects.select_for_update(no_key=True).filter(pk=task_id).values_list("pk").first()
+        completed = runs.filter(id__in=run_ids).update(status=TaskRun.Status.COMPLETED, completed_at=F("updated_at"))
+        sync_task_status(task_id, changed_by=BACKFILL_ACTOR)
+    return completed
 
 
 def complete_unstarted_local_task_runs(
@@ -42,12 +52,10 @@ def complete_unstarted_local_task_runs(
         if not batch:
             return
         cursor_id = str(batch[-1][0])
-        completed = runs.filter(id__in=[run_id for run_id, _ in batch]).update(
-            status=TaskRun.Status.COMPLETED, completed_at=F("updated_at")
-        )
-        for task_id in dict.fromkeys(task_id for _, task_id in batch):
-            sync_task_status(task_id, changed_by=BACKFILL_ACTOR)
-        yield completed
+        run_ids_by_task: dict[UUID, list[UUID]] = {}
+        for run_id, task_id in batch:
+            run_ids_by_task.setdefault(task_id, []).append(run_id)
+        yield sum(_complete_for_task(runs, task_id, run_ids) for task_id, run_ids in run_ids_by_task.items())
         if sleep_seconds:
             time.sleep(sleep_seconds)
 

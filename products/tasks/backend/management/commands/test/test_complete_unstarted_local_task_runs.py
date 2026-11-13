@@ -1,5 +1,8 @@
 from datetime import timedelta
 
+from unittest.mock import patch
+
+from django.db import OperationalError
 from django.test import TestCase
 from django.utils import timezone
 
@@ -82,6 +85,23 @@ class TestCompleteUnstartedLocalTaskRuns(TestCase):
         task.refresh_from_db()
         task_run.refresh_from_db()
         self.assertEqual((task_run.status, task_run.completed_at, task.status), (run["status"], None, "queued"))
+
+    def test_keeps_the_run_open_when_its_task_sync_fails(self) -> None:
+        _, task_run = self._queued_task_with_run(
+            status=TaskRun.Status.NOT_STARTED, environment=TaskRun.Environment.LOCAL
+        )
+
+        with (
+            patch(
+                "products.tasks.backend.management.commands.complete_unstarted_local_task_runs.sync_task_status",
+                side_effect=OperationalError,
+            ),
+            self.assertRaises(OperationalError),
+        ):
+            list(complete_unstarted_local_task_runs())
+
+        task_run.refresh_from_db()
+        self.assertEqual(task_run.status, TaskRun.Status.NOT_STARTED)
 
     def test_dry_run_counts_without_writing(self) -> None:
         _, task_run = self._queued_task_with_run(
