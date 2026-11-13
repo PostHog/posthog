@@ -145,7 +145,6 @@ from products.access_control.backend.presentation.access_control import (
 from products.access_control.backend.presentation.access_control_settings import AccessControlSettingsViewSetMixin
 from products.dashboards.backend.models import Dashboard
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
-from products.feature_flags.backend.facade.flags import get_flag_evaluations_read_mode
 from products.feature_flags.backend.models import TeamFeatureFlagDefaultsConfig
 from products.feature_flags.backend.models.evaluation_context import (
     EvaluationContext,
@@ -642,6 +641,12 @@ class ProjectBackwardCompatSerializer(
             "whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table."
         )
     )
+    flag_calls_only_in_flag_evaluations = serializers.SerializerMethodField(  # Compat with TeamSerializer
+        help_text=(
+            "Whether this project's events table holds none of its new $feature_flag_called events, so "
+            "they can only be read from the flag_evaluations table."
+        )
+    )
     # These are @property attrs on Team, not Django model fields — declare explicitly so drf-spectacular can resolve them
     default_modifiers = serializers.DictField(read_only=True)  # Compat with TeamSerializer
     person_on_events_querying_enabled = serializers.BooleanField(read_only=True)  # Compat with TeamSerializer
@@ -821,6 +826,7 @@ class ProjectBackwardCompatSerializer(
             "user_access_level",  # Compat with TeamSerializer
             "managed_viewsets",  # Compat with TeamSerializer
             "flag_evaluations_mode",  # Compat with TeamSerializer
+            "flag_calls_only_in_flag_evaluations",  # Compat with TeamSerializer
             "api_host",  # Compat with TeamSerializer
             "revenue_analytics_config",  # Compat with TeamSerializer
             "marketing_analytics_config",  # Compat with TeamSerializer
@@ -864,6 +870,7 @@ class ProjectBackwardCompatSerializer(
             "user_access_level",
             "managed_viewsets",
             "flag_evaluations_mode",
+            "flag_calls_only_in_flag_evaluations",
             "api_host",
         )
 
@@ -1048,7 +1055,10 @@ class ProjectBackwardCompatSerializer(
 
     @extend_schema_field(serializers.ChoiceField(choices=FlagEvaluationsMode.choices))
     def get_flag_evaluations_mode(self, obj: Project) -> int:
-        return get_flag_evaluations_read_mode(obj.organization_id)
+        return TeamSerializer.get_flag_evaluations_mode(cast(TeamSerializer, self), obj.passthrough_team)
+
+    def get_flag_calls_only_in_flag_evaluations(self, obj: Project) -> bool:
+        return TeamSerializer.get_flag_calls_only_in_flag_evaluations(cast(TeamSerializer, self), obj.passthrough_team)
 
     @staticmethod
     def validate_revenue_analytics_config(value):

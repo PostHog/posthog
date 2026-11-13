@@ -24,6 +24,14 @@ export function storesFlagCallsOutsideEvents(team: TeamPublicType | TeamType | n
 }
 
 /**
+ * Whether the events table that the team's queries read holds none of its new flag calls. Unlike
+ * storesFlagCallsOutsideEvents, it is also true for a team that reads the native JSON events table.
+ */
+export function storesNoNewFlagCallsInEvents(team: TeamPublicType | TeamType | null): boolean {
+    return !!team?.flag_calls_only_in_flag_evaluations
+}
+
+/**
  * How long PostHog tells customers that flag_evaluations keeps a row. The events table keeps $feature_flag_called
  * forever. Keep it equal to FLAG_EVALUATIONS_RETENTION_DAYS in posthog/models/flag_evaluations/sql.py.
  * FLAG_EVALUATIONS_TTL_DAYS in that file is longer, so the table holds all of a range that starts this many days back.

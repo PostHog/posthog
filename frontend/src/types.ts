@@ -945,6 +945,7 @@ export interface TeamType extends TeamBasicType {
     base_currency: CurrencyCode
     managed_viewsets: Record<DataWarehouseManagedViewsetKind, boolean>
     flag_evaluations_mode: FlagEvaluationsModeEnumApi
+    flag_calls_only_in_flag_evaluations: boolean
     receive_org_level_activity_logs: boolean | null
     customer_analytics_config: CustomerAnalyticsConfig
     workflows_config: WorkflowsConfig
