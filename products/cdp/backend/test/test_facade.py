@@ -97,6 +97,13 @@ class TestHasDistinctIdHashingTransformation(BaseTest):
                 False,
             ),
             (
+                "hash_properties_commented_out_statement",
+                HASH_PROPERTIES,
+                {"privateFields": "distinct_id,email"},
+                {"hog": f"// {TEMPLATE_SOURCE[HASH_PROPERTIES]}\nreturn event"},
+                False,
+            ),
+            (
                 "hash_properties_customized_source",
                 HASH_PROPERTIES,
                 {"privateFields": "distinct_id,email"},

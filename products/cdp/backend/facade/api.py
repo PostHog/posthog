@@ -92,7 +92,8 @@ def _input_value(inputs: dict[str, Any], key: str) -> Any:
 
 
 # A function keeps its template_id after someone edits its source, so the inputs alone don't prove
-# it still hashes distinct_id. Each template's own hashing statement must survive in the saved source.
+# it still hashes distinct_id. Each template's own hashing statement must survive in the saved source,
+# at the start of a line so a commented-out copy doesn't count.
 _DISTINCT_ID_HASHING_STATEMENTS = {
     "template-pii-hashing": "returnEvent.distinct_id := sha256Hex",
     "template-hash-properties": "anonymizedEvent[trimmedFieldName] := hashValue(event[trimmedFieldName]",
@@ -101,7 +102,7 @@ _DISTINCT_ID_HASHING_STATEMENTS = {
 
 def _hashes_distinct_id(template_id: str | None, inputs: dict[str, Any] | None, hog: str | None) -> bool:
     statement = _DISTINCT_ID_HASHING_STATEMENTS.get(template_id or "")
-    if statement is None or statement not in (hog or ""):
+    if statement is None or not any(line.lstrip().startswith(statement) for line in (hog or "").splitlines()):
         return False
     inputs = inputs or {}
     if template_id == "template-pii-hashing":
