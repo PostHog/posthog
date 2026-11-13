@@ -6,9 +6,9 @@ import { CyclotronInvocationQueueParametersFetchSchema } from '~/cdp/schema/cycl
 
 import { registerAsyncFunction } from '../async-function-registry'
 
-const withWebhookId = (signing: Record<string, unknown>): Record<string, unknown> => ({
+const withWebhookId = (signing: Record<string, unknown>, webhookId: string): Record<string, unknown> => ({
     ...signing,
-    webhook_id: randomUUID(),
+    webhook_id: webhookId,
 })
 
 registerAsyncFunction('fetch', {
@@ -25,6 +25,8 @@ registerAsyncFunction('fetch', {
                 ? fetchOptions.body
                 : JSON.stringify(fetchOptions.body)
             : fetchOptions?.body
+
+        const webhookId = randomUUID()
 
         // Hog templates targeting AWS services (Kinesis, SQS, …) pass `aws_sigv4`
         // here instead of computing the Authorization header in Hog. The fetch
@@ -45,10 +47,11 @@ registerAsyncFunction('fetch', {
             // executor: it has to survive every retry of this call (the receiver
             // dedupes on it) and it must not be shared with another fetch from the
             // same invocation, which anything derived from the invocation would be.
+            // Both signers send webhook-id, so they share the one id of this delivery.
             ...(fetchOptions?.standard_webhooks
-                ? { standard_webhooks: withWebhookId(fetchOptions.standard_webhooks) }
+                ? { standard_webhooks: withWebhookId(fetchOptions.standard_webhooks, webhookId) }
                 : {}),
-            ...(fetchOptions?.hmac_sha256 ? { hmac_sha256: withWebhookId(fetchOptions.hmac_sha256) } : {}),
+            ...(fetchOptions?.hmac_sha256 ? { hmac_sha256: withWebhookId(fetchOptions.hmac_sha256, webhookId) } : {}),
         })
 
         result.invocation.queueParameters = fetchQueueParameters

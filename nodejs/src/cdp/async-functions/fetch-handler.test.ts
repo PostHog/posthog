@@ -27,4 +27,14 @@ describe('fetch handler', () => {
             expect(second[signing]?.webhook_id).not.toBe(first[signing]?.webhook_id)
         }
     )
+
+    it('gives both signers of one fetch call the same webhook id', async () => {
+        const queued = await callFetch({
+            standard_webhooks: { secret_input: 'signing_secret' },
+            hmac_sha256: { secret_input: 'signing_secret' },
+        })
+
+        expect(queued.standard_webhooks?.webhook_id).toBeTruthy()
+        expect(queued.hmac_sha256?.webhook_id).toBe(queued.standard_webhooks?.webhook_id)
+    })
 })
