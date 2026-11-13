@@ -112,7 +112,7 @@ def score_aeo_sentiment_backlog_task() -> None:
         except (Team.DoesNotExist, ValueError):
             logger.warning("aeo_sentiment_backlog_unknown_team", team_id=raw_team_id)
             continue
-        if not _citation_tracking_enabled(team):
+        if not citation_tracking_enabled(team):
             continue
         try:
             start_backlog_sentiment_scoring(team.id)

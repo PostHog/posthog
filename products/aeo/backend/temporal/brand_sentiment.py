@@ -166,8 +166,16 @@ async def classify_aeo_brand_sentiment(inputs: AEOBrandSentimentInputs) -> dict[
                 )
         except (ImportError, FileNotFoundError) as error:
             return _model_unavailable(inputs, pending, error)
+        scored: list[tuple[str, str, float]] = []
+        position = 0
+        for answer in group:
+            sentence_scores = [result.scores for result in results[position : position + len(answer.sentences)]]
+            position += len(answer.sentences)
+            sentiment = aggregate_sentiment(sentence_scores)
+            if sentiment is not None:
+                scored.append((answer.check_id, sentiment.label, sentiment.score))
         written += await database_sync_to_async(_write_scores, thread_sensitive=False)(
-            inputs.team_id, batch.own_domains_key, _aggregate(group, results)
+            inputs.team_id, batch.own_domains_key, scored
         )
         classified += len(group)
         activity.heartbeat(classified)
@@ -181,18 +189,6 @@ async def classify_aeo_brand_sentiment(inputs: AEOBrandSentimentInputs) -> dict[
         remaining=len(pending) - classified,
     )
     return {"scored": written, "answers": classified}
-
-
-def _aggregate(answers: Sequence[_PendingAnswer], results: Sequence[Any]) -> list[tuple[str, str, float]]:
-    scored: list[tuple[str, str, float]] = []
-    position = 0
-    for answer in answers:
-        sentence_scores = [result.scores for result in results[position : position + len(answer.sentences)]]
-        position += len(answer.sentences)
-        sentiment = aggregate_sentiment(sentence_scores)
-        if sentiment is not None:
-            scored.append((answer.check_id, sentiment.label, sentiment.score))
-    return scored
 
 
 def _model_unavailable(
