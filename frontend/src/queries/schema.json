@@ -25250,11 +25250,18 @@
                     "$ref": "#/definitions/ErrorTrackingIssueStatus"
                 },
                 "tags": {
-                    "description": "The enabled tags that are applied to the issue, on issue list results and issue detail. Null or absent when the project has no enabled tag.",
-                    "items": {
-                        "$ref": "#/definitions/ErrorTrackingIssueTag"
-                    },
-                    "type": "array"
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/ErrorTrackingIssueTag"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "The enabled tags that are applied to the issue, on issue list results and issue detail. Null or absent when the project has no enabled tag."
                 }
             },
             "required": [
@@ -25541,11 +25548,18 @@
                     "$ref": "#/definitions/ErrorTrackingIssueStatus"
                 },
                 "tags": {
-                    "description": "The enabled tags that are applied to the issue, on issue list results and issue detail. Null or absent when the project has no enabled tag.",
-                    "items": {
-                        "$ref": "#/definitions/ErrorTrackingIssueTag"
-                    },
-                    "type": "array"
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/ErrorTrackingIssueTag"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "The enabled tags that are applied to the issue, on issue list results and issue detail. Null or absent when the project has no enabled tag."
                 }
             },
             "required": ["assignee", "description", "first_seen", "id", "last_seen", "library", "name", "status"],
@@ -26391,11 +26405,18 @@
                     "$ref": "#/definitions/ErrorTrackingIssueStatus"
                 },
                 "tags": {
-                    "description": "The enabled tags that are applied to the issue, on issue list results and issue detail. Null or absent when the project has no enabled tag.",
-                    "items": {
-                        "$ref": "#/definitions/ErrorTrackingIssueTag"
-                    },
-                    "type": "array"
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/ErrorTrackingIssueTag"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "The enabled tags that are applied to the issue, on issue list results and issue detail. Null or absent when the project has no enabled tag."
                 }
             },
             "required": ["id", "name", "description", "assignee", "status", "first_seen"],
