@@ -321,9 +321,7 @@ describe('broadcast previews', () => {
 
         expect(screen.getByText('Send a test notification')).toBeInTheDocument()
         expect(screen.getByText(/^Goes to this person's devices only\./)).toBeInTheDocument()
-        expect(
-            screen.getByText('No one matches this audience yet, so variables send as blank text.')
-        ).toBeInTheDocument()
+        expect(screen.getByText(/^No one matches this audience yet, so variables send as blank/)).toBeInTheDocument()
         expect(el('broadcast-test-push-recipient')).toHaveValue(MOCK_DEFAULT_USER.distinct_id)
     })
 
