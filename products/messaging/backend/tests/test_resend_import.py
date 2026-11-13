@@ -504,7 +504,10 @@ class TestResendImport(BaseTest):
 
         notes = resend._step_email({"from": "x@example.com"}, senders).notes
 
-        assert [note in item for item in notes] == ([True] if note else [])
+        if note:
+            assert len(notes) == 1 and note in notes[0]
+        else:
+            assert notes == ()
 
     def test_a_template_without_a_display_name_uses_the_senders_name(self) -> None:
         sender = cast(IntegrationRecord, SimpleNamespace(id=7, config={"name": "Acme team", "verified": True}))
