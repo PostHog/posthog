@@ -23,7 +23,8 @@ network_access = false
 
 [shell_environment_policy]
 # Keep another checkout's Flox, virtualenv, and compiler paths out of commands.
-inherit = "core"
+inherit = "all"
+include_only = ["HOME", "LANG", "LC_ALL", "LC_CTYPE", "LOGNAME", "PATH", "PYTEST_ADDOPTS", "SHELL", "SSH_AUTH_SOCK", "TEMP", "TMP", "TMPDIR", "USER"]
 # xdist opens a loopback socket even without parallel workers, which the
 # Codex sandbox blocks.
-set = { PATH = "/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin", PYTEST_ADDOPTS = "-p no:xdist" }
+set = { PATH = "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin", PYTEST_ADDOPTS = "-p no:xdist" }
