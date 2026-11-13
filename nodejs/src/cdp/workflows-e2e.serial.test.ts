@@ -43,7 +43,12 @@ import { parseJSON } from '~/common/utils/json-parse'
 import { UUIDT } from '~/common/utils/utils'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { Clickhouse } from '~/tests/helpers/clickhouse'
-import { StoredEmailStatus, storedEmailStatus, waitForEmailStatusMvReady } from '~/tests/helpers/email-status'
+import {
+    StoredEmailStatus,
+    storedEmailStatus,
+    storedEmailStatusesTo,
+    waitForEmailStatusMvReady,
+} from '~/tests/helpers/email-status'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { TEST_KAFKA_TOPICS, ensureKafkaTopics } from '~/tests/helpers/kafka'
 import { setTeamQuotaLimited } from '~/tests/helpers/quota-limits'
@@ -3818,7 +3823,7 @@ describe('Workflows E2E (email queue)', () => {
             })
         })
 
-        it.each<ApiSend & { status: number; error?: string }>([
+        it.each<ApiSend & { status: number; error?: string; logged?: string }>([
             {
                 name: 'a code send in a marketing category whose html has no unsubscribe link',
                 kind: 'code',
@@ -3865,6 +3870,7 @@ describe('Workflows E2E (email queue)', () => {
                 given: (to: string) => optOut(to, newsletterId),
                 status: 422,
                 error: 'recipient_opted_out',
+                logged: 'recipient_opted_out',
             },
             {
                 name: 'a code send in a marketing category to a recipient who opted out of all marketing',
@@ -3873,6 +3879,7 @@ describe('Workflows E2E (email queue)', () => {
                 given: (to: string) => optOut(to, '$all'),
                 status: 422,
                 error: 'recipient_opted_out',
+                logged: 'recipient_opted_out',
             },
             {
                 name: 'a code send in a marketing category to a recipient whose only suppression is a spam complaint',
@@ -3881,6 +3888,7 @@ describe('Workflows E2E (email queue)', () => {
                 given: complain,
                 status: 422,
                 error: 'recipient_suppressed',
+                logged: 'recipient_suppressed',
             },
             {
                 name: 'a scheduled code send in a marketing category with no unsubscribe link',
@@ -3926,6 +3934,14 @@ describe('Workflows E2E (email queue)', () => {
                 expect(res.body).toEqual({ error: row.error })
             }
             expect(await queryCyclotronJobs()).toEqual([])
+            if (row.logged) {
+                await waitForExpect(async () => {
+                    expect(await storedEmailStatusesTo(clickhouse, team.id, to)).toEqual([
+                        { status: 'queued', reason: '' },
+                        { status: 'failed', reason: row.logged },
+                    ])
+                }, 15000)
+            }
         })
 
         it.each<ApiSend>([

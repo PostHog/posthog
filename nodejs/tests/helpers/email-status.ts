@@ -43,6 +43,15 @@ export const waitForEmailStatusMvReady = async (clickhouse: Clickhouse): Promise
     }
 }
 
+export const storedEmailStatusesTo = async (
+    clickhouse: Clickhouse,
+    teamId: number,
+    recipient: string
+): Promise<StoredEmailStatus[]> =>
+    await clickhouse.query<StoredEmailStatus>(
+        `SELECT status, reason FROM email_status_events WHERE team_id = ${teamId} AND recipient = '${recipient}' ORDER BY version`
+    )
+
 export const storedEmailStatus = async (
     clickhouse: Clickhouse,
     teamId: number,

@@ -112,6 +112,7 @@ const isSkippedSendRefusal = (
     refusal === 'sending_suspended' ||
     refusal === 'sending_paused' ||
     refusal === 'recipient_suppressed' ||
+    refusal === 'recipient_opted_out' ||
     refusal === 'recipient_unreachable'
 
 const scheduledAtOfRunningRow = (job: CyclotronJobInvocation): DateTime | undefined => {
