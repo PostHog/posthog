@@ -181,6 +181,51 @@ describe('memberOffboardingLogic', () => {
         expect(logic.values.keep).toEqual([])
     })
 
+    it.each([false, true])(
+        'transfers selected subscriptions and alerts, retaining failures for retry (%s)',
+        async (failAlert) => {
+            const subscription = { ...resources[0], id: 'subscription:1', resource_id: '1', kind: 'subscription' }
+            const alert = { ...resources[0], id: 'alert:2', resource_id: '2', kind: 'alert', team_id: 2 }
+            useMocks({
+                get: {
+                    '/api/organizations/:organization/members/:user/offboarding_preview/': [
+                        subscription,
+                        alert,
+                        resources[0],
+                    ],
+                },
+                post: {
+                    '/api/projects/:project/:kind/:resource/take_ownership/': async ({ request }) => {
+                        updates.push({ path: new URL(request.url).pathname, body: await request.json() })
+                        return request.url.includes('/alerts/') && failAlert
+                            ? [400, { detail: 'The new owner cannot access this insight.' }]
+                            : [200, {}]
+                    },
+                },
+            })
+            await expectLogic(logic, () => logic.actions.open(MOCK_SECOND_ORGANIZATION_MEMBER)).toFinishAllListeners()
+            logic.actions.openTransfer([subscription.id, alert.id])
+            logic.actions.setTransferOwner(MOCK_DEFAULT_ORGANIZATION_MEMBER.user)
+            await expectLogic(logic, () => logic.actions.transferOwnership()).toFinishAllListeners()
+
+            expect(updates).toEqual(
+                expect.arrayContaining([
+                    {
+                        path: '/api/projects/1/subscriptions/1/take_ownership/',
+                        body: { user_uuid: MOCK_DEFAULT_ORGANIZATION_MEMBER.user.uuid },
+                    },
+                    {
+                        path: '/api/projects/2/alerts/2/take_ownership/',
+                        body: { user_uuid: MOCK_DEFAULT_ORGANIZATION_MEMBER.user.uuid },
+                    },
+                ])
+            )
+            expect(logic.values.resources).toEqual(failAlert ? [alert, resources[0]] : [resources[0]])
+            expect(logic.values.transferIds).toEqual(failAlert ? [alert.id] : [])
+            expect(submitted).toEqual([])
+        }
+    )
+
     it('limits bulk updates to five requests in flight', async () => {
         const manyResources = Array.from({ length: 12 }, (_, index) => ({
             ...resources[0],
