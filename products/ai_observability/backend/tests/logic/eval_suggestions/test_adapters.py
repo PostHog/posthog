@@ -255,6 +255,56 @@ class TestAdaptedChecks:
                 False,
             ),
             (
+                "email_from_a_tool_result_in_a_user_turn_still_counts",
+                adapters.sensitive_data(),
+                [
+                    _answer(
+                        "Jane is jane.doe@acme.io",
+                        **{
+                            "$ai_input": [
+                                {
+                                    "role": "user",
+                                    "content": [{"type": "tool_result", "content": "jane.doe@acme.io"}],
+                                }
+                            ]
+                        },
+                    )
+                ],
+                False,
+            ),
+            (
+                "email_from_a_user_text_block",
+                adapters.sensitive_data(),
+                [
+                    _answer(
+                        "Jane is jane.doe@acme.io",
+                        **{
+                            "$ai_input": [
+                                {"role": "user", "content": [{"type": "text", "text": "Find jane.doe@acme.io"}]}
+                            ]
+                        },
+                    )
+                ],
+                True,
+            ),
+            (
+                "email_from_otel_user_parts",
+                adapters.sensitive_data(),
+                [
+                    _answer(
+                        "Jane is jane.doe@acme.io",
+                        **{
+                            "$ai_input": [
+                                {"role": "user", "parts": [{"type": "text", "content": "Find jane.doe@acme.io"}]}
+                            ]
+                        },
+                    )
+                ],
+                True,
+            ),
+            ("number_input", adapters.sensitive_data(), [_answer("Ask jane.doe@acme.io", **{"$ai_input": 42})], False),
+            ("empty_input", adapters.sensitive_data(), [_answer("Ask jane.doe@acme.io", **{"$ai_input": []})], False),
+            (
                 "otel_tool_call_parts_repeat",
                 REPEATS,
                 [_otel_call("search", {"q": "a"}, f"c{i}") for i in range(3)],

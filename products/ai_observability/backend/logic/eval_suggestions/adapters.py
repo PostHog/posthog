@@ -297,13 +297,35 @@ let latest := final_input
 if (isValidJSON(latest)) {{
     latest := jsonParse(latest)
 }}
-if (typeof(latest) == 'array' and length(latest) > 0) {{
-    latest := latest[length(latest)]
+if (typeof(latest) == 'array') {{
+    if (length(latest) > 0) {{
+        latest := latest[length(latest)]
+    }} else {{
+        latest := null
+    }}
 }}
 if (typeof(latest) == 'string') {{
     given := addresses_in(latest)
-}} else if (typeof(latest) == 'object' and latest.role == 'user') {{
-    given := addresses_in(jsonStringify(latest.content))
+}} else if (typeof(latest) == 'object') {{
+    if (latest.role == 'user') {{
+        let user_text := ''
+        if (typeof(latest.content) == 'string') {{
+            user_text := latest.content
+        }}
+        // Text blocks only: Anthropic and OpenTelemetry inputs put tool results in a user turn too.
+        for (let i, blocks in [latest.content, latest.parts]) {{
+            if (typeof(blocks) == 'array') {{
+                for (let j, block in blocks) {{
+                    if (typeof(block) == 'object') {{
+                        if (block.type == 'text') {{
+                            user_text := concat(user_text, ' ', toString(ifNull(block.text, ifNull(block.content, ''))))
+                        }}
+                    }}
+                }}
+            }}
+        }}
+        given := addresses_in(user_text)
+    }}
 }}
 for (let i, address in addresses_in(final_text)) {{
     let domain := splitByString('@', address)[2]
