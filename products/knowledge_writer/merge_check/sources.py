@@ -159,10 +159,10 @@ def merged_pull_request(listed: Mapping[str, Any], commit_sha: str) -> MergedPul
     )
 
 
-def read_numbered_pull_request(github: GitHubReader, change: LandedChange) -> dict[str, Any]:
+def read_pull_request(github: GitHubReader, repository: str, pull_request_number: int) -> dict[str, Any]:
     response = read_github(
         github,
-        f"/repos/{change.repository}/pulls/{change.pull_request_number}",
+        f"/repos/{repository}/pulls/{pull_request_number}",
         endpoint="/repos/{owner}/{repo}/pulls/{pull_number}",
     )
     return response.json()
