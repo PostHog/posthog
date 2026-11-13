@@ -19,10 +19,6 @@ TEMPORAL_USE_PYDANTIC_CONVERTER: bool = get_from_env("TEMPORAL_USE_PYDANTIC_CONV
 TEMPORAL_MAX_HEARTBEAT_THROTTLE_SECONDS: float = get_from_env(
     "TEMPORAL_MAX_HEARTBEAT_THROTTLE_SECONDS", 5.0, type_cast=float
 )
-# Delays the first heartbeat to a quarter of the timeout and skips the exit heartbeat on success.
-TEMPORAL_HEARTBEAT_SKIP_SHORT_RUNS: bool = get_from_env(
-    "TEMPORAL_HEARTBEAT_SKIP_SHORT_RUNS", False, type_cast=str_to_bool
-)
 
 TEMPORAL_SECRET_KEY: str = os.getenv("TEMPORAL_SECRET_KEY", SECRET_KEY)
 TEMPORAL_FALLBACK_SECRET_KEYS: list[str] = get_list(os.getenv("TEMPORAL_FALLBACK_SECRET_KEYS", "")) or [SECRET_KEY]

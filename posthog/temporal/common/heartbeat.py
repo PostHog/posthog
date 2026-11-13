@@ -1,13 +1,10 @@
 import abc
-import math
 import time
 import socket
 import typing
 import asyncio
 import dataclasses
 import collections.abc
-
-from django.conf import settings
 
 from structlog import get_logger
 from temporalio import activity
@@ -17,24 +14,11 @@ from posthog.temporal.common.liveness_tracker import get_liveness_tracker
 LOGGER = get_logger(__name__)
 
 
-def first_heartbeat_delay(heartbeat_timeout_seconds: float, interval: float) -> float:
-    """Seconds to wait before the first heartbeat, so activities that finish quickly send none."""
-    if settings.TEMPORAL_HEARTBEAT_SKIP_SHORT_RUNS:
-        return heartbeat_timeout_seconds / 4
-    return interval
-
-
-def ticks_before_first_heartbeat(initial_delay: float, interval: float) -> int:
-    """Number of whole intervals that fit before the first heartbeat is due."""
-    return math.ceil(initial_delay / interval - 1e-9)
-
-
 class Heartbeater:
     """Regular heartbeatting during Temporal activity execution.
 
     This class manages two heartbeat tasks via a context manager:
-    * A task that hearbeats regularly every 'heartbeat_timeout' / 'factor', starting
-      later when `TEMPORAL_HEARTBEAT_SKIP_SHORT_RUNS` is on, so short activities send none.
+    * A task that hearbeats regularly every 'heartbeat_timeout' / 'factor'.
     * A task that heartbeats after worker shutdown is detected.
 
     Attributes:
@@ -74,12 +58,7 @@ class Heartbeater:
 
         if heartbeat_timeout:
             self.heartbeat_task = asyncio.create_task(
-                self._heartbeat_forever(
-                    heartbeat_timeout.total_seconds() / self.factor,
-                    initial_delay=first_heartbeat_delay(
-                        heartbeat_timeout.total_seconds(), heartbeat_timeout.total_seconds() / self.factor
-                    ),
-                )
+                self._heartbeat_forever(heartbeat_timeout.total_seconds() / self.factor)
             )
 
         async def heartbeat_on_shutdown() -> None:
@@ -102,8 +81,8 @@ class Heartbeater:
 
         return self
 
-    async def __aexit__(self, exc_type, exc, tb):
-        """Cancel heartbeatting tasks on exit, and save the latest details if the activity failed."""
+    async def __aexit__(self, *args, **kwargs):
+        """Cancel heartbeatting tasks on exit."""
         tasks_to_wait = []
         if self.heartbeat_task is not None:
             self.heartbeat_task.cancel()
@@ -116,20 +95,17 @@ class Heartbeater:
         if tasks_to_wait:
             await asyncio.wait(tasks_to_wait)
 
-        # A retry resumes from these details. A completed activity has no retry to resume.
-        if exc_type is not None or not settings.TEMPORAL_HEARTBEAT_SKIP_SHORT_RUNS:
-            activity.heartbeat(*self.details)
+        activity.heartbeat(*self.details)
 
         self.heartbeat_task = None
         self.heartbeat_on_shutdown_task = None
 
-    async def _heartbeat_forever(self, delay: float, initial_delay: float):
-        """Heartbeat forever every delay seconds, after waiting initial_delay seconds."""
-        await asyncio.sleep(initial_delay)
+    async def _heartbeat_forever(self, delay):
+        """Heartbeat forever every delay seconds."""
         while True:
+            await asyncio.sleep(delay)
             activity.heartbeat(*self.details)
             self.logger.debug("Heartbeat")
-            await asyncio.sleep(delay)
 
 
 class LivenessHeartbeater(Heartbeater):
@@ -139,16 +115,10 @@ class LivenessHeartbeater(Heartbeater):
         super().__init__(details, factor)
         self.tracker = get_liveness_tracker()
 
-    async def _heartbeat_forever(self, delay: float, initial_delay: float):
-        """Heartbeat forever every delay seconds, after waiting initial_delay seconds."""
-        # Liveness is local and free, so it keeps its interval while the billed heartbeat waits.
-        ticks_before_send = ticks_before_first_heartbeat(initial_delay, delay) - 1
+    async def _heartbeat_forever(self, delay):
+        """Heartbeat forever every delay seconds."""
         while True:
             await asyncio.sleep(delay)
-            if ticks_before_send > 0:
-                ticks_before_send -= 1
-                self.tracker.record_heartbeat()
-                continue
             try:
                 extra_payload = {"host": socket.gethostname(), "ts": time.time()}
                 activity.heartbeat(*self.details, extra_payload)
