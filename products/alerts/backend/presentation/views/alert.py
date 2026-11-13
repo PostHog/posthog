@@ -2789,14 +2789,34 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return Response(response_serializer.data)
 
 
+# Set in the serializer context once every embedded alert of a page has been shown.
+_ALERTS_SHOWN: Final = "alerts_shown"
+
+
+def _show_alerts(alerts: list[AlertConfiguration]) -> None:
+    _show_platform_status(alerts, now=timezone.now())
+    _show_platform_subscribers(alerts)
+
+
 class _ShownAlertsSerializer(serializers.ListSerializer):
     """A threshold's alerts, each the platform owns shown as the alert API shows it."""
 
     def to_representation(self, data: Any) -> list[Any]:
         alerts = list(data.all() if isinstance(data, Manager) else data)
-        _show_platform_status(alerts, now=timezone.now())
-        _show_platform_subscribers(alerts)
+        if not self.context.get(_ALERTS_SHOWN):
+            _show_alerts(alerts)
         return super().to_representation(alerts)
+
+
+class _ThresholdsSerializer(serializers.ListSerializer):
+    """A page of thresholds, whose embedded alerts are shown in one pass, so the platform reads once
+    per page rather than once per threshold."""
+
+    def to_representation(self, data: Any) -> list[Any]:
+        thresholds = list(data.all() if isinstance(data, Manager) else data)
+        _show_alerts([alert for threshold in thresholds for alert in threshold.alertconfiguration_set.all()])
+        self.context[_ALERTS_SHOWN] = True
+        return super().to_representation(thresholds)
 
 
 class ThresholdWithAlertSerializer(ThresholdSerializer):
@@ -2805,11 +2825,13 @@ class ThresholdWithAlertSerializer(ThresholdSerializer):
     class Meta(ThresholdSerializer.Meta):
         fields = [*ThresholdSerializer.Meta.fields, "alerts"]
         read_only_fields = [*ThresholdSerializer.Meta.read_only_fields, "alerts"]
+        list_serializer_class = _ThresholdsSerializer
 
 
 class ThresholdViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
     scope_object = "alert"
-    queryset = Threshold.objects.all()
+    # Prefetched, so the page's alerts are the same objects its thresholds then serialize.
+    queryset = Threshold.objects.prefetch_related("alertconfiguration_set")
     serializer_class = ThresholdWithAlertSerializer
 
     def safely_get_queryset(self, queryset) -> QuerySet:
@@ -2817,4 +2839,9 @@ class ThresholdViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
         # metrics scope gate as the alerts endpoints. Same null-safe filter-then-exclude shape.
         if _token_lacks_metrics_scope(self.request):
             queryset = queryset.exclude(id__in=queryset.filter(METRICS_INSIGHT_QUERY_FILTER).values("id"))
-        return queryset
+        # The embedded alerts carry the insight's results, as the alert API's do, so the same gate on
+        # viewer access to the insight applies.
+        viewable = self.user_access_control.filter_queryset_by_access_level(
+            Insight.objects.filter(team_id=self.team_id)
+        )
+        return queryset.filter(insight_id__in=viewable.values("id"))

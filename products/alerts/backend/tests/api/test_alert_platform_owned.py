@@ -27,6 +27,7 @@ from posthog.models.user import User
 from posthog.schema_enums import AlertCalculationInterval, AlertState
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.access_control.backend.models.access_control import AccessControl
 from products.alerts.backend.evaluation.detector import _earlier_flags, _saved_alert_flags
 from products.alerts.backend.facade.api import (
     WATCHED_ROWS_PER_INSIGHT,
@@ -586,15 +587,28 @@ class TestPlatformOwnedInsightAlert(ClickhouseTestMixin, APIBaseTest):
 
         assert (listed(matching), listed(missing)) == ([str(self.alert.id)], [])
 
-    def test_the_thresholds_endpoint_shows_a_moved_alert_from_its_copy(self) -> None:
+    @parameterized.expand([("list", True), ("retrieve", True), ("list_without_insight_access", False)])
+    def test_the_thresholds_endpoint_shows_a_moved_alert_from_its_copy(self, action: str, can_view: bool) -> None:
         AlertConfiguration.objects.filter(id=self.alert.id).update(name="Drifted")
+        if not can_view:
+            self.organization.available_product_features = [
+                {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+            ]
+            self.organization.save()
+            self.organization_membership.level = OrganizationMembership.Level.MEMBER
+            self.organization_membership.save()
+            AccessControl.objects.create(
+                resource="insight", resource_id=self.alert.insight_id, team=self.team, access_level="none"
+            )
+        url = f"/api/projects/{self.team.id}/insights/{self.alert.insight_id}/thresholds/"
 
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/insights/{self.alert.insight_id}/thresholds/{self.alert.threshold_id}/"
-        )
+        response = self.client.get(url if action != "retrieve" else f"{url}{self.alert.threshold_id}/")
 
         assert response.status_code == status.HTTP_200_OK, response.json()
-        assert [alert["name"] for alert in response.json()["alerts"]] == [self.alert.name]
+        thresholds = [response.json()] if action == "retrieve" else response.json()["results"]
+        assert [alert["name"] for threshold in thresholds for alert in threshold["alerts"]] == (
+            [self.alert.name] if can_view else []
+        )
 
     @parameterized.expand(
         [
