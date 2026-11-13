@@ -520,13 +520,12 @@ class TestWorkflowFolders(APIBaseTest):
         template_after_delete = self.client.get(f"/api/projects/{self.team.id}/messaging_templates/{template['id']}/")
         self.client.delete(f"{files_url}{entry['id']}/")
         self.client.force_login(creator)
-        with patch("posthog.models.file_system.constants._evaluate_workflows_list_v2") as flag_evaluation:
-            restored = self.client.post(
-                f"{files_url}undo_delete/",
-                {"items": [{"type": "message_template", "ref": template["id"], "path": "Restored/Creator email"}]},
-                format="json",
-            )
-        self.assertEqual(flag_evaluation.call_count, 0)
+        remote_requests = self._local_flag_answer(None)
+        restored = self.client.post(
+            f"{files_url}undo_delete/",
+            {"items": [{"type": "message_template", "ref": template["id"], "path": "Restored/Creator email"}]},
+            format="json",
+        )
         self.client.force_login(self.user)
         template_after_restore = self.client.get(f"/api/projects/{self.team.id}/messaging_templates/{template['id']}/")
 
@@ -536,8 +535,9 @@ class TestWorkflowFolders(APIBaseTest):
                 template_after_delete.status_code,
                 restored.status_code,
                 template_after_restore.status_code,
+                "workflows-list-v2" in remote_requests,
             ],
-            [403, 200, 400, 404],
+            [403, 200, 400, 404, False],
             [deleted.content, restored.content],
         )
 
@@ -1168,11 +1168,27 @@ class TestWorkflowFolders(APIBaseTest):
         self.assertEqual(created.json()["attr"], "_create_in_folder")
         self.assertFalse(FileSystem.objects.filter(team=self.team, type="folder").exists())
 
-    def test_filing_a_template_without_renaming_it_checks_the_path_with_its_stored_name(self) -> None:
-        templates_url = f"/api/projects/{self.team.id}/messaging_templates/"
-        template = self.client.post(templates_url, {"name": "n" * 400, "type": "email"}, format="json").json()
+    @parameterized.expand(
+        [
+            ("template", "messaging_templates", {"type": "email"}),
+            (
+                "workflow",
+                "hog_flows",
+                {
+                    "actions": [{"id": "trigger", "name": "Trigger", "type": "trigger", "config": {"type": "manual"}}],
+                    "edges": [],
+                },
+            ),
+        ]
+    )
+    def test_filing_without_renaming_checks_the_path_with_the_stored_name(
+        self, _name: str, resource: str, payload: dict[str, Any]
+    ) -> None:
+        url = f"/api/projects/{self.team.id}/{resource}/"
+        created = self.client.post(url, {"name": "n" * 400, **payload}, format="json")
+        self.assertEqual(created.status_code, 201, created.content)
 
-        filed = self.client.patch(f"{templates_url}{template['id']}/", {"_create_in_folder": "a" * 3990}, format="json")
+        filed = self.client.patch(f"{url}{created.json()['id']}/", {"_create_in_folder": "a" * 3990}, format="json")
 
         self.assertEqual(filed.status_code, 400, filed.content)
         self.assertEqual(filed.json()["attr"], "_create_in_folder")
@@ -1983,6 +1999,29 @@ class TestWorkflowFolders(APIBaseTest):
         ).json()["results"]
         self.assertEqual([file["path"] for file in files], ["Campaigns/Retention/Renewal"])
 
+    @parameterized.expand([("flag_on", True), ("local_evaluation_inconclusive", None)])
+    def test_filing_an_unfiled_workflow_on_update_puts_it_in_the_requested_folder(
+        self, _name: str, local: bool | None
+    ) -> None:
+        workflows_url = f"/api/projects/{self.team.id}/hog_flows/"
+        trigger = {"id": "trigger", "name": "Trigger", "type": "trigger", "config": {"type": "manual"}}
+        workflow_id = self.client.post(
+            workflows_url, {"name": "Renewal", "actions": [trigger], "edges": []}, format="json"
+        ).json()["id"]
+        FileSystem.objects.filter(team=self.team, type="hog_flow", ref=workflow_id).delete()
+        self._local_flag_answer(local)
+
+        filed = self.client.patch(
+            f"{workflows_url}{workflow_id}/", {"_create_in_folder": "Campaigns/Retention"}, format="json"
+        )
+
+        self.assertEqual(filed.status_code, 200, filed.content)
+        self._local_flag_answer(True)
+        files = self.client.get(
+            f"/api/projects/{self.team.id}/file_system/", {"type": "hog_flow", "ref": workflow_id}
+        ).json()["results"]
+        self.assertEqual([file["path"] for file in files], ["Campaigns/Retention/Renewal"])
+
     @parameterized.expand(
         [
             ("tree", "file_system/", {}),
@@ -2313,43 +2352,22 @@ class TestWorkflowFilesUnderRealTransactions(NonAtomicBaseTest):
         self.assertEqual(deleted.status_code, 204, deleted.content)
         self.assertEqual(self.client.get(workflow_url).status_code, 404)
 
-    @parameterized.expand(
-        [
-            (
-                "workflow",
-                "hog_flow",
-                "SELECT 1 FROM posthog_hogflow WHERE id = %s FOR UPDATE",
-                "This workflow is being saved. Try again in a moment.",
-            ),
-        ]
-    )
-    def test_tree_delete_refuses_while_a_save_holds_the_object(
-        self, _name: str, file_type: str, lock_row: str, busy_detail: str
-    ) -> None:
-        if file_type == "hog_flow":
-            created = self.client.post(
-                f"/api/projects/{self.team.id}/hog_flows/",
-                {
-                    "name": "Welcome",
-                    "actions": [{"id": "trigger", "name": "Trigger", "type": "trigger", "config": {"type": "manual"}}],
-                    "edges": [],
-                },
-                format="json",
-            )
-            self.assertEqual(created.status_code, 201, created.content)
-            object_url = f"/api/projects/{self.team.id}/hog_flows/{created.json()['id']}/"
-            HogFlow.objects.filter(id=created.json()["id"]).update(status=HogFlow.State.ARCHIVED)
-        else:
-            created = self.client.post(
-                f"/api/projects/{self.team.id}/messaging_templates/",
-                {"name": "Welcome", "type": "email"},
-                format="json",
-            )
-            self.assertEqual(created.status_code, 201, created.content)
-            object_url = f"/api/projects/{self.team.id}/messaging_templates/{created.json()['id']}/"
+    def test_tree_delete_refuses_while_a_save_holds_the_workflow(self) -> None:
+        created = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/",
+            {
+                "name": "Welcome",
+                "actions": [{"id": "trigger", "name": "Trigger", "type": "trigger", "config": {"type": "manual"}}],
+                "edges": [],
+            },
+            format="json",
+        )
+        self.assertEqual(created.status_code, 201, created.content)
+        object_url = f"/api/projects/{self.team.id}/hog_flows/{created.json()['id']}/"
+        HogFlow.objects.filter(id=created.json()["id"]).update(status=HogFlow.State.ARCHIVED)
         object_id = created.json()["id"]
         files_url = f"/api/projects/{self.team.id}/file_system/"
-        file_id = self.client.get(files_url, {"type": file_type, "ref": object_id}).json()["results"][0]["id"]
+        file_id = self.client.get(files_url, {"type": "hog_flow", "ref": object_id}).json()["results"][0]["id"]
         locked = Event()
         release = Event()
 
@@ -2357,7 +2375,7 @@ class TestWorkflowFilesUnderRealTransactions(NonAtomicBaseTest):
             close_old_connections()
             try:
                 with transaction.atomic(), connection.cursor() as cursor:
-                    cursor.execute(lock_row, [object_id])
+                    cursor.execute("SELECT 1 FROM posthog_hogflow WHERE id = %s FOR UPDATE", [object_id])
                     locked.set()
                     release.wait(timeout=10)
             finally:
@@ -2373,7 +2391,7 @@ class TestWorkflowFilesUnderRealTransactions(NonAtomicBaseTest):
             holder.result(timeout=15)
 
         self.assertEqual(refused.status_code, 409, refused.content)
-        self.assertEqual(refused.json()["detail"], busy_detail)
+        self.assertEqual(refused.json()["detail"], "This workflow is being saved. Try again in a moment.")
         self.assertEqual(self.client.get(f"{files_url}{file_id}/").status_code, 200)
 
         deleted = self.client.delete(f"{files_url}{file_id}/")
