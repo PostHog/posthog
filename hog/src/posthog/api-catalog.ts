@@ -170,9 +170,14 @@ async function download(runtime: Runtime, url: string, etag: string | null): Pro
             headers: etag ? { 'If-None-Match': etag } : {},
             timeoutMs: FETCH_TIMEOUT_MS,
             skipRateLimit: true,
+            // A followed redirect could hand back plans from another origin, saved under this host.
+            redirect: 'manual',
         })
         if (response.status === 304) {
             return { kind: 'unchanged' }
+        }
+        if (response.status >= 300 && response.status < 400) {
+            return { kind: 'failed', reason: `${origin} redirected the catalog request`, notServed: false }
         }
         if (response.status === 404) {
             return { kind: 'failed', reason: `${origin} doesn't serve a tool catalog`, notServed: true }
