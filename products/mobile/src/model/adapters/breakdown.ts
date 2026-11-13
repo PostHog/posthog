@@ -34,10 +34,10 @@ function nonBlank(value: unknown): string | null {
     return typeof value === 'string' && value.trim() !== '' ? value : null
 }
 
-/** The web reads a renamed series from action.custom_name; the result label still contains the raw event name. */
+/** Saved names live on the result row, or under action in older responses; labels still use raw event names. */
 export function trendSeriesLabel(entry: JsonRecord, index: number): string {
     const action = asRecord(entry.action)
-    const customName = nonBlank(action?.custom_name)
+    const customName = nonBlank(entry.custom_name) ?? nonBlank(action?.custom_name)
     const resultLabel = nonBlank(entry.label)
     const breakdown = breakdownLabel(entry.breakdown_value)
     if (!customName && resultLabel) {
@@ -85,7 +85,7 @@ function rankedValue(entry: JsonRecord, index: number): RankedValueView | null {
     if (value === undefined) {
         return null
     }
-    const order = finite(asRecord(entry.action)?.order) ?? index
+    const order = finite(entry.order) ?? finite(asRecord(entry.action)?.order) ?? index
     const label = trendSeriesLabel(entry, order)
     return { key: `${order}:${JSON.stringify(entry.breakdown_value ?? null)}`, label, value }
 }

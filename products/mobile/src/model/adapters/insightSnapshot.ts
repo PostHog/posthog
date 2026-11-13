@@ -252,7 +252,7 @@ function pointsOf(entry: JsonRecord | undefined): MetricPoint[] {
 }
 
 function seriesIndexOf(entry: JsonRecord, fallback: number): number {
-    return finite(asRecord(entry.action)?.order) ?? fallback
+    return finite(entry.order) ?? finite(asRecord(entry.action)?.order) ?? fallback
 }
 
 function breakdownOf(entry: JsonRecord): InsightSeriesView['breakdownValue'] {

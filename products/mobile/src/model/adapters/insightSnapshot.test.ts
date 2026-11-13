@@ -85,13 +85,19 @@ const SQL_PLANS: [string, string][] = [
 ]
 
 describe('insightSnapshot', () => {
-    test.each(['ActionsLineGraph', 'ActionsBar', 'ActionsBarValue', 'ActionsTable', 'ActionsPie'])(
-        'uses saved series names in %s, including tooltip and comparison labels',
-        (display) => {
+    test.each(
+        ['ActionsLineGraph', 'ActionsBar', 'ActionsBarValue', 'ActionsTable', 'ActionsPie'].flatMap((display) =>
+            ['current', 'legacy'].map((response) => ({ display, response }))
+        )
+    )(
+        'uses saved series names in $display with $response responses, including tooltip and comparison labels',
+        ({ display, response }) => {
             const result = ['Completed checkouts', 'Abandoned checkouts'].flatMap((name, order) =>
                 ['current', 'previous'].map((compare_label) => ({
                     label: 'checkout',
-                    action: { name: 'checkout', custom_name: name, order },
+                    ...(response === 'current'
+                        ? { custom_name: name, order }
+                        : { action: { name: 'checkout', custom_name: name, order } }),
                     compare_label,
                     days: DAYS,
                     data: [10, 20, 30, 40],
@@ -121,6 +127,13 @@ describe('insightSnapshot', () => {
     )
 
     test.each<[Record<string, unknown>, string]>([
+        [{ label: 'checkout', custom_name: 'Completed checkouts' }, 'Completed checkouts'],
+        [
+            { label: 'checkout', custom_name: 'Completed checkouts', action: { custom_name: 'Legacy name' } },
+            'Completed checkouts',
+        ],
+        [{ label: 'checkout', custom_name: '   ' }, 'checkout'],
+        [{ label: '   ', order: 2 }, 'Series 3'],
         [{ label: 'checkout', action: { custom_name: '', name: 'checkout' } }, 'checkout'],
         [{ label: 'checkout', action: { custom_name: '   ', name: 'checkout' } }, 'checkout'],
         [{ label: '', action: { custom_name: 'Completed checkouts' } }, 'Completed checkouts'],
@@ -128,6 +141,14 @@ describe('insightSnapshot', () => {
         [{ action: { id: 42 } }, '42'],
         [{ label: '   ', action: { order: 2 } }, 'Series 3'],
         [{ label: 'Conversion rate', action: null }, 'Conversion rate'],
+        [
+            {
+                label: 'Chrome',
+                custom_name: 'Completed checkouts',
+                breakdown_value: 'Chrome',
+            },
+            'Completed checkouts · Chrome',
+        ],
         [
             {
                 label: 'checkout - Chrome',
