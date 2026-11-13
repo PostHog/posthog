@@ -95,6 +95,19 @@ export class ApiError extends HogError {
         super(code, message, hint, exitCode, details, serverDetail)
     }
 
+    override withMessage(message: string): ApiError {
+        return new ApiError(
+            this.status,
+            this.type,
+            this.code,
+            message,
+            this.hint,
+            this.details,
+            this.serverDetail,
+            this.exitCode
+        )
+    }
+
     override withHint(hint: string): ApiError {
         return new ApiError(
             this.status,

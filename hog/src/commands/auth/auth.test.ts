@@ -1582,4 +1582,22 @@ describe('hog auth login', () => {
             result.requests.filter((request) => request.method === 'POST' && !request.url.includes('/oauth/'))
         ).toEqual([])
     })
+
+    test('a login revoked before its token expires stops a release lookup with the login hint', async () => {
+        const result = await runHog(['et', 'release', '--release-name', 'shop', '--release-version', '1.0.0'], {
+            env: { CLAUDECODE: '1' },
+            ...OAUTH_LOGIN,
+            respond: (url) =>
+                url.endsWith('/oauth/token/')
+                    ? { status: 400, body: { error: 'invalid_grant' } }
+                    : { status: 401, body: { detail: 'Invalid token.' } },
+        })
+
+        expect(result.exitCode).toBe(3)
+        expect(result.error()).toMatchObject({
+            code: 'session_expired',
+            message: "hog couldn't look up the release: Your hog login expired or was revoked.",
+            hint: 'Run `hog auth login` to log in again.',
+        })
+    })
 })
