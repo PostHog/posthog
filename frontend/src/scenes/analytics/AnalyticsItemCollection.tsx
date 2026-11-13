@@ -1,6 +1,7 @@
+import { useActions } from 'kea'
 import { router } from 'kea-router'
 
-import { IconFolderOpen } from '@posthog/icons'
+import { IconFolderOpen, IconPlus } from '@posthog/icons'
 import {
     Button,
     DropdownMenu,
@@ -17,16 +18,30 @@ import { urls } from 'scenes/urls'
 import { escapePath } from '~/layout/panel-layout/ProjectTree/utils'
 
 import { AnalyticsCollectionMenuItems } from './AnalyticsCollectionMenuItems'
+import { analyticsShareLogic } from './analyticsShareLogic'
 import { AnalyticsSpaceGlyph } from './AnalyticsSpaceGlyph'
-import { AnalyticsItem } from './analyticsUtils'
+import { AnalyticsItem, analyticsItemTarget, ROW_HOVER_REVEAL } from './analyticsUtils'
 
 // Long collection names would push the other columns around, so the pill stops at this many characters.
 const MAX_NAME_LENGTH = 16
 
-export function AnalyticsItemCollection({ item }: { item: AnalyticsItem }): JSX.Element | null {
+export function AnalyticsItemCollection({ item }: { item: AnalyticsItem }): JSX.Element {
+    const { openShareToSpace } = useActions(analyticsShareLogic)
     const collection = item.spaceName
     if (!collection) {
-        return null
+        return (
+            <Button
+                variant="default"
+                size="icon-xs"
+                tooltip="Add to a collection"
+                aria-label={`Add ${item.name} to a collection`}
+                className={ROW_HOVER_REVEAL}
+                onClick={() => openShareToSpace(analyticsItemTarget(item))}
+                data-attr="analytics-list-row-space-add"
+            >
+                <IconPlus />
+            </Button>
+        )
     }
     const label = collection.length > MAX_NAME_LENGTH ? `${collection.slice(0, MAX_NAME_LENGTH)}…` : collection
 
