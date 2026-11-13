@@ -49,6 +49,10 @@ export function hogFlowSendsEmail(workflow?: { actions?: HogFlowAction[] } | nul
     )
 }
 
+export function isRejectedAudience(error: unknown): error is ApiError & { detail: string } {
+    return error instanceof ApiError && error.status === 400 && !!error.detail
+}
+
 export interface BatchTriggerLogicProps {
     id?: string | 'new'
     filters?: Extract<HogFlowAction['config'], { type: 'batch' }>['filters']
@@ -169,7 +173,7 @@ export const batchTriggerLogic = kea<batchTriggerLogicType>([
             },
         ],
     })),
-    loaders(({ props, values }) => ({
+    loaders(({ actions, props, values }) => ({
         recipientsWithoutEmail: [
             {} as Record<string, number>,
             {
@@ -215,7 +219,15 @@ export const batchTriggerLogic = kea<batchTriggerLogicType>([
             null as BlastRadiusApi | null,
             {
                 loadBlastRadius: async () => {
-                    return await requestBlastRadius(values.currentProjectId, props)
+                    try {
+                        return await requestBlastRadius(values.currentProjectId, props)
+                    } catch (error) {
+                        if (!isRejectedAudience(error)) {
+                            throw error
+                        }
+                        actions.setBlastRadiusError(error.detail)
+                        return null
+                    }
                 },
             },
         ],

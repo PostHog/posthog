@@ -69,6 +69,7 @@ import {
     messageDraftEmail,
     parseMessageDraftPrefill,
 } from '../MessageAudience/messageDrafts'
+import { isRejectedAudience } from '../Workflows/hogflows/steps/batchTriggerLogic'
 import type { MissingRecipientEmailBannerProps } from '../Workflows/hogflows/steps/components/MissingRecipientEmailBanner'
 import {
     DEFAULT_STATE,
@@ -983,10 +984,17 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                     if (!values.currentProjectId) {
                         return null
                     }
-                    return await hogFlowsUserBlastRadiusCreate(
-                        String(values.currentProjectId),
-                        audiencePreviewRequest(values.audienceProperties, values.channel)
-                    )
+                    try {
+                        return await hogFlowsUserBlastRadiusCreate(
+                            String(values.currentProjectId),
+                            audiencePreviewRequest(values.audienceProperties, values.channel)
+                        )
+                    } catch (error) {
+                        if (isRejectedAudience(error)) {
+                            return null
+                        }
+                        throw error
+                    }
                 },
             },
         ],
