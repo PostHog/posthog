@@ -226,7 +226,7 @@ class TestMCPToolsAPI(APIBaseTest):
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/mcp_tools/read_taxonomy/",
-            {"args": {"query": {"kind": "events"}}},
+            {"args": {"query": {"kind": "events"}, "filters": {"properties": [{"value": "fake-filter-value"}]}}},
             format="json",
         )
 
@@ -234,6 +234,7 @@ class TestMCPToolsAPI(APIBaseTest):
         expected = {"success": False, "content": content, "error_type": error_type}
         if error_code is not None:
             self.assertEqual(mock_capture.call_args.args, (error,))
+            self.assertNotIn("filters", mock_capture.call_args.kwargs["properties"]["args"])
             error_id = mock_capture.call_args.kwargs["properties"]["error_id"]
             expected["content"] = f"{content} Error id: {error_id}"
             expected["error_code"] = error_code

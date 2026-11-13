@@ -846,7 +846,7 @@ export class ToolExecutor {
                         isPrivateScoutTrialTool(metricTool) ||
                         isPrivateScoutTrialTool(execShape.$mcp_exec_target_tool) ||
                         hasSqlFilters(metricTool, execMetrics.innerInput) ||
-                        hasSqlFilters('exec', params)
+                        hasSqlFilters('exec', validation.data)
                 ),
                 guidance
             )
