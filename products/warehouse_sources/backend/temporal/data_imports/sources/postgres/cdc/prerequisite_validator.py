@@ -55,6 +55,7 @@ def validate_cdc_prerequisites(
     if management_mode == "posthog":
         errors.extend(_check_replication_role(conn))
         errors.extend(_check_replication_slot_capacity(conn))
+        errors.extend(_check_can_create_publication(conn, publication_name))
         errors.extend(_check_table_ownership(conn, qualified_tables))
     elif management_mode == "self_managed":
         # Self-managed: the DBA creates the publication out-of-band, PostHog creates
@@ -258,6 +259,32 @@ def _check_replication_role(conn: psycopg.Connection) -> list[str]:
                 "superuser, or membership in rds_replication / rds_superuser on RDS. "
                 "If you can't grant replication access, switch these tables to Incremental sync "
                 "instead of CDC. Incremental needs only SELECT permission."
+            ]
+    return []
+
+
+def _check_can_create_publication(conn: psycopg.Connection, publication_name: str | None) -> list[str]:
+    """The connecting role needs CREATE on the database to create the publication (PostHog-managed mode).
+
+    PostgreSQL checks this privilege for CREATE PUBLICATION separately from the replication
+    attribute, so a role that can create a slot can still be refused with "permission denied
+    for database". A publication that already exists is adopted, not created, so it needs no
+    privilege.
+    """
+    if publication_name and publication_exists(conn, publication_name):
+        return []
+
+    with conn.cursor() as cur:
+        cur.execute("SELECT current_database(), has_database_privilege(current_user, current_database(), 'CREATE')")
+        row = cur.fetchone()
+        if row is not None and row[1] is False:
+            quoted_database = sql.Identifier(row[0]).as_string(None)
+            return [
+                "The database user cannot create a publication. "
+                f"Grant it with GRANT CREATE ON DATABASE {quoted_database} TO <username>. "
+                "If you can't grant that, use self-managed mode and create the publication yourself, "
+                "or switch these tables to Incremental sync instead of CDC. "
+                "Incremental needs only SELECT permission."
             ]
     return []
 
