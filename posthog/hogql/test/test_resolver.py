@@ -1514,6 +1514,17 @@ class TestResolver(BaseTest):
         with self.assertRaises(QueryError):
             resolve_types(self._select("SELECT event.`..`.uuid FROM events"), self.context, dialect="clickhouse")
 
+    @parameterized.expand(
+        [
+            ("direct_virtual", "SELECT poe.`..` FROM events"),
+            ("qualified_virtual", "SELECT events.poe.`..` FROM events"),
+            ("traverser", "SELECT person.`..` FROM events"),
+        ]
+    )
+    def test_field_traverser_trailing_double_dot(self, _name, query):
+        with self.assertRaisesRegex(QueryError, "Expected a field after '\\.\\.'"):
+            resolve_types(self._select(query), self.context, dialect="clickhouse")
+
     def test_visit_hogqlx_tag(self):
         node = self._select("select event from <HogQLQuery query='select event from events' />")
         assert isinstance(node, ast.SelectQuery)

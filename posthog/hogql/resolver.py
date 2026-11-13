@@ -2800,6 +2800,8 @@ class Resolver(CloningVisitor):
                     loop_type = loop_type.table_type
                 else:
                     raise QueryError(f"Cannot use '..' after '{'.'.join(str(c) for c in resolved_chain)}'")
+                if not chain_to_parse:
+                    raise QueryError("Expected a field after '..'")
                 next_chain = chain_to_parse.pop(0)
 
             try:
