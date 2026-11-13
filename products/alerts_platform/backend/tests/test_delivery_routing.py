@@ -17,6 +17,7 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceKind,
 )
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
+from products.alerts_platform.backend.logic.platform_alert_events import AnnouncementRead, AnnouncementStatus
 from products.alerts_platform.backend.models import AlertReceiver, AlertRoute, PlatformAlertConfiguration
 from products.alerts_platform.backend.tests.test_delivery_evaluation import (
     CONFIGURATION_ID,
@@ -69,7 +70,12 @@ class TestDeliverRoutes(APIBaseTest):
                 "products.alerts_platform.backend.delivery.team_flags.posthoganalytics.feature_enabled",
                 side_effect=feature_enabled,
             ),
-            patch(f"{_MODULE}.announcement", return_value=_announcement(_transition(AlertEventKind.FIRING))),
+            patch(
+                "products.alerts_platform.backend.logic.platform_alert_events._read_evaluation",
+                return_value=AnnouncementRead(
+                    status=AnnouncementStatus.FOUND, announcement=_announcement(_transition(AlertEventKind.FIRING))
+                ),
+            ),
             patch(f"{_MODULE}.DatabaseThreadStore"),
             patch.dict(f"{_MODULE}._TRANSPORTS", {DestinationType.SLACK: RecordingTransport}),
         ):
