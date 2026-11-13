@@ -741,8 +741,12 @@ class TestMessagePreferencesAPIViewSet(APIBaseTest):
         self.assertIn("user2@example.com", identifiers)
         self.assertNotIn("user3@example.com", identifiers)
 
-    def test_opt_outs_with_specific_category(self):
+    @parameterized.expand([("live", False), ("deleted", True)])
+    def test_opt_outs_with_specific_category(self, _name, deleted):
         """Test opt_outs endpoint with a specific category"""
+        if deleted:
+            self.category.deleted = True
+            self.category.save()
         # Create recipients with various opt-out preferences
         MessageRecipientPreference.objects.create(
             team=self.team,
@@ -888,15 +892,6 @@ class TestMessagePreferencesAPIViewSet(APIBaseTest):
         data = response.json()
         self.assertEqual(data["identifier"], "user@example.com")
         self.assertEqual(data["preferences"][str(self.category.id)], PreferenceStatus.OPTED_OUT.value)
-
-    def test_add_opt_out_nonexistent_category(self):
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/messaging_preferences/add_opt_out/",
-            {"identifier": "user@example.com", "category_key": "does_not_exist"},
-            content_type="application/json",
-        )
-        self.assertEqual(response.status_code, 404)
-        self.assertEqual(response.json()["error"], "Category not found")
 
     def test_add_opt_out_duplicate_identifier_updates_existing(self):
         existing = MessageRecipientPreference.objects.create(
@@ -1053,11 +1048,34 @@ class TestMessagePreferencesAPIViewSet(APIBaseTest):
         self.assertEqual(prefs[str(transactional.id)], PreferenceStatus.OPTED_IN)
         self.assertEqual(prefs[ALL_MESSAGE_PREFERENCE_CATEGORY_ID], PreferenceStatus.OPTED_OUT)
 
-    def test_remove_opt_out_nonexistent_category(self):
-        response = self._remove_opt_out({"identifier": "user@example.com", "category_key": "does_not_exist"})
+    @parameterized.expand(
+        [(endpoint, deleted) for endpoint in ("add_opt_out", "remove_opt_out") for deleted in (False, True)]
+    )
+    def test_opt_out_writes_refuse_an_unknown_or_deleted_category(self, endpoint, deleted):
+        category_key = "old_promotions"
+        if deleted:
+            MessageCategory.objects.create(
+                team=self.team,
+                key=category_key,
+                name="Old promotions",
+                category_type=MessageCategoryType.MARKETING,
+                deleted=True,
+            )
+        stored = {ALL_MESSAGE_PREFERENCE_CATEGORY_ID: PreferenceStatus.OPTED_OUT.value}
+        recipient = MessageRecipientPreference.objects.create(
+            team=self.team, identifier="user@example.com", preferences=stored
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/messaging_preferences/{endpoint}/",
+            {"identifier": "user@example.com", "category_key": category_key},
+            content_type="application/json",
+        )
 
         self.assertEqual(response.status_code, 404)
         self.assertEqual(response.json()["error"], "Category not found")
+        recipient.refresh_from_db()
+        self.assertEqual(recipient.preferences, stored)
 
     @parameterized.expand(
         [

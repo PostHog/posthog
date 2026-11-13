@@ -1488,6 +1488,29 @@ class SignalEmissionRecord(UUIDModel):
         ]
 
 
+class SignalGroupingRecord(TeamScopedRootMixin, UUIDModel):
+    """Marks a signal as assigned to a report.
+
+    Grouping retries a failed batch, and the failure can come after the assignment committed.
+    The assign step checks this row first, so a retry cannot count the signal on its report again.
+    """
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    signal_id = models.UUIDField()
+    report_id = models.UUIDField()
+    # A retry emits the signal document again with this timestamp, so ClickHouse deduplicates it.
+    emitted_at = models.DateTimeField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["team", "signal_id"], name="signals_grouping_record_unique"),
+        ]
+        indexes = [
+            models.Index(fields=["created_at"], name="signals_grouping_rec_created"),
+        ]
+
+
 def signal_report_artefact_type_choices() -> list[tuple[str, str | Promise]]:
     # Callable so growing the enum doesn't generate a no-op migration.
     return list(SignalReportArtefact.ArtefactType.choices)
@@ -3396,12 +3419,7 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
                     touched.add("status_changed_at")
             if fields is not None:
                 kwargs["update_fields"] = fields | touched
-        from products.signals.backend.trial.scouts import (
-            scout_capacity,  # noqa: PLC0415 -- capacity policy depends on this model
-        )
-
-        with scout_capacity(self):
-            super().save(*args, **kwargs)
+        super().save(*args, **kwargs)
 
     @classmethod
     def _pause_reasons_share_writer(cls, current: str | None, incoming: "SignalScoutConfig.PauseReason") -> bool:

@@ -58,12 +58,14 @@ export interface SetupContext {
     host: string | null
     projectId: string | null
     loggedIn: boolean
+    // The host of the latest hog login, which setup uses when nothing names a host and no --region is given.
+    lastLoginHost?: string
     token?: ProjectToken
     apiHost?: string
     agentsMd?: WrittenFile[]
     events?: EventsContext
     products?: (Product & { chosen: boolean })[]
-    // PostHog skills that could help in later sessions, at the products step.
+    // PostHog skills that could help in later sessions, at the products step. Agents get the names only.
     skills?: SkillInfo[]
     mcp?: McpContext
     warnings: string[]

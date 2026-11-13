@@ -1,11 +1,15 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { MCPMissingCapabilitiesItem } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
+import { mcpAnalyticsFiltersLogic } from '../mcpAnalyticsFiltersLogic'
 import {
     MISSING_CAPABILITIES_PAGE_SIZE,
     isUnidentifiedClient,
@@ -93,7 +97,16 @@ describe('mcpMissingCapabilitiesLogic', () => {
         ],
         [
             'the internal users toggle',
-            (l) => l.actions.setFilterTestAccounts(true),
+            () => mcpAnalyticsFiltersLogic.actions.setFilterTestAccounts(true),
+            { filterTestAccounts: true, offset: 0 },
+        ],
+        [
+            "the team's test-account default",
+            () =>
+                teamLogic.actions.loadCurrentTeamSuccess({
+                    ...teamLogic.values.currentTeam!,
+                    test_account_filters_default_checked: true,
+                }),
             { filterTestAccounts: true, offset: 0 },
         ],
     ])('reloads from the first page on %s', async (_label, act, expected) => {
@@ -103,8 +116,24 @@ describe('mcpMissingCapabilitiesLogic', () => {
 
         await expectLogic(mounted, () => act(mounted)).toDispatchActions(['loadReports', 'loadReportsSuccess'])
 
+        expect(mockApi.query).toHaveBeenCalledTimes(1)
         expect(mockApi.query).toHaveBeenCalledWith(expect.objectContaining(expected))
     })
+
+    it.each([
+        ['no URL params', {}, 1],
+        ['the internal users toggle', { filter_test_accounts: true }, 1],
+        ['the internal users toggle and a date range', { filter_test_accounts: true, date_from: '-7d' }, 2],
+    ])(
+        'does not reload for the shared filters when mounting with %s',
+        async (_label, searchParams, expectedRequests) => {
+            router.actions.push(urls.mcpAnalyticsMissingCapabilities(), searchParams)
+
+            await expectLogic(mountLogic()).toFinishAllListeners()
+
+            expect(mockApi.query).toHaveBeenCalledTimes(expectedRequests)
+        }
+    )
 
     it('appends the next page at the current offset and tracks whether more remain', async () => {
         mockApi.query.mockResolvedValueOnce({ results: [report('first ask')], has_next: true } as any)

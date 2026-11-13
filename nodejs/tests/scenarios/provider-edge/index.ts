@@ -1,12 +1,16 @@
 import http from 'http'
 import { AddressInfo } from 'net'
 import { text } from 'stream/consumers'
+import { setTimeout as sleep } from 'timers/promises'
 
 import { EmailTrackingCodeSigner } from '~/cdp/services/messaging/helpers/tracking-code'
 import { parseJSON } from '~/common/utils/json-parse'
 
+import { createCertificates } from './certificates'
 import { CardFault, FaultList, FaultRule, SesStatusAnswer, ruleOf } from './faults'
+import { SIGNING_CERT_PATH, SnsSigner, hardBounceOf, postFeedback } from './feedback'
 import { problemsOf } from './problems'
+import { Proxy, serveConnect } from './proxy'
 import {
     ConfigurationSets,
     SEND_EMAIL_PATH,
@@ -19,20 +23,33 @@ import {
 import { TRUTH_PAGE_LIMIT, Truth, truthMessageOf } from './truth'
 
 export type { CardFault, FaultRule } from './faults'
+export { SesRejectParams, SesThrottleParams } from './faults'
 export type { SesAttachment, SesMessage } from './ses'
 export { UNIT_EMAIL_DOMAIN } from './ses'
-export type { TruthAttachment, TruthMessage, TruthPage, TruthRecord } from './truth'
+export type { TruthAttachment, TruthHead, TruthMessage, TruthPage, TruthRecord } from './truth'
+
+export const WEBHOOK_HOST = 'hooks.example.com'
+
+const FAULT_OBSERVED_WITHIN_MS = 10_000
+const FAULT_POLL_MS = 100
+
+export type FaultHold = { observed(holdEnds?: AbortSignal): Promise<boolean>; release(): Promise<void> }
 
 export type ProviderEdgeOptions = {
     port: number
     configurationSets?: ConfigurationSets
     trackingKeys?: string
+    caDir?: string
+    region?: string
+    feedbackUrl?: string
 }
 
 export type ProviderEdge = {
     url: string
+    caCertPath?: string
     sent: readonly SesMessage[]
     addFault(rule: FaultRule): string
+    hold(rule: FaultRule): FaultHold
     clearFaults(): void
     close(): Promise<void>
 }
@@ -66,14 +83,16 @@ function integerAtLeast(value: string | null, min: number, fallback: number): nu
     return Number.isInteger(parsed) && parsed >= min ? parsed : fallback
 }
 
+type Feedback = { signer: SnsSigner; url: string }
+
 export async function startProviderEdge(options: ProviderEdgeOptions): Promise<ProviderEdge> {
     const truth = new Truth()
     const sent: SesMessage[] = []
     const faults = new FaultList()
-    const signer = options.trackingKeys ? new EmailTrackingCodeSigner(options.trackingKeys, '') : undefined
+    const trackingSigner = options.trackingKeys ? new EmailTrackingCodeSigner(options.trackingKeys, '') : undefined
 
     const actionIdOf = (trackingCode: string | undefined): string | undefined =>
-        trackingCode === undefined ? undefined : signer?.parse(trackingCode)?.actionId
+        trackingCode === undefined ? undefined : trackingSigner?.parse(trackingCode)?.actionId
 
     const sendEmail = (body: unknown): Reply | Silence => {
         const request = readSendEmail(body, options.configurationSets)
@@ -84,21 +103,74 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
         const { message } = request
         const recipients = addressesOf(message.to)
         const correlation = { unitId: unitIdOf(recipients), actionId: actionIdOf(trackingCodeOf(message)) }
-        const fault = faults.take(addressesOf([...message.to, ...(message.cc ?? []), ...(message.bcc ?? [])]))
-        if (fault && fault.answer.kind !== 'status') {
+        const fault = faults.takeSes(addressesOf([...message.to, ...(message.cc ?? []), ...(message.bcc ?? [])]))
+        if (fault && fault.answer.kind !== 'status' && fault.answer.kind !== 'bounce') {
             truth.append({ kind: 'ses.send', status: 0, fault: fault.name, ...correlation, detail: {} })
             return fault.answer.kind
         }
         if (fault?.answer.kind === 'status') {
             const { answer } = fault.answer
-            truth.append({ kind: 'ses.send', status: answer.status, fault: fault.name, ...correlation, detail: {} })
+            truth.append({
+                kind: 'ses.send',
+                status: answer.status,
+                fault: fault.name,
+                ...correlation,
+                detail: { errorType: answer.type },
+            })
             return sesError(answer)
         }
         const messageId = `provider-edge-${truth.records.length + 1}`
         const accepted: SesMessage = { messageId, ...message }
         sent.push(accepted)
-        truth.append({ kind: 'ses.send', status: 200, ...correlation, detail: { message: truthMessageOf(accepted) } })
+        truth.append({
+            kind: 'ses.send',
+            status: 200,
+            fault: fault?.name,
+            ...correlation,
+            detail: { message: truthMessageOf(accepted) },
+        })
+        if (fault?.answer.kind === 'bounce' && feedback) {
+            setImmediate(() => void sendFeedback(feedback, accepted, fault.name, correlation.unitId))
+        }
         return { status: 200, body: { MessageId: messageId } }
+    }
+
+    const sendFeedback = async (
+        { signer, url }: Feedback,
+        message: SesMessage,
+        fault: string,
+        unitId: string | undefined
+    ): Promise<void> => {
+        if (message.configurationSet === undefined) {
+            truth.append({
+                kind: 'ses.feedback',
+                status: 0,
+                fault,
+                unitId,
+                detail: { error: 'The send names no configuration set, so SES publishes no events for it.' },
+            })
+            return
+        }
+        const { envelope, bouncedRecipients } = hardBounceOf(message, signer)
+        const answer = await postFeedback(url, envelope)
+        truth.append({
+            kind: 'ses.feedback',
+            status: answer.status,
+            fault,
+            unitId,
+            detail: {
+                error: answer.error,
+                feedback: { snsMessageId: envelope.MessageId, sesMessageId: message.messageId, bouncedRecipients },
+            },
+        })
+    }
+
+    const unsignedBounce = (rule: FaultRule): string | undefined => {
+        if (rule.answer.kind !== 'bounce' || feedback) {
+            return undefined
+        }
+        const missing = signer ? 'a feedback URL' : 'a certificate directory to sign feedback with'
+        return `params.type: a bounce needs an edge with ${missing}`
     }
 
     const addCardFault = (body: unknown): Reply => {
@@ -106,7 +178,12 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
         if (!parsed.success) {
             return { status: 400, body: { problems: problemsOf(parsed.error, 'fault') } }
         }
-        return { status: 201, body: { id: faults.add(ruleOf(parsed.data)) } }
+        const rule = ruleOf(parsed.data)
+        const problem = unsignedBounce(rule)
+        if (problem) {
+            return { status: 400, body: { problems: [problem] } }
+        }
+        return { status: 201, body: { id: faults.add(rule) } }
     }
 
     const route = (req: http.IncomingMessage, url: URL, body: unknown): Reply | Silence => {
@@ -114,6 +191,8 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
         switch (`${req.method} ${faultId === undefined ? url.pathname : '/_faults/:id'}`) {
             case `POST ${SEND_EMAIL_PATH}`:
                 return sendEmail(body)
+            case 'GET /_truth/head':
+                return { status: 200, body: truth.head() }
             case 'GET /_health':
                 return { status: 200, body: { ok: true } }
             case 'GET /_truth':
@@ -161,18 +240,57 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
         }
     }
 
-    const server = http.createServer((req, res) => {
-        handle(req, res).catch((error: unknown) => {
-            if (res.headersSent || req.socket.destroyed) {
-                res.destroy()
-                return
-            }
-            respond(
-                res,
-                sesError({ status: 500, type: 'InternalFailure', message: `The edge failed: ${String(error)}` })
-            )
+    const receive = async (req: http.IncomingMessage, res: http.ServerResponse): Promise<void> => {
+        await text(req)
+        const host = (req.headers.host ?? '').replace(/:\d+$/, '')
+        const target = req.url ?? '/'
+        if (signer && host === signer.host && req.method === 'GET' && target === SIGNING_CERT_PATH) {
+            res.writeHead(200, { 'content-type': 'application/x-pem-file' }).end(signer.leaf.cert)
+            return
+        }
+        if (host !== WEBHOOK_HOST) {
+            respond(res, { status: 404, body: { message: `The edge serves nothing at ${host}${target}` } })
+            return
+        }
+        const [, unitId, actionId] = /^\/u\/([^/?]+)\/([^/?]+)/.exec(target) ?? []
+        const fault = faults.takeWebhook(host)
+        const status = fault?.status ?? 200
+        truth.append({
+            kind: 'webhook',
+            status,
+            fault: fault?.name,
+            unitId,
+            actionId,
+            detail: { request: { method: req.method ?? 'GET', host, path: target } },
         })
-    })
+        respond(res, { status, body: fault ? { message: `${fault.name} answered ${status}` } : { ok: true } })
+    }
+
+    const serve =
+        (handler: typeof handle) =>
+        (req: http.IncomingMessage, res: http.ServerResponse): void => {
+            handler(req, res).catch((error: unknown) => {
+                if (res.headersSent || req.socket.destroyed) {
+                    res.destroy()
+                    return
+                }
+                respond(
+                    res,
+                    sesError({ status: 500, type: 'InternalFailure', message: `The edge failed: ${String(error)}` })
+                )
+            })
+        }
+
+    const server = http.createServer(serve(handle))
+    const region = options.region ?? 'us-east-1'
+    const snsHost = `sns.${region}.amazonaws.com`
+    const certificates = options.caDir ? await createCertificates(options.caDir, [WEBHOOK_HOST, snsHost]) : undefined
+    const snsLeaf = certificates?.leaves.get(snsHost)
+    const signer: SnsSigner | undefined = snsLeaf && { host: snsHost, region, leaf: snsLeaf }
+    const feedback: Feedback | undefined =
+        signer && options.feedbackUrl ? { signer, url: options.feedbackUrl } : undefined
+    const proxy: Proxy | undefined =
+        certificates && serveConnect(server, certificates.leaves, http.createServer(serve(receive)))
     await new Promise<void>((resolve, reject) => {
         server.once('error', reject)
         server.listen(options.port, '127.0.0.1', () => {
@@ -184,10 +302,33 @@ export async function startProviderEdge(options: ProviderEdgeOptions): Promise<P
 
     return {
         url: `http://127.0.0.1:${port}`,
+        caCertPath: certificates?.caCertPath,
         sent,
         addFault: (rule) => faults.add(rule),
+        hold: (rule) => {
+            const problem = unsignedBounce(rule)
+            if (problem) {
+                throw new Error(problem)
+            }
+            const id = faults.add(rule)
+            return {
+                observed: async (holdEnds) => {
+                    const deadline = Date.now() + FAULT_OBSERVED_WITHIN_MS
+                    const answeredInWindow = (): boolean => (faults.firstAppliedAt(id) ?? Infinity) <= deadline
+                    while (Date.now() <= deadline && !holdEnds?.aborted && !answeredInWindow()) {
+                        await sleep(FAULT_POLL_MS, undefined, { signal: holdEnds }).catch(() => undefined)
+                    }
+                    return answeredInWindow()
+                },
+                release: () => {
+                    faults.remove(id)
+                    return Promise.resolve()
+                },
+            }
+        },
         clearFaults: () => faults.clear(),
         close: async () => {
+            proxy?.close()
             server.closeAllConnections()
             await new Promise<void>((resolve) => server.close(() => resolve()))
         },

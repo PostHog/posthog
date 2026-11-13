@@ -207,10 +207,6 @@
         "chromium": 5.51,
         "webkit": 2.307
     },
-    "frontend/src/lib/components/FlagCalledRebuildBanner/FlagCalledRebuildBanner.stories.tsx": {
-        "chromium": 12.141,
-        "webkit": 2.532
-    },
     "frontend/src/lib/components/HTMLElementsDisplay/HTMLElementsDisplay.stories.tsx": {
         "chromium": 38.164,
         "webkit": 5.549
@@ -1654,10 +1650,6 @@
     "products/ai_observability/frontend/AIObservabilitySessionsEmptyState.stories.tsx": {
         "chromium": 9.757,
         "webkit": 3.871
-    },
-    "products/ai_observability/frontend/AIObservabilityTraceScene.stories.tsx": {
-        "chromium": 22.674,
-        "webkit": 6.292
     },
     "products/ai_observability/frontend/ByokModelPickerNotice.stories.tsx": {
         "chromium": 16.599,

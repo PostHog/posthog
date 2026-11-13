@@ -10,6 +10,7 @@ import { initKeaTests } from '~/test/init'
 
 import { aeoPromptsBulkImport, aeoPromptsList, aeoPromptsPartialUpdate, aeoPromptsTopics } from '../generated/api'
 import type { AEOPromptApi } from '../generated/api.schemas'
+import { contentAutopilotFiltersLogic } from './contentAutopilotFiltersLogic'
 import { PROMPTS_PAGE_SIZE, contentAutopilotPromptsLogic } from './contentAutopilotPromptsLogic'
 import { EXAMPLE_PROMPT_TOPICS, EXAMPLE_PROMPTS } from './contentAutopilotStoryFixtures'
 
@@ -32,6 +33,8 @@ describe('contentAutopilotPromptsLogic', () => {
 
     beforeEach(() => {
         jest.clearAllMocks()
+        // The branded segment persists in local storage, so a choice made in one test must not leak into the next.
+        localStorage.clear()
         initKeaTests()
         mockPromptsList.mockResolvedValue({ count: 120, next: null, previous: null, results: EXAMPLE_PROMPTS })
         mockPromptsTopics.mockResolvedValue(EXAMPLE_PROMPT_TOPICS)
@@ -41,10 +44,11 @@ describe('contentAutopilotPromptsLogic', () => {
         logic?.unmount()
     })
 
-    it('resets to the first page and sends the filters when the topic, archived, needs improvement or branded filter changes', async () => {
+    it('resets to the first page and sends the filters when a shared filter, archived or needs improvement changes', async () => {
         logic = contentAutopilotPromptsLogic()
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
+        const filters = contentAutopilotFiltersLogic
 
         logic.actions.setPromptsPage(3)
         await expectLogic(logic).toFinishAllListeners()
@@ -52,47 +56,56 @@ describe('contentAutopilotPromptsLogic', () => {
             limit: PROMPTS_PAGE_SIZE,
             offset: 2 * PROMPTS_PAGE_SIZE,
             topic: undefined,
+            branded: false,
         })
 
-        logic.actions.setPromptsTopic('')
+        filters.actions.setTopic('', 'prompts')
         await expectLogic(logic).toFinishAllListeners().toMatchValues({ promptsPage: 1 })
         expect(mockPromptsList).toHaveBeenLastCalledWith(String(MOCK_DEFAULT_TEAM.id), {
             limit: PROMPTS_PAGE_SIZE,
             offset: 0,
             topic: '',
+            branded: false,
         })
 
         logic.actions.setPromptsPage(2)
         logic.actions.setShowArchived(true)
+        filters.actions.setBrandedSegment('all', 'prompts')
         await expectLogic(logic).toFinishAllListeners().toMatchValues({ promptsPage: 1 })
         expect(mockPromptsList).toHaveBeenLastCalledWith(String(MOCK_DEFAULT_TEAM.id), {
             limit: PROMPTS_PAGE_SIZE,
             offset: 0,
             topic: '',
             include_archived: true,
+            branded: undefined,
+        })
+
+        // The date range and the engine only narrow the needs improvement view.
+        filters.actions.setDays(7, 'prompts')
+        filters.actions.setEngine('exa-answer', 'prompts')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(mockPromptsList).toHaveBeenLastCalledWith(String(MOCK_DEFAULT_TEAM.id), {
+            limit: PROMPTS_PAGE_SIZE,
+            offset: 0,
+            topic: '',
+            include_archived: true,
+            branded: undefined,
         })
 
         logic.actions.setPromptsPage(2)
         logic.actions.setNeedsImprovement(true)
-        await expectLogic(logic).toFinishAllListeners().toMatchValues({ promptsPage: 1 })
+        await expectLogic(logic)
+            .toFinishAllListeners()
+            .toMatchValues({ promptsPage: 1, promptEngines: ['exa-answer'] })
         expect(mockPromptsList).toHaveBeenLastCalledWith(String(MOCK_DEFAULT_TEAM.id), {
             limit: PROMPTS_PAGE_SIZE,
             offset: 0,
             topic: '',
             include_archived: true,
+            branded: undefined,
             needs_improvement: true,
-        })
-
-        logic.actions.setPromptsPage(2)
-        logic.actions.setPromptsBranded(false)
-        await expectLogic(logic).toFinishAllListeners().toMatchValues({ promptsPage: 1 })
-        expect(mockPromptsList).toHaveBeenLastCalledWith(String(MOCK_DEFAULT_TEAM.id), {
-            limit: PROMPTS_PAGE_SIZE,
-            offset: 0,
-            topic: '',
-            include_archived: true,
-            needs_improvement: true,
-            branded: false,
+            days: 7,
+            engine: 'exa-answer',
         })
     })
 
@@ -124,7 +137,7 @@ describe('contentAutopilotPromptsLogic', () => {
         )
         logic = contentAutopilotPromptsLogic()
         logic.mount()
-        logic.actions.setPromptsTopic('pricing')
+        contentAutopilotFiltersLogic.actions.setTopic('pricing', 'prompts')
         await expectLogic(logic).toDispatchActions(['loadAeoPrompts', 'loadAeoPrompts'])
         expect(settlers).toHaveLength(2)
 
@@ -135,25 +148,6 @@ describe('contentAutopilotPromptsLogic', () => {
             .toFinishAllListeners()
             .toNotHaveDispatchedActions(['loadAeoPromptsFailure'])
             .toMatchValues({ promptsError: null, prompts: expect.objectContaining({ count: 1 }) })
-    })
-
-    it('flags a topics failure and clears it when a retry succeeds', async () => {
-        mockPromptsTopics.mockRejectedValueOnce(new ApiError('Server error', 500))
-        silenceKeaLoadersErrors()
-        try {
-            logic = contentAutopilotPromptsLogic()
-            logic.mount()
-            await expectLogic(logic)
-                .toFinishAllListeners()
-                .toMatchValues({ promptTopicsError: true, promptTopics: [], promptsError: null })
-
-            logic.actions.loadAeoPromptTopics()
-            await expectLogic(logic)
-                .toFinishAllListeners()
-                .toMatchValues({ promptTopicsError: false, promptTopics: EXAMPLE_PROMPT_TOPICS })
-        } finally {
-            resumeKeaLoadersErrors()
-        }
     })
 
     it.each([
