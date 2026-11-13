@@ -2,7 +2,7 @@
 
 Move one email at a time. Pick a low-risk email first, switch it, check a few real sends, then move the next one.
 
-## Map the send call
+## Find where the email lives
 
 Keep the email in the app's code unless the user chose a PostHog template. First find where the email lives today:
 
@@ -27,7 +27,7 @@ Every row becomes the same PostHog send. The fields are in the skill's **Send fr
 
 ## Check before the switch
 
-- **What the send can't carry:** A PostHog send takes only the fields in the skill's **Send from code** section, for one `to` recipient. Attachments, cc and bcc go only over the HTTP API, on a code send. If the old send passes anything else, such as a scheduled delivery time, custom headers, or tags, tell the user what the switch would drop before you change the call.
+- **What the send can't carry:** A PostHog send takes only the fields in the skill's **Send from code** section, for one `to` recipient. If the old send passes anything else, such as a scheduled delivery time, custom headers, or tags, tell the user what the switch would drop before you change the call.
 - **Sender:** The sending domain must be verified in PostHog, even if it already sends with the other provider. The app shows the DNS records to add.
 - **Suppressions:** Addresses that the old provider suppressed after bounces or complaints are not in PostHog's suppression list. Ask the user whether to add them before high-volume emails move.
 - **Errors:** Map the old provider's error handling to PostHog's error codes, such as `recipient_suppressed`, `recipient_unreachable`, and `quota_limited`. A code that means "don't retry" must not go back into a retry loop.

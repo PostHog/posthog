@@ -29,7 +29,7 @@ Then ask one question that is easy to say no to, such as whether they want to tr
 
 Be honest about the limits, because they decide whether it fits:
 
-- One `to` recipient for each call. A code send over the HTTP API can add cc and bcc copies.
+- One `to` recipient for each call.
 - Transactional emails are in beta, and they are billed and quota limited like other workflow emails.
 
 ## Code or template
@@ -42,10 +42,11 @@ Work through these in order, and skip the steps that are already done.
 
 1. **Verified sender.** Call `integrations-list` with `kind` `email`. The project needs a sender whose domain is verified. If there is none and the `integrations-email-create` tool is available, set one up without leaving the conversation: ask the user for the from address and name, create the sender with `integrations-email-create`, show them the DNS records from `integrations-email-status-retrieve`, and call `integrations-email-verify-create` once the records resolve. If the tool isn't available, use the `building-workflows` skill, which covers the email channel and the sending domain. A domain the user already sends from elsewhere still needs PostHog's DNS records.
 2. **Branding.** Before you write the email, find out what the user's emails look like, so the first version already matches their brand. Look for an email the app sends today, or ask for their website or a screenshot. Pull the logo, colors, fonts, and tone of voice from it. If you can't open the website, ask the user for the logo and the main brand color.
-3. **The email.** Write the email in the repo, next to the code that sends it. When the app already uses React and React Email, write a React Email component and render it to HTML in the app before the send. Otherwise write a function that returns the subject and an HTML string, and a plain text version when the app's other emails have one. Pass every value, such as the person's name or a link, as an argument. Give the email a `template_key` that says what it is, such as `welcome` or `password-reset`, and reuse it for every send of that email. A project holds up to 1000 keys. For a PostHog template, follow **Design it in PostHog** below in place of this step.
+3. **The email.** Write the email in the repo, next to the code that sends it. When the app already uses React and React Email, write a React Email component and render it to HTML in the app before the send. Otherwise write a function that returns the subject and an HTML string, and a plain text version when the app's other emails have one. Pass every value, such as the person's name or a link, as an argument. Give the email a `template_key` that says what it is, in letters, numbers, `-` and `_` only, such as `welcome` or `password-reset`, and reuse it for every send of that email. A project holds up to 1000 keys. For a PostHog template, follow **Design it in PostHog** below in place of this step.
 4. **API key.** The user creates a project secret API key in project settings, under **Project secret API keys**, with **Transactional email** set to **Write**. The **Send transactional email** preset sets it. A key that already has **Workflow** set to **Write** works too. You can't create it. Tell them to keep it in an environment variable on the server, and never to paste it into the chat or into client-side code.
-5. **Send.** Send from their backend. See **Send from code** below.
-6. **Test.** Have them send one email to their own address. Check its status. For a template, share the template's link so they can see the send on its **Sends** tab.
+5. **Engagement events.** PostHog records a send's send, delivery, open, click and bounce events on the person only when the project's `capture_workflows_engagement_events` setting is on, and it is off by default. That holds for code and template sends. Call `workflows-sending-rules-get`. When it's off, offer to turn it on with `workflows-sending-rules-update`, and say that these events count toward the project's event usage.
+6. **Send.** Send from their backend. See **Send from code** below.
+7. **Test.** Have them send one email to their own address. Check its status. For a template, share the template's link so they can see the send on its **Sends** tab.
 
 ## Design it in PostHog
 
@@ -59,30 +60,21 @@ Do these in place of **The email.** when the email lives in a PostHog template.
 
 Use PostHog's SDK for the backend's language, and the HTTP API when there is none. Before you write the send, read the SDK's section in [references/sdks.md](references/sdks.md): it has the client setup, both send forms, the result and error, and the status read.
 
-| Backend | Package                         | Secret key option |
-| ------- | ------------------------------- | ----------------- |
-| Node.js | `posthog-node`                  | `secretKey`       |
-| Python  | `posthog`                       | `secret_key`      |
-| Go      | `github.com/posthog/posthog-go` | `SecretKey`       |
-| Ruby    | `posthog-ruby`                  | `secret_key`      |
-| PHP     | `posthog/posthog-php`           | `secretKey`       |
-| .NET    | `PostHog`                       | `SecretKey`       |
-| Rust    | `posthog-rs`                    | `secret_key`      |
-| Elixir  | `posthog`                       | `secret_key`      |
+PostHog has an SDK for Node.js, Python, Go, Ruby, PHP, .NET, Rust and Elixir.
 
-- **Any language:** `POST https://<app host>/api/projects/@current/messaging/send/email/` with `Authorization: Bearer <project secret API key>` and an `Idempotency-Key` header. A code send's JSON body has `template_key`, `to`, `subject`, `html` and/or `text`, and `distinct_id`, with `from`, `reply_to`, `sensitive` and `tracking` optional. Only the HTTP API takes `cc`, `bcc` and `attachments` on a code send; upload each attachment first with `POST /api/projects/@current/messaging/attachments/uploads/`. A template send's has `template_id`, `to`, `message_data`, and `distinct_id`, and none of the code send's fields: the template carries its own sender, reply-to address, tracking and sensitive setting, and a template send with any code send field is refused. A send names either `template_key` or `template_id`, never both.
+- **Any language:** `POST https://<app host>/api/projects/@current/messaging/send/email/` with `Authorization: Bearer <project secret API key>` and an `Idempotency-Key` header. A code send's JSON body has `template_key`, `to`, `subject`, `html` and/or `text`, and `distinct_id`, with `from`, `reply_to` (a list of addresses), `sensitive` and `tracking` optional. Only the HTTP API, not the SDKs, takes `cc`, `bcc` and `attachments` on a code send; upload each attachment first with `POST /api/projects/@current/messaging/attachments/uploads/`. A template send's body has `template_id`, `to`, `message_data`, and `distinct_id`, and none of the code send's fields: the template carries its own sender, reply-to address, tracking and sensitive setting, and a template send with any code send field is refused. A send names either `template_key` or `template_id`, never both.
 
 Install the SDK's latest release, and at least the version `references/sdks.md` gives. If the installed SDK has no emails API, or its send doesn't take a template key, upgrade it or use the HTTP API.
 
 Get these right in the code you write:
 
-- **Client:** Reuse the PostHog client the app already creates, and set the secret key on it, unless its host is a reverse proxy. Don't create a client for each send, and shut it down when the app exits.
+- **Client:** When the app's PostHog client sends to PostHog's own host, reuse it and set the secret key on it. When its host is a reverse proxy, give email its own client on PostHog's host for the project's region, `https://us.i.posthog.com` or `https://eu.i.posthog.com`, and keep the secret key off the app's client: a client with the key loads flag definitions from its host with it, which would hand the key to the proxy. Don't create a client for each send, and shut it down when the app exits.
 - **Distinct ID:** Always pass the recipient's distinct ID, the one the app passes to `identify` and that their product events use. Without it, the send lands on a person whose distinct ID is the email address.
 - **Sender:** A code send without `from` uses the project's default sender, or its only verified sender. With several verified senders and no default, pass `from`. A `from` off the project's verified domains answers `sender_not_verified`.
 - **Idempotency key:** Derive it from what the email is for, such as `password-reset:<reset request id>`. PostHog remembers a key for 24 hours after it queues the email, so a retry within that window never sends twice. A retry or a queue replay after 24 hours sends again, so the app must record which emails it sent if its retries can run that late.
-- **Engagement events:** PostHog records a send's send, delivery, open, click and bounce events on the person only when the project's `capture_workflows_engagement_events` setting is on, and it is off by default. That holds for code and template sends. Call `workflows-sending-rules-get`. When it's off, offer to turn it on with `workflows-sending-rules-update`, and say that these events count toward the project's event usage. With it on, a code send can still leave out its own events with `tracking` set to engagement off, such as `tracking: { engagement: false }` in Node.js or `"tracking": {"engagement": false}` over HTTP. `capture_engagement` is deprecated.
-- **Secrets in the email:** A code send is sensitive unless its `template_key` matches a PostHog template that isn't: PostHog keeps its links unchanged, so it counts no clicks, leaves its subject off engagement events, and keeps its content out of logs. For an email without login links, reset tokens or codes, such as a welcome email, pass `sensitive: false` so PostHog counts its clicks. Don't log the rendered body in the app either.
-- **Host:** On PostHog Cloud the SDK finds the app host itself. Behind a reverse proxy, give email its own client with the host set to PostHog's own host, such as `https://us.i.posthog.com`, and keep the secret key off the app's client: a client with the key loads flag definitions from its host with it, which would hand the key to the proxy. On a self-hosted instance, set the SDK's app host option to the instance's app URL.
+- **Engagement events:** With the project's engagement events on (**Set it up**, step 5), a code send can still leave out its own events with `tracking` set to engagement off, such as `tracking: { engagement: false }` in Node.js or `"tracking": {"engagement": false}` over HTTP. `capture_engagement` is deprecated.
+- **Secrets in the email:** A code send is sensitive by default: PostHog keeps its links unchanged, so it counts no clicks, leaves its subject off engagement events, and keeps its content out of logs. For an email without login links, reset tokens or codes, such as a welcome email, pass `sensitive: false` so PostHog counts its clicks. Don't log the rendered body in the app either.
+- **App host:** On PostHog Cloud the SDK finds the app host itself. On a self-hosted instance, set the SDK's app host option to the instance's app URL.
 - **Local evaluation:** Some SDK clients load feature flag definitions with the secret key, and a send-only key can't do that. `references/sdks.md` says for each SDK whether it does, and what to set on a client that only sends email. Otherwise give the key the feature flag read scope too.
 - **Errors:** Let the SDK's error reach the caller, or branch on its `code`, such as `recipient_suppressed` or `quota_limited`. Don't wrap it in a generic error or match on the message. The docs list every code.
 - **Uncertain outcomes:** After a `network_error` or a `503`, PostHog might have queued the email. Retry with the same idempotency key. Never send that email again some other way, such as through another email service, because the recipient can get it twice.
@@ -97,4 +89,4 @@ A send returns a message ID. Read its status with the SDK's status read in `refe
 
 ## Moving an existing email
 
-When the user asks to move an email their app already sends to PostHog, read [references/moving-from-other-providers.md](references/moving-from-other-providers.md). It maps common send calls to PostHog and lists what to check before the switch.
+When the user asks to move an email their app already sends to PostHog, read [references/moving-from-other-providers.md](references/moving-from-other-providers.md). It says where each provider keeps the email today, how to move its content, and what to check before the switch.

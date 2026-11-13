@@ -2,7 +2,7 @@
 
 Read the section for the backend's language. Each SDK sends both forms with one `send` call: a code send names a `template_key` with a subject and an HTML or text body, and a template send names a `template_id` with its data. A send names one of the two, never both. Each section gives the minimum version that takes every field named here. Install the latest release, and never one below that version.
 
-On a code send, every SDK takes the optional `from`, `reply_to`, `sensitive` and `tracking` fields of the HTTP API. A template send takes none of them: its template carries its own sender, reply-to address, tracking and sensitive setting. The SDKs don't send the HTTP API's `cc`, `bcc` or `attachments`. `capture_engagement` is deprecated: use `tracking` with `engagement` off instead. Every SDK also takes an idempotency key, retries network errors, rate limits and a `503` with that key, and doesn't retry a `not_found` from a status read.
+The fields each form takes are in the skill's **Send from code** section; each section below gives their names in that SDK. Every SDK also takes an idempotency key, retries network errors, rate limits and a `503` with that key, and doesn't retry a `not_found` from a status read.
 
 ## Node.js
 
