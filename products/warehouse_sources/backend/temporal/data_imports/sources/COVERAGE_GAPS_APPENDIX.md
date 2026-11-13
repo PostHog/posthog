@@ -12660,12 +12660,12 @@ Today (4): `product_scores`, `products`, `tags`, `trustquotes`
 
 Diffed against: <https://stoplight.io/api/v1/projects/trustradius/public-api/nodes/reference/api.oas3.yml?fromExportButton=true&snapshotType=http_service>
 
-- [ ] `Intent data (GET /v1/intent)` — identify companies researching products, competitors, and categories, with activity details for sales and marketing analysis (high)
-- [ ] `Aggregate traffic data (GET /v1/reports/traffic/products)` — measure product profile views, visits, visitors, and category traffic to assess demand and market share (high)
+- [x] `Intent data (GET /v1/intent)` — identify companies researching products, competitors, and categories, with activity details for sales and marketing analysis (high)
+- [x] `Aggregate traffic data (GET /v1/reports/traffic/products)` — measure product profile views, visits, visitors, and category traffic to assess demand and market share (high)
 - [ ] `Page-level traffic data (GET /v1/reports/traffic/pages)` — compare visits and page views across product pages, page types, and URLs (medium)
 - [ ] `TrustQuotes for Web performance (GET /v1/reports/syndication/tqw/pages)` — measure how review widgets perform on individual website pages (medium)
-- [ ] `Company information and aggregate visit counts (GET /v1/reports/visitor-insights/companies)` — join identified company profiles and visit counts to account research activity (medium)
-- [ ] `Company information and page view detail (GET /v1/reports/visitor-insights/pages)` — track which identified companies view or compare products on specific pages (medium)
+- [x] `Company information and aggregate visit counts (GET /v1/reports/visitor-insights/companies)` — join identified company profiles and visit counts to account research activity (medium)
+- [x] `Company information and page view detail (GET /v1/reports/visitor-insights/pages)` — track which identified companies view or compare products on specific pages (medium)
 
 Note: Fetched the vendor's OpenAPI 3.0 specification, version 1.1, from its official Stoplight workspace. Compared all eleven GET operations with the four source paths, including nested reports. Visitor insights operations carry a Legacy tag and need the relevant product entitlement. Intent and reporting imports need date filters and pagination; single-account detail was not listed as a separate collection.
 
