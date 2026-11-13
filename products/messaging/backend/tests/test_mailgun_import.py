@@ -544,6 +544,11 @@ class TestMailgunTemplateConversion(SimpleTestCase):
     def test_converted_templates_match_the_rendered_fixture(self, _name: str, case: dict) -> None:
         assert convert_text(case["template"], engine=case["engine"]).text == case["liquid"]
 
+    def test_an_entity_in_a_go_comparison_literal_stays_text(self) -> None:
+        converted = convert_text('{{if eq .x "&quot; or person.properties.vip or &quot;"}}a{{end}}', engine="go")
+
+        assert "{% if" not in converted.text
+
     @parameterized.expand(
         [
             ("helper_with_arguments", "{{lookup a b}}", "{% raw %}{{lookup a b}}{% endraw %}"),

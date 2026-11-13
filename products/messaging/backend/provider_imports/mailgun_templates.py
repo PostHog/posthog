@@ -585,7 +585,11 @@ class _Converter:
             if all(paths):
                 return " and ".join(self._truthy(str(path)) for path in paths)
         if len(parts) == 3 and parts[0] in ("eq", "ne"):
-            sides = [part if _LITERAL_ARGUMENT.match(part) else self._go_path(part) for part in parts[1:]]
+            # The renderer decodes entities inside a tag before parsing it, so a literal with one stays text.
+            sides = [
+                part if _LITERAL_ARGUMENT.match(part) and not _ENTITY.search(part) else self._go_path(part)
+                for part in parts[1:]
+            ]
             if all(sides):
                 return f"{sides[0]} {'==' if parts[0] == 'eq' else '!='} {sides[1]}"
         return None
