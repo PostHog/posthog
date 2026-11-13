@@ -136,9 +136,11 @@ def find_scheduled_recalculation_candidates() -> ScheduledRecalculationSelection
     Candidates come oldest scheduled run first, so an experiment that the workflow deferred
     yesterday starts before the ones that ran.
     """
-    # Deferred: importing this module runs posthog/temporal/experiments/__init__.py, which pulls
+    # Deferred: importing this module runs temporal/timeseries/__init__.py, which pulls
     # activities.py, which imports back into products.experiments.backend.facade.timeseries.
-    from posthog.temporal.experiments.utils import recalculation_hour_filter  # noqa: PLC0415 — breaks that cycle
+    # That facade loads this module through recalculation.py and the temporal package, so a
+    # module-level import here is circular.
+    from products.experiments.backend.temporal.timeseries.utils import recalculation_hour_filter  # noqa: PLC0415
 
     now = timezone.now()
     hour = now.hour
