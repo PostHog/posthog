@@ -251,8 +251,6 @@ MIDDLEWARE = [
     "posthoganalytics.integrations.django.PosthogContextMiddleware",
 ]
 
-DJANGO_STRUCTLOG_CELERY_ENABLED = True
-
 if DEBUG:
     # rebase_migration command
     INSTALLED_APPS.append("django_linear_migrations")
