@@ -14,6 +14,7 @@ export const nativeIcons = {
     next: require('./native/next.png'),
     external: require('./native/external.png'),
     play: require('./native/play.png'),
+    pause: require('./native/pause.png'),
     close: require('./native/close.png'),
     done: require('./native/done.png'),
 }

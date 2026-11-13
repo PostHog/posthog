@@ -29510,7 +29510,13 @@
             "type": "object"
         },
         "ExperimentExposureHealthFindingActionKind": {
-            "enum": ["open_feature_flag", "edit_exposure_criteria", "adjust_distribution", "use_first_seen_variant"],
+            "enum": [
+                "open_feature_flag",
+                "edit_exposure_criteria",
+                "adjust_distribution",
+                "use_first_seen_variant",
+                "move_start_date"
+            ],
             "type": "string"
         },
         "ExperimentExposureHealthFindingCode": {
@@ -40505,6 +40511,10 @@
         },
         "MarketingAnalyticsRecommendationLevel": {
             "enum": ["account", "campaign", "search_term"],
+            "type": "string"
+        },
+        "MarketingAnalyticsRecommendationResolutionState": {
+            "enum": ["dismissed", "applied"],
             "type": "string"
         },
         "MarketingAnalyticsRecommendationRule": {

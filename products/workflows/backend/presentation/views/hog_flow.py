@@ -1010,7 +1010,7 @@ def _describe_unknown_template(action: dict, template_id: str) -> str:
     return "Template not found"
 
 
-def _describe_action_errors(errors: list[Any], actions: list[dict]) -> str:
+def _describe_action_errors(errors: list[Any], actions: list[dict], blocked: str = "enable this workflow") -> str:
     # The many=True error list mirrors the actions list, with {} entries for valid actions. Raising it
     # as-is gets flattened by the exception handler to that first empty dict, so the client sees "{}".
     # Name each offending step instead so the error points at what to fix.
@@ -1018,15 +1018,16 @@ def _describe_action_errors(errors: list[Any], actions: list[dict]) -> str:
     for action_data, error in zip(actions, errors):
         if not error:
             continue
-        message = _first_error_string(error) or "has an invalid configuration"
+        message = _first_error_string(error) or "Its configuration is invalid"
         name = action_data.get("name") if isinstance(action_data, dict) else None
         failures.append((name or "unnamed", message))
-    if failures and all(getattr(message, "code", None) == COHORT_NOT_READY_CODE for _, message in failures):
+    if not failures:
+        return f"Can't {blocked}. Fix the invalid steps and try again."
+    steps = " ".join(f"Step '{name}': {message}{'' if message.endswith('.') else '.'}" for name, message in failures)
+    if all(getattr(message, "code", None) == COHORT_NOT_READY_CODE for _, message in failures):
         # Nothing in the workflow needs a fix, so the message says to wait rather than to fix a step.
-        waits = " ".join(f"Step '{name}': {message}" for name, message in failures)
-        return f"Can't enable this workflow yet. {waits}"
-    parts = [f"step '{name}': {message}" for name, message in failures]
-    return f"Can't enable this workflow. Fix {'; '.join(parts) or 'the invalid steps'} and try again."
+        return f"Can't {blocked} yet. {steps}"
+    return f"Can't {blocked}. {steps}"
 
 
 _EVENT_TRIGGER_NEEDS_A_TARGET = "Pick at least one event or property filter, or the trigger will never fire."
@@ -6396,7 +6397,18 @@ class HogFlowViewSet(
             )
 
         def validate(state: WorkflowEditState, content: dict) -> dict:
-            return self._validate_locked_content(state, content)
+            try:
+                return self._validate_locked_content(state, content)
+            except exceptions.ValidationError as error:
+                action_errors: Any = error.detail.get("actions") if isinstance(error.detail, dict) else None
+                actions = content.get("actions")
+                # ListField reports child errors keyed by index rather than as a list.
+                if isinstance(action_errors, dict) and isinstance(actions, list):
+                    errors_by_index = [action_errors.get(index) for index in range(len(actions))]
+                    raise exceptions.ValidationError(
+                        {"actions": _describe_action_errors(errors_by_index, actions, "publish these changes")}
+                    )
+                raise
 
         try:
             result = publish_draft(

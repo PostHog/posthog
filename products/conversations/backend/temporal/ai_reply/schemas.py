@@ -215,6 +215,8 @@ class PersistReplyInput:
 @dataclass(frozen=False)
 class PersistReplyOutput:
     posted: bool = True
+    # The note was written as a public reply the customer can see.
+    published: bool = False
 
 
 @dataclass

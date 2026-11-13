@@ -5,6 +5,7 @@ import { logger } from '~/common/utils/logger'
 import { UUID, UUIDT } from '~/common/utils/utils'
 import { Team } from '~/types'
 
+import { RunIntake } from '../../intake/run-intake'
 import { HogFlow } from '../../schema/hogflow'
 import { CyclotronJobInvocation, CyclotronJobInvocationHogFlow, HogFunctionInvocationGlobals } from '../../types'
 import { convertToHogFunctionFilterGlobal } from '../../utils/hog-function-filtering'
@@ -12,11 +13,17 @@ import { createCanceledInvocationResult } from '../../utils/invocation-utils'
 import type { CyclotronV2JobProducer } from '../cyclotron-v2'
 import { v2JobToInvocation } from '../cyclotron-v2/job-codec'
 import type { InvocationResultsService } from '../invocation-results.service'
-import { JobQueue } from '../job-queue/job-queue.interface'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { AttachmentUploads, MessageBodySizing, SendRefusal } from '../messaging/attachment-uploads'
 import { EMAIL_QUEUE_PRIORITY, EmailQueuePriorityClass, cdpEmailQueuedTotal } from '../messaging/email-priority'
-import { EmailStatusService, EmailStatusUpdate, uuidtCreatedAt } from '../messaging/email-status.service'
+import {
+    EmailSkipReason,
+    EmailStatusService,
+    EmailStatusUpdate,
+    jobTriggerEvent,
+    messageCreatedAtOf,
+    uuidtCreatedAt,
+} from '../messaging/email-status.service'
 import { EmailSuppressionService } from '../messaging/email-suppression.service'
 import { EmailValidationService } from '../messaging/email-validation.service'
 import type { CodeSendSender, SandboxCodeSendRefusal } from '../messaging/sandbox/sandbox-code-send'
@@ -95,6 +102,16 @@ const writeStatus = (
     void emailStatus.flush().catch((error) => warnTelemetryFlushFailed(error, update.messageId))
 }
 
+// The refusals that the email worker records as a skipped send when it finds the same problem. A quota limit and an
+// inactive workflow are not skipped sends, because the caller can send again after it waits or fixes the workflow.
+const isSkippedSendRefusal = (
+    refusal: TransactionalSendRefusal
+): refusal is TransactionalSendRefusal & EmailSkipReason =>
+    refusal === 'sending_suspended' ||
+    refusal === 'sending_paused' ||
+    refusal === 'recipient_suppressed' ||
+    refusal === 'recipient_unreachable'
+
 const scheduledAtOfRunningRow = (job: CyclotronJobInvocation): DateTime | undefined => {
     const firstScheduledAt = (job.state as CyclotronJobInvocationHogFlow['state'] | null)?.firstScheduledAt
     return firstScheduledAt ? DateTime.fromSQL(firstScheduledAt, { zone: 'utc' }) : job.queueScheduledAt
@@ -108,7 +125,7 @@ const recipientOf = (job: CyclotronJobInvocation): string | undefined => {
 export type TransactionalSendsDeps = {
     siteUrl: string
     idempotencyKeys: IdempotencyKeys
-    queue: Pick<JobQueue, 'queueInvocations'>
+    runIntake: RunIntake
     invocationResultsRows: HogInvocationResultsService
     emailStatus: EmailStatusService
     teamWorkflowsConfig: TeamWorkflowsConfigService
@@ -211,6 +228,17 @@ export class TransactionalSends {
                 : await this.refusal(team.id, hogFlow, transactionalEmailRecipients(request), senderKind)
             if (refusal) {
                 await releaseKey()
+                if (isSkippedSendRefusal(refusal)) {
+                    this.deps.emailStatus.queueRefusedSend({
+                        teamId: team.id,
+                        messageId: invocation.id,
+                        recipient: to,
+                        functionId: hogFlow.id,
+                        reason: refusal,
+                        messageCreatedAt: messageCreatedAtOf(invocation.state.event),
+                    })
+                    void this.deps.emailStatus.flush().catch((error) => warnTelemetryFlushFailed(error, invocation.id))
+                }
                 return { outcome: refusal }
             }
             if (send?.attachments?.length && shape) {
@@ -248,13 +276,7 @@ export class TransactionalSends {
                     ...(scheduledAt && { scheduledAt: scheduledAt.toISOString() }),
                 }
             }
-            this.deps.invocationResultsRows.queueLifecycleRow(invocation, 'running')
-            try {
-                await this.deps.queue.queueInvocations([invocation])
-            } catch (error) {
-                this.deps.invocationResultsRows.dropQueuedRowsFor([invocation.id])
-                throw error
-            }
+            await this.deps.runIntake.launch([{ invocation }], { wait: 'committed' })
             cdpEmailQueuedTotal.labels(PRIORITY_CLASS).inc()
         } catch (error) {
             await releaseKey()
@@ -282,6 +304,7 @@ export class TransactionalSends {
             functionId: hogFlow.id,
             scheduledAt: scheduledAt ?? undefined,
             statusAt,
+            messageCreatedAt: messageCreatedAtOf(invocation.state.event),
         })
         // Best-effort rows, so the answer waits for the hand-off to Kafka (flushed on shutdown) but not the acks.
         const { produced } = await this.deps.invocationResultsRows.handOffQueuedRows()
@@ -467,6 +490,7 @@ export class ScheduledTransactionalSends {
             functionId: job.functionId,
             scheduledAt,
             statusAt: result.rescheduledAt,
+            messageCreatedAt: messageCreatedAtOf(jobTriggerEvent(job)),
         })
         if (!keyKept) {
             return { outcome: 'idempotency_unavailable' }
@@ -501,6 +525,7 @@ export class ScheduledTransactionalSends {
             status: 'canceled',
             recipient: recipientOf(job),
             functionId: job.functionId,
+            messageCreatedAt: messageCreatedAtOf(jobTriggerEvent(job)),
         })
         void monitoringService.flush().catch((error) => warnTelemetryFlushFailed(error, job.id))
         const { produced } = await invocationResultsRowsService.handOffQueuedRows()

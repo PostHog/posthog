@@ -647,9 +647,10 @@ async def _get_query(
             lookback_days = settings.OVERRIDE_TIMESTAMP_TEAM_IDS.get(team_id, settings.DEFAULT_TIMESTAMP_LOOKBACK_DAYS)
             parameters["lookback_days"] = lookback_days
 
-        native_source = query_template is EXPORT_TO_S3_FROM_EVENTS_BACKFILL and await database_sync_to_async(
-            use_new_events_schema
-        )(team_id)
+        native_source = query_template in (
+            EXPORT_TO_S3_FROM_EVENTS_BACKFILL,
+            EXPORT_TO_S3_FROM_EVENTS_WORKFLOWS,
+        ) and await database_sync_to_async(use_new_events_schema)(team_id)
 
         filters_str = ""
         if filters is not None and len(filters) > 0:

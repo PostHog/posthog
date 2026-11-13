@@ -139,7 +139,7 @@ class InboxOnboarding:
     def state(self) -> dict[str, Any]:
         return self._state(get_or_create_team_extension(self.team, SignalTeamConfig))
 
-    def expose(self) -> dict[str, Any]:
+    def expose(self, onboarding_origin: str = "app") -> dict[str, Any]:
         config = get_or_create_team_extension(self.team, SignalTeamConfig)
         with transaction.atomic():
             config = SignalTeamConfig.objects.select_for_update().get(pk=config.pk, team_id=self.team_id)
@@ -149,6 +149,7 @@ class InboxOnboarding:
                     **state,
                     "exposed_at": timezone.now().isoformat(),
                     "exposed_by": self.user.pk,
+                    "onboarding_origin": onboarding_origin,
                 }
                 config.save(update_fields=["onboarding", "updated_at"])
                 transaction.on_commit(lambda: self._report_exposure(self.user, config), robust=True)

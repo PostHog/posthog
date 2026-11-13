@@ -1506,6 +1506,7 @@ class ExperimentExposureHealthFindingActionKind(StrEnum):
     EDIT_EXPOSURE_CRITERIA = "edit_exposure_criteria"
     ADJUST_DISTRIBUTION = "adjust_distribution"
     USE_FIRST_SEEN_VARIANT = "use_first_seen_variant"
+    MOVE_START_DATE = "move_start_date"
 
 
 class ExperimentExposureHealthFindingCode(StrEnum):
@@ -2243,6 +2244,11 @@ class MarketingAnalyticsRecommendationLevel(StrEnum):
     ACCOUNT = "account"
     CAMPAIGN = "campaign"
     SEARCH_TERM = "search_term"
+
+
+class MarketingAnalyticsRecommendationResolutionState(StrEnum):
+    DISMISSED = "dismissed"
+    APPLIED = "applied"
 
 
 class MarketingAnalyticsRecommendationRule(StrEnum):

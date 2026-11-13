@@ -4391,7 +4391,18 @@ describe('CDP API', () => {
                     total: 1,
                 })
                 expect(mockQueueInvocations).not.toHaveBeenCalled()
-                expect(emailStatusRows()).toEqual([])
+                const refusedSend = {
+                    team_id: team.id,
+                    message_id: expect.any(String),
+                    recipient: 'user@example.com',
+                    function_id: hogFlow.id,
+                }
+                expect(emailStatusRows()).toEqual([
+                    expect.objectContaining({ ...refusedSend, status: 'queued', reason: '' }),
+                    expect.objectContaining({ ...refusedSend, status: 'failed', reason: code }),
+                ])
+                const [queuedRow, failedRow] = emailStatusRows()
+                expect(failedRow.message_id).toEqual(queuedRow.message_id)
 
                 const retry = await sendOn(route, hogFlow.id, headers, keyed)
 

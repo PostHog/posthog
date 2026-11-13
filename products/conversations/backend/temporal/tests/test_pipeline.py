@@ -32,6 +32,7 @@ from products.conversations.backend.temporal.ai_reply.activities.validate import
 from products.conversations.backend.temporal.ai_reply.constants import (
     BASE_DRAFT_SCOPES,
     DIAGNOSTIC_SCOPES_PRESET,
+    GROUNDING_AWARE_GATE_PATCH,
     LEGACY_MAX_ATTEMPTS,
     LLM_REQUEST_TIMEOUT_SECONDS,
     MAX_ATTEMPTS,
@@ -161,6 +162,7 @@ async def test_workflow_persists_on_high_score(
         blocker="none",
     )
     mock_review.return_value = ReviewReplyOutput(safe=True)
+    mock_persist.return_value = PersistReplyOutput(published=True)
 
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
@@ -194,6 +196,7 @@ async def test_workflow_persists_on_high_score(
     mock_persist.assert_called_once()
     assert mock_persist.call_args.args[0].run_id
     mock_persist_gaps.assert_not_called()
+    assert mock_record_triage.call_args_list[-1][0][0].patch["published"] is True
 
 
 @pytest.mark.django_db
@@ -447,6 +450,30 @@ def _patch_workflow_activities(fn: Callable[..., Any]) -> Callable[..., Any]:
             "findings",
             False,
             2,
+        ),
+        (
+            "blocked_draft_is_not_retried",
+            {
+                "confidence": 0.1,
+                "verdict": "blocked_on_knowledge",
+                "investigation_summary": "Searched docs. No match.",
+            },
+            {"grounded": True, "coverage": 0.2, "confidence": 0.2, "blocker": "knowledge"},
+            "escalated_with_findings",
+            True,
+            "findings",
+            False,
+            1,
+        ),
+        (
+            "answerable_draft_without_question_is_suggested",
+            {"confidence": 0.7, "verdict": "answerable"},
+            {"grounded": True, "coverage": 0.8, "confidence": 0.7, "blocker": "customer_info"},
+            "suggested",
+            True,
+            "reply",
+            False,
+            1,
         ),
     ],
 )
@@ -1090,6 +1117,15 @@ async def test_workflow_replays_blocker_aware_findings_history(
     )
     mock_review.return_value = ReviewReplyOutput(safe=True)
 
+    from products.conversations.backend.temporal.pipeline import workflow as pipeline_workflow
+
+    real_patched = pipeline_workflow.patched
+
+    def selective_patched(marker: str) -> bool:
+        if marker == GROUNDING_AWARE_GATE_PATCH:
+            return False
+        return real_patched(marker)
+
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
             env.client,
@@ -1098,14 +1134,15 @@ async def test_workflow_replays_blocker_aware_findings_history(
             activities=_WORKFLOW_ACTIVITIES,
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
-            handle = await env.client.start_workflow(
-                SupportReplyWorkflow.run,
-                workflow_input,
-                id="test-replay-blocker-aware-findings",
-                task_queue="test-queue",
-            )
-            result = await handle.result()
-            history = await handle.fetch_history()
+            with patch(f"{PIPELINE_MODULE}.workflow.patched", side_effect=selective_patched):
+                handle = await env.client.start_workflow(
+                    SupportReplyWorkflow.run,
+                    workflow_input,
+                    id="test-replay-blocker-aware-findings",
+                    task_queue="test-queue",
+                )
+                result = await handle.result()
+                history = await handle.fetch_history()
 
     assert "escalated_with_findings" in result
     assert mock_draft.call_count == MAX_ATTEMPTS
@@ -1669,7 +1706,7 @@ class TestPersistReplyActivity:
             channel_source=call_kwargs["channel_source"],
         )
 
-        _persist_reply_sync(
+        output = _persist_reply_sync(
             PersistReplyInput(
                 team_id=team.id,
                 ticket_id=str(ticket.id),
@@ -1685,6 +1722,7 @@ class TestPersistReplyActivity:
         assert comment.item_context is not None
         assert comment.item_context["author_type"] == "AI"
         assert comment.item_context["is_private"] is expected_private
+        assert output.published is (not expected_private)
 
     @parameterized.expand(
         [
@@ -2629,7 +2667,7 @@ class TestSafetyFilterActivity:
             patch(f"{VALIDATE_MODULE}._validate", new_callable=AsyncMock) as mock_validate,
             patch(f"{REVIEW_REPLY_MODULE}._review_reply", new_callable=AsyncMock) as mock_review,
             patch(f"{PERSIST_REPLY_MODULE}._persist_reply_sync", return_value=PersistReplyOutput()) as mock_persist,
-            patch(f"{RECORD_TRIAGE_MODULE}._record_triage_sync"),
+            patch(f"{RECORD_TRIAGE_MODULE}._record_triage_sync") as mock_record_triage,
         ):
             async with await WorkflowEnvironment.start_time_skipping() as env:
                 async with Worker(
@@ -2657,6 +2695,7 @@ class TestSafetyFilterActivity:
                     )
 
             assert result == "blocked_unsafe"
+            assert mock_record_triage.call_args_list[-1][0][0].patch["threat_type"] == "instruction_injection"
             mock_classify.assert_not_called()
             mock_refine.assert_not_called()
             mock_draft.assert_not_called()
@@ -3116,6 +3155,7 @@ async def test_classify_threading_and_diagnostics_gating(
         reply="Partial.",
         citations=["aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"],
         confidence=0.3,
+        verdict="answerable",
     )
     # Never clears threshold → loops MAX_ATTEMPTS so we can prove classify is one-shot.
     mock_validate.return_value = ValidateOutput(
@@ -3639,6 +3679,7 @@ class TestRecordTriageSync:
                 "finished_at": "2026-10-07T09:02:00+00:00",
                 "ai_trace_id": "trace-1",
                 "draft_task_run_ids": ["task-run-a"],
+                "published": True,
                 "cost": {"sandbox_seconds": 12.5, "llm_calls": 4},
             },
         )
@@ -3658,6 +3699,8 @@ class TestRecordTriageSync:
             "run_id": "run-2",
             "ai_triage_result": "persisted",
             "ai_triage_status": "done",
+            "published": True,
+            "threat_type": None,
             "ticket_type": "how_to",
             "attempts": 1,
             "ai_trace_id": "trace-1",
