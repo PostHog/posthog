@@ -178,6 +178,17 @@ def insight_view_contexts(
     ]
 
 
+def insights_viewed_standalone(*, team_id: int, insight_ids: Collection[int], viewed_since: datetime) -> set[int]:
+    """Return the insights someone viewed outside a dashboard since ``viewed_since``.
+
+    Only views recorded with a source count. History from before views carried a source does not
+    say whether the insight was opened by itself or on a dashboard.
+    """
+    from products.product_analytics.backend import view_context
+
+    return view_context.insights_viewed_standalone(team_id=team_id, insight_ids=insight_ids, viewed_since=viewed_since)
+
+
 def record_insight_view(*, insight_id: int, team_id: int | None = None, user_id: int | None = None) -> None:
     """Mark an insight as viewed now, preserving any newer timestamp for this viewer.
 

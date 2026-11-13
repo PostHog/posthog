@@ -33,7 +33,7 @@ from posthog.utils import variables_override_requested_by_client
 
 from products.access_control.backend.facade.contracts import UserNotOrganizationMemberError
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
-from products.product_analytics.backend.facade.api import insight_variables_for_team, insight_view_contexts
+from products.product_analytics.backend.facade.api import insight_variables_for_team, insights_viewed_standalone
 from products.product_analytics.backend.facade.contracts import INSIGHT_VIEW_CONTEXT_WRITE_INTERVAL
 from products.product_analytics.backend.facade.models import Insight
 
@@ -141,17 +141,12 @@ def insights_to_keep_fresh(team: Team, shared_only: bool = False) -> Generator[t
         )
         single_insight_q_filter = Q(team=team, pk__in=insight_ids_single)
         if standalone_demand:
-            viewed_since = threshold - INSIGHT_VIEW_CONTEXT_WRITE_INTERVAL
             single_insight_q_filter &= Q(
-                pk__in={
-                    view.insight_id
-                    for view in insight_view_contexts(
-                        team_id=team.pk,
-                        insight_ids=[int(pk) for pk in insight_ids_single],
-                        viewed_since=viewed_since,
-                    )
-                    if view.dashboard_id is None and view.source
-                }
+                pk__in=insights_viewed_standalone(
+                    team_id=team.pk,
+                    insight_ids=[int(pk) for pk in insight_ids_single],
+                    viewed_since=threshold - INSIGHT_VIEW_CONTEXT_WRITE_INTERVAL,
+                )
             )
         else:
             single_insight_q_filter &= Q(insightviewed__last_viewed_at__gte=threshold)
