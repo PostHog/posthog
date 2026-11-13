@@ -71,10 +71,6 @@ export function countStaleCommit(queue: string, operation: string): void {
     staleCommitsCounter.labels({ queue, operation }).inc()
 }
 
-export function sleep(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms))
-}
-
 export const pollsCounter = new Counter({
     name: 'cdp_cyclotron_v2_polls_total',
     help: 'Consumer loop polls of the queue database, per queue and outcome.',
