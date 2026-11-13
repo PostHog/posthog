@@ -24,7 +24,8 @@ import { GovernanceColumnHeader } from './GovernanceColumnHeader'
 import { GovernanceSectionFailed } from './GovernanceSectionFailed'
 import { GovernanceTableEmpty } from './GovernanceTableEmpty'
 
-const PAGE_SIZE = 6
+// The topics and sources tables share a row, so they page alike and keep one height.
+const PAGE_SIZE = 5
 const SKELETON_ROWS = 4
 
 function UsageCell({ row }: { row: SourceRow }): JSX.Element {

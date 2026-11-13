@@ -99,7 +99,11 @@ const TOPIC_COLUMNS: LemonTableColumns<TopicClusterApi> = [
         width: '40%',
         tooltip:
             'The number is how many sessions looked for a metric in the catalog. Each bar splits those sessions by what they found: a metric that fits, a table but no metric, or nothing. Hover a part of the bar to see its sessions. Each session counts once, and a metric comes first.',
-        render: (_, topic) => <TopicCoverageBar coverage={topic.coverage} />,
+        render: (_, topic) => (
+            <div className={SINGLE_LINE_ROW}>
+                <TopicCoverageBar coverage={topic.coverage} />
+            </div>
+        ),
     },
 ]
 

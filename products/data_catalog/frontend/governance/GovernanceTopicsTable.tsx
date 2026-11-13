@@ -21,7 +21,8 @@ import { GovernanceColumnHeader } from './GovernanceColumnHeader'
 import { GovernanceSectionFailed } from './GovernanceSectionFailed'
 import { GovernanceTableEmpty } from './GovernanceTableEmpty'
 
-const PAGE_SIZE = 6
+// The topics and sources tables share a row, so they page alike and keep one height.
+const PAGE_SIZE = 5
 
 // The judge step writes the adjusted runs, which tell the topics which sessions adapted a metric they read.
 const AGENT_COUNTS_MISSING =
