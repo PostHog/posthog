@@ -47,4 +47,21 @@ describe('reloadAfterChunkLoadError', () => {
         expect(reload).not.toHaveBeenCalled()
         expect(replace).toHaveBeenCalledWith(expectedUrl)
     })
+
+    it('waits for a pending navigation to another page before it reloads', () => {
+        // An old clock keeps the recorded unload outside the wait of any test that runs later.
+        jest.useFakeTimers().setSystemTime(0)
+        try {
+            window.dispatchEvent(new Event('beforeunload'))
+            reloadAfterChunkLoadError(new TypeError('Importing a module script failed.'))
+
+            expect(reload).not.toHaveBeenCalled()
+
+            jest.advanceTimersByTime(10_000)
+
+            expect(reload).toHaveBeenCalledTimes(1)
+        } finally {
+            jest.useRealTimers()
+        }
+    })
 })

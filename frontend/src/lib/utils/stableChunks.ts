@@ -5,6 +5,28 @@ export function isStableChunkBuild(): boolean {
     return document.querySelector('script[type="importmap"]') !== null
 }
 
+// WebKit fails every `import()` while a navigation to another origin is pending, for example the
+// redirect that ends an OAuth authorization. A reload at that moment cancels the navigation, so the
+// reload waits this long after the page last began to unload. If the navigation completes, the
+// page is gone before the reload runs.
+const PENDING_NAVIGATION_GRACE_MS = 10_000
+let lastBeforeUnloadAt: number | null = null
+
+if (typeof window !== 'undefined') {
+    window.addEventListener('beforeunload', () => {
+        lastBeforeUnloadAt = Date.now()
+    })
+}
+
+function afterPendingNavigation(reload: () => void): void {
+    const waitMs = lastBeforeUnloadAt === null ? 0 : lastBeforeUnloadAt + PENDING_NAVIGATION_GRACE_MS - Date.now()
+    if (waitMs > 0) {
+        window.setTimeout(reload, waitMs)
+    } else {
+        reload()
+    }
+}
+
 /**
  * Reloads the page after a chunk failed to load. On the stable build, a plain reload gets the same
  * import map and fails again while a new stable chunk is not reachable, so the reload asks for the
@@ -14,6 +36,10 @@ export function isStableChunkBuild(): boolean {
  * whose import map misses a chunk apart from a chunk that failed to load.
  */
 export function reloadAfterChunkLoadError(error: unknown): void {
+    afterPendingNavigation(() => reloadOnWorkingBuild(error))
+}
+
+function reloadOnWorkingBuild(error: unknown): void {
     if (!isStableChunkBuild()) {
         window.location.reload()
         return
