@@ -354,14 +354,16 @@ def _insight_read_guard(
 def _own_insight_ids(
     user_access_control: "UserAccessControl", team_id: Optional[int], candidate_ids: Optional[frozenset[str]]
 ) -> frozenset[str]:
-    from products.product_analytics.backend.facade.models import Insight  # noqa: PLC0415
+    from products.product_analytics.backend.facade.api import insight_ids_created_by  # noqa: PLC0415
 
-    if team_id is None or user_access_control.user is None:
+    if team_id is None:
         return frozenset()
-    insights = Insight.objects.filter(team_id=team_id, created_by_id=user_access_control.user.pk)
-    if candidate_ids is not None:
-        insights = insights.filter(id__in=[int(insight) for insight in candidate_ids])
-    return frozenset(str(insight) for insight in insights.values_list("id", flat=True))
+    own = insight_ids_created_by(
+        team_id=team_id,
+        user_id=user_access_control.user.pk,
+        insight_ids=[int(insight) for insight in candidate_ids] if candidate_ids is not None else None,
+    )
+    return frozenset(str(insight) for insight in own)
 
 
 def _platform_state_expr() -> ast.Expr:
