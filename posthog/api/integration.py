@@ -3210,16 +3210,11 @@ class IntegrationViewSet(
         config = request.validated_data["config"]
         if email_from_code_enabled(self.team, cast(User, request.user)):
             email.reject_address_change(config["email"])
-        current_mail_from = email.integration.config.get("mail_from_subdomain", "feedback")
-        if (
-            get_authenticator_scopes(request.successful_authenticator) is not None
-            and config.get("mail_from_subdomain", current_mail_from) != current_mail_from
-            and email.shares_domain_with_other_projects()
-        ):
-            raise PermissionDenied(
-                "Other projects send from this domain, so change its MAIL FROM subdomain in PostHog."
-            )
-        email.update_native_integration(config, email.integration.team_id)
+        email.update_native_integration(
+            config,
+            email.integration.team_id,
+            keep_shared_mail_from=get_authenticator_scopes(request.successful_authenticator) is not None,
+        )
         return Response(IntegrationSerializer(email.integration).data)
 
     def _get_email_integration(self) -> EmailIntegration:
@@ -3347,7 +3342,10 @@ class IntegrationViewSet(
         if context != "email":
             raise PermissionDenied("Scoped credentials only support email Domain Connect.")
         posthog_host = urlsplit(settings.SITE_URL).netloc
-        if redirect_uri and not url_has_allowed_host_and_scheme(redirect_uri, allowed_hosts={posthog_host}):
+        if redirect_uri and not (
+            urlsplit(redirect_uri).scheme
+            and url_has_allowed_host_and_scheme(redirect_uri, allowed_hosts={posthog_host})
+        ):
             raise ValidationError("redirect_uri must point back to PostHog.")
 
     # Defined last: a method named `list` shadows the builtin for the annotations of every method

@@ -1,7 +1,8 @@
 import time
 import threading
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import ExitStack, contextmanager
+from functools import partial
 from typing import Any, Literal
 
 from unittest.mock import patch
@@ -81,13 +82,18 @@ class FakeDnsZone:
         self._zones: list[_Zone] = []
         self._records: dict[RecordKey, list[dns.rdata.Rdata]] = {}
         self._clock = _ResolverClock()
+        # A live server resolves on its own threads while seeders publish into the same zones.
+        self._lock = threading.Lock()
         self.queried_addresses: set[str] = set()
 
     @contextmanager
-    def installed(self) -> Iterator["FakeDnsZone"]:
+    def installed(self, *, passthrough: bool = False) -> Iterator["FakeDnsZone"]:
+        """With `passthrough`, a name outside every zone goes to the real network, so the rest of a
+        running process keeps resolving."""
         with ExitStack() as stack:
-            stack.enter_context(patch("dns.query.udp", self._answer_query))
-            stack.enter_context(patch("dns.query.tcp", self._answer_query))
+            for protocol in ("udp", "tcp"):
+                real_query = getattr(dns.query, protocol) if passthrough else None
+                stack.enter_context(patch.object(dns.query, protocol, partial(self._answer_query, real_query)))
             stack.enter_context(patch.object(dns.resolver.Resolver, "read_resolv_conf", _use_public_resolver))
             stack.enter_context(patch.object(dns.resolver, "default_resolver", None))
             stack.enter_context(patch.object(dns.resolver, "time", self._clock))
@@ -106,17 +112,19 @@ class FakeDnsZone:
             self.publish(hostname, "A", address)
 
     def publish(self, name: str, rdtype: str, *values: str) -> None:
-        records = self._records.setdefault((_absolute(name), dns.rdatatype.from_text(rdtype)), [])
-        records.extend(
+        rdatas = [
             dns.rdata.from_text(dns.rdataclass.IN, rdtype, value, origin=dns.name.root, relativize=False)
             for value in values
-        )
+        ]
+        with self._lock:
+            self._records.setdefault((_absolute(name), dns.rdatatype.from_text(rdtype)), []).extend(rdatas)
 
     def publish_txt(self, name: str, *values: str) -> None:
         self.publish(name, "TXT", *(f'"{value}"' for value in values))
 
     def unpublish(self, name: str, rdtype: str) -> None:
-        self._records.pop((_absolute(name), dns.rdatatype.from_text(rdtype)), None)
+        with self._lock:
+            self._records.pop((_absolute(name), dns.rdatatype.from_text(rdtype)), None)
 
     def answers(self, name: str, rdtype: str) -> list[dns.rdata.Rdata]:
         """What a public resolver returns for the lookup, following CNAMEs. Empty when nothing answers."""
@@ -132,11 +140,19 @@ class FakeDnsZone:
         return _relative_text(targets[0]) if targets else None
 
     def _answer_query(
-        self, query: dns.message.Message, where: str, timeout: float | None = None, *args: Any, **kwargs: Any
+        self,
+        real_query: Callable[..., dns.message.Message] | None,
+        query: dns.message.Message,
+        where: str,
+        timeout: float | None = None,
+        *args: Any,
+        **kwargs: Any,
     ) -> dns.message.Message:
-        self.queried_addresses.add(where)
         question = query.question[0]
         lookup = self._lookup_at(where)
+        if real_query and not isinstance(lookup, _Zone) and self._zone_containing(question.name) is None:
+            return real_query(query, where, timeout, *args, **kwargs)
+        self.queried_addresses.add(where)
         if lookup is None:
             self._time_out(timeout)
         name, rdtype = _relative_text(question.name), dns.rdatatype.to_text(question.rdtype)
@@ -166,22 +182,23 @@ class FakeDnsZone:
         raise dns.exception.Timeout(timeout=timeout)
 
     def _resolve(self, name: dns.name.Name, rdtype: dns.rdatatype.RdataType, *, within: _Zone | None) -> _Resolution:
-        chain: list[dns.rrset.RRset] = []
-        for _ in range(MAX_CNAME_CHAIN):
-            zone = self._zone_containing(name)
-            if zone is None or (within is not None and zone != within):
-                if chain:
-                    return _Resolution(rcode=dns.rcode.NOERROR, answer=tuple(chain))
-                return _Resolution(rcode=dns.rcode.REFUSED if within else dns.rcode.NXDOMAIN)
-            if records := self._records.get((name, rdtype)):
-                return _Resolution(rcode=dns.rcode.NOERROR, answer=(*chain, _rrset(name, records)))
-            alias = self._records.get((name, dns.rdatatype.CNAME))
-            if not alias or rdtype == dns.rdatatype.CNAME or not isinstance(alias[0], CNAME):
-                rcode = dns.rcode.NOERROR if self._name_exists(name) else dns.rcode.NXDOMAIN
-                return _Resolution(rcode=rcode, answer=tuple(chain), authority=(self._soa(zone),))
-            chain.append(_rrset(name, alias))
-            name = alias[0].target
-        return _Resolution(rcode=dns.rcode.SERVFAIL)
+        with self._lock:
+            chain: list[dns.rrset.RRset] = []
+            for _ in range(MAX_CNAME_CHAIN):
+                zone = self._zone_containing(name)
+                if zone is None or (within is not None and zone != within):
+                    if chain:
+                        return _Resolution(rcode=dns.rcode.NOERROR, answer=tuple(chain))
+                    return _Resolution(rcode=dns.rcode.REFUSED if within else dns.rcode.NXDOMAIN)
+                if records := self._records.get((name, rdtype)):
+                    return _Resolution(rcode=dns.rcode.NOERROR, answer=(*chain, _rrset(name, records)))
+                alias = self._records.get((name, dns.rdatatype.CNAME))
+                if not alias or rdtype == dns.rdatatype.CNAME or not isinstance(alias[0], CNAME):
+                    rcode = dns.rcode.NOERROR if self._name_exists(name) else dns.rcode.NXDOMAIN
+                    return _Resolution(rcode=rcode, answer=tuple(chain), authority=(self._soa(zone),))
+                chain.append(_rrset(name, alias))
+                name = alias[0].target
+            return _Resolution(rcode=dns.rcode.SERVFAIL)
 
     def _zone_containing(self, name: dns.name.Name) -> _Zone | None:
         candidates = [zone for zone in self._zones if name.is_subdomain(zone.apex)]

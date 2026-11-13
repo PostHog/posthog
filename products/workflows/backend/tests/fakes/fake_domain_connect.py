@@ -53,11 +53,15 @@ class FakeDomainConnectProvider:
         self.hosted_domains: set[str] = set()
 
     @contextmanager
-    def installed(self) -> Iterator["FakeDomainConnectProvider"]:
+    def installed(self, *, passthrough: bool = False) -> Iterator["FakeDomainConnectProvider"]:
+        """With `passthrough`, requests to any other URL go to the real network, so the rest of a running
+        process keeps working."""
         with responses.RequestsMock(assert_all_requests_are_fired=False) as http:
             http.add_callback(
                 responses.GET, re.compile(rf"https://{re.escape(self.endpoint)}/v2/[^/]+/settings"), self._settings
             )
+            if passthrough:
+                http.add_passthru(re.compile(".*"))
             yield self
 
     def host(self, root_domain: str) -> None:

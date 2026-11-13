@@ -15,7 +15,7 @@ from products.posthog_ai.eval_harness.scorers import (
     JudgedScorer,
 )
 from products.posthog_ai.eval_harness.scorers.contract import Score, Scorer
-from products.workflows.evals.simulated_email_domains import DOMAIN_CONNECT_SYNC_UX
+from products.workflows.backend.tests.fakes.fake_domain_connect import CLOUDFLARE_SYNC_UX
 
 __all__ = [
     "APPLY_URL_PATH",
@@ -31,7 +31,7 @@ __all__ = [
 
 APPLY_URL_TOOL = "integrations-domain-connect-apply-url-create"
 VERIFY_TOOL = "integrations-email-verify-create"
-APPLY_URL_PATH = f"{DOMAIN_CONNECT_SYNC_UX}/v2/domainTemplates/providers/posthog.com/"
+APPLY_URL_PATH = f"{CLOUDFLARE_SYNC_UX}/v2/domainTemplates/providers/posthog.com/"
 APPLY_URL = re.compile(re.escape(APPLY_URL_PATH) + r"[^\s\"'\\)>\]]+")
 SPF_RECORD = re.compile(r"v=spf1[^\n`\"'|]*", re.IGNORECASE)
 SPF_ALL_MECHANISM = re.compile(r"^[~?+-]?all$", re.IGNORECASE)

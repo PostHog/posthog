@@ -3,6 +3,7 @@ from __future__ import annotations
 from products.posthog_ai.eval_harness.base import SandboxedEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
+from products.workflows.backend.tests.fakes.fake_ses import dkim_tokens, verification_token
 from products.workflows.evals.offline_config import email_domain_setup_suite
 from products.workflows.evals.scorers import (
     AvoidedTool,
@@ -31,7 +32,6 @@ from products.workflows.evals.seeders import (
     VERIFIED_SENDER,
     domain_of,
     seed_claimed_domain,
-    seed_domain_connect_support,
     seed_existing_dmarc,
     seed_existing_spf,
     seed_helpdesk_mx,
@@ -44,11 +44,9 @@ from products.workflows.evals.simulated_email_domains import (
     MX_PRIORITY,
     SES_SPF_VALUE,
     DnsRecord,
-    dkim_tokens,
     mail_from_mx_host,
     ses_records,
     simulated_email_domains,
-    verification_token,
 )
 
 EMAIL_CREATE_TOOL = "integrations-email-create"
@@ -147,7 +145,7 @@ def _cases() -> list[SandboxedEvalCase]:
         SandboxedEvalCase(
             name="domain_connect_link",
             prompt=f"Set up {DOMAIN_CONNECT_SENDER} as our Workflows email sender, with Hedgebox as the display name.",
-            setup=seed_domain_connect_support,
+            setup=seed_new_sender(DOMAIN_CONNECT_SENDER),
             expected={
                 "senders_in_project": {"senders": {DOMAIN_CONNECT_SENDER: {"name": "Hedgebox"}}},
                 "shared_apply_url": {},

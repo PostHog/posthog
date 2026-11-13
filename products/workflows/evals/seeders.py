@@ -11,12 +11,7 @@ from posthog.models.user import User
 from posthog.user_permissions import UserPermissions
 
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext
-from products.workflows.evals.simulated_email_domains import (
-    SIMULATED_EMAIL_DOMAINS,
-    DnsRecord,
-    publish_domain_connect_support,
-    ses_records,
-)
+from products.workflows.evals.simulated_email_domains import SIMULATED_EMAIL_DOMAINS, DnsRecord, ses_records
 
 __all__ = [
     "CLAIMED_DOMAIN_SENDER",
@@ -35,7 +30,6 @@ __all__ = [
     "VERIFIED_SENDER",
     "domain_of",
     "seed_claimed_domain",
-    "seed_domain_connect_support",
     "seed_existing_dmarc",
     "seed_existing_spf",
     "seed_helpdesk_mx",
@@ -96,26 +90,17 @@ def _create_sender(context: CustomPromptSandboxContext, address: str, *, mail_fr
     )
 
 
-def _publish_verified_domain(context: CustomPromptSandboxContext, domain: str, mail_from_subdomain: str) -> None:
-    SIMULATED_EMAIL_DOMAINS.publish(ses_records(domain, mail_from_subdomain))
-    SIMULATED_EMAIL_DOMAINS.associate(context.team_id, domain)
-    SIMULATED_EMAIL_DOMAINS.set_mail_from_domain(domain, f"{mail_from_subdomain}.{domain}")
-
-
-def seed_domain_connect_support(context: CustomPromptSandboxContext) -> dict[str, Any]:
-    publish_domain_connect_support()
-    return _seeded(context, DOMAIN_CONNECT_SENDER)
-
-
 def seed_verified_sender(context: CustomPromptSandboxContext) -> dict[str, Any]:
     sender = _create_sender(context, VERIFIED_SENDER, mail_from_subdomain="feedback")
-    _publish_verified_domain(context, domain_of(VERIFIED_SENDER), "feedback")
+    SIMULATED_EMAIL_DOMAINS.verify_for_team(context.team_id, domain_of(VERIFIED_SENDER), "feedback")
     return _seeded(context, VERIFIED_SENDER, integration_id=sender.id)
 
 
 def seed_shared_domain_sender(context: CustomPromptSandboxContext) -> dict[str, Any]:
     sender = _create_sender(context, SHARED_DOMAIN_SENDER, mail_from_subdomain=SHARED_DOMAIN_MAIL_FROM_SUBDOMAIN)
-    _publish_verified_domain(context, domain_of(SHARED_DOMAIN_SENDER), SHARED_DOMAIN_MAIL_FROM_SUBDOMAIN)
+    SIMULATED_EMAIL_DOMAINS.verify_for_team(
+        context.team_id, domain_of(SHARED_DOMAIN_SENDER), SHARED_DOMAIN_MAIL_FROM_SUBDOMAIN
+    )
     return _seeded(context, SHARED_DOMAIN_SENDER, integration_id=sender.id)
 
 

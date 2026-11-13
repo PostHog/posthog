@@ -14,7 +14,7 @@ from django.utils import timezone
 import structlog
 from disposable_email_domains import blocklist as disposable_email_domains_list
 from free_email_domains import whitelist as free_email_domains_list
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import PermissionDenied, ValidationError
 
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
@@ -131,7 +131,9 @@ class EmailIntegration:
         except IntegrationConflict:
             raise _duplicate_sender_error(email_address)
 
-    def update_native_integration(self, config: dict, team_id: int) -> model.Integration:
+    def update_native_integration(
+        self, config: dict, team_id: int, *, keep_shared_mail_from: bool = False
+    ) -> model.Integration:
         provider = self.integration.config.get("provider")
         domain = self.integration.config.get("domain")
         # Only name, mail_from_subdomain, reply_to and setup_method can be updated
@@ -142,34 +144,45 @@ class EmailIntegration:
 
         mail_from_changed = mail_from_subdomain != self.integration.config.get("mail_from_subdomain", "feedback")
 
-        if provider == "ses":
-            if mail_from_changed:
-                from products.workflows.backend.facade.api import (
-                    update_ses_mail_from_subdomain,  # noqa: PLC0415 — keeps the workflows facade off the model import path
+        # A sender created on this domain copies the MAIL FROM subdomain SES holds, so the domain lock it takes
+        # must wait until the sharing check, the SES write and this row agree.
+        with transaction.atomic():
+            with connection.cursor() as cursor:
+                lock_sender_domain(cursor, domain)
+
+            if keep_shared_mail_from and mail_from_changed and self._shares_domain_with_other_projects():
+                raise PermissionDenied(
+                    "Other projects send from this domain, so change its MAIL FROM subdomain in PostHog."
                 )
 
-                update_ses_mail_from_subdomain(domain, mail_from_subdomain=mail_from_subdomain)
-        elif provider == "maildev" and settings.DEBUG:
-            pass
-        else:
-            raise ValueError(f"Invalid provider: must be 'ses'")
+            if provider == "ses":
+                if mail_from_changed:
+                    from products.workflows.backend.facade.api import (
+                        update_ses_mail_from_subdomain,  # noqa: PLC0415 — keeps the workflows facade off the model import path
+                    )
 
-        changes: dict[str, str] = {
-            "name": name,
-            "mail_from_subdomain": mail_from_subdomain,
-            "reply_to": config.get("reply_to", self.integration.config.get("reply_to", "")),
-        }
-        if setup_method := config.get("setup_method"):
-            changes["setup_method"] = setup_method
-        # The SDK merges the patch under a row lock, so a concurrent verification write is kept.
-        self.integration = model.integration_model(
-            row_writes.update_row(self.integration, IntegrationPatch(config_patch=changes))
-        )
+                    update_ses_mail_from_subdomain(domain, mail_from_subdomain=mail_from_subdomain)
+            elif provider == "maildev" and settings.DEBUG:
+                pass
+            else:
+                raise ValueError(f"Invalid provider: must be 'ses'")
+
+            changes: dict[str, str] = {
+                "name": name,
+                "mail_from_subdomain": mail_from_subdomain,
+                "reply_to": config.get("reply_to", self.integration.config.get("reply_to", "")),
+            }
+            if setup_method := config.get("setup_method"):
+                changes["setup_method"] = setup_method
+            # The SDK merges the patch under a row lock, so a concurrent verification write is kept.
+            self.integration = model.integration_model(
+                row_writes.update_row(self.integration, IntegrationPatch(config_patch=changes))
+            )
         reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
 
         return self.integration
 
-    def shares_domain_with_other_projects(self) -> bool:
+    def _shares_domain_with_other_projects(self) -> bool:
         return (
             model.Integration.objects.filter(kind="email", config__domain=self.integration.config.get("domain"))
             .exclude(team_id=self.integration.team_id)
