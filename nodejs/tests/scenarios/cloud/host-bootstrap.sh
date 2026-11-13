@@ -9,6 +9,7 @@ PNPM_VERSION=11.28.5
 PNPM_SHA256=358f7c59f6e25559547afdba47390591514e7a0886d00d8b1a80f33607a4e136
 RUST_TOOLCHAIN=1.91.1
 SQLX_CLI_VERSION=0.8.0
+UV_VERSION=0.13.4
 
 export HOME="${HOME:-/root}"
 export DEBIAN_FRONTEND=noninteractive
@@ -29,7 +30,7 @@ report_failure() {
 
 install_packages_and_aws_cli() {
     apt-get update -q
-    apt-get install -y -q build-essential ca-certificates curl docker-compose-v2 docker.io git jq pkg-config unzip xz-utils
+    apt-get install -y -q build-essential ca-certificates curl docker-compose-v2 docker.io git jq libxml2-dev libxmlsec1-dev libxmlsec1-openssl pkg-config unzip xz-utils
     curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64-${AWS_CLI_VERSION}.zip" -o /tmp/awscliv2.zip
     echo "${AWS_CLI_SHA256}  /tmp/awscliv2.zip" | sha256sum --check --strict
     unzip -q /tmp/awscliv2.zip -d /tmp
@@ -65,10 +66,24 @@ install_sqlx_cli() {
     "$HOME/.cargo/bin/cargo" install sqlx-cli --version "$SQLX_CLI_VERSION" --features postgres,rustls --no-default-features --locked --root /usr/local
 }
 
+install_uv_and_python() {
+    local archive=uv-x86_64-unknown-linux-gnu.tar.gz
+    curl -fsSL "https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/${archive}" -o "/tmp/${archive}"
+    curl -fsSL "https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/${archive}.sha256" -o "/tmp/${archive}.sha256"
+    (cd /tmp && sha256sum --check --strict "${archive}.sha256")
+    tar -xzf "/tmp/${archive}" -C /usr/local/bin --strip-components 1
+    (cd "$repo" && uv sync --frozen)
+}
+
+start_poolers() {
+    pnpm --dir "$repo/nodejs" exec tsx tests/scenarios/cloud/host-pooler.ts "$input/cloud-profile.yaml"
+}
+
 check_ready() {
     node --version
     pnpm --version
     sqlx --version
+    "$repo/bin/hogli" --help >/dev/null
     docker info >/dev/null
     aws sts get-caller-identity >/dev/null
 }
@@ -78,6 +93,8 @@ trap report_failure ERR
 verify_inputs
 install_node_and_pnpm
 install_sqlx_cli
+install_uv_and_python
 pnpm --dir "$repo" install --frozen-lockfile
+start_poolers
 check_ready
 mark ready

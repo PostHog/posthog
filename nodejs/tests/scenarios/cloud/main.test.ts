@@ -44,6 +44,11 @@ const PROFILE = {
         imageParameter: '/test/ubuntu/ami-id',
         bootstrapDeadline: '30m',
     },
+    pooler: {
+        image: `registry.example.com/pgbouncer@sha256:${'b'.repeat(64)}`,
+        replicas: 2,
+        settings: { pool_mode: 'transaction', default_pool_size: 20 },
+    },
     runnerProfile: 'runner.yaml',
     admission: {
         teardownAllowance: '60m',
@@ -426,6 +431,31 @@ describe('cloud controller', () => {
             'a runner profile path through another directory',
             { profile: (p) => ({ ...p, runnerProfile: 'nested/../runner.yaml' }) },
             'runnerProfile',
+        ],
+        [
+            'a pooler image not pinned by digest',
+            { profile: (p) => ({ ...p, pooler: { ...p.pooler, image: 'registry.example.com/pgbouncer:1' } }) },
+            'pooler.image',
+        ],
+        [
+            'a pooler setting the host owns',
+            {
+                profile: (p) => ({
+                    ...p,
+                    pooler: { ...p.pooler, settings: { ...p.pooler.settings, listen_port: 5432 } },
+                }),
+            },
+            'pooler.settings',
+        ],
+        [
+            'a pooler setting that spans lines',
+            {
+                profile: (p) => ({
+                    ...p,
+                    pooler: { ...p.pooler, settings: { ...p.pooler.settings, pool_mode: 'session\nlisten_port = 1' } },
+                }),
+            },
+            'pooler.settings',
         ],
     ])('refuses %s before it writes anything', async (_, setup, reason) => {
         const { controller } = prepare(setup)
