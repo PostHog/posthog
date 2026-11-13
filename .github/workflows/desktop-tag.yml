@@ -215,7 +215,8 @@ jobs:
                   REPOSITORY: ${{ github.repository }}
                   TESTED_SHA: ${{ steps.master-ci-run.outputs.sha }}
                   TIMEOUT_SECONDS: '3600'
-                  INTERVAL_SECONDS: '60'
+                  # Polls every two minutes, so a full wait stays well under the hourly GITHUB_TOKEN rate limit.
+                  INTERVAL_SECONDS: '120'
               run: |
                   # A break-glass run that skips Desktop Tests tags HEAD, so it waits for HEAD.
                   COMMIT_SHA="${TESTED_SHA:-$(git rev-parse HEAD)}"

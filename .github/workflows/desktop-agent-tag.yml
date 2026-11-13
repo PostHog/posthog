@@ -138,7 +138,8 @@ jobs:
                   COMMIT_SHA: ${{ steps.version.outputs.target }}
                   TAG: ${{ steps.version.outputs.tag }}
                   TIMEOUT_SECONDS: '3600'
-                  INTERVAL_SECONDS: '60'
+                  # Polls every two minutes, so a full wait stays well under the hourly GITHUB_TOKEN rate limit.
+                  INTERVAL_SECONDS: '120'
               run: |
                   STATUS=0
                   .github/scripts/desktop/wait-for-backend-deploy.sh || STATUS=$?
