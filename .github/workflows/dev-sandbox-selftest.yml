@@ -43,6 +43,15 @@ jobs:
         steps:
             # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
             - uses: actions/checkout@v6.0.2
+              with:
+                  sparse-checkout: |
+                      /bin/dev-sandbox
+                      /bin/dev-sandbox.sb
+                      /bin/dev-sandbox-selftest
+                      /package.json
+                      /.husky/
+                      /.flox/env/
+                  sparse-checkout-cone-mode: false
             - name: Run dev sandbox self-test
               run: bin/dev-sandbox-selftest
 
