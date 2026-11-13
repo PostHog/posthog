@@ -1,80 +1,86 @@
-import { useMountedLogic, useValues } from 'kea'
-import posthog from 'posthog-js'
+import { Tooltip } from '@posthog/lemon-ui'
 
-import { LemonButton } from '@posthog/lemon-ui'
+import { cn } from 'lib/utils/css-classes'
 
-import { evaluationReportLogic } from '../evaluationReportLogic'
-import { llmEvaluationLogic } from '../llmEvaluationLogic'
-import { methodText, reportText, targetText, triggerText } from './evaluationSummary'
+import { templateOutputText } from '../components/templateSummary'
+import type { EvaluationConfig } from '../types'
+import type { ChecklistKey, PreviewStep } from './creationChecklist'
+import { methodText, targetText, triggerText } from './evaluationSummary'
 
-export type SentencePart = 'method' | 'model' | 'target' | 'triggers' | 'reports'
+export interface EvaluationSentenceProps {
+    evaluation: EvaluationConfig
+    usesDecisionModel: boolean
+    model: string
+    reports: string
+    steps: PreviewStep[]
+    currentIndex: number
+    /** What each unfinished checklist item still needs, by its key. */
+    missing: Partial<Record<ChecklistKey, string>>
+    onOpen: (index: number, part: string) => void
+}
 
-/**
- * The whole setup as one sentence: who checks, with which model, what one run covers, which traffic, and how often
- * a report arrives. It is the overview above the steps: it marks the parts the current step edits, and a click on a
- * part goes to the step that edits it.
- */
 export function EvaluationSentence({
-    activeParts,
-    onPartClick,
-}: {
-    activeParts: SentencePart[]
-    onPartClick: (part: SentencePart) => void
-}): JSX.Element | null {
-    const { props } = useMountedLogic(llmEvaluationLogic)
-    const { evaluation, usesDecisionModel, selectedModelName, selectedModel, isReportableEvaluation, isNewEvaluation } =
-        useValues(llmEvaluationLogic)
-    const { configDraft } = useValues(evaluationReportLogic({ evaluationId: props.evaluationId }))
-
-    if (!evaluation) {
-        return null
+    evaluation,
+    usesDecisionModel,
+    model,
+    reports,
+    steps,
+    currentIndex,
+    missing,
+    onOpen,
+}: EvaluationSentenceProps): JSX.Element {
+    /** `name` overrides the step's part where one step holds several parts, such as the target and the triggers. */
+    const part = (stepKey: string, text: string, check?: ChecklistKey, name?: string): JSX.Element => {
+        const index = steps.findIndex((step) => step.key === stepKey)
+        const step = steps[index]
+        if (!step) {
+            return <span className="font-semibold">{text}</span>
+        }
+        const todo = check ? missing[check] : undefined
+        const partName = name ?? step.part
+        return (
+            <Tooltip title={todo}>
+                <button
+                    type="button"
+                    onClick={() => onOpen(index, partName)}
+                    aria-current={index === currentIndex ? 'step' : undefined}
+                    className={cn(
+                        '-mx-0.5 cursor-pointer rounded px-0.5 font-semibold underline decoration-dotted underline-offset-4 transition-colors motion-reduce:transition-none',
+                        index === currentIndex ? 'bg-accent-highlight-light' : 'hover:bg-fill-highlight-100',
+                        todo && 'text-danger'
+                    )}
+                    data-attr={`llma-evaluation-create-part-${partName}`}
+                >
+                    {/* Keyed on the value, so a changed setting fades back in where you can see it. */}
+                    <span key={text} className="animate-fade-in motion-reduce:animate-none">
+                        {text}
+                    </span>
+                </button>
+            </Tooltip>
+        )
     }
-    const needsModel = evaluation.evaluation_type === 'llm_judge' && !selectedModel
-    const part = (key: SentencePart, text: React.ReactNode, missing = false): JSX.Element => (
-        <LemonButton
-            // The parts of the current step stand out, so the sentence shows where you are.
-            type={activeParts.includes(key) ? 'primary' : 'secondary'}
-            size="small"
-            status={missing ? 'danger' : 'default'}
-            active={activeParts.includes(key)}
-            onClick={() => {
-                if (!activeParts.includes(key)) {
-                    // pinned: analytics event name and properties, because the creation funnel reads them
-                    posthog.capture('llma evaluation create part opened', { part: key, is_new: isNewEvaluation })
-                }
-                onPartClick(key)
-            }}
-            className="inline-flex align-middle"
-            data-attr={`llma-evaluation-create-part-${key}`}
-        >
-            {text}
-        </LemonButton>
-    )
+
     return (
-        // One line, wrapping only when the page is narrow.
-        <section
-            className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-base"
-            data-attr="llma-evaluation-create-sentence"
-        >
-            <span>Run</span>
-            {part('method', methodText(evaluation, usesDecisionModel))}
-            {evaluation.evaluation_type === 'llm_judge' && (
-                <>
-                    <span>with</span>
-                    {part('model', needsModel ? 'pick a model' : (selectedModelName ?? selectedModel), needsModel)}
-                </>
-            )}
-            <span>on</span>
-            {/* Sentiment always reads single generations, so there is nothing to choose. */}
+        <p className="mb-0 text-sm leading-relaxed" data-attr="llma-evaluation-create-sentence">
             {evaluation.evaluation_type === 'sentiment' ? (
-                <span className="font-semibold">{targetText(evaluation)}</span>
+                <>
+                    Rates {part('traffic', targetText(evaluation), undefined, 'target')} with{' '}
+                    {part('name', methodText(evaluation, usesDecisionModel))} as positive, neutral, or negative.
+                </>
             ) : (
-                part('target', targetText(evaluation))
-            )}
-            <span>for</span>
-            {part('triggers', triggerText(evaluation))}
-            <span>and alert me</span>
-            {part('reports', reportText({ ...configDraft, enabled: configDraft.enabled && isReportableEvaluation }))}
-        </section>
+                <>
+                    Checks {part('traffic', targetText(evaluation), undefined, 'target')} with{' '}
+                    {evaluation.evaluation_type === 'hog' ? (
+                        part('check', 'Hog code', 'criteria', 'code')
+                    ) : (
+                        <>
+                            {part('name', methodText(evaluation, usesDecisionModel))} on {part('check', model, 'model')}
+                        </>
+                    )}{' '}
+                    and returns {part('output', templateOutputText(evaluation).toLowerCase(), 'result')}.
+                </>
+            )}{' '}
+            It runs on {part('traffic', triggerText(evaluation), 'sampling')} and sends {part('reports', reports)}.
+        </p>
     )
 }

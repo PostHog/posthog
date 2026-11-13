@@ -684,6 +684,24 @@ describe('TaxonomicFilter', () => {
                 })
                 expect(screen.queryByTestId('taxonomic-hidden-event')).not.toBeInTheDocument()
             })
+
+            // On the Events tab the stand-in row fills the list, so the empty state never renders there.
+            it('does not claim the event is unavailable when the picker offers stand-ins', async () => {
+                renderFilter({
+                    taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.PersonProperties],
+                    offerHiddenEventStandIns: true,
+                })
+
+                await activateGroupWithResults('taxonomic-tab-person_properties')
+                await withoutDebounceDelay((user) =>
+                    user.type(screen.getByTestId('taxonomic-filter-searchfield'), '$feature_flag_called')
+                )
+
+                await waitFor(() => {
+                    expect(inVisibleTab(screen.getAllByText(/No results for/))).toBeTruthy()
+                })
+                expect(screen.queryByTestId('taxonomic-hidden-event')).not.toBeInTheDocument()
+            })
         })
     })
 
@@ -795,6 +813,7 @@ describe('TaxonomicFilter', () => {
                     wasFromPinnedList: false,
                     wasFromRecents: false,
                     wasQuickFilter: false,
+                    wasHiddenEventStandIn: false,
                     hadSearchInput: false,
                     position: 1,
                 },
@@ -809,6 +828,7 @@ describe('TaxonomicFilter', () => {
                     wasFromPinnedList: false,
                     wasFromRecents: false,
                     wasQuickFilter: false,
+                    wasHiddenEventStandIn: false,
                     hadSearchInput: true,
                     position: 0,
                 },
@@ -1154,6 +1174,29 @@ describe('TaxonomicFilter', () => {
                     </Provider>
                 )
             }).not.toThrow()
+        })
+
+        it('shows the popover when the highlight moves from an event to an "On this page" match', async () => {
+            renderFilter({
+                groupType: TaxonomicFilterGroupType.MaxAIContext,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.MaxAIContext, TaxonomicFilterGroupType.Events],
+                maxContextOptions: [
+                    { id: 'insight-1', value: 'insight-1', name: 'event conversion', icon: () => <span /> },
+                ],
+                popoverEnabled: true,
+            })
+            await userEvent.click(screen.getByTestId('taxonomic-tab-suggested_filters'))
+            // Real timers: with withoutDebounceDelay the All list stays empty after the search.
+            await userEvent.type(screen.getByTestId('taxonomic-filter-searchfield'), 'event')
+
+            // The popover logic is shared by every row, so on the first render after the move it
+            // still holds the event's definition while the group is already "On this page".
+            const popoverHeader = (): Element | null => document.querySelector('.definition-popover-header-row-title')
+            await userEvent.hover(await screen.findByTestId('prop-filter-suggested_filters-1'))
+            await waitFor(() => expect(popoverHeader()).toHaveTextContent('Unverified event'))
+            await userEvent.hover(screen.getByTestId('prop-filter-suggested_filters-0'))
+
+            await waitFor(() => expect(popoverHeader()).toHaveTextContent('On this page'))
         })
 
         it('renders correctly when search matches no items', async () => {

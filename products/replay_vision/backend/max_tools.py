@@ -23,12 +23,17 @@ from posthog.session_recordings.queries.session_replay_events import SessionRepl
 from posthog.sync import database_sync_to_async
 
 from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
+from products.replay_vision.backend.api.observation_stats import compute_observation_stats
 from products.replay_vision.backend.api.scanners import SCANNER_QUERY_FILTER_KEYS, ReplayScannerSerializer
 from products.replay_vision.backend.billing import CREDITS_PER_DOLLAR, observation_credits_for_model
 from products.replay_vision.backend.consent import is_ai_data_processing_approved
 from products.replay_vision.backend.experiment_variants import experiment_variants_readout
 from products.replay_vision.backend.impact import compute_scanner_impact, create_affected_cohort
-from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
+from products.replay_vision.backend.models.replay_observation import (
+    ObservationStatus,
+    ObservationVerdict,
+    ReplayObservation,
+)
 from products.replay_vision.backend.models.replay_observation_label import ReplayObservationLabel
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
 from products.replay_vision.backend.observation_formatting import format_line, plain_snippet, read_output
@@ -150,8 +155,9 @@ The two ids are not interchangeable.
 
 The results are the closest matches by meaning, capped at `limit`. They are not every recording that
 matches, and they are not the results of a scan you started: a search can return recordings from other
-scans and leave out the ones you asked about. Don't count rates or totals from them. To read the
-recordings a scan_replay_vision_sessions call covered, use get_replay_vision_scan_results with its scan id.
+scans and leave out the ones you asked about. Don't count rates or totals from them; use
+get_replay_vision_observation_stats for a scanner's exact counts. To read the recordings a
+scan_replay_vision_sessions call covered, use get_replay_vision_scan_results with its scan id.
 
 # Using the results
 - Each line's date is when the recording happened. A recording from before a change (a deploy, a
@@ -366,7 +372,7 @@ class CompareReplayVisionVariantsTool(ReplayVisionGatesMixin, MaxTool):
         ]
         analysis = readout.analysis
         # The scout's records live on the parent project. The variants endpoint checks the caller's
-        # parent access and credential scope with ScoutCanonicalTeamAccessPermission, and a tool sees
+        # parent access and credential scope with ScoutDataAccessPermission, and a tool sees
         # no credential, so a child environment gets its analysis only from the Variants tab.
         in_child_environment = self._team.parent_team_id is not None and self._team.parent_team_id != self._team.id
         if analysis is not None and in_child_environment:
@@ -1044,6 +1050,88 @@ class GetReplayVisionQuotaTool(ReplayVisionGatesMixin, MaxTool):
         }
 
 
+OBSERVATION_STATS_TOOL_DESCRIPTION = """
+Use this tool to count a scanner's observations: the exact total and how it breaks down.
+
+# When to use
+- The user asks how many observations, scans or results a scanner has, or wants a summary of its usage
+- You need a rate or a total. search_replay_vision_observations returns a capped sample and
+  analyze_replay_vision_impact counts sessions in a time window, so neither can give one
+
+# What it returns
+Every observation the scanner has recorded, all time: the total, counts by status (succeeded, failed,
+ineligible, still running), distinct sessions scanned, and the result breakdown over the succeeded ones
+(verdict counts for a monitor, top tags for a classifier, score summary for a scorer). Reading this costs
+nothing.
+"""
+
+
+class ObservationStatsArgs(BaseModel):
+    scanner_id: str = Field(description="The scanner whose observations to count.")
+
+
+class GetReplayVisionObservationStatsTool(ReplayVisionGatesMixin, MaxTool):
+    # Reads only; nothing here starts a scan.
+    needs_confirmation: ClassVar[bool] = False
+    name: str = "get_replay_vision_observation_stats"
+    description: str = OBSERVATION_STATS_TOOL_DESCRIPTION
+    args_schema: type[BaseModel] = ObservationStatsArgs
+
+    def get_required_resource_access(self) -> list[tuple[APIScopeObject, AccessControlLevel]]:
+        return [("replay_scanner", "viewer"), ("session_recording", "viewer")]
+
+    async def _arun_impl(self, scanner_id: str) -> tuple[str, dict[str, Any]]:
+        return await self._read(scanner_id)
+
+    @database_sync_to_async
+    def _read(self, scanner_id: str) -> tuple[str, dict[str, Any]]:
+        scanner = self._scanner_for_reading(scanner_id)
+        if scanner is None:
+            return f"Scanner {scanner_id} not found.", {"error": "not_found"}
+        observations = accessible_observations(
+            self.user_access_control,
+            self._team.id,
+            ReplayObservation.objects.filter(team_id=self._team.id, scanner_id=scanner.id),
+        )
+        stats = compute_observation_stats(scanner, observations)
+        statuses, coverage = stats["status_counts"], stats["coverage"]
+        content = (
+            f"{statuses['total']} observation(s) in total: {statuses['succeeded']} succeeded, "
+            f"{statuses['failed']} failed, {statuses['ineligible']} ineligible, {statuses['in_flight']} still "
+            f"running. They cover {coverage['total_sessions']} distinct session(s)."
+        )
+        artifact: dict[str, Any] = {
+            "total": statuses["total"],
+            "status_counts": statuses,
+            "total_sessions": coverage["total_sessions"],
+        }
+        if monitor := stats["monitor"]:
+            artifact["monitor"] = monitor
+            content += (
+                f" Verdicts on the succeeded ones: {monitor['yes_total']} yes, {monitor['no_total']} no, "
+                f"{monitor['inconclusive_total']} inconclusive."
+            )
+        elif classifier := stats["classifier"]:
+            artifact["classifier"] = classifier
+            tag_counts: Counter[str] = Counter()
+            for row in classifier["fixed_ranked"] + classifier["freeform_ranked"]:
+                tag_counts[row["tag"]] += row["count"]
+            if tag_counts:
+                ranked = sorted(tag_counts.items(), key=lambda item: (-item[1], item[0]))
+                lines = [f"- {tag}: {count}" for tag, count in ranked]
+                content += (
+                    f" {classifier['total_with_tags']} succeeded observation(s) carry a tag. Top tags:\n\n"
+                    + as_untrusted_data("tags", lines)
+                )
+        elif (scorer := stats["scorer"]) and (summary := scorer["summary"]):
+            artifact["scorer"] = summary
+            content += (
+                f" Scores on the succeeded ones run from {summary['min']:g} to {summary['max']:g}, "
+                f"median {summary['median']:g}, mean {summary['mean']:.2f}."
+            )
+        return content, artifact
+
+
 RETRY_OBSERVATION_TOOL_DESCRIPTION = """
 Use this tool to scan a recording again after its observation failed or came back ineligible.
 
@@ -1237,7 +1325,7 @@ matching a filter.
   saves nothing and schedules nothing. Never create a scanner just to answer one question and delete it.
 
 # Cost
-An enabled scanner sweeps every 5 minutes and spends credits on each matching recording, so it can drain
+An enabled scanner sweeps as often as every 5 minutes and spends credits on each matching recording, so it can drain
 a monthly budget on its own. Creating one enabled asks the user to confirm, with the projected monthly
 spend. Create it disabled (`enabled: false`) to set it up without spending anything yet.
 
@@ -1368,7 +1456,7 @@ class CreateReplayVisionScannerTool(ReplayVisionGatesMixin, MaxTool):
         scope = "every new recording that matches its filter" if filtered else "every new recording"
         return (
             f"**Create and enable** scanner '{name}'. It scans {scope} from now on, "
-            f"sweeping every 5 minutes.{sampled} Each recording costs {spend} "
+            f"sweeping as often as every 5 minutes.{sampled} Each recording costs {spend} "
             "Create it disabled instead if you want to size it first."
         )
 
@@ -1503,7 +1591,7 @@ change which recordings it picks up, or change how much of the matching traffic 
   not the prompt: a recording the prompt tells the scanner to skip is still scanned and still costs credits.
 
 # Cost
-Enabling a scanner starts a sweep that runs every 5 minutes and spends credits on each matching
+Enabling a scanner starts a sweep that runs as often as every 5 minutes and spends credits on each matching
 recording, so enabling asks the user to confirm and shows the projected monthly spend. Raising the
 sampling rate or changing the filter on a scanner that is already running does the same, because either
 can widen what gets scanned.
@@ -1599,7 +1687,7 @@ class UpdateReplayVisionScannerTool(ReplayVisionGatesMixin, MaxTool):
             else _monthly_spend_sentence(self._team, scanner, rate)
         )
         return (
-            f"{action} scanner '{scanner.name}'. It sweeps every 5 minutes, scanning "
+            f"{action} scanner '{scanner.name}'. It sweeps as often as every 5 minutes, scanning "
             f"{rate:.0%} of matching recordings, and keeps spending until it's turned off. {spend}"
         )
 
@@ -1998,9 +2086,14 @@ put those people into a cohort.
 - The user wants to act on the affected people, e.g. target them in a survey or exclude them from an
   experiment
 
+# What it counts
+Distinct sessions and people, not observations, from successful scans of sessions that started inside
+the window. It is not a scanner's total: for how many observations a scanner has, or its breakdown by
+status, verdict, tag or score, use get_replay_vision_observation_stats.
+
 # Narrowing
-Pass `tag` for a classifier, or `min_score` / `max_score` for a scorer, to count only the observations
-that match that outcome. Leave them unset to count everything the scanner flagged.
+A monitor counts its `yes` verdicts unless you pass `verdict`. A classifier needs `tag`, and a scorer
+needs `min_score` and/or `max_score`.
 
 # The cohort
 Set `create_cohort` to true only when the user has asked for one. It writes a static, dated cohort of
@@ -2012,6 +2105,9 @@ and scans nothing.
 class ImpactArgs(BaseModel):
     scanner_id: str = Field(description="The scanner whose findings to measure.")
     window_days: int = Field(default=30, ge=1, le=365, description="How many days back to count over, 1 to 365.")
+    verdict: ObservationVerdict | None = Field(
+        default=None, description="Monitors only: count this verdict (yes, no, inconclusive). Defaults to yes."
+    )
     tag: str | None = Field(default=None, description="Classifiers only: count just this tag.")
     min_score: float | None = Field(default=None, description="Scorers only: count scores at or above this.")
     max_score: float | None = Field(default=None, description="Scorers only: count scores at or below this.")
@@ -2041,18 +2137,20 @@ class AnalyzeReplayVisionImpactTool(ReplayVisionGatesMixin, MaxTool):
         self,
         scanner_id: str,
         window_days: int = 30,
+        verdict: ObservationVerdict | None = None,
         tag: str | None = None,
         min_score: float | None = None,
         max_score: float | None = None,
         create_cohort: bool = False,
     ) -> tuple[str, dict[str, Any]]:
-        return await self._analyze(scanner_id, window_days, tag, min_score, max_score, create_cohort)
+        return await self._analyze(scanner_id, window_days, verdict, tag, min_score, max_score, create_cohort)
 
     @database_sync_to_async
     def _analyze(
         self,
         scanner_id: str,
         window_days: int,
+        verdict: ObservationVerdict | None,
         tag: str | None,
         min_score: float | None,
         max_score: float | None,
@@ -2060,12 +2158,22 @@ class AnalyzeReplayVisionImpactTool(ReplayVisionGatesMixin, MaxTool):
     ) -> tuple[str, dict[str, Any]]:
         # Cohort creation writes, so it needs editor; counting alone needs only viewer.
         scanner = self._scanner_for(scanner_id, "editor" if create_cohort else "viewer")
-        if scanner is None:
+        if scanner is None or not can_read_targeted_experiment(self.user_access_control, self._team.id, scanner):
             return f"Scanner {scanner_id} not found.", {"error": "not_found"}
+        # Row-level too: a retargeted scanner keeps observations from experiments the user can't view.
+        readable = accessible_observations(self.user_access_control, self._team.id, ReplayObservation.objects.all())
         # Raises on filter/scanner-type mismatches the description invites Max to try, and the messages
         # are written for a person, so hand them back instead of crashing the turn.
         try:
-            impact = compute_scanner_impact(scanner, window_days, tag=tag, min_score=min_score, max_score=max_score)
+            impact = compute_scanner_impact(
+                scanner,
+                window_days,
+                verdict=verdict,
+                tag=tag,
+                min_score=min_score,
+                max_score=max_score,
+                observations=readable,
+            )
         except ValueError as exc:
             return str(exc), {"error": "invalid_filters"}
         artifact: dict[str, Any] = {
@@ -2086,7 +2194,14 @@ class AnalyzeReplayVisionImpactTool(ReplayVisionGatesMixin, MaxTool):
             return f"{content} Saving them as a cohort needs cohort edit access.", artifact
         try:
             cohort, members = create_affected_cohort(
-                scanner, self._user, window_days, tag=tag, min_score=min_score, max_score=max_score
+                scanner,
+                self._user,
+                window_days,
+                verdict=verdict,
+                tag=tag,
+                min_score=min_score,
+                max_score=max_score,
+                observations=readable,
             )
         except ValueError as exc:
             return f"{content} Couldn't build a cohort: {exc}", artifact

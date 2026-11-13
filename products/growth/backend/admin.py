@@ -7,7 +7,6 @@ from django import forms
 from django.contrib import admin, messages
 from django.core.exceptions import ValidationError
 from django.db.models import QuerySet
-from django.db.models.fields import BLANK_CHOICE_DASH
 from django.http import HttpRequest, HttpResponseRedirect
 from django.urls import reverse
 from django.utils.html import format_html
@@ -204,6 +203,9 @@ class ProductPushCampaignAdmin(admin.ModelAdmin):
         return format_html('<a href="{}">{}</a>', url, campaign.organization.name)
 
 
+BLANK_PRODUCT_KEY_CHOICE = ("", "---------")
+
+
 class ProductPushCampaignInlineForm(ProductPushCampaignForm):
     class Meta:
         model = ProductPushCampaign
@@ -215,7 +217,7 @@ class ProductPushCampaignInlineForm(ProductPushCampaignForm):
         # so every org save inserted a phantom campaign and 500ed once one was queued.
         product_key_field = self.fields["product_key"]
         assert isinstance(product_key_field, forms.ChoiceField)  # built in ProductPushCampaignForm.__init__
-        product_key_field.choices = BLANK_CHOICE_DASH + product_key_choices()
+        product_key_field.choices = [BLANK_PRODUCT_KEY_CHOICE, *product_key_choices()]
 
 
 class ProductPushCampaignInline(admin.TabularInline):
@@ -230,7 +232,6 @@ class ProductPushCampaignInline(admin.TabularInline):
     extra = 1
     show_change_link = True
     can_delete = False
-    template = "admin/growth/edit_inline/campaign_tabular.html"
     ordering = ("status", "position", "-created_at")
 
     fields = ("product_key", "status", "position", "scheduled_for", "reason_text", "started_at", "ended_at", "source")
@@ -252,7 +253,11 @@ class ProductPushCampaignInline(admin.TabularInline):
                     instance.save()
                 return instance
 
-        CampaignFormSet.next_up_preview = _next_up_preview(obj) if obj is not None else ""
+        # get_inline_instances builds a new inline per request, so this heading never shows on
+        # another organization's page.
+        preview = _next_up_preview(obj) if obj is not None else ""
+        plural = ProductPushCampaign._meta.verbose_name_plural
+        self.verbose_name_plural = f"{plural}. {preview}" if preview else plural
         return CampaignFormSet
 
 
@@ -269,7 +274,7 @@ def _next_up_preview(organization: Organization) -> str:
 
         selection = select_next_product(organization, now)
         if selection is None:
-            return "Next auto pick: nothing — every blessed product is already used, pending, or in retry cooldown."
+            return "Next auto pick: nothing. Every blessed product is already used, pending, or in retry cooldown."
 
         origin = "TAM-scheduled" if selection.scheduled_campaign is not None else "blessed order"
         eligible_now = get_eligible_organization_queryset(now).filter(id=organization.id).exists()

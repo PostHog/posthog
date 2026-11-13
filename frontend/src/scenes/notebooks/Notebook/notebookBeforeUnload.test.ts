@@ -5,6 +5,7 @@ describe('shouldWarnBeforeLeavingNotebook', () => {
         isLocalOnly: false,
         isEditable: true,
         syncStatus: 'unsaved' as const,
+        hasMountedEditor: true,
         currentPathname: '/project/1/notebooks/abc',
     }
 
@@ -45,5 +46,13 @@ describe('shouldWarnBeforeLeavingNotebook', () => {
 
     it('warns when no newPathname is provided (browser tab close)', () => {
         expect(shouldWarnBeforeLeavingNotebook(baseInput)).toBe(true)
+    })
+
+    it.each([
+        [false, '/project/1/dashboard', false],
+        [true, '/project/1/dashboard', true],
+        [false, undefined, true],
+    ])('guards navigation with mounted editor %s to %s: %s', (hasMountedEditor, newPathname, expected) => {
+        expect(shouldWarnBeforeLeavingNotebook({ ...baseInput, hasMountedEditor, newPathname })).toBe(expected)
     })
 })

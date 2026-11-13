@@ -642,13 +642,16 @@ const TRIPWIRE_RULES = [
     // suite's tests run on a PR, so an under-selection can only mask conflicts
     // that suite's lanes already serialize: the snob shadow, its verdict, and
     // the testmon fanout list select Django tests, the dagster selector its
-    // own suite, and the playwright pair the E2E specs.
+    // own suite, the warehouse sources selector the vendor tests, and the
+    // playwright pair the E2E specs.
     ['tools/snob_backend_test_selection_shadow.py', PYTHON],
     ['tools/test_snob_backend_test_selection_shadow.py', PYTHON],
     ['tools/test_selection_verdict.py', PYTHON],
     ['tools/test_test_selection_verdict.py', PYTHON],
     ['tools/dagster_test_selection.py', PYTHON],
     ['tools/test_dagster_test_selection.py', PYTHON],
+    ['tools/warehouse_sources_vendor_selection.py', PYTHON],
+    ['tools/test_warehouse_sources_vendor_selection.py', PYTHON],
     ['tools/testmon_high_fanout_files.txt', PYTHON],
     ['tools/playwright_spec_selection.py', FULLSTACK],
     ['tools/test_playwright_spec_selection.py', FULLSTACK],
@@ -3006,8 +3009,11 @@ module.exports = {
 
 if (require.main === module) {
     let result
+    let context = null
+    let changedFiles = []
+    let deletedFiles = null
     try {
-        const changedFiles = fs
+        changedFiles = fs
             .readFileSync(0, 'utf8')
             .split('\n')
             .map((line) => line.trim())
@@ -3016,9 +3022,11 @@ if (require.main === module) {
             console.error('No changed files on stdin; reporting ALL')
             result = ALL
         } else {
+            context = buildContext(REPO_ROOT)
+            deletedFiles = findDeletedFiles(changedFiles)
             result = computeTargets(changedFiles, {
-                ...buildContext(REPO_ROOT),
-                deletedFiles: findDeletedFiles(changedFiles),
+                ...context,
+                deletedFiles,
             })
         }
     } catch (error) {
@@ -3031,4 +3039,16 @@ if (require.main === module) {
         console.error(`Computed ${result.length} target(s): ${JSON.stringify(result)}`)
     }
     process.stdout.write(JSON.stringify(result))
+    if (process.env.LANE_TELEMETRY_FILE) {
+        try {
+            const { summarizeLane } = require('./trunk-lane-telemetry')
+            context = context || buildContext(REPO_ROOT)
+            fs.writeFileSync(
+                process.env.LANE_TELEMETRY_FILE,
+                JSON.stringify(summarizeLane(changedFiles, result, context, deletedFiles))
+            )
+        } catch (error) {
+            console.error(`Could not write lane telemetry (${error.message}); keeping computed targets`)
+        }
+    }
 }

@@ -4,22 +4,28 @@ import { useEffect, useRef, useState } from 'react'
 import { IconCamera, IconPause, IconPlay, IconRewindPlay } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
-import { isChristmas, isHalloween } from 'lib/holidays'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { IconFullScreen, IconGhost, IconSanta, IconSkipEnd, IconSkipStart } from 'lib/lemon-ui/icons'
+import { KeyboardShortcut } from 'lib/lemon-ui/KeyboardShortcut/KeyboardShortcut'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { cn } from 'lib/utils/css-classes'
+import { isChristmas, isHalloween } from 'lib/utils/holidays'
 import {
     CommentOnRecordingButton,
     EmojiCommentOnRecordingButton,
 } from 'scenes/session-recordings/player/commenting/CommentOnRecordingButton'
+import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import {
     ModesWithInteractions,
     SessionRecordingPlayerMode,
     sessionRecordingPlayerLogic,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import {
+    QuillPlayerBarControls,
+    QuillPlayerBarMute,
+} from 'scenes/session-recordings/player/watch/QuillPlayerBarControls'
+import { playerUsesWatchLayout } from 'scenes/session-recordings/playlist/replayLayout'
 
 import { SessionPlayerState } from '~/types'
 
@@ -210,6 +216,8 @@ export function Screenshot({
 
 export function PlayerController(): JSX.Element {
     const { logicProps, hoverModeIsEnabled, showPlayerChrome } = useValues(sessionRecordingPlayerLogic)
+    const { replayLayout } = useValues(playerSettingsLogic)
+    const watchLayout = playerUsesWatchLayout(replayLayout, logicProps)
 
     const playerMode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
 
@@ -233,16 +241,25 @@ export function PlayerController(): JSX.Element {
             )}
         >
             <Seekbar />
-            <div className="w-full px-2 py-1 relative flex items-center justify-between" ref={ref}>
+            <div
+                className={cn(
+                    'w-full px-2 py-1 relative flex items-center justify-between',
+                    // The watch layout's extra controls drop to a second row when the player is narrow.
+                    watchLayout && 'flex-wrap gap-y-1'
+                )}
+                ref={ref}
+            >
                 <div className="flex gap-0.5 items-center justify-center">
                     <SkipToStart />
                     <SeekSkip direction="backward" />
                     <PlayPauseButton />
                     <SeekSkip direction="forward" />
                     <SkipToNext />
+                    {watchLayout && <QuillPlayerBarMute />}
                     <Timestamp size={size} />
                 </div>
-                <div className="flex gap-0.5 justify-end items-center">
+                <div className={cn('flex gap-0.5 justify-end items-center', watchLayout && 'ml-auto')}>
+                    {watchLayout && <QuillPlayerBarControls size={size} />}
                     {ModesWithInteractions.includes(playerMode) && (
                         <>
                             <CommentOnRecordingButton />

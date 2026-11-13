@@ -7,18 +7,14 @@ const COLUMN_LABELS: Record<string, string> = {
     space: 'Collection',
     tags: 'Tags',
     owner: 'Owner',
-    last_viewed: 'Last viewed',
-    created: 'Created',
+    last_viewed_at: 'Last viewed by me',
+    created_at: 'Created',
 }
 
 export function AnalyticsListSkeleton({ columns }: { columns: AnalyticsListColumns }): JSX.Element {
     return (
         <div aria-busy aria-label="Loading analytics">
-            <Table
-                fullWidth
-                size="sm"
-                className="w-full min-w-0 **:data-expand:min-w-64 **:data-expand:max-w-0 **:data-[slot=table]:min-w-208"
-            >
+            <Table fullWidth size="sm" className="**:data-expand:min-w-64 **:data-expand:max-w-0">
                 <TableHeader>
                     <TableRow>
                         {columns.map((column) => (

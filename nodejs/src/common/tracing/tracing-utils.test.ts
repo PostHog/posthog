@@ -79,4 +79,16 @@ describe('instrumentFn', () => {
         const [span] = exporter.getFinishedSpans()
         expect(activeSpanIdAtCapture).toBe(span.spanContext().spanId)
     })
+
+    it('rethrows without capturing a failure that shouldCaptureException rejects', async () => {
+        const capture = jest.spyOn(posthogUtils, 'captureException').mockImplementation(() => {})
+
+        await expect(
+            instrumentFn({ key: 'expected_failure', shouldCaptureException: () => false }, () =>
+                Promise.reject(new Error('expected'))
+            )
+        ).rejects.toThrow('expected')
+
+        expect(capture).not.toHaveBeenCalled()
+    })
 })

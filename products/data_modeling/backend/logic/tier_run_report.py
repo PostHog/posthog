@@ -17,9 +17,11 @@ skipped for a reason the run did not record; distinguishing those needs the Temp
 import dataclasses
 from collections import defaultdict
 from datetime import datetime, timedelta
+from uuid import UUID
 
 from django.db import models
 
+from products.data_modeling.backend.facade.contracts import DagTierReport, NodeRunSummary, TierSummary, UntargetedNode
 from products.data_modeling.backend.logic.cohort_scheduling import (
     Tier,
     bucket_into_cadence_tiers,
@@ -27,8 +29,7 @@ from products.data_modeling.backend.logic.cohort_scheduling import (
     tier_schedule_id,
     tier_sort_key,
 )
-from products.data_modeling.backend.logic.freshness import clamp_to_source_floor, compute_effective_cadences
-from products.data_modeling.backend.logic.node_frequency import build_frequency_graph
+from products.data_modeling.backend.logic.node_frequency import build_frequency_graph, scheduled_cadences
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.data_modeling_job import (
     DataModelingJob,
@@ -147,13 +148,50 @@ def untargeted_nodes(dag: DAG) -> list[Node]:
     return [node for node in _reportable_nodes(dag) if str(node.id) not in scheduled]
 
 
+def _tier_summary(tier: TierRun) -> TierSummary:
+    return TierSummary(
+        label=tier.label,
+        schedule_id=tier.schedule_id,
+        parent_workflow_id=tier.parent_workflow_id,
+        started_at=tier.started_at,
+        run_is_legacy=tier.run_is_legacy,
+        declared=tier.declared,
+        ran=tier.ran,
+        counts=tuple(tier.counts.items()),
+        nodes=tuple(
+            NodeRunSummary(
+                name=node.name,
+                node_type=node.node_type,
+                status=node.status,
+                detail=node.detail,
+                workflow_id=node.workflow_id,
+                workflow_run_id=node.workflow_run_id,
+            )
+            for node in tier.nodes
+        ),
+    )
+
+
+def get_dag_tier_report(dag_id: UUID) -> DagTierReport | None:
+    # nosemgrep: idor-lookup-without-team -- staff-only console lookup by id behind admin_view
+    dag = DAG.objects.select_related("team").filter(pk=dag_id).first()
+    if dag is None:
+        return None
+    return DagTierReport(
+        dag_id=dag.pk,
+        dag_name=dag.name,
+        team_id=dag.team_id,
+        team_name=dag.team.name,
+        sync_frequency_interval=dag.sync_frequency_interval,
+        tiers=tuple(_tier_summary(tier) for tier in build_tier_runs(dag)),
+        untargeted=tuple(UntargetedNode(name=node.name, node_type=node.type) for node in untargeted_nodes(dag)),
+    )
+
+
 def _desired_tiers(dag: DAG) -> dict[Tier, set[str]]:
     """The cohorts the reconciler would build, mirroring its propagation + clamp + bucketing."""
     graph = build_frequency_graph(dag)
-    effective = compute_effective_cadences(
-        nodes=graph.nodes, edges=graph.edges, declared_targets=graph.declared_targets
-    )
-    effective, _clamped = clamp_to_source_floor(effective, edges=graph.edges, source_intervals=graph.source_intervals)
+    effective, _clamped = scheduled_cadences(graph)
     return bucket_into_cadence_tiers(effective, graph.declared_anchors)
 
 

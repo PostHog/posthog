@@ -55,6 +55,7 @@ def validate_cdc_prerequisites(
     if management_mode == "posthog":
         errors.extend(_check_replication_role(conn))
         errors.extend(_check_replication_slot_capacity(conn))
+        errors.extend(_check_can_create_publication(conn, publication_name))
         errors.extend(_check_table_ownership(conn, qualified_tables))
     elif management_mode == "self_managed":
         # Self-managed: the DBA creates the publication out-of-band, PostHog creates
@@ -262,10 +263,48 @@ def _check_replication_role(conn: psycopg.Connection) -> list[str]:
     return []
 
 
+def _check_can_create_publication(conn: psycopg.Connection, publication_name: str | None) -> list[str]:
+    """The connecting role needs CREATE on the database to create the publication (PostHog-managed mode).
+
+    PostgreSQL checks this privilege for CREATE PUBLICATION separately from the replication
+    attribute, so a role that can create a slot can still be refused with "permission denied
+    for database". A publication that already exists is adopted, not created, so it needs no
+    privilege.
+    """
+    if publication_name and publication_exists(conn, publication_name):
+        return []
+
+    with conn.cursor() as cur:
+        cur.execute("SELECT current_database(), has_database_privilege(current_user, current_database(), 'CREATE')")
+        row = cur.fetchone()
+        if row is not None and row[1] is False:
+            quoted_database = sql.Identifier(row[0]).as_string(None)
+            return [
+                "The database user cannot create a publication. "
+                f"Grant it with GRANT CREATE ON DATABASE {quoted_database} TO <username>. "
+                "If you can't grant that, use self-managed mode and create the publication yourself, "
+                "or switch these tables to Incremental sync instead of CDC. "
+                "Incremental needs only SELECT permission."
+            ]
+    return []
+
+
 def _check_replication_slot_capacity(conn: psycopg.Connection) -> list[str]:
     """Check if there's capacity for a new replication slot."""
     with conn.cursor() as cur:
-        cur.execute("SHOW max_replication_slots")
+        try:
+            cur.execute("SHOW max_replication_slots")
+        except psycopg.errors.UndefinedObject:
+            # Twin of the `_check_wal_level` guard above: a pooler or wire-compatible database
+            # that doesn't expose this parameter can't support logical replication CDC either.
+            conn.rollback()
+            return [
+                "This database doesn't expose the max_replication_slots setting, so it can't "
+                "support logical replication CDC. This usually means the connection goes through "
+                "a pooler (such as PgBouncer in transaction mode) or to a database that isn't a "
+                "logical-replication-capable PostgreSQL. Connect directly to the primary "
+                "PostgreSQL server, or switch these tables to Incremental sync."
+            ]
         max_row = cur.fetchone()
         if max_row is None:
             return ["Could not determine max_replication_slots."]

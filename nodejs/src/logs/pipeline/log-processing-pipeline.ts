@@ -12,6 +12,28 @@ function mapBytes(map: Record<string, string> | null | undefined): number {
     return total
 }
 
+function arrayBytes(values: string[] | null | undefined): number {
+    let total = 0
+    for (const value of values ?? []) {
+        total += stringBytes(value)
+    }
+    return total
+}
+
+function bufferBytes(value: Buffer | null | undefined): number {
+    return value?.length ?? 0
+}
+
+/** Span columns that decode into the same record type. A log record has none of them. */
+type SpanPayload = {
+    name?: string | null
+    parent_span_id?: Buffer | null
+    status_message?: string | null
+    trace_state?: string | null
+    events?: string[] | null
+    links?: string[] | null
+}
+
 function resourceKey(map: Record<string, string> | null | undefined): string {
     return JSON.stringify(Object.entries(map ?? {}).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
 }
@@ -35,9 +57,22 @@ export function measureContentWeights(records: LogRecord[]): Map<LogRecord, numb
     const weights = new Map<LogRecord, number>()
     records.forEach((record, i) => {
         const { resource, scope } = keys[i]
+        const span = record as SpanPayload
+        // Capture writes every span's ids at full width, so they give a span with no strings a nonzero
+        // weight. Without them a byte rate limit charges that span nothing and always admits it.
+        const spanIdBytes =
+            span.parent_span_id === undefined
+                ? 0
+                : bufferBytes(record.trace_id) + bufferBytes(record.span_id) + bufferBytes(span.parent_span_id)
         weights.set(
             record,
             stringBytes(record.body) +
+                spanIdBytes +
+                stringBytes(span.name) +
+                stringBytes(span.status_message) +
+                stringBytes(span.trace_state) +
+                arrayBytes(span.events) +
+                arrayBytes(span.links) +
                 stringBytes(record.event_name) +
                 stringBytes(record.severity_text) +
                 mapBytes(record.attributes) +

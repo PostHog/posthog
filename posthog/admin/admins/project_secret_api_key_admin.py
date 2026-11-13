@@ -5,15 +5,12 @@ from django.urls import reverse
 from django.utils.html import format_html
 from django.utils.safestring import SafeString
 
-from posthog.admin.admins.api_key_roll_mixin import RollApiKeyAdminMixin
-from posthog.api.project_secret_api_key import revoke_exposed_project_secret_api_key
+from posthog.admin.console.moved import MovedToConsole
 from posthog.models import ProjectSecretAPIKey
 
 
 @admin.register(ProjectSecretAPIKey)
-class ProjectSecretAPIKeyAdmin(RollApiKeyAdminMixin):
-    roll_success_message = "Project secret API key revoked and project admins notified."
-
+class ProjectSecretAPIKeyAdmin(admin.ModelAdmin):
     fields = (
         "id",
         "label",
@@ -26,7 +23,7 @@ class ProjectSecretAPIKeyAdmin(RollApiKeyAdminMixin):
         "scopes",
         "roll_action",
     )
-    # Everything is read-only: this page exists for lookup and the Roll button.
+    # Everything is read-only: this page exists for lookup, and the roll action lives on the team's console page.
     readonly_fields = fields
     list_display = ("id", "label", "mask_value", "team_link", "created_at", "last_used_at", "scopes")
     list_display_links = ("id", "label")
@@ -60,7 +57,8 @@ class ProjectSecretAPIKeyAdmin(RollApiKeyAdminMixin):
             key.created_by.email,
         )
 
-    def roll_and_notify(self, key: ProjectSecretAPIKey, more_info: str) -> None:
-        # A row mirroring a legacy team token (#63111) is deleted, not rolled, and the
-        # admins are told to rotate the legacy key — same semantics as the leak webhook.
-        revoke_exposed_project_secret_api_key(key, more_info)
+    @admin.display(description="Roll key")
+    def roll_action(self, key: ProjectSecretAPIKey) -> str | SafeString:
+        if not key.pk:
+            return ""
+        return MovedToConsole.action("team", key.team, "secret-api-keys", "Revoking an exposed key")

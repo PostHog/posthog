@@ -1,21 +1,20 @@
 import clsx from 'clsx'
 import { ReactNode } from 'react'
 
-import { LemonButton } from '@posthog/lemon-ui'
-
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
-import { urls } from 'scenes/urls'
 import { PagePerformanceCard } from 'scenes/web-analytics/PagePerformanceCard'
 import { PagePerformanceCardHeader } from 'scenes/web-analytics/PagePerformanceCardHeader'
 
 import { Query } from '~/queries/Query/Query'
-import { DataTableNode, DataVisualizationNode } from '~/queries/schema/schema-general'
+import { DataTableNode, DataVisualizationNode, InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
+
+import { ContentAutopilotOpenInsightButton } from './ContentAutopilotOpenInsightButton'
 
 /** One report tile: a card with the web analytics tile header, a read-only query inside, and a way to open
  *  the same query as an insight so it can be saved or added to a dashboard. */
 export const ContentAutopilotPromptQueryTile = ({
     title,
+    description,
     query,
     uniqueKey,
     context,
@@ -26,7 +25,8 @@ export const ContentAutopilotPromptQueryTile = ({
     'data-attr': dataAttr,
 }: {
     title: string
-    query: DataTableNode | DataVisualizationNode
+    description?: string
+    query: DataTableNode | DataVisualizationNode | InsightVizNode
     uniqueKey: string
     context?: QueryContext
     actions?: ReactNode
@@ -38,18 +38,11 @@ export const ContentAutopilotPromptQueryTile = ({
     <PagePerformanceCard className={clsx('min-w-0', className)} footer={footer}>
         <PagePerformanceCardHeader
             title={title}
+            description={description}
             actions={
                 <div className="flex flex-wrap items-center gap-2">
                     {actions}
-                    <LemonButton
-                        size="small"
-                        icon={<IconOpenInNew />}
-                        to={urls.insightNew({ query })}
-                        targetBlank
-                        tooltip="Open as insight"
-                        aria-label="Open as insight"
-                        data-attr={`${dataAttr}-open-insight`}
-                    />
+                    <ContentAutopilotOpenInsightButton query={query} data-attr={`${dataAttr}-open-insight`} />
                 </div>
             }
         />

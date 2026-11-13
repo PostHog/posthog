@@ -2,8 +2,9 @@ import clsx from 'clsx'
 import React from 'react'
 
 import { Resizeable } from 'lib/components/Cards/CardMeta'
+import { DashboardTileShell } from 'lib/components/Cards/DashboardTileShell'
 import { DashboardResizeHandles } from 'lib/components/Cards/handles'
-import { EditModeEdge, EditModeEdgeOverlay } from 'lib/components/Cards/InsightCard/EditModeEdgeOverlay'
+import { QuillCardMoreMenu } from 'lib/components/Cards/QuillCardMoreMenu'
 import { More, MoreProps } from 'lib/lemon-ui/LemonButton/More'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 
@@ -17,11 +18,11 @@ interface DashboardImageTileProps extends React.HTMLAttributes<HTMLDivElement>, 
     image: ImageTileImage
     placement: DashboardPlacement
     children?: JSX.Element
-    canEnterEditModeFromEdge?: boolean
-    onEnterEditModeFromEdge?: (event: React.MouseEvent<HTMLDivElement>, edge: EditModeEdge) => void
     moreButtonOverlay?: MoreProps['overlay']
-    onDragHandleMouseDown?: React.MouseEventHandler<HTMLDivElement>
+    /** Quill rows for the "more" menu, shown instead of `moreButtonOverlay`. */
+    quillMenuItems?: JSX.Element
     showEditingControls?: boolean
+    isDraggingRef?: React.RefObject<boolean>
 }
 
 function DashboardImageTileInternal(
@@ -32,11 +33,10 @@ function DashboardImageTileInternal(
         children,
         className,
         moreButtonOverlay,
+        quillMenuItems,
         placement,
-        canEnterEditModeFromEdge,
-        onEnterEditModeFromEdge,
-        onDragHandleMouseDown,
         showEditingControls,
+        isDraggingRef,
         ...divProps
     }: DashboardImageTileProps,
     ref: React.Ref<HTMLDivElement>
@@ -47,72 +47,67 @@ function DashboardImageTileInternal(
     const imageStyle = {
         objectPosition: imageTilePositionToCss(image.position),
     }
+    const openPreview = (): void => {
+        // A click that ends a drag is not a request to open the preview.
+        if (!isDraggingRef?.current) {
+            setIsImagePreviewOpen(true)
+        }
+    }
 
     return (
         <>
-            <div
-                className={clsx(
-                    'DashboardTileCard DashboardImageTile rounded flex flex-col',
-                    !isTransparent && 'bg-surface-primary border',
-                    isTransparent && showResizeHandles && 'border border-dashed border-border',
-                    className
-                )}
+            <DashboardTileShell
+                transparent={isTransparent}
+                showResizeHandles={showResizeHandles}
+                className={clsx('DashboardTileCard DashboardImageTile flex flex-col', className)}
                 data-attr="image-tile"
                 {...divProps}
                 ref={ref}
             >
-                {moreButtonOverlay && !shouldHideMoreButton && (
+                {(quillMenuItems || moreButtonOverlay) && !shouldHideMoreButton && (
                     <div className="absolute right-4 top-4">
-                        <More overlay={moreButtonOverlay} />
+                        {quillMenuItems ? (
+                            <QuillCardMoreMenu items={quillMenuItems} />
+                        ) : (
+                            <More overlay={moreButtonOverlay} />
+                        )}
                     </div>
                 )}
-                <div
-                    className={clsx(
-                        'DashboardTileCard__body ImageTile__body flex flex-1 min-h-0 w-full overflow-hidden p-4',
-                        onDragHandleMouseDown && 'cursor-grab'
-                    )}
-                    onMouseDown={onDragHandleMouseDown}
-                >
-                    {showResizeHandles ? (
-                        <div className="flex h-full w-full items-center justify-center overflow-hidden rounded">
-                            <img
-                                src={image.src}
-                                alt={image.alt}
-                                draggable={false}
-                                className={clsx(
-                                    'h-full w-full',
-                                    image.layout === 'cover' ? 'object-cover' : 'object-contain'
-                                )}
-                                style={imageStyle}
-                            />
-                        </div>
-                    ) : (
-                        <button
-                            type="button"
-                            className="flex h-full w-full cursor-pointer items-center justify-center overflow-hidden rounded"
-                            onClick={() => setIsImagePreviewOpen(true)}
-                            aria-label={image.alt || 'Open image preview'}
-                            data-attr="open-image-tile-preview"
-                        >
-                            <img
-                                src={image.src}
-                                alt={image.alt}
-                                draggable={false}
-                                className={clsx(
-                                    'h-full w-full',
-                                    image.layout === 'cover' ? 'object-cover' : 'object-contain'
-                                )}
-                                style={imageStyle}
-                            />
-                        </button>
-                    )}
+                <div className="DashboardTileCard__body ImageTile__body flex flex-1 min-h-0 w-full overflow-hidden p-4">
+                    {/* Not a <button>: the grid will not start a drag from one (see the grid's drag `cancel`
+                    selector in DashboardItems), so editors could not move the tile by its image. */}
+                    <div
+                        role="button"
+                        tabIndex={0}
+                        aria-label={image.alt || 'Open image preview'}
+                        className={clsx(
+                            'flex h-full w-full items-center justify-center overflow-hidden rounded',
+                            !showResizeHandles && 'cursor-pointer'
+                        )}
+                        onClick={openPreview}
+                        onKeyDown={(event) => {
+                            if (event.key === 'Enter' || event.key === ' ') {
+                                event.preventDefault()
+                                setIsImagePreviewOpen(true)
+                            }
+                        }}
+                        data-attr="open-image-tile-preview"
+                    >
+                        <img
+                            src={image.src}
+                            alt={image.alt}
+                            draggable={false}
+                            className={clsx(
+                                'h-full w-full',
+                                image.layout === 'cover' ? 'object-cover' : 'object-contain'
+                            )}
+                            style={imageStyle}
+                        />
+                    </div>
                 </div>
-                {(canEnterEditModeFromEdge || showResizeHandles) && onEnterEditModeFromEdge && (
-                    <EditModeEdgeOverlay onEnterEditMode={onEnterEditModeFromEdge} />
-                )}
                 {showResizeHandles && <DashboardResizeHandles />}
                 {children}
-            </div>
+            </DashboardTileShell>
             <LemonModal
                 isOpen={isImagePreviewOpen}
                 onClose={() => setIsImagePreviewOpen(false)}

@@ -1,4 +1,5 @@
 import re
+from functools import cache
 from typing import Any, NamedTuple
 
 import structlog
@@ -22,14 +23,20 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.database.schema.events import EVENTS_AVOID_ASTERISK_FIELDS, EventsTable
+from posthog.hogql.database.schema.session_replay_events import RawSessionReplayEventsTable
+from posthog.hogql.errors import BaseHogQLError
+from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import action_to_expr
+from posthog.hogql.visitor import TraversingVisitor
 
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_DATA_WAREHOUSE
+from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_DATA_WAREHOUSE, TREND_FILTER_TYPE_EVENTS
 from posthog.hogql_queries.legacy_compatibility.clean_properties import clean_entity_properties
-from posthog.models import Entity, Team
+from posthog.models import Team
 from posthog.types import AnyPropertyFilter
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import get_action
+from products.actions.backend.facade.contracts import ActionNotFound
 
 logger = structlog.get_logger(__name__)
 
@@ -91,14 +98,58 @@ INVERSE_OPERATOR_FOR = {
 }
 
 
+@cache
+def _event_only_fields() -> frozenset[str]:
+    # The `$virt_*` fields are added to the events table when the database is built, so the class lacks them.
+    event_fields = {*EventsTable().fields, *EVENTS_AVOID_ASTERISK_FIELDS}
+    return frozenset(event_fields - set(RawSessionReplayEventsTable().fields))
+
+
+class _FieldRoots(TraversingVisitor):
+    def __init__(self) -> None:
+        super().__init__()
+        self.roots: set[str] = set()
+        self._lambda_args: list[str] = []
+
+    def visit_field(self, node: ast.Field) -> None:
+        if node.chain and str(node.chain[0]) not in self._lambda_args:
+            self.roots.add(str(node.chain[0]))
+
+    def visit_lambda(self, node: ast.Lambda) -> None:
+        self._lambda_args.extend(node.args)
+        super().visit_lambda(node)
+        del self._lambda_args[-len(node.args) :]
+
+    # A subquery's fields resolve against its own tables, not the table the filter runs on.
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        return
+
+    def visit_select_set_query(self, node: ast.SelectSetQuery) -> None:
+        return
+
+
+def _hogql_reads_event_only_fields(expression: str) -> bool:
+    try:
+        parsed = parse_expr(expression)
+    except BaseHogQLError:
+        return False
+    collector = _FieldRoots()
+    collector.visit(parsed)
+    return not collector.roots.isdisjoint(_event_only_fields())
+
+
 def is_event_property(p: AnyPropertyFilter) -> bool:
     p_type = getattr(p, "type", None)
     p_key = getattr(p, "key", "")
     # Element filters read `elements_chain_*` columns, which exist only on the events table.
+    # A HogQL filter on a column only events carry, such as `event` or `$group_0`, cannot run against replay.
     return (
         p_type == "event"
         or p_type == "element"
-        or (p_type == "hogql" and bool(re.search(r"(?<!person\.)properties\.", p_key)))
+        or (
+            p_type == "hogql"
+            and (bool(re.search(r"(?<!person\.)properties\.", p_key)) or _hogql_reads_event_only_fields(p_key))
+        )
     )
 
 
@@ -207,27 +258,35 @@ def poe_is_active(team: Team) -> bool:
 
 
 def _node_from_entity(raw_entity: dict[str, Any]) -> EventsNode | ActionsNode | DataWarehouseNode:
-    entity = Entity(raw_entity)
+    entity_id = raw_entity.get("id")
+    entity_type = raw_entity.get("type")
+    custom_name = raw_entity.get("custom_name")
+    if custom_name is not None:
+        custom_name = str(custom_name).strip() or None
     # Replay selects sessions and never aggregates, so the entity's math fields have no effect on
     # the node and are left out.
     shared: dict[str, Any] = {
-        "name": entity.name,
-        "custom_name": entity.custom_name,
+        "name": raw_entity.get("name"),
+        "custom_name": custom_name,
         "properties": clean_entity_properties(raw_entity.get("properties")),
     }
 
-    if entity.type == TREND_FILTER_TYPE_ACTIONS:
-        return ActionsNode(id=entity.id, **shared)
-    if entity.type == TREND_FILTER_TYPE_DATA_WAREHOUSE:
+    if entity_type == TREND_FILTER_TYPE_ACTIONS:
+        return ActionsNode(id=entity_id, **shared)
+    if entity_type == TREND_FILTER_TYPE_DATA_WAREHOUSE:
         return DataWarehouseNode(
-            id=entity.id,
-            id_field=entity.id_field,
-            distinct_id_field=entity.distinct_id_field,
-            timestamp_field=entity.timestamp_field,
-            table_name=entity.table_name,
+            id=entity_id,
+            id_field=raw_entity.get("id_field"),
+            distinct_id_field=raw_entity.get("distinct_id_field"),
+            timestamp_field=raw_entity.get("timestamp_field"),
+            table_name=raw_entity.get("table_name"),
             **shared,
         )
-    return EventsNode(event=entity.id, **shared)
+    if entity_type != TREND_FILTER_TYPE_EVENTS:
+        raise ValueError(f"Unsupported entity type: {entity_type}")
+    # _entity_to_expr matches events on the node name, so an unnamed event entity takes its event as the name.
+    shared["name"] = shared["name"] or ("All events" if entity_id is None else str(entity_id))
+    return EventsNode(event=entity_id, **shared)
 
 
 def _entity_to_expr(entity: EventsNode | ActionsNode, team: Team) -> ast.Expr:
@@ -235,8 +294,8 @@ def _entity_to_expr(entity: EventsNode | ActionsNode, team: Team) -> ast.Expr:
     if entity.kind == "ActionsNode":
         # Scoped to the project, not the team, because environments in a project share actions.
         try:
-            action = Action.objects.get(pk=entity.id, team__project_id=team.project_id)
-        except Action.DoesNotExist:
+            action = get_action(action_id=entity.id, project_id=team.project_id)
+        except ActionNotFound:
             raise ValidationError(f"Action ID {entity.id} does not exist!")
         return action_to_expr(action)
     else:

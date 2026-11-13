@@ -1,1 +1,1 @@
-0015_insight_alert_investigation
+0018_insight_alert_investigation_no_row

@@ -26,8 +26,10 @@ from posthog.clickhouse.query_tagging import Feature, tags_context
 from posthog.errors import error_code_from_type
 from posthog.event_usage import get_event_source
 from posthog.exceptions_capture import exception_context
+from posthog.hogql_queries.warehouse_suggestion_notes import credential_access
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.permissions import get_authenticator_scopes
 from posthog.renderers import SafeJSONRenderer
 
 from ee.hogai.mcp_tool import MCPToolResult, mcp_tool_registry
@@ -171,6 +173,12 @@ class MCPToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        filtered_sql = tool_name == "execute_sql" and bool(args_data.get("filters"))
+        query_context = (
+            {"query": {"kind": "HogQLQuery", "query": args_data["query"], "filters": args_data["filters"]}}
+            if filtered_sql
+            else {}
+        )
         error_id = str(uuid4())
         try:
 
@@ -178,7 +186,15 @@ class MCPToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 # Lower layers may capture the exception before it reaches this handler.
                 with (
                     exception_context(error_id=error_id),
-                    tags_context(feature=Feature.MCP, team_id=self.team.pk, org_id=self.team.organization_id),
+                    tags_context(
+                        feature=Feature.MCP,
+                        team_id=self.team.pk,
+                        org_id=self.team.organization_id,
+                        warehouse_suggestion_access=credential_access(
+                            get_authenticator_scopes(request.successful_authenticator)
+                        ),
+                        **query_context,
+                    ),
                 ):
                     return await tool.execute(validated_args)
 
@@ -193,10 +209,22 @@ class MCPToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 }
             )
         except Exception as e:
-            logger.exception(
-                "Error calling tool", extra={"tool_name": tool_name, "error": str(e), "error_id": error_id}
-            )
-            capture_exception(e, properties={"tag": "mcp", "args": args_data, "error_id": error_id})
+            if filtered_sql:
+                logger.exception(
+                    "Error calling filtered SQL tool", exc_info=False, error_id=error_id, error_type=type(e).__name__
+                )
+            else:
+                logger.exception(
+                    "Error calling tool", extra={"tool_name": tool_name, "error": str(e), "error_id": error_id}
+                )
+                capture_exception(
+                    e,
+                    properties={
+                        "tag": "mcp",
+                        "args": {key: value for key, value in args_data.items() if key != "filters"},
+                        "error_id": error_id,
+                    },
+                )
             return Response(
                 {
                     "success": False,

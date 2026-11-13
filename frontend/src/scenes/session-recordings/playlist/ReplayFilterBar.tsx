@@ -1,12 +1,11 @@
 import { deepEqual as equal } from 'fast-equals'
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { IconFilter, IconRefresh } from '@posthog/icons'
-import { LemonBadge, LemonButton } from '@posthog/lemon-ui'
+import { Badge, Button, Toggle, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
 import { useMaxTool } from 'scenes/max/useMaxTool'
-import { SaveFiltersModal } from 'scenes/session-recordings/filters/RecordingsUniversalFiltersEmbed'
 import { sessionRecordingSavedFiltersLogic } from 'scenes/session-recordings/filters/sessionRecordingSavedFiltersLogic'
 import { useRecordingFiltersAssist } from 'scenes/session-recordings/filters/useRecordingFiltersAssist'
 
@@ -15,9 +14,15 @@ import { RecordingUniversalFilters } from '~/types'
 import { FilterChips } from './FilterChips'
 import { playlistFiltersLogic } from './playlistFiltersLogic'
 import { comparableRecordingFilters } from './playlistUtils'
+import { QuillSaveFiltersModal } from './QuillSaveFiltersModal'
 import { SavedFilterEditedBar } from './SavedFilterEditedBar'
 import { SavedFilterSelect } from './SavedFilterSelect'
 import { sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
+
+function withoutSort(filters: RecordingUniversalFilters): Partial<RecordingUniversalFilters> {
+    const { order: _order, order_direction: _direction, ...rest } = filters
+    return comparableRecordingFilters(rest)
+}
 
 export function ReplayFilterBar({
     filters,
@@ -32,12 +37,12 @@ export function ReplayFilterBar({
     currentSessionRecordingId?: string
     onReload: () => void
 }): JSX.Element {
-    const { sessionRecordingsResponseLoading } = useValues(sessionRecordingsPlaylistLogic)
+    const { sessionRecordingsResponseLoading, defaultFilters } = useValues(sessionRecordingsPlaylistLogic)
     const { isFiltersExpanded } = useValues(playlistFiltersLogic)
     const { setIsFiltersExpanded } = useActions(playlistFiltersLogic)
     const { appliedSavedFilter, appliedSavedFilterFilters } = useValues(sessionRecordingSavedFiltersLogic)
+    const { setAppliedSavedFilter } = useActions(sessionRecordingSavedFiltersLogic)
     const { applyFilters } = useRecordingFiltersAssist({ filters, setFilters, currentSessionRecordingId })
-    // registers the filter tool so the PostHog AI side panel can drive this list
     useMaxTool({
         identifier: 'filter_session_recordings',
         context: { current_filters: filters, current_session_id: currentSessionRecordingId },
@@ -53,40 +58,52 @@ export function ReplayFilterBar({
     const [saveModalOpen, setSaveModalOpen] = useState(false)
 
     const edited = !!appliedSavedFilter && !equal(appliedSavedFilterFilters, comparableRecordingFilters(filters))
+    const filtersAreDefault = equal(withoutSort(filters), withoutSort(defaultFilters))
+    useEffect(() => {
+        if (appliedSavedFilter && filtersAreDefault) {
+            setAppliedSavedFilter(null)
+        }
+    }, [appliedSavedFilter, filtersAreDefault, setAppliedSavedFilter])
 
     return (
-        <div className="flex flex-col gap-1">
+        <div data-quill className="flex flex-col gap-1 text-foreground">
             <div className="flex items-start gap-1" data-attr="list-filter-bar">
                 <div className="flex flex-1 min-w-0 items-center gap-1 flex-wrap">
-                    <LemonButton
-                        size="small"
-                        type="secondary"
-                        active={isFiltersExpanded}
-                        icon={<IconFilter />}
-                        onClick={() => setIsFiltersExpanded(!isFiltersExpanded)}
-                        tooltip={isFiltersExpanded ? 'Hide filters' : 'Add a filter'}
-                        aria-label="Add a filter"
-                        data-attr="filter-recordings-button"
-                    >
-                        {totalFiltersCount ? <LemonBadge.Number count={totalFiltersCount} size="small" /> : null}
-                    </LemonButton>
+                    <Tooltip>
+                        <TooltipTrigger
+                            render={
+                                <Toggle
+                                    variant="outline"
+                                    pressed={isFiltersExpanded}
+                                    onPressedChange={setIsFiltersExpanded}
+                                    aria-label="Add a filter"
+                                    data-attr="filter-recordings-button"
+                                />
+                            }
+                        >
+                            <IconFilter />
+                            {totalFiltersCount ? <Badge>{totalFiltersCount}</Badge> : null}
+                        </TooltipTrigger>
+                        <TooltipContent>{isFiltersExpanded ? 'Hide filters' : 'Add a filter'}</TooltipContent>
+                    </Tooltip>
                     <SavedFilterSelect edited={edited} onSaveCurrent={() => setSaveModalOpen(true)} />
                     <FilterChips filters={filters} setFilters={setFilters} />
                 </div>
-                <LemonButton
-                    size="small"
-                    type="secondary"
+                <Button
+                    variant="outline"
+                    size="icon"
                     className="shrink-0"
-                    icon={<IconRefresh />}
                     loading={sessionRecordingsResponseLoading}
                     onClick={onReload}
                     tooltip="Refresh list"
                     aria-label="Refresh list"
                     data-attr="refresh-recordings-list"
-                />
+                >
+                    <IconRefresh />
+                </Button>
             </div>
             {edited && <SavedFilterEditedBar filters={filters} onSaveAsCopy={() => setSaveModalOpen(true)} />}
-            <SaveFiltersModal isOpen={saveModalOpen} setIsOpen={setSaveModalOpen} filters={filters} />
+            <QuillSaveFiltersModal isOpen={saveModalOpen} setIsOpen={setSaveModalOpen} filters={filters} />
         </div>
     )
 }

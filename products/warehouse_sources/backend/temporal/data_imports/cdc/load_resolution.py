@@ -13,10 +13,11 @@ import pyarrow as pa
 from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
-    _CDC_METADATA_COLUMNS,
     CDC_OP_COLUMN,
     CDC_SEQ_COLUMN,
     CDC_SEQ_PROVENANCE,
+    HistoryNaming,
+    metadata_columns,
 )
 
 # Verification is a diagnostic; cap it so a delete-heavy batch can't dominate the write path.
@@ -43,9 +44,10 @@ class DeleteEnrichmentReport:
         return self.rows_with_nulled_columns == 0
 
 
-def _data_columns(table: pa.Table, primary_keys: list[str]) -> list[str]:
+def _data_columns(table: pa.Table, primary_keys: list[str], history: HistoryNaming | None) -> list[str]:
     pk_set = set(primary_keys)
-    return [c for c in table.column_names if c not in _CDC_METADATA_COLUMNS and c not in pk_set]
+    metadata = metadata_columns(history)
+    return [c for c in table.column_names if c not in metadata and c not in pk_set]
 
 
 def _pk_tuples(table: pa.Table, primary_keys: list[str]) -> list[tuple]:
@@ -56,9 +58,9 @@ def _pk_tuples(table: pa.Table, primary_keys: list[str]) -> list[tuple]:
 def has_engine_seq(table: pa.Table) -> bool:
     """Whether the position column is ours.
 
-    A source table may have its own `_ph_cdc_seq`, which the batcher passes through untouched, so
-    the name proves nothing. Trusting a source value would let it poison the position and have its
-    own later rows dropped.
+    A snapshot load, or a table loaded before capture refused the name, can hold a source column
+    called `_ph_cdc_seq`, so the name proves nothing. Trusting a source value would let it poison the
+    position and have its own later rows dropped.
     """
     if CDC_SEQ_COLUMN not in table.column_names:
         return False
@@ -136,6 +138,7 @@ def verify_delete_enrichment(
     table: pa.Table,
     primary_keys: list[str],
     existing_rows: pa.Table | None,
+    history: HistoryNaming | None = None,
 ) -> DeleteEnrichmentReport:
     """Report DELETE rows that would null a data column the target still holds.
 
@@ -152,7 +155,7 @@ def verify_delete_enrichment(
     if not present_pks:
         return empty
 
-    data_cols = [c for c in _data_columns(table, present_pks) if c in existing_rows.column_names]
+    data_cols = [c for c in _data_columns(table, present_pks, history) if c in existing_rows.column_names]
     if not data_cols:
         return empty
 

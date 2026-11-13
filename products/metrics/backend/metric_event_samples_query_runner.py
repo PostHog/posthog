@@ -21,7 +21,12 @@ from posthog.models import Team
 
 from products.metrics.backend.facade.contracts import MetricFilter
 from products.metrics.backend.facade.enums import MetricType
-from products.metrics.backend.metric_query_runner import points_query, series_scope_expr, type_filter_expr
+from products.metrics.backend.metric_query_runner import (
+    dedupe_points_enabled,
+    points_query,
+    series_scope_expr,
+    type_filter_expr,
+)
 from products.metrics.backend.metrics4_samples import reads_metrics4_only
 
 # This query uses the shared ClickHouse cluster. Limit reads and fail on overflow.
@@ -121,6 +126,7 @@ class MetricEventSamplesQueryRunner:
             ),
             point_filters=point_filters,
             samples_row_filters=samples_row_filters,
+            dedupe_points=dedupe_points_enabled(self.team),
         )
 
     def run(self) -> list[dict[str, Any]]:
@@ -189,7 +195,7 @@ class MetricEventSamplesQueryRunner:
             query_type="MetricEventSamplesQuery",
             query=query,
             team=self.team,
-            workload=Workload.LOGS,  # metrics share the logs ClickHouse workload pool for now
+            workload=Workload.METRICS,
             settings=_QUERY_SETTINGS,
         )
 

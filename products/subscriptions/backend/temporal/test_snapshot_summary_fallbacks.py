@@ -41,6 +41,23 @@ class TestSnapshotSummaryFallbacks:
 
         assert [state["results_summary"] for state in states] == [expected]
 
+    def test_weekday_filtered_trend_keeps_its_last_returned_day_complete(self) -> None:
+        insight = {
+            "interval": "day",
+            "query_results": {
+                "resolved_date_range": {"date_to": "2026-04-11T23:59:59.999999-07:00"},
+                "last_refresh": "2026-04-11T16:00:00+00:00",
+                "result": [
+                    {"label": "Signups", "data": [10, 12, 15], "days": ["2026-04-08", "2026-04-09", "2026-04-10"]}
+                ],
+            },
+        }
+
+        [state] = _build_states_from_content_snapshot(_snapshot_with(insight), {1: "TrendsQuery"})
+
+        assert "latest=15 (2026-04-10)" in state["results_summary"]
+        assert "in progress" not in state["results_summary"]
+
     @pytest.mark.asyncio
     async def test_condensation_preserves_dedicated_insight_summaries(self) -> None:
         queries = [

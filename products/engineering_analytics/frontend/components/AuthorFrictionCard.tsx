@@ -10,7 +10,6 @@ import { FrictionGroupBar } from './FrictionGroupBar'
 import { FrictionGroupLegend } from './FrictionGroupLegend'
 import { FrictionGroupSegments } from './FrictionGroupSegments'
 
-/** One author's friction next to their teams and the typical author, and the pull requests behind it. */
 export function AuthorFrictionCard({
     detail,
     loading,

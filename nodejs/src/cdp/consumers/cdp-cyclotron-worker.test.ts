@@ -337,6 +337,63 @@ describe('CdpCyclotronWorker', () => {
             )
         })
 
+        describe('a job whose inputs the queue did not store', () => {
+            // A job as it comes off the queue: the marker and no inputs, and no function attached yet.
+            const queuedWithoutInputs = (hogFunction: HogFunctionType): CyclotronJobInvocationHogFunction => {
+                const { hogFunction: _unloaded, ...queued } = createExampleInvocation(hogFunction, {
+                    ...createHogExecutionGlobals({}),
+                })
+                delete (queued.state.globals as Partial<HogFunctionInvocationGlobalsWithInputs>).inputs
+                queued.state.inputsSource = {}
+                queued.state.inputsOmitted = true
+                return queued as CyclotronJobInvocationHogFunction
+            }
+
+            it('builds the inputs from the current function config and runs it', async () => {
+                const results = await processor.processInvocations([queuedWithoutInputs(fn)])
+
+                expect(results[0].error).toBeUndefined()
+                expect(results[0].finished).toBe(true)
+                expect(mockFetch).toHaveBeenCalledWith(fn.inputs!.url!.value, expect.anything())
+            })
+
+            // The function manager does not load a deleted row, so a deleted function is one it cannot find.
+            it.each<[string, { id?: string; enabled?: boolean }, string]>([
+                ['deleted', { id: new UUIDT().toString() }, 'function_not_found'],
+                ['disabled', { enabled: false }, 'function_disabled'],
+            ])('skips it as before when the function was %s after it was queued', async (_name, change, errorKind) => {
+                jest.spyOn(processor['cyclotronJobQueue'], 'dequeueInvocations').mockResolvedValue(undefined)
+                const recordTerminalFailureSpy = jest
+                    .spyOn(
+                        processor['invocationResultsService'].invocationResultsRowsService,
+                        'recordTerminalFailureDurably'
+                    )
+                    .mockResolvedValue(true)
+                const executeSpy = jest.spyOn(processor['hogExecutorAsync'].hogExecutor, 'execute')
+                const changed = await insertHogFunction(
+                    hub.postgres,
+                    team.id,
+                    createHogFunction({
+                        ...HOG_EXAMPLES.simple_fetch,
+                        ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                        ...HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter,
+                        enabled: change.enabled ?? true,
+                    })
+                )
+                const queued = queuedWithoutInputs(changed)
+                queued.functionId = change.id ?? changed.id
+
+                const results = await processor.processInvocations([queued])
+
+                expect(results).toEqual([])
+                expect(executeSpy).not.toHaveBeenCalled()
+                expect(recordTerminalFailureSpy).toHaveBeenCalledWith(
+                    expect.anything(),
+                    expect.objectContaining({ errorKind })
+                )
+            })
+        })
+
         it('should keep the job for a later retry if the terminal row cannot be recorded', async () => {
             hub.HOG_INVOCATION_RESULTS_ENABLED = true
             const dequeueInvocationsSpy = jest

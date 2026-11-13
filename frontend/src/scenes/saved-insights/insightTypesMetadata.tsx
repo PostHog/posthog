@@ -490,11 +490,6 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconLlmAnalytics,
         inMenu: false,
     },
-    [NodeKind.TraceNeighborsQuery]: {
-        name: 'AI observability trace neighbors',
-        icon: IconLlmAnalytics,
-        inMenu: false,
-    },
     [NodeKind.TraceQuery]: {
         name: 'AI observability trace',
         icon: IconLlmAnalytics,
@@ -598,6 +593,16 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconHogQL,
         inMenu: false,
     },
+    [NodeKind.MarketingAnalyticsRecommendationsQuery]: {
+        name: 'Marketing analytics recommendations',
+        icon: IconHogQL,
+        inMenu: false,
+    },
+    [NodeKind.InboxUsageQuery]: {
+        name: 'Inbox usage',
+        icon: IconPieChart,
+        inMenu: false,
+    },
     [NodeKind.UsageMetricsQuery]: {
         name: 'Usage Metrics',
         icon: IconPieChart,
@@ -615,6 +620,26 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     },
     [NodeKind.AccountUsersQuery]: {
         name: 'Account users',
+        icon: IconPerson,
+        inMenu: false,
+    },
+    [NodeKind.AccountActivityMatrixQuery]: {
+        name: 'Account activity matrix',
+        icon: IconTableChart,
+        inMenu: false,
+    },
+    [NodeKind.BookActivityMatrixQuery]: {
+        name: 'Book activity matrix',
+        icon: IconTableChart,
+        inMenu: false,
+    },
+    [NodeKind.BookActivityPeopleQuery]: {
+        name: 'Book activity people',
+        icon: IconPerson,
+        inMenu: false,
+    },
+    [NodeKind.BookActivityFirstsQuery]: {
+        name: 'Book activity first use',
         icon: IconPerson,
         inMenu: false,
     },
@@ -671,6 +696,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.MCPProtocolVersionBreakdownQuery]: {
         name: 'MCP protocol version breakdown',
         description: 'MCP tool-call activity grouped by negotiated protocol revision.',
+        icon: IconPieChart,
+        inMenu: false,
+    },
+    [NodeKind.MCPDashboardQuery]: {
+        name: 'MCP dashboard',
+        description: 'Every section of the MCP Analytics dashboard in one request.',
         icon: IconPieChart,
         inMenu: false,
     },

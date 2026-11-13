@@ -27,7 +27,8 @@ from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 from temporalio.exceptions import ApplicationError
 
-from posthog.models.integration import Integration, SlackIntegration
+from posthog.integrations import IntegrationManager, IntegrationNotFound
+from posthog.models.integration import SlackIntegration
 from posthog.redis import get_client
 
 from products.error_tracking.backend.logic.alerts import MAX_THROTTLE_SECONDS
@@ -123,11 +124,7 @@ def plan_alert_deliveries(inputs: AlertDeliveryWorkflowInputs) -> list[PlannedDe
     trigger = OPENER_TRIGGERS.get(inputs.event)
     alerts = list(ErrorTrackingAlert.objects.for_team(inputs.team_id).filter(enabled=True))
     destinations_by_alert: dict = {}
-    for destination in (
-        ErrorTrackingAlertDestination.objects.for_team(inputs.team_id)
-        .filter(alert__in=alerts)
-        .select_related("integration")
-    ):
+    for destination in ErrorTrackingAlertDestination.objects.for_team(inputs.team_id).filter(alert__in=alerts):
         destinations_by_alert.setdefault(destination.alert_id, []).append(destination)
     # Threads are unique per (alert, issue, destination): a multi-destination alert
     # holds one independent conversation per destination.
@@ -620,7 +617,10 @@ def _reconcile_root_status(
 
 
 def _slack_client(destination: ErrorTrackingAlertDestination) -> WebClient | None:
-    integration = destination.integration
-    if integration is None or integration.kind != Integration.IntegrationKind.SLACK:
+    if destination.integration_id is None:
+        return None
+    try:
+        integration = IntegrationManager.slack.any.get(destination.team_id, destination.integration_id)
+    except IntegrationNotFound:
         return None
     return SlackIntegration(integration, source="error_tracking_alerts").client

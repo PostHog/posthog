@@ -52,7 +52,7 @@ class _WindowPipelineHelpers:
     def _capture_synthesis(self, mock_chat: MagicMock, report: str) -> dict[str, str]:
         captured: dict[str, str] = {}
 
-        def _invoke(messages: list[tuple[str, str]]) -> ReportDocument:
+        def _invoke(messages: list[tuple[str, str]], config: object = None) -> ReportDocument:
             captured["human"] = messages[1][1]
             return ReportDocument(
                 topic=None,

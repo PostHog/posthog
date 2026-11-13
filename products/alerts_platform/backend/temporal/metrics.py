@@ -23,6 +23,7 @@ ALERTS_PLATFORM_LATENCY_HISTOGRAM_METRICS = (
     "alerts_platform_batch_duration_ms",
     "alerts_platform_scheduler_lag_ms",
     "alerts_platform_delivery_lag_ms",
+    "alerts_platform_check_completion_lag_ms",
 )
 
 ALERTS_PLATFORM_LATENCY_HISTOGRAM_BUCKETS = [
@@ -36,6 +37,50 @@ ALERTS_PLATFORM_LATENCY_HISTOGRAM_BUCKETS = [
     120_000.0,
     300_000.0,
     600_000.0,
+]
+
+
+# A tick must end inside its minute, so these buckets resolve the seconds up to and past 60.
+ALERTS_PLATFORM_TICK_HISTOGRAM_METRICS = (
+    "alerts_platform_tick_duration_ms",
+    "alerts_platform_tick_start_delay_ms",
+)
+
+ALERTS_PLATFORM_TICK_HISTOGRAM_BUCKETS = [
+    100.0,
+    500.0,
+    1_000.0,
+    2_000.0,
+    5_000.0,
+    10_000.0,
+    15_000.0,
+    20_000.0,
+    30_000.0,
+    40_000.0,
+    50_000.0,
+    60_000.0,
+    90_000.0,
+    120_000.0,
+]
+
+ALERTS_PLATFORM_TICK_KEYS_METRICS = ("alerts_platform_tick_keys",)
+
+ALERTS_PLATFORM_TICK_KEYS_BUCKETS = [
+    0.0,
+    50.0,
+    100.0,
+    200.0,
+    300.0,
+    400.0,
+    500.0,
+    600.0,
+    800.0,
+    1_000.0,
+    1_250.0,
+    1_500.0,
+    2_000.0,
+    3_000.0,
+    5_000.0,
 ]
 
 
@@ -161,6 +206,21 @@ def increment_checks_unfinished(source: str, count: int) -> None:
     ).add(count)
 
 
+ChartRenderOutcome = Literal["rendered", "timed_out", "no_chart", "added_late", "late_render_failed", "late_unsent"]
+
+
+def increment_chart_renders(source: str, outcome: ChartRenderOutcome) -> None:
+    """Firing charts by outcome. A firing whose render fails or runs out of time still goes out,
+    without its chart, so nothing else shows the charts that were lost.
+
+    Such a firing renders again once it has gone out, and counts a second time with a `late_`
+    outcome or `added_late`, when the chart reached its Slack messages."""
+    get_metric_meter({"source": source, "outcome": outcome}).create_counter(
+        "alerts_platform_chart_renders_total",
+        "Firing chart renders, by source and outcome",
+    ).add(1)
+
+
 def increment_describer_failures(source: str) -> None:
     """A source's describer raised, so its alerts went out in the platform's generic wording."""
     get_metric_meter({"source": source}).create_counter(
@@ -218,7 +278,18 @@ def record_batch_duration(source: str, duration_ms: int) -> None:
     ).record(dt.timedelta(milliseconds=duration_ms))
 
 
-DeliveryOutcomeLabel = Literal["sent", "failed", "already_delivered", "busy", "no_transport"]
+DeliveryOutcomeLabel = Literal[
+    "sent",
+    "failed",
+    "misconfigured",
+    "ambiguous",
+    "already_delivered",
+    "busy",
+    "no_transport",
+    "announcement_empty",
+    "announcement_superseded",
+    "announcement_missing",
+]
 
 _DELIVERIES_DESCRIPTION = "Transitions a delivery handled, by provider, delivery path and outcome"
 _DELIVERY_LAG_DESCRIPTION = "Delay between the check that decided a transition and the send that announced it"
@@ -248,7 +319,9 @@ def increment_deliveries(source: str, provider: str, path: str, outcome: Deliver
 
     `already_delivered` is a retry finding its send done, and `busy` a send that waits on another
     one holding the thread. Neither sent anything, so a rising `sent` with a flat `failed` is the
-    only reading that says alerts reach people.
+    only reading that says alerts reach people. `misconfigured` is a refusal only the destination's
+    owner can fix, so it stays out of `failed`, which measures the platform. `ambiguous` is a send
+    whose answer was lost after the request went out, recorded as delivered rather than retried.
     """
     labels: Attributes = {"source": source, "provider": provider, "path": path, "outcome": outcome}
     try:
@@ -273,11 +346,42 @@ def record_delivery_lag(source: str, provider: str, lag_ms: int) -> None:
     ).record(dt.timedelta(milliseconds=lag_ms))
 
 
+def record_tick_keys(keys: int) -> None:
+    """Batch keys one tick's discovery found due, the ones its limits left out included. Called
+    from workflow code; the workflow meter emits nothing during replay."""
+    get_metric_meter().create_histogram(
+        name=ALERTS_PLATFORM_TICK_KEYS_METRICS[0],
+        description="Batch keys one tick's discovery found due, including those its limits left out",
+    ).record(keys)
+
+
+def record_tick_end(*, duration: dt.timedelta, deadline_reached: bool) -> None:
+    """One finished tick, measured from its scheduled minute. A tick that runs past its minute
+    makes the schedule skip the next one, so the duration's distance from 60 seconds is the
+    headroom left. Called from workflow code; the workflow meter emits nothing during replay."""
+    get_metric_meter({"deadline_reached": str(deadline_reached).lower()}).create_histogram_timedelta(
+        name="alerts_platform_tick_duration_ms",
+        description="Time from a tick's scheduled minute to the end of its last dispatch page",
+        unit="ms",
+    ).record(duration)
+
+
 def record_scheduler_lag(source: str, lag_ms: int) -> None:
     """How far past its due time a check was evaluated. Rising lag means discovery's bound is
     biting, because a key it omits grows more overdue until a later tick takes it."""
     get_metric_meter({"source": source}).create_histogram_timedelta(
         name="alerts_platform_scheduler_lag_ms",
         description="Delay between a check's due time and the evaluation that took it",
+        unit="ms",
+    ).record(dt.timedelta(milliseconds=lag_ms))
+
+
+def record_check_completion_lag(source: str, lag_ms: int) -> None:
+    """How far past its due time a check's outcome was recorded. Every source records through the
+    platform's one write, so a source that never measures its own scheduler lag is still measured.
+    A check that never completes adds no sample; the overdue gauge covers those."""
+    get_metric_meter({"source": source}).create_histogram_timedelta(
+        name="alerts_platform_check_completion_lag_ms",
+        description="Delay between a check's due time and the commit that recorded its outcome",
         unit="ms",
     ).record(dt.timedelta(milliseconds=lag_ms))

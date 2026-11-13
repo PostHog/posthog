@@ -22,6 +22,12 @@ export const DEFAULT_TILES: AccountsOverviewTile[] = [
 const overviewTilesTeamId = window.POSTHOG_APP_CONTEXT?.current_team?.id
 export const ACCOUNTS_OVERVIEW_LEGACY_TILES_PREFIX = `${overviewTilesTeamId}_customer_analytics_accounts_overview__`
 
+export const ACCOUNT_RELATIONSHIP_ANALYTICS_ROLES: Record<string, string> = {
+    CSM: 'csm',
+    'Account executive': 'account_executive',
+    'Account owner': 'account_owner',
+}
+
 // Canonical analytics event names for the accounts list. Every `posthog.capture`
 // in this directory must reference these — a mistyped string silently forks a new
 // event in PostHog and breaks reporting without any error. Keep in sync with the
@@ -49,12 +55,15 @@ export const AccountsEvents = {
     PropertiesWidgetConfigured: 'customer analytics account properties widget configured',
     AccountPropertySaveFailed: 'customer analytics account property save failed',
     PinnedPropertiesSaved: 'customer analytics account pinned properties saved',
-    LinkClicked: 'customer analytics account link clicked',
     NoteClicked: 'customer analytics account note clicked',
     NoteCreated: 'customer analytics accounts note created',
     NotesSearched: 'customer analytics accounts notes searched',
     NotesSorted: 'customer analytics accounts notes sorted',
     TabViewed: 'customer analytics account tab viewed',
+    AutomationsViewed: 'customer analytics account automations viewed',
+    AutomationsLoaded: 'customer analytics account automations loaded',
+    AutomationsLoadFailed: 'customer analytics account automations load failed',
+    AutomationWorkflowOpened: 'customer analytics account automation workflow opened',
     UsageIntervalChanged: 'customer analytics account usage interval changed',
     UsageSeriesToggled: 'customer analytics account usage series toggled',
     UsageSeriesBulkToggled: 'customer analytics account usage series bulk toggled',
@@ -64,6 +73,7 @@ export const AccountsEvents = {
     RelatedUsersSorted: 'customer analytics account related users sorted',
     RelatedUserEmailsCopied: 'customer analytics account related user emails copied',
     RelatedUserAdminOpened: 'customer analytics account related user admin opened',
+    RelatedUserAccountsViewed: 'customer analytics account related user accounts viewed',
     RelatedUsersTableChanged: 'customer analytics account related users table changed',
     OpportunityClicked: 'customer analytics account opportunity clicked',
     SummaryCadenceChanged: 'customer analytics account summary cadence changed',
@@ -80,6 +90,14 @@ export const AccountsEvents = {
     ReplaysLoadMore: 'customer analytics account replays load more',
     ReplaysLoadFailed: 'customer analytics account replays load failed',
     ReplaysRetried: 'customer analytics account replays retried',
+    DotMatrixSourceSelected: 'customer analytics account dot matrix source selected',
+    DotMatrixQueryRun: 'customer analytics account dot matrix query run',
+    DotMatrixSourceConfigured: 'customer analytics account dot matrix source configured',
+    DotMatrixViewed: 'customer analytics account dot matrix viewed',
+    DotMatrixSettingChanged: 'customer analytics account dot matrix setting changed',
+    DotMatrixSeriesSelected: 'customer analytics account dot matrix series selected',
+    DotMatrixLoadFailed: 'customer analytics account dot matrix load failed',
+    DotMatrixRetried: 'customer analytics account dot matrix retried',
     AccountEditorOpened: 'customer analytics account editor opened',
     AccountEdited: 'customer analytics account edited',
     EventStreamModalOpened: 'customer analytics account event stream modal opened',
@@ -93,6 +111,13 @@ export const AccountsEvents = {
     NotesTabFiltered: 'customer analytics notes tab filtered',
     NotesTabNoteClicked: 'customer analytics notes tab note clicked',
     NotesTabAccountClicked: 'customer analytics notes tab account clicked',
+    NotesTabSorted: 'customer analytics notes tab sorted',
+    NotesTabViewSaved: 'customer analytics notes tab view saved',
+    NotesTabViewUpdated: 'customer analytics notes tab view updated',
+    NotesTabViewSelected: 'customer analytics notes tab view selected',
+    NotesTabViewDeleted: 'customer analytics notes tab view deleted',
+    NoteUpdated: 'customer analytics accounts note updated',
+    NotesFiltered: 'customer analytics accounts notes filtered',
     AccountViewEditorOpened: 'customer analytics account view editor opened',
     AccountViewSaved: 'customer analytics account view saved',
     AccountViewSaveFailed: 'customer analytics account view save failed',
@@ -111,4 +136,4 @@ export const AccountsEvents = {
     AccountViewTabSettingsSaveFailed: 'customer analytics account view tab settings save failed',
 } as const
 
-export type NotesTabFilterType = 'created_by' | 'account' | 'my_notes' | 'my_accounts'
+export type NotesTabFilterType = 'created_by' | 'account' | 'my_notes' | 'my_accounts' | 'tag'

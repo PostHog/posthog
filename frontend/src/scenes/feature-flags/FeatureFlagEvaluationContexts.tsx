@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 
 import { IconCheck, IconInfo, IconPencil, IconPlus, IconX } from '@posthog/icons'
 
+import { TagsInputSelect } from 'lib/components/TagsInputSelect'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -16,7 +17,6 @@ import { featureFlagLogic } from './featureFlagLogic'
 interface FeatureFlagEvaluationContextsProps {
     tags: string[]
     evaluationContexts: string[]
-    tagsAvailable?: string[]
     className?: string
     /** Keeps editor state separate per flag. Accepts undefined for new flags. */
     flagId: number | string | null | undefined
@@ -32,7 +32,6 @@ interface FeatureFlagEvaluationContextsProps {
 export function FeatureFlagEvaluationContexts({
     tags,
     evaluationContexts,
-    tagsAvailable,
     className,
     flagId,
     context,
@@ -110,13 +109,10 @@ export function FeatureFlagEvaluationContexts({
                 <div className="text-sm font-medium">Tags</div>
                 {isEditingTags ? (
                     <>
-                        <LemonInputSelect
-                            mode="multiple"
-                            allowCustomValues
+                        <TagsInputSelect
                             value={localTags}
-                            options={tagsAvailable?.map((t: string) => ({ key: t, label: t }))}
                             onChange={handleTagsChange}
-                            loading={featureFlagLoading}
+                            saving={featureFlagLoading}
                             data-attr="feature-flag-tags-input"
                             placeholder='Add tags like "v2-launch", "experiment"'
                             autoFocus

@@ -2,20 +2,20 @@ import { MakeLogicType, actions, beforeUnmount, connect, kea, listeners, path, r
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
-
+import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
+import { SCOUT_AI_PANEL } from '~/layout/ai/aiPanelIds'
+import { aiShellLogic } from '~/layout/ai/aiShellLogic'
+import type { AttachedContextItem } from '~/layout/ai/attachedContext'
+import { runnerPanelLogic } from '~/layout/ai/runnerPanelLogic'
+import type { ActiveCreation } from '~/layout/ai/runnerPanelLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SidePanelTab } from '~/types'
 
-import { composerSeedLogic, runnerPanelLogic } from 'products/posthog_ai/frontend/api/logics'
-import type { ActiveCreation, ComposerSeed } from 'products/posthog_ai/frontend/api/logics'
-import type { AttachedContextItem } from 'products/posthog_ai/frontend/api/types'
+import { composerSeedLogic } from 'products/posthog_ai/frontend/api/logics'
+import type { ComposerSeed } from 'products/posthog_ai/frontend/api/logics'
 
 import { REPORT_AI_PANEL_ID } from '../inboxTaskKickoffLogic'
 import { aiConsentDisabledReason } from '../utils/aiConsent'
-
-/** The side panel option that shows the scout chat. It round-trips through the URL hash. */
-export const SCOUT_AI_PANEL = 'inbox-scout'
 
 /** The tool the agent calls to save steering as a note on the scout. */
 export const SCOUT_NOTE_CREATE_TOOL = 'scout-notes-create'
@@ -57,6 +57,7 @@ export function scoutAiContextItems({ scoutId }: ScoutChatContext): AttachedCont
 export interface scoutAiLogicValues {
     dataProcessingAccepted: boolean // aiConsentLogic
     dataProcessingApprovalDisabledReason: string | null // aiConsentLogic
+    isPhaiSandboxFlagOn: boolean // aiShellLogic
     seed: ComposerSeed | null // composerSeedLogic
     activeCreation: ActiveCreation | null // runnerPanelLogic
     aiConsentDisabledReason: string | null
@@ -130,6 +131,8 @@ export const scoutAiLogic = kea<scoutAiLogicType>([
 
     connect(() => ({
         values: [
+            aiShellLogic,
+            ['isPhaiSandboxFlagOn'],
             aiConsentLogic,
             ['dataProcessingAccepted', 'dataProcessingApprovalDisabledReason'],
             composerSeedLogic({ panelId: REPORT_AI_PANEL_ID }),
@@ -187,6 +190,9 @@ export const scoutAiLogic = kea<scoutAiLogicType>([
 
     listeners(({ actions, values }) => ({
         askScout: ({ question }) => {
+            if (!values.isPhaiSandboxFlagOn) {
+                return
+            }
             const trimmed = question.trim()
             if (!trimmed || values.isAsking) {
                 return

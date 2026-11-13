@@ -4,20 +4,23 @@ from django.utils import timezone
 
 import numpy as np
 
+from posthog.dataclasses import frozen
 from posthog.models import Team, User
 from posthog.models.utils import uuid7
 
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.facade import testing as experiments_testing
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
     ObservationTrigger,
     ReplayObservation,
 )
+from products.replay_vision.backend.models.replay_observation_rank import ReplayObservationRank
 from products.replay_vision.backend.models.replay_observation_usage import ReplayObservationUsage
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
+from products.replay_vision.backend.observation_ranks import NewRank, record_ranks
 from products.replay_vision.backend.temporal.activities.create_observation import _build_scanner_snapshot
-from products.replay_vision.backend.watch_rank import ANCHORS, WatchCategory
+from products.replay_vision.backend.watch_rank import ANCHOR_VERSION, ANCHORS, WatchCategory
 
 
 def snapshot_for(scanner: ReplayScanner) -> dict[str, Any]:
@@ -57,6 +60,16 @@ def seed_scanner_spend(scanner: ReplayScanner, credits: int, *, observations: in
     )
 
 
+@frozen
+class SeededExperiment:
+    """The ids of an experiment planted through the experiments test facade. It is not a model row,
+    so tests change the experiment with `update_experiment`."""
+
+    id: int
+    team_id: int
+    feature_flag_id: int
+
+
 def create_experiment(
     team: Team,
     flag_key: str,
@@ -64,7 +77,7 @@ def create_experiment(
     *,
     launched: bool = False,
     variants: list[str] | None = None,
-) -> Experiment:
+) -> SeededExperiment:
     """An experiment for targeting tests. `launched` plus `variants` makes it resolvable by
     `resolve_exposure_linkage`, which the experiment scanner type's write path requires."""
     filters: dict[str, Any] = {"groups": [{"properties": [], "rollout_percentage": 100}]}
@@ -73,14 +86,19 @@ def create_experiment(
             "variants": [{"key": key, "rollout_percentage": 100 // len(variants)} for key in variants]
         }
     flag = FeatureFlag.objects.create(team=team, key=flag_key, filters=filters)
-    return Experiment.objects.create(
-        team=team,
+    experiment_id = experiments_testing.create_experiment(
+        team_id=team.id,
+        feature_flag_id=flag.id,
         name=f"exp-{flag_key}",
-        feature_flag=flag,
-        created_by=created_by,
+        created_by_id=created_by.id if created_by else None,
         start_date=timezone.now() if launched else None,
         exposure_criteria={},
     )
+    return SeededExperiment(id=experiment_id, team_id=team.id, feature_flag_id=flag.id)
+
+
+def update_experiment(experiment: SeededExperiment, **fields: Any) -> None:
+    experiments_testing.update_experiment(team_id=experiment.team_id, experiment_id=experiment.id, **fields)
 
 
 def axis_anchors() -> dict[WatchCategory, np.ndarray]:
@@ -93,3 +111,21 @@ def axis_anchors() -> dict[WatchCategory, np.ndarray]:
         "routine": [0.0, 0.0, 1.0],
     }
     return {category: np.array([axes[category]] * len(ANCHORS[category])) for category in ANCHORS}
+
+
+def set_rank(
+    observation: ReplayObservation,
+    *,
+    category: str = "failure",
+    contrast: float = 0.5,
+    group: Any = None,
+    theme: Any = None,
+    anchor_version: int = ANCHOR_VERSION,
+) -> None:
+    """Give an observation the rank row the rank consumer would write, replacing any it has."""
+    ranks = ReplayObservationRank.objects.for_team(observation.team_id)
+    ranks.filter(observation_id=observation.id).delete()
+    record_ranks(
+        observation.team_id, anchor_version, {str(observation.id): NewRank(contrast=contrast, category=category)}
+    )
+    ranks.filter(observation_id=observation.id).update(feed_group_id=group, search_theme_id=theme)
