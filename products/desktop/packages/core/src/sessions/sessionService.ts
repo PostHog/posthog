@@ -71,6 +71,7 @@ import {
 } from "@posthog/shared/domain-types";
 import type { SendCommandOutput } from "../cloud-task/schemas";
 import type { CommentTarget } from "../comments/anchors";
+import { readApiErrorBody } from "../integrations/apiErrorBody";
 import { isGithubConnectionRequiredError } from "../integrations/connectErrors";
 import type {
   AgentSessionNotification,
@@ -5615,6 +5616,11 @@ export class SessionService {
             "Only the person who created this task can send it messages. Start a new session to continue the work yourself.",
           );
         }
+        if (requestErrorStatus(error) === 409) {
+          this.d.queryClient.invalidateQueries({ queryKey: ["tasks"] });
+          const refusal = readApiErrorBody(error).error;
+          if (refusal) throw new Error(refusal);
+        }
         throw error;
       }
     } catch (error) {
@@ -7124,6 +7130,10 @@ export class SessionService {
         initialMode,
         existing?.taskRunId === taskRunId ? existing.adapter : persistedAdapter,
       );
+      if (existing && existing.taskRunId !== taskRunId) {
+        session.messageQueue = [...existing.messageQueue];
+        session.editingQueuedId = existing.editingQueuedId;
+      }
       this.d.store.setSession(session);
       // Creation supplies the exact prompt before setup logs can arrive.
       // Reopened tasks have no creation seed and must await transcript hydration.
