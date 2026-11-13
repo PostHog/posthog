@@ -25,8 +25,8 @@ const LOGS_ALERT_DESTINATIONS_API: AlertDestinationsApi = {
         const alert = await logsAlertsRetrieve(projectId, alertId)
         return alert.destinations.map((destination) => ({
             ...destination,
-            // A destination added before the platform kept one has no id of its own.
-            id: destination.id ?? destination.hog_function_ids.join(','),
+            // HogFunction ids while they exist: one row can copy a group that has since split in two.
+            id: destination.hog_function_ids.length ? destination.hog_function_ids.join(',') : String(destination.id),
         }))
     },
     create: (projectId, alertId, { event_kinds: _eventKinds, ...destination }) =>

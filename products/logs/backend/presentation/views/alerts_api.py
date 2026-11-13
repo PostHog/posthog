@@ -54,6 +54,7 @@ from products.alerts_platform.backend.facade.api import (
     list_source_destinations,
     recent_destination_sends,
     record_source_destination,
+    redact_destination_data as redact_platform_destination_data,
     reset_broken,
     runtime_by_public_id,
 )
@@ -1267,7 +1268,8 @@ class LogsAlertConfigurationDetailSerializer(LogsAlertConfigurationSerializer):
                 "hog_function_ids": list(destination.hog_function_ids),
                 "enabled": destination.enabled,
                 "message_customized": not customized.isdisjoint(destination.hog_function_ids),
-                **redact_destination_data(destination.data),
+                # Field-wide, because a row-only destination's stored config is not read through its type.
+                **redact_platform_destination_data(redact_destination_data(destination.data)),
             }
             for destination in destinations
         ]
