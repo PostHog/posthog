@@ -1,9 +1,12 @@
+import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
 import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
 import { DateTime } from 'luxon'
 import { KafkaConsumer, Message, Metadata, TopicPartitionOffset } from 'node-rdkafka'
 import { randomUUID } from 'node:crypto'
 import { register } from 'prom-client'
+import supertest from 'supertest'
+import { v5 as uuidv5 } from 'uuid'
 
 import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
 import {
@@ -19,11 +22,13 @@ import { FakePostHog, startFakePostHog } from '~/cdp/_tests/fake-posthog'
 import { FakeSes, FakeSesAttachment, FakeSesFault, startFakeSes } from '~/cdp/_tests/fake-ses'
 import { createExampleInvocation, insertIntegration } from '~/cdp/_tests/fixtures'
 import { postgresThatDropsConnections } from '~/cdp/_tests/postgres-that-drops-connections'
+import { CdpApi } from '~/cdp/cdp-api'
 import { getDefaultCdpConfig } from '~/cdp/config'
 import { EMAIL_STATUS_OUTPUT } from '~/cdp/outputs/outputs'
 import {
     CdpProducerName,
     WAREHOUSE_PRODUCER,
+    WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER,
     WARPSTREAM_CYCLOTRON_PRODUCER,
     WARPSTREAM_INGESTION_PRODUCER,
 } from '~/cdp/outputs/producers'
@@ -32,10 +37,11 @@ import {
     CyclotronInvocationQueueParametersEmailSchema,
     CyclotronInvocationQueueParametersEmailType,
 } from '~/cdp/schema/cyclotron'
+import { v2JobToInvocation } from '~/cdp/services/cyclotron-v2/job-codec'
 import { CyclotronV2DequeuedJob } from '~/cdp/services/cyclotron-v2/types'
 import { TRANSACTIONAL_EMAIL_EVENT } from '~/cdp/services/hogflows/hogflow-sensitivity'
-import { v2JobToInvocation } from '~/cdp/services/job-queue/job-queue-postgres-v2'
 import { CyclotronJobInvocationHogFunction } from '~/cdp/types'
+import { setupExpressApp } from '~/common/api/router'
 import { KAFKA_EMAIL_STATUS } from '~/common/config/kafka-topics'
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { MESSAGE_ASSETS_OUTPUT } from '~/common/outputs'
@@ -45,8 +51,11 @@ import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
 import { UUIDT } from '~/common/utils/utils'
+import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { waitForExpect } from '~/tests/helpers/expectations'
+import { FakeSes as TrackingFakeSes } from '~/tests/helpers/fake-ses'
 import { ensureKafkaTopics } from '~/tests/helpers/kafka'
+import { pinDate } from '~/tests/helpers/pin-date'
 import { createRecordingIngestionOutputs } from '~/tests/helpers/recording-ingestion-outputs'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
 import { INVALID_TEAM_ID_KEYS } from '~/tests/helpers/team'
@@ -58,7 +67,7 @@ import { MAX_PENDING_EMAIL_REPORTS, WorkflowsActivationReporter } from '../monit
 import { RateLimiterService } from '../rate-limiter/rate-limiter.service'
 import { AttachmentStore } from './attachment-store'
 import { selectEmailSenderIntegrationId } from './email-sender-selection'
-import { EmailStatusService } from './email-status.service'
+import { EmailStatus, EmailStatusService } from './email-status.service'
 import { EmailSuppressionService, emailSuppressionConfigFromEnv } from './email-suppression.service'
 import {
     EmailService,
@@ -70,7 +79,8 @@ import {
     teamEmailCapBucket,
 } from './email.service'
 import { MailDevAPI, mailDevWebUrl } from './helpers/maildev'
-import { EmailTrackingCodeSigner } from './helpers/tracking-code'
+import { SesWebhookHandler } from './helpers/ses'
+import { EmailTrackingCodeSigner, MESSAGE_CREATED_HEADER_NAME } from './helpers/tracking-code'
 import { InFlightRegistry } from './in-flight-registry'
 import { MessageAssetsService } from './message-assets.service'
 import { MESSAGE_MAX_BYTES } from './message-estimate'
@@ -340,6 +350,7 @@ describe('EmailService', () => {
         mockFetch.mockClear()
     })
     afterEach(async () => {
+        jest.useRealTimers()
         await analytics.close()
         await ses.close()
         await closeHub(hub)
@@ -829,6 +840,18 @@ describe('EmailService', () => {
             it.each([
                 ['workflow', 'bulk', 'false', 'its rescheduled time', (): void => {}, 5_000, 60_000],
                 ['transactional_api', 'fast', 'false', 'its creation', transactionalSend, 60_000, Infinity],
+                [
+                    'transactional_api',
+                    'fast',
+                    'false',
+                    'its scheduled time when it was scheduled',
+                    (): void => {
+                        transactionalSend()
+                        invocation.state.scheduledAt = DateTime.utc().minus({ seconds: 30 }).toISO()!
+                    },
+                    30_000,
+                    60_000,
+                ],
                 // Alerts leave out a wait that the team sending cap causes on purpose.
                 [
                     'transactional_api',
@@ -1377,6 +1400,304 @@ describe('EmailService', () => {
                 /^<body>Hi! <a href="http:\/\/localhost:8010\/public\/m\/redirect\?ph_id=[A-Za-z0-9._-]+&ph_sig=[A-Za-z0-9_-]+&target=https%3A%2F%2Fexample\.com">Click me<\/a><img src="http:\/\/localhost:8010\/public\/m\/pixel\?ph_id=[A-Za-z0-9._-]+" style="display: none;" \/><\/body>$/
             )
         })
+        it.each([
+            {
+                case: 'keeps the defaults',
+                sensitive: true,
+                tracking: { captureEngagement: true },
+                links: ['https://example.com/a', 'https://example.com/b'],
+                pixel: true,
+            },
+            {
+                case: 'turns opens off',
+                sensitive: true,
+                tracking: { captureEngagement: true, opens: false },
+                links: ['https://example.com/a', 'https://example.com/b'],
+                pixel: false,
+            },
+            {
+                case: 'turns clicks on',
+                sensitive: true,
+                tracking: { captureEngagement: true, clicks: true },
+                links: ['tracked https://example.com/a', 'https://example.com/b'],
+                pixel: true,
+            },
+            {
+                case: 'turns opens off and clicks on',
+                sensitive: true,
+                tracking: { captureEngagement: true, opens: false, clicks: true },
+                links: ['https://example.com/a', 'https://example.com/b'],
+                pixel: false,
+            },
+            {
+                case: "keeps the defaults on a template's workflow that isn't sensitive",
+                sensitive: false,
+                tracking: { captureEngagement: true },
+                links: ['tracked https://example.com/a', 'https://example.com/b'],
+                pixel: true,
+            },
+            {
+                case: "turns clicks on, on a template's workflow that isn't sensitive",
+                sensitive: false,
+                tracking: { captureEngagement: true, clicks: true },
+                links: ['tracked https://example.com/a', 'https://example.com/b'],
+                pixel: true,
+            },
+        ] as const)('delivers a code send that $case', async ({ sensitive, tracking, links, pixel }) => {
+            invocation.hogFunction.metadata = { message_category_type: 'transactional', sensitive }
+            invocation.queueParameters = createEmailParams({
+                html: '<body><a href="https://example.com/a">a</a><a href="https://example.com/b" data-ph-no-track>b</a></body>',
+            })
+            invocation.state.send = { tracking }
+
+            const result = await service.executeSendEmail(invocation)
+
+            expect(result.error).toBeUndefined()
+            await waitForExpect(async () => expect(mailDevAPI.getEmails()).resolves.toHaveLength(1))
+            const [email] = await mailDevAPI.getEmails()
+            const cdpApp = setupExpressApp()
+            cdpApp.use(
+                '/',
+                new CdpApi(hub, createCdpConsumerDeps(hub), {
+                    hogQueue: createMockJobQueue(),
+                    hogflowQueue: createMockJobQueue(),
+                }).router()
+            )
+            const server = cdpApp.listen(0, () => {})
+            try {
+                const delivered = await Promise.all(
+                    [...email.html.matchAll(/<a href="([^"]*)"/g)].map(async ([, href]) => {
+                        const { pathname, search } = new URL(href)
+                        if (pathname !== '/public/m/redirect') {
+                            return href
+                        }
+                        const clicked = await supertest(cdpApp).get(`${pathname}${search}`)
+                        return clicked.status === 302 ? `tracked ${clicked.headers.location}` : `unusable ${href}`
+                    })
+                )
+                expect(delivered).toEqual(links)
+            } finally {
+                server.close()
+            }
+            expect(email.html.includes('/public/m/pixel')).toBe(pixel)
+        })
+    })
+    describe('native email sending through SES tracking', () => {
+        const fakeSes = new TrackingFakeSes({
+            'posthog-messaging': { opens: true, clicks: true },
+            'posthog-messaging-untracked': { opens: false, clicks: false },
+        })
+        const savedCredentials = { id: process.env.AWS_ACCESS_KEY_ID, secret: process.env.AWS_SECRET_ACCESS_KEY }
+        let sesEndpoint: string
+        let invocation: CyclotronJobInvocationHogFunction
+
+        beforeAll(async () => {
+            process.env.AWS_ACCESS_KEY_ID = 'fake-ses-key'
+            process.env.AWS_SECRET_ACCESS_KEY = 'fake-ses-secret'
+            sesEndpoint = await fakeSes.start()
+        })
+        afterAll(async () => {
+            await fakeSes.stop()
+            for (const [name, value] of [
+                ['AWS_ACCESS_KEY_ID', savedCredentials.id],
+                ['AWS_SECRET_ACCESS_KEY', savedCredentials.secret],
+            ] as const) {
+                if (value === undefined) {
+                    delete process.env[name]
+                } else {
+                    process.env[name] = value
+                }
+            }
+        })
+        beforeEach(async () => {
+            fakeSes.deliveries.length = 0
+            fakeSes.opened = 0
+            fakeSes.clickEvents.length = 0
+            service = createService({
+                sesEndpoint,
+                sesTrackedConfigurationSet: 'posthog-messaging',
+                sesUntrackedConfigurationSet: 'posthog-messaging-untracked',
+            })
+            await insertIntegration(hub.postgres, team.id, {
+                id: getIntegrationId(1),
+                kind: 'email',
+                config: {
+                    email: 'test@posthog.com',
+                    name: 'Test User',
+                    domain: 'posthog.com',
+                    verified: true,
+                    provider: 'ses',
+                },
+            })
+            invocation = createExampleInvocation({ team_id: team.id, id: 'function-1' })
+            invocation.id = 'invocation-1'
+            invocation.state.vmState = { stack: [] } as any
+        })
+
+        const untracked = ['https://example.com/a', 'https://example.com/b']
+        const clicksTracked = ['tracked https://example.com/a', 'https://example.com/b']
+        it.each<{
+            case: string
+            sensitive: boolean
+            send: { sensitive?: boolean; tracking?: { opens?: false; clicks?: boolean } } | undefined
+            links: string[]
+            opens: boolean
+            subject: boolean
+        }>([
+            {
+                case: "a code send that keeps the defaults on a template's workflow that isn't sensitive",
+                sensitive: false,
+                send: {},
+                links: clicksTracked,
+                opens: true,
+                subject: true,
+            },
+            {
+                case: 'a code send that turns clicks on',
+                sensitive: false,
+                send: { tracking: { clicks: true } },
+                links: clicksTracked,
+                opens: true,
+                subject: true,
+            },
+            {
+                case: "a code send that turns clicks off on a template's workflow that isn't sensitive",
+                sensitive: false,
+                send: { tracking: { clicks: false } },
+                links: untracked,
+                opens: true,
+                subject: true,
+            },
+            {
+                case: 'a sensitive code send that keeps the defaults',
+                sensitive: true,
+                send: {},
+                links: untracked,
+                opens: true,
+                subject: false,
+            },
+            {
+                case: 'a sensitive code send that turns clicks on',
+                sensitive: true,
+                send: { tracking: { clicks: true } },
+                links: clicksTracked,
+                opens: true,
+                subject: false,
+            },
+            {
+                case: 'a code send marked not sensitive on a sensitive workflow',
+                sensitive: true,
+                send: { sensitive: false },
+                links: clicksTracked,
+                opens: true,
+                subject: true,
+            },
+            {
+                case: "a code send marked sensitive on a template's workflow that isn't sensitive",
+                sensitive: false,
+                send: { sensitive: true },
+                links: untracked,
+                opens: true,
+                subject: false,
+            },
+            {
+                case: "a code send marked sensitive that turns clicks on, on a template's workflow that isn't sensitive",
+                sensitive: false,
+                send: { sensitive: true, tracking: { clicks: true } },
+                links: clicksTracked,
+                opens: true,
+                subject: false,
+            },
+            {
+                case: 'a code send marked not sensitive that turns opens off',
+                sensitive: true,
+                send: { sensitive: false, tracking: { opens: false } },
+                links: untracked,
+                opens: false,
+                subject: true,
+            },
+            {
+                case: 'a code send that turns opens off',
+                sensitive: false,
+                send: { tracking: { opens: false } },
+                links: untracked,
+                opens: false,
+                subject: true,
+            },
+            {
+                case: 'a template send',
+                sensitive: false,
+                send: undefined,
+                links: clicksTracked,
+                opens: true,
+                subject: true,
+            },
+            {
+                case: 'a sensitive template send',
+                sensitive: true,
+                send: undefined,
+                links: untracked,
+                opens: true,
+                subject: false,
+            },
+        ])('delivers $case with the links and opens SES tracks', async ({ sensitive, send, links, opens, subject }) => {
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `INSERT INTO workflows_teamworkflowsconfig
+                        (team_id, capture_workflows_engagement_events, email_tracking_consent_mode,
+                         email_sending_suspension_reason, ses_tenant_sending_status, email_sending_tier)
+                     VALUES ($1, true, 'off', '', '', 0)`,
+                [team.id],
+                'test-set-engagement-capture'
+            )
+            invocation.hogFunction.metadata = { message_category_type: 'transactional', sensitive }
+            invocation.queueParameters = createEmailParams({
+                from: { integrationId: 1 },
+                html: '<body><a href="https://example.com/a">a</a><a href="https://example.com/b" data-ph-no-track>b</a></body>',
+            })
+            invocation.state.send = send && { ...send, tracking: { captureEngagement: true, ...send.tracking } }
+
+            const result = await service.executeSendEmail(invocation)
+
+            expect(result.error).toBeUndefined()
+            expect(fakeSes.deliveries).toHaveLength(1)
+            const [{ html }] = fakeSes.deliveries
+            const delivered = await Promise.all(
+                [...html.matchAll(/<a\b[^>]*\bhref="([^"]*)"/g)].map(async ([, href]) => {
+                    if (!href.startsWith(sesEndpoint)) {
+                        return href
+                    }
+                    const clicked = await supertest(sesEndpoint).get(new URL(href).pathname)
+                    return clicked.status === 302 ? `tracked ${clicked.headers.location}` : `unusable ${href}`
+                })
+            )
+            for (const [, src] of html.matchAll(/<img\b[^>]*\bsrc="([^"]*)"/g)) {
+                if (src.startsWith(sesEndpoint)) {
+                    await supertest(sesEndpoint).get(new URL(src).pathname)
+                }
+            }
+            expect(delivered).toEqual(links)
+            expect(fakeSes.opened).toBe(opens ? 1 : 0)
+            expect(
+                result.capturedPostHogEvents
+                    .filter(({ event }) => event === '$workflows_email_sent')
+                    .map(({ properties }) => properties.$email_subject)
+            ).toEqual([subject ? 'Test Subject' : undefined])
+            const reported = await new SesWebhookHandler(
+                new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL)
+            ).handleWebhook({ body: fakeSes.clickEvents, headers: {} })
+            expect(
+                (reported.metrics ?? [])
+                    .filter(({ metricName }) => metricName === 'email_link_clicked')
+                    .map(({ properties }) => [properties?.$email_subject, properties?.$link_url])
+            ).toEqual(
+                links
+                    .filter((link) => link.startsWith('tracked '))
+                    .map(() =>
+                        subject ? ['Test Subject', 'https://example.com/a'] : [undefined, 'https://example.com']
+                    )
+            )
+        })
     })
     describe('native email sending with ses', () => {
         let invocation: CyclotronJobInvocationHogFunction
@@ -1444,10 +1765,54 @@ describe('EmailService', () => {
                 TRANSACTIONAL_EMAIL_EVENT,
                 { ph_id: expect.stringMatching(/^[A-Za-z0-9_-]+$/), ph_email_status: 'true' },
             ],
+            [
+                'a transactional email from a template',
+                { template_uuid: '0190e3a1-aaaa-7000-8000-00000000abcd' },
+                TRANSACTIONAL_EMAIL_EVENT,
+                {
+                    ph_id: expect.stringMatching(/^[A-Za-z0-9_-]+$/),
+                    ph_email_status: 'true',
+                    ph_template_id: '0190e3a1-aaaa-7000-8000-00000000abcd',
+                },
+            ],
+            [
+                'a code send by key',
+                { template_key: 'welcome_v2' },
+                TRANSACTIONAL_EMAIL_EVENT,
+                {
+                    ph_id: expect.stringMatching(/^[A-Za-z0-9_-]+$/),
+                    ph_email_status: 'true',
+                    ph_template_key: 'welcome_v2',
+                },
+            ],
+            [
+                'a code send by a key longer than an SES tag allows',
+                { template_key: 'k'.repeat(257) },
+                TRANSACTIONAL_EMAIL_EVENT,
+                { ph_id: expect.stringMatching(/^[A-Za-z0-9_-]+$/), ph_email_status: 'true' },
+            ],
+            [
+                'a transactional email whose template id SES would reject',
+                { template_uuid: 'not a tag value' },
+                TRANSACTIONAL_EMAIL_EVENT,
+                { ph_id: expect.stringMatching(/^[A-Za-z0-9_-]+$/), ph_email_status: 'true' },
+            ],
+            [
+                'a transactional email whose template id has a dot',
+                { template_uuid: 'template.v2' },
+                TRANSACTIONAL_EMAIL_EVENT,
+                { ph_id: expect.stringMatching(/^[A-Za-z0-9_-]+$/), ph_email_status: 'true' },
+            ],
+            [
+                'a workflow email made from a template',
+                { template_uuid: '0190e3a1-aaaa-7000-8000-00000000abcd' },
+                '$pageview',
+                { ph_id: expect.stringMatching(/^[A-Za-z0-9_-]+$/) },
+            ],
         ])('should send an email if verified, for %s', async (_name, extraMetadata, triggerEvent, expectedTags) => {
             invocation.hogFunction.metadata = { message_category_type: 'transactional', ...extraMetadata }
             invocation.state.globals.event.event = triggerEvent
-            const result = await service.executeSendEmail(invocation)
+            const result = await createService({ templateTagsTeams: String(team.id) }).executeSendEmail(invocation)
             expect(result.error).toBeUndefined()
             expect(result.emailSendResult).toEqual({ status: 'accepted' })
             // The SES tag carries the short unsigned code (no dot); the signed code (with distinct_id)
@@ -1465,6 +1830,44 @@ describe('EmailService', () => {
                     from: '"Test User" <test@posthog-test.com>',
                 }),
             ])
+        })
+
+        it('names the template the email was rendered with, after its step moves to another template', async () => {
+            await captureEngagementEvents()
+            invocation.hogFunction.metadata = { message_category_type: 'transactional', template_uuid: 'template-2' }
+            invocation.state.globals.event.event = TRANSACTIONAL_EMAIL_EVENT
+            invocation.queueParameters = createEmailParams({
+                from: { integrationId: 1 },
+                template: { template_uuid: 'template-1' },
+            })
+
+            const result = await createService({ templateTagsTeams: String(team.id) }).executeSendEmail(invocation)
+
+            expect(result.error).toBeUndefined()
+            expect(ses.sent[0].tags).toMatchObject({ ph_template_id: 'template-1' })
+            expect(result.capturedPostHogEvents[0].properties.$email_template_id).toEqual('template-1')
+        })
+
+        it('sends a transactional email without template tags for a team outside the template tags allowlist', async () => {
+            await captureEngagementEvents()
+            invocation.hogFunction.metadata = {
+                message_category_type: 'transactional',
+                template_uuid: '0190e3a1-aaaa-7000-8000-00000000abcd',
+                template_key: 'welcome_v2',
+            }
+            invocation.state.globals.event.event = TRANSACTIONAL_EMAIL_EVENT
+
+            const result = await createService({ templateTagsTeams: String(team.id + 1) }).executeSendEmail(invocation)
+
+            expect(result.error).toBeUndefined()
+            expect(ses.sent[0].tags).toEqual({
+                ph_id: expect.stringMatching(/^[A-Za-z0-9_-]+$/),
+                ph_email_status: 'true',
+            })
+            expect(result.capturedPostHogEvents[0].properties).toMatchObject({
+                $email_template_id: '0190e3a1-aaaa-7000-8000-00000000abcd',
+                $email_template_key: 'welcome_v2',
+            })
         })
 
         const sesAccepts = (): void => {}
@@ -1674,6 +2077,7 @@ describe('EmailService', () => {
                         new KafkaProducerRegistry<CdpProducerName>({
                             [WARPSTREAM_INGESTION_PRODUCER]: statusProducer,
                             [WARPSTREAM_CYCLOTRON_PRODUCER]: statusProducer,
+                            [WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER]: statusProducer,
                             [WAREHOUSE_PRODUCER]: statusProducer,
                         }),
                         cdpConfig
@@ -2090,7 +2494,8 @@ describe('EmailService', () => {
             })
         })
 
-        it.each([
+        type StatusCase = [string, string, boolean, () => void, EmailStatus | null, string | null]
+        const statusCases: StatusCase[] = [
             ['a transactional email that SES accepts', TRANSACTIONAL_EMAIL_EVENT, false, sesAccepts, 'sent', ''],
             [
                 'a transactional email that SES rejects',
@@ -2144,12 +2549,27 @@ describe('EmailService', () => {
             ['a workflow email that SES accepts', '$pageview', false, sesAccepts, null, null],
             ['a workflow email that SES rejects', '$pageview', false, sesRejects, null, null],
             ['a skipped workflow email', '$pageview', false, recipientSuppressed, null, null],
-        ])('records the status of %s', async (_name, triggerEvent, isTest, setup, status, reason) => {
+        ]
+        const statusTriggerTime = '2026-01-02T03:04:05.678Z'
+        const statusIdKinds: [string, string, string][] = [
+            ['a UUIDT id', new UUIDT(Date.UTC(2026, 0, 1, 12, 0, 0, 250)).toString(), '2026-01-01 12:00:00.250000'],
+            ['a keyed id', uuidv5('a-key', '6ba7b811-9dad-11d1-80b4-00c04fd430c8'), '2026-01-02 03:04:05.678000'],
+        ]
+
+        it.each(
+            statusCases.flatMap(([name, ...rest]) =>
+                statusIdKinds.map(
+                    ([kind, id, createdAt]) => [`${name}, under ${kind}`, ...rest, id, createdAt] as const
+                )
+            )
+        )('records the status of %s', async (_name, triggerEvent, isTest, setup, status, reason, id, createdAt) => {
+            pinDate(Date.parse(statusTriggerTime) + 60 * 60 * 1000)
             const kafka = createRecordingIngestionOutputs([EMAIL_STATUS_OUTPUT])
             const emailStatusService = new EmailStatusService(kafka.outputs, { EMAIL_STATUS_ENABLED: true })
             service['emailStatusService'] = emailStatusService
-            invocation.id = new UUIDT().toString()
+            invocation.id = id
             invocation.state.globals.event.event = triggerEvent
+            invocation.state.globals.event.timestamp = statusTriggerTime
             setup()
 
             await service.executeSendEmail(invocation, isTest)
@@ -2162,10 +2582,11 @@ describe('EmailService', () => {
                     ? [
                           expect.objectContaining({
                               team_id: team.id,
-                              message_id: invocation.id,
+                              message_id: id,
                               status,
                               reason,
                               sending_domain: sendingDomain,
+                              created_at: createdAt,
                           }),
                       ]
                     : []
@@ -2993,6 +3414,39 @@ describe('EmailService', () => {
             expect(sent.tags.ph_id).not.toEqual(trackingCode)
         })
 
+        it.each([
+            [
+                'carries the signed creation time of a keyed send',
+                uuidv5('a-key', '6ba7b811-9dad-11d1-80b4-00c04fd430c8'),
+                true,
+            ],
+            ['carries no creation time for a send whose id holds its time', undefined, false],
+        ])('%s, leaving the tracking code as long as before', async (_desc, keyedId, carriesTime) => {
+            invocation.hogFunction.metadata = { message_category_type: 'transactional' }
+            invocation.state.globals.event.event = TRANSACTIONAL_EMAIL_EVENT
+            invocation.state.globals.event.timestamp = '2026-01-02T03:04:05.678Z'
+            if (keyedId) {
+                invocation.id = keyedId
+            }
+
+            const result = await service.executeSendEmail(invocation)
+
+            expect(result.error).toBeUndefined()
+            const signer = new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL)
+            const headers = ses.sent[0].headers
+            expect(signer.verifyMessageCreatedHeaderValue(invocation.id, headers[MESSAGE_CREATED_HEADER_NAME])).toEqual(
+                carriesTime ? Date.UTC(2026, 0, 2, 3, 4, 5, 678) : undefined
+            )
+            expect(headers[MESSAGE_CREATED_HEADER_NAME] !== undefined).toBe(carriesTime)
+            // The tracking code keeps master's v2 layout, so its header grows by nothing and older pods still parse it.
+            const [payload] = headers['X-PostHog-Tracking-Code'].split('.')
+            expect(Buffer.from(payload, 'base64url').toString('utf8')).toMatch(/^v2:[^:]+:/)
+            expect(signer.parse(headers['X-PostHog-Tracking-Code'])).toMatchObject({
+                invocationId: invocation.id,
+                format: 'signed',
+            })
+        })
+
         describe('per-send tracking gate (tracking_enabled)', () => {
             // Would be tracked if the gate regressed: has an anchor to rewrite and a </body> to pixel.
             const trackableHtml = '<body>Hi! <a href="https://example.com">Click me</a></body>'
@@ -3117,7 +3571,15 @@ describe('EmailService', () => {
                 )
             })
 
-            it.each([
+            it.each<{
+                case: string
+                trackingEnabled: boolean
+                allowlisted: boolean
+                isTest: boolean
+                sensitive: boolean
+                send?: { sensitive: boolean }
+                tagged: boolean
+            }>([
                 {
                     case: 'tags the links of a tracked send',
                     trackingEnabled: true,
@@ -3158,13 +3620,32 @@ describe('EmailService', () => {
                     sensitive: true,
                     tagged: false,
                 },
+                {
+                    case: "leaves the links of a code send marked sensitive on a workflow that isn't sensitive",
+                    trackingEnabled: true,
+                    allowlisted: true,
+                    isTest: false,
+                    sensitive: false,
+                    send: { sensitive: true },
+                    tagged: false,
+                },
+                {
+                    case: 'tags the links of a code send marked not sensitive on a sensitive workflow',
+                    trackingEnabled: true,
+                    allowlisted: true,
+                    isTest: false,
+                    sensitive: true,
+                    send: { sensitive: false },
+                    tagged: true,
+                },
             ])(
                 '$case with the workflow run id',
-                async ({ trackingEnabled, allowlisted, isTest, sensitive, tagged }) => {
+                async ({ trackingEnabled, allowlisted, isTest, sensitive, send, tagged }) => {
                     const taggingService = createService({
                         workflowRunLinkTagTeams: allowlisted ? String(team.id) : '',
                     })
                     invocation.hogFunction.metadata = { tracking_enabled: trackingEnabled, sensitive }
+                    invocation.state.send = send && { ...send, tracking: { captureEngagement: true } }
                     invocation.queueParameters = createEmailParams({
                         from: { integrationId: 1 },
                         html: '<a href="https://app.posthog-test.com/">a</a><a href="https://example.com/">b</a>',
@@ -3343,14 +3824,41 @@ describe('EmailService', () => {
             expect(result.emailSendResult).toEqual({ status: 'failed', reason: result.error })
         })
 
-        it.each([
-            ['an ordinary template', {}, 'Test Subject', undefined, false],
-            ['a sensitive template', { sensitive: true }, undefined, undefined, false],
-            ['a workflow step', {}, 'Test Subject', 3, false],
-            ['a transactional email', {}, 'Test Subject', undefined, true],
+        it.each<
+            [string, Record<string, unknown>, string | undefined, number | undefined, boolean, Record<string, string>]
+        >([
+            ['an ordinary template', {}, 'Test Subject', undefined, false, {}],
+            ['a sensitive template', { sensitive: true }, undefined, undefined, false, {}],
+            ['a workflow step', {}, 'Test Subject', 3, false, {}],
+            ['a workflow email made from a template', { template_uuid: 'template-1' }, 'Test Subject', 3, false, {}],
+            ['a transactional email saved without a name', {}, 'Test Subject', undefined, true, {}],
+            [
+                'a transactional email from a template',
+                { template_uuid: 'template-1' },
+                'Test Subject',
+                undefined,
+                true,
+                { $email_template_id: 'template-1' },
+            ],
+            [
+                'a code send by key',
+                { template_key: 'welcome' },
+                'Test Subject',
+                undefined,
+                true,
+                { $email_template_key: 'welcome' },
+            ],
+            [
+                'a transactional step saved with names of the wrong type',
+                { template_uuid: 7, template_key: true },
+                'Test Subject',
+                undefined,
+                true,
+                {},
+            ],
         ])(
             'should capture a $workflows_email_sent PostHog event and version the email_sent metric on success, for %s',
-            async (_name, extraMetadata, subject, workflowVersion, transactional) => {
+            async (_name, extraMetadata, subject, workflowVersion, transactional, identity) => {
                 await captureEngagementEvents()
                 invocation.hogFunction.metadata = { ...invocation.hogFunction.metadata, ...extraMetadata }
                 invocation.state.renderedWorkflowVersion = workflowVersion
@@ -3383,6 +3891,13 @@ describe('EmailService', () => {
                 ).toEqual(
                     workflowVersion === undefined ? undefined : { id: invocation.functionId, version: workflowVersion }
                 )
+                expect(
+                    Object.fromEntries(
+                        Object.entries(result.capturedPostHogEvents[0].properties).filter(([key]) =>
+                            key.startsWith('$email_template_')
+                        )
+                    )
+                ).toStrictEqual(identity)
             }
         )
 

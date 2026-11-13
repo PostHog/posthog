@@ -33,10 +33,12 @@ from rest_framework import status
 from rest_framework.exceptions import ValidationError
 from social_core.backends.base import BaseAuth
 from social_core.exceptions import AuthCanceled, AuthFailed, AuthMissingParameter
+from structlog.testing import capture_logs
 
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.clickhouse.query_tagging import get_query_tags
+from posthog.client_build_middleware import ClientBuildSkewMiddleware
 from posthog.constants import AvailableFeature
 from posthog.ip_restrictions import enforce_ip_restrictions, get_ip_restriction_denial
 from posthog.middleware import (
@@ -738,6 +740,57 @@ class TestManagedProxyClientIPMiddleware(SimpleTestCase):
         assert middleware.index("posthog.middleware.ManagedProxyClientIPMiddleware") < middleware.index(
             "posthog.middleware.per_request_logging_context_middleware"
         )
+
+
+@patch("posthog.client_build_middleware.get_git_commit_short", return_value="abc1234567")
+class TestClientBuildSkewMiddleware(SimpleTestCase):
+    def _skew_counts(self) -> dict[tuple[str, str], float]:
+        return {
+            (builds, status_class): REGISTRY.get_sample_value(
+                "posthog_api_requests_by_client_build_total", {"builds": builds, "status_class": status_class}
+            )
+            or 0.0
+            for builds in ("same", "different")
+            for status_class in ("2xx", "5xx")
+        }
+
+    @parameterized.expand(
+        [
+            ("same_build", "abc1234567", 200, ("same", "2xx")),
+            ("different_build", "0123456789", 500, ("different", "5xx")),
+            ("no_client_build", None, 200, None),
+            ("not_hex", "abc123456z", 200, None),
+            ("too_long", "a" * 41, 200, None),
+        ]
+    )
+    def test_counts_api_requests_by_client_build(
+        self,
+        _mock_commit: MagicMock,
+        _name: str,
+        client_build: str | None,
+        status_code: int,
+        expected_labels: tuple[str, str] | None,
+    ) -> None:
+        headers = {"X-PostHog-Client-Build": client_build} if client_build else None
+        request = RequestFactory().get("/api/projects/2/insights/", headers=headers)
+        counts_before = self._skew_counts()
+
+        response = ClientBuildSkewMiddleware(lambda request: HttpResponse(status=status_code))(request)
+
+        expected_counts = dict(counts_before)
+        if expected_labels:
+            expected_counts[expected_labels] += 1
+        assert self._skew_counts() == expected_counts
+        assert response["X-PostHog-Build"] == "abc1234567"
+
+    def test_leaves_non_api_responses_alone(self, _mock_commit: MagicMock) -> None:
+        request = RequestFactory().get("/insights", HTTP_X_POSTHOG_CLIENT_BUILD="0123456789")
+        counts_before = self._skew_counts()
+
+        response = ClientBuildSkewMiddleware(lambda request: HttpResponse())(request)
+
+        assert self._skew_counts() == counts_before
+        assert "X-PostHog-Build" not in response
 
 
 class TestFix204Middleware(SimpleTestCase):
@@ -3105,8 +3158,13 @@ def _route_id_probe(request: HttpRequest, probe_id: int) -> HttpResponse:
     return HttpResponse(get_query_tags().route_id)
 
 
+def _raising_probe(request: HttpRequest) -> HttpResponse:
+    raise RuntimeError("probe")
+
+
 urlpatterns = [
     path("api/_http_request_id_probe/", _http_request_id_probe),
+    path("api/_raising_probe/", _raising_probe),
     path("api/_route_id_probe/<int:probe_id>/", _route_id_probe),
 ]
 
@@ -3133,6 +3191,23 @@ async def test_chqueries_middleware_tags_route_id_under_asgi() -> None:
     response = await AsyncClient().get("/api/_route_id_probe/1/")
 
     assert response.content.decode() == "api/_route_id_probe/<int:probe_id>/"
+
+
+@pytest.mark.parametrize(
+    "path,expected_event",
+    [
+        pytest.param("/api/_route_id_probe/1/", "request_finished", id="finished"),
+        pytest.param("/api/_raising_probe/", "request_failed", id="failed"),
+    ],
+)
+@override_settings(ROOT_URLCONF=__name__)
+async def test_request_log_carries_duration_ms(path, expected_event) -> None:
+    with capture_logs() as logs:
+        await AsyncClient(raise_request_exception=False).get(path)
+
+    [entry] = [log for log in logs if log["event"] == expected_event]
+    assert isinstance(entry["duration_ms"], float)
+    assert entry["duration_ms"] >= 0
 
 
 @parameterized.expand(

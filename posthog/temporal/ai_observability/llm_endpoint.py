@@ -145,6 +145,7 @@ def build_langchain_chat_client(
     distinct_id: str | None = None,
     service_tier: Literal["flex"] | None = None,
     max_retries: int = 2,
+    use_responses_api: bool = False,
 ) -> ChatOpenAI:
     """Return a ChatOpenAI client for the labeling/report agents. Cloud/DEBUG only.
 
@@ -153,6 +154,11 @@ def build_langchain_chat_client(
     call. In gateway mode the bearer selects the capture project, while ``distinct_id`` attributes
     the generation to the customer user or team. The other observability arguments correlate every
     model call in one agent invocation.
+
+    ``use_responses_api`` sends calls to /v1/responses, which the gpt-6 models need for function tools
+    with reasoning on. Those calls never store the response: /v1/responses keeps one for 30 days by
+    default, and agent prompts carry customer traces. Without a stored response, a tool loop's next
+    call can only send the model's reasoning back as encrypted content, so the client asks for it.
     """
     if not settings.DEBUG and not is_cloud():
         raise ApplicationError(
@@ -180,13 +186,27 @@ def build_langchain_chat_client(
             http_client=httpx.Client(trust_env=False),
             http_async_client=httpx.AsyncClient(trust_env=False),
             service_tier=service_tier,
+            use_responses_api=use_responses_api or None,
+            # Prompts carry customer traces, so OpenAI keeps no copy, and the reasoning travels encrypted instead.
+            store=False if use_responses_api else None,
+            include=["reasoning.encrypted_content"] if use_responses_api else None,
+            # The v0 format mishandles reasoning items on the way back in a multi-turn loop.
+            output_version="responses/v1" if use_responses_api else "v0",
         )
 
     direct_key = os.environ.get("OPENAI_API_KEY")
     if not direct_key:
         raise Exception("OPENAI_API_KEY is not configured")
     return FlexFirstChatOpenAI(
-        model=model, api_key=direct_key, timeout=timeout, max_retries=max_retries, service_tier=service_tier
+        model=model,
+        api_key=direct_key,
+        timeout=timeout,
+        max_retries=max_retries,
+        service_tier=service_tier,
+        use_responses_api=use_responses_api or None,
+        store=False if use_responses_api else None,
+        include=["reasoning.encrypted_content"] if use_responses_api else None,
+        output_version="responses/v1" if use_responses_api else "v0",
     )
 
 
@@ -208,6 +228,7 @@ def build_flex_first_chat_client(
     properties: Mapping[str, str],
     distinct_id: str,
     flex: bool = True,
+    use_responses_api: bool = False,
 ) -> ChatOpenAI:
     """Return a ChatOpenAI client that prefers the flex service tier.
 
@@ -230,6 +251,7 @@ def build_flex_first_chat_client(
         distinct_id=distinct_id,
         service_tier="flex" if use_flex else None,
         max_retries=0 if use_flex else 1,
+        use_responses_api=use_responses_api,
     )
 
 

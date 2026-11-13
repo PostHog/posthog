@@ -6,6 +6,7 @@ from parameterized import parameterized
 
 from products.warehouse_sources.sources.app_store_connect._config import AppStoreConnectSourceConfig
 from products.warehouse_sources.sources.app_store_connect.app_store_connect import (
+    APP_STORE_CONNECT_AGREEMENT_REQUIRED_ERROR,
     APP_STORE_CONNECT_ANALYTICS_CREATE_FORBIDDEN_ERROR,
     APP_STORE_CONNECT_ANALYTICS_INACTIVE_ERROR,
     APP_STORE_CONNECT_MISSING_VENDOR_NUMBER_ERROR,
@@ -231,6 +232,7 @@ class TestAppStoreConnectSource:
             ("analytics_create", APP_STORE_CONNECT_ANALYTICS_CREATE_FORBIDDEN_ERROR),
             ("analytics_inactive", APP_STORE_CONNECT_ANALYTICS_INACTIVE_ERROR),
             ("read", APP_STORE_CONNECT_READ_FORBIDDEN_ERROR),
+            ("agreement_required", APP_STORE_CONNECT_AGREEMENT_REQUIRED_ERROR),
         ]
     )
     def test_each_forbidden_case_resolves_to_its_own_copy(self, _name: str, constant: str) -> None:

@@ -1,5 +1,11 @@
 # posthog-cli
 
+## 0.20.0 — 2026-11-12
+
+### Minor changes
+
+- [174526c9f05](https://github.com/PostHog/posthog/commit/174526c9f0577b193f4e1391c8ec9fa45e49db20) Add `--sdk none` to `exp schema pull --language typescript`, which generates only the event types, with no posthog-js dependency, for posthog-react-native or any other SDK. `--language` picks the language without a prompt — Thanks @kyleswank!
+
 ## 0.19.4 — 2026-11-12
 
 ### Patch changes

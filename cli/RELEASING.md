@@ -105,7 +105,10 @@ Manual runs use the workflow on `master` and still require approval in the `Rele
 They do not bypass changesets or release checks, and runs on other branches are skipped.
 Do not push `posthog-cli/vX.Y.Z` tags manually; cargo-dist tag-push releases are disabled.
 If cargo-dist fails after `Release CLI` commits the release bump, rerun the failed jobs from the same workflow run.
-Any failed job in `Release CLI` posts to the approval thread and to the [#alerts-posthog-js channel in Slack](https://posthog.slack.com/archives/C07HTMN9X47).
+Any failed job in `Release CLI` posts to the [#alerts-posthog-js channel in Slack](https://posthog.slack.com/archives/C07HTMN9X47).
+A failed release preparation or publish also replies in the Slack approval thread, and a successful publish replies there with a rocket.
+The publishing run finds that thread through a hidden marker in the release pull request body, so a release pull request without the marker publishes with no thread reply.
+An approval whose changesets another run already released gets a "superseded" reply.
 
 The release workflow also builds `services/mcp` into `cli/lib/posthog-api-cli.mjs` before cargo-dist packages artifacts.
 This keeps `posthog-cli api` aligned with the generated MCP tool catalog at release time.

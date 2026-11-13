@@ -15,15 +15,16 @@ import {
     TooltipTrigger,
 } from '@posthog/quill'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
 import { AccessControlObjectModal } from '~/layout/navigation-3000/sidepanel/panels/access_control/AccessControlObjectModal'
+import { SidebarPinButton } from '~/layout/today/sidebar/SidebarPinButton'
 import { AccessControlResourceType } from '~/types'
 
 import { canvasSpaceLabel } from '../canvasTasksApi'
 import { CanvasEditSaveStatus } from '../editing/CanvasEditSaveStatus'
-import { CanvasEditToggle } from '../editing/CanvasEditToggle'
 import { CanvasVersionControls } from '../history/CanvasVersionControls'
 import { CanvasCommentsMenu } from '../sidePanel/comments/CanvasCommentsMenu'
 import { CanvasBuildStatus } from './CanvasBuildStatus'
@@ -43,6 +44,7 @@ import { CanvasVisibilityControl } from './CanvasVisibilityControl'
 export function CanvasSceneHeader(): JSX.Element {
     const { canvas, space, canManageAccess, accessControlOpen } = useValues(canvasSceneLogic)
     const { copyLink, deleteCanvas, openAccessControl, closeAccessControl } = useActions(canvasSceneLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     if (!canvas) {
         return (
@@ -60,7 +62,6 @@ export function CanvasSceneHeader(): JSX.Element {
                     <CanvasBuildStatus />
                     <CanvasRuntimeErrorNotice />
                     <CanvasEditSaveStatus />
-                    <CanvasEditToggle />
                     <CanvasCommentsMenu />
                     <CanvasFullscreenToggle />
                     <CanvasSidePanelToggle />
@@ -139,6 +140,18 @@ export function CanvasSceneHeader(): JSX.Element {
                 </>
             )}
             <CanvasNameField />
+            {todayRailNav && (
+                <SidebarPinButton
+                    target={{
+                        type: 'canvas',
+                        ref: canvas.id,
+                        name: canvas.name || 'Untitled',
+                        href: urls.canvasDetail(canvas.id),
+                    }}
+                    size="icon-sm"
+                    dataAttr="canvas-title-pin"
+                />
+            )}
             {/* A narrow canvas keeps its name; the timeline tab still reaches every version. */}
             <div className="hidden @min-[30rem]/canvas-toolbar:contents">
                 <CanvasVersionControls />

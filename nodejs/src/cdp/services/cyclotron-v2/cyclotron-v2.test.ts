@@ -1,3 +1,4 @@
+import { AddressInfo, Socket, connect, createServer } from 'net'
 import { Client, Pool } from 'pg'
 import { Histogram, register } from 'prom-client'
 import { v7 as uuidv7 } from 'uuid'
@@ -30,6 +31,7 @@ import {
     CyclotronV2BatchLimit,
     CyclotronV2CleanupResult,
     CyclotronV2DequeuedJob,
+    CyclotronV2IdempotentJobInit,
     CyclotronV2JobInit,
 } from './types'
 import { CyclotronV2Worker } from './worker'
@@ -124,6 +126,7 @@ interface RawJobRow {
     person_id: string | null
     action_id: string | null
     cancel_requested_at: string | Date | null
+    dequeue_seq: string | null
 }
 
 async function queryJob(id: string): Promise<RawJobRow> {
@@ -204,6 +207,13 @@ async function dequeueOneBatch(worker: CyclotronV2Worker, timeoutMs = 2000): Pro
 
     await worker.stopConsuming()
     return captured
+}
+
+async function backendsWaitingOnLocks(): Promise<number> {
+    const { rows } = await assertPool.query<{ n: number }>(
+        `SELECT COUNT(*)::int AS n FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'`
+    )
+    return rows[0].n
 }
 
 async function backendsNamed(applicationName: string): Promise<number> {
@@ -832,34 +842,78 @@ describe('Cyclotron V2', () => {
                 ).rejects.toBeInstanceOf(CyclotronJobConflictError)
             })
 
-            it('createJob with overwriteExisting=true resets an existing terminal row to available', async () => {
-                const id = uuidv7()
-                // First insert + drive to terminal state via the worker.
-                await manager.createJob({ id, teamId: 1, queueName: QUEUE, state: Buffer.from('v1') })
-                const worker = createWorker()
-                const jobs = await dequeueOneBatch(worker)
-                await jobs[0].ack()
-                expect((await queryJob(id)).status).toBe('completed')
+            it.each([
+                ['ack', 'completed'],
+                ['cancel', 'canceled'],
+            ] as const)(
+                'createJob with overwriteExisting=true resets an existing terminal row to available (%s)',
+                async (release, terminalStatus) => {
+                    const id = uuidv7()
+                    // First insert + drive to terminal state via the worker.
+                    await manager.createJob({ id, teamId: 1, queueName: QUEUE, state: Buffer.from('v1') })
+                    const worker = createWorker()
+                    const jobs = await dequeueOneBatch(worker)
+                    await jobs[0][release]()
+                    expect((await queryJob(id)).status).toBe(terminalStatus)
 
-                // Re-create with the same id and overwriteExisting=true — this
-                // is the rerun path. The row should flip back to 'available'
-                // with the new state.
-                await manager.createJob({
-                    id,
-                    teamId: 1,
-                    queueName: QUEUE,
-                    state: Buffer.from('v2'),
-                    overwriteExisting: true,
-                })
-                const row = await queryJob(id)
-                expect(row.status).toBe('available')
-                expect(row.state).toEqual(Buffer.from('v2'))
-                expect(row.lock_id).toBeNull()
-                expect(row.last_heartbeat).toBeNull()
-                // transition_count bumps so the janitor's poison-pill guard
-                // still has signal across reruns.
-                expect(row.transition_count).toBeGreaterThan(0)
-            })
+                    // Re-create with the same id and overwriteExisting=true — this
+                    // is the rerun path. The row should flip back to 'available'
+                    // with the new state.
+                    await manager.createJob({
+                        id,
+                        teamId: 1,
+                        queueName: QUEUE,
+                        state: Buffer.from('v2'),
+                        overwriteExisting: true,
+                    })
+                    const row = await queryJob(id)
+                    expect(row.status).toBe('available')
+                    expect(row.state).toEqual(Buffer.from('v2'))
+                    expect(row.lock_id).toBeNull()
+                    expect(row.last_heartbeat).toBeNull()
+                    // transition_count bumps so the janitor's poison-pill guard
+                    // still has signal across reruns.
+                    expect(row.transition_count).toBeGreaterThan(0)
+                }
+            )
+
+            it.each([
+                [
+                    'createJob',
+                    (id: string) =>
+                        manager.createJob({
+                            id,
+                            teamId: 1,
+                            queueName: 'email',
+                            state: Buffer.from('rerun'),
+                            overwriteExisting: true,
+                        }),
+                ],
+                [
+                    'bulkCreateJobs',
+                    (id: string) =>
+                        manager.bulkCreateJobs([
+                            { id, teamId: 1, queueName: 'email', state: Buffer.from('rerun'), overwriteExisting: true },
+                        ]),
+                ],
+            ])(
+                '%s with overwriteExisting refuses to bring back a job canceled before any claim',
+                async (_method, rerun) => {
+                    const [id] = await manager.bulkCreateJobs([
+                        {
+                            teamId: 1,
+                            queueName: 'email',
+                            scheduled: new Date(Date.now() + 3600_000),
+                            state: Buffer.from('v1'),
+                        },
+                    ])
+                    await manager.cancelUnclaimed(1, id)
+
+                    await expect(rerun(id)).rejects.toThrow(/canceled before it ran/)
+
+                    expect(await queryJob(id)).toMatchObject({ status: 'canceled', state: Buffer.from('v1') })
+                }
+            )
 
             it('createJob with overwriteExisting=true reruns a row whose transition_count is at the smallint ceiling', async () => {
                 const id = uuidv7()
@@ -1266,7 +1320,10 @@ describe('Cyclotron V2', () => {
                 const functionId = uuidv7()
                 const id = await seedParked(functionId)
                 await manager.cancelJobs({ teamId: 1, functionId, jobIds: [id] })
-                await assertPool.query(`UPDATE cyclotron_jobs SET status = 'canceled' WHERE id = $1`, [id])
+                await assertPool.query(
+                    `UPDATE cyclotron_jobs SET status = 'canceled', transition_count = transition_count + 1 WHERE id = $1`,
+                    [id]
+                )
 
                 await manager.createJob({ id, teamId: 1, queueName: QUEUE, functionId, overwriteExisting: true })
 
@@ -1288,6 +1345,524 @@ describe('Cyclotron V2', () => {
             it('empty jobIds is a no-op', async () => {
                 const result = await manager.cancelJobs({ teamId: 1, functionId: uuidv7(), jobIds: [] })
                 expect(result).toEqual({ marked: 0, remaining: 0, done: true })
+            })
+        })
+
+        describe('cancelUnclaimed and rescheduleUnclaimed', () => {
+            const IN_A_WEEK = (): Date => new Date(Date.now() + 7 * 24 * 3600 * 1000)
+            const IN_TWO_DAYS = new Date(Date.now() + 2 * 24 * 3600 * 1000)
+            const storedState = { state: { scheduledAt: 'original', html: 'a\u0000b' }, queueParameters: { x: 1 } }
+
+            async function seedScheduledEmail(teamId = 1): Promise<string> {
+                const [id] = await manager.bulkCreateJobs([
+                    {
+                        teamId,
+                        queueName: 'email',
+                        functionId: uuidv7(),
+                        scheduled: IN_A_WEEK(),
+                        state: Buffer.from(JSON.stringify(storedState)),
+                    },
+                ])
+                return id
+            }
+
+            const claimSql = `UPDATE cyclotron_jobs
+                SET status = 'running', lock_id = gen_random_uuid(), transition_count = transition_count + 1
+                WHERE id = $1`
+
+            const operations = [
+                ['cancelUnclaimed', (teamId: number, id: string) => manager.cancelUnclaimed(teamId, id)],
+                [
+                    'rescheduleUnclaimed',
+                    (teamId: number, id: string) => manager.rescheduleUnclaimed(teamId, id, IN_TWO_DAYS),
+                ],
+            ] as const
+
+            it('cancels an unclaimed email job so no worker claims it, once', async () => {
+                const id = await seedScheduledEmail()
+
+                const first = await manager.cancelUnclaimed(1, id)
+                const repeat = await manager.cancelUnclaimed(1, id)
+
+                expect(first).toMatchObject({
+                    outcome: 'canceled',
+                    job: { id, teamId: 1, queueName: 'email', state: Buffer.from(JSON.stringify(storedState)) },
+                })
+                expect(repeat).toEqual({
+                    outcome: 'already_canceled',
+                    job: first.outcome === 'canceled' ? first.job : null,
+                })
+                expect(await queryJob(id)).toMatchObject({ status: 'canceled', transition_count: 0, lock_id: null })
+            })
+
+            it('moves an unclaimed email job and its stored scheduledAt, keeping its place in the fair order', async () => {
+                const id = await seedScheduledEmail()
+                const before = await queryJob(id)
+
+                const result = await manager.rescheduleUnclaimed(1, id, IN_TWO_DAYS)
+
+                const row = await queryJob(id)
+                expect(result).toMatchObject({ outcome: 'rescheduled', job: { id, teamId: 1, state: row.state } })
+                expect(new Date(row.scheduled)).toEqual(IN_TWO_DAYS)
+                expect(parseJSON(row.state!.toString())).toEqual({
+                    ...storedState,
+                    state: {
+                        ...storedState.state,
+                        scheduledAt: IN_TWO_DAYS.toISOString(),
+                        statusAt: (result as { rescheduledAt: Date }).rescheduledAt.toISOString(),
+                    },
+                })
+                expect(row).toMatchObject({ status: 'available', transition_count: 0 })
+                expect(row.dequeue_seq).toEqual(before.dequeue_seq)
+            })
+
+            it('times a reschedule after the stored time of the previous status row, even when that is ahead', async () => {
+                const id = await seedScheduledEmail()
+                const ahead = new Date(Date.now() + 60_000)
+                await assertPool.query(`UPDATE cyclotron_jobs SET state = $2 WHERE id = $1`, [
+                    id,
+                    Buffer.from(JSON.stringify({ state: { statusAt: ahead.toISOString() } })),
+                ])
+
+                const result = await manager.rescheduleUnclaimed(1, id, IN_TWO_DAYS)
+
+                expect(result).toMatchObject({ outcome: 'rescheduled', rescheduledAt: new Date(ahead.getTime() + 1) })
+            })
+
+            it('times a reschedule that waited on the row lock after the commit it waited for', async () => {
+                const id = await seedScheduledEmail()
+                const client = await assertPool.connect()
+                try {
+                    await client.query('BEGIN')
+                    await client.query(`SELECT 1 FROM cyclotron_jobs WHERE id = $1 FOR UPDATE`, [id])
+
+                    const pending = manager.rescheduleUnclaimed(1, id, IN_TWO_DAYS)
+                    await waitForExpect(async () => {
+                        const waiting = await assertPool.query(
+                            `SELECT 1 FROM pg_stat_activity
+                             WHERE datname = current_database() AND wait_event_type = 'Lock'`
+                        )
+                        expect(waiting.rows).toHaveLength(1)
+                    })
+                    const beforeCommit = Date.now()
+                    await client.query('COMMIT')
+
+                    const result = await pending
+                    expect(result).toMatchObject({ outcome: 'rescheduled', rescheduledAt: expect.any(Date) })
+                    const { rescheduledAt } = result as { rescheduledAt: Date }
+                    expect(rescheduledAt.getTime()).toBeGreaterThanOrEqual(beforeCommit)
+                } finally {
+                    client.release()
+                }
+            })
+
+            it.each(operations)(
+                '%s waits for a claim in progress and then reports the job claimed',
+                async (_op, run) => {
+                    const id = await seedScheduledEmail()
+                    const client = await assertPool.connect()
+                    try {
+                        await client.query('BEGIN')
+                        await client.query(claimSql, [id])
+
+                        const pending = run(1, id)
+                        await waitForExpect(async () => {
+                            const waiting = await assertPool.query(
+                                `SELECT 1 FROM pg_stat_activity
+                             WHERE datname = current_database() AND wait_event_type = 'Lock'`
+                            )
+                            expect(waiting.rows).toHaveLength(1)
+                        })
+                        await client.query('COMMIT')
+
+                        expect(await pending).toEqual({ outcome: 'claimed' })
+                    } finally {
+                        client.release()
+                    }
+                    expect(await queryJob(id)).toMatchObject({ status: 'running', transition_count: 1 })
+                }
+            )
+
+            it.each([
+                ['cancelUnclaimed', 'a claimed job', { outcome: 'claimed' }, 'claim'],
+                ['cancelUnclaimed', "another team's job", { outcome: 'not_found' }, 'other_team'],
+                ['cancelUnclaimed', 'an unknown id', { outcome: 'not_found' }, 'unknown'],
+                ['cancelUnclaimed', 'a job on another queue', { outcome: 'not_found' }, 'other_queue'],
+                [
+                    'cancelUnclaimed',
+                    'a job canceled after its claim',
+                    { outcome: 'already_canceled', job: null },
+                    'claim_cancel',
+                ],
+                ['rescheduleUnclaimed', 'a claimed job', { outcome: 'claimed' }, 'claim'],
+                ['rescheduleUnclaimed', "another team's job", { outcome: 'not_found' }, 'other_team'],
+                ['rescheduleUnclaimed', 'an unknown id', { outcome: 'not_found' }, 'unknown'],
+                ['rescheduleUnclaimed', 'a job on another queue', { outcome: 'not_found' }, 'other_queue'],
+                ['rescheduleUnclaimed', 'a job canceled before its claim', { outcome: 'canceled' }, 'cancel_unclaimed'],
+                ['rescheduleUnclaimed', 'a job flagged by a run cancel', { outcome: 'canceled' }, 'cancel_flag'],
+            ] as const)('%s on %s answers %o and changes nothing', async (op, _desc, expected, setup) => {
+                let id =
+                    setup === 'other_queue'
+                        ? await manager.createJob({ teamId: 1, queueName: QUEUE, scheduled: IN_A_WEEK() })
+                        : await seedScheduledEmail(setup === 'other_team' ? 2 : 1)
+                if (setup === 'claim' || setup === 'claim_cancel') {
+                    await assertPool.query(claimSql, [id])
+                }
+                if (setup === 'claim_cancel') {
+                    await assertPool.query(
+                        `UPDATE cyclotron_jobs SET status = 'canceled', lock_id = NULL WHERE id = $1`,
+                        [id]
+                    )
+                } else if (setup === 'cancel_unclaimed') {
+                    await manager.cancelUnclaimed(1, id)
+                } else if (setup === 'cancel_flag') {
+                    const { function_id } = await queryJob(id)
+                    await manager.cancelJobs({ teamId: 1, functionId: function_id!, jobIds: [id] })
+                }
+                const before = await queryJob(id)
+                if (setup === 'unknown') {
+                    id = uuidv7()
+                }
+
+                const result = await Object.fromEntries(operations)[op](1, id)
+
+                expect(result).toEqual(expected)
+                expect(await queryJob(before.id)).toEqual(before)
+            })
+        })
+
+        describe('createJobsIdempotently', () => {
+            const keyed = (
+                id: string,
+                fingerprint: string,
+                job: Partial<CyclotronV2JobInit> = {}
+            ): CyclotronV2IdempotentJobInit => ({
+                job: { teamId: 1, queueName: QUEUE, ...job, id },
+                fingerprint,
+            })
+
+            it('queues one job per id and tells a repeat from a reused key', async () => {
+                const id = uuidv7()
+
+                expect(await manager.createJobsIdempotently([keyed(id, 'a')])).toEqual(['created'])
+                expect(await manager.createJobsIdempotently([keyed(id.toUpperCase(), 'a')])).toEqual(['replayed'])
+                expect(await manager.createJobsIdempotently([keyed(id, 'b')])).toEqual(['mismatch'])
+                expect(await totalJobCount()).toBe(1)
+            })
+
+            it('leaves no key behind when the job insert fails, so the retry queues the job', async () => {
+                const id = uuidv7()
+
+                const priorityTooLargeForSmallint = 40_000
+                await expect(
+                    manager.createJobsIdempotently([keyed(id, 'a', { priority: priorityTooLargeForSmallint })])
+                ).rejects.toThrow()
+
+                expect(await manager.createJobsIdempotently([keyed(id, 'a')])).toEqual(['created'])
+                expect(await totalJobCount()).toBe(1)
+            })
+
+            it.each([
+                ['reclaims it once its job is gone', true, null, ['created']],
+                ['keeps it while its job still exists', false, { fingerprint: 'a' }, ['mismatch']],
+            ])('for an expired key the janitor has not swept, %s', async (_name, jobGone, found, expected) => {
+                const id = uuidv7()
+                await manager.createJobsIdempotently([keyed(id, 'a')])
+                if (jobGone) {
+                    await assertPool.query('DELETE FROM cyclotron_jobs WHERE id = $1', [id])
+                }
+                await assertPool.query(
+                    `UPDATE cyclotron_idempotency_keys SET expires_at = NOW() - interval '1 second' WHERE id = $1`,
+                    [id]
+                )
+
+                expect(await manager.findIdempotencyKey(id)).toEqual(found)
+                expect(await manager.createJobsIdempotently([keyed(id, 'b')])).toEqual(expected)
+                expect(await totalJobCount()).toBe(1)
+            })
+
+            it('reports the stored fingerprint of a key that answers replayed or mismatch', async () => {
+                const id = uuidv7()
+                await manager.claimJobs([keyed(id, 'a')])
+
+                expect(await manager.claimJobs([keyed(id, 'a')])).toEqual([
+                    { outcome: 'replayed', storedFingerprint: 'a' },
+                ])
+                expect(await manager.claimJobs([keyed(id, 'b')])).toEqual([
+                    { outcome: 'mismatch', storedFingerprint: 'a' },
+                ])
+            })
+
+            it('answers a repeat while the queue is full, and still refuses a new key', async () => {
+                const id = uuidv7()
+                expect(await manager.createJobsIdempotently([keyed(id, 'a')])).toEqual(['created'])
+                const fullManager = createManager({ depthLimit: 1, depthCheckIntervalMs: 0 })
+                await fullManager.connect()
+                try {
+                    expect(await fullManager.createJobsIdempotently([keyed(id, 'a')])).toEqual(['replayed'])
+                    expect(await fullManager.createJobsIdempotently([keyed(id, 'b')])).toEqual(['mismatch'])
+                    await expect(fullManager.createJobsIdempotently([keyed(uuidv7(), 'a')])).rejects.toThrow(
+                        /queue is full/i
+                    )
+                } finally {
+                    await fullManager.disconnect()
+                }
+                expect(await totalJobCount()).toBe(1)
+            })
+
+            it('still refuses a key that a full queue would reclaim after it was read as taken', async () => {
+                const id = uuidv7()
+                await manager.createJobsIdempotently([keyed(id, 'a')])
+                await assertPool.query('DELETE FROM cyclotron_jobs WHERE id = $1', [id])
+                await assertPool.query(
+                    `UPDATE cyclotron_idempotency_keys SET expires_at = NOW() - interval '1 second' WHERE id = $1`,
+                    [id]
+                )
+                await manager.createJob({ teamId: 1, queueName: QUEUE })
+                // One connection, so a depth check that asks the pool for a second one while the claim holds the
+                // first would wait forever.
+                const fullManager = createManager({
+                    pool: { dbUrl: DB_URL, maxConnections: 1 },
+                    depthLimit: 1,
+                    depthCheckIntervalMs: 0,
+                })
+                await fullManager.connect()
+                // The key expiring with its job gone between the read and the claim can't be timed from outside,
+                // because the claim's NOW() is fixed when its transaction begins. So the read reports it as taken.
+                jest.spyOn(fullManager as any, 'liveIdempotencyKeyIds').mockResolvedValue(new Set([id]))
+                try {
+                    await expect(fullManager.createJobsIdempotently([keyed(id, 'b')])).rejects.toThrow(/queue is full/i)
+                } finally {
+                    await fullManager.disconnect()
+                }
+                const { rows } = await assertPool.query<{ fingerprint: string; expired: boolean }>(
+                    'SELECT fingerprint, expires_at <= NOW() AS expired FROM cyclotron_idempotency_keys WHERE id = $1',
+                    [id]
+                )
+                expect(rows).toEqual([{ fingerprint: 'a', expired: true }])
+                expect(await totalJobCount()).toBe(1)
+            }, 5000)
+
+            it("still refuses that key while a plain insert waits on the claim's only connection", async () => {
+                const id = uuidv7()
+                await manager.createJobsIdempotently([keyed(id, 'a')])
+                await assertPool.query('DELETE FROM cyclotron_jobs WHERE id = $1', [id])
+                await assertPool.query(
+                    `UPDATE cyclotron_idempotency_keys SET expires_at = NOW() - interval '1 second' WHERE id = $1`,
+                    [id]
+                )
+                await manager.createJob({ teamId: 1, queueName: QUEUE })
+                // Caching on, so a plain insert's pool-backed depth check, waiting for the connection the claim
+                // holds, would be shared with the claim's own check.
+                const fullManager = createManager({
+                    pool: { dbUrl: DB_URL, maxConnections: 1 },
+                    depthLimit: 1,
+                    depthCheckIntervalMs: 60_000,
+                })
+                await fullManager.connect()
+                jest.spyOn(fullManager as any, 'liveIdempotencyKeyIds').mockResolvedValue(new Set([id]))
+                const pool = (fullManager as any).pool as Pool
+                const connect = pool.connect.bind(pool)
+                let plainInsert: Promise<unknown> | undefined
+                jest.spyOn(pool, 'connect').mockImplementationOnce(async () => {
+                    const client = await connect()
+                    // Starts once the claim holds the only connection, so its depth check has to wait for it.
+                    plainInsert = fullManager.createJob({ teamId: 1, queueName: QUEUE }).catch((err) => err)
+                    await new Promise((resolve) => setImmediate(resolve))
+                    return client
+                })
+                try {
+                    await expect(fullManager.createJobsIdempotently([keyed(id, 'b')])).rejects.toThrow(/queue is full/i)
+                    await expect(plainInsert).resolves.toBeInstanceOf(Error)
+                } finally {
+                    await fullManager.disconnect()
+                }
+                expect(await totalJobCount()).toBe(1)
+            }, 5000)
+
+            it('takes an email dequeue slot only for a job it queues', async () => {
+                const teamId = 4242
+                const emailCounter = async (): Promise<string | undefined> =>
+                    (
+                        await assertPool.query<{ counter: string }>(
+                            'SELECT counter FROM cyclotron_email_team_seq WHERE team_id = $1',
+                            [teamId]
+                        )
+                    ).rows[0]?.counter
+                const email = (id: string, fingerprint: string): CyclotronV2IdempotentJobInit =>
+                    keyed(id, fingerprint, { teamId, queueName: 'email' })
+                const id = uuidv7()
+
+                expect(await manager.createJobsIdempotently([email(id, 'a')])).toEqual(['created'])
+                const afterCreate = await emailCounter()
+                expect(afterCreate).toBeDefined()
+
+                expect(await manager.createJobsIdempotently([email(id, 'a')])).toEqual(['replayed'])
+                expect(await manager.createJobsIdempotently([email(id, 'b')])).toEqual(['mismatch'])
+                expect(await emailCounter()).toBe(afterCreate)
+
+                expect(await manager.createJobsIdempotently([email(uuidv7(), 'a')])).toEqual(['created'])
+                expect(BigInt((await emailCounter())!)).toBe(BigInt(afterCreate!) + 1n)
+            })
+
+            it('does not deadlock when concurrent calls carry the same ids in opposite orders', async () => {
+                const [first, second] = [uuidv7(), uuidv7()].sort()
+                await manager.createJobsIdempotently([keyed(first, 'a'), keyed(second, 'a')])
+                // Both calls queue for `first` in order. Unsorted, the reversed call would hold `second` and deadlock.
+                const blocker = await assertPool.connect()
+                await blocker.query('BEGIN')
+                await blocker.query('SELECT id FROM cyclotron_idempotency_keys WHERE id = $1 FOR UPDATE', [first])
+                const inOrder = manager.createJobsIdempotently([keyed(first, 'a'), keyed(second, 'a')])
+                await waitForExpect(async () => expect(await backendsWaitingOnLocks()).toBe(1), 2000, 10)
+                const reversed = manager.createJobsIdempotently([keyed(second, 'a'), keyed(first, 'a')])
+                await waitForExpect(async () => expect(await backendsWaitingOnLocks()).toBe(2), 2000, 10)
+                await blocker.query('ROLLBACK')
+                blocker.release()
+
+                expect(await Promise.all([inOrder, reversed])).toEqual([
+                    ['replayed', 'replayed'],
+                    ['replayed', 'replayed'],
+                ])
+            })
+
+            it('gives up a claim held by an uncommitted claim past its lock timeout, writing neither key nor job', async () => {
+                const id = uuidv7()
+                const blocker = await assertPool.connect()
+                await blocker.query('BEGIN')
+                await blocker.query(
+                    `INSERT INTO cyclotron_idempotency_keys (id, team_id, fingerprint, expires_at)
+                     VALUES ($1, 1, 'a', NOW() + interval '1 day')`,
+                    [id]
+                )
+                try {
+                    await expect(manager.claimJobs([keyed(id, 'a')], { lockTimeoutMs: 200 })).rejects.toMatchObject({
+                        code: '55P03',
+                    })
+                    expect(await backendsWaitingOnLocks()).toBe(0)
+                } finally {
+                    await blocker.query('ROLLBACK')
+                    blocker.release()
+                }
+
+                expect(await manager.findIdempotencyKey(id)).toBeNull()
+                expect(await totalJobCount()).toBe(0)
+                expect(await manager.claimJobs([keyed(id, 'a')], { lockTimeoutMs: 200 })).toEqual([
+                    { outcome: 'created' },
+                ])
+            }, 5000)
+        })
+
+        describe('findIdempotencyKey under a stalled database', () => {
+            let bounded: CyclotronV2Manager
+
+            beforeEach(async () => {
+                bounded = createManager({
+                    pool: { dbUrl: DB_URL, maxConnections: 1 },
+                    idempotencyKeyLookupTimeoutMs: 200,
+                })
+                await bounded.connect()
+            })
+
+            afterEach(async () => {
+                await bounded.disconnect()
+            })
+
+            it('gives up on a lookup stuck behind a lock, cancels it in the database, and answers the next one', async () => {
+                const blocker = await assertPool.connect()
+                await blocker.query('BEGIN')
+                await blocker.query('LOCK TABLE cyclotron_idempotency_keys IN ACCESS EXCLUSIVE MODE')
+                try {
+                    await expect(bounded.findIdempotencyKey(uuidv7())).rejects.toThrow()
+                    expect(await backendsWaitingOnLocks()).toBe(0)
+                } finally {
+                    await blocker.query('ROLLBACK')
+                    blocker.release()
+                }
+
+                expect(await bounded.findIdempotencyKey(uuidv7())).toBeNull()
+            })
+
+            it('gives up on a connection that stops answering, drops it, and answers the next lookup', async () => {
+                const pool: Pool = bounded['lookupPool']
+                const connect = pool.connect.bind(pool)
+                // Stands in for a network stall: the server never sees BEGIN, so statement_timeout can't end it.
+                jest.spyOn(pool, 'connect').mockImplementationOnce(async () => {
+                    const client = await connect()
+                    const query = client.query.bind(client)
+                    jest.spyOn(client, 'query').mockImplementation(((text: unknown, ...rest: unknown[]) =>
+                        typeof text === 'string' && text.startsWith('BEGIN')
+                            ? new Promise(() => undefined)
+                            : query(text as string, ...(rest as []))) as typeof client.query)
+                    return client
+                })
+
+                await expect(bounded.findIdempotencyKey(uuidv7())).rejects.toThrow()
+                expect(pool.totalCount).toBe(0)
+
+                expect(await bounded.findIdempotencyKey(uuidv7())).toBeNull()
+            })
+
+            it('gives up on a database that accepts the connection and never answers, and closes it', async () => {
+                const open = new Set<Socket>()
+                const silent = createServer((socket) => {
+                    open.add(socket)
+                    // Reads and drops the startup message, so the socket sees the client hang up.
+                    socket.resume()
+                    socket.on('close', () => open.delete(socket))
+                })
+                await new Promise<void>((resolve) => silent.listen(0, '127.0.0.1', resolve))
+                const { port } = silent.address() as AddressInfo
+                const stalled = createManager({
+                    pool: { dbUrl: `postgres://posthog:posthog@127.0.0.1:${port}/cyclotron`, maxConnections: 1 },
+                    idempotencyKeyLookupTimeoutMs: 200,
+                })
+                try {
+                    await expect(stalled.findIdempotencyKey(uuidv7())).rejects.toThrow()
+                    await waitForExpect(() => expect(open.size).toBe(0), 2000, 10)
+                } finally {
+                    open.forEach((socket) => socket.destroy())
+                    silent.close()
+                    await stalled.disconnect()
+                }
+            })
+
+            it('keeps a connection that finished after the lookup gave up, so the next lookup uses it', async () => {
+                const slow = createServer((socket) => {
+                    socket.pause()
+                    setTimeout(() => {
+                        const db = connect(5432, 'localhost')
+                        socket.pipe(db).pipe(socket)
+                    }, 300)
+                })
+                await new Promise<void>((resolve) => slow.listen(0, '127.0.0.1', resolve))
+                const { port } = slow.address() as AddressInfo
+                const lagging = createManager({
+                    pool: {
+                        dbUrl: `postgres://posthog:posthog@127.0.0.1:${port}/test_cyclotron_node`,
+                        maxConnections: 1,
+                    },
+                    idempotencyKeyLookupTimeoutMs: 200,
+                })
+                try {
+                    await expect(lagging.findIdempotencyKey(uuidv7())).rejects.toThrow()
+                    await waitForExpect(() => expect(lagging['lookupPool'].idleCount).toBe(1), 2000, 10)
+
+                    expect(await lagging.findIdempotencyKey(uuidv7())).toBeNull()
+                } finally {
+                    await lagging.disconnect()
+                    slow.close()
+                }
+            })
+
+            it('gives up while every lookup connection is busy, and answers once one comes back', async () => {
+                const held = await bounded['lookupPool'].connect()
+                try {
+                    await expect(bounded.findIdempotencyKey(uuidv7())).rejects.toThrow()
+                } finally {
+                    held.release()
+                }
+
+                expect(await bounded.findIdempotencyKey(uuidv7())).toBeNull()
             })
         })
     })
@@ -3019,6 +3594,67 @@ describe('Cyclotron V2', () => {
                 expect(drained).toEqual([teamA, teamB, teamA, teamB, teamA, teamB, teamA, teamB, teamA, teamB])
             })
 
+            it('lands concurrent multi-team batches listing teams in opposite orders and keeps the interleave', async () => {
+                const teamA = 100
+                const teamB = 200
+                const teamC = 300
+                await manager.bulkCreateJobs(
+                    [teamA, teamB, teamC].map((teamId) => ({ teamId, queueName: EMAIL_QUEUE }))
+                )
+
+                const applicationName = 'opposite-order-bulk-inserts'
+                const racingManager = createManager({
+                    pool: { dbUrl: `${DB_URL}?application_name=${applicationName}` },
+                })
+                await racingManager.connect()
+                const blocker = await assertPool.connect()
+                try {
+                    await blocker.query('BEGIN')
+                    await blocker.query('SELECT 1 FROM cyclotron_email_team_seq WHERE team_id = $1 FOR UPDATE', [teamC])
+
+                    const settled = Promise.allSettled([
+                        racingManager.bulkCreateJobs(
+                            [teamB, teamC, teamA].map((teamId) => ({ teamId, queueName: EMAIL_QUEUE }))
+                        ),
+                        racingManager.bulkCreateJobs(
+                            [teamA, teamC, teamB].map((teamId) => ({ teamId, queueName: EMAIL_QUEUE }))
+                        ),
+                    ])
+                    await waitForExpect(
+                        async () => {
+                            const { rows } = await assertPool.query<{ n: number }>(
+                                `SELECT COUNT(*)::int AS n FROM pg_stat_activity
+                                 WHERE application_name = $1 AND cardinality(pg_blocking_pids(pid)) > 0`,
+                                [applicationName]
+                            )
+                            expect(rows[0].n).toBe(2)
+                        },
+                        3000,
+                        10
+                    )
+                    await blocker.query('COMMIT')
+
+                    expect(await settled).toEqual([
+                        expect.objectContaining({ status: 'fulfilled' }),
+                        expect.objectContaining({ status: 'fulfilled' }),
+                    ])
+                } finally {
+                    await blocker.query('ROLLBACK')
+                    blocker.release()
+                    await racingManager.disconnect()
+                }
+
+                const drained: number[] = []
+                for (let i = 0; i < 9; i++) {
+                    const batch = await dequeueOneBatch(createFairWorker({ batchMaxSize: 1 }))
+                    expect(batch).toHaveLength(1)
+                    drained.push(batch[0].teamId)
+                    await batch[0].ack()
+                }
+
+                expect(drained).toEqual([teamA, teamB, teamC, teamA, teamB, teamC, teamA, teamB, teamC])
+            }, 15_000)
+
             it('drains every team in the first multi-team batch even with skewed volumes', async () => {
                 // 10/5/2 distribution drained in batches of 3. We don't assert
                 // the within-batch order (UPDATE...RETURNING doesn't preserve
@@ -3820,7 +4456,7 @@ describe('Cyclotron V2', () => {
             expect(oldestAgeMs).toBeLessThan(60_000)
         })
 
-        it('sweeps expired conversion watchers and keeps live ones', async () => {
+        it('sweeps expired conversion watchers and idempotency keys and keeps live ones', async () => {
             // The sweep is the only thing that removes a watcher that never converts. If a refactor
             // drops it from runOnce the table grows without bound and nothing else fails, so assert
             // the delete happens on a real row.
@@ -3836,14 +4472,40 @@ describe('Cyclotron V2', () => {
             const live = uuidv7()
             await insertWatcher(expired, new Date(Date.now() - 60_000))
             await insertWatcher(live, new Date(Date.now() + 3_600_000))
+            const insertKey = async (id: string, expiresAt: Date): Promise<void> => {
+                await assertPool.query(
+                    `INSERT INTO cyclotron_idempotency_keys (id, team_id, fingerprint, expires_at)
+                     VALUES ($1, 1, 'fingerprint', $2)`,
+                    [id, expiresAt]
+                )
+            }
+            const expiredKey = uuidv7()
+            const liveKey = uuidv7()
+            const expiredKeyWithJob = uuidv7()
+            const lockedKey = uuidv7()
+            await insertKey(expiredKey, new Date(Date.now() - 60_000))
+            await insertKey(liveKey, new Date(Date.now() + 3_600_000))
+            await insertKey(expiredKeyWithJob, new Date(Date.now() - 60_000))
+            await manager.createJob({ id: expiredKeyWithJob, teamId: 1, queueName: QUEUE })
+            await insertKey(lockedKey, new Date(Date.now() - 60_000))
+            const writer = await assertPool.connect()
+            await writer.query('BEGIN')
+            await writer.query('SELECT id FROM cyclotron_idempotency_keys WHERE id = $1 FOR UPDATE', [lockedKey])
 
             const janitor = createJanitor()
             await janitor.runOnce()
+            await writer.query('ROLLBACK')
+            writer.release()
 
             const remaining = await assertPool.query(`SELECT id FROM conversion_watchers WHERE id = ANY($1::uuid[])`, [
                 [expired, live],
             ])
             expect(remaining.rows.map((r) => r.id)).toEqual([live])
+            const remainingKeys = await assertPool.query(
+                `SELECT id FROM cyclotron_idempotency_keys WHERE id = ANY($1::uuid[])`,
+                [[expiredKey, liveKey, expiredKeyWithJob, lockedKey]]
+            )
+            expect(remainingKeys.rows.map((r) => r.id).sort()).toEqual([liveKey, expiredKeyWithJob, lockedKey].sort())
 
             await janitor.stop()
         })
