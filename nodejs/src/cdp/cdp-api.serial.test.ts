@@ -2648,7 +2648,7 @@ describe('CDP API', () => {
                 expect(intakeMessages()).toEqual([expect.objectContaining({ key: res.body.invocation_id })])
                 expect(parseJSON(intakeMessages()[0].value.toString())).toMatchObject({
                     kind: 'transactional-email',
-                    job: { id: res.body.invocation_id, state: { state: { acceptedAt: expect.any(String) } } },
+                    job: { id: res.body.invocation_id, state: { state: { event: { event: '$transactional_email' } } } },
                 })
             })
 
