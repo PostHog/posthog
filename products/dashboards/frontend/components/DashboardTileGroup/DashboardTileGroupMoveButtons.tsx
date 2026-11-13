@@ -44,12 +44,18 @@ export function DashboardTileGroupMoveButtons({
 }: DashboardTileGroupMoveButtonsProps): JSX.Element {
     const { noun, ...buttons } = MOVE_BUTTONS[groupDisplay]
     // A group's place comes from its tiles' rows, so a group with no tiles has no place to change.
-    const disabledReason = (direction: TileGroupMoveDirection): string | undefined =>
-        !groupHasTiles
-            ? `Add a tile to this ${noun} before you move it`
-            : !moveActions[direction === 'up' ? 'canMoveUp' : 'canMoveDown']
-              ? `This ${noun} is already ${direction === 'up' ? 'first' : 'last'}`
-              : undefined
+    const disabledReason = (direction: TileGroupMoveDirection): string | undefined => {
+        if (!groupHasTiles) {
+            return `Add a tile to this ${noun} before you move it`
+        }
+        if (direction === 'up' && !moveActions.canMoveUp) {
+            return `This ${noun} is already first`
+        }
+        if (direction === 'down' && !moveActions.canMoveDown) {
+            return `This ${noun} is already last`
+        }
+        return undefined
+    }
 
     return (
         <div className={clsx('flex shrink-0 items-center gap-0.5', className)}>

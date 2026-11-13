@@ -255,8 +255,9 @@ export function getTileGroupMoveOptions(sections: DashboardSection[]): Record<nu
     )
 }
 
-// A band with no tiles has no rows to trade. Tabs show tiles outside any group in a first tab of their own,
-// so there a group trades places only with another group.
+// Only the next band or tab can trade places, because empty groups always come last and the tab of tiles
+// outside any group always comes first. A band with no tiles has no rows to trade, and in tabs a group
+// trades places only with another group.
 function getTileGroupSwapIndex(
     sections: DashboardSection[],
     groupKey: string,
@@ -264,17 +265,15 @@ function getTileGroupSwapIndex(
     groupDisplay: TileGroupDisplay
 ): number {
     const index = sections.findIndex((section) => section.kind === 'group' && section.groupKey === groupKey)
-    if (index < 0 || sections[index].tiles.length === 0) {
+    const swapIndex = index + (direction === 'up' ? -1 : 1)
+    const neighbour = sections[swapIndex]
+    if (index < 0 || sections[index].tiles.length === 0 || !neighbour?.tiles.length) {
         return -1
     }
-    const step = direction === 'up' ? -1 : 1
-    for (let swapIndex = index + step; swapIndex >= 0 && swapIndex < sections.length; swapIndex += step) {
-        const section = sections[swapIndex]
-        if (section.tiles.length > 0 && (groupDisplay === 'sections' || section.kind === 'group')) {
-            return swapIndex
-        }
+    if (groupDisplay === 'tabs' && neighbour.kind !== 'group') {
+        return -1
     }
-    return -1
+    return swapIndex
 }
 
 /** Empty when fewer than two bands or tabs can trade places, so no group shows move buttons that can never act. */
@@ -332,11 +331,10 @@ export function getLayoutAfterTileGroupMove({
     const sectionLayouts = sections.map(
         (section) => getSectionLayouts({ sm: layout }, section.tiles, compactor).sm ?? []
     )
-    return stackSectionLayouts(
-        sectionLayouts.map(
-            (_, position) => sectionLayouts[position === index ? swapIndex : position === swapIndex ? index : position]
-        )
-    )
+    const reordered = [...sectionLayouts]
+    reordered[index] = sectionLayouts[swapIndex]
+    reordered[swapIndex] = sectionLayouts[index]
+    return stackSectionLayouts(reordered)
 }
 
 export function getDropCell({
