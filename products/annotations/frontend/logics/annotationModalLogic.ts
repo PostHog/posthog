@@ -238,12 +238,14 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
     })),
     listeners(({ cache, actions, values }) => ({
         openEditor: () => {
+            cache.editorGeneration = (cache.editorGeneration ?? 0) + 1
             cache.disposables.add(() => annotationModalLogic.mount(), 'editor', { pauseOnPageHidden: false })
             cache.editorTeamId = teamLogic.values.currentTeamId
             actions.openSidePanel(SidePanelTab.Annotations)
             posthog.capture('annotation editor opened', { editing: !!values.existingModalAnnotation })
         },
         closeModal: () => {
+            cache.editorGeneration = (cache.editorGeneration ?? 0) + 1
             actions.closeSidePanel(SidePanelTab.Annotations)
             actions.resetAnnotationModal()
             cache.disposables.dispose('editor')
@@ -301,7 +303,7 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
             },
         ],
     })),
-    forms(({ actions, values }) => ({
+    forms(({ actions, values, cache }) => ({
         annotationModal: {
             defaults: {
                 dateMarker: dayjs().tz(values.timezone),
@@ -316,6 +318,8 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
             }),
             submit: async (data) => {
                 const { dateMarker, content, emoji, scope, dashboardItemId, dashboardId } = data
+                const editorGeneration = cache.editorGeneration
+                const editing = !!values.existingModalAnnotation
 
                 if (values.existingModalAnnotation) {
                     // annotationsModel's updateAnnotation inlined so that isAnnotationModalSubmitting works
@@ -356,8 +360,10 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
                         derivedPrompt: snippet ? `Annotate ${date}: ${snippet}` : undefined,
                     })
                 }
-                posthog.capture('annotation editor saved', { editing: !!values.existingModalAnnotation, scope })
-                actions.closeModal()
+                posthog.capture('annotation editor saved', { editing, scope })
+                if (editorGeneration === cache.editorGeneration) {
+                    actions.closeModal()
+                }
             },
         },
     })),

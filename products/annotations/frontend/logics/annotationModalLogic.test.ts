@@ -57,6 +57,41 @@ describe('annotationModalLogic', () => {
         expect(sidePanelStateLogic.values.sidePanelOpen).toBe(false)
     })
 
+    it('keeps a newer draft open when an earlier save completes', async () => {
+        let finishSave!: (annotation: AnnotationApi) => void
+        const createSpy = jest.spyOn(generatedApi, 'annotationsCreate').mockImplementation(
+            () =>
+                new Promise((resolve) => {
+                    finishSave = resolve
+                })
+        )
+        const logic = annotationModalLogic()
+        logic.mount()
+        try {
+            logic.actions.openModalToCreateAnnotation()
+            logic.actions.setAnnotationModalValue('content', 'First draft')
+            await expectLogic(logic, () => logic.actions.submitAnnotationModal()).toMatchValues({
+                isAnnotationModalSubmitting: true,
+            })
+
+            logic.actions.openModalToCreateAnnotation()
+            logic.actions.setAnnotationModalValue('content', 'Second draft')
+            finishSave({
+                id: 1001,
+                content: 'First draft',
+                scope: AnnotationScope.Project,
+                date_marker: '2024-01-01T00:00:00Z',
+                created_at: '2024-01-01T00:00:00Z',
+            } as AnnotationApi)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.isModalOpen).toBe(true)
+            expect(logic.values.annotationModal.content).toBe('Second draft')
+        } finally {
+            createSpy.mockRestore()
+        }
+    })
+
     it.each([
         {
             name: 'omits the stored insight when edited off an insight',
