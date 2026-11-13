@@ -20,7 +20,6 @@ class _AggregateCollector(TraversingVisitor):
         super().visit(node)
 
     def visit_select_query(self, node: ast.SelectQuery) -> None:
-        # A subquery is its own aggregation scope.
         pass
 
     def visit_select_set_query(self, node: ast.SelectSetQuery) -> None:

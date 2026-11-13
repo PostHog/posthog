@@ -287,7 +287,6 @@ class _SelectQueryIndex(TraversingVisitor):
         self.by_type: dict[int, ast.SelectQuery] = {}
 
     def visit(self, node: ast.AST | None) -> None:
-        # Types form one shared graph per query, and the index only needs the query nodes.
         if isinstance(node, ast.Type):
             return
         super().visit(node)
@@ -298,7 +297,6 @@ class _SelectQueryIndex(TraversingVisitor):
         super().visit_select_query(node)
 
 
-# Aggregates that return one of their first argument's values, so they keep its type.
 _FIRST_ARGUMENT_TYPE_AGGREGATES = frozenset(
     {
         "any",
@@ -1654,7 +1652,6 @@ class TrinoPrinter(PostgresPrinter):
             if any(isinstance(arg_type, ast.StringType) for arg_type in argument_types) and any(
                 self._is_numeric(arg) for arg in node.args
             ):
-                # The printer casts the numeric arguments to VARCHAR, so the call returns text.
                 nullable = node.name.lower() == "nullif" or all(
                     arg_type is None or arg_type.nullable for arg_type in argument_types
                 )
@@ -1907,7 +1904,6 @@ class TrinoPrinter(PostgresPrinter):
         return False
 
     def _numeric_aggregate_value(self, node: ast.Expr) -> ast.Expr | None:
-        """The value to pass to sum() or avg() when Trino would reject the argument's type, or None to keep it."""
         # A property is typed as text, though a numeric property definition makes ClickHouse read it as a number.
         if self._is_dynamic_property(node):
             return ast.TypeCast(expr=node, type_name="double")

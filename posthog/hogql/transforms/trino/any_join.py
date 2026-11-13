@@ -3,10 +3,18 @@ from posthog.hogql.database.models import DatabaseField
 from posthog.hogql.transforms.trino.errors import TrinoLoweringError
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
+from posthog.dataclasses import frozen
+
 _SUPPORTED_ANY_JOIN_TYPES = {
     "ANY INNER JOIN": "INNER JOIN",
     "LEFT ANY JOIN": "LEFT JOIN",
 }
+
+
+@frozen
+class _FieldSides:
+    reads_right: bool
+    reads_other: bool
 
 
 class TrinoAnyJoinLowerer(CloningVisitor):
@@ -278,10 +286,10 @@ class TrinoAnyJoinLowerer(CloningVisitor):
         """
         key_expressions: list[ast.Expr] = []
         for term in _conjuncts(constraint):
-            reads_right, reads_other = self._field_sides(term, alias, right_table_type)
-            if not reads_right:
+            sides = self._field_sides(term, alias, right_table_type)
+            if not sides.reads_right:
                 continue
-            if not reads_other:
+            if not sides.reads_other:
                 key_expressions.append(term)
                 continue
             equality = _as_equality(term)
@@ -305,13 +313,10 @@ class TrinoAnyJoinLowerer(CloningVisitor):
     def _expression_uses_only_right_fields(
         self, expression: ast.Expr, alias: str, right_table_type: ast.TableOrSelectType
     ) -> bool:
-        reads_right, reads_other = self._field_sides(expression, alias, right_table_type)
-        return reads_right and not reads_other
+        sides = self._field_sides(expression, alias, right_table_type)
+        return sides.reads_right and not sides.reads_other
 
-    def _field_sides(
-        self, expression: ast.Expr, alias: str, right_table_type: ast.TableOrSelectType
-    ) -> tuple[bool, bool]:
-        """Whether an expression reads right-side fields, and whether it reads any other field."""
+    def _field_sides(self, expression: ast.Expr, alias: str, right_table_type: ast.TableOrSelectType) -> _FieldSides:
         outer = self
 
         class RightFieldFinder(TraversingVisitor):
@@ -333,7 +338,7 @@ class TrinoAnyJoinLowerer(CloningVisitor):
 
         finder = RightFieldFinder()
         finder.visit(expression)
-        return finder.found, finder.invalid
+        return _FieldSides(reads_right=finder.found, reads_other=finder.invalid)
 
     def _qualify_right_expression(
         self,
@@ -356,7 +361,6 @@ class TrinoAnyJoinLowerer(CloningVisitor):
                 field_type = node.type
                 while isinstance(field_type, ast.FieldAliasType):
                     field_type = field_type.type
-                # A property read keeps its path below the column.
                 path = list(field_type.chain) if isinstance(field_type, ast.PropertyType) else []
                 return ast.Field(chain=[source_alias, name, *path], start=node.start, end=node.end)
 

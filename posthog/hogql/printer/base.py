@@ -746,7 +746,6 @@ class BasePrinter(Visitor[str]):
         return self._visit_filter_condition(node.expr)
 
     def _visit_filter_condition(self, node: ast.Expr) -> str:
-        """Print a WHERE, PREWHERE, HAVING, QUALIFY or ON condition."""
         return self.visit(node)
 
     def visit_arithmetic_operation(self, node: ast.ArithmeticOperation):
