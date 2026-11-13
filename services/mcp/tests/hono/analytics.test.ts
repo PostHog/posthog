@@ -239,6 +239,14 @@ describe('Hono MCP analytics contexts', () => {
         ['a connection forward', 'posthog-connection-forward', { id: '1', path: 'api/' }, false, false],
         ['an email log search', 'workflows-transactional-emails-list', { search: 'jane@example.com' }, false, false],
         ['an opt-out removal', 'opt-outs-remove', { identifier: 'ada@example.com' }, false, false],
+        ['an opt-out search', 'opt-outs-list', { search: 'reader@example.org' }, false, false],
+        [
+            'an opt-out search through exec',
+            'exec',
+            { command: 'call opt-outs-list {"search":"reader@example.org"}' },
+            false,
+            false,
+        ],
         [
             'an email send through exec',
             'exec',
@@ -751,6 +759,13 @@ describe('Hono MCP analytics contexts', () => {
                 false,
             ],
             ['email delivery stats', 'workflows-transactional-email-stats', { group_by: 'template' }, true],
+            ['an opt-out search', 'opt-outs-list', { search: 'reader@example.org' }, false],
+            [
+                'an opt-out search through exec',
+                'exec',
+                { command: 'call opt-outs-list {"search":"reader@example.org"}' },
+                false,
+            ],
             [
                 'preparing an email send',
                 'workflows-send-email-prepare',
