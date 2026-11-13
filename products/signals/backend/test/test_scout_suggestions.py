@@ -24,6 +24,7 @@ from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.integration import Integration
 from posthog.models.scoping import team_scope
 from posthog.sync import database_sync_to_async
+from posthog.test.cascade_delete import delete_skipping_empty_tables
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.signals.backend.models import SignalScoutConfig, SignalScoutSuggestionSet, SignalSourceConfig
@@ -847,8 +848,8 @@ async def asuggestion_team():
     )
     with team_scope(team.id, canonical=True):
         yield team
-    await sync_to_async(team.delete)()
-    await sync_to_async(organization.delete)()
+    await sync_to_async(delete_skipping_empty_tables)(team)
+    await sync_to_async(delete_skipping_empty_tables)(organization)
 
 
 def _fake_session() -> MagicMock:
