@@ -256,4 +256,4 @@ export function fromPostHogItems(featureFlags: FeatureFlagsSet): FromPostHogItem
 export const ANALYTICS_DRAG_SCOPE = 'analytics-list'
 
 export const ROW_HOVER_REVEAL =
-    'opacity-0 transition-opacity motion-reduce:transition-none group-hover/row:opacity-100 focus-visible:opacity-100 data-[popup-open]:opacity-100'
+    'opacity-0 transition-opacity motion-reduce:transition-none group-hover/row:opacity-100 focus-visible:opacity-100'
