@@ -71,6 +71,7 @@ rules:
     - match:
           - '/Errors/*.test.*'
           - '/Errors/Frame/*.test.*'
+          - '/Errors/Exception/known-exceptions/javascript/*.test.*'
           - '/Git/*.spec.*'
           - '/SessionTimeline/*.test.*'
           - '/SessionTimeline/timeline/*.test.*'

@@ -7,6 +7,7 @@ import { cn } from 'lib/utils/css-classes'
 
 import { RuntimeIcon } from 'products/error_tracking/frontend/components/RuntimeIcon'
 
+import { ExceptionMessage } from '../ExceptionMessage'
 import { FingerprintRecordPartDisplay } from '../FingerprintRecordPartDisplay'
 import { ErrorTrackingException, ErrorTrackingRuntime, FingerprintRecordPart } from '../types'
 import { formatType } from '../utils'
@@ -109,7 +110,7 @@ export function CollapsibleExceptionHeader({
                                 <span>Loading…</span>
                             </Skeleton>
                         ) : (
-                            value
+                            <ExceptionMessage value={value} />
                         )}
                     </div>
                     {!truncate && isClamped && (
