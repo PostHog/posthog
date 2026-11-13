@@ -1,12 +1,13 @@
 import json
 import base64
 from datetime import UTC, datetime
+from functools import partial
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 from uuid import uuid4
 
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_person, flush_persons_and_events
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
@@ -43,12 +44,37 @@ from products.messaging.backend.tests.fake_mailgun import (
     FakeMailgun,
     split_url,
 )
+from products.messaging.backend.tests.people_import_recorder import PeopleImportRecorder
 
 US = "https://api.mailgun.net"
 EU = "https://api.eu.mailgun.net"
-ALL_STEPS = [spec.key for spec in MailgunImportProvider.steps]
+# Contact steps write people, so they have their own tests with ClickHouse.
+ALL_STEPS = [spec.key for spec in MailgunImportProvider.steps if spec.key not in ("contacts", "new_people")]
 RENDER_CASES = json.loads((Path(__file__).parent / "fixtures" / "mailgun_template_renders.json").read_text())
 CLIENT = "products.messaging.backend.services.mailgun_client"
+
+
+def _fake_get(
+    mailgun: FakeMailgun,
+    url: str,
+    params: dict | None = None,
+    auth: tuple[str, str] | None = None,
+    headers: dict | None = None,
+    **_: Any,
+) -> MagicMock:
+    base, path, query = split_url(url)
+    query = {**query, **{key: str(value) for key, value in (params or {}).items()}}
+    credentials = f"{auth[0]}:{auth[1]}".encode() if auth else b""
+    status, body, response_headers = mailgun.handle(
+        base,
+        path,
+        query,
+        f"Basic {base64.b64encode(credentials).decode()}",
+        (headers or {}).get("X-Mailgun-On-Behalf-Of"),
+    )
+    response = MagicMock(status_code=status, ok=status < 400, headers=response_headers)
+    response.json.return_value = body
+    return response
 
 
 class TestMailgunImport(BaseTest):
@@ -67,27 +93,8 @@ class TestMailgunImport(BaseTest):
         self.addCleanup(patcher.stop)
         return patcher.start()
 
-    def _get(
-        self,
-        url: str,
-        params: dict | None = None,
-        auth: tuple[str, str] | None = None,
-        headers: dict | None = None,
-        **_: Any,
-    ) -> MagicMock:
-        base, path, query = split_url(url)
-        query = {**query, **{key: str(value) for key, value in (params or {}).items()}}
-        credentials = f"{auth[0]}:{auth[1]}".encode() if auth else b""
-        status, body, response_headers = self.mailgun.handle(
-            base,
-            path,
-            query,
-            f"Basic {base64.b64encode(credentials).decode()}",
-            (headers or {}).get("X-Mailgun-On-Behalf-Of"),
-        )
-        response = MagicMock(status_code=status, ok=status < 400, headers=response_headers)
-        response.json.return_value = body
-        return response
+    def _get(self, url: str, **kwargs: Any) -> MagicMock:
+        return _fake_get(self.mailgun, url, **kwargs)
 
     def _start(
         self, steps: list[str] | None = None, region: str = "both", key: str = FULL_KEY, **settings: str
@@ -522,6 +529,59 @@ class TestMailgunImport(BaseTest):
         name = quote("a/b?c#d", safe="")
         assert any(call["path"] == f"/v4/templates/{name}" for call in self.mailgun.calls)
         assert MessageTemplate.objects.filter(team_id=self.team.id, name="a/b?c#d").exists()
+
+
+class TestMailgunContacts(ClickhouseTestMixin, BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.mailgun = FakeMailgun({US: "us", EU: "eu"})
+        patches: list[tuple[str, dict[str, Any]]] = [
+            (f"{CLIENT}.time.sleep", {}),
+            ("products.messaging.backend.provider_imports.runs.start_provider_import_workflow", {}),
+            (f"{CLIENT}.requests.get", {"side_effect": partial(_fake_get, self.mailgun)}),
+            (f"{CLIENT}.REQUESTS_PER_SECOND", {"new": 100000}),
+        ]
+        for target, kwargs in patches:
+            patcher = patch(target, **kwargs)
+            self.addCleanup(patcher.stop)
+            patcher.start()
+        self.people = PeopleImportRecorder(self)
+
+    def test_list_members_become_people_once_and_subscribed_ones_fill_their_list(self) -> None:
+        _create_person(team=self.team, distinct_ids=["user-stays"], properties={"email": "stays@example.com"})
+        flush_persons_and_events()
+
+        run = runs.start_run(
+            self.team.id, "mailgun", ["contacts", "new_people"], FULL_KEY, self.user.id, {"region": "both"}
+        )
+        for step in run.steps:
+            runs.run_step(self.team.id, run.id, step, attempt=1)
+        runs.finish_run(self.team.id, run.id)
+        run.refresh_from_db()
+
+        assert run.status == "completed"
+        assert self.people.imports == [
+            (
+                "send Mailgun list members",
+                ["Left@example.com", "left-too@example.com", "user-stays", "sub-left@example.com"],
+            ),
+            ("fill Developers (from Mailgun)", ["user-stays"]),
+        ]
+        assert self.people.properties["user-stays"] == {"email": "stays@example.com", "age": "26", "name": "Stays"}
+        assert self.people.properties["Left@example.com"] == {"email": "Left@example.com", "age": "31", "name": "Left"}
+        assert run.progress["contacts"]["counts"] == {
+            "people": 4,
+            "new_people": 3,
+            "skipped_new_people": 0,
+            "dropped": 0,
+        }
+        items = {item["label"]: item["status"] for item in run.progress["contacts"]["items"]}
+        assert items == {
+            "Mailgun list members": "created",
+            "Developers (from Mailgun)": "created",
+            "empty@mg.example.com (from Mailgun)": "skipped",
+            "Acme ñews (from Mailgun)": "skipped",
+        }
 
 
 class TestMailgunSettings(SimpleTestCase):
