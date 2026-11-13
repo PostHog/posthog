@@ -29,7 +29,7 @@ const TREE_ONLY_CONTENT = new Set(['svg', 'math', 'select', 'template', 'framese
 export const TREE_MAX_LENGTH = 1_500_000
 export const TREE_MAX_DEPTH = 128
 export const TREE_MAX_ELEMENTS = 500_000
-export const TREE_MAX_SIBLING_SCANS = 10_000_000
+export const TREE_MAX_SCANS = 4_000_000
 const TAG_MAX_ATTRIBUTES = 64
 
 type ParentNode = DefaultTreeAdapterMap['parentNode']
@@ -95,26 +95,30 @@ const scannedHrefs = (body: string): string[] | undefined => {
 const boundedTree = (body: string): ParentNode | undefined => {
     let depth = 0
     let elements = 0
-    let siblingScans = 0
-    const scanSiblings = (parent: ParentNode | null): void => {
-        siblingScans += parent?.childNodes.length ?? 0
-        if (siblingScans > TREE_MAX_SIBLING_SCANS) {
+    let scans = 0
+    const scan = (count: number): void => {
+        scans += count
+        if (scans > TREE_MAX_SCANS) {
             throw new TooComplex()
         }
     }
     const treeAdapter: TreeAdapter<DefaultTreeAdapterMap> = {
         ...defaultTreeAdapter,
         insertBefore: (parent, node, reference) => {
-            scanSiblings(parent)
+            scan(parent.childNodes.length)
             defaultTreeAdapter.insertBefore(parent, node, reference)
         },
         insertTextBefore: (parent, text, reference) => {
-            scanSiblings(parent)
+            scan(parent.childNodes.length)
             defaultTreeAdapter.insertTextBefore(parent, text, reference)
         },
         detachNode: (node) => {
-            scanSiblings(node.parentNode)
+            scan(node.parentNode?.childNodes.length ?? 0)
             defaultTreeAdapter.detachNode(node)
+        },
+        adoptAttributes: (recipient, attrs) => {
+            scan(recipient.attrs.length + attrs.length)
+            defaultTreeAdapter.adoptAttributes(recipient, attrs)
         },
         createElement: (tagName, namespaceURI, attrs) => {
             elements += 1

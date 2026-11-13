@@ -1,10 +1,4 @@
-import {
-    TREE_MAX_DEPTH,
-    TREE_MAX_ELEMENTS,
-    TREE_MAX_LENGTH,
-    TREE_MAX_SIBLING_SCANS,
-    clickableHrefs,
-} from './clickable-links'
+import { TREE_MAX_DEPTH, TREE_MAX_ELEMENTS, TREE_MAX_LENGTH, TREE_MAX_SCANS, clickableHrefs } from './clickable-links'
 
 const manyAttributes = Array.from({ length: 1_000 }, (_, index) => `data-${index}="x"`).join(' ')
 
@@ -161,15 +155,22 @@ describe('clickableHrefs', () => {
         ],
         [
             'that moves more elements out of a table than the parser scans past',
-            '<table>' + '<i></i>'.repeat(Math.ceil(Math.sqrt(2 * TREE_MAX_SIBLING_SCANS))),
+            '<table>' + '<i></i>'.repeat(Math.ceil(Math.sqrt(2 * TREE_MAX_SCANS))),
         ],
         [
             'that moves more text out of a table than the parser scans past',
-            '<table>' + 'x<br>'.repeat(Math.ceil(Math.sqrt(TREE_MAX_SIBLING_SCANS / 2))),
+            '<table>' + 'x<br>'.repeat(Math.ceil(Math.sqrt(TREE_MAX_SCANS / 2))),
         ],
         [
             'that moves more elements out of a misnested tag than the parser scans past',
-            '<b><div>' + '<i></i>'.repeat(Math.ceil(Math.sqrt(2 * TREE_MAX_SIBLING_SCANS))) + '</b>',
+            '<b><div>' + '<i></i>'.repeat(Math.ceil(Math.sqrt(2 * TREE_MAX_SCANS))) + '</b>',
+        ],
+        [
+            'that adds more attributes to the root element than the parser scans past',
+            Array.from(
+                { length: Math.ceil(Math.sqrt(TREE_MAX_SCANS / 8)) },
+                (_, tag) => `<html ${Array.from({ length: 16 }, (_, attribute) => `a${tag}x${attribute}`).join(' ')}>`
+            ).join(''),
         ],
     ])('finds no anchor after an SVG drawing in markup %s', (_name, filler) => {
         expect(clickableHrefs('<svg></svg>' + filler + '<a href="https://example.com/bye">Unsubscribe</a>')).toEqual([])
