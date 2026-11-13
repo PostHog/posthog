@@ -31,6 +31,7 @@ from posthog.tasks.email import send_email_change_emails
 
 logger = structlog.get_logger(__name__)
 
+NOT_REACHED = "Not reached in this run. Run it again with the same list"
 AMBIGUOUS_MEMBER = "More than one member has this email in a different case. Type it exactly as the account stores it"
 
 
@@ -65,6 +66,10 @@ class MemberEmailMigration:
     The member proves nothing here, so the organization must have verified both the current and the new
     domain. That limits the change to addresses the organization controls, the same rule SCIM applies.
     """
+
+    # One request changes this many members at most, so it stays well inside the request timeout. A member
+    # who already has the new email is skipped, so another run with the same list continues where this one stopped.
+    CHANGES_PER_RUN = 200
 
     def __init__(
         self, organization: Organization, requested: list[RequestedEmailChange], new_domain: str | None
@@ -113,7 +118,8 @@ class MemberEmailMigration:
         seen_users: set[int] = set()
         seen_targets: set[str] = set()
         changes = []
-        for request in self.requested:
+        # Lines with a typed new email go first. The form does not keep them for the next run.
+        for request in sorted(self.requested, key=lambda request: request.new_email is None):
             matches = members.get(request.current_email.lower(), [])
             exact = [member for member in matches if member.email == request.current_email]
             candidates = exact or matches
@@ -122,11 +128,17 @@ class MemberEmailMigration:
             if len(candidates) > 1:
                 skip_reason: str | None = AMBIGUOUS_MEMBER
             else:
-                skip_reason = self._skip_reason(user, new_email, verified, seen_users, seen_targets)
+                skip_reason = self._skip_reason(user, new_email, verified, seen_users)
             if user is not None:
                 seen_users.add(user.pk)
-            if skip_reason is None and new_email is not None:
-                seen_targets.add(new_email.lower())
+            if skip_reason is None and user is not None and new_email is not None:
+                # The run limit comes before the duplicate check, so a long list costs no queries past the limit.
+                if len(seen_targets) >= self.CHANGES_PER_RUN:
+                    skip_reason = NOT_REACHED
+                elif new_email.lower() in seen_targets or self._is_taken(new_email, user):
+                    skip_reason = "Another account already uses this email"
+                else:
+                    seen_targets.add(new_email.lower())
             changes.append(
                 MemberEmailChange(
                     current_email=user.email if user is not None else request.current_email,
@@ -213,8 +225,9 @@ class MemberEmailMigration:
         return EmailNormalizer.normalize(f"{local_part}@{self.new_domain}")
 
     def _skip_reason(
-        self, user: User | None, new_email: str | None, verified: set[str], seen_users: set[int], seen_targets: set[str]
+        self, user: User | None, new_email: str | None, verified: set[str], seen_users: set[int]
     ) -> str | None:
+        """Why this member cannot change, from what is already loaded. It runs no query."""
         if user is None:
             return "Not a member of this organization"
         if user.pk in seen_users:
@@ -239,8 +252,6 @@ class MemberEmailMigration:
         # member out and remove their SSO links for nothing.
         if new_email == EmailNormalizer.normalize(user.email):
             return "Already uses this email"
-        if new_email.lower() in seen_targets or self._is_taken(new_email, user):
-            return "Another account already uses this email"
         return None
 
     @staticmethod
