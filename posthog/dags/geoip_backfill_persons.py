@@ -8,20 +8,29 @@ never overwrites a value, even one a later event set.
 
 With `repair_latest_geoip`, the job also sends the `$set` of each person's last staged event, but only
 for a person that no event set `$geoip_*` for after that one. Such a person still holds the location of
-an event from before the incident, or none at all. This write is a plain `$set`, so an event that sets
-`$geoip_*` between the job's check and its write is overwritten with the older location.
+an event from before the incident, or none at all. Right before the write, the job reads the person
+again and leaves the `$set` out when its `$geoip_*` changed since the check. The write is a plain `$set`,
+so an event that sets `$geoip_*` between that read and the write is still overwritten.
+
+A person missing under the staged person UUID was deleted, or merged into another person since the
+event. The job looks such a person up by the event's distinct ID, counts it as merged or not found, and
+writes nothing for it.
 
 Every run logs each person it writes, or would write in a dry run, to a table of its own: the keys, the
 values sent, and the values those keys held before. A rollback reads that table.
 
-The write goes through `UpdatePersonProperties` on the personhog leader. Where the leader path is not
-configured, the first write fails the job. A dry run only reads, so it works without the leader.
+The write goes through `UpdatePersonProperties` on the personhog leader. A run that writes checks first
+that the leader path is configured, and fails before it reads anything. A dry run only reads, so it
+works without the leader. The job skips and counts a person the leader no longer has or cannot store
+(NOT_FOUND, INVALID_ARGUMENT), and backs off and retries a partition handoff, a fenced person or a full
+dirty index (FAILED_PRECONDITION, RESOURCE_EXHAUSTED).
 """
 
 import json
 import time
 import uuid
 import dataclasses
+from collections import Counter
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from functools import partial
@@ -29,6 +38,7 @@ from typing import Any
 
 from django.conf import settings
 
+import grpc
 import dagster
 import pydantic
 from clickhouse_driver import Client
@@ -46,13 +56,25 @@ from posthog.dags.geoip_enrichment import GEOIP_KEYS, GEOIP_PREFIX, INITIAL_GEOI
 from posthog.dataclasses import frozen
 from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.personhog_client.client import require_personhog_client
-from posthog.personhog_client.proto import GetPersonsByUuidsRequest, UpdatePersonPropertiesRequest
+from posthog.personhog_client.proto import (
+    CONSISTENCY_LEVEL_STRONG,
+    GetPersonsByDistinctIdsInTeamRequest,
+    GetPersonsByUuidsRequest,
+    ReadOptions,
+    UpdatePersonPropertiesRequest,
+)
 
 INITIAL_GEOIP_KEYS: tuple[str, ...] = tuple(f"{INITIAL_GEOIP_PREFIX}{key}" for key in GEOIP_KEYS)
 LATEST_GEOIP_KEYS: tuple[str, ...] = tuple(f"{GEOIP_PREFIX}{key}" for key in GEOIP_KEYS)
 
-# GetPersonsByUuids takes at most this many UUIDs per request.
+# GetPersonsByUuids and GetPersonsByDistinctIdsInTeam take at most this many per request.
 _PERSONS_PER_READ = 250
+
+# The leader rejects these writes for good, so the job skips the person.
+_SKIPPED_CODES = {grpc.StatusCode.NOT_FOUND: "skipped_not_found", grpc.StatusCode.INVALID_ARGUMENT: "skipped_invalid"}
+# The leader rejects these writes for now: a partition handoff or a fenced person (FAILED_PRECONDITION),
+# or a dirty index at capacity (RESOURCE_EXHAUSTED).
+_RETRIED_CODES = frozenset({grpc.StatusCode.FAILED_PRECONDITION, grpc.StatusCode.RESOURCE_EXHAUSTED})
 
 GIB = 1024**3
 
@@ -79,6 +101,12 @@ class GeoipPersonsConfig(dagster.Config):
     max_writes_per_second: float = pydantic.Field(
         default=200.0, gt=0, description="Upper bound on personhog writes, to protect the leader."
     )
+    max_write_attempts: int = pydantic.Field(
+        default=8, ge=1, description="Attempts per person while the leader rejects the write for now."
+    )
+    retry_backoff_seconds: float = pydantic.Field(
+        default=1.0, ge=0, description="The first wait before a retry. Each retry doubles it, up to a minute."
+    )
     max_execution_time_seconds: int = pydantic.Field(default=10 * 60, description="ClickHouse max_execution_time.")
     max_memory_usage_bytes: int = pydantic.Field(default=16 * GIB, description="ClickHouse max_memory_usage.")
 
@@ -93,11 +121,12 @@ class StagedPersonEvents:
     initial_geoip: dict[str, Any]
     last_written_at: datetime
     latest_geoip: dict[str, Any]
+    distinct_id: str
 
     @classmethod
     def from_row(cls, row: Sequence[Any]) -> "StagedPersonEvents":
         """A row of staged_person_events_query."""
-        team_id, person_uuid, first_timestamp, set_once, last_written_at, latest_set = row
+        team_id, person_uuid, first_timestamp, set_once, last_written_at, latest_set, distinct_id = row
         return cls(
             team_id=team_id,
             person_uuid=str(person_uuid),
@@ -105,6 +134,7 @@ class StagedPersonEvents:
             initial_geoip=_pick(_json_object(set_once), INITIAL_GEOIP_KEYS),
             last_written_at=last_written_at,
             latest_geoip=_pick(_json_object(latest_set), LATEST_GEOIP_KEYS),
+            distinct_id=distinct_id,
         )
 
 
@@ -119,34 +149,28 @@ class PersonRepair:
     set: dict[str, Any]
     previous: dict[str, Any]
     initial_differs: bool
+    # The person's `$geoip_*` keys when the plan read it, to see whether they changed before the write.
+    latest_read: dict[str, Any]
 
     @property
     def writes(self) -> bool:
         return bool(self.set_once or self.set)
 
 
-@frozen
-class PersonRepairTotals:
-    persons: int
-    not_found: int
-    initial_to_write: int
-    latest_to_write: int
-    initial_differs: int
-    written: int
-
-    def __add__(self, other: "PersonRepairTotals") -> "PersonRepairTotals":
-        return PersonRepairTotals(
-            persons=self.persons + other.persons,
-            not_found=self.not_found + other.not_found,
-            initial_to_write=self.initial_to_write + other.initial_to_write,
-            latest_to_write=self.latest_to_write + other.latest_to_write,
-            initial_differs=self.initial_differs + other.initial_differs,
-            written=self.written + other.written,
-        )
-
-
-EMPTY_TOTALS = PersonRepairTotals(
-    persons=0, not_found=0, initial_to_write=0, latest_to_write=0, initial_differs=0, written=0
+# What one run counts. `merged` and `not_found` are persons missing under the staged person UUID.
+TOTALS = (
+    "persons",
+    "merged",
+    "not_found",
+    "initial_to_write",
+    "latest_to_write",
+    "initial_differs",
+    "latest_changed_before_write",
+    "written",
+    "unchanged",
+    "skipped_not_found",
+    "skipped_invalid",
+    "retried",
 )
 
 
@@ -190,6 +214,7 @@ def plan_person_repair(
         set=set_properties,
         previous={name: properties.get(name) for name in [*set_once, *set_properties] if name in properties},
         initial_differs=country_key in properties and properties[country_key] != events.initial_geoip.get(country_key),
+        latest_read=_present(properties, LATEST_GEOIP_KEYS),
     )
 
 
@@ -253,6 +278,10 @@ class GeoipPersonsLog:
         client.execute(f"DROP TABLE IF EXISTS {self.qualified_name} SYNC")
 
 
+def _present(values: Mapping[str, Any], names: Sequence[str]) -> dict[str, Any]:
+    return {name: values[name] for name in names if name in values}
+
+
 def _pick(values: Mapping[str, Any], names: Sequence[str]) -> dict[str, Any]:
     return {name: values.get(name) for name in names}
 
@@ -279,7 +308,8 @@ def staged_person_events_query(table: GeoipStagingTable) -> str:
             min(timestamp),
             argMin(JSONExtractRaw(properties, '$set_once'), timestamp),
             max(original_written_at),
-            argMax(JSONExtractRaw(properties, '$set'), original_written_at)
+            argMax(JSONExtractRaw(properties, '$set'), original_written_at),
+            any(distinct_id)
         FROM {table.qualified_name} FINAL
         WHERE team_id IN %(team_ids)s AND person_mode = 'full'
         GROUP BY team_id, person_id
@@ -308,40 +338,39 @@ def later_geoip_query(table: GeoipStagingTable) -> str:
 @frozen
 class PersonsRepair:
     cluster: ClickhouseCluster
+    client: Any
     table: GeoipStagingTable
     written_persons: GeoipPersonsLog
     config: GeoipPersonsConfig
     log: dagster.DagsterLogManager
     query_tags: DagsterTags
 
-    def run(self, team_ids: Sequence[int]) -> PersonRepairTotals:
-        client = require_personhog_client()
-        totals = EMPTY_TOTALS
+    def run(self, team_ids: Sequence[int]) -> Counter[str]:
+        totals: Counter[str] = Counter()
         for chunk in _chunks(team_ids, self.config.team_chunk_size):
-            totals += self._repair_chunk(client, tuple(chunk))
+            totals.update(self._repair_chunk(tuple(chunk)))
         return totals
 
-    def _repair_chunk(self, client: Any, team_ids: tuple[int, ...]) -> PersonRepairTotals:
+    def _repair_chunk(self, team_ids: tuple[int, ...]) -> Counter[str]:
+        totals: Counter[str] = Counter()
         events = list(staged_person_events(self._read_staged(team_ids)).values())
         current = self._persons_with_later_geoip(team_ids, events) if self.config.repair_latest_geoip else set()
-        repairs, not_found = self._plan(client, events, current)
+        repairs = self._plan(events, current, totals)
         to_write = [repair for repair in repairs if repair.writes]
         if to_write:
             # Logged before the writes, so a run that fails part way through still lists every person it wrote.
             self.cluster.any_host_by_role(
                 tagged(self.query_tags, partial(self.written_persons.insert, to_write), product=PRODUCT), NodeRole.DATA
             ).result()
-        written = 0 if self.config.dry_run else self._write(client, to_write)
+        if not self.config.dry_run:
+            self._write(to_write, totals)
         action = "would write" if self.config.dry_run else "wrote"
         self.log.info(f"{len(team_ids)} team(s): {len(events)} person(s), {action} {len(to_write)}")
-        return PersonRepairTotals(
-            persons=len(events),
-            not_found=not_found,
-            initial_to_write=sum(bool(repair.set_once) for repair in repairs),
-            latest_to_write=sum(bool(repair.set) for repair in repairs),
-            initial_differs=sum(repair.initial_differs for repair in repairs),
-            written=written,
-        )
+        totals["persons"] += len(events)
+        totals["initial_to_write"] += sum(bool(repair.set_once) for repair in repairs)
+        totals["latest_to_write"] += sum(bool(repair.set) for repair in repairs)
+        totals["initial_differs"] += sum(repair.initial_differs for repair in repairs)
+        return totals
 
     def _read_staged(self, team_ids: tuple[int, ...]) -> list[StagedPersonEvents]:
         query = staged_person_events_query(self.table)
@@ -392,31 +421,29 @@ class PersonsRepair:
         return {(team_id, str(person_uuid)) for team_id, person_uuid in self._on_every_shard(read)}
 
     def _on_every_shard(self, fn: Callable[[Client], list[Any]]) -> list[Any]:
-        rows: list[Any] = []
-        for shard_rows in (
-            self.cluster.map_one_host_per_shard(tagged(self.query_tags, fn, product=PRODUCT)).result().values()
-        ):
-            rows.extend(shard_rows)
-        return rows
+        workload, node_role = shard_workload()
+        per_shard = self.cluster.map_any_host_in_shards_by_role(
+            {shard_num: tagged(self.query_tags, fn, product=PRODUCT) for shard_num in self.cluster.shards},
+            workload=workload,
+            node_role=node_role,
+        ).result()
+        return [row for rows in per_shard.values() for row in rows]
 
     def _plan(
-        self, client: Any, events: Sequence[StagedPersonEvents], later_geoip: set[tuple[int, str]]
-    ) -> tuple[list[PersonRepair], int]:
+        self, events: Sequence[StagedPersonEvents], later_geoip: set[tuple[int, str]], totals: Counter[str]
+    ) -> list[PersonRepair]:
         by_team: dict[int, list[StagedPersonEvents]] = {}
         for event in events:
             by_team.setdefault(event.team_id, []).append(event)
         repairs: list[PersonRepair] = []
-        not_found = 0
         for team_id, team_events in by_team.items():
+            missing: list[StagedPersonEvents] = []
             for batch in _chunks(team_events, _PERSONS_PER_READ):
-                response = client.get_persons_by_uuids(
-                    GetPersonsByUuidsRequest(team_id=team_id, uuids=[event.person_uuid for event in batch])
-                )
-                persons = {person.uuid: person for person in response.persons}
+                persons = self._persons_by_uuid(team_id, [event.person_uuid for event in batch])
                 for event in batch:
                     person = persons.get(event.person_uuid)
                     if person is None:
-                        not_found += 1
+                        missing.append(event)
                         continue
                     repair_latest = self.config.repair_latest_geoip and (team_id, event.person_uuid) not in later_geoip
                     repairs.append(
@@ -424,26 +451,76 @@ class PersonsRepair:
                             event, person.id, _json_object(person.properties), repair_latest=repair_latest
                         )
                     )
-        return repairs, not_found
+            self._count_missing(team_id, missing, totals)
+        return repairs
 
-    def _write(self, client: Any, repairs: Sequence[PersonRepair]) -> int:
-        interval = 1.0 / self.config.max_writes_per_second
-        written = 0
-        for repair in repairs:
-            started = time.monotonic()
-            response = client.update_person_properties(
-                UpdatePersonPropertiesRequest(
-                    team_id=repair.team_id,
-                    person_id=repair.person_id,
-                    event_name="$set",
-                    set_once_properties=json.dumps(repair.set_once).encode() if repair.set_once else b"",
-                    set_properties=json.dumps(repair.set).encode() if repair.set else b"",
+    def _persons_by_uuid(self, team_id: int, uuids: Sequence[str], *, strong: bool = False) -> dict[str, Any]:
+        request = GetPersonsByUuidsRequest(team_id=team_id, uuids=list(uuids))
+        if strong:
+            request.read_options.CopyFrom(ReadOptions(consistency=CONSISTENCY_LEVEL_STRONG))
+        return {person.uuid: person for person in self.client.get_persons_by_uuids(request).persons}
+
+    def _count_missing(self, team_id: int, missing: Sequence[StagedPersonEvents], totals: Counter[str]) -> None:
+        """Count the persons gone from the staged UUID: merged when another person holds the event's distinct ID."""
+        for batch in _chunks(missing, _PERSONS_PER_READ):
+            response = self.client.get_persons_by_distinct_ids_in_team(
+                GetPersonsByDistinctIdsInTeamRequest(
+                    team_id=team_id, distinct_ids=[event.distinct_id for event in batch]
                 )
             )
-            written += int(response.updated)
+            held = {result.distinct_id for result in response.results if result.HasField("person")}
+            merged = sum(event.distinct_id in held for event in batch)
+            totals["merged"] += merged
+            totals["not_found"] += len(batch) - merged
+
+    def _write(self, repairs: Sequence[PersonRepair], totals: Counter[str]) -> None:
+        interval = 1.0 / self.config.max_writes_per_second
+        for repair in repairs:
+            started = time.monotonic()
+            if repair.set:
+                repair = self._without_latest_if_changed(repair, totals)
+            if repair.writes:
+                totals[self._write_person(repair, totals)] += 1
             if (elapsed := time.monotonic() - started) < interval:
                 time.sleep(interval - elapsed)
-        return written
+
+    def _without_latest_if_changed(self, repair: PersonRepair, totals: Counter[str]) -> PersonRepair:
+        """The repair without its `$set` when the person's `$geoip_*` changed since the plan read it."""
+        person = self._persons_by_uuid(repair.team_id, [repair.person_uuid], strong=True).get(repair.person_uuid)
+        if person is not None and _present(_json_object(person.properties), LATEST_GEOIP_KEYS) == repair.latest_read:
+            return repair
+        totals["latest_changed_before_write"] += 1
+        return dataclasses.replace(repair, set={})
+
+    def _write_person(self, repair: PersonRepair, totals: Counter[str]) -> str:
+        """Write one person, and return the outcome it counts under."""
+        request = UpdatePersonPropertiesRequest(
+            team_id=repair.team_id,
+            person_id=repair.person_id,
+            event_name="$set",
+            set_once_properties=json.dumps(repair.set_once).encode() if repair.set_once else b"",
+            set_properties=json.dumps(repair.set).encode() if repair.set else b"",
+            # `$geoip_*` keys other than the country are filtered: a change to them alone answers
+            # updated=false and writes nothing, unless forced.
+            force_update=True,
+        )
+        backoff = self.config.retry_backoff_seconds
+        for attempt in range(1, self.config.max_write_attempts + 1):
+            try:
+                response = self.client.update_person_properties(request)
+            except grpc.RpcError as error:
+                code = error.code()
+                if code in _SKIPPED_CODES:
+                    self.log.warning(f"Skipped person {repair.person_uuid} of team {repair.team_id}: {code.name}")
+                    return _SKIPPED_CODES[code]
+                if code not in _RETRIED_CODES or attempt == self.config.max_write_attempts:
+                    raise
+                totals["retried"] += 1
+                time.sleep(backoff)
+                backoff = min(backoff * 2, 60.0)
+                continue
+            return "written" if response.updated else "unchanged"
+        raise AssertionError("unreachable")
 
 
 @dagster.op(tags=OWNER_TAG)
@@ -456,12 +533,19 @@ def repair_geoip_persons(
 
     Persons whose `$initial_geoip_country_code` differs from their first staged event are only counted.
     """
+    client = require_personhog_client()
+    if not config.dry_run and not client.lifecycle.configured:
+        raise dagster.Failure(
+            description="The personhog leader path is not configured (PERSONHOG_LIFECYCLE_ADDR), so no write "
+            "can go through. Run a dry run, or run where the leader path is configured."
+        )
     table = GeoipStagingTable(id=uuid.UUID(config.staging_run_id))
     team_ids = staged_team_ids(cluster, table, config.team_ids)
     written_persons = GeoipPersonsLog(id=uuid.UUID(context.run_id))
     cluster.map_hosts_by_role(written_persons.create, NodeRole.DATA).result()
     totals = PersonsRepair(
         cluster=cluster,
+        client=client,
         table=table,
         written_persons=written_persons,
         config=config,
@@ -473,12 +557,7 @@ def repair_geoip_persons(
         {
             "written_persons_table": dagster.MetadataValue.text(written_persons.qualified_name),
             "teams": dagster.MetadataValue.int(len(team_ids)),
-            "persons": dagster.MetadataValue.int(totals.persons),
-            "not_found": dagster.MetadataValue.int(totals.not_found),
-            "initial_geoip_to_write": dagster.MetadataValue.int(totals.initial_to_write),
-            "latest_geoip_to_write": dagster.MetadataValue.int(totals.latest_to_write),
-            "initial_geoip_differs_left_unchanged": dagster.MetadataValue.int(totals.initial_differs),
-            "written": dagster.MetadataValue.int(totals.written),
+            **{name: dagster.MetadataValue.int(totals[name]) for name in TOTALS},
             "dry_run": dagster.MetadataValue.bool(config.dry_run),
         }
     )
