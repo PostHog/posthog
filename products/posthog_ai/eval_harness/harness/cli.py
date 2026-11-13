@@ -24,10 +24,25 @@ AGENT_RUNTIMES = ("claude", "codex")
 DEFAULT_AGENT_MODEL_BY_RUNTIME = {"claude": DEFAULT_AGENT_MODEL, "codex": DEFAULT_CODEX_AGENT_MODEL}
 
 
+# Mirror of the agent server's `ServiceTier` values, kept literal for the same Django-free reason.
+SERVICE_TIERS = ("default", "flex", "priority")
+
+
 @frozen
 class ModelTarget:
     runtime: str
     model: str
+    service_tier: str | None = None
+    reasoning_effort: str | None = None
+
+    @property
+    def label(self) -> str:
+        settings = [
+            f"{key}={value}"
+            for key, value in (("service_tier", self.service_tier), ("reasoning_effort", self.reasoning_effort))
+            if value is not None
+        ]
+        return f"{self.runtime}/{self.model}" + (f" ({', '.join(settings)})" if settings else "")
 
 
 SkillDelivery = Literal["bundled", "exec"]
@@ -81,6 +96,8 @@ class HarnessOptions:
     check_only: bool = False
     skill_snapshot_report: Path | None = None
     skill_snapshot_output_dir: Path | None = None
+    service_tier: str | None = None
+    """OpenAI request tier for codex runs; ``None`` sends the request untiered."""
 
 
 def _default_case_timeout() -> int:
@@ -153,6 +170,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Agent reasoning effort (e.g. 'low'…'xhigh'); valid values depend on runtime+model.",
     )
     parser.add_argument(
+        "--service-tier",
+        choices=SERVICE_TIERS,
+        default=None,
+        help="OpenAI service tier for codex runs. The claude runtime ignores it.",
+    )
+    parser.add_argument(
         "--max-sandboxes",
         type=int,
         default=None,
@@ -213,8 +236,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--compare-model",
         action="append",
         default=[],
-        metavar="RUNTIME:MODEL",
-        help="Compare explicit runtime/model pairs. Repeat at least twice; replaces --compare defaults.",
+        metavar="RUNTIME:MODEL[,service_tier=TIER][,reasoning_effort=EFFORT]",
+        help=(
+            "Compare explicit runtime/model arms. Repeat at least twice; replaces --compare defaults. "
+            "Per-arm settings override --service-tier and --reasoning-effort."
+        ),
     )
     parser.add_argument("--comparison-dir", type=Path, help="New directory for comparison reports.")
     parser.add_argument("--results-file", type=Path, help="Save a machine-readable run report to this path.")
@@ -232,16 +258,40 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _parse_model_target(value: str) -> ModelTarget | None:
+    head, *settings = value.split(",")
+    runtime, separator, model = head.partition(":")
+    if not separator or runtime not in AGENT_RUNTIMES or not model.strip():
+        return None
+    options: dict[str, str] = {}
+    for setting in settings:
+        key, separator, setting_value = setting.partition("=")
+        if not separator or key not in ("service_tier", "reasoning_effort") or not setting_value or key in options:
+            return None
+        options[key] = setting_value
+    if options.get("service_tier", SERVICE_TIERS[0]) not in SERVICE_TIERS:
+        return None
+    return ModelTarget(
+        runtime=runtime,
+        model=model.strip(),
+        service_tier=options.get("service_tier"),
+        reasoning_effort=options.get("reasoning_effort"),
+    )
+
+
 def parse_args(argv: list[str] | None = None) -> HarnessOptions:
     parser = build_parser()
     args = parser.parse_args(argv)
 
     comparison_models: list[ModelTarget] = []
     for value in args.compare_model:
-        runtime, separator, model = value.partition(":")
-        if not separator or runtime not in AGENT_RUNTIMES or not model.strip():
-            parser.error("--compare-model must be claude:MODEL or codex:MODEL")
-        comparison_models.append(ModelTarget(runtime=runtime, model=model))
+        target = _parse_model_target(value)
+        if target is None:
+            parser.error(
+                "--compare-model must be claude:MODEL or codex:MODEL, optionally followed by "
+                f",service_tier=<{'|'.join(SERVICE_TIERS)}> and ,reasoning_effort=<effort>"
+            )
+        comparison_models.append(target)
     if args.compare and not comparison_models:
         comparison_models = [
             ModelTarget(runtime=runtime, model=model) for runtime, model in DEFAULT_AGENT_MODEL_BY_RUNTIME.items()
@@ -250,7 +300,7 @@ def parse_args(argv: list[str] | None = None) -> HarnessOptions:
         if not args.selectors:
             parser.error("Model comparisons require at least one suite selector")
         if len(comparison_models) < 2 or len(set(comparison_models)) != len(comparison_models):
-            parser.error("Compare at least two distinct runtime/model pairs")
+            parser.error("Compare at least two distinct runtime/model arms")
         if (
             args.agent_runtime
             or args.agent_model
@@ -275,6 +325,7 @@ def parse_args(argv: list[str] | None = None) -> HarnessOptions:
             ("--agent-runtime", args.agent_runtime is not None),
             ("--skill-delivery", args.skill_delivery is not None),
             ("--reasoning-effort", args.reasoning_effort is not None),
+            ("--service-tier", args.service_tier is not None),
             ("--max-sandboxes", args.max_sandboxes is not None),
             ("--keep-sandbox-containers", args.keep_sandbox_containers),
             ("--rebuild-sandbox-image", args.rebuild_sandbox_image),
@@ -343,4 +394,5 @@ def parse_args(argv: list[str] | None = None) -> HarnessOptions:
         check_only=args.check_only,
         skill_snapshot_report=args.skill_snapshot_report,
         skill_snapshot_output_dir=args.skill_snapshot_output_dir,
+        service_tier=args.service_tier,
     )

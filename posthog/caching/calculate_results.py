@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Any, Optional, Union
+from typing import TYPE_CHECKING, Any, Optional
 
 import orjson
 import structlog
@@ -16,8 +16,7 @@ from posthog.hogql_queries.query_runner import get_query_runner_or_none, respons
 from posthog.models import Team, User
 from posthog.schema_migrations.upgrade_manager import upgrade_insight
 
-from products.dashboards.backend.models.dashboard import Dashboard
-from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.dashboards.backend.facade.contracts import AppliedDashboard
 from products.product_analytics.backend.facade.models import Insight
 
 if TYPE_CHECKING:
@@ -56,19 +55,19 @@ def _model_list_field_as_dicts(model: BaseModel, field: str) -> Optional[list]:
     return [item.model_dump(by_alias=True) if isinstance(item, BaseModel) else item for item in value]
 
 
-def calculate_cache_key(target: Union[DashboardTile, Insight]) -> Optional[str]:
-    insight: Optional[Insight] = target if isinstance(target, Insight) else target.insight
-    dashboard: Optional[Dashboard] = target.dashboard if isinstance(target, DashboardTile) else None
+def calculate_cache_key(insight: Insight, *, dashboard: AppliedDashboard | None) -> Optional[str]:
+    """The cache key of the insight's query, with the dashboard's filters applied when the insight runs on one.
 
-    if insight is not None:
-        with upgrade_insight(insight):
-            if insight.query:
-                query_runner = get_query_runner_or_none(insight.query, insight.team)
-                if query_runner is None:
-                    return None  # Uncacheable query-based insight
-                if dashboard is not None and dashboard.filters:
-                    query_runner.apply_dashboard_filters(DashboardFilter(**dashboard.filters))
-                return query_runner.get_cache_key()
+    The filter overrides of the insight's tile are not applied.
+    """
+    with upgrade_insight(insight):
+        if insight.query:
+            query_runner = get_query_runner_or_none(insight.query, insight.team)
+            if query_runner is None:
+                return None  # Uncacheable query-based insight
+            if dashboard is not None and dashboard.filters:
+                query_runner.apply_dashboard_filters(DashboardFilter(**dashboard.filters))
+            return query_runner.get_cache_key()
 
     return None
 
@@ -77,7 +76,7 @@ def calculate_for_query_based_insight(
     insight: Insight,
     *,
     team: Team,
-    dashboard: Optional[Dashboard] = None,
+    dashboard: AppliedDashboard | None = None,
     execution_mode: ExecutionMode,
     user: Optional[User],
     user_access_control: Optional["UserAccessControl"] = None,
@@ -94,7 +93,7 @@ def calculate_for_query_based_insight(
 
     tag_queries(**get_team_query_tags(team), insight_id=insight.pk)
     if dashboard:
-        tag_queries(dashboard_id=dashboard.pk)
+        tag_queries(dashboard_id=dashboard.id)
 
     dashboard_filters_json = (
         filters_override if filters_override is not None else dashboard.filters if dashboard is not None else None
@@ -121,7 +120,7 @@ def calculate_for_query_based_insight(
         user=user,
         user_access_control=user_access_control,
         insight_id=insight.pk,
-        dashboard_id=dashboard.pk if dashboard else None,
+        dashboard_id=dashboard.id if dashboard else None,
         limit_context=limit_context,
         cache_age_seconds=cache_age_seconds,
         analytics_props=analytics_props,

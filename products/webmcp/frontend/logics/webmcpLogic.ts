@@ -3,12 +3,13 @@ import posthog from 'posthog-js'
 
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { sceneRenderedLogic } from 'lib/logic/sceneRenderedLogic'
+import { retryImport } from 'lib/utils/retryImport'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import type { PreflightStatus, UserType } from '~/types'
 
-import { webmcpExecCreate, webmcpToolRetrieve } from '../generated/api'
+import { webmcpExecCreate } from '../generated/api'
 import type { WebMCPExecResultApi } from '../generated/api.schemas'
 import { WebMCPToolError } from '../webmcpToolError'
 
@@ -37,6 +38,14 @@ export function getModelContext(): ModelContext | null {
     const fromDocument = (document as Document & { modelContext?: ModelContext }).modelContext
     const fromNavigator = (navigator as Navigator & { modelContext?: ModelContext }).modelContext
     return fromDocument ?? fromNavigator ?? null
+}
+
+export function fillPlaceholders<T>(value: T, replacements: Record<string, string>): T {
+    let json = JSON.stringify(value)
+    for (const [placeholder, replacement] of Object.entries(replacements)) {
+        json = json.replaceAll(placeholder, JSON.stringify(replacement).slice(1, -1))
+    }
+    return JSON.parse(json) as T
 }
 
 export function formatExecResult(result: WebMCPExecResultApi): string {
@@ -106,7 +115,7 @@ export const webmcpLogic = kea<webmcpLogicType>([
     }),
     listeners(({ actions, cache, values }) => ({
         // The preflight and the team can arrive after mount, and the tool needs both.
-        // No part of the first paint uses the tool, so its request also waits for the scene's own requests.
+        // No part of the first paint uses the tool, so its chunk also waits for the scene's own requests.
         sceneRendered: () => {
             actions.registerTool()
         },
@@ -133,7 +142,12 @@ export const webmcpLogic = kea<webmcpLogicType>([
             const teamId = values.currentTeamId
 
             const register = async (signal: AbortSignal): Promise<void> => {
-                const tool = await webmcpToolRetrieve(String(teamId), { signal })
+                // A separate chunk keeps the long description out of the main bundle.
+                const generated = await retryImport(() => import('../execTool.generated'))
+                const tool = fillPlaceholders(generated.WEBMCP_EXEC_TOOL, {
+                    [generated.APP_ORIGIN_PLACEHOLDER]: window.location.origin,
+                    [generated.PROJECT_ID_PLACEHOLDER]: String(teamId),
+                })
                 if (signal.aborted) {
                     return
                 }
@@ -142,7 +156,7 @@ export const webmcpLogic = kea<webmcpLogicType>([
                         name: tool.name,
                         title: 'PostHog',
                         description: tool.description,
-                        inputSchema: tool.input_schema,
+                        inputSchema: tool.inputSchema,
                         annotations: {
                             // Event and person properties come from end users, so results can carry prompt injection.
                             untrustedContentHint: true,

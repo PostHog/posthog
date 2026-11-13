@@ -9,8 +9,15 @@
                 "backend/webhook_consumers.py",
                 "backend/tasks/**",
                 "backend/max_tools.py",
+                "backend/integration_usages.py",
+                "backend/receivers.py",
+                "backend/data_freshness.py",
                 "backend/models/**",
-                "backend/migrations/**"
+                "backend/providers/ses.py",
+                "backend/migrations/**",
+                "backend/scopes.py",
+                "backend/apps.py",
+                "backend/console.py"
             ],
             "outputs": [],
             "cache": true

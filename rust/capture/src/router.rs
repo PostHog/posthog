@@ -28,6 +28,7 @@ use limiters::overflow::OverflowLimiter;
 use limiters::redis::RedisLimiter;
 use limiters::token_dropper::TokenDropper;
 
+use crate::ai_event_limits::AI_MAX_EVENT_BYTES_CEILING;
 use crate::config::CaptureMode;
 use crate::metrics_middleware::track_metrics;
 use crate::quota_limiters::CaptureQuotaLimiter;
@@ -39,6 +40,10 @@ use metrics_exporter_prometheus::PrometheusHandle;
 pub const BATCH_BODY_SIZE: usize = 20 * 1024 * 1024; // 20MB
 
 const RECORDING_BODY_SIZE: usize = 25 * 1024 * 1024; // 25MB
+
+/// One event at the shared ceiling, plus the 10% multipart allows for framing.
+pub const AI_BODY_SIZE: usize =
+    (AI_MAX_EVENT_BYTES_CEILING + AI_MAX_EVENT_BYTES_CEILING / 10) as usize;
 
 /// A route group's wire-body ceiling, carried as a request extension.
 ///
@@ -110,6 +115,7 @@ pub struct State {
     /// as `overflow_limiter` above.
     pub replay_overflow_limiter: Option<Arc<RedisLimiter>>,
     pub capture_v1_scatter_gather_min_batch: usize,
+    pub capture_v1_legacy_property_splice: bool,
     pub ai_gateway_signing_secret: Option<String>,
     /// Best-effort v2 ingestion warnings emitter (fire-and-forget Kafka
     /// producer behind a per-(token, type) throttle). `None` when disabled —
@@ -189,6 +195,7 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
     ai_byte_rate_limiter: Option<Arc<GlobalRateLimiter>>,
     replay_overflow_limiter: Option<Arc<RedisLimiter>>,
     capture_v1_scatter_gather_min_batch: usize,
+    capture_v1_legacy_property_splice: bool,
     ai_gateway_signing_secret: Option<String>,
     ingestion_warning_emitter: Option<Arc<dyn WarningEmitter>>,
 ) -> Router {
@@ -218,6 +225,7 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
         ai_byte_rate_limiter,
         replay_overflow_limiter,
         capture_v1_scatter_gather_min_batch,
+        capture_v1_legacy_property_splice,
         ai_gateway_signing_secret,
         ingestion_warning_emitter,
         capture_mode,
@@ -267,8 +275,7 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
     // ingress can route them to the capture-ai deployment and keep AI and
     // analytics workloads isolated. Its own router rather than a member of
     // `batch_router` so capture-ai can serve this path without also serving the
-    // analytics batch and event routes, and rather than a member of `ai_router`
-    // so it keeps the batch body limit instead of the larger multipart one.
+    // analytics batch and event routes.
     let ai_batch_router = Router::new()
         .route(
             "/i/v0/ai/batch",
@@ -282,8 +289,8 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
                 .get(v0_endpoint::event)
                 .options(v0_endpoint::options),
         )
-        .layer(DefaultBodyLimit::max(BATCH_BODY_SIZE))
-        .layer(Extension(WireBodyLimit(BATCH_BODY_SIZE)));
+        .layer(DefaultBodyLimit::max(AI_BODY_SIZE))
+        .layer(Extension(WireBodyLimit(AI_BODY_SIZE)));
 
     let event_router = Router::new()
         .route(

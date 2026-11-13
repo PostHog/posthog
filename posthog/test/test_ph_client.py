@@ -1,3 +1,5 @@
+from typing import Any
+
 from unittest.mock import MagicMock, patch
 
 from django.conf import settings
@@ -7,7 +9,13 @@ import posthoganalytics
 from parameterized import parameterized
 
 from posthog.clickhouse.query_tagging import tags_context
-from posthog.ph_client import ScopedCapture, filter_scout_experiment_capture, get_client, ph_scoped_capture
+from posthog.ph_client import (
+    ScopedCapture,
+    default_before_send,
+    get_client,
+    ph_scoped_capture,
+    self_hosted_capture_reaches_posthog,
+)
 
 
 class TestAILaneOptIn(SimpleTestCase):
@@ -38,10 +46,7 @@ class TestPrivateScoutCapture(SimpleTestCase):
             client = posthoganalytics.setup()
             assert client is not None
             try:
-                self.assertIs(
-                    client.before_send,
-                    filter_scout_experiment_capture if settings.SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE else None,
-                )
+                self.assertIsNotNone(client.before_send)
                 with tags_context(is_scout_experiment=True):
                     captured = client.capture(
                         "query executed", distinct_id="synthetic", properties={"is_scout_experiment": False}
@@ -65,8 +70,6 @@ class TestPrivateScoutCapture(SimpleTestCase):
             )
         assert client is not None
         try:
-            if not private_capture:
-                self.assertIs(client.before_send, before_send)
             with tags_context(is_scout_experiment=True):
                 captured = client.capture("query executed", distinct_id="synthetic")
             self.assertEqual(captured is None, private_capture)
@@ -74,17 +77,158 @@ class TestPrivateScoutCapture(SimpleTestCase):
             with tags_context(is_scout_experiment=False):
                 self.assertIsNotNone(client.capture("query executed", distinct_id="synthetic"))
             self.assertEqual(before_send.call_count, 1 if private_capture else 2)
+            before_send.side_effect = lambda message: None
+            with posthoganalytics.new_context(capture_exceptions=False):
+                posthoganalytics.tag("$update_person_last_seen_at", False)
+                self.assertIsNone(client.capture("query executed", distinct_id="synthetic"))
         finally:
             client.shutdown()
 
+    @parameterized.expand(
+        [
+            ("cloud", False, False, {"$exception": True, "query executed": True}),
+            ("cloud_private_scout", True, False, {"$exception": True, "query executed": True}),
+            ("self_hosted", False, True, {"$exception": False, "query executed": True}),
+            ("self_hosted_private_scout", True, True, {"$exception": False, "query executed": True}),
+        ]
+    )
+    def test_default_before_send_drops_self_hosted_exceptions(
+        self, _name: str, private_scout_capture: bool, self_hosted: bool, expected_kept: dict[str, bool]
+    ) -> None:
+        before_send = default_before_send(private_scout_capture=private_scout_capture, self_hosted=self_hosted)
+        for event, kept in expected_kept.items():
+            message = {"event": event, "distinct_id": "synthetic", "properties": {}}
+            with tags_context(is_scout_experiment=False):
+                result = message if before_send is None else before_send(message)
+            self.assertEqual(result is not None, kept, event)
+            if kept:
+                self.assertEqual(result, message)
+                with posthoganalytics.new_context(capture_exceptions=False):
+                    posthoganalytics.tag("$update_person_last_seen_at", False)
+                    result = before_send({"event": event, "properties": {"retained": True}})
+                self.assertEqual(
+                    result,
+                    {"event": event, "properties": {"retained": True, "$update_person_last_seen_at": False}},
+                )
+                properties = {"$update_person_last_seen_at": False} if event == "$exception" else {}
+                self.assertEqual(
+                    before_send({"event": event, "properties": {}}), {"event": event, "properties": properties}
+                )
+        if private_scout_capture and before_send is not None:
+            with tags_context(is_scout_experiment=True):
+                self.assertIsNone(before_send({"event": "query executed", "distinct_id": "synthetic"}))
+
+    @parameterized.expand(
+        [
+            ("self_hosted", True, False, True),
+            ("self_hosted_self_capture", True, True, False),
+            ("cloud_or_local", False, False, False),
+        ]
+    )
+    def test_self_hosted_capture_reaches_posthog(
+        self, _name: str, hobby: bool, self_capture: bool, expected: bool
+    ) -> None:
+        with (
+            patch("posthog.ph_client.is_hobby", return_value=hobby),
+            override_settings(TEST=False, SELF_CAPTURE=self_capture),
+        ):
+            self.assertEqual(self_hosted_capture_reaches_posthog(), expected)
+
+    @parameterized.expand([("false", False), ("true", True), ("unset", None), ("zero", 0)])
     @override_settings(SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=False)
-    def test_unconfigured_regional_client_has_no_capture_filter(self) -> None:
-        client = get_client(send=False, enable_local_evaluation=False)
+    @patch("posthoganalytics.client.flags")
+    def test_minimal_flag_events_preserve_only_explicit_last_seen_suppression(
+        self, _name: str, control: bool | int | None, mock_flags: MagicMock
+    ) -> None:
+        mock_flags.return_value = {
+            "flags": {
+                "report-routing": {"key": "report-routing", "value": True, "metadata": {"has_experiment": False}}
+            },
+            "minimalFlagCalledEvents": True,
+        }
+        before_send = MagicMock(side_effect=lambda message: message)
+        client = get_client(send=False, disabled=False, enable_local_evaluation=False, before_send=before_send)
         assert client is not None
         try:
-            self.assertIsNone(client.before_send)
+            with posthoganalytics.new_context(capture_exceptions=False):
+                if control is not None:
+                    posthoganalytics.tag("$update_person_last_seen_at", control)
+                posthoganalytics.tag("unrelated_tag", "excluded")
+                self.assertIs(client.get_feature_flag("report-routing", "recipient"), True)
+            before_send.assert_called_once()
+            message = before_send.call_args.args[0]
+            self.assertEqual(message["event"], "$feature_flag_called")
+            self.assertEqual(message["distinct_id"], "recipient")
+            self.assertEqual(message["properties"]["$feature_flag"], "report-routing")
+            self.assertNotIn("unrelated_tag", message["properties"])
+            self.assertEqual("$update_person_last_seen_at" in message["properties"], control is False)
+            if control is False:
+                self.assertIs(message["properties"]["$update_person_last_seen_at"], False)
+
+            self.assertIs(client.get_feature_flag("report-routing", "interactive-user"), True)
+            self.assertEqual(before_send.call_count, 2)
+            self.assertNotIn("$update_person_last_seen_at", before_send.call_args.args[0]["properties"])
         finally:
             client.shutdown()
+
+
+class TestSecondaryTelemetryLastSeen(SimpleTestCase):
+    @parameterized.expand([("module",), ("regional",), ("regional_custom_callback",)])
+    @override_settings(SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=False)
+    def test_technical_events_do_not_count_as_user_activity(self, client_kind: str) -> None:
+        with patch.multiple(
+            posthoganalytics,
+            default_client=None,
+            disabled=False,
+            send=False,
+            enable_local_evaluation=False,
+            enable_exception_autocapture=False,
+        ):
+            if client_kind == "module":
+                client = posthoganalytics.setup()
+            else:
+                custom_callback = (
+                    (lambda message: {**message, "properties": {"callback_property": True}})
+                    if client_kind == "regional_custom_callback"
+                    else None
+                )
+                client = get_client(
+                    send=False, disabled=False, enable_local_evaluation=False, before_send=custom_callback
+                )
+            assert client is not None
+            original_before_send = client.before_send
+            assert original_before_send is not None
+            captured_messages: list[dict[str, Any]] = []
+
+            def observe_capture(message: dict[str, Any]) -> dict[str, Any] | None:
+                result = original_before_send(message)
+                if result is not None:
+                    captured_messages.append(result)
+                return result
+
+            client.before_send = observe_capture
+            try:
+                for event, suppressed in (
+                    ("$ai_generation", True),
+                    ("$ai_span", True),
+                    ("$ai_trace", True),
+                    ("$exception", True),
+                    ("conversation message sent", False),
+                    ("ai prompt submitted", False),
+                    ("$pageview", False),
+                ):
+                    with self.subTest(event=event):
+                        self.assertIsNotNone(client.capture(event, distinct_id="interactive-user"))
+                        message = captured_messages[-1]
+                        self.assertEqual(message["event"], event)
+                        self.assertEqual(message["distinct_id"], "interactive-user")
+                        self.assertEqual("$update_person_last_seen_at" in message["properties"], suppressed)
+                        if suppressed:
+                            self.assertIs(message["properties"]["$update_person_last_seen_at"], False)
+                        if client_kind == "regional_custom_callback":
+                            self.assertIs(message["properties"]["callback_property"], True)
+            finally:
+                client.shutdown()
 
 
 class TestScopedCaptureFlush(SimpleTestCase):

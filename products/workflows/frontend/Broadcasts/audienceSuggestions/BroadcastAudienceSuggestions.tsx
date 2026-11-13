@@ -5,7 +5,7 @@ import { LemonButton, LemonCard, LemonSkeleton, LemonTag, Spinner, Tooltip } fro
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
-import { humanFriendlyNumber } from 'lib/utils/numbers'
+import { compactNumber } from 'lib/utils/numbers'
 
 import { getFilterLabel } from '~/taxonomy/helpers'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
@@ -68,7 +68,7 @@ export function BroadcastAudienceSuggestions(): JSX.Element | null {
                 </Tooltip>
             </div>
             <div className="grid grid-cols-[repeat(auto-fill,minmax(16rem,1fr))] gap-2">
-                {generating
+                {generating && suggestions.length === 0
                     ? Array.from({ length: LOADING_CARD_COUNT }, (_, index) => (
                           <LemonSkeleton key={index} className="h-44 rounded" />
                       ))
@@ -76,10 +76,14 @@ export function BroadcastAudienceSuggestions(): JSX.Element | null {
                           <LemonCard key={suggestion.id} hoverEffect={false} className="flex flex-col gap-2 p-4">
                               <div className="flex flex-col gap-1">
                                   <h4 className="mb-0 text-base font-semibold">{suggestion.name}</h4>
-                                  <span className="text-xs text-secondary">
-                                      <span translate="no">{humanFriendlyNumber(suggestion.reachable_count)}</span>{' '}
-                                      {suggestion.reachable_count === 1 ? 'person' : 'people'} with an email
-                                  </span>
+                                  {suggestion.reachable_count !== null ? (
+                                      <span className="text-xs text-secondary">
+                                          About <span translate="no">{compactNumber(suggestion.reachable_count)}</span>{' '}
+                                          people with an email
+                                      </span>
+                                  ) : generating ? (
+                                      <LemonSkeleton className="h-4 w-36" />
+                                  ) : null}
                               </div>
                               <p className="mb-0 text-sm text-secondary">{suggestion.reason}</p>
                               <p className="mb-0 text-xs text-tertiary">{audienceRule(suggestion)}</p>

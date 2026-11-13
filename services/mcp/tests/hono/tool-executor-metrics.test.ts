@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const { mockToolCallsInc, mockToolDurationObserve, mockToolDurationStartTimer, mockToolErrorsInc } = vi.hoisted(() => {
     const mockStop = vi.fn()
@@ -97,7 +97,12 @@ describe('ToolExecutor metrics', () => {
     let catalog: ToolCatalog
     let executor: ToolExecutor
 
-    beforeEach(async () => {
+    beforeAll(async () => {
+        catalog = new ToolCatalog()
+        await catalog.warmup()
+    })
+
+    beforeEach(() => {
         mockToolCallsInc.mockClear()
         mockToolDurationObserve.mockClear()
         mockToolDurationStartTimer.mockClear()
@@ -106,8 +111,6 @@ describe('ToolExecutor metrics', () => {
         vi.mocked(trackExecuteSqlGeneration).mockClear()
         vi.mocked(trackToolSpan).mockClear()
 
-        catalog = new ToolCatalog()
-        await catalog.warmup()
         executor = new ToolExecutor(catalog, new InstructionsBuilder(''))
     })
 
@@ -300,6 +303,63 @@ describe('ToolExecutor metrics', () => {
             })
             // The detail body echoes caller input, so it must never ride along.
             expect(JSON.stringify(extras)).not.toContain("'from' property")
+        })
+
+        // A 4xx that is not a `validation_error` still names its cause in the body. Only
+        // identifier-shaped `code` and `attr` values may reach analytics; the free text
+        // (`detail`, `message`) echoes caller input and must not.
+        it.each<[string, number, string, { $mcp_error_code?: string; $mcp_error_field?: string }]>([
+            [
+                'a DRF validation body with code and attr',
+                400,
+                '{"type":"validation_error","code":"invalid_input","detail":"secret-value is bad","attr":"actions__2__config"}',
+                { $mcp_error_code: 'invalid_input', $mcp_error_field: 'actions__N__config' },
+            ],
+            [
+                'a {code, message} body',
+                400,
+                '{"code":"credentials_invalid","message":"secret-value rejected"}',
+                { $mcp_error_code: 'credentials_invalid' },
+            ],
+            [
+                'the first item of an error list',
+                400,
+                '[{"code":"required","attr":"name","detail":"secret-value"},{"code":"other"}]',
+                { $mcp_error_code: 'required', $mcp_error_field: 'name' },
+            ],
+            ['a body without a code', 404, '{"detail":"secret-value not found."}', {}],
+            ['a non-JSON body', 400, '<html>secret-value</html>', {}],
+            ['a JSON string body', 400, '"secret-value"', {}],
+            ['an error list of strings', 400, '["secret-value"]', {}],
+            ['a code that is not a string', 400, '{"code":42,"attr":["secret-value"]}', {}],
+            ['an overlong code', 400, JSON.stringify({ code: `a${'b'.repeat(64)}`, attr: `f${'g'.repeat(128)}` }), {}],
+            ['a code with spaces', 400, '{"code":"secret value here"}', {}],
+            ['a code with punctuation', 400, '{"code":"bad-code: secret-value!","attr":"a.b; drop"}', {}],
+            ['an uppercase code', 400, '{"code":"INVALID_INPUT"}', {}],
+            ['a code with a newline', 400, '{"code":"invalid_input\\n","attr":"name\\n"}', {}],
+        ])('records the API error code for a 4xx with %s', async (_label, status, body, expected) => {
+            vi.spyOn(catalog, 'getToolByName').mockReturnValue(
+                makeFakeTool('fail-tool', async () => {
+                    throw new PostHogApiError({
+                        status,
+                        statusText: 'Bad Request',
+                        body,
+                        url: 'https://us.posthog.com/api/environments/2/hog_functions/?search=secret-value',
+                        method: 'POST',
+                    })
+                }) as any
+            )
+
+            await executor.handleToolCall(
+                { name: 'fail-tool', arguments: {} },
+                makeToolExecutorState([{ name: 'fail-tool' }])
+            )
+
+            const extras = trackToolCallExtras('fail-tool')
+            expect(extras).toMatchObject({ $mcp_error_type: 'api_4xx', $mcp_error_status: status })
+            expect(extras?.$mcp_error_code).toBe(expected.$mcp_error_code)
+            expect(extras?.$mcp_error_field).toBe(expected.$mcp_error_field)
+            expect(JSON.stringify(extras)).not.toContain('secret-value')
         })
 
         // A tool that fails inside PostHog's backend answers with an error type and, when the
@@ -612,7 +672,7 @@ describe('ToolExecutor metrics', () => {
             })
         })
 
-        it('stamps the discovery hint kind and emptiness the response builder recorded', async () => {
+        it('stamps the emptiness the response builder recorded', async () => {
             vi.spyOn(catalog, 'getToolByName').mockReturnValue(
                 makeFakeTool('query-error-tracking-issues-list', async () => ({ results: [] })) as any
             )
@@ -623,7 +683,6 @@ describe('ToolExecutor metrics', () => {
             )
 
             expect(trackToolCallExtras('query-error-tracking-issues-list')).toMatchObject({
-                mcp_discovery_hint: 'empty_state',
                 mcp_result_empty: true,
             })
         })
@@ -771,7 +830,6 @@ describe('ToolExecutor metrics', () => {
 
             const extras = mockTrackToolCall.mock.calls.at(-1)?.[4]
             expect(extras?.mcp_result_empty).toBe(empty ? true : undefined)
-            expect(extras).not.toHaveProperty('mcp_discovery_hint')
         })
 
         // In exec mode the inner arguments are JSON inside `command`, so the direct
@@ -808,20 +866,25 @@ describe('ToolExecutor metrics', () => {
 
         it.each(['gated_tool', 'tool_not_granted'] as const)('stamps the target tool on %s', async (reason) => {
             const state = execState()
-            state.allTools = state.allTools.filter((tool) => tool.name !== 'notebooks-create')
+            state.allTools = state.allTools.filter((tool) => tool.name !== 'notebooks-partial-update')
             if (reason === 'gated_tool') {
-                state.flagGatedTools = [{ name: 'notebooks-create', supersededBy: ['notebooks-create-markdown'] }]
+                state.flagGatedTools = [{ name: 'notebooks-partial-update', supersededBy: ['notebooks-update-cell'] }]
             } else {
                 state.scopeGatedTools = []
                 state.flagGatedTools = []
                 state.heldTools = new Set(['docs-search'])
             }
 
-            await executor.handleToolCall({ name: 'exec', arguments: { command: 'call notebooks-create {}' } }, state)
+            await executor.handleToolCall(
+                { name: 'exec', arguments: { command: 'call notebooks-partial-update {}' } },
+                state
+            )
 
-            expect(mockTrackToolCall.mock.calls.at(-1)?.[4]).toMatchObject({
+            const [toolName, , , , extras] = mockTrackToolCall.mock.calls.at(-1) ?? []
+            expect(toolName).toBe('notebooks-partial-update')
+            expect(extras).toMatchObject({
                 $mcp_exec_verb: 'call',
-                $mcp_exec_target_tool: 'notebooks-create',
+                $mcp_exec_target_tool: 'notebooks-partial-update',
                 $mcp_error_code: reason,
             })
         })
@@ -877,20 +940,23 @@ describe('ToolExecutor metrics', () => {
         })
 
         // Dispatcher rejections are agent mistakes, not server faults: they must not
-        // land in the `internal` bucket the error-rate alert watches, they stay
-        // attributed to `exec` (no inner tool ran), and they must carry a value-free
-        // message so the failure is debuggable from analytics.
+        // land in the `internal` bucket the error-rate alert watches, their server
+        // metrics stay on `exec` (no inner tool ran), and they must carry a value-free
+        // message so the failure is debuggable from analytics. The analytics event names
+        // the tool the agent was trying to call when the command named a known one, so
+        // a malformed call shows up against that tool instead of the generic `exec` bucket.
         it.each([
-            ['call nonexistent-tool-xyz {}', 'unknown_tool'],
-            ['frobnicate', 'unknown_command'],
-            ['docs-search {"query":"funnels"}', 'tool_as_command'],
-            ['call docs-search {not json}', 'invalid_json'],
-        ])('classifies %s as validation', async (command, reason) => {
+            ['call nonexistent-tool-xyz {}', 'unknown_tool', 'exec'],
+            ['frobnicate', 'unknown_command', 'exec'],
+            ['docs-search {"query":"funnels"}', 'tool_as_command', 'docs-search'],
+            ['call docs-search {not json}', 'invalid_json', 'docs-search'],
+        ])('classifies %s as validation', async (command, reason, analyticsTool) => {
             await executor.handleToolCall({ name: 'exec', arguments: { command } }, execState())
 
             expect(callsFor(mockToolCallsInc, 'exec')).toEqual([{ tool: 'exec', status: 'validation_error' }])
             expect(callsFor(mockToolErrorsInc, 'exec')).toEqual([{ tool: 'exec', error_type: 'validation' }])
-            expect(trackToolCallExtras('exec')).toMatchObject({
+            expect(mockTrackToolCall.mock.calls.map((c) => c[0])).toEqual([analyticsTool])
+            expect(trackToolCallExtras(analyticsTool)).toMatchObject({
                 $mcp_error_type: 'validation',
                 $mcp_error_code: reason,
                 $mcp_error_message: `Exec command rejected: ${reason}`,

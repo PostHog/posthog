@@ -1,0 +1,46 @@
+#!/bin/sh
+# Called by the create and remove hooks of apps that run coding agents in worktrees,
+# with the worktree as the working directory:
+#
+#   bin/devbox-worktree-hook created <source>   after the app creates the worktree
+#   bin/devbox-worktree-hook removing           before the app deletes the worktree
+#   bin/devbox-worktree-hook archiving          before the app archives a worktree it keeps on disk
+#
+# It always exits 0, so a devbox problem never blocks the app. Like .husky/post-checkout,
+# it runs the main clone's hogli and venv, because a new worktree has no venv of its own.
+
+[ -f .git ] || exit 0
+
+case "${1:-}" in
+    created)
+        # hogli telemetry reports this file as `worktree_tool` for every command run in the worktree.
+        case "${2:-}" in
+            "" | *[!a-z0-9-]*) ;;
+            *) printf '%s\n' "$2" >"$(git rev-parse --absolute-git-dir)/hogli-worktree-source" 2>/dev/null ;;
+        esac
+        # Python stays off the path of everyone who has not run `devbox:worktree` with `--auto` or `--on-clean`.
+        grep -qsE '"worktree_(auto_box|box_cleanup)"' "$HOME/.config/posthog/hogli_devbox.json" || exit 0
+        set -- devbox:worktree:auto --source "${2:-other}"
+        ;;
+    removing | archiving)
+        [ -s "$HOME/.config/posthog/hogli_devbox_worktrees.json" ] || exit 0
+        # The box action runs in the background, because Superset and Orca kill a remove hook after 60 and 120 seconds.
+        # An archived worktree can be restored, and its create hook then starts the box again from the kept record.
+        if [ "$1" = archiving ]; then
+            set -- devbox:worktree:teardown --background --keep-record
+        else
+            set -- devbox:worktree:teardown --background
+        fi
+        ;;
+    *)
+        exit 0
+        ;;
+esac
+
+. "$(cd "$(dirname "$0")" && pwd)/helpers/worktree-borrow.sh"
+main="$(posthog_main_repo "$(pwd)")"
+[ -n "$main" ] && [ -x "$main/bin/hogli" ] || exit 0
+
+(unset PYTHONPATH && posthog_worktree_borrow main-only && HOGLI_MANIFEST="$main/hogli.yaml" "$main/bin/hogli" "$@") ||
+    echo "devbox-worktree-hook: \`hogli $*\` failed. Run it by hand to see why." >&2
+exit 0

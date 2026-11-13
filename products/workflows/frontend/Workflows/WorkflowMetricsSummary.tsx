@@ -5,11 +5,12 @@ import { IconArrowRight, IconLetter, IconNotification } from '@posthog/icons'
 import { LemonLabel, LemonTable, LemonTableColumns, LemonTag, Link, SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { getColorVar } from 'lib/colors'
-import { type AppMetricsTimeSeriesResponse } from 'lib/components/AppMetrics/appMetricsLogic'
+import { type AppMetricsTimeSeriesResponse, appMetricsLogic } from 'lib/components/AppMetrics/appMetricsLogic'
 import { AppMetricsTrends } from 'lib/components/AppMetrics/AppMetricsTrends'
 import { type ExpandableConfig } from 'lib/lemon-ui/LemonTable'
 import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
 
+import { EmailMetricsIncidentBanner } from '../EmailMetricsIncidentBanner'
 import { EmailLinksTable } from './EmailLinksTable'
 import { WorkflowMetricCard } from './WorkflowMetricCard'
 import {
@@ -81,6 +82,8 @@ export function WorkflowMetricsSummary({
         messagingChannels,
         sentSummaryLabel,
     } = useValues(workflowMetricsSummaryLogic(props))
+    const { getDateRangeAbsolute } = useValues(appMetricsLogic({ logicKey: props.logicKey }))
+    const { dateFrom, dateTo } = getDateRangeAbsolute()
 
     // Email and push don't share a funnel, so each channel gets its own table with the columns that
     // actually apply — email keeps the delivery→open→click funnel, push surfaces skipped/failed as
@@ -99,7 +102,9 @@ export function WorkflowMetricsSummary({
             {
                 title: 'Step',
                 key: 'step',
-                render: (_, row) => <span className="font-medium">{row.email}</span>,
+                render: (_, row) => (
+                    <span className={row.removed ? 'font-medium text-muted' : 'font-medium'}>{row.email}</span>
+                ),
             },
             { title: 'Sent', key: 'sent', align: 'right', render: (_, row) => row.sent.toLocaleString() },
             {
@@ -209,7 +214,7 @@ export function WorkflowMetricsSummary({
                           title: '',
                           key: 'view',
                           align: 'right' as const,
-                          render: (_: unknown, row: EmailMetricRow) => viewMetricsColumn(row.id),
+                          render: (_: unknown, row: EmailMetricRow) => (row.removed ? null : viewMetricsColumn(row.id)),
                       },
                   ]
                 : []),
@@ -252,6 +257,7 @@ export function WorkflowMetricsSummary({
 
     return (
         <>
+            {messagingChannels.hasEmail ? <EmailMetricsIncidentBanner dateFrom={dateFrom} dateTo={dateTo} /> : null}
             <div className="flex flex-row gap-2 flex-wrap justify-center">
                 <div className="flex flex-1 flex-col relative border rounded p-3 bg-surface-primary min-w-[16rem]">
                     <div className="flex flex-col h-full">
@@ -348,7 +354,7 @@ export function WorkflowMetricsSummary({
                 {hasConversionGoal && (
                     <div className="flex flex-1 flex-col relative border rounded p-3 bg-surface-primary min-w-[16rem]">
                         <div className="flex flex-col h-full">
-                            <LemonLabel info="Share of started workflow runs that recorded a conversion (Converted ÷ Started) over the selected date range.">
+                            <LemonLabel info="Share of workflow runs started in the selected date range that have converted so far. The rate for recent runs keeps rising until their conversion window closes. A date range that starts before November 13, 2026 counts the conversions that happened in the range.">
                                 Conversion rate
                             </LemonLabel>
                             <div className="flex flex-1 items-center justify-center">
@@ -362,11 +368,6 @@ export function WorkflowMetricsSummary({
                                     </div>
                                 )}
                             </div>
-                            {!conversionStatsLoading && conversionStats.conversions > 0 && (
-                                <Link to={convertedUsersUrl} className="text-xs text-center">
-                                    View converted users
-                                </Link>
-                            )}
                         </div>
                     </div>
                 )}

@@ -7,7 +7,7 @@ from typing import Any, Optional, cast
 
 from django.contrib.auth.models import AnonymousUser
 from django.db import IntegrityError, transaction
-from django.db.models import Count, Q, QuerySet, Value
+from django.db.models import Count, DurationField, ExpressionWrapper, F, Q, QuerySet, Value
 from django.db.models.functions import Coalesce, Lower, NullIf
 from django.utils.timezone import now
 
@@ -161,8 +161,25 @@ def create_synthetic_playlist_instance(
 def live_playlist_items(
     items: QuerySet[SessionRecordingPlaylistItem], team: Team
 ) -> QuerySet[SessionRecordingPlaylistItem]:
-    cutoff = now() - timedelta(days=retention_period_in_days(team.session_recording_retention_period))
-    return items.exclude(deleted=True).exclude(recording__start_time__lt=cutoff)
+    team_retention_days = retention_period_in_days(team.session_recording_retention_period)
+    # Pins from before we stored start_time (or whose lookup failed) fall back to when the item was added:
+    # the recording cannot have started later than that. Unknown retention falls back to the team's current one.
+    expires_at = Coalesce(F("recording__start_time"), F("created_at")) + ExpressionWrapper(
+        Coalesce(F("recording__retention_period_days"), Value(team_retention_days)) * Value(timedelta(days=1)),
+        output_field=DurationField(),
+    )
+    return items.exclude(deleted=True).alias(expires_at=expires_at).exclude(expires_at__lt=now())
+
+
+def queue_pinned_recording_metadata(recordings: list[SessionRecording], team: Team) -> None:
+    session_ids = [recording.session_id for recording in recordings if recording.start_time is None]
+    if not session_ids:
+        return
+    # Deferred: posthog.tasks pulls in every Celery task module
+    from posthog.tasks.tasks import store_pinned_recording_metadata  # noqa: PLC0415
+
+    # The ClickHouse lookup runs in Celery so a slow query does not hold the pin request
+    transaction.on_commit(lambda: store_pinned_recording_metadata.delay(team.id, session_ids), robust=True)
 
 
 def count_collection_recordings(
@@ -219,20 +236,12 @@ def count_synthetic_playlist(
         }
 
     # Use the count function for efficient database-level counting
-    count = synthetic_def.count_session_ids(team, user)
-
-    # For watched_count, we still need to load session IDs since we're checking user-specific viewed status
-    # But only if count > 0
-    if count > 0:
-        session_ids = synthetic_def.get_session_ids(team, user)
-        watched_count = len(current_user_viewed(session_ids, user, team))
-    else:
-        watched_count = 0
+    counts = synthetic_def.count_recordings(team, user)
 
     return {
-        "count": count if count > 0 else None,
+        "count": counts.count if counts.count > 0 else None,
         "has_more": False,  # We don't paginate synthetic playlists (yet)
-        "watched_count": watched_count,
+        "watched_count": counts.watched_count,
         "increased": None,  # We don't track historical changes for synthetic playlists
         "last_refreshed_at": None,
     }
@@ -1049,6 +1058,8 @@ class SessionRecordingPlaylistViewSet(
             playlist_item, created = SessionRecordingPlaylistItem.objects.get_or_create(
                 playlist=playlist, recording=recording
             )
+            if created:
+                queue_pinned_recording_metadata([recording], self.team)
 
             return response.Response({"success": True})
 
@@ -1092,6 +1103,7 @@ class SessionRecordingPlaylistViewSet(
             raise ValidationError("Cannot add recordings to a playlist that is type 'filters'.")
 
         added_count = 0
+        pinned_recordings: list[SessionRecording] = []
         for session_recording_id in session_recording_ids:
             try:
                 recording, _ = SessionRecording.objects.get_or_create(
@@ -1104,6 +1116,7 @@ class SessionRecordingPlaylistViewSet(
                     playlist=playlist, recording=recording
                 )
                 if created:
+                    pinned_recordings.append(recording)
                     added_count += 1
             except Exception as e:
                 logger.warning(
@@ -1112,6 +1125,8 @@ class SessionRecordingPlaylistViewSet(
                     playlist_id=playlist.short_id,
                     error=str(e),
                 )
+
+        queue_pinned_recording_metadata(pinned_recordings, self.team)
 
         logger.info(
             "bulk_recordings_added_to_playlist",

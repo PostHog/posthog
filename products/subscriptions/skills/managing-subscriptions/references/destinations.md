@@ -34,8 +34,12 @@ The default is `false`.
 PostHog sends the first image in the main message and the rest in a thread.
 
 Set the option to `true` to send all images in the main message.
-This option requires the Slack `files:write` permission.
+Only dashboard snapshots need the Slack `files:write` permission for this option.
 It does not apply to email or Teams.
+
+For AI prompt reports, the same option controls where the chart images go in Slack.
+With the default `false`, the main message holds the summary and the charts go in the first thread reply.
+Set it to `true` to post the charts in the main message.
 
 ## Microsoft Teams
 

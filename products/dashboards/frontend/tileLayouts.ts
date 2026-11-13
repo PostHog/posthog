@@ -1,0 +1,421 @@
+import { Layout } from 'react-grid-layout'
+
+import { BREAKPOINT_COLUMN_COUNTS } from 'scenes/dashboard/dashboardUtils'
+
+import {
+    isFunnelsQuery,
+    isInsightVizNode,
+    isPathsQuery,
+    isRetentionQuery,
+    isTrendsQuery,
+} from '~/queries/schema/node-guards'
+import { isMetricInsightQuery } from '~/queries/utils'
+import { ChartDisplayType, DashboardLayoutSize, DashboardTile } from '~/types'
+
+import { getImageOnlyTextCardImage } from 'products/dashboards/frontend/components/ImageTile/imageTileUtils'
+
+import {
+    DASHBOARD_WIDGET_CATALOG,
+    getDashboardWidgetCatalogEntry,
+    type DashboardWidgetCatalogEntry,
+} from './widget_types/catalog'
+
+export interface TileLayout {
+    x: number
+    y: number
+    w: number
+    h: number
+}
+
+const MIN_TILE_DIMENSIONS = {
+    default: { w: 2, h: 2 },
+    image: { w: 1, h: 2 },
+    text: { w: 1, h: 1 },
+    button: { w: 1, h: 1 },
+    widget: { w: 3, h: 4 },
+} as const
+
+type TileLayoutKind = keyof typeof MIN_TILE_DIMENSIONS
+
+/** Fallback tile dimensions (half-width, standard height) when a tile has no known layout yet. */
+export const DEFAULT_INSERTED_TILE_SIZE = { w: 6, h: 5 } as const
+
+type WidgetCatalogLayout = DashboardWidgetCatalogEntry['defaultLayout']
+
+/**
+ * Widget tile sizing from `DASHBOARD_WIDGET_CATALOG[].defaultLayout` (w, h, minW, minH).
+ * Returns undefined when `widget_type` is missing or unknown; callers use scene fallbacks
+ * (default size 6×5, mins `MIN_TILE_DIMENSIONS.widget`).
+ */
+function getWidgetCatalogLayout(widgetType: string | undefined): WidgetCatalogLayout | undefined {
+    if (!widgetType || !(widgetType in DASHBOARD_WIDGET_CATALOG)) {
+        return undefined
+    }
+    return getDashboardWidgetCatalogEntry(widgetType).defaultLayout
+}
+
+function getTileMinDimensions({
+    tileLayoutKind,
+    widgetCatalogLayout,
+}: {
+    tileLayoutKind: TileLayoutKind
+    widgetCatalogLayout: WidgetCatalogLayout | undefined
+}): { minW: number; minH: number } {
+    if (tileLayoutKind === 'widget') {
+        const dimensions = MIN_TILE_DIMENSIONS.widget
+        return {
+            minW: widgetCatalogLayout?.minW ?? dimensions.w,
+            minH: widgetCatalogLayout?.minH ?? dimensions.h,
+        }
+    }
+
+    const dimensions = MIN_TILE_DIMENSIONS[tileLayoutKind]
+    return {
+        minW: dimensions.w,
+        minH: dimensions.h,
+    }
+}
+
+export interface DuplicateLayoutResult {
+    duplicateLayouts: { sm?: TileLayout }
+    tilesToUpdate: Array<{ id: number; layouts: { sm?: TileLayout } }>
+}
+
+export function calculateDuplicateLayout(
+    currentLayouts: Partial<Record<DashboardLayoutSize, Layout>> | null,
+    tileId: number
+): DuplicateLayoutResult {
+    const result: DuplicateLayoutResult = { duplicateLayouts: {}, tilesToUpdate: [] }
+
+    const originalSmLayout = currentLayouts?.sm?.find((l) => l.i === `${tileId}`)
+
+    if (!originalSmLayout) {
+        return result
+    }
+
+    const { x, y, w, h } = originalSmLayout
+    const columnCount = BREAKPOINT_COLUMN_COUNTS.sm
+
+    // place the tile on the right if there's space
+    if (canPlaceToRight(currentLayouts?.sm || [], tileId, x, y, w, h, columnCount)) {
+        result.duplicateLayouts = {
+            sm: { x: x + w, y, w, h },
+        }
+        return result
+    }
+
+    // otherwise, place it below
+    const insertY = y + h
+    result.duplicateLayouts = {
+        sm: { x, y: insertY, w, h },
+    }
+
+    // shift down any tiles that would overlap with the new placement
+    for (const smLayout of currentLayouts?.sm || []) {
+        // ignore the duplicated tile and tiles above the insertion point
+        if (smLayout.i === `${tileId}` || smLayout.y < insertY) {
+            continue
+        }
+
+        result.tilesToUpdate.push({
+            id: Number(smLayout.i),
+            layouts: {
+                sm: { x: smLayout.x, y: smLayout.y + h, w: smLayout.w, h: smLayout.h },
+            },
+        })
+    }
+
+    return result
+}
+
+export interface InsertionLayoutResult {
+    newTileLayout: { sm: TileLayout }
+    tilesToUpdate: Array<{ id: number; layouts: { sm?: TileLayout } }>
+}
+
+/**
+ * Layout for inserting a tile at a given grid slot: the new tile lands at (`targetX`, `targetY`) and
+ * only tiles sharing its column span (those horizontally overlapping the new tile) that sit at or
+ * below `targetY` are pushed down by `h` rows. Tiles in other columns stay put, so inserting into the
+ * right column doesn't shove the left one. Mirrors `calculateDuplicateLayout`'s `tilesToUpdate` shape
+ * so persistence is shared.
+ */
+export function calculateInsertionLayout(
+    currentSmLayout: Layout | undefined,
+    newTileId: number,
+    targetY: number,
+    targetX: number,
+    w: number,
+    h: number
+): InsertionLayoutResult {
+    const result: InsertionLayoutResult = {
+        newTileLayout: { sm: { x: targetX, y: targetY, w, h } },
+        tilesToUpdate: [],
+    }
+
+    for (const smLayout of currentSmLayout || []) {
+        // leave the new tile and anything above the insertion point untouched
+        if (smLayout.i === `${newTileId}` || smLayout.y < targetY) {
+            continue
+        }
+        // only push tiles that share horizontal space with the inserted tile's column span
+        const overlapsColumn = smLayout.x < targetX + w && smLayout.x + smLayout.w > targetX
+        if (!overlapsColumn) {
+            continue
+        }
+
+        result.tilesToUpdate.push({
+            id: Number(smLayout.i),
+            layouts: {
+                sm: { x: smLayout.x, y: smLayout.y + h, w: smLayout.w, h: smLayout.h },
+            },
+        })
+    }
+
+    return result
+}
+
+function canPlaceToRight(
+    layouts: Layout,
+    excludeTileId: number,
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    columnCount: number
+): boolean {
+    const rightX = x + w
+    if (rightX + w > columnCount) {
+        return false
+    }
+
+    return !layouts.some((l) => {
+        if (l.i === `${excludeTileId}`) {
+            return false
+        }
+        const overlapsX = l.x < rightX + w && l.x + l.w > rightX
+        const overlapsY = l.y < y + h && l.y + l.h > y
+        return overlapsX && overlapsY
+    })
+}
+
+export function defaultSmLayoutAtBottom(smLayout: Layout | undefined, w: number, h: number): TileLayout {
+    let maxBottom = 0
+    for (const layout of smLayout ?? []) {
+        maxBottom = Math.max(maxBottom, (layout.y ?? 0) + (layout.h ?? 0))
+    }
+
+    return { x: 0, y: maxBottom, w, h }
+}
+
+export const sortTilesByLayout = (tiles: Array<DashboardTile>, col: DashboardLayoutSize): Array<DashboardTile> => {
+    return [...tiles].sort((a: DashboardTile, b: DashboardTile) => {
+        const ax = a.layouts?.[col]?.x ?? 0
+        const ay = a.layouts?.[col]?.y ?? 0
+        const bx = b.layouts?.[col]?.x ?? 0
+        const by = b.layouts?.[col]?.y ?? 0
+
+        if (ay < by || (ay == by && ax < bx)) {
+            return -1
+        } else if (ay > by || (ay == by && ax > bx)) {
+            return 1
+        }
+        return 0
+    })
+}
+export const calculateLayouts = (
+    tiles: DashboardTile[],
+    { groupsShareGrid = false }: { groupsShareGrid?: boolean } = {}
+): Partial<Record<DashboardLayoutSize, Layout>> => {
+    const allLayouts: Partial<Record<keyof typeof BREAKPOINT_COLUMN_COUNTS, Layout>> = {}
+    const imageTileIds = new Set(
+        tiles.filter((tile) => !!tile.text && !!getImageOnlyTextCardImage(tile.text.body)).map((tile) => tile.id)
+    )
+
+    // Always calculate sm layout first to establish reference order
+    let referenceOrder: number[] | undefined = undefined
+
+    for (const breakpoint of Object.keys(BREAKPOINT_COLUMN_COUNTS) as (keyof typeof BREAKPOINT_COLUMN_COUNTS)[]) {
+        const columnCount = BREAKPOINT_COLUMN_COUNTS[breakpoint]
+
+        let sortedDashboardTiles: DashboardTile[] | undefined
+        if (referenceOrder === undefined) {
+            sortedDashboardTiles = sortTilesByLayout(tiles, 'sm')
+        } else {
+            // Subsequent passes: follow the reference order from sm layout
+            sortedDashboardTiles = tiles.sort((a, b) => {
+                return (referenceOrder?.indexOf(a.id) || 0) - (referenceOrder?.indexOf(b.id) || 0)
+            })
+        }
+
+        const layouts = (sortedDashboardTiles || []).map((tile) => {
+            const query = tile.insight?.query
+            const source = isInsightVizNode(query) ? query.source : query
+            // Base constraints
+            let defaultW = 6
+            let defaultH = 5
+            // Content-adjusted constraints (note that widths should be factors of 12)
+            if (tile.text) {
+                defaultW = 2
+                defaultH = 2
+            } else if (isFunnelsQuery(source)) {
+                defaultW = 4
+                defaultH = 4
+            } else if (isRetentionQuery(source)) {
+                defaultW = 6
+                defaultH = 7
+            } else if (isPathsQuery(source)) {
+                defaultW = columnCount // Paths take up so much space that they need to be full width to be readable
+                defaultH = 7
+            } else if (isTrendsQuery(source) && source.trendsFilter?.display === ChartDisplayType.BoldNumber) {
+                defaultW = 2
+                defaultH = 2
+            } else if (isMetricInsightQuery(query)) {
+                defaultW = 3
+                defaultH = 3
+            }
+            // Single-column layout width override
+            if (breakpoint === 'xs') {
+                defaultW = 1
+            }
+
+            // For xs layout, ignore stored layout and derive from sm order
+            // For sm layout, use stored layout if available
+            const layout = breakpoint === 'xs' ? undefined : tile.layouts?.[breakpoint]
+            const { x, y, w, h } = layout || {}
+
+            const isTextTile = !!tile.text
+            const isImageTile = imageTileIds.has(tile.id)
+            const isButtonTile = !!tile.button_tile
+            const isWidgetTile = !!tile.widget
+            let tileLayoutKind: TileLayoutKind
+            switch (true) {
+                case isImageTile:
+                    tileLayoutKind = 'image'
+                    break
+                case isTextTile:
+                    tileLayoutKind = 'text'
+                    break
+                case isButtonTile:
+                    tileLayoutKind = 'button'
+                    break
+                case isWidgetTile:
+                    tileLayoutKind = 'widget'
+                    break
+                case !!tile.insight:
+                    tileLayoutKind = 'default'
+                    break
+                default:
+                    console.warn('Unknown dashboard tile type', { tileId: tile.id })
+                    tileLayoutKind = 'default'
+            }
+            const widgetCatalogLayout = isWidgetTile ? getWidgetCatalogLayout(tile.widget?.widget_type) : undefined
+            if (isButtonTile) {
+                defaultW = 2
+                defaultH = 1
+            } else if (isWidgetTile) {
+                defaultW = widgetCatalogLayout?.w ?? 6
+                defaultH = widgetCatalogLayout?.h ?? 5
+            }
+            const xsSmH = breakpoint === 'xs' ? tile.layouts?.sm?.h : undefined
+            const realW = Math.min(w || defaultW, columnCount)
+            const realH = h || (typeof xsSmH === 'number' && xsSmH > 0 ? xsSmH : undefined) || defaultH
+            const { minW, minH } = getTileMinDimensions({
+                tileLayoutKind,
+                widgetCatalogLayout,
+            })
+            const constrainedW = isImageTile ? Math.max(realW, minW) : realW
+            const constrainedH = isImageTile ? Math.max(realH, minH) : realH
+
+            return {
+                i: tile.id?.toString(),
+                x: x != null && Number.isInteger(x) && x + constrainedW - 1 < columnCount ? x : 0,
+                y: y != null && Number.isInteger(y) ? y : Infinity,
+                w: constrainedW,
+                h: constrainedH,
+                minW,
+                minH,
+            }
+        })
+
+        const cleanLayouts = layouts?.filter(({ y }) => y !== Infinity)
+        const dirtyLayouts = layouts?.filter(({ y }) => y === Infinity)
+
+        // Each group lays out on its own, so a new tile fills a gap in its own group.
+        // Without sections every group renders in one grid, so they all count as one group.
+        const groupOf = new Map(
+            tiles.map((tile) => [tile.id?.toString(), groupsShareGrid ? null : (tile.group_key ?? null)])
+        )
+        const lowestPointsByGroup = new Map<string | null, number[]>()
+        const lowestPointsFor = (groupKey: string | null): number[] => {
+            let points = lowestPointsByGroup.get(groupKey)
+            if (!points) {
+                const groupLayouts = cleanLayouts.filter(({ i }) => groupOf.get(i) === groupKey)
+                // Groups sort by their top tile, so a grouped tile never goes above its group's top row.
+                const floor =
+                    groupKey === null || groupLayouts.length === 0
+                        ? -1
+                        : Math.min(...groupLayouts.map(({ y }) => y)) - 1
+                points = Array.from(Array(columnCount)).map(() => floor)
+                for (const { x, y, w, h } of groupLayouts) {
+                    for (let column = x; column <= x + w - 1; column++) {
+                        points[column] = Math.max(points[column], y + h - 1)
+                    }
+                }
+                // The first tile of an empty group goes below every other tile, so the group goes last.
+                if (groupLayouts.length === 0 && groupKey !== null) {
+                    const dashboardBottom = Math.max(-1, ...cleanLayouts.map(({ y, h }) => y + h - 1))
+                    points = points.map(() => dashboardBottom)
+                }
+                lowestPointsByGroup.set(groupKey, points)
+            }
+            return points
+        }
+
+        for (const { i, w, h, minW, minH } of dirtyLayouts) {
+            const lowestPoints = lowestPointsFor(groupOf.get(i) ?? null)
+            // how low are things in "w" consecutive of columns
+            const segmentCount = columnCount - w + 1
+            const lowestSegments = Array.from(Array(segmentCount)).map(() => -1)
+            for (let k = 0; k < segmentCount; k++) {
+                for (let j = k; j <= k + w - 1; j++) {
+                    lowestSegments[k] = Math.max(lowestSegments[k], lowestPoints[j])
+                }
+            }
+
+            let lowestIndex = 0
+            let lowestDepth = lowestSegments[0]
+            for (let index = 1; index < segmentCount; index++) {
+                const depth = lowestSegments[index]
+                if (depth < lowestDepth) {
+                    lowestIndex = index
+                    lowestDepth = depth
+                }
+            }
+
+            cleanLayouts.push({
+                i,
+                x: lowestIndex,
+                y: lowestDepth + 1,
+                w,
+                h,
+                minW,
+                minH,
+            })
+
+            for (let k = lowestIndex; k <= lowestIndex + w - 1; k++) {
+                lowestPoints[k] = Math.max(lowestPoints[k], lowestDepth + h)
+            }
+        }
+
+        if (breakpoint === 'sm') {
+            referenceOrder = [...cleanLayouts]
+                .sort((a, b) => (a.y === b.y ? a.x - b.x : a.y - b.y))
+                .map((l) => Number(l.i))
+        }
+
+        allLayouts[breakpoint] = cleanLayouts
+    }
+
+    return allLayouts
+}

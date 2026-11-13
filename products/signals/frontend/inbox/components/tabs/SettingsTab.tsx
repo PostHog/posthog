@@ -11,34 +11,23 @@ import { RepoRoutingRules } from '../config/RepoRoutingRules'
 import { SelfDrivingSection } from '../config/SelfDrivingSection'
 import { SlackNotificationsSection } from '../config/SlackNotificationsSection'
 import { InboxUsageWidget } from '../shell/InboxUsageWidget'
-import { InstallationSetupSection } from '../shell/InstallationSetupSection'
 import { UsageOverview } from '../spend/UsageOverview'
 import { SettingsSection } from './SettingsSection'
 
 export function SettingsTab(): JSX.Element {
     const usageEnabled = useFeatureFlag('SELF_DRIVING_USAGE_DISPLAY')
     useMountedLogic(integrationsLogic)
-    // The usage widget renders nothing without the billing product, so the section title
-    // must hide with it rather than sit over an empty area.
-    const { product: inboxUsageProduct, isLoading: inboxUsageLoading } = useValues(inboxUsageLogic)
+    const { product: inboxUsageProduct, spendProduct, isLoading: inboxUsageLoading } = useValues(inboxUsageLogic)
+    const showBillingUsage = inboxUsageProduct != null || spendProduct != null || inboxUsageLoading
 
     return (
         <div className="mx-auto flex w-full max-w-4xl flex-col gap-8 px-6 py-6">
-            <InstallationSetupSection />
             <SettingsSection
                 title="Autonomy"
                 description="How much agents do on their own: opening pull requests, and how many reports arrive each day."
             >
                 <SelfDrivingSection />
             </SettingsSection>
-            {usageEnabled && (
-                <SettingsSection
-                    title="Usage"
-                    description="Recorded usage for scout runs started and signals received in the last 30 days."
-                >
-                    <UsageOverview />
-                </SettingsSection>
-            )}
             <AgentSteeringSection />
             <SettingsSection
                 title="Code access"
@@ -54,12 +43,29 @@ export function SettingsTab(): JSX.Element {
             >
                 <SlackNotificationsSection />
             </SettingsSection>
-            {(inboxUsageProduct != null || inboxUsageLoading) && (
+            {(showBillingUsage || usageEnabled) && (
                 <SettingsSection
-                    title={usageEnabled ? 'Pull request usage' : 'Usage'}
-                    description="Pull requests agents opened this billing period."
+                    title="Usage"
+                    description={
+                        showBillingUsage
+                            ? spendProduct
+                                ? 'Recorded billable usage this billing period.'
+                                : 'Pull requests agents opened this billing period.'
+                            : undefined
+                    }
                 >
-                    <InboxUsageWidget />
+                    {showBillingUsage && <InboxUsageWidget />}
+                    {usageEnabled && (
+                        <div className={showBillingUsage ? 'border-t border-primary pt-3' : undefined}>
+                            <div className="mb-3 flex flex-col gap-0.5">
+                                <h4 className="m-0 text-sm font-semibold text-default">Usage breakdown</h4>
+                                <p className="m-0 max-w-2xl text-xs leading-snug text-secondary">
+                                    Recorded usage for scout runs started and signals received in the last 30 days.
+                                </p>
+                            </div>
+                            <UsageOverview />
+                        </div>
+                    )}
                 </SettingsSection>
             )}
         </div>

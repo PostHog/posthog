@@ -8,7 +8,11 @@ import posthog from 'posthog-js'
 
 import api, { ApiConfig, ApiError } from 'lib/api'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
+import { openTakeOwnershipDialog, ownerUnavailableCause } from 'lib/components/openTakeOwnershipDialog'
+import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { formatDate } from 'lib/utils/datetime'
+import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -24,7 +28,11 @@ import {
 } from '~/queries/schema/schema-general'
 import { AvailableFeature, InsightLogicProps, IntervalType, InsightModel } from '~/types'
 
-import { alertsSimulateCreate } from 'products/alerts/frontend/generated/api'
+import {
+    alertsPartialUpdate,
+    alertsSimulateCreate,
+    alertsTakeOwnershipCreate,
+} from 'products/alerts/frontend/generated/api'
 import {
     blockSubmitWithoutEntitlement,
     getDefaultSimulationRange,
@@ -47,6 +55,8 @@ import {
 import { canCheckOngoingInterval, getAlertFormValidationErrors } from './alertFormSchema'
 import { alertLogic } from './alertLogic'
 import { alertNotificationLogic } from './alertNotificationLogic'
+import { ALERT_NOTIFICATION_TYPE_PAGERDUTY } from './alertNotifications'
+import { alertsLogic } from './alertsLogic'
 import { getDefaultAnomalyDetectorConfig } from './detectorConfigDefaults'
 import { deriveFunnelAlertPreview, FunnelAlertPreview } from './funnelAlertPreview'
 import { columnIsNumeric, deriveHogQLAlertPreview, HogQLAlertPreview } from './hogqlAlertPreview'
@@ -564,7 +574,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
         ],
     })),
 
-    forms(({ props, values, actions }) => ({
+    forms(({ props, values, actions, cache }) => ({
         alertForm: {
             defaults: props.alert
                 ? alertToFormType(props.alert, props.insightId)
@@ -620,6 +630,8 @@ export const alertFormLogic = kea<alertFormLogicType>([
 
                 const payload: AlertTypeWrite = {
                     ...alert,
+                    // The snooze control saves on its own, so the form's copy can be stale and would undo it.
+                    snoozed_until: undefined,
                     subscribed_users: alert.subscribed_users?.map(({ id }) => id),
                     insight: props.insightId,
                     // can only skip weekends for sub-daily alerts
@@ -686,12 +698,43 @@ export const alertFormLogic = kea<alertFormLogicType>([
 
                 const existingAlertId = alert.id
                 const isNewAlert = existingAlertId === undefined
+                // The answer may be for settings the person has since changed, so ask again for the payload.
+                if (
+                    isNewAlert &&
+                    alert.calculation_interval &&
+                    notifLogic.values.pendingNotifications.some(
+                        (notification) => notification.type === ALERT_NOTIFICATION_TYPE_PAGERDUTY
+                    )
+                ) {
+                    await notifLogic.asyncActions.loadNewAlertPagerDutyAvailable({
+                        calculationInterval: alert.calculation_interval,
+                        investigationAgentEnabled: payload.investigation_agent_enabled ?? false,
+                    })
+                    if (!notifLogic.values.newAlertPagerDutyAvailable) {
+                        lemonToast.error(
+                            "PagerDuty isn't available for this alert yet. Remove the PagerDuty destination to save it."
+                        )
+                        throw new Error('PagerDuty is not available for this alert')
+                    }
+                }
                 let updatedAlert: AlertType
                 try {
                     updatedAlert = isNewAlert
                         ? await api.alerts.create(payload)
                         : await api.alerts.update(existingAlertId, payload)
                 } catch (error: unknown) {
+                    const cause = ownerUnavailableCause(error)
+                    if (cause && existingAlertId !== undefined && !cache.takeOwnershipAfterSave) {
+                        // The other edits are saved first, with the alert still disabled, so the takeover that
+                        // enables it checks with the saved subscribers. The failure listener resubmits.
+                        cache.takeOwnershipAfterSave = {
+                            id: existingAlertId,
+                            cause,
+                            owner: alert.created_by ?? props.alert?.created_by ?? null,
+                            resubmitted: false,
+                        }
+                        throw error
+                    }
                     // `AlertViewSet` is a standard DRF ModelViewSet, so validation errors arrive as
                     // `{attr, detail}`. Anything else (network blip, non-ApiError thrown somehow) shouldn't
                     // be formatted with those fields or we end up with "undefined: undefined".
@@ -887,7 +930,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
         ],
     })),
 
-    listeners(({ props, values, actions }) => {
+    listeners(({ props, values, actions, cache }) => {
         const discardSimulation = (): void => {
             actions.clearSimulation()
             getParentLogic()?.actions.clearSimulationAnomalyPoints()
@@ -900,6 +943,12 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 })
             }
             return undefined
+        }
+
+        const updateAlertsPageList = (updatedAlert: AlertType): void => {
+            if (alertsLogic.isMounted()) {
+                alertsLogic.actions.updateAlertInList(updatedAlert)
+            }
         }
 
         return {
@@ -920,16 +969,32 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 if (!values.alertForm.id) {
                     throw new Error("Cannot snooze alert that doesn't exist")
                 }
-                const updatedAlert: AlertType = await api.alerts.update(values.alertForm.id, {
-                    snoozed_until: resolveSnoozeUntil(snoozeUntil),
-                })
-                hydrateAlertLogicFromSaveResponse(updatedAlert)
-                const parent = getParentLogic()
-                if (parent) {
-                    parent.actions.upsertAlert(updatedAlert)
-                    parent.actions.loadAlerts()
+                const resolvedSnoozeUntil = resolveSnoozeUntil(snoozeUntil)
+                try {
+                    const updatedAlert = (await alertsPartialUpdate(
+                        String(ApiConfig.getCurrentTeamId()),
+                        values.alertForm.id,
+                        { snoozed_until: resolvedSnoozeUntil }
+                    )) as unknown as AlertType
+                    hydrateAlertLogicFromSaveResponse(updatedAlert)
+                    const parent = getParentLogic()
+                    if (parent) {
+                        parent.actions.upsertAlert(updatedAlert)
+                        parent.actions.loadAlerts()
+                    }
+                    updateAlertsPageList(updatedAlert)
+                    const snoozedUntilLabel = formatDate(
+                        dayjs(updatedAlert.snoozed_until ?? resolvedSnoozeUntil),
+                        'MMM D, HH:mm'
+                    )
+                    lemonToast.success(`Alert snoozed until ${snoozedUntilLabel}.`)
+                } catch (error) {
+                    lemonToast.error("We couldn't snooze this alert. Please try again.")
+                    posthog.captureException(error, {
+                        action: 'snooze alert',
+                        alertId: values.alertForm.id,
+                    })
                 }
-                props.onEditSuccess(values.alertForm.id)
             },
             clearSnooze: async () => {
                 if (!values.alertForm.id) {
@@ -946,6 +1011,8 @@ export const alertFormLogic = kea<alertFormLogicType>([
                         parent.actions.upsertAlert(updatedAlert)
                         parent.actions.loadAlerts()
                     }
+                    updateAlertsPageList(updatedAlert)
+                    lemonToast.success('Alert unsnoozed.')
                 } catch (error) {
                     lemonToast.error("We couldn't unsnooze this alert. Please try again.")
                     posthog.captureException(error, {
@@ -955,6 +1022,21 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 } finally {
                     actions.setClearSnoozeLoading(false)
                 }
+            },
+            submitAlertFormFailure: () => {
+                const pendingTakeover = cache.takeOwnershipAfterSave
+                if (!pendingTakeover) {
+                    return
+                }
+                if (pendingTakeover.resubmitted) {
+                    // The save that was to precede the takeover failed, so put the switch back as the user left it.
+                    cache.takeOwnershipAfterSave = undefined
+                    actions.setAlertFormValue('enabled', true)
+                    return
+                }
+                pendingTakeover.resubmitted = true
+                actions.setAlertFormValue('enabled', false)
+                actions.submitAlertForm()
             },
             submitAlertForm: () => {
                 actions.setAlertFormSubmitAttempted()
@@ -967,6 +1049,23 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 }
             },
             submitAlertFormSuccess: async () => {
+                const pendingTakeover = cache.takeOwnershipAfterSave
+                if (pendingTakeover) {
+                    cache.takeOwnershipAfterSave = undefined
+                    void openTakeOwnershipDialog({
+                        resourceLabel: 'alert',
+                        resourceId: pendingTakeover.id,
+                        owner: pendingTakeover.owner,
+                        cause: pendingTakeover.cause,
+                        takeOwnership: async () => {
+                            await alertsTakeOwnershipCreate(String(getCurrentTeamId()), pendingTakeover.id)
+                        },
+                    }).then((taken) => {
+                        if (taken) {
+                            getParentLogic()?.actions.loadAlerts()
+                        }
+                    })
+                }
                 // Background sync to pick up any server-side changes
                 getParentLogic()?.actions.loadAlerts()
             },

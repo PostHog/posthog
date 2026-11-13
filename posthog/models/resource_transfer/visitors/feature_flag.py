@@ -4,6 +4,7 @@ from typing import Any
 
 from django.db import models
 
+from posthog.models.resource_transfer.registered_models import registered_model
 from posthog.models.resource_transfer.types import ResourceTransferEdge
 from posthog.models.resource_transfer.visitors.base import ResourceTransferVisitor
 from posthog.models.resource_transfer.visitors.common import build_edges_for_ids, make_json_id_rewriter
@@ -16,9 +17,7 @@ from posthog.models.resource_transfer.visitors.feature_flag_filters import (
     rewrite_holdout_in_flag_payload,
 )
 
-from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
-from products.experiments.backend.models.experiment import ExperimentHoldout
 
 
 class FeatureFlagVisitor(
@@ -51,18 +50,19 @@ class FeatureFlagVisitor(
 
         edges: list[ResourceTransferEdge] = []
         edges.extend(build_edges_for_ids(cohort_ids, Cohort, "cohort", rewrite_cohort_in_flag_payload))
-        edges.extend(build_edges_for_ids(action_ids, Action, "action", rewrite_action_in_flag_payload))
+        edges.extend(
+            build_edges_for_ids(action_ids, registered_model("Action"), "action", rewrite_action_in_flag_payload)
+        )
 
         holdout_id = get_holdout_id_from_flag_filters(filters)
         if holdout_id is not None:
+            holdout_model = registered_model("ExperimentHoldout")
             edges.append(
                 ResourceTransferEdge(
                     name=f"holdout:{holdout_id}",
-                    target_model=ExperimentHoldout,
+                    target_model=holdout_model,
                     target_primary_key=holdout_id,
-                    rewrite_relation=make_json_id_rewriter(
-                        ExperimentHoldout, holdout_id, rewrite_holdout_in_flag_payload
-                    ),
+                    rewrite_relation=make_json_id_rewriter(holdout_model, holdout_id, rewrite_holdout_in_flag_payload),
                 )
             )
 

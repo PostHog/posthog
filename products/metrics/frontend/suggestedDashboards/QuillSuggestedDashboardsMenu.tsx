@@ -15,12 +15,13 @@ import {
 
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { cn } from 'lib/utils/css-classes'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { inStorybook } from 'lib/utils/dom'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { INTERNAL_TAG_TOOLTIP } from '../dashboardReview/InternalTag'
 import { QuillSuggestionItem } from './QuillSuggestionItem'
 import { suggestedDashboardsLogic } from './suggestedDashboardsLogic'
 
@@ -47,12 +48,7 @@ export function QuillSuggestedDashboardsMenu(): JSX.Element | null {
         >
             <DropdownMenuTrigger render={<Button variant="outline" data-attr="metrics-suggested-dashboards-menu" />}>
                 <IconSparkles className="text-ai" />
-                <span
-                    className={cn(
-                        'rainbow-text font-semibold',
-                        !(inStorybook() || inStorybookTestRunner()) && 'rainbow-text-animating'
-                    )}
-                >
+                <span className={cn('rainbow-text font-semibold', !inStorybook() && 'rainbow-text-animating')}>
                     Suggested
                 </span>
                 {newSuggestionCount > 0 && <Badge>{newSuggestionCount}</Badge>}
@@ -76,9 +72,13 @@ export function QuillSuggestedDashboardsMenu(): JSX.Element | null {
                 {user?.is_staff && (
                     <DropdownMenuItem
                         onClick={() => router.actions.push(urls.metricsDashboardReview())}
+                        tooltip={INTERNAL_TAG_TOOLTIP}
                         data-attr="metrics-suggested-dashboards-review"
                     >
-                        Review generated dashboards
+                        <span>Review generated dashboards</span>
+                        <Badge variant="info" className="ml-auto">
+                            Internal
+                        </Badge>
                     </DropdownMenuItem>
                 )}
             </DropdownMenuContent>

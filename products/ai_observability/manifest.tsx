@@ -457,9 +457,12 @@ export const manifest: ProductManifest = {
             visualOrder: 1,
             type: 'llm_analytics',
             iconType: 'llm_analytics' as FileSystemIconType,
-            iconColor: ['var(--color-product-llm-analytics-light)'] as FileSystemIconColor,
+            iconColor: [
+                'var(--color-product-llm-analytics-light)',
+                'var(--color-product-llm-analytics-dark)',
+            ] as FileSystemIconColor,
             href: urls.aiObservabilityDashboard(),
-            searchKeywords: ['llm observability', 'llm costs', 'token usage'],
+            searchKeywords: ['llm analytics', 'llm observability', 'llm costs', 'token usage'],
             searchTabs: [
                 { name: 'Traces', href: urls.aiObservabilityTraces() },
                 { name: 'Generations', href: urls.aiObservabilityGenerations() },
@@ -502,7 +505,7 @@ export const manifest: ProductManifest = {
             iconType: 'llm_evaluations' as FileSystemIconType,
             iconColor: ['var(--color-product-llm-evaluations-light)', 'var(--color-product-llm-evaluations-dark)'],
             href: urls.aiObservabilityEvaluations(),
-            searchKeywords: ['llm judge', 'llm as a judge', 'grading', 'datasets', 'test sets', 'golden set'],
+            searchKeywords: ['evals', 'llm judge', 'llm as a judge', 'grading', 'datasets', 'test sets', 'golden set'],
             searchTabs: [
                 {
                     name: 'Offline evals',

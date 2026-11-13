@@ -60,8 +60,6 @@ export const KAFKA_AI_RESEARCH_V4_IMAGE_FETCH = `${prefix}ai_research_v4_image_f
 export const KAFKA_AI_RESEARCH_V4_IMAGE_FETCH_RETRY_1M = `${prefix}ai_research_v4_image_fetch_retry_1m${suffix}`
 export const KAFKA_AI_RESEARCH_V4_IMAGE_FETCH_RETRY_10M = `${prefix}ai_research_v4_image_fetch_retry_10m${suffix}`
 export const KAFKA_AI_RESEARCH_V4_IMAGE_FETCH_RETRY_1H = `${prefix}ai_research_v4_image_fetch_retry_1h${suffix}`
-// v4 index rows: v4 recorder -> v4 Parquet sink, one message per Parquet row.
-export const KAFKA_AI_RESEARCH_V4_INDEX = `${prefix}ai_research_v4_index${suffix}`
 
 // images the scrub sidecar cannot process, parked so they stop holding the head of their partition.
 // The original bytes are kept: unscrubbed content must never reach the ML bucket, but it must not be
@@ -98,6 +96,7 @@ export const KAFKA_CDP_INTERNAL_EVENTS = `${prefix}cdp_internal_events${suffix}`
 // those after a forward fix. One topic per consumer, so a replay never touches another consumer's
 // records. It carries full event payloads, so retention is bounded the way the source topic is.
 export const KAFKA_CDP_EVENTS_DLQ = `${prefix}cdp_events_dlq${suffix}`
+export const KAFKA_CDP_SES_WEBHOOKS = `${prefix}cdp_ses_webhooks${suffix}`
 export const KAFKA_CDP_CLICKHOUSE_BEHAVIORAL_COHORTS_MATCHES = `${prefix}clickhouse_behavioral_cohorts_matches${suffix}`
 export const KAFKA_COHORT_MEMBERSHIP_CHANGED = `${prefix}cohort_membership_changed${suffix}`
 // One completion marker per processor partition, certifying that a reconcile run replayed a

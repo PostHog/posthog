@@ -11,12 +11,15 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     AlertApi,
     AlertCreateDestinationApi,
+    AlertCreatePagerDutyDestinationApi,
     AlertDeleteDestinationApi,
     AlertDestinationResponseApi,
+    AlertPagerDutyAvailabilityApi,
     AlertSimulateApi,
     AlertSimulateResponseApi,
     AlertTestDeliveryResponseApi,
     AlertsListParams,
+    AlertsPagerdutyAvailabilityRetrieveParams,
     AlertsRetrieveParams,
     InsightsThresholdsListParams,
     PaginatedAlertListApi,
@@ -203,6 +206,45 @@ export const alertsDestinationsDeleteCreate = async (
     })
 }
 
+export const getAlertsDestinationsPagerdutyCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/alerts/${id}/destinations/pagerduty/`
+}
+
+/**
+ * Open a PagerDuty incident when this alert starts firing, and resolve it when the alert stops. Only an alert whose pagerduty_available is true can take one. The returned IDs identify the destination.
+ */
+export const alertsDestinationsPagerdutyCreate = async (
+    projectId: string,
+    id: string,
+    alertCreatePagerDutyDestinationApi: AlertCreatePagerDutyDestinationApi,
+    options?: RequestInit
+): Promise<AlertDestinationResponseApi> => {
+    return apiMutator<AlertDestinationResponseApi>(getAlertsDestinationsPagerdutyCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(alertCreatePagerDutyDestinationApi),
+    })
+}
+
+export const getAlertsTakeOwnershipCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/alerts/${id}/take_ownership/`
+}
+
+/**
+ * Make the requesting user the owner of this alert and enable it. Checks run with the owner's access, so this is how an alert continues after its owner left.
+ */
+export const alertsTakeOwnershipCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<AlertApi> => {
+    return apiMutator<AlertApi>(getAlertsTakeOwnershipCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getAlertsTestDeliveryCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/alerts/${id}/test-delivery/`
 }
@@ -218,6 +260,39 @@ export const alertsTestDeliveryCreate = async (
     return apiMutator<AlertTestDeliveryResponseApi>(getAlertsTestDeliveryCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getAlertsPagerdutyAvailabilityRetrieveUrl = (
+    projectId: string,
+    params: AlertsPagerdutyAvailabilityRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/alerts/pagerduty_availability/?${stringifiedParams}`
+        : `/api/projects/${projectId}/alerts/pagerduty_availability/`
+}
+
+/**
+ * Whether a new alert with these settings could open PagerDuty incidents once it is created.
+ */
+export const alertsPagerdutyAvailabilityRetrieve = async (
+    projectId: string,
+    params: AlertsPagerdutyAvailabilityRetrieveParams,
+    options?: RequestInit
+): Promise<AlertPagerDutyAvailabilityApi> => {
+    return apiMutator<AlertPagerDutyAvailabilityApi>(getAlertsPagerdutyAvailabilityRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

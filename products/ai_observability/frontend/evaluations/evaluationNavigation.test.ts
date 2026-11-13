@@ -57,6 +57,13 @@ describe('evaluation navigation', () => {
             'Evaluations',
             `${urls.aiObservabilityEvaluations()}?tab=settings`,
         ],
+        [
+            'evaluation runs with the trace drawer open',
+            false,
+            { tab: 'settings', trace: 'trace-id', ts: '2024-01-01T00:00:00Z', step: 'step-id' },
+            'Evaluations',
+            `${urls.aiObservabilityEvaluations()}?tab=settings`,
+        ],
     ])('returns a draft opened from the %s to its origin', (_origin, isNew, searchParams, name, path) => {
         expect(getEvaluationBackTarget(isNew, searchParams)).toMatchObject({ name, path })
     })

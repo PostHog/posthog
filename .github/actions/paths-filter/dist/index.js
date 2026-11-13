@@ -42382,7 +42382,7 @@ async function getChangesInLastCommit() {
     core.startGroup(`Change detection in last commit`);
     let output = '';
     try {
-        output = (await (0, exec_1.getExecOutput)('git', ['log', '--format=', '--no-renames', '--name-status', '-z', '-n', '1'])).stdout;
+        output = (await (0, exec_1.getExecOutput)('git', ['log', '--format=', '--no-renames', '--name-status', '-z', '-n', '1'], { silent: true })).stdout;
     }
     finally {
         fixStdOutNullTermination();
@@ -42398,8 +42398,9 @@ async function getChanges(base, head) {
     let output = '';
     try {
         // Two dots '..' change detection - directly compares two versions
-        output = (await (0, exec_1.getExecOutput)('git', ['diff', '--no-renames', '--name-status', '-z', `${baseRef}..${headRef}`]))
-            .stdout;
+        output = (await (0, exec_1.getExecOutput)('git', ['diff', '--no-renames', '--name-status', '-z', `${baseRef}..${headRef}`], {
+            silent: true
+        })).stdout;
     }
     finally {
         fixStdOutNullTermination();
@@ -42412,7 +42413,8 @@ async function getChangesOnHead() {
     core.startGroup(`Change detection on HEAD`);
     let output = '';
     try {
-        output = (await (0, exec_1.getExecOutput)('git', ['diff', '--no-renames', '--name-status', '-z', 'HEAD'])).stdout;
+        output = (await (0, exec_1.getExecOutput)('git', ['diff', '--no-renames', '--name-status', '-z', 'HEAD'], { silent: true }))
+            .stdout;
     }
     finally {
         fixStdOutNullTermination();
@@ -42485,7 +42487,8 @@ async function getChangesSinceMergeBase(base, head, initialFetchDepth) {
     core.startGroup(`Change detection ${diffArg}`);
     let output = '';
     try {
-        output = (await (0, exec_1.getExecOutput)('git', ['diff', '--no-renames', '--name-status', '-z', diffArg])).stdout;
+        output = (await (0, exec_1.getExecOutput)('git', ['diff', '--no-renames', '--name-status', '-z', diffArg], { silent: true }))
+            .stdout;
     }
     finally {
         fixStdOutNullTermination();
@@ -42497,7 +42500,7 @@ async function listAllFilesAsAdded() {
     core.startGroup('Listing all files tracked by git');
     let output = '';
     try {
-        output = (await (0, exec_1.getExecOutput)('git', ['ls-files', '-z'])).stdout;
+        output = (await (0, exec_1.getExecOutput)('git', ['ls-files', '-z'], { silent: true })).stdout;
     }
     finally {
         fixStdOutNullTermination();
@@ -42872,7 +42875,7 @@ async function getChangedFilesFromApi(token, pullRequest) {
             core.info(`Received ${response.data.length} items`);
             for (const row of response.data) {
                 apiRows++;
-                core.info(`[${row.status}] ${row.filename}`);
+                core.info(`[${row.status}] ${JSON.stringify(row.filename)}`);
                 // There's no obvious use-case for detection of renames
                 // Therefore we treat it as if rename detection in git diff was turned off.
                 // Rename is replaced by delete of original filename and add of new filename
@@ -42912,7 +42915,7 @@ function exportResults(results, format) {
         if (value) {
             core.info('Matching files:');
             for (const file of files) {
-                core.info(`${file.filename} [${file.status}]`);
+                core.info(`${JSON.stringify(file.filename)} [${file.status}]`);
             }
         }
         else {

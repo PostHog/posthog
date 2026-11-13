@@ -6,8 +6,6 @@ import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { initKeaTests } from '~/test/init'
 
@@ -58,8 +56,6 @@ describe('TraceDialogSpanTree', () => {
 
     beforeEach(() => {
         initKeaTests()
-        featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TRACING_TRACE_FOLDED_RUNS]: true })
         captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
         // jsdom lays nothing out, so the virtualized list needs a size to render rows into.
         jest.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(600)
@@ -104,8 +100,6 @@ describe('TraceDialogSpanTree', () => {
     // Fails when the highlight dims by the wrong key, or dims a folded chain that hides a span of the
     // operation, which would tell the person the operation is not in there.
     it('dims the rows outside the highlighted operation', async () => {
-        featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TRACING_TRACE_OPERATIONS_TAB]: true })
         const view = traceViewLogic({ id: 'span-tree-test' })
         view.mount()
         view.actions.showTrace(null, 'operations')
@@ -139,8 +133,6 @@ describe('TraceDialogSpanTree', () => {
     // Fails when a page of spans that loads after the scroll to the operation pulls the list back to the selected
     // span, which leaves the highlighted spans off screen.
     it('keeps the highlighted operation in view when another page of spans loads', async () => {
-        featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TRACING_TRACE_OPERATIONS_TAB]: true })
         const view = traceViewLogic({ id: 'span-tree-page-test' })
         view.mount()
         view.actions.showTrace(null, 'operations')
@@ -225,6 +217,28 @@ describe('TraceDialogSpanTree', () => {
 
         await screen.findByLabelText(label)
         expect(screen.getByText('cache GET').classList.contains('text-danger')).toBe(isRed)
+    })
+
+    it.each([
+        { scrollTop: 20, pinned: null },
+        { scrollTop: 40, pinned: 'InsideROOT span›A span' },
+    ])('pins the ancestors of the row under the bar at scroll offset $scrollTop', async ({ scrollTop, pinned }) => {
+        const children = Array.from({ length: 8 }, (_, i) => span(`A${i}`, 'A'))
+        const container = renderTree('span-tree-pinned-test', [
+            span('ROOT', ''),
+            span('A', 'ROOT'),
+            ...children,
+            span('B', 'ROOT'),
+        ])
+        await screen.findByText('A0 span')
+
+        fireEvent.scroll(container.querySelector('[role="list"]')!, { target: { scrollTop } })
+
+        await waitFor(() =>
+            expect(container.querySelector('[data-attr="trace-dialog-pinned-ancestors"]')?.textContent ?? null).toBe(
+                pinned
+            )
+        )
     })
 
     // Fails when Show all has no way back, when Show fewer leaves the full list on screen, or when it leaves the

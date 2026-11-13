@@ -8,12 +8,14 @@ from parameterized import parameterized
 from posthog.models.team import Team
 from posthog.models.team.util import (
     RETIRED_LOOP_TABLES,
+    RETIRED_WAREHOUSE_SOURCE_INPUTS_BACKUP_TABLES,
     TeamPurgeStopped,
     _delete_event_properties_for_teams,
     _delete_group_type_mappings_for_teams,
     _delete_groups_for_teams,
     _delete_hash_key_overrides_for_teams,
     _delete_retired_loops_for_teams,
+    _delete_retired_warehouse_source_inputs_backups_for_teams,
 )
 
 from products.event_definitions.backend.models import EventProperty
@@ -46,6 +48,24 @@ class TestDeleteRetiredLoopsForTeams(SimpleTestCase):
         _delete_retired_loops_for_teams([1])
 
         assert not any(call.args[0].startswith("DELETE") for call in cursor.execute.call_args_list)
+
+
+class TestDeleteRetiredWarehouseSourceInputsBackupsForTeams(SimpleTestCase):
+    @patch("posthog.models.team.util.connections")
+    def test_deletes_the_teams_backup_rows(self, mock_connections):
+        cursor = MagicMock()
+        cursor.__enter__.return_value = cursor
+        cursor.fetchone.side_effect = [(table,) for table in RETIRED_WAREHOUSE_SOURCE_INPUTS_BACKUP_TABLES]
+        cursor.rowcount = 0
+        mock_connections.__getitem__.return_value.cursor.return_value = cursor
+
+        _delete_retired_warehouse_source_inputs_backups_for_teams([1, 2])
+
+        delete_statements = [call.args for call in cursor.execute.call_args_list if call.args[0].startswith("DELETE")]
+        assert [args[0].split('"')[1] for args in delete_statements] == [
+            "warehouse_sources_externaldatasourceinputsbackup"
+        ]
+        assert all(args[1] == [[1, 2], 10000] for args in delete_statements)
 
 
 class TestDeleteGroupsForTeams(SimpleTestCase):

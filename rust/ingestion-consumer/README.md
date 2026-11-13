@@ -11,7 +11,7 @@ Each guarantee has a violation counter that must stay flat and a denominator tha
 
 | Guarantee | Violations (must stay 0) | Denominator / supporting |
 | --- | --- | --- |
-| Commits are contiguous and monotonic per partition, each the ledger frontier one past the accepted prefix, and cover only completed offsets | `kafka_consumer_ledger_errors_total{stage,kind}` (a redelivered or out-of-window offset), `kafka_consumer_ledger_gap_offsets_total{topic,partition}` (offsets a frontier walked over without delivery), `ingestion_consumer_commit_violations_total{kind=empty\|uncredited}` | `ingestion_consumer_committed_offset{topic,partition}`, `kafka_consumer_ledger_uncommitted_offsets{topic,partition}` |
+| Commits are contiguous and monotonic per partition, each the ledger frontier one past the accepted prefix, and cover only completed offsets | `kafka_consumer_ledger_errors_total{stage,kind}` (a redelivered or out-of-window offset), `kafka_consumer_ledger_gap_offsets_total{topic,partition}` (offsets a frontier walked over without delivery) | `ingestion_consumer_committed_offset{topic,partition}`, `kafka_consumer_ledger_uncommitted_offsets{topic,partition}` |
 | Async commits land on the broker | `kminion_kafka_consumer_group_topic_partition_lag{group_id}` growing while `ingestion_consumer_messages_processed_total` holds its rate | `ingestion_consumer_committed_offset{topic,partition}` (the offset last handed to the client), `ingestion_consumer_offset_commits_total` |
 | Per-key sends are in offset order, never re-sent after ACK (keyed messages only) | `ingestion_consumer_key_order_violations_total{kind=intra_group_disorder\|resend_after_ack}` | `ingestion_consumer_key_replays_total` (legal at-least-once retries), `ingestion_consumer_key_sentinel_keys`, `ingestion_consumer_key_sentinel_unkeyed_total` (skipped null-key messages) |
 | Messages enter the worker pipeline in per-key offset order (end to end) | `ingestion_api_out_of_order_messages_total` (worker-side) | `ingestion_api_replayed_messages_total`, `ingestion_api_order_sentinel_keys` |
@@ -37,13 +37,9 @@ Each frontier the consumer takes goes to the commit pacer (`commit_pacer.rs`), a
 The pacer holds no I/O: the consumer commits what it is given.
 A partition that leaves the assignment drops its pending frontier with its ledger, so a later commit cannot commit under another owner.
 
-`CONSUMER_COMPLETION_GRANULARITY` selects the unit that settles against the ledger; each unit is one implementation of `Settlement` in `src/settlement/`, and the consumer loop is the same for both.
-`poll` (the default) settles a whole poll once every one of its groups is accepted, oldest poll first, and commits its frontiers at once.
-`group` settles each group's offsets as its completion arrives, in any order, so a stalled key holds back only its own partition's commit.
-At `group` granularity the pacer keeps the latest frontier per partition and hands them out at most once per `CONSUMER_COMMIT_INTERVAL_MS` (default 500 ms).
+The settlement in `src/settlement/` settles each group's offsets as its completion arrives, in any order, so a stalled key holds back only its own partition's commit.
+The pacer keeps the latest frontier per partition and hands them out at most once per `CONSUMER_COMMIT_INTERVAL_MS` (default 500 ms).
 The consumer asks the pacer on each completion wake, at the top of each loop turn, and on the completion wait's one-second heartbeat, and commits everything pending on exit.
-Under the capped polling strategy, admission is per poll at both granularities: `CONSUMER_MAX_BACKGROUND_TASKS` caps in-flight polls, and a slot frees when its whole poll is covered, oldest first, so a stalled key still holds its poll's slot. See [Polling](#polling).
-At `poll` granularity, `ingestion_consumer_commits_skipped_total{reason}` counts polls that settle with no frontier: `rejected` means the ledger dropped every slice (expected around a rebalance) and `no_frontier` means an earlier batch is still incomplete at the front of every window the batch settled.
 The settlement publishes the uncommitted gauges, because it holds both places a partition's charge can be: the ledger's window and the pacer.
 `kafka_consumer_ledger_uncommitted_offsets{topic,partition}` gauges the offsets each partition has polled and no commit has covered yet, including those taken for a commit the pacer still holds; `kafka_consumer_ledger_uncommitted_events` and `kafka_consumer_ledger_uncommitted_bytes` gauge the charge those offsets carry, where bytes is the payload plus key plus headers of each message.
 The ledger emits its own counters, so any consumer built on the crate reports the same series.
@@ -53,35 +49,60 @@ The ledger emits its own counters, so any consumer built on the crate reports th
 ## Partition budget
 
 `CONSUMER_PARTITION_BUDGET_EVENTS` and `CONSUMER_PARTITION_BUDGET_BYTES` bound each partition's replay exposure: the events and bytes the settlement reports as uncommitted for it.
-A budget needs `CONSUMER_COMPLETION_GRANULARITY=group`. At `poll` a stalled partition holds back the commits of every partition in its poll, so their budgets would fill and pause together. The consumer ignores a budget at `poll` and logs a warning, so switching a lane back to `poll` rolls it back without unsetting the budget.
+Both are required: the consumer does not start without them.
 When either axis reaches its limit after a poll, the consumer pauses that partition's fetch through the Kafka client; when a commit brings both axes back under `CONSUMER_PARTITION_BUDGET_LOW_WATERMARK` (a fraction of the budget, default 0.8), it resumes.
 The hysteresis matters because a pause purges the partition's fetched messages from librdkafka's queue and a resume refetches them.
-A pause stops only the partition's fetch: the consumer keeps polling, so rebalance callbacks still run and `max.poll.interval.ms` stays satisfied, except while the capped polling strategy's cap is full or the continuous strategy is at its in-flight limit.
+A pause stops only the partition's fetch: the consumer keeps polling, so rebalance callbacks still run and `max.poll.interval.ms` stays satisfied, except while the consumer is at its in-flight limit.
 A revoked partition is forgotten. librdkafka keeps a partition's pause across a revoke and a reassignment, so the consumer resumes every partition it is assigned, and the partition starts with a fresh ledger.
-Both limits default to `0`, which sets no budget; the admission cap (`CONSUMER_MAX_BACKGROUND_TASKS`) then governs alone.
 The budget is a fixed amount per partition, not a share of a pod-wide amount, so a rebalance changes how many partitions a pod holds, not how much each may expose.
 `ingestion_consumer_budget_paused_partitions` gauges how many partitions are paused and `ingestion_consumer_budget_pauses_total{topic,partition}` counts pauses; read them against `ingestion_lag_ms`.
 
 ## Polling
 
-The consumer loop is the only caller of `recv()`. It waits on Kafka, completions, the commit tick, the shutdown signal, and the poll's batch timeout, and hands each event to the selected implementation of the `PollingStrategy` trait in `src/polling/`.
-The strategy returns steps, and the consumer carries them out: charge and submit a poll, submit a commit and resume its partitions, stop, or fail.
+The consumer loop is the only caller of `recv()`. It waits on Kafka, completions, the commit tick, the shutdown signal, and the poll's batch timeout, and hands each event to the polling strategy in `src/polling/`.
+The strategy returns steps, and the consumer carries them out: charge and submit a poll, submit a commit and resume its partitions, or stop.
 A poll is submitted when it reaches the batch size or the byte bound, or when `CONSUMER_BATCH_TIMEOUT_MS` passes after its first message.
 
 The rebalance callbacks run inside `recv()`, on the loop's task. After every wake the loop hands the partitions they revoked to the strategy, before the event that woke it.
 The strategy then removes those partitions' messages from the poll in progress and from its in-flight state: the batcher purges them, or Kafka delivers them again from the last commit.
 So a message the loop adds to a poll always belongs to the current assignment, and the poll is charged under the partition's current ledger generation.
 
-`CONSUMER_POLLING_STRATEGY` selects what bounds admission.
-`capped` (the default) admits up to `CONSUMER_MAX_BACKGROUND_TASKS` polls, and frees a slot only when the oldest poll is covered, so a stalled key holds back fetching for every partition.
+librdkafka can deliver a partition's last message twice under one assignment.
+An incremental rebalance pauses every assigned partition, and the fetch restarts from the application position, which does not yet include the message the consumer is reading.
+The collector keeps the last offset it added per partition and drops a message that repeats it, before the poll charges the ledger, so the first copy is the only one processed and committed.
+A revoke or assign clears the partition's entry, because Kafka then delivers from the committed offset.
+Any other offset out of order still reaches the ledger, which rejects it and stops the consumer.
+`ingestion_consumer_redelivered_messages_total{topic,partition}` counts the dropped messages, and each drop logs a warning with its offset.
 
-`continuous` admits polls without waiting on any of them.
+The consumer admits polls without waiting on any of them.
 The partition budget bounds each partition's replay exposure, and the in-flight limit bounds the whole pod: `CONSUMER_IN_FLIGHT_EVENTS` and `CONSUMER_IN_FLIGHT_BYTES` count the uncommitted charge of every partition, as the partition budget counts it.
 The limit is approximate: it stops reading, and the poll in progress still completes, so the uncommitted charge can pass the limit by one poll. One poll holds at most `CONSUMER_BATCH_SIZE` events and `CONSUMER_BATCH_SIZE_KB` plus one message; with the byte bound off, its bytes are bounded only by the batch size times the largest message.
 Room frees when a commit hands out offsets, as it does for the partition budget, not when a completion arrives.
 At the limit the loop stops reading Kafka until a commit frees room, and rebalance callbacks wait with it, so size the limit above the budget times the partitions a pod holds.
-`continuous` needs `CONSUMER_COMPLETION_GRANULARITY=group`, a partition budget, and an in-flight limit, and the budget and the limit each need both their events and bytes settings. A message with no key, value or headers charges zero bytes, so a byte-only limit admits any number of them. Without all three the consumer logs a warning and runs `capped`, so switching a lane back to `poll` rolls back both.
+The budget and the limit each need both their events and bytes settings, or the consumer does not start. A message with no key, value or headers charges zero bytes, so a byte-only limit admits any number of them.
 `ingestion_consumer_in_flight_limit_reached_total` counts each time the loop stops reading at the limit; the `kafka_consumer_ledger_uncommitted_*` gauges show each partition's share.
+
+## Revoke drain
+
+A revoke waits for the in-flight requests that carry the revoked partitions, commits what they finished, and then hands the partitions to their new owner.
+The new owner then starts after the messages this consumer processed.
+The rebalance callback runs inside `recv()`, so it only reports the revoke, and the loop hands the partitions back when the drain ends.
+The batcher drops the queued messages of the revoked partitions at once, because the new owner replays them.
+
+`CONSUMER_REVOKE_DRAIN_TIMEOUT_MS` (default `25000`) bounds the wait, and the commit gets the same time again.
+A drain that times out commits only what finished, and the new owner processes the rest again.
+librdkafka fetches no partition while a revoke waits, so a drain pauses the fetch of the whole pod.
+Startup fails when the timeout is `0`, below twice `INGESTION_REQUEST_SOFT_BUDGET_MS`, or above half the smallest of the liveness deadline, the graceful shutdown, and `KAFKA_CONSUMER_MAX_POLL_INTERVAL_MS`.
+
+Two revokes hand the partitions back at once, without a drain.
+The first is a lost assignment: another member already owns the partitions, so the commit would fail.
+The second is a revoke that arrives during a drain.
+
+Metrics:
+
+- `ingestion_consumer_revoke_drains_total{outcome=drained|timed_out|stopped}` counts drains by how they ended, and `ingestion_consumer_revoke_drain_seconds` records how long each one held its partitions.
+- `ingestion_consumer_revoke_commit_errors_total` counts drains whose commit did not land before the hand-back.
+- `ingestion_consumer_polls_dropped_on_revoke_total` counts the messages a revoke removed from the poll in progress, and `ingestion_consumer_batcher_messages_dropped_on_revoke_total` counts the queued messages the batcher dropped. Together they are the work the new owner replays.
 
 ## Batcher
 
@@ -168,13 +189,18 @@ A message a worker permanently rejects (a nack on every delivery) has no dead-le
 Needs a design pass: DLQ topic, retry budget before giving up, the per-key ordering caveat (DLQ-ing one message then delivering later ones for the same person), and replay ownership.
 Non-UTF-8 payloads — currently nulled when a poll adds the message, with no metric — should route to the same DLQ as malformed input; a bytes-preserving wire format is not worth it while the producer (capture) guarantees UTF-8 JSON.
 
-### 4. Revoke-aware partition handoff
+### 4. Stall deadline per partition
 
-The batcher's key queues are per-process.
-During a consumer-group rebalance another instance can start a partition from the last commit while this instance still has uncommitted in-flight work — duplicates and possible cross-pod interleaving per key (`second_consumer_joining_the_group_preserves_all_messages` asserts no loss only, deliberately).
-Fix: on partition revoke (cooperative-sticky callback, via the same `ConsumerContext` as item 2), finish and commit in-flight batches for the revoked partitions before acknowledging the revoke.
+The batcher's no-progress bound covers the pod, not a partition: it resets whenever a worker accepts a request.
+A partition whose frontier stops moving while other partitions make progress pauses at its budget and stays paused, and nothing fails.
+The signals are the partition's kminion lag and a paused-partitions gauge that stays above zero.
+A deadline per partition, reset when its frontier moves, would fail the process for such a partition.
+It needs a decision together with item 3, because a poison message would then restart the pod again and again instead of holding one partition.
 
 ### Smaller items
 
 - Probe timeout is hardcoded to `probe_interval / 2`; a slow-but-serving worker's `/_ready` can flap it unhealthy. Make it independently configurable.
 - Non-UTF-8 payload/header nulling has no metric — add a counter and a rate-limited warning even before the DLQ work lands.
+- An unkeyed message gets a synthetic key and its own group. A keyless lane per partition can remove that overhead.
+- Partition affinity can be a packing hint. Measure first how much one partition's frontier holds back another's.
+- A ledger violation stops the consumer, and the restart replays from the last commit. A seek back to the partition's last commit would keep the pod running. It needs the revoke path for one partition and the offset of the last submitted commit, which nothing tracks. It is worth building only if violations occur in practice.

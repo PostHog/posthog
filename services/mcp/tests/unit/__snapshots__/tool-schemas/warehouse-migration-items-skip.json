@@ -1,0 +1,26 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+            "type": "string"
+        },
+        "item_ids": {
+            "description": "Items to skip. Pass this or `keep_item_ids`, not both.",
+            "items": {
+                "type": "string"
+            },
+            "minItems": 1,
+            "type": "array"
+        },
+        "keep_item_ids": {
+            "description": "Items to keep. Every other item is skipped, for example to migrate only one connection.",
+            "items": {
+                "type": "string"
+            },
+            "type": "array"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

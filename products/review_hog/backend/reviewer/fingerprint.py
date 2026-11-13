@@ -29,6 +29,7 @@ from products.review_hog.backend.reviewer.constants import (
     DEDUP_MODEL,
     DEDUP_REASONING_EFFORT,
     DEDUP_RUNTIME_ADAPTER,
+    DEVEX_LENS,
     FLASH_DEDUP_MODEL,
     FLASH_DEDUP_REASONING_EFFORT,
     FLASH_FIRST_REVIEW_CAP_MULTIPLIER,
@@ -238,6 +239,7 @@ class TurnFingerprint:
         review_design: str = REVIEW_DESIGN_PIPELINE,
         coordinator: bool = False,
         arm_set: str = CONTROL_ARM_SET,
+        devex_lens: bool = False,
     ) -> TurnFingerprint:
         stored_arm = resolve_review_arm(
             report.review_runtime_adapter,
@@ -260,7 +262,10 @@ class TurnFingerprint:
                 coordinator_inputs["coordinator"] = {"prompt": _text_hash(prompt)}
             lens_arm = single_agent_arms(arm_set).lens
             # Only a set whose lenses run on another arm carries it, so sets with one arm keep their cohort.
-            lens_inputs = {"lens_arm": _arm_payload(lens_arm)} if lens_arm != review_arm else {}
+            lens_inputs: dict[str, Any] = {"lens_arm": _arm_payload(lens_arm)} if lens_arm != review_arm else {}
+            if devex_lens:
+                prompt = (SINGLE_AGENT_PROMPT_PATH / DEVEX_LENS.prompt_file).read_text()
+                lens_inputs["devex_lens"] = {"prompt": _text_hash(prompt)}
             return cls(
                 {
                     **coordinator_inputs,
@@ -317,6 +322,7 @@ def record_turn_marker(
     coordinator: bool = False,
     publishes: bool | None = None,
     arm_set: str = CONTROL_ARM_SET,
+    devex_lens: bool = False,
 ) -> ReviewHogMarker:
     """Compute the turn's marker and persist it as the turn's `turn_marker` artefact.
 
@@ -334,6 +340,7 @@ def record_turn_marker(
         review_design=review_design,
         coordinator=coordinator,
         arm_set=arm_set,
+        devex_lens=devex_lens,
     )
     marker = ReviewHogMarker(
         version=reviewhog_version_for_mode(review_mode, review_design), fingerprint=fingerprint.digest()

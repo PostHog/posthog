@@ -1,5 +1,4 @@
 import { inboxReviewerScopeValue } from "@posthog/core/inbox/reportMembership";
-import { useTriageFocusEnabled } from "@posthog/ui/features/feature-flags/useTriageFocusEnabled";
 import { InboxReportFilters } from "@posthog/ui/features/inbox/components/InboxReportFilters";
 import { InboxReportRow } from "@posthog/ui/features/inbox/components/InboxReportRow";
 import { InboxScopeSelect } from "@posthog/ui/features/inbox/components/InboxScopeSelect";
@@ -19,7 +18,6 @@ import { useNavigate } from "@tanstack/react-router";
 
 export function ReportsInboxView(): React.JSX.Element {
   const inbox = useInboxSectionedReports();
-  const triageEnabled = useTriageFocusEnabled();
   const setupStatus = useSelfDrivingSetupStatus();
   const navigate = useNavigate();
   const hasActiveFilters = useInboxSignalsFilterStore(
@@ -30,7 +28,6 @@ export function ReportsInboxView(): React.JSX.Element {
   );
 
   useInboxTriageHotkey({
-    enabled: triageEnabled,
     triageReportCount: inbox.triageReports.length,
   });
 
@@ -65,7 +62,6 @@ export function ReportsInboxView(): React.JSX.Element {
       isEmpty={inbox.isEmpty}
       hasActiveFilters={hasActiveFilters}
       showConfigureAgentsEmptyState={showConfigureAgentsEmptyState}
-      triageEnabled={triageEnabled}
       filterControl={<InboxReportFilters />}
       scopeControl={<InboxScopeSelect />}
       renderReport={(report) => (

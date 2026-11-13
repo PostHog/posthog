@@ -12,7 +12,6 @@ import { engineeringAnalyticsFiltersLogic } from './engineeringAnalyticsFiltersL
 export interface PullRequestTimelinesLogicProps {
     scope: DeliveryScope
     sourceId: string | null
-    /** The 'owner/name' in the page's path. */
     repo?: string | null
 }
 

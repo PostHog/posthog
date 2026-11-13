@@ -23,7 +23,7 @@ import { lineageNodeUrl } from 'products/data_modeling/frontend/lineage/lineageN
 import { NODE_TYPE_TAG_SETTINGS } from 'products/data_modeling/frontend/lineage/nodeStyles'
 import { syncIntervalToShorthand } from 'products/data_warehouse/frontend/utils'
 
-import { sqlEditorLogic } from '../sqlEditorLogic'
+import { sqlEditorLogic, viewHasLineage } from '../sqlEditorLogic'
 import { infoTabLogic } from './infoTabLogic'
 import { ViewDataQualityChecks } from './ViewDataQualityChecks'
 
@@ -40,10 +40,15 @@ export function QueryInfo({ tabId, view, tabbed = false }: QueryInfoProps): JSX.
         upstreamLoading,
         upstreamLoadFailed,
         upstreamViewMode,
+        saveAsViewDisabledReason,
     } = useValues(sqlEditorLogic)
     const targetView = view ?? editingView
     // Mounting it loads the lineage for the view being edited.
-    const infoLogic = infoTabLogic({ tabId, viewId: targetView?.id })
+    const infoLogic = infoTabLogic({
+        tabId,
+        viewId: targetView?.id,
+        skipLineage: !!targetView && !viewHasLineage(targetView),
+    })
     useMountedLogic(infoLogic)
     const { activeSection, lineageVisited, lineageNodePositions } = useValues(infoLogic)
     const { setActiveSection, lineageNodeDragStopped, resetLineageNodePositions } = useActions(infoLogic)
@@ -126,6 +131,7 @@ export function QueryInfo({ tabId, view, tabbed = false }: QueryInfoProps): JSX.
                         <LemonButton
                             size="small"
                             onClick={() => saveAsView({ materializeAfterSave: true })}
+                            disabledReason={saveAsViewDisabledReason}
                             type="primary"
                             loading={updatingDataWarehouseSavedQuery}
                         >

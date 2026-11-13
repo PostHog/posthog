@@ -118,6 +118,27 @@ describe('metric-change-descriptions', () => {
                 expect(result).not.toBeNull()
                 expect(Array.isArray(result)).toBe(true)
             })
+
+            it('describes the edited metric when a settings change restamps every fingerprint', () => {
+                const before: ExperimentMetric[] = [
+                    createBaseMeanMetric({ uuid: 'a', name: 'Unchanged', fingerprint: 'a-old' }),
+                    createBaseMeanMetric({ uuid: 'b', name: 'Edited', fingerprint: 'b-old' }),
+                ]
+                const after: ExperimentMetric[] = [
+                    createBaseMeanMetric({ uuid: 'a', name: 'Unchanged', fingerprint: 'a-new' }),
+                    createBaseMeanMetric({
+                        uuid: 'b',
+                        name: 'Edited',
+                        fingerprint: 'b-new',
+                        goal: ExperimentMetricGoal.Decrease,
+                    }),
+                ]
+
+                const { container } = render(<>{getMetricChanges(before, after)}</>)
+                expect(container.textContent).toContain('set the goal decrease')
+                expect(container.textContent).toContain('Edited')
+                expect(container.textContent).not.toContain('Unchanged')
+            })
         })
 
         describe('metric type changes', () => {

@@ -114,6 +114,7 @@ describe('sendCalendarUtils', () => {
                 batch_jobs: [
                     job('sent', 'completed', '2026-10-20T08:00:05Z'),
                     job('failed', 'failed', '2026-10-19T09:00:00Z'),
+                    job('partial', 'partially_failed', '2026-10-21T07:00:00Z'),
                     job('outside', 'completed', '2026-10-05T08:00:00Z'),
                 ],
             } as unknown as SendCalendarFlowApi,
@@ -127,6 +128,7 @@ describe('sendCalendarUtils', () => {
             ['paused', '2026-10-30T16:00:00.000Z', 'Every week on Friday'],
             ['sent', '2026-10-20T08:00:05.000Z', null],
             ['failed', '2026-10-19T09:00:00.000Z', null],
+            ['sent', '2026-10-21T07:00:00.000Z', null],
         ])
     })
 

@@ -1,10 +1,11 @@
 import { useActions, useValues } from 'kea'
 import { useRef, useState } from 'react'
 
-import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonModal, LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import { RichContentEditorType } from 'lib/components/RichContentEditor/types'
 import { markdownToHtml } from 'lib/utils/markdown'
+import { userLogic } from 'scenes/userLogic'
 
 import { serializeToMarkdown, SupportEditor } from '../Editor'
 import { unescapeMacroTokens } from './renderMacro'
@@ -21,8 +22,15 @@ const VARIABLES: { label: string; token: string }[] = [
 
 export function MacroFormModal(): JSX.Element | null {
     const { macroDraft, macroSaving } = useValues(supportMacrosLogic)
-    const { closeMacroDraft, setMacroDraftName, setMacroDraftShortcut, createMacro, updateMacro } =
-        useActions(supportMacrosLogic)
+    const {
+        closeMacroDraft,
+        setMacroDraftName,
+        setMacroDraftShortcut,
+        setMacroDraftVisibility,
+        createMacro,
+        updateMacro,
+    } = useActions(supportMacrosLogic)
+    const { user } = useValues(userLogic)
     const editorRef = useRef<RichContentEditorType | null>(null)
     const draftKey = macroDraft ? (macroDraft.id ?? 'new') : ''
     const bodyEmptyDefault = !(macroDraft?.body ?? '').trim()
@@ -38,6 +46,8 @@ export function MacroFormModal(): JSX.Element | null {
     if (!macroDraft) {
         return null
     }
+    // An existing macro whose creator is deleted has no owner, so nobody can make it personal.
+    const isSomeoneElses = macroDraft.id !== null && macroDraft.createdById !== user?.id
 
     const save = (): void => {
         const editor = editorRef.current
@@ -52,7 +62,12 @@ export function MacroFormModal(): JSX.Element | null {
         if (shortcutError(macroDraft.shortcut)) {
             return
         }
-        const payload = { name: macroDraft.name, shortcut: macroDraft.shortcut, body }
+        const payload = {
+            name: macroDraft.name,
+            shortcut: macroDraft.shortcut,
+            body,
+            visibility: macroDraft.visibility,
+        }
         if (macroDraft.id) {
             updateMacro({ ...payload, id: macroDraft.id })
         } else {
@@ -107,6 +122,25 @@ export function MacroFormModal(): JSX.Element | null {
                     Letters, numbers, and hyphens. Leave this blank to keep the macro in the menu only. Agents insert it
                     by typing / followed by the shortcut.
                 </p>
+                <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm">Visible to</span>
+                    <LemonSegmentedButton
+                        size="small"
+                        value={macroDraft.visibility}
+                        onChange={setMacroDraftVisibility}
+                        options={[
+                            { value: 'shared', label: 'Everyone' },
+                            {
+                                value: 'personal',
+                                label: 'Only me',
+                                disabledReason: isSomeoneElses
+                                    ? 'Only the person who created this macro can make it personal'
+                                    : undefined,
+                            },
+                        ]}
+                        data-attr="support-macro-visibility"
+                    />
+                </div>
                 <SupportEditor
                     key={macroDraft.id ?? 'new'}
                     initialContent={null}

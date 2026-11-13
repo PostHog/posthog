@@ -6,12 +6,12 @@
 // the runs endpoint's `date_to` cursor past its 100-row page cap).
 
 import { humanFriendlyDuration } from 'lib/utils/durations'
-import { humanFriendlyCurrency } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
 
 import type { SignalScoutConfigApi as SignalScoutConfig } from 'products/signals/frontend/generated/api.schemas'
 
 import { SignalScoutRunStatus, SignalScoutRunSummary } from '../types'
+import { formatCredits, usdToCredits } from './credits'
 
 /**
  * How many of each scout's most recent runs the per-scout stats describe — the count the
@@ -190,99 +190,8 @@ export function formatRunDuration(seconds: number | null): string {
     return humanFriendlyDuration(seconds, { maxUnits: 2 })
 }
 
-/**
- * What a run spent on model calls. A run costing less than a cent gets more digits, since at two
- * decimals it would read as "$0.00", which says the run was free.
- */
 export function formatRunCost(costUsd: number): string {
-    return humanFriendlyCurrency(costUsd, 2)
-}
-
-/**
- * The costs of the runs the roster holds right now. A cost batch that fails keeps the previous
- * poll's entries, so the cost map can outlive the runs it priced. A run that has left the roster is
- * invisible on the strip, so it must not move the cost line or count toward the minimum that turns
- * the line on.
- */
-export function rosterRunCosts(runs: SignalScoutRunSummary[], costs: Map<string, number>): Map<string, number> {
-    const onRoster = new Map<string, number>()
-    for (const run of runs) {
-        const cost = costs.get(run.run_id)
-        if (cost !== undefined) {
-            onRoster.set(run.run_id, cost)
-        }
-    }
-    return onRoster
-}
-
-function sameCosts(a: Map<string, number>, b: Map<string, number>): boolean {
-    if (a.size !== b.size) {
-        return false
-    }
-    for (const [runId, cost] of b) {
-        if (a.get(runId) !== cost) {
-            return false
-        }
-    }
-    return true
-}
-
-/**
- * The roster's run costs split by scout, so each strip reads only its own runs. A scout whose
- * costs did not change keeps its slice from `previous`. A cost batch prices runs of a few scouts,
- * and a fresh slice for every scout would re-render every strip on the roster for each batch.
- * A scout with no priced run has no slice.
- */
-export function scoutRunCostSlices(
-    runs: SignalScoutRunSummary[],
-    costs: Map<string, number>,
-    previous: Map<string, Map<string, number>>
-): Map<string, Map<string, number>> {
-    const slices = new Map<string, Map<string, number>>()
-    for (const run of runs) {
-        const cost = costs.get(run.run_id)
-        if (cost === undefined) {
-            continue
-        }
-        let slice = slices.get(run.skill_name)
-        if (!slice) {
-            slice = new Map()
-            slices.set(run.skill_name, slice)
-        }
-        slice.set(run.run_id, cost)
-    }
-    for (const [skillName, slice] of slices) {
-        const prior = previous.get(skillName)
-        if (prior && sameCosts(prior, slice)) {
-            slices.set(skillName, prior)
-        }
-    }
-    return slices
-}
-
-// Below this many priced runs the top decile moves with every run that lands, so the marker would
-// point at a different box each poll and mean nothing.
-const MIN_PRICED_RUNS_FOR_COST_MARKER = 20
-
-/**
- * What the fleet's priciest tenth of runs starts at, or null while too few runs are priced to rank
- * them. Scout spend is heavily skewed: most runs cost about a cent, so a top-decile line is what
- * separates a run worth opening from the cheap majority.
- */
-export function expensiveRunCostThreshold(costs: Map<string, number>): number | null {
-    if (costs.size < MIN_PRICED_RUNS_FOR_COST_MARKER) {
-        return null
-    }
-    const sorted = [...costs.values()].sort((a, b) => a - b)
-    // The cheapest run inside the priciest tenth, so a line here marks that tenth and no more.
-    const decileStart = sorted[sorted.length - Math.ceil(sorted.length * 0.1)]
-    if (decileStart > sorted[0]) {
-        return decileStart
-    }
-    // More than nine tenths of the fleet costs the cheapest price, so a line at the decile would
-    // mark every box. Mark what costs more than that price instead, which is nothing at all when
-    // every run costs the same.
-    return sorted.find((cost) => cost > sorted[0]) ?? null
+    return formatCredits(usdToCredits(costUsd))
 }
 
 /**
