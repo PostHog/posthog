@@ -313,6 +313,7 @@ It takes the list's filters, but not its sort options or `admin_include_all`, an
 Keep these in mind when you change it:
 
 - **Its search returns name and step matches together.** The list searches step content only when nothing matches by name or description.
+- **Its search response has no total.** With `search`, `count` holds the rows through this page, plus one when another page follows, so the step scan runs once per page. Use `next` to tell whether more rows follow.
 - **It sorts on `-created_at, -id`.** A save during the load changes `updated_at`, so sorting on it moves rows between pages.
 - **It uses the list facade for access checks.** The routing mixin only filters `list`; the facade filters both list and summary pages.
 - **Only this path is gzipped.** The full list has step config next to the `search` input that its `next` link reflects, which is the shape `ScopedGZipMiddleware` warns about.
