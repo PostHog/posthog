@@ -434,6 +434,54 @@ describe('scenario environment', () => {
             expect(ports['cdp-api']).toBe('6738')
         })
 
+        it("runs each replica a profile asks for on its own port and connection name, replica 0 on the role's own", () => {
+            const replicated = roleSpecs(base, EDGE, secretsOf({}), STATE_DIR, {}, undefined, {
+                'cdp-cyclotron-worker-hogflow': 3,
+                'cdp-processed-events': 2,
+            })
+            const identities = replicated.map(({ role, replica, port, env }) => ({
+                role,
+                replica,
+                port,
+                listens: env.HTTP_SERVER_PORT,
+                connects: env.PGAPPNAME,
+            }))
+
+            expect(identities.filter(({ replica }) => replica === 0)).toEqual(
+                specs.map(({ role, env }) => ({
+                    role,
+                    replica: 0,
+                    port: Number(env.HTTP_SERVER_PORT),
+                    listens: env.HTTP_SERVER_PORT,
+                    connects: env.PGAPPNAME,
+                }))
+            )
+            expect(identities.filter(({ replica }) => replica > 0)).toEqual([
+                {
+                    role: 'cdp-processed-events',
+                    replica: 1,
+                    port: 6860,
+                    listens: '6860',
+                    connects: 'scenario-cdp-processed-events-1',
+                },
+                {
+                    role: 'cdp-cyclotron-worker-hogflow',
+                    replica: 1,
+                    port: 6861,
+                    listens: '6861',
+                    connects: 'scenario-cdp-cyclotron-worker-hogflow-1',
+                },
+                {
+                    role: 'cdp-cyclotron-worker-hogflow',
+                    replica: 2,
+                    port: 6961,
+                    listens: '6961',
+                    connects: 'scenario-cdp-cyclotron-worker-hogflow-2',
+                },
+            ])
+            expect(consumerGroupsOf(replicated)).toEqual(consumerGroupsOf(specs))
+        })
+
         it.each(CdpRole.options)(
             'runs %s as itself in dev, marked, against the edge and its proxy for every team, without AWS_PROFILE',
             (role) => {
@@ -896,8 +944,8 @@ describe('scenario environment', () => {
             const [spec] = roleSpecs(process.env, EDGE, secretsOf({}), STATE_DIR)
             await supervisor.start([{ ...spec, env: { ...spec.env, SCENARIO_TEST_TAG: tag } }])
             const [{ pid }] = tagged()
-            const first = supervisor.freeze(spec.role, 5000)
-            const second = supervisor.freeze(spec.role, 5000)
+            const first = supervisor.freeze(spec, 5000)
+            const second = supervisor.freeze(spec, 5000)
             expect(await second.observed()).toBe(true)
 
             await first.release()
@@ -958,7 +1006,7 @@ describe('scenario environment', () => {
                 process.kill(pid, 'SIGKILL')
                 blockEventLoopUntilZombie(pid)
 
-                await expect(killedElsewhere.kill(spec.role, 2000)).rejects.toThrow(`${spec.role} is not running`)
+                await expect(killedElsewhere.kill(spec, 2000)).rejects.toThrow(`${spec.role} is not running`)
                 await waitForExpect(
                     () =>
                         expect(killedElsewhere.exits()).toEqual([
@@ -1510,6 +1558,38 @@ describe('scenario environment', () => {
             }, 15_000)
             await actuation.release()
             expect(environment.exits()).toEqual([expect.objectContaining({ role, signal: 'SIGKILL', byValve: true })])
+        }, 30_000)
+
+        it('starts every replica a profile asks for, lists each one, and kills only replica 0 on a valve', async () => {
+            const role = 'cdp-cyclotron-worker-email'
+            environment = environmentOf()
+            await environment.up()
+            await environment.reset({}, { [role]: 2 })
+            const pidAt = async (url: string): Promise<number> =>
+                Number(await (await internalFetch(`${url}/_health`)).text())
+            const [first, second] = environment.roles().filter(({ name }) => name === role)
+            const before = { first: await pidAt(first.url), second: await pidAt(second.url) }
+
+            const actuation = await environment.actuate({ kind: 'kill', role })
+
+            expect(await actuation.observed()).toBe(true)
+            await waitForExpect(async () => expect(await pidAt(first.url)).not.toBe(before.first), 15_000)
+            expect({
+                handles: environment.roles().map(({ name, replica, url }) => ({ name, replica, url })),
+                replica0: environment.role(role).url,
+                secondUntouched: await pidAt(second.url),
+                exits: environment.exits().map(({ role, replica, byValve }) => ({ role, replica, byValve })),
+                secondLogged: existsSync(path.join(process.env.XDG_CACHE_HOME!, 'posthog-scenarios', `${role}-1.log`)),
+            }).toEqual({
+                handles: CdpRole.options.flatMap((name) => [
+                    { name, replica: 0, url: `http://127.0.0.1:${ROLE_PORTS[name]}` },
+                    ...(name === role ? [{ name, replica: 1, url: `http://127.0.0.1:${ROLE_PORTS[name] + 100}` }] : []),
+                ]),
+                replica0: `http://127.0.0.1:${ROLE_PORTS[role]}`,
+                secondUntouched: before.second,
+                exits: [{ role, replica: 0, byValve: true }],
+                secondLogged: true,
+            })
         }, 30_000)
 
         it("drops the roles' Postgres connections in every database on their servers and spares every other one", async () => {

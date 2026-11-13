@@ -51,7 +51,11 @@ const pause = (ms: number, signal: AbortSignal): Promise<void> =>
         signal.addEventListener('abort', done, { once: true })
     })
 
-export async function seed({ card }: LoadedCard, postgres: PostgresRouter, signal: AbortSignal): Promise<SeedState> {
+export async function seed(
+    { card, profile }: LoadedCard,
+    postgres: PostgresRouter,
+    signal: AbortSignal
+): Promise<SeedState> {
     const teamIds: number[] = []
     const flowIds: SeedState['flowIds'] = {}
     for (let i = 0; i < card.setup.teams; i++) {
@@ -63,7 +67,9 @@ export async function seed({ card }: LoadedCard, postgres: PostgresRouter, signa
         })
         for (const { name } of card.drive.traffic) {
             signal.throwIfAborted()
-            const flow = await insertHogFlow(postgres, await trafficKind(name).flow(team.id, integration.id))
+            const kind = trafficKind(name)
+            const { parks } = kind.profile.parse(profile.traffic[name])
+            const flow = await insertHogFlow(postgres, await kind.flow(team.id, integration.id, parks))
             flowIds[name] = { ...flowIds[name], [team.id]: flow.id }
         }
         teamIds.push(team.id)

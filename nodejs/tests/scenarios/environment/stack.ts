@@ -10,7 +10,7 @@ import { getDefaultConfig, overrideWithEnv } from '~/common/config/config'
 import { internalFetch } from '~/common/utils/request'
 import { PluginsServerConfig } from '~/types'
 
-import { ConsumerGroup, ROLE_PORTS, Role, RoleSpec, SES_RATE_LIMITER_VALKEY } from './roles'
+import { ConsumerGroup, ROLE_PORTS, RoleSpec, SES_RATE_LIMITER_VALKEY } from './roles'
 
 const PROBE_TIMEOUT_MS = 2000
 
@@ -240,16 +240,16 @@ export async function terminateRoleConnections(postgresUrl: string, share: numbe
     }, postgresUrl)
 }
 
-export async function rolesNotReady(specs: RoleSpec[]): Promise<Role[]> {
+export async function rolesNotReady(specs: RoleSpec[]): Promise<RoleSpec[]> {
     const results = await Promise.all(
-        specs.map(({ role }) =>
-            expectOk(`http://127.0.0.1:${ROLE_PORTS[role]}/_health`).then(
+        specs.map((spec) =>
+            expectOk(`http://127.0.0.1:${spec.port}/_health`).then(
                 () => null,
-                () => role
+                () => spec
             )
         )
     )
-    return results.filter((role): role is Role => role !== null)
+    return results.filter((spec): spec is RoleSpec => spec !== null)
 }
 
 export async function forgetSesBucket({ host, port }: { host: string; port: number }): Promise<void> {

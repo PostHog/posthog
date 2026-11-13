@@ -51,7 +51,7 @@ import { _fetch, fetch } from '~/common/utils/request'
 import { createKafkaTestTopicName, deleteKafkaTopics, ensureKafkaTopics } from '~/tests/helpers/kafka'
 import { Hub, PluginsServerConfig, RawClickHouseEvent } from '~/types'
 
-import { LoadedCard, Profile, ValveEntry, load } from '../cards'
+import { CdpRole, LoadedCard, Profile, ValveEntry, load } from '../cards'
 import { Environment, RoleExit, defaultStateDir } from '../environment/environment'
 import { Role, RoleSpec, consumerGroupsOf, roleSpecs, secretsOf } from '../environment/roles'
 import { cyclotronUrlOf, scratchSchema, withPostgres } from '../environment/stack'
@@ -112,7 +112,14 @@ describe('runner', () => {
         up: () => Promise.resolve(),
         reset: () => Promise.resolve(duringReset()),
         edgeUrl: () => 'http://127.0.0.1:1',
-        role: (name) => ({ name, url: 'http://127.0.0.1:1', metricsUrl: processMetrics.url }),
+        role: (name) => ({ name, replica: 0, url: 'http://127.0.0.1:1', metricsUrl: processMetrics.url }),
+        roles: () =>
+            CdpRole.options.map((name) => ({
+                name,
+                replica: 0,
+                url: 'http://127.0.0.1:1',
+                metricsUrl: processMetrics.url,
+            })),
         actuate: () => Promise.reject(new Error('these runs schedule no valves')),
         dependencyHealth: () => Promise.resolve({ healthy: true, down: [] }),
         exits: () => [],
@@ -601,10 +608,11 @@ describe('runner through seed, drive and judge', () => {
     let results: RunResult[]
     let cdp: Cdp
 
+    let handles: RoleSpec[] = []
     let exits: RoleExit[]
     let killExits: (role: Role) => RoleExit[]
     const exitOfTheKill = (role: Role): RoleExit[] => [
-        { role, at: new Date().toISOString(), code: null, signal: 'SIGKILL', byValve: true },
+        { role, replica: 0, at: new Date().toISOString(), code: null, signal: 'SIGKILL', byValve: true },
     ]
 
     const environmentOf = (
@@ -612,7 +620,8 @@ describe('runner through seed, drive and judge', () => {
         roleUrl = 'http://127.0.0.1:1'
     ): Environment => ({
         up: () => Promise.resolve(),
-        async reset(settings: Profile['settings']) {
+        async reset(settings: Profile['settings'], replicas: Profile['replicas'] = {}) {
+            handles = roleSpecs(env, { url: edge.url }, secretsOf(env), defaultStateDir(env), {}, undefined, replicas)
             await roles?.stop()
             roles =
                 delivering === 'none'
@@ -624,7 +633,14 @@ describe('runner through seed, drive and judge', () => {
                       )
         },
         edgeUrl: () => edge.url,
-        role: (name) => ({ name, url: roleUrl, metricsUrl: processMetrics.url }),
+        role: (name) => ({ name, replica: 0, url: roleUrl, metricsUrl: processMetrics.url }),
+        roles: () =>
+            handles.map(({ role, replica }) => ({
+                name: role,
+                replica,
+                url: roleUrl,
+                metricsUrl: `${processMetrics.url}?replica=${replica}`,
+            })),
         actuate(action) {
             exits.push(...(action.kind === 'kill' ? killExits(action.role) : []))
             return Promise.resolve({ observed: () => Promise.resolve(true), release: () => Promise.resolve() })
@@ -895,6 +911,7 @@ describe('runner through seed, drive and judge', () => {
             () => [
                 {
                     role: 'cdp-cyclotron-worker-hogflow',
+                    replica: 0,
                     at: new Date().toISOString(),
                     code: 1,
                     signal: null,

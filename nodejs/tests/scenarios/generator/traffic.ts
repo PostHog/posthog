@@ -14,7 +14,7 @@ import type { TrafficDefinition } from '../cards/definitions'
 import type { JournalEntry } from '../judge/judge'
 import { UNIT_EMAIL_DOMAIN, WEBHOOK_HOST } from '../provider-edge'
 
-const Rate = z.object({ ratePerSecond: z.number().positive() }).strict()
+const Shape = z.object({ ratePerSecond: z.number().positive(), parks: z.number().int().min(0).default(0) }).strict()
 
 export type Unit = { unitId: string; teamId: number; flowId: string }
 
@@ -25,10 +25,10 @@ export type OfferContext = {
 }
 
 export type TrafficKind = Omit<TrafficDefinition, 'profile'> & {
-    profile: typeof Rate
+    profile: typeof Shape
     intake: JournalEntry['kind']
     deliveries: string[]
-    flow(teamId: number, emailIntegrationId: number): Promise<HogFlow>
+    flow(teamId: number, emailIntegrationId: number, parks: number): Promise<HogFlow>
     offer(unit: Unit, context: OfferContext): Promise<JournalEntry['answer']>
 }
 
@@ -84,7 +84,13 @@ const webhookStep = async (): Promise<object> => {
     }
 }
 
-function oneStepFlow(teamId: number, name: string, trigger: object, actionId: string, step: object): HogFlow {
+const PARK_FOR = '1s'
+
+type Flow = { name: string; trigger: object; actionId: string; step: object; parks: number }
+
+function parkedFlow(teamId: number, { name, trigger, actionId, step, parks }: Flow): HogFlow {
+    const parkIds = Array.from({ length: parks }, (_, i) => `park_${i + 1}`)
+    const path = ['trigger', ...parkIds, actionId, 'exit']
     return new FixtureHogFlowBuilder()
         .withTeamId(teamId)
         .withName(name)
@@ -93,13 +99,13 @@ function oneStepFlow(teamId: number, name: string, trigger: object, actionId: st
         .withWorkflow({
             actions: {
                 trigger: { type: 'trigger', config: trigger },
+                ...Object.fromEntries(
+                    parkIds.map((id) => [id, { type: 'delay', config: { delay_duration: PARK_FOR } }])
+                ),
                 [actionId]: step,
                 exit: { type: 'exit', config: {} },
             },
-            edges: [
-                { from: 'trigger', to: actionId, type: 'continue' },
-                { from: actionId, to: 'exit', type: 'continue' },
-            ],
+            edges: path.slice(1).map((to, i) => ({ from: path[i], to, type: 'continue' })),
         } as Parameters<FixtureHogFlowBuilder['withWorkflow']>[0])
         .build()
 }
@@ -142,45 +148,51 @@ const WEBHOOK_EVENT = 'scenario_webhook'
 export const eventEmail: TrafficKind = {
     name: 'event_email',
     params: z.object({}).strict(),
-    profile: Rate,
+    profile: Shape,
     intake: 'event',
     deliveries: [EMAIL_ACTION],
-    flow: async (teamId, emailIntegrationId) =>
-        oneStepFlow(
-            teamId,
-            'Scenario event email',
-            eventTrigger(EMAIL_EVENT),
-            EMAIL_ACTION,
-            await emailStep(emailIntegrationId, 'event.properties.email')
-        ),
+    flow: async (teamId, emailIntegrationId, parks) =>
+        parkedFlow(teamId, {
+            name: 'Scenario event email',
+            trigger: eventTrigger(EMAIL_EVENT),
+            actionId: EMAIL_ACTION,
+            step: await emailStep(emailIntegrationId, 'event.properties.email'),
+            parks,
+        }),
     offer: (unit, context) => produce(context, unit, EMAIL_EVENT, { email: unitAddress(unit) }),
 }
 
 export const eventWebhook: TrafficKind = {
     name: 'event_webhook',
     params: z.object({}).strict(),
-    profile: Rate,
+    profile: Shape,
     intake: 'event',
     deliveries: [WEBHOOK_ACTION],
-    flow: async (teamId) =>
-        oneStepFlow(teamId, 'Scenario event webhook', eventTrigger(WEBHOOK_EVENT), WEBHOOK_ACTION, await webhookStep()),
+    flow: async (teamId, _emailIntegrationId, parks) =>
+        parkedFlow(teamId, {
+            name: 'Scenario event webhook',
+            trigger: eventTrigger(WEBHOOK_EVENT),
+            actionId: WEBHOOK_ACTION,
+            step: await webhookStep(),
+            parks,
+        }),
     offer: (unit, context) => produce(context, unit, WEBHOOK_EVENT, { unit_id: unit.unitId }),
 }
 
 export const transactionalEmail: TrafficKind = {
     name: 'transactional_email',
     params: z.object({}).strict(),
-    profile: Rate,
+    profile: Shape,
     intake: 'transactional',
     deliveries: [EMAIL_ACTION],
-    flow: async (teamId, emailIntegrationId) =>
-        oneStepFlow(
-            teamId,
-            'Scenario transactional email',
-            { type: 'api' },
-            EMAIL_ACTION,
-            await emailStep(emailIntegrationId, 'event.properties.to')
-        ),
+    flow: async (teamId, emailIntegrationId, parks) =>
+        parkedFlow(teamId, {
+            name: 'Scenario transactional email',
+            trigger: { type: 'api' },
+            actionId: EMAIL_ACTION,
+            step: await emailStep(emailIntegrationId, 'event.properties.to'),
+            parks,
+        }),
     offer: async (unit, { cdpApi }) => {
         try {
             const response = await internalFetch(

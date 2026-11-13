@@ -50,7 +50,8 @@ function environmentWhoseResetFails(): Environment {
             }
             return edgeUrl
         },
-        role: (name) => ({ name, url: '', metricsUrl: '' }),
+        role: (name) => ({ name, replica: 0, url: '', metricsUrl: '' }),
+        roles: () => [],
         dependencyHealth: () => Promise.resolve({ healthy: true, down: [] }),
         actuate: () => Promise.reject(new Error('the main test schedules no valves')),
         exits: () => [],

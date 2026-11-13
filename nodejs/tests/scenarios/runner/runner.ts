@@ -19,9 +19,10 @@ import { ScopedServiceJwt } from '~/cdp/utils/scoped-service-jwt'
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 
-import { CdpRole, LOAD_PRODUCER_SETTING_PREFIX, LoadedCard } from '../cards'
+import { LOAD_PRODUCER_SETTING_PREFIX, LoadedCard } from '../cards'
 import { durationMs } from '../duration'
 import { Environment, defaultStateDir } from '../environment/environment'
+import { nameOf } from '../environment/identity'
 import { RoleSpec, consumerGroupsOf, fetchRetriesOf, roleSpecs, secretsOf } from '../environment/roles'
 import { cyclotronUrlOf, postgresUrlOf } from '../environment/stack'
 import { DriveSummary, SeedState, drive, seed } from '../generator/generator'
@@ -106,10 +107,10 @@ function watchHealth(environment: Environment): () => Promise<string[]> {
     }
 }
 
-function keepLogTails(stateDir: string): (evidenceDir: string) => Promise<void> {
+function keepLogTails(stateDir: string, specs: RoleSpec[]): (evidenceDir: string) => Promise<void> {
     const sizeOf = (file: string): number => (existsSync(file) ? statSync(file).size : 0)
-    const logs = CdpRole.options.map((role) => {
-        const file = path.join(stateDir, `${role}.log`)
+    const logs = specs.map((spec) => {
+        const file = path.join(stateDir, `${nameOf(spec)}.log`)
         return { file, offset: sizeOf(file) }
     })
     return async (evidenceDir) => {
@@ -244,10 +245,18 @@ export function createRunner(
             const runId = randomUUID()
             const startedAt = new Date().toISOString()
             const evidenceDir = path.join(stateDir, runId)
-            const writeLogTails = keepLogTails(stateDir)
             const edgeUrl = environment.edgeUrl()
             const secrets = secretsOf(env)
-            const specs = roleSpecs(env, { url: edgeUrl }, secrets, stateDir, profile.settings)
+            const specs = roleSpecs(
+                env,
+                { url: edgeUrl },
+                secrets,
+                stateDir,
+                profile.settings,
+                undefined,
+                profile.replicas
+            )
+            const writeLogTails = keepLogTails(stateDir, specs)
             const cdpApi = {
                 url: environment.role('cdp-api').url,
                 jwt: new ScopedServiceJwt(
@@ -274,7 +283,7 @@ export function createRunner(
             let producer: KafkaProducerWrapper | undefined
             try {
                 producer = await KafkaProducerWrapper.createWithConfig(undefined, producerConfigOf(specs[0].env))
-                await environment.reset(profile.settings).catch((error: unknown) => {
+                await environment.reset(profile.settings, profile.replicas).catch((error: unknown) => {
                     restartRequired = new Error(
                         `The reset before run ${runId} failed and stopped the environment: ${messageOf(error)}. Restart the runner, then run the card again.`
                     )
@@ -294,7 +303,7 @@ export function createRunner(
                 const exitsBefore = environment.exits().length
                 stopHealth = watchHealth(environment)
                 sampler = await startSampler(
-                    CdpRole.options.map((role) => ({ role, metricsUrl: environment.role(role).metricsUrl }))
+                    environment.roles().map(({ name, replica, metricsUrl }) => ({ role: name, replica, metricsUrl }))
                 )
                 await valves.start(card.valves, { environment, probe, teams: seeded.teamIds })
                 const windowOpen = new AbortController()

@@ -62,6 +62,7 @@ export const Profile = z
         name: z.string(),
         traffic: z.record(z.string(), z.unknown()).default({}),
         settings: z.record(z.string(), z.string()).default({}),
+        replicas: z.partialRecord(CdpRole, z.number().int().min(1)).default({}),
     })
     .strict()
 export type Profile = z.infer<typeof Profile>
