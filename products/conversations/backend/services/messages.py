@@ -12,8 +12,8 @@ if TYPE_CHECKING:
 
 # Ticket messages are stored as comments under this scope.
 TICKET_MESSAGE_SCOPE = "conversations_ticket"
-# Marks a team reply written after the customer confirmed their address on a ticket from another channel.
 DELIVERED_BY_EMAIL_CONTEXT_KEY = "delivered_by_email"
+EMAIL_QUEUED_FOR_CONTEXT_KEY = "email_queued_for"
 
 # "team" is analytics-only. "AI" and "customer" are not learning evidence.
 PUBLIC_HUMAN_AUTHOR_TYPES = ("support", "human")
@@ -147,16 +147,20 @@ def _shown_to_widget_viewer(reader_address: str | None) -> Q:
     """Messages of a ticket from another channel that a widget viewer may read.
 
     A viewer known only by a widget session reads neither the emails nor the replies written
-    after the address was confirmed. Those replies were written for the mailbox owner.
+    after the address was confirmed. Those replies were written for the mailbox owner. A viewer
+    with a reader address reads the emails from that address and the replies queued for it,
+    because the ticket can hold both for an address it had before.
     """
     # isnull keeps comments with no such key, because ~Q alone drops SQL NULL.
     not_email = ~Q(item_context__from_email=True) | Q(item_context__from_email__isnull=True)
-    if reader_address is not None:
-        return not_email | Q(item_context__email_from__iexact=reader_address)
     written_before_confirmation = ~Q(item_context__delivered_by_email=True) | Q(
         item_context__delivered_by_email__isnull=True
     )
-    return not_email & written_before_confirmation
+    if reader_address is None:
+        return not_email & written_before_confirmation
+    own_email = Q(item_context__email_from__iexact=reader_address)
+    written_for_reader = Q(item_context__email_queued_for__iexact=reader_address)
+    return (not_email | own_email) & (written_before_confirmation | written_for_reader)
 
 
 def _last_visible_contents(team_id: int, ticket_ids: list[str], reader_address: str | None) -> dict[str, str]:

@@ -1239,7 +1239,21 @@ class TestWidgetIdentityVerification(BaseTest):
             ),
             (
                 "Written for the confirmed address",
-                {"author_type": "support", "is_private": False, "delivered_by_email": True},
+                {
+                    "author_type": "support",
+                    "is_private": False,
+                    "delivered_by_email": True,
+                    "email_queued_for": "person@example.com",
+                },
+            ),
+            (
+                "Written for an address the ticket had before",
+                {
+                    "author_type": "support",
+                    "is_private": False,
+                    "delivered_by_email": True,
+                    "email_queued_for": "earlier@example.com",
+                },
             ),
         ]:
             Comment.objects.create(

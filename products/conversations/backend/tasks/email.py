@@ -36,6 +36,7 @@ from products.conversations.backend.services.email_confirmation import (
 from products.conversations.backend.services.mailgun_domain_cleanup import (
     cleanup_mailgun_domains as run_mailgun_domain_cleanup,
 )
+from products.conversations.backend.services.messages import EMAIL_QUEUED_FOR_CONTEXT_KEY
 
 logger = structlog.get_logger(__name__)
 
@@ -152,7 +153,7 @@ def _threading_headers(ticket_id: UUID, team_id: int) -> dict[str, str]:
     return {"In-Reply-To": message_ids[-1], "References": " ".join(message_ids)}
 
 
-def _email_delivery_blocked_reason(ticket: Ticket, is_confirmation: bool) -> str | None:
+def _email_delivery_blocked_reason(ticket: Ticket, comment: CommentModel, is_confirmation: bool) -> str | None:
     """Why this ticket's email delivery state does not allow the send, or None when it does.
 
     The state and the address are read again here. The ticket on the outbox row was loaded when
@@ -171,7 +172,10 @@ def _email_delivery_blocked_reason(ticket: Ticket, is_confirmation: bool) -> str
     required_state = EmailDelivery.PENDING if is_confirmation else EmailDelivery.ACTIVE
     if state != required_state:
         return f"email delivery is not {required_state.value}"
-    if (address or "").lower() != (ticket.email_from or "").lower():
+    # A row can outlive a stop under a worker's lease, and delivery can restart for another address.
+    context = comment.item_context if isinstance(comment.item_context, dict) else {}
+    queued_for = context.get(EMAIL_QUEUED_FOR_CONTEXT_KEY)
+    if queued_for is None or {(address or "").lower(), (ticket.email_from or "").lower()} != {queued_for}:
         return "the customer email changed after this email was queued"
     return None
 
@@ -272,7 +276,7 @@ def _process_outbox_row(outbox: EmailOutboxMessage) -> None:
     if Ticket.all_objects.filter(id=ticket.id, deleted_at__isnull=False).exists():
         _mark_outbox_failed(outbox, "ticket deleted")
         return
-    if blocked_reason := _email_delivery_blocked_reason(ticket, is_confirmation):
+    if blocked_reason := _email_delivery_blocked_reason(ticket, comment, is_confirmation):
         _mark_outbox_failed(outbox, blocked_reason)
         return
 

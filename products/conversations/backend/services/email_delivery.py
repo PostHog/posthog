@@ -41,6 +41,7 @@ from products.conversations.backend.services.email_confirmation import (
 )
 from products.conversations.backend.services.messages import (
     DELIVERED_BY_EMAIL_CONTEXT_KEY,
+    EMAIL_QUEUED_FOR_CONTEXT_KEY,
     TICKET_MESSAGE_SCOPE,
     is_outbound_reply,
     visible_ticket_messages,
@@ -124,16 +125,12 @@ def enqueue_email_reply(
     address on a ticket from another channel. The agent wrote it for the mailbox owner, so a
     widget session that has not proved it owns the address no longer reads it.
     """
-    if written_for_confirmed_address:
-        merge_comment_context(ticket.team_id, comment.id, {DELIVERED_BY_EMAIL_CONTEXT_KEY: True})
-        # Also on the instance, so that a later save of it does not write the mark away.
-        comment.item_context = {**(comment.item_context or {}), DELIVERED_BY_EMAIL_CONTEXT_KEY: True}
     if message_id is None:
         domain = _message_id_domain(ticket)
         message_id = make_msgid(domain=domain) if domain else make_msgid()
 
     # One outbox row per comment; get_or_create keeps the callers idempotent.
-    outbox, _ = EmailOutboxMessage.objects.get_or_create(
+    outbox, created = EmailOutboxMessage.objects.get_or_create(
         comment=comment,
         defaults={
             "team_id": ticket.team_id,
@@ -141,6 +138,14 @@ def enqueue_email_reply(
             "message_id": message_id,
         },
     )
+    if created and ticket.channel_source != Channel.EMAIL:
+        # The send path and the widget use this address, which can change when delivery restarts.
+        marks: dict[str, Any] = {EMAIL_QUEUED_FOR_CONTEXT_KEY: (ticket.email_from or "").lower()}
+        if written_for_confirmed_address:
+            marks[DELIVERED_BY_EMAIL_CONTEXT_KEY] = True
+        merge_comment_context(ticket.team_id, comment.id, marks)
+        # Also on the instance, so that a later save of it does not write the marks away.
+        comment.item_context = {**(comment.item_context or {}), **marks}
 
     outbox_id = str(outbox.id)
     item_id = str(ticket.id)
@@ -181,6 +186,19 @@ def _default_support_channel(ticket: Ticket) -> EmailChannel:
     return config
 
 
+def _mailbox_of(address: str) -> str:
+    """The mailbox an address delivers to, as far as it can be told from the address.
+
+    A plus tag reaches the same mailbox as the plain address, and Gmail also ignores dots, so
+    each variant must not get a confirmation email quota of its own.
+    """
+    local, _, domain = address.strip().lower().rpartition("@")
+    local = local.partition("+")[0]
+    if domain in ("gmail.com", "googlemail.com"):
+        return f"{local.replace('.', '')}@gmail.com"
+    return f"{local}@{domain}"
+
+
 def _check_confirmation_email_quota(team_id: int, recipient: str) -> None:
     """Refuse another confirmation email to an address that got several of them recently.
 
@@ -188,7 +206,7 @@ def _check_confirmation_email_quota(team_id: int, recipient: str) -> None:
     many tickets. The count lives in the cache, where the increment is one atomic step for
     concurrent requests on different tickets.
     """
-    recipient_hash = sha256(recipient.strip().lower().encode()).hexdigest()
+    recipient_hash = sha256(_mailbox_of(recipient).encode()).hexdigest()
     key = f"conversations-email-confirmation:{team_id}:{recipient_hash}"
     cache.add(key, 0, timeout=int(CONFIRMATION_EMAIL_WINDOW.total_seconds()))
     try:
