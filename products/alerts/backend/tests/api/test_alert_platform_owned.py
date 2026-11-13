@@ -24,11 +24,12 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping import team_scope
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
-from posthog.schema_enums import AlertCalculationInterval
+from posthog.schema_enums import AlertCalculationInterval, AlertState
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.alerts.backend.evaluation.detector import _earlier_flags, _saved_alert_flags
 from products.alerts.backend.facade.api import (
+    WATCHED_ROWS_PER_INSIGHT,
     enabled_alert_insight_ids,
     first_subscriber_id,
     get_alert_team_id,
@@ -36,6 +37,7 @@ from products.alerts.backend.facade.api import (
     insight_ids_with_enabled_alerts,
     insight_short_ids_watched_by,
     list_enabled_alerts,
+    list_errored_alerts,
     list_firing_alerts_created_by,
     snooze_alert_from_slack,
 )
@@ -49,8 +51,10 @@ from products.alerts.backend.llm_detector_limits import count_enabled_llm_alerts
 from products.alerts.backend.models.alert import (
     AlertCheck,
     AlertConfiguration,
+    AlertSubscription,
     InvestigationStatus,
     InvestigationVerdict,
+    Threshold,
 )
 from products.alerts.backend.models.investigation import InsightAlertInvestigation
 from products.alerts.backend.platform_cutover import cut_over_team
@@ -72,6 +76,7 @@ from products.alerts_platform.backend.facade.api import (
     update_configuration,
 )
 from products.alerts_platform.backend.facade.contracts import (
+    SOURCE_CONDITION_KEY,
     AlertDelivery,
     DestinationType,
     InvalidPlatformAlertEdit,
@@ -80,7 +85,7 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceKind,
     VerdictChange,
 )
-from products.alerts_platform.backend.facade.enums import HoldRelease, HoldReleasedBy
+from products.alerts_platform.backend.facade.enums import HoldRelease, HoldReleasedBy, PlatformAlertOwner
 from products.alerts_platform.backend.facade.scheduling import REAL_TIME_CADENCE_MINUTES
 from products.cdp.backend.facade.models import HogFunction
 from products.cdp.backend.templates.fixtures import template_slack
@@ -503,16 +508,80 @@ class TestPlatformOwnedInsightAlert(ClickhouseTestMixin, APIBaseTest):
 
         assert response.json()["results"] == []
 
-    def test_a_platform_history_failure_falls_back_to_the_alerts_own_checks(self) -> None:
+    @parameterized.expand([("list",), ("retrieve",)])
+    def test_a_moved_alert_reads_back_its_settings_from_the_platform_after_its_row_drifts(self, action: str) -> None:
+        threshold = {"type": "absolute", "bounds": {"lower": 10.0, "upper": 50.0}}
+        written: dict[str, Any] = {
+            "name": "Written",
+            "enabled": True,
+            "condition": {"type": "absolute_value"},
+            "config": {"type": "TrendsAlertConfig", "series_index": 0, "check_ongoing_interval": True},
+            "calculation_interval": AlertCalculationInterval.HOURLY.value,
+            "skip_weekend": True,
+            "schedule_restriction": {"blocked_windows": [{"start": "22:00", "end": "07:00"}]},
+            "snoozed_until": _iso(self.now + timedelta(days=1)),
+        }
+        patched = self.client.patch(
+            f"{self.url}/{self.alert.id}/", {**written, "threshold": {"configuration": threshold}}, format="json"
+        )
+        assert patched.status_code == status.HTTP_200_OK, patched.json()
+        # Writes that bypass the API leave the row apart from the copy.
+        AlertConfiguration.objects.filter(id=self.alert.id).update(
+            name="Drifted",
+            enabled=False,
+            condition={"type": "relative_increase"},
+            config={"type": "TrendsAlertConfig", "series_index": 1},
+            calculation_interval=AlertCalculationInterval.DAILY.value,
+            skip_weekend=False,
+            schedule_restriction=None,
+            snoozed_until=None,
+        )
+        Threshold.objects.filter(alertconfiguration__id=self.alert.id).update(
+            configuration={"type": "percentage", "bounds": {"upper": 0.5}}
+        )
+
+        row = self._row(action)
+
+        assert {key: row[key] for key in written} == written
+        assert (row["threshold"]["configuration"], row["state"]) == (threshold, "Snoozed")
+
+    def test_a_moved_alert_keeps_its_rows_settings_that_an_older_copy_lacks(self) -> None:
+        row_config = {"type": "TrendsAlertConfig", "series_index": 0, "check_ongoing_interval": True}
+        AlertConfiguration.objects.filter(id=self.alert.id).update(config=row_config, skip_weekend=True)
+        with team_scope(self.team.id):
+            platform_testing.set_source_config(
+                self.copy_id,
+                {
+                    "insight_id": self.alert.insight_id,
+                    SOURCE_CONDITION_KEY: {
+                        "comparison": {"type": "absolute_value"},
+                        "threshold": {"type": "absolute", "bounds": {"upper": 100.0}},
+                    },
+                },
+            )
+
+        row = self._row("retrieve")
+
+        assert (row["config"], row["skip_weekend"]) == (row_config, True)
+
+    @parameterized.expand([("asked_for_checks", "?checks_limit=5", True), ("plain_read", "", False)])
+    def test_a_platform_history_failure_never_shows_the_alerts_stale_checks(
+        self, _name: str, query: str, refused: bool
+    ) -> None:
         self._record(30, "firing", value=150.0)
 
         with patch(
             "products.alerts.backend.platform_alert_reads.check_page_by_public_id",
             side_effect=RuntimeError("ClickHouse is down"),
         ):
-            row = self._row("retrieve")
+            response = self.client.get(f"{self.url}/{self.alert.id}/{query}")
 
-        assert [(check["state"], check["calculated_value"]) for check in row["checks"]] == [("Not firing", 1.0)]
+        if refused:
+            assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE, response.json()
+            assert response.json()["code"] == "alert_check_history_unavailable"
+        else:
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            assert (response.json()["checks"], response.json()["checks_total"]) == ([], 0)
 
 
 class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
@@ -949,6 +1018,32 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
         if not native:
             self.alert.refresh_from_db()
             assert self._copy().snooze_until == self.alert.snoozed_until
+            # The platform's history records the snooze, so the row keeps no check for it.
+            assert not AlertCheck.objects.filter(alert_configuration_id=self.alert.id).exists()
+
+    def test_a_snooze_through_the_api_writes_no_check_to_an_owned_alerts_row(self) -> None:
+        snoozed = self.client.patch(
+            f"{self.url}/{self.alert.id}/", {"snoozed_until": (self.now + timedelta(hours=1)).isoformat()}
+        )
+
+        assert snoozed.status_code == status.HTTP_200_OK, snoozed.json()
+        assert self._copy().snooze_until is not None
+        assert not AlertCheck.objects.filter(alert_configuration_id=self.alert.id).exists()
+
+    @parameterized.expand([("copy_off", True, False), ("row_off", False, True)])
+    def test_a_snooze_from_slack_refuses_a_moved_alert_unless_row_and_copy_are_on(
+        self, _name: str, row_on: bool, copy_on: bool
+    ) -> None:
+        AlertConfiguration.objects.filter(id=self.alert.id).update(enabled=row_on)
+        with team_scope(self.team.id):
+            platform_testing.set_enabled(self.copy_id, copy_on)
+
+        outcome = snooze_alert_from_slack(self.alert.id, user=self.user, duration="1d")
+
+        assert outcome == "disabled"
+        self.alert.refresh_from_db()
+        copy = self._copy()
+        assert (self.alert.snoozed_until, copy.enabled, copy.snooze_until) == (None, copy_on, None)
 
     def test_a_snooze_the_platform_refuses_leaves_both_rows_unsnoozed(self) -> None:
         with patch(
@@ -1135,6 +1230,16 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
         assert shared.status_code == status.HTTP_200_OK, shared.json()
         assert shared.json()["alerts"] == []
 
+    def test_the_insight_api_embeds_a_moved_alert_as_the_platform_holds_it(self) -> None:
+        self._edit_on_the_platform(lambda stored: replace(stored, name="Edited on the platform", enabled=False))
+        AlertConfiguration.objects.filter(id=self.alert.id).update(name="Drifted", enabled=True)
+
+        retrieved = self.client.get(f"/api/environments/{self.team.id}/insights/{self.alert.insight_id}/")
+
+        assert [(alert["id"], alert["name"], alert["enabled"]) for alert in retrieved.json()["alerts"]] == [
+            (str(self.alert.id), "Edited on the platform", False)
+        ]
+
     def test_the_insight_api_embeds_no_native_alert_that_moved_to_another_insight(self) -> None:
         listed_on = Insight.objects.create(team=self.team, query=self.alert.insight.query)
         moved_to = Insight.objects.create(team=self.team, query=self.alert.insight.query)
@@ -1253,41 +1358,45 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("team", "team_of", True, True),
-            # A snooze from Slack resolves the team first, and a switched-off alert answers it with "disabled".
-            ("team_of_a_switched_off_alert", "team_of", False, True),
-            ("enabled_insights", "enabled_alert_insights", True, True),
-            ("enabled_insights_skip_a_switched_off_alert", "enabled_alert_insights", False, False),
-            ("enabled_given_insights", "enabled_alerts_of_given_insights", True, True),
-            ("enabled_list", "enabled_alerts_list", True, True),
-            ("enabled_list_skips_a_switched_off_alert", "enabled_alerts_list", False, False),
-            ("watched_insights", "insights_the_creator_watches", True, True),
-            # The cleanup of generated insights keeps an insight any alert points at, on or off.
-            ("insights_with_alerts", "insights_with_alerts", True, True),
-            ("insights_with_alerts_include_a_switched_off_alert", "insights_with_alerts", False, True),
+            (f"{name}_{kind}", reader, enabled, expected, kind == "native")
+            for name, reader, enabled, expected in [
+                ("team", "team_of", True, True),
+                # A snooze from Slack resolves the team first, and a switched-off alert answers it with "disabled".
+                ("team_of_a_switched_off_alert", "team_of", False, True),
+                ("enabled_insights", "enabled_alert_insights", True, True),
+                ("enabled_insights_skip_a_switched_off_alert", "enabled_alert_insights", False, False),
+                ("enabled_given_insights", "enabled_alerts_of_given_insights", True, True),
+                ("enabled_list", "enabled_alerts_list", True, True),
+                ("enabled_list_skips_a_switched_off_alert", "enabled_alerts_list", False, False),
+                ("watched_insights", "insights_the_creator_watches", True, True),
+                # The cleanup of generated insights keeps an insight any alert points at, on or off.
+                ("insights_with_alerts", "insights_with_alerts", True, True),
+                ("insights_with_alerts_include_a_switched_off_alert", "insights_with_alerts", False, True),
+            ]
+            for kind in ("native", "copy")
         ]
     )
-    def test_the_facade_readers_see_an_alert_insight_keeps_no_row_for(
-        self, _name: str, reader: str, enabled: bool, expected: bool
+    def test_the_facade_readers_read_an_alert_the_platform_owns_from_the_platform(
+        self, _name: str, reader: str, enabled: bool, expected: bool, native: bool
     ) -> None:
-        self._forget_the_insight_row()
+        if native:
+            self._forget_the_insight_row()
+        else:
+            # A row that drifted from its copy, which the readers must not follow.
+            AlertConfiguration.objects.filter(id=self.alert.id).update(enabled=not enabled, created_by=self.user)
+        public_id = self.copy_id if native else self.alert.id
         with team_scope(self.team.id):
             platform_testing.set_enabled(self.copy_id, enabled)
-            assert assign_native_creator(
-                team_id=self.team.id,
-                source_kinds=[SourceKind.INSIGHT.value],
-                configuration_id=self.copy_id,
-                created_by_id=self.user.id,
-            )
+            platform_testing.set_created_by(self.copy_id, self.user.id)
         insight = self.alert.insight
         reads: dict[str, Callable[[], bool]] = {
-            "team_of": lambda: get_alert_team_id(self.copy_id) == self.team.id,
+            "team_of": lambda: get_alert_team_id(public_id) == self.team.id,
             "enabled_alert_insights": lambda: insight.id in enabled_alert_insight_ids(team_ids=[self.team.id]),
             "enabled_alerts_of_given_insights": lambda: (
                 insight_ids_with_enabled_alerts(team_id=self.team.id, insight_ids=[insight.id]) == {insight.id}
             ),
             "enabled_alerts_list": lambda: (
-                [alert.id for alert in list_enabled_alerts(self.team, self.user, limit=10)] == [self.copy_id]
+                [alert.id for alert in list_enabled_alerts(self.team, self.user, limit=10)] == [public_id]
             ),
             "insights_the_creator_watches": lambda: (
                 insight_short_ids_watched_by(team_id=self.team.id, user_id=self.user.id, limit=10) == [insight.short_id]
@@ -1297,26 +1406,54 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
 
         assert reads[reader]() is expected
 
+    @parameterized.expand([("copy_on", True), ("copy_off", False)])
+    def test_a_subscriber_watches_a_moved_alert_behind_newer_alerts(self, _name: str, copy_on: bool) -> None:
+        subscriber = User.objects.create_and_join(self.organization, "subscriber@example.com", None)
+        AlertSubscription.objects.create(alert_configuration=self.alert, user=subscriber, created_by=self.user)
+        with team_scope(self.team.id):
+            platform_testing.set_enabled(self.copy_id, copy_on)
+            for _ in range(WATCHED_ROWS_PER_INSIGHT):
+                newer = Insight.objects.create(team=self.team, query=self.alert.insight.query)
+                platform_testing.create_configuration(
+                    team_id=self.team.id,
+                    name="newer",
+                    source_kind=SourceKind.INSIGHT,
+                    source_config={"insight_id": newer.id},
+                    check_interval_minutes=60 * 24,
+                    recurrence_unit="day",
+                    owner=PlatformAlertOwner.PLATFORM,
+                    destinations_owner=PlatformAlertOwner.PLATFORM,
+                )
+
+        watched = insight_short_ids_watched_by(team_id=self.team.id, user_id=subscriber.id, limit=1)
+
+        assert watched == ([self.alert.insight.short_id] if copy_on else [])
+
     @parameterized.expand(
         [
-            ("firing", "firing", True),
-            ("not_firing", "not_firing", False),
-            ("snoozed", "snoozed", False),
-            ("failing_its_checks", "errored_check", False),
-            ("switched_off", "switched_off", False),
+            (f"{situation}_{kind}", situation, listed, kind == "native")
+            for situation, listed in [
+                ("firing", True),
+                ("not_firing", False),
+                ("snoozed", False),
+                ("errored_check", False),
+                ("switched_off", False),
+            ]
+            for kind in ("native", "copy")
         ]
     )
-    def test_todays_firing_alerts_list_an_alert_insight_keeps_no_row_for_while_it_fires(
-        self, _name: str, situation: str, listed: bool
+    def test_todays_firing_alerts_list_an_alert_the_platform_owns_while_it_fires(
+        self, _name: str, situation: str, listed: bool, native: bool
     ) -> None:
-        self._forget_the_insight_row()
-        with team_scope(self.team.id):
-            assign_native_creator(
-                team_id=self.team.id,
-                source_kinds=[SourceKind.INSIGHT.value],
-                configuration_id=self.copy_id,
-                created_by_id=self.user.id,
+        if native:
+            self._forget_the_insight_row()
+        else:
+            AlertConfiguration.objects.filter(id=self.alert.id).update(
+                state=AlertState.NOT_FIRING if listed else AlertState.FIRING, created_by=self.user
             )
+        public_id = self.copy_id if native else self.alert.id
+        with team_scope(self.team.id):
+            platform_testing.set_created_by(self.copy_id, self.user.id)
             if situation != "not_firing":
                 platform_testing.start_firing(self.copy_id, team_id=self.team.id, at=self.now)
             if situation == "errored_check":
@@ -1325,13 +1462,15 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
                 platform_testing.set_enabled(self.copy_id, False)
         if situation == "snoozed":
             snoozed = self.client.patch(
-                f"{self.url}/{self.copy_id}/", {"snoozed_until": (self.now + timedelta(hours=1)).isoformat()}
+                f"{self.url}/{public_id}/", {"snoozed_until": (self.now + timedelta(hours=1)).isoformat()}
             )
             assert snoozed.status_code == status.HTTP_200_OK, snoozed.json()
 
         firing = list_firing_alerts_created_by(self.team, self.user, include_metrics_insights=True, limit=10)
+        errored = list_errored_alerts(self.team, UserAccessControl(self.user, team=self.team), limit=10)
 
-        assert [alert.id for alert in firing] == ([self.copy_id] if listed else [])
+        assert [alert.id for alert in firing] == ([public_id] if listed else [])
+        assert [alert.id for alert in errored] == ([public_id] if situation == "errored_check" else [])
 
     def test_taking_ownership_of_an_ai_alert_insight_keeps_no_row_for_reads_it_under_the_lock(self) -> None:
         insight = self.alert.insight
