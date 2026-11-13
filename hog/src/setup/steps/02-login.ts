@@ -4,6 +4,7 @@ import {
     resumeApproval,
     reusablePending,
     runApproval,
+    SIGN_UP_INSTRUCTIONS,
     type ApprovalFlow,
     type ApprovalResult,
     type PendingResult,
@@ -37,9 +38,6 @@ function regionNote(host: Host, picked: SetupState['hostPicked'], named: boolean
     return ` Tell the user ${using}. If they want their data hosted in ${other.label}, or their account is on ${other.hint}, they shouldn't open the link and should tell you instead. Then run \`${SETUP_NEXT} --region ${other.value}\`. End your turn after telling them, and run \`${SETUP_NEXT}\` once they reply that they approved.`
 }
 
-const NEW_ACCOUNT =
-    "If the user doesn't have a PostHog account yet, they sign up on that page and confirm their email first. PostHog then asks them to approve the code. Once they approve it, they can come back to the terminal."
-
 function waitingStop(pending: PendingResult, projectId: ProjectId | undefined, region: string): Stop {
     const { url, code, expiresAt, next, instructions } = pending
     const project = projectId === undefined ? '' : ` Tell them to pick project ${projectId} on that page.`
@@ -52,7 +50,7 @@ function waitingStop(pending: PendingResult, projectId: ProjectId | undefined, r
             url,
             code,
             expiresAt,
-            instructions: `${instructions} ${NEW_ACCOUNT}${project}${region}`,
+            instructions: `${instructions}${project}${region}`,
         },
     }
 }
@@ -125,7 +123,7 @@ export const login: Step = {
                 ? waitingStop(pendingResult(flow, pending), projectId, region)
                 : runNext(
                       'setup_login_needed',
-                      `Run \`${SETUP_NEXT}\` to get a login link for ${host}, and ask the user to open it. ${NEW_ACCOUNT}${region}`
+                      `Run \`${SETUP_NEXT}\` to get a login link for ${host}, and ask the user to open it. ${SIGN_UP_INSTRUCTIONS}${region}`
                   )
         }
 
