@@ -418,7 +418,6 @@ export class CdpApi {
             PosthogJwtAudience.WORKFLOWS_MANUAL_RUN,
             config.WORKFLOWS_CANCEL_JWT_SECRET || ''
         )
-        // The scheduler's poll runs in the web tier too, so its batch token shares that key on its own audience.
         this.scheduledRunsJwt = new ScopedServiceJwt(
             PosthogJwtAudience.WORKFLOWS_SCHEDULED_RUNS,
             config.WORKFLOWS_CANCEL_JWT_SECRET || ''
@@ -1188,8 +1187,6 @@ export class CdpApi {
         }
     }
 
-    // Auth: a per-call JWT that Django mints for the teams of the batch. The route is exempt from the
-    // internal API secret.
     private postHogflowScheduledInvocations = async (req: ModifiedRequest, res: express.Response): Promise<any> => {
         if (!this.scheduledRunsJwt.enabled) {
             return res.status(503).json({

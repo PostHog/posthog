@@ -106,7 +106,6 @@ export class ScheduledRuns {
         hogFlow: HogFlow,
         variables: Record<string, unknown>
     ): CyclotronJobInvocationHogFlow {
-        // Schedule triggers have no real event, but the executor reads globals.event in downstream actions.
         const syntheticEvent: HogFunctionInvocationGlobals['event'] = {
             uuid: new UUIDT().toString(),
             event: '$workflow_scheduled',
