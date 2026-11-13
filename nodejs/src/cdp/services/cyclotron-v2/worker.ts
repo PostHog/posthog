@@ -47,12 +47,11 @@ export interface RawJobRow {
 }
 
 const CHURN_PARK_MS = (2 * 3_600_000) / CYCLOTRON_TRANSITION_CHURN_RATE_PER_HOUR
-const QUEUE_HOP_PARK_MS = 500
 
 // Read off the dequeued row and the reschedule time, so tracking churn costs no extra query.
 const highTransitionDequeuesCounter = new Counter({
     name: 'cdp_cyclotron_v2_high_transition_dequeues',
-    help: `Jobs dequeued with transition_count at or above ${CYCLOTRON_TRANSITION_CHURN_THRESHOLD} and at least ${CYCLOTRON_TRANSITION_CHURN_RATE_PER_HOUR} transitions per hour of age, or at the counter cap and rescheduled ${QUEUE_HOP_PARK_MS / 1000}s to ${CHURN_PARK_MS / 1000}s ahead, meaning they are cycling without completing.`,
+    help: `Jobs dequeued with transition_count at or above ${CYCLOTRON_TRANSITION_CHURN_THRESHOLD} and at least ${CYCLOTRON_TRANSITION_CHURN_RATE_PER_HOUR} transitions per hour of age, or at the counter cap and rescheduled into the next ${CHURN_PARK_MS / 1000}s, meaning they are cycling without completing.`,
     labelNames: ['queue'] as const,
 })
 
@@ -69,7 +68,7 @@ function isChurningAtCap(row: RawJobRow, scheduled: Date): boolean {
         return false
     }
     const parkMs = scheduled.getTime() - Date.now()
-    return parkMs >= QUEUE_HOP_PARK_MS && parkMs < CHURN_PARK_MS
+    return parkMs > 0 && parkMs < CHURN_PARK_MS
 }
 
 // The loop swallows the error and retries, so without this counter a queue whose every
