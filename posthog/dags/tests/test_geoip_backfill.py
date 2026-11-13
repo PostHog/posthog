@@ -5,12 +5,11 @@ from typing import Any
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 import pytest
-from unittest.mock import patch
 
+import brotli
 import dagster
 
 from posthog.clickhouse.cluster import ClickhouseCluster, NodeRole, Query
-from posthog.dags import geoip_backfill
 from posthog.dags.geoip_backfill import (
     Exclusion,
     GeoipBackfillConfig,
@@ -35,19 +34,15 @@ from posthog.models.event.sql import EVENTS_DATA_TABLE
 from products.cdp.backend.facade.api import EnabledTransformation
 from products.cdp.backend.models.hog_functions import HogFunction
 
+# Addresses in the MaxMind test DB, which the staging job reads through the real reader.
+TEST_MMDB = Path(__file__).parent / "fixtures" / "GeoLite2-City-Test.mmdb.br"
 PUBLIC_IP = "216.160.83.56"
 UNKNOWN_IP = "203.0.113.9"
 RECORD = {"country": {"iso_code": "US", "names": {"en": "United States"}}}
 
 
-class FakeLookup:
-    build_epoch = 0
-
-    def __call__(self, ip: str) -> dict[str, Any] | None:
-        return RECORD if ip == PUBLIC_IP else None
-
-    def close(self) -> None:
-        pass
+def fake_lookup(ip: str) -> dict[str, Any] | None:
+    return RECORD if ip == PUBLIC_IP else None
 
 
 @frozen
@@ -97,8 +92,8 @@ def seed(cluster: ClickhouseCluster, now: datetime, events: list[SeededEvent]) -
 def run_staging(
     cluster: ClickhouseCluster, now: datetime, tmp_path: Path, **overrides: Any
 ) -> dagster.ExecuteInProcessResult:
-    mmdb = tmp_path / "GeoLite2-City.mmdb"
-    mmdb.write_bytes(b"")
+    mmdb = tmp_path / "GeoLite2-City-Test.mmdb"
+    mmdb.write_bytes(brotli.decompress(TEST_MMDB.read_bytes()))
     config = GeoipBackfillConfig(
         windows=[
             IngestionWindowConfig(
@@ -108,12 +103,11 @@ def run_staging(
         mmdb_path=str(mmdb),
         **overrides,
     )
-    with patch.object(geoip_backfill, "open_lookup", return_value=FakeLookup()):
-        return geoip_backfill_staging_job.execute_in_process(
-            run_config=dagster.RunConfig(ops={"plan_geoip_backfill": config}),
-            resources={"cluster": cluster},
-            instance=dagster.DagsterInstance.ephemeral(),
-        )
+    return geoip_backfill_staging_job.execute_in_process(
+        run_config=dagster.RunConfig(ops={"plan_geoip_backfill": config}),
+        resources={"cluster": cluster},
+        instance=dagster.DagsterInstance.ephemeral(),
+    )
 
 
 @frozen
@@ -302,7 +296,7 @@ def test_window_slices_and_halves_cover_the_window_without_gaps() -> None:
 def test_enriched_person_properties(
     person_mode: str, person_properties: dict[str, Any], expected: dict[str, Any]
 ) -> None:
-    enrichment = geoip_enrichment({"$ip": PUBLIC_IP}, FakeLookup(), CURRENT_VERSION)
+    enrichment = geoip_enrichment({"$ip": PUBLIC_IP}, fake_lookup, CURRENT_VERSION)
     assert enrichment is not None
     row = {"person_mode": person_mode, "person_properties": json.dumps(person_properties)}
 
@@ -416,7 +410,8 @@ def assert_damaged_events_staged(
     assert row.properties["$geoip_country_code"] == "US"
     assert row.properties["$set"]["email"] == "user@example.com"
     assert row.properties["$set"]["$geoip_country_code"] == "US"
-    assert row.properties["$set"]["$geoip_city_name"] is None
+    assert row.properties["$set"]["$geoip_city_name"] == "Milton"
+    assert row.properties["$set"]["$geoip_subdivision_2_name"] is None
     assert row.properties["$set_once"]["$initial_geoip_country_code"] == "US"
     assert row.person_properties["$geoip_country_code"] == "US"
     assert row.person_properties["$initial_geoip_country_code"] == "FR"

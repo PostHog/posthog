@@ -685,10 +685,6 @@ class ShardStaging:
         )
 
 
-def open_lookup(path: str) -> MmdbGeoipLookup:
-    return MmdbGeoipLookup(Path(path))
-
-
 @dagster.op(tags=OWNER_TAG)
 def stage_shard(
     context: dagster.OpExecutionContext,
@@ -699,7 +695,9 @@ def stage_shard(
     table: GeoipStagingTable,
 ) -> int:
     workload, node_role = shard_workload()
-    lookup = open_lookup(plan.config.mmdb_path)
+    lookup = MmdbGeoipLookup(Path(plan.config.mmdb_path))
+    # The reader raises once it is closed, so read the build time first.
+    build_epoch = lookup.build_epoch
     try:
         totals = ShardStaging(
             cluster=cluster,
@@ -722,7 +720,7 @@ def stage_shard(
             "read": dagster.MetadataValue.int(totals.read),
             "staged": dagster.MetadataValue.int(totals.staged),
             "no_match": dagster.MetadataValue.int(totals.no_match),
-            "mmdb_build_epoch": dagster.MetadataValue.int(lookup.build_epoch),
+            "mmdb_build_epoch": dagster.MetadataValue.int(build_epoch),
         }
     )
     return totals.staged
