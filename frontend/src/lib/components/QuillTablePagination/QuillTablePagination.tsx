@@ -9,7 +9,7 @@ import {
     getPaginationRange,
 } from '@posthog/quill'
 
-export interface CatalogTablesPaginationProps {
+export interface QuillTablePaginationProps {
     currentPage: number
     pageCount: number
     pageSize: number
@@ -17,20 +17,20 @@ export interface CatalogTablesPaginationProps {
     onPageChange: (page: number) => void
 }
 
-export function CatalogTablesPagination({
+export function QuillTablePagination({
     currentPage,
     pageCount,
     pageSize,
     total,
     onPageChange,
-}: CatalogTablesPaginationProps): JSX.Element {
+}: QuillTablePaginationProps): JSX.Element {
     const pageIndex = currentPage - 1
     const start = pageIndex * pageSize + 1
     const end = Math.min(currentPage * pageSize, total)
 
     return (
         <div className="flex flex-wrap items-center justify-between gap-2 px-3 pb-2">
-            <span className="text-xs tabular-nums text-muted-foreground">
+            <span className="text-xs tabular-nums text-muted-foreground" translate="no">
                 {start}–{end} of {total}
             </span>
             <Pagination className="w-auto">
