@@ -8,6 +8,7 @@ import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 import * as posthogUtils from '~/common/utils/posthog'
 
+import { createSweepFloorRecord } from '../_tests/fixtures'
 import { HogFunctionInvocationGlobals } from '../types'
 import * as hogExec from '../utils/hog-exec'
 import {
@@ -1249,12 +1250,18 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             matcher.setHogFlows({ 'flow-1': makeHogFlow({ id: 'flow-1', team_id: 1 }) })
         })
 
-        it('maps a join to a $cohort_membership_changed event keyed on person_id, and skips backfills', async () => {
+        it('maps a join to a $cohort_membership_changed event keyed on person_id, and skips backfills and control records', async () => {
+            const parseErrors = async (): Promise<number> =>
+                (await counterParseError.get()).values.reduce((sum, v) => sum + v.value, 0)
+            const parseErrorsBefore = await parseErrors()
+
             const result = await (matcher as any)._parseCohortMembershipBatch([
                 rawCohortMembershipChange({ origin: 'seed' }),
+                { value: Buffer.from(JSON.stringify(createSweepFloorRecord({ cohort_id: 42 }))) },
                 rawCohortMembershipChange(),
             ])
 
+            expect(await parseErrors()).toBe(parseErrorsBefore)
             expect(result).toHaveLength(1)
             const globals = result[0] as HogFunctionInvocationGlobals
             expect(globals.event).toMatchObject({
@@ -1753,6 +1760,7 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             person_id: null,
             flow_version: 1,
             goal: { events: [eventBytecode('wuc_cancelled')] },
+            created_at: new Date('2026-11-01T09:15:00Z'),
             ...overrides,
         })
 
@@ -1764,7 +1772,7 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
 
             await matcher.runWake([cancelledEvent()])
 
-            expect(matcher.queueAppMetricMock).toHaveBeenCalledTimes(1)
+            expect(matcher.queueAppMetricMock).toHaveBeenCalledTimes(2)
             expect(matcher.queueAppMetricMock).toHaveBeenCalledWith(
                 expect.objectContaining({
                     team_id: 1,
@@ -1775,6 +1783,17 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
                 }),
                 'hog_flow'
             )
+            const byStart = matcher.queueAppMetricMock.mock.calls
+                .map(([metric]) => metric)
+                .find((metric) => metric.metric_name === 'conversion_by_start')
+            expect(byStart).toMatchObject({
+                team_id: 1,
+                app_source_id: 'flow-1',
+                instance_id: 'flow-1',
+                count: 1,
+                app_source_version: { id: 'flow-1', version: 1 },
+            })
+            expect(byStart.timestamp.toUTC().toISO()).toEqual('2026-11-01T09:15:00.000Z')
             expect(matcher.queueConversionEventMock).toHaveBeenCalledWith(
                 expect.objectContaining({
                     event: '$workflows_conversion',
@@ -1798,7 +1817,7 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
 
             await matcher.runWake([cancelledEvent()])
 
-            expect(matcher.queueAppMetricMock).toHaveBeenCalledTimes(1)
+            expect(matcher.queueAppMetricMock).toHaveBeenCalledTimes(2)
             expect(matcher.queueConversionEventMock).toHaveBeenCalledWith(
                 expect.objectContaining({ properties: expect.objectContaining({ $workflow_run_id: 'run-2' }) })
             )
@@ -1813,6 +1832,10 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
 
             expect(matcher.queueAppMetricMock).toHaveBeenCalledWith(
                 expect.objectContaining({ app_source_id: 'batch-1', metric_name: 'conversion' }),
+                'hog_flow'
+            )
+            expect(matcher.queueAppMetricMock).toHaveBeenCalledWith(
+                expect.objectContaining({ app_source_id: 'batch-1', metric_name: 'conversion_by_start' }),
                 'hog_flow'
             )
         })
@@ -1835,7 +1858,7 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
                 }),
             ])
 
-            expect(matcher.queueAppMetricMock).toHaveBeenCalledTimes(1)
+            expect(matcher.queueAppMetricMock).toHaveBeenCalledTimes(2)
             // No billable event: a person-triggered run has no distinct_id, and a person-property
             // change carries none, so there is nothing to attribute a capture event to. The metric
             // counts, but anything reading conversions off the event stream misses these.

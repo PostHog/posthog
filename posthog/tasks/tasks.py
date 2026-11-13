@@ -119,6 +119,33 @@ STALE_LOCAL_QUEUED_TASK_RUN_ERRORS_COUNTER = Counter(
 )
 
 
+@shared_task(
+    ignore_result=True,
+    soft_time_limit=120,
+    time_limit=150,
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    max_retries=3,
+)
+@skip_team_scope_audit
+def store_pinned_recording_metadata(team_id: int, session_ids: list[str]) -> None:
+    """Store start_time and retention on pinned recordings so collection counts drop them once they expire."""
+    from posthog.models import Team
+    from posthog.session_recordings.models.session_recording import SessionRecording
+    from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
+
+    team = Team.objects.get(pk=team_id)
+    found = SessionReplayEvents().get_session_timestamps(session_ids, team)
+    for recording in SessionRecording.objects.filter(
+        team_id=team_id, session_id__in=list(found), start_time__isnull=True
+    ):
+        timestamps = found[recording.session_id]
+        recording.start_time = timestamps.min_timestamp
+        # Match the 30-day default ClickHouse applies to recordings with no stored retention
+        recording.retention_period_days = timestamps.retention_period_days or 30
+        recording.save(update_fields=["start_time", "retention_period_days"])
+
+
 @shared_task(ignore_result=True)
 def delete_expired_exported_assets() -> None:
     from products.exports.backend.models.exported_asset import ExportedAsset
@@ -936,6 +963,14 @@ def capture_task_status_shadow_metrics() -> None:
                 mismatches_gauge.labels(stored_status=row.stored_status, derived_status=row.derived_status).set(
                     row.count
                 )
+            repaired_gauge = Gauge(
+                "posthog_tasks_status_shadow_repaired",
+                "Tasks whose stored status was repaired from their latest run in the last pass.",
+                registry=registry,
+                labelnames=["stored_status", "derived_status"],
+            )
+            for row in tasks_facade.repair_task_status_mismatches():
+                repaired_gauge.labels(stored_status=row.stored_status, derived_status=row.derived_status).set(row.count)
     except OperationalError as err:
         logger.warning("capture_task_status_shadow_metrics_transient_db_error", exception=err)
     except Exception as err:

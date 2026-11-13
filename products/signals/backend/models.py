@@ -58,6 +58,7 @@ from products.signals.backend.filter_catalog import (
     SignalFilterCatalogVersion as SignalFilterCatalogVersion,
     SignalFilterSourceDefinition as SignalFilterSourceDefinition,
 )
+from products.signals.backend.filter_state import SignalSourceFilterState as SignalSourceFilterState
 from products.signals.backend.rated_usage_models import SignalRatedUsage as SignalRatedUsage
 from products.signals.backend.report_checks import MAX_CHECK_TITLE_LENGTH
 from products.signals.backend.report_monitoring_aggregation import MonitoringAggregation
@@ -1484,6 +1485,26 @@ class SignalEmissionRecord(UUIDModel):
                 fields=["team", "source_product", "source_type"],
                 name="signals_emission_lookup_idx",
             ),
+        ]
+
+
+class SignalGroupingRecord(TeamScopedRootMixin, UUIDModel):
+    """Marks a signal as assigned to a report.
+
+    Grouping retries a failed batch, and the failure can come after the assignment committed.
+    The assign step checks this row first, so a retry cannot count the signal on its report again.
+    """
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    signal_id = models.UUIDField()
+    report_id = models.UUIDField()
+    # A retry emits the signal document again with this timestamp, so ClickHouse deduplicates it.
+    emitted_at = models.DateTimeField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["team", "signal_id"], name="signals_grouping_record_unique"),
         ]
 
 

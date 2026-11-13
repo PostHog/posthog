@@ -1,4 +1,4 @@
-import { NoSuchKey, S3Client } from '@aws-sdk/client-s3'
+import { NoSuchKey, S3Client, S3ServiceException } from '@aws-sdk/client-s3'
 import { ClickHouseClient } from '@clickhouse/client'
 import sodium from 'libsodium-wrappers'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
@@ -188,12 +188,30 @@ describe('RecordingService', () => {
             expect(result).toEqual({ ok: false, error: 'deleted', deletedAt: undefined, deletedBy: '' })
         })
 
-        it('returns not_found when S3 throws NoSuchKey', async () => {
-            mockS3Send.mockRejectedValue(new NoSuchKey({ message: 'The specified key does not exist.', $metadata: {} }))
+        const s3Error = (name: string) =>
+            new S3ServiceException({ name, $fault: 'client', message: name, $metadata: { httpStatusCode: 403 } })
 
-            const result = await service.getBlock(validParams)
+        it.each([
+            ['NoSuchKey on any route', () => new NoSuchKey({ message: 'missing', $metadata: {} }), false],
+            // The public role has no s3:ListBucket, so S3 answers a missing key with AccessDenied.
+            ['AccessDenied on the public block route', () => s3Error('AccessDenied'), true],
+        ])('returns not_found for %s', async (_, makeError, accessDeniedMeansMissing) => {
+            mockS3Send.mockRejectedValue(makeError())
+
+            const result = await service.getBlock({ ...validParams, accessDeniedMeansMissing })
 
             expect(result).toEqual({ ok: false, error: 'not_found' })
+        })
+
+        it.each([
+            // On the internal routes AccessDenied is a real permission fault and must surface.
+            ['AccessDenied on an internal route', 'AccessDenied', false],
+            // A credential error must surface on every route, even where AccessDenied means missing.
+            ['InvalidAccessKeyId on the public block route', 'InvalidAccessKeyId', true],
+        ])('throws for %s', async (_, name, accessDeniedMeansMissing) => {
+            mockS3Send.mockRejectedValue(s3Error(name))
+
+            await expect(service.getBlock({ ...validParams, accessDeniedMeansMissing })).rejects.toThrow(name)
         })
 
         it('propagates unexpected S3 errors', async () => {
@@ -431,6 +449,34 @@ describe('RecordingService', () => {
             expect(mockS3Send).toHaveBeenCalledWith(
                 expect.objectContaining({ input: { Bucket: 'test-bucket', Key: block.key, Range: 'bytes=100-250' } })
             )
+        })
+
+        it('aborts the S3 read for a ref once its deadline passes', async () => {
+            mockKeyStore.getKey.mockResolvedValue(sessionKey('ciphertext'))
+            const [listed] = (await service.annotateBlocks('sess-1', 1, [block])) as { ref: string }[]
+            mockS3Send.mockImplementation(
+                (_command, options: { abortSignal: AbortSignal }) =>
+                    new Promise((_resolve, reject) =>
+                        options.abortSignal.addEventListener('abort', () => reject(options.abortSignal.reason))
+                    )
+            )
+
+            await expect(service.getBlockByRef(1, 'sess-1', listed.ref, () => 'ok', 10)).rejects.toThrow()
+        })
+
+        it('reads AccessDenied for a ref as a missing block', async () => {
+            mockKeyStore.getKey.mockResolvedValue(sessionKey('ciphertext'))
+            const [listed] = (await service.annotateBlocks('sess-1', 1, [block])) as { ref: string }[]
+            mockS3Send.mockRejectedValue(
+                new S3ServiceException({
+                    name: 'AccessDenied',
+                    $fault: 'client',
+                    message: 'Access Denied',
+                    $metadata: { httpStatusCode: 403 },
+                })
+            )
+
+            expect(await service.getBlockByRef(1, 'sess-1', listed.ref)).toEqual({ ok: false, error: 'not_found' })
         })
 
         it.each([

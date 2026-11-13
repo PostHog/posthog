@@ -116,6 +116,8 @@ export interface Group {
     commands: CommandTree
     // Shorter names that work the same, like `et` for `error-tracking`. Help and agents use the full name.
     aliases?: readonly string[]
+    // Runs when the group is called without a subcommand, as `hog skills`. Without it, that call fails with the group's help.
+    guide?: Command
 }
 
 // A command posthog-cli still owns. hog lists it and points the caller to `use`, with the same arguments.

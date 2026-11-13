@@ -1407,6 +1407,34 @@ class VitallyConversationSignalInput(SignalInputBase):
     extra: VitallyConversationSignalExtra
 
 
+class IntercomTicketsTicketSignalExtra(SignalExtraBase):
+    ticket_id: str | None
+    category: str | None
+    ticket_state_category: str | None
+    ticket_type_name: str | None
+    created_at: str | None
+
+
+class IntercomTicketsTicketSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.TICKET]
+    source_product: Literal[SignalSourceProduct.INTERCOM_TICKETS]
+    extra: IntercomTicketsTicketSignalExtra
+
+
+class PylonTicketSignalExtra(SignalExtraBase):
+    number: str | None
+    state: str | None
+    type: str | None
+    link: str | None
+    created_at: str | None
+
+
+class PylonTicketSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.TICKET]
+    source_product: Literal[SignalSourceProduct.PYLON]
+    extra: PylonTicketSignalExtra
+
+
 # ── Incident management / on-call ─────────────────────────────────────────────────
 
 
@@ -2017,6 +2045,65 @@ class MicrosoftDefenderCloudAppsScannerFindingSignalInput(SignalInputBase):
     extra: MicrosoftDefenderCloudAppsScannerFindingSignalExtra
 
 
+class GithubDependabotScannerFindingSignalExtra(SignalExtraBase):
+    number: str | None
+    state: str | None
+    severity: str | None
+    ghsa_id: str | None
+    cve_id: str | None
+    package_ecosystem: str | None
+    package_name: str | None
+    vulnerable_version_range: str | None
+    first_patched_version: str | None
+    manifest_path: str | None
+    dependency_scope: str | None
+    html_url: str | None
+    created_at: str | None
+    repository: str | None
+
+
+class GithubDependabotScannerFindingSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.SCANNER_FINDING]
+    source_product: Literal[SignalSourceProduct.GITHUB_DEPENDABOT]
+    extra: GithubDependabotScannerFindingSignalExtra
+
+
+class GithubCodeScanningScannerFindingSignalExtra(SignalExtraBase):
+    number: str | None
+    state: str | None
+    rule_id: str | None
+    rule_severity: str | None
+    security_severity_level: str | None
+    tool_name: str | None
+    location_path: str | None
+    location_start_line: str | None
+    html_url: str | None
+    created_at: str | None
+    repository: str | None
+
+
+class GithubCodeScanningScannerFindingSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.SCANNER_FINDING]
+    source_product: Literal[SignalSourceProduct.GITHUB_CODE_SCANNING]
+    extra: GithubCodeScanningScannerFindingSignalExtra
+
+
+class GithubSecretScanningScannerFindingSignalExtra(SignalExtraBase):
+    number: str | None
+    state: str | None
+    secret_type: str | None
+    validity: str | None
+    html_url: str | None
+    created_at: str | None
+    repository: str | None
+
+
+class GithubSecretScanningScannerFindingSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.SCANNER_FINDING]
+    source_product: Literal[SignalSourceProduct.GITHUB_SECRET_SCANNING]
+    extra: GithubSecretScanningScannerFindingSignalExtra
+
+
 # ── Union over all signal variants ──────────────────────────────────────────────
 # Discrimination is by the composite (source_product, source_type) pair, resolved via
 # SIGNAL_VARIANT_LOOKUP below — a single-field pydantic discriminator can't express it
@@ -2096,6 +2183,8 @@ SignalInput = Annotated[
     | HelpscoutConversationSignalInput
     | DecagonConversationSignalInput
     | VitallyConversationSignalInput
+    | IntercomTicketsTicketSignalInput
+    | PylonTicketSignalInput
     | PagerdutyIncidentSignalInput
     | OpsgenieAlertSignalInput
     | IncidentIoIncidentSignalInput
@@ -2138,7 +2227,10 @@ SignalInput = Annotated[
     | AwsSecurityHubScannerFindingSignalInput
     | AwsGuarddutyScannerFindingSignalInput
     | AwsInspectorScannerFindingSignalInput
-    | MicrosoftDefenderCloudAppsScannerFindingSignalInput,
+    | MicrosoftDefenderCloudAppsScannerFindingSignalInput
+    | GithubDependabotScannerFindingSignalInput
+    | GithubCodeScanningScannerFindingSignalInput
+    | GithubSecretScanningScannerFindingSignalInput,
     Field(union_mode="left_to_right"),
 ]
 
@@ -2213,6 +2305,8 @@ SIGNAL_INPUT_VARIANTS: tuple[type[SignalInputBase], ...] = (
     HelpscoutConversationSignalInput,
     DecagonConversationSignalInput,
     VitallyConversationSignalInput,
+    IntercomTicketsTicketSignalInput,
+    PylonTicketSignalInput,
     PagerdutyIncidentSignalInput,
     OpsgenieAlertSignalInput,
     IncidentIoIncidentSignalInput,
@@ -2256,6 +2350,9 @@ SIGNAL_INPUT_VARIANTS: tuple[type[SignalInputBase], ...] = (
     AwsGuarddutyScannerFindingSignalInput,
     AwsInspectorScannerFindingSignalInput,
     MicrosoftDefenderCloudAppsScannerFindingSignalInput,
+    GithubDependabotScannerFindingSignalInput,
+    GithubCodeScanningScannerFindingSignalInput,
+    GithubSecretScanningScannerFindingSignalInput,
     CheckFailedSignalInput,
     MonitoringUnresolvedSignalInput,
 )

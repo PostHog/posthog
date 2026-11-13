@@ -184,7 +184,7 @@ export class ConditionalBranchHandler implements ActionHandler {
             if (recheckWoken) {
                 counterHogflowRecheckWake.labels('reparked').inc()
             }
-            return { scheduledAt: conditionResult.scheduledAt, result: { conditionResult } }
+            return { scheduledAt: conditionResult.scheduledAt, result: toStepResult(conditionResult) }
         } else if (conditionResult.nextAction) {
             if (isWait && !rekeyWoken && !anchorWoken && !recheckWoken && matchedAtMaxWait(invocation, action)) {
                 counterHogflowWaitAdvancedAtMaxWait
@@ -197,10 +197,10 @@ export class ConditionalBranchHandler implements ActionHandler {
             if (recheckWoken) {
                 counterHogflowRecheckWake.labels('advanced').inc()
             }
-            return { nextAction: conditionResult.nextAction, result: { conditionResult } }
+            return { nextAction: conditionResult.nextAction, result: toStepResult(conditionResult) }
         }
 
-        return { nextAction: findContinueAction(invocation), result: { conditionResult } }
+        return { nextAction: findContinueAction(invocation), result: toStepResult(conditionResult) }
     }
 
     /**
@@ -297,6 +297,20 @@ function matchedAtMaxWait(
     } catch {
         // An unreadable duration is the timeout path's problem, not this counter's.
         return false
+    }
+}
+
+// The step result reaches the test run's `execResult` and output variables. The next action carries decrypted
+// secret inputs, so the result keeps only its id, at the path that existing output variable mappings read.
+function toStepResult(conditionResult: Awaited<ReturnType<typeof checkConditions>>): {
+    conditionResult: { nextAction?: { id: string }; scheduledAt?: DateTime }
+} {
+    const { nextAction, scheduledAt } = conditionResult
+    return {
+        conditionResult: {
+            nextAction: nextAction ? { id: nextAction.id } : undefined,
+            scheduledAt,
+        },
     }
 }
 

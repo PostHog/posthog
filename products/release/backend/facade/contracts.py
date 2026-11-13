@@ -92,3 +92,9 @@ class CreateReleaseInput:
     owner_id: int | None = None
     feature_flag_ids: tuple[int, ...] = ()
     broadcast_ids: tuple[UUID, ...] = ()
+
+
+@dataclass(frozen=True)
+class ImportFlag:
+    id: int
+    key: str

@@ -5,7 +5,6 @@ from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
-from posthog.helpers.email_utils import ESPSuppressionResult
 from posthog.helpers.two_factor_session import CodeBasedVerifier
 
 from products.security.backend.tests.helpers import exempt_rule, seed_rules
@@ -15,11 +14,6 @@ from products.security.backend.tests.helpers import exempt_rule, seed_rules
 @patch("posthog.helpers.two_factor_session.is_dev_mode", return_value=False)
 @patch("posthog.helpers.two_factor_session.is_email_available", return_value=True)
 @patch("posthog.helpers.two_factor_session.is_http_email_service_available", return_value=True)
-@patch("posthog.helpers.two_factor_session.posthoganalytics.feature_enabled", return_value=True)
-@patch(
-    "posthog.helpers.two_factor_session.check_esp_suppression",
-    return_value=ESPSuppressionResult(is_suppressed=False, from_cache=False, reason=None),
-)
 class TestEmailCodeCallSite(SimpleTestCase):
     def _user(self, email: str) -> MagicMock:
         user = MagicMock()
@@ -29,7 +23,7 @@ class TestEmailCodeCallSite(SimpleTestCase):
         return user
 
     def _should_send(self, email: str) -> bool:
-        return CodeBasedVerifier().should_send_code_based_verification(self._user(email)).should_send
+        return CodeBasedVerifier().should_send_code_based_verification(self._user(email))
 
     def test_no_rule_requires_the_code(self, *_mocks: MagicMock) -> None:
         seed_rules()

@@ -1301,6 +1301,9 @@ database "posthog" {
     column "sending_domain" {
       type = "LowCardinality(String)"
     }
+    column "scheduled_at" {
+      type = "Nullable(DateTime64(6, 'UTC'))"
+    }
     column "_timestamp" {
       type = "DateTime"
     }
@@ -1354,6 +1357,9 @@ database "posthog" {
     }
     column "sending_domain" {
       type = "LowCardinality(String)"
+    }
+    column "scheduled_at" {
+      type = "Nullable(DateTime64(6, 'UTC'))"
     }
     column "_timestamp" {
       type = "DateTime"
@@ -1461,6 +1467,41 @@ database "posthog" {
       zoo_path       = "/clickhouse/tables/noshard/posthog.error_tracking_issue_fingerprint_overrides"
       replica_name   = "{replica}-{shard}"
       version_column = "version"
+    }
+  }
+
+  table "error_tracking_issue_tags" {
+    column "team_id" {
+      type = "Int64"
+    }
+    column "issue_id" {
+      type = "UUID"
+    }
+    column "key" {
+      type = "String"
+    }
+    column "value" {
+      type = "Nullable(Int8)"
+    }
+    column "is_deleted" {
+      type = "Int8"
+    }
+    column "version" {
+      type = "Int64"
+    }
+    column "_timestamp" {
+      type = "DateTime"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    column "_partition" {
+      type = "UInt64"
+    }
+    engine "distributed" {
+      cluster_name    = "aux"
+      remote_database = "posthog"
+      remote_table    = "raw_error_tracking_issue_tags"
     }
   }
 
@@ -3049,6 +3090,9 @@ database "posthog" {
     column "sending_domain" {
       type = "LowCardinality(String)"
     }
+    column "scheduled_at" {
+      type = "Nullable(DateTime64(6, 'UTC'))"
+    }
     engine "kafka" {
       collection           = "warpstream_cyclotron"
       topic_list           = "clickhouse_email_status"
@@ -3155,6 +3199,39 @@ database "posthog" {
       topic_list = "clickhouse_error_tracking_issue_fingerprint"
       group_name = "clickhouse-error-tracking-issue-fingerprint-overrides"
       format     = "JSONEachRow"
+    }
+  }
+
+  table "kafka_error_tracking_issue_tags" {
+    column "team_id" {
+      type = "Int64"
+    }
+    column "issue_id" {
+      type = "UUID"
+    }
+    column "key" {
+      type = "String"
+    }
+    column "value" {
+      type = "Nullable(Int8)"
+    }
+    column "is_deleted" {
+      type = "Int8"
+    }
+    column "version" {
+      type = "Int64"
+    }
+    engine "kafka" {
+      collection           = "warpstream_shared"
+      topic_list           = "clickhouse_error_tracking_issue_tags"
+      group_name           = "clickhouse_error_tracking_issue_tags"
+      format               = "JSONEachRow"
+      num_consumers        = 1
+      max_block_size       = 100000
+      skip_broken_messages = 100
+      poll_timeout_ms      = 10000
+      flush_interval_ms    = 7500
+      thread_per_consumer  = true
     }
   }
 
@@ -9965,6 +10042,50 @@ SQL
     }
     engine "replicated_replacing_merge_tree" {
       zoo_path       = "/clickhouse/tables/noshard/posthog.raw_error_tracking_fingerprint_issue_state"
+      replica_name   = "{replica}-{shard}"
+      version_column = "version"
+    }
+  }
+
+  table "raw_error_tracking_issue_tags" {
+    order_by = ["team_id", "key", "issue_id"]
+    settings = {
+      index_granularity = "512"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "issue_id" {
+      type = "UUID"
+    }
+    column "key" {
+      type = "String"
+    }
+    column "value" {
+      type = "Nullable(Int8)"
+    }
+    column "is_deleted" {
+      type = "Int8"
+    }
+    column "version" {
+      type = "Int64"
+    }
+    column "_timestamp" {
+      type = "DateTime"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    column "_partition" {
+      type = "UInt64"
+    }
+    index "kafka_timestamp_minmax_raw_error_tracking_issue_tags" {
+      expr        = "_timestamp"
+      type        = "minmax"
+      granularity = 3
+    }
+    engine "replicated_replacing_merge_tree" {
+      zoo_path       = "/clickhouse/tables/noshard/posthog.raw_error_tracking_issue_tags"
       replica_name   = "{replica}-{shard}"
       version_column = "version"
     }
@@ -17391,6 +17512,41 @@ SQL
     }
   }
 
+  table "writable_error_tracking_issue_tags" {
+    column "team_id" {
+      type = "Int64"
+    }
+    column "issue_id" {
+      type = "UUID"
+    }
+    column "key" {
+      type = "String"
+    }
+    column "value" {
+      type = "Nullable(Int8)"
+    }
+    column "is_deleted" {
+      type = "Int8"
+    }
+    column "version" {
+      type = "Int64"
+    }
+    column "_timestamp" {
+      type = "DateTime"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    column "_partition" {
+      type = "UInt64"
+    }
+    engine "distributed" {
+      cluster_name    = "aux"
+      remote_database = "posthog"
+      remote_table    = "raw_error_tracking_issue_tags"
+    }
+  }
+
   table "writable_events" {
     column "uuid" {
       type = "UUID"
@@ -20824,6 +20980,7 @@ SELECT
   recipient,
   function_id,
   sending_domain,
+  scheduled_at,
   _timestamp,
   _offset,
   _partition
@@ -20859,6 +21016,9 @@ SQL
     }
     column "sending_domain" {
       type = "LowCardinality(String)"
+    }
+    column "scheduled_at" {
+      type = "Nullable(DateTime64(6, 'UTC'))"
     }
     column "_timestamp" {
       type = "Nullable(DateTime)"
@@ -21059,6 +21219,51 @@ SQL
     }
     column "issue_id" {
       type = "UUID"
+    }
+    column "is_deleted" {
+      type = "Int8"
+    }
+    column "version" {
+      type = "Int64"
+    }
+    column "_timestamp" {
+      type = "Nullable(DateTime)"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    column "_partition" {
+      type = "UInt64"
+    }
+  }
+
+  materialized_view "error_tracking_issue_tags_mv" {
+    to_table = "posthog.writable_error_tracking_issue_tags"
+    query    = <<SQL
+SELECT
+  team_id,
+  issue_id,
+  key,
+  value,
+  is_deleted,
+  version,
+  _timestamp,
+  _offset,
+  _partition
+FROM posthog.kafka_error_tracking_issue_tags
+SQL
+
+    column "team_id" {
+      type = "Int64"
+    }
+    column "issue_id" {
+      type = "UUID"
+    }
+    column "key" {
+      type = "String"
+    }
+    column "value" {
+      type = "Nullable(Int8)"
     }
     column "is_deleted" {
       type = "Int8"

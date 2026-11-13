@@ -5,7 +5,7 @@ import { lazyWithRetry } from 'lib/utils/retryImport'
 
 import type { DashboardFilter } from '~/queries/schema/schema-general'
 
-import type { DashboardWidgetTopHeadingProps } from '../components/WidgetCard/WidgetCardHeader'
+import type { DashboardWidgetTopHeadingProps } from '../components/WidgetCard/WidgetCardTopHeading'
 import type { DashboardWidgetProductAccess } from '../types'
 import { DASHBOARD_WIDGET_CATALOG, type DashboardWidgetCatalogKey } from '../widget_types/catalog'
 import type { WidgetAvailabilityConfig } from '../widget_types/widgetAvailability'
@@ -48,6 +48,11 @@ const NotebookDashboardWidget = lazyWithRetry(() =>
 const NotebookDashboardWidgetMenu = lazyWithRetry(() =>
     import('products/notebooks/frontend/NotebookDashboardWidget/NotebookDashboardWidgetMenu').then((m) => ({
         default: m.NotebookDashboardWidgetMenu,
+    }))
+)
+const QuillNotebookDashboardWidgetMenu = lazyWithRetry(() =>
+    import('products/notebooks/frontend/NotebookDashboardWidget/QuillNotebookDashboardWidgetMenu').then((m) => ({
+        default: m.QuillNotebookDashboardWidgetMenu,
     }))
 )
 const EditNotebookWidgetModal = lazyWithRetry(() =>
@@ -206,6 +211,7 @@ export type DashboardWidgetSlot<P> = ComponentType<P> | LazyExoticComponent<Comp
 export type DashboardWidgetDefinition = {
     Component: DashboardWidgetSlot<DashboardWidgetComponentProps>
     MenuItems?: DashboardWidgetSlot<DashboardWidgetComponentProps>
+    QuillMenuItems?: DashboardWidgetSlot<DashboardWidgetComponentProps>
     bodyPadding?: boolean
     TileFilters?: DashboardWidgetSlot<DashboardWidgetTileFiltersProps>
     EditModal?: DashboardWidgetSlot<DashboardWidgetEditModalProps>
@@ -267,6 +273,7 @@ export const DASHBOARD_WIDGET_REGISTRY = {
     notebook_widget: {
         Component: NotebookDashboardWidget,
         MenuItems: NotebookDashboardWidgetMenu,
+        QuillMenuItems: QuillNotebookDashboardWidgetMenu,
         bodyPadding: false,
         EditModal: EditNotebookWidgetModal,
         parseConfigApiError: () => null,

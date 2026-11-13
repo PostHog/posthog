@@ -360,8 +360,7 @@ export const featurePreviewsLogic = kea<featurePreviewsLogicType>([
                             flagKey,
                             // Use payload from early access feature, fallback to empty object
                             payload: ((feature as any).payload as Record<string, any> | undefined) || {},
-                            // posthog-js does not type imageUrl yet, but passes it through from the API
-                            imageUrl: ((feature as any).imageUrl as string | undefined) || undefined,
+                            imageUrl: feature.imageUrl || undefined,
                             enabled: !!flag || isConceptEnrolled,
                         }
                     })

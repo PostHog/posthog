@@ -9,6 +9,11 @@ which place an insight the user may not view, so their cost follows the rows, no
 The dashboard rules are allow lists: a row is visible only when every dashboard it points at is one
 the first read saw and the user may view. The read and the filter are two queries, and a row written
 between them can point at a dashboard the read never saw. An allow list hides that row.
+
+The filter does not read the dashboards again, so a dashboard that the first read saw keeps the
+restrictions of that read. A tile added or a dashboard restored between the two queries takes effect
+on the next read. A row that passes in that gap carries no content of the new tile, because a
+delivery lists the insights it rendered and the insight rules check that list in the filter query.
 """
 
 from collections.abc import Iterator

@@ -24,6 +24,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser
+from posthog.errors import ClickHouseAtCapacity
 from posthog.models import Integration, Team
 
 from products.signals.backend.enums import SignalSourceProduct, SignalSourceType
@@ -475,6 +476,51 @@ class TestMonitoringRepositorySources(_SignalEmbeddingsTestBase):
             mixed_parent and selected_parent
         )
         assert monitoring_repository_allowed(self.team.id, str(receiving.id), "example/private")
+
+    def test_retries_provenance_read_when_clickhouse_is_at_capacity(self) -> None:
+        origin = SignalReport.objects.create(team=self.team, status="closed")
+        self._emit_version(
+            document_id="original-private-issue",
+            report_id=str(origin.id),
+            source_product="github",
+            source_type="issue",
+            inserted_at=self.base,
+            extra={"html_url": "https://github.com/example/private/issues/1"},
+        )
+        receiving = SignalReport.objects.create(team=self.team, status="ready")
+        self._emit_version(
+            document_id="receiving-monitoring",
+            report_id=str(receiving.id),
+            source_product="signals_check",
+            source_type="monitoring_unresolved",
+            inserted_at=self.base,
+            extra={"report_id": str(origin.id), "attempt_id": str(uuid.uuid4())},
+        )
+        Integration.objects.create(
+            team=self.team,
+            kind="github",
+            integration_id="privacy-test",
+            config={"installation_id": "privacy-test"},
+            repository_cache=[
+                {"id": 1, "name": "public", "full_name": "example/public", "private": False},
+                {"id": 2, "name": "private", "full_name": "example/private", "private": True},
+            ],
+            repository_cache_updated_at=timezone.now(),
+        )
+        capacity_errors = [ClickHouseAtCapacity()]
+
+        def busy_once(*args, **kwargs):
+            if capacity_errors:
+                raise capacity_errors.pop()
+            return execute_hogql_query(*args, **kwargs)
+
+        with (
+            patch("products.signals.backend.report_monitoring_provenance.execute_hogql_query", side_effect=busy_once),
+            patch(
+                "products.signals.backend.report_monitoring_provenance._read_monitoring_source_references.retry.sleep"
+            ),
+        ):
+            assert not monitoring_repository_allowed(self.team.id, str(receiving.id), "example/public")
 
 
 class TestFetchReportIdsForScoutNames(_SignalEmbeddingsTestBase):

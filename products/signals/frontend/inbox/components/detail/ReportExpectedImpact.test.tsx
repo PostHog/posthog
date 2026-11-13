@@ -219,6 +219,24 @@ describe('ReportExpectedImpact', () => {
         expect(document.querySelector('[data-attr="report-expected-impact"]')).not.toBeInTheDocument()
     })
 
+    it('starts Monitoring from the follow-up checks section', async () => {
+        const stateRequests: unknown[] = []
+        useMocks({
+            post: {
+                '/api/projects/:team_id/signals/reports/:id/state/': async ({ request }) => {
+                    stateRequests.push(await request.json())
+                    return [200, {}]
+                },
+            },
+        })
+        logic.actions.loadReportChecksSuccess([check])
+        render(<ReportChecksSection report={{ ...report, monitoring_started_at: null }} />)
+
+        await userEvent.setup().click(screen.getByText('Start monitoring now'))
+
+        await waitFor(() => expect(stateRequests).toEqual([{ state: 'monitoring' }]))
+    })
+
     it('caps visible measurements after skipping malformed check configs', () => {
         renderMeasurements([
             { ...check, id: 'malformed', config: { instructions: 'Legacy malformed metric check' } },
@@ -241,6 +259,10 @@ describe('ReportExpectedImpact', () => {
         await waitFor(() => expect(screen.getAllByText(/Approved measurement/)).toHaveLength(2))
         expect(approvalRequests).toEqual(['check-1', 'check-2', 'check-2'])
         expect(logic.values.reportChecks?.every((check) => check.next_run_at === '2026-10-13T00:00:00Z')).toBe(true)
+        expect(screen.queryByText('Looks good')).not.toBeInTheDocument()
+        expect(screen.queryByText('Suggest different metrics')).not.toBeInTheDocument()
+        await user.click(screen.getByText('Suggest another metric'))
+        expect(screen.getByText('Describe what success would look like')).toBeInTheDocument()
     })
 
     it('shows range goals and verdicts, and does not offer approval or replacement for finished checks', () => {

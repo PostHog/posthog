@@ -59,8 +59,10 @@ from products.alerts_platform.backend.facade.scheduling import (
     alert_check_offset,
 )
 from products.cdp.backend.facade.models import HogFunction
+from products.cdp.backend.templates.discord.template_discord import template as template_discord
 from products.cdp.backend.templates.fixtures import template_pagerduty, template_slack
-from products.cdp.backend.templates.hog_function_template import sync_template_to_db
+from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC, sync_template_to_db
+from products.cdp.backend.templates.microsoft_teams.template_microsoft_teams import template as template_microsoft_teams
 from products.product_analytics.backend.facade.models import Insight
 
 TEST_DESTINATION_DELIVERY = AlertDelivery(
@@ -2676,6 +2678,14 @@ class TestAlertAPIKeyAccess(TrendsInsightAPITest):
                 status.HTTP_403_FORBIDDEN,
                 "hog_function:write",
             ),
+            (["alert:read"], "get", "/{alert_id}/destinations/", status.HTTP_200_OK, None),
+            (
+                ["alert:write"],
+                "post",
+                "/{alert_id}/destinations/webhook/",
+                status.HTTP_403_FORBIDDEN,
+                "hog_function:write",
+            ),
         ]
     )
     def test_alert_api_key_access(self, scopes, http_method, endpoint_suffix, expected_status, error_scope):
@@ -3147,6 +3157,55 @@ class TestAlertDestinations(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert self._active_destination_count() == 0
 
+    @parameterized.expand(
+        [
+            ("discord", "https://discord.com/api/webhooks/1/secret", template_discord),
+            (
+                "teams",
+                "https://prod-01.westus.logic.azure.com/workflows/1/triggers/manual/paths/invoke?sig=secret",
+                template_microsoft_teams,
+            ),
+        ]
+    )
+    def test_a_url_destination_lists_with_only_its_host(
+        self, destination_type: str, url: str, template: HogFunctionTemplateDC
+    ) -> None:
+        sync_template_to_db(template)
+        created = self.client.post(f"{self.url}webhook/", {"type": destination_type, "webhook_url": url}, format="json")
+        assert created.status_code == status.HTTP_201_CREATED, created.json()
+        (hog_function_id,) = created.json()["hog_function_ids"]
+        hog_function = HogFunction.objects.get(id=hog_function_id)
+        assert hog_function.template_id == template.id
+        assert (hog_function.encrypted_inputs or {})["webhookUrl"]["value"] == url
+        read = self.client.get(f"/api/projects/{self.team.id}/hog_functions/{hog_function_id}/").json()
+        assert read["inputs"]["webhookUrl"] == {"secret": True}
+
+        listed = self.client.get(self.url)
+
+        assert listed.status_code == status.HTTP_200_OK, listed.json()
+        (destination,) = listed.json()
+        assert destination["hog_function_ids"] == [hog_function_id]
+        assert destination["type"] == destination_type
+        assert destination["hears_firing"] is True
+        assert destination["webhook_url"] == url.split("/", 3)[0] + "//" + url.split("/", 3)[2]
+
+    @parameterized.expand(
+        [
+            ("discord_on_another_host", "discord", "https://example.com/api/webhooks/1/secret"),
+            ("plain_http_webhook", "webhook", "http://hooks.example.com/secret"),
+            ("backslash_before_the_path", "webhook", "https://hooks.example.com\\\\secret"),
+        ]
+    )
+    def test_a_url_the_provider_refuses_is_refused_without_a_platform_copy(
+        self, _name: str, destination_type: str, url: str
+    ) -> None:
+        response = self.client.post(
+            f"{self.url}webhook/", {"type": destination_type, "webhook_url": url}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert not HogFunction.objects.filter(team=self.team, deleted=False).exists()
+
     def test_destination_is_removed_again(self) -> None:
         created = self.client.post(self.url, self._slack_payload(), format="json")
         assert created.status_code == status.HTTP_201_CREATED, created.json()
@@ -3260,6 +3319,12 @@ class TestLLMDetectorValidation(TrendsInsightAPITest):
     def setUp(self):
         super().setUp()
         self.insight = self.create_trends_insight(interval="day")
+        # These tests turn every flag on, which would also make each create skip the insight row they read back.
+        native_creates = mock.patch(
+            "products.alerts.backend.presentation.views.alert.creates_native_alert", return_value=False
+        )
+        native_creates.start()
+        self.addCleanup(native_creates.stop)
 
     def _create_breakdown_insight(self) -> dict[str, Any]:
         return self.create_trends_insight(

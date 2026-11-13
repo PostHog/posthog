@@ -23,6 +23,7 @@ import {
     autoresearchRunsRetrieve,
     autoresearchScoreCreate,
     autoresearchTrainingRunsList,
+    autoresearchTrainingRunsStopCreate,
 } from './generated/api'
 import {
     AutoresearchRunApi,
@@ -40,6 +41,7 @@ jest.mock('./generated/api', () => ({
     autoresearchRunsRetrieve: jest.fn(),
     autoresearchScoreCreate: jest.fn(),
     autoresearchSuggestionsList: jest.fn(),
+    autoresearchTrainingRunsStopCreate: jest.fn(),
 }))
 
 const mockRetrieve = autoresearchRetrieve as jest.Mock
@@ -48,6 +50,7 @@ const mockRunsList = autoresearchRunsList as jest.Mock
 const mockRunsRetrieve = autoresearchRunsRetrieve as jest.Mock
 const mockScoreCreate = autoresearchScoreCreate as jest.Mock
 const mockTrainingRunsList = autoresearchTrainingRunsList as jest.Mock
+const mockTrainingRunsStop = autoresearchTrainingRunsStopCreate as jest.Mock
 
 function makeScoreRun(overrides: Partial<AutoresearchRunApi>): AutoresearchRunApi {
     const now = new Date().toISOString()
@@ -208,6 +211,46 @@ describe('autoresearchPipelineLogic', () => {
         } finally {
             logic.unmount()
             jest.useRealTimers()
+        }
+    })
+
+    it('stops the live training run, then stops polling and reloads the model', async () => {
+        jest.clearAllMocks()
+        initKeaTests()
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.AUTORESEARCH], { [FEATURE_FLAGS.AUTORESEARCH]: true })
+        mockRetrieve.mockResolvedValue({ id: 'pipeline-1', name: 'Model', status: 'bootstrapping' })
+        mockModelsList.mockResolvedValue({ results: [], next: null })
+        mockRunsList.mockResolvedValue({ results: [], next: null })
+        mockTrainingRunsList
+            .mockResolvedValueOnce({ results: [makeRun({ id: 'live-run', status: 'running' })], next: null })
+            .mockResolvedValueOnce({ results: [makeRun({ id: 'live-run', status: 'failed' })], next: null })
+        mockTrainingRunsStop.mockResolvedValue(makeRun({ id: 'live-run', status: 'failed' }))
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
+        const logic = autoresearchPipelineLogic({ id: 'pipeline-1' })
+        try {
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadTrainingRunsSuccess'])
+            expect(logic.values.liveTrainingRun?.id).toEqual('live-run')
+            const pipelineLoads = mockRetrieve.mock.calls.length
+
+            await expectLogic(logic, () => logic.actions.stopTraining()).toDispatchActions([
+                'stopTrainingFinished',
+                'loadTrainingRunsSuccess',
+            ])
+
+            expect(mockTrainingRunsStop).toHaveBeenCalledWith(expect.any(String), 'pipeline-1', 'live-run')
+            expect(logic.values.hasLiveTrainingRun).toBe(false)
+            expect(logic.values.stoppingTraining).toBe(false)
+            expect(logic.cache.disposables.registry.has('trainingPoll')).toBe(false)
+            expect(mockRetrieve.mock.calls.length).toBeGreaterThan(pipelineLoads)
+            expect(capture).toHaveBeenCalledWith('autoresearch model training stopped', {
+                pipeline_id: 'pipeline-1',
+                run_id: 'live-run',
+            })
+        } finally {
+            logic.unmount()
+            capture.mockRestore()
         }
     })
 
