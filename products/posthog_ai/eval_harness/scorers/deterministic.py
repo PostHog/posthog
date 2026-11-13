@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable
-from typing import Any, TypeGuard
+from typing import Any, ClassVar, TypeGuard
 
 from posthog.dataclasses import frozen
 
@@ -207,6 +207,14 @@ def reads_table(query: str, names: Iterable[str]) -> bool:
     return any(re.search(rf"(?<![\w.]){re.escape(name.lower())}(?![\w])", code) for name in names)
 
 
+_TABLE_SOURCE = re.compile(r"\b(?:from|join)\s+[\w`\"]")
+
+
+def _reads_some_table(query: str) -> bool:
+    """True when the query names a table after ``FROM`` or ``JOIN`` outside a string literal."""
+    return bool(_TABLE_SOURCE.search(_STRING_LITERAL.sub("''", query.lower())))
+
+
 def parser_for(output: dict[str, Any] | None) -> LogParser | None:
     """The cached parser for the case's raw log, or ``None`` when the run left no log."""
     raw_log = (output or {}).get("raw_log")
@@ -215,34 +223,32 @@ def parser_for(output: dict[str, Any] | None) -> LogParser | None:
     return LogParser.cached(raw_log, initial_prompt=(output or {}).get("prompt", "") or "")
 
 
-def call_order(call: ToolCall) -> int:
-    """The call's place in the run. ``position`` counts messages, so it cannot order parallel calls."""
-    if call.sequence is None:
-        raise ValueError(f"Tool call {call.call_id} has no sequence, so the log cannot order it")
-    return call.sequence
-
-
 def _query(call: ToolCall) -> str:
     query = call.input.get("query")
     return query if isinstance(query, str) else ""
 
 
 def expected_spec(expected: dict | None, name: str) -> dict[str, Any] | None:
-    """The scorer's entry in ``expected``, or ``None`` when the case does not request the scorer."""
+    """The scorer's entry in ``expected``, or ``None`` when the case does not request the scorer.
+
+    Raises ``ValueError`` for an entry that is not a dict. The harness reports the case as a scorer error,
+    so a malformed case cannot drop the check without a sign.
+    """
     spec = expected.get(name) if isinstance(expected, dict) else None
-    return spec if isinstance(spec, dict) else None
+    if spec is None:
+        return None
+    if not isinstance(spec, dict):
+        raise ValueError(f"expected[{name!r}] must be a dict, not {type(spec).__name__}")
+    return spec
 
 
 def _successful_data_queries(parser: LogParser) -> list[ToolCall]:
     """Successful SQL that reads data, in call order. Schema lookups against information_schema are excluded."""
-    return sorted(
-        (
-            call
-            for call in parser.get_tool_calls(EXECUTE_SQL_TOOL_NAME)
-            if not call.is_error and not is_schema_discovery_call(call)
-        ),
-        key=call_order,
-    )
+    return [
+        call
+        for call in parser.get_tool_calls(EXECUTE_SQL_TOOL_NAME)
+        if not call.is_error and not is_schema_discovery_call(call)
+    ]
 
 
 @frozen
@@ -290,15 +296,13 @@ class ToolOrder(Scorer):
         parser = parser_for(output)
         if parser is None:
             return Score(name=self._name(), score=None, metadata={"reason": "No raw log"})
-        calls = sorted((call for call in parser.get_tool_calls() if not call.is_error), key=call_order)
+        calls = [call for call in parser.get_tool_calls() if not call.is_error]
         after_calls = [call for call in calls if self.after.matches(call)]
         if not after_calls:
             return Score(name=self._name(), score=None, metadata={"reason": "No guarded call ran"})
         before_calls = [call for call in calls if self.before.matches(call)]
         # A strict order, so a call that both matchers accept cannot satisfy its own prerequisite.
-        early = [
-            call for call in after_calls if not any(call_order(prior) < call_order(call) for prior in before_calls)
-        ]
+        early = [call for call in after_calls if not any(prior.sequence < call.sequence for prior in before_calls)]
         return Score(
             name=self._name(),
             score=0.0 if early else 1.0,
@@ -351,23 +355,35 @@ def _table_check(name: str, output: dict | None, expected: dict | None) -> Score
     return _TableCheck(spec=spec, tables=tables, queries=[_query(call) for call in _successful_data_queries(parser)])
 
 
-class SourcesConsulted(Scorer):
-    """Fraction of ``expected[name]["tables"]`` that a successful data query read.
+class _TableScorer(Scorer):
+    """Shared setup of the scorers that grade ``expected[name]["tables"]`` against the run's data queries."""
 
-    Each entry is a ``TableEntry``, and a read of any of its names counts. ``score=None`` when the case
-    does not request the check.
-    """
+    default_name: ClassVar[str]
 
-    def __init__(self, *, name: str = "sources_consulted"):
-        self._label = name
+    def __init__(self, *, name: str | None = None):
+        self._label = name or self.default_name
 
     def _name(self) -> str:
         return self._label
 
     def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
         check = _table_check(self._name(), output, expected)
-        if isinstance(check, Score):
-            return check
+        return check if isinstance(check, Score) else self._score(check)
+
+    def _score(self, check: _TableCheck) -> Score:
+        raise NotImplementedError
+
+
+class SourcesConsulted(_TableScorer):
+    """Fraction of ``expected[name]["tables"]`` that a successful data query read.
+
+    Each entry is a ``TableEntry``, and a read of any of its names counts. ``score=None`` when the case
+    does not request the check.
+    """
+
+    default_name = "sources_consulted"
+
+    def _score(self, check: _TableCheck) -> Score:
         read: list[TableEntry] = []
         missing: list[TableEntry] = []
         for entry in check.tables:
@@ -381,28 +397,22 @@ class SourcesConsulted(Scorer):
 ANY_CLEAN_QUERY_SCOPE = "any_clean_query"
 
 
-class SourcesAvoided(Scorer):
+class SourcesAvoided(_TableScorer):
     """Binary scorer: did the agent keep the tables in ``expected[name]["tables"]`` out of its data queries?
 
     Entries take the same names or alias lists as ``SourcesConsulted``. The default scope fails when any
     successful data query reads a listed table.
 
-    ``"scope": "any_clean_query"`` fails only when every successful data query reads a listed table, so the agent
-    can inspect one (to find it empty, say) before or after the query that answers. Pair it with a value check or
-    a judge, because this scope cannot tell which query the answer came from. ``score=None`` when no data query
-    succeeded, because a run that read nothing avoided nothing.
+    ``"scope": "any_clean_query"`` passes when one successful data query reads a table and no listed table, so
+    the agent can inspect a listed table (to find it empty, say) before or after the query that answers. A query
+    that reads no table, such as ``SELECT 1``, is not a clean query. Pair this scope with a value check or a judge,
+    because it cannot tell which query the answer came from. ``score=None`` when no data query succeeded, because
+    a run that read nothing avoided nothing.
     """
 
-    def __init__(self, *, name: str = "sources_avoided"):
-        self._label = name
+    default_name = "sources_avoided"
 
-    def _name(self) -> str:
-        return self._label
-
-    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
-        check = _table_check(self._name(), output, expected)
-        if isinstance(check, Score):
-            return check
+    def _score(self, check: _TableCheck) -> Score:
         scope = check.spec.get("scope")
         if scope not in (None, ANY_CLEAN_QUERY_SCOPE):
             return Score(name=self._name(), score=0.0, metadata={"reason": "invalid expected metadata"})
@@ -411,7 +421,7 @@ class SourcesAvoided(Scorer):
         names = [alias for entry in check.tables for alias in _table_aliases(entry)]
         offending = [query for query in check.queries if reads_table(query, names)]
         if scope == ANY_CLEAN_QUERY_SCOPE:
-            passed = len(offending) < len(check.queries)
+            passed = any(_reads_some_table(query) and not reads_table(query, names) for query in check.queries)
         else:
             passed = not offending
         return Score(name=self._name(), score=1.0 if passed else 0.0, metadata={"offending_queries": offending})
