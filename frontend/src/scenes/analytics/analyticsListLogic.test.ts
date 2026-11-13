@@ -256,6 +256,21 @@ describe('analyticsListLogic', () => {
         expect(events).toContainEqual(['views list loaded', 'mine'])
     })
 
+    it.each([
+        ['no filters', urls.analyticsList(), false],
+        ['a search', urls.analyticsList({ search: 'growth' }), true],
+    ])('reports whether filters were active when the list loaded, with %s', async (_, url, filtersActive) => {
+        const logic = analyticsListLogic()
+        logic.mount()
+        router.actions.push(url)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(capture).toHaveBeenCalledWith(
+            'views list loaded',
+            expect.objectContaining({ filters_active: filtersActive })
+        )
+    })
+
     it('reports a folder visit once, however it starts, and a space only when it changes', async () => {
         const logic = analyticsListLogic()
         logic.mount()

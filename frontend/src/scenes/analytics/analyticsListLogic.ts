@@ -771,6 +771,7 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
                 has_more: hasMore,
                 mode: values.mode,
                 scope: values.scope,
+                filters_active: values.filtersActive,
             })
             cache.visitStartedAt = undefined
         }

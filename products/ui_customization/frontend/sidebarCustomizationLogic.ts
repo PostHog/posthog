@@ -45,6 +45,7 @@ export interface SidebarCustomizationProps {
 }
 
 const SIDEBAR_REFRESH_INTERVAL_MS = 30_000
+const SEARCH_SETTLE_MS = 800
 // A request holds a mount and blocks later writes until it settles, so a stalled one must end.
 const SIDEBAR_REQUEST_TIMEOUT_MS = 30_000
 
@@ -79,6 +80,17 @@ export interface sidebarCustomizationLogicActions {
     invalidateSession: () => {
         value: true
     }
+    itemOpened: (
+        section: string,
+        source: string,
+        position: number | undefined,
+        fromSearch: boolean
+    ) => {
+        fromSearch: boolean
+        position: number | undefined
+        section: string
+        source: string
+    }
     loadSidebar: () => {
         value: true
     }
@@ -104,6 +116,13 @@ export interface sidebarCustomizationLogicActions {
     }
     restoreSidebar: (layout: CustomizationApi['layout']) => {
         layout: AnalyticsFragmentLayoutApi
+    }
+    searchTyped: (
+        queryLength: number,
+        resultCount: number
+    ) => {
+        queryLength: number
+        resultCount: number
     }
     sidebarReadFailed: () => {
         value: true
@@ -179,6 +198,13 @@ export const sidebarCustomizationLogic: LogicWrapper<sidebarCustomizationLogicTy
             sidebarReadFailed: true,
             requestFinished: true,
             invalidateSession: true,
+            searchTyped: (queryLength: number, resultCount: number) => ({ queryLength, resultCount }),
+            itemOpened: (section: string, source: string, position: number | undefined, fromSearch: boolean) => ({
+                section,
+                source,
+                position,
+                fromSearch,
+            }),
         }),
         reducers(({ props }) => ({
             savedSidebar: [
@@ -230,6 +256,30 @@ export const sidebarCustomizationLogic: LogicWrapper<sidebarCustomizationLogicTy
         })),
         listeners(({ actions, asyncActions, cache, values, props }) => ({
             [userLogic.actionTypes.logout]: () => actions.invalidateSession(),
+            // Every keystroke arrives here, and only the query the person stops on is reported. The query text stays
+            // out of the event, because it can hold the name of an item.
+            searchTyped: async ({ queryLength, resultCount }, breakpoint) => {
+                await breakpoint(SEARCH_SETTLE_MS)
+                if (queryLength > 0) {
+                    // pinned: analytics event name and properties. Renaming them breaks dashboards.
+                    posthog.capture('sidebar search used', {
+                        sidebar: props.configuration.context,
+                        query_length: queryLength,
+                        result_count: resultCount,
+                        zero_results: resultCount === 0,
+                    })
+                }
+            },
+            itemOpened: ({ section, source, position, fromSearch }) => {
+                // pinned: analytics event name and properties. Renaming them breaks dashboards.
+                posthog.capture('sidebar item opened', {
+                    sidebar: props.configuration.context,
+                    section,
+                    source,
+                    position,
+                    from_search: fromSearch,
+                })
+            },
             // PostHog AI can save while its conversation is closed or the person is on another tab, and then no tool
             // event reaches this pane, so a pane that stays open reloads when the person comes back or moves on.
             [router.actionTypes.locationChanged]: () => actions.refreshSidebar(),

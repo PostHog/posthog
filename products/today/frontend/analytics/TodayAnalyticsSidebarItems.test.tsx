@@ -1,7 +1,8 @@
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -60,6 +61,54 @@ describe('Analytics sidebar options', () => {
         expect(container.querySelector('[data-attr="analytics-sidebar-reset"]')).toBeNull()
         expect(container.querySelector('[data-attr="analytics-sidebar-retry"]')).toBeNull()
         expect(SidebarAgentListener).not.toHaveBeenCalled()
+    })
+
+    it('reports a result the person opens, and whether a search brought them to it', async () => {
+        jest.useFakeTimers()
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
+        try {
+            const { container } = render(<TodayAnalyticsSidebar />)
+            const opened = (): unknown[][] => capture.mock.calls.filter(([name]) => name === 'sidebar item opened')
+
+            fireEvent.click(container.querySelector('[data-attr="analytics-sidebar-browse"]')!)
+            expect(opened()).toEqual([
+                [
+                    'sidebar item opened',
+                    expect.objectContaining({
+                        sidebar: 'analytics_sidebar',
+                        section: 'browse',
+                        source: 'link',
+                        from_search: false,
+                    }),
+                ],
+            ])
+
+            fireEvent.change(container.querySelector('[data-attr="analytics-sidebar-search"]')!, {
+                target: { value: 'collections' },
+            })
+            const resultCount = container.querySelectorAll('[role="option"]').length
+            expect(resultCount).toBeGreaterThan(0)
+            await act(async () => {
+                await jest.advanceTimersByTimeAsync(800)
+            })
+            expect(capture).toHaveBeenCalledWith('sidebar search used', {
+                sidebar: 'analytics_sidebar',
+                query_length: 11,
+                result_count: resultCount,
+                zero_results: false,
+            })
+
+            fireEvent.click(container.querySelector('[data-attr="analytics-sidebar-browse"]')!)
+            expect(opened()[1][1]).toMatchObject({ section: 'browse', from_search: true })
+
+            const input = container.querySelector('[data-attr="analytics-sidebar-search"]')!
+            fireEvent.keyDown(input, { key: 'ArrowDown' })
+            fireEvent.keyDown(input, { key: 'Enter' })
+            expect(opened()).toHaveLength(3)
+        } finally {
+            jest.useRealTimers()
+            capture.mockRestore()
+        }
     })
 
     it('offers only personalization before a layout is saved, and opens PostHog AI in the side panel', () => {
