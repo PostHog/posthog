@@ -1023,20 +1023,32 @@ export const releaseLogic = kea<releaseLogicType>([
             actions.loadFlags()
         },
     })),
-    urlToAction(({ actions }) => ({
-        [urls.releases()]: () => {
-            posthog.capture('release calendar opened')
-            actions.reload()
-        },
-        [urls.releaseList()]: () => {
-            posthog.capture('release list opened')
-            actions.reload()
-        },
-        [urls.release(':id')]: ({ id }) => {
-            posthog.capture('release page opened', { release_id: id })
-            actions.reload()
-        },
-    })),
+    urlToAction(({ actions }) => {
+        const openedPage = (
+            payload: { pathname: string; initial?: boolean },
+            previousLocation: { pathname: string }
+        ): boolean => !!payload.initial || payload.pathname !== previousLocation.pathname
+        return {
+            [urls.releases()]: (_, __, ___, payload, previousLocation) => {
+                if (openedPage(payload, previousLocation)) {
+                    posthog.capture('release calendar opened')
+                }
+                actions.reload()
+            },
+            [urls.releaseList()]: (_, __, ___, payload, previousLocation) => {
+                if (openedPage(payload, previousLocation)) {
+                    posthog.capture('release list opened')
+                }
+                actions.reload()
+            },
+            [urls.release(':id')]: ({ id }, __, ___, payload, previousLocation) => {
+                if (openedPage(payload, previousLocation)) {
+                    posthog.capture('release page opened', { release_id: id })
+                }
+                actions.reload()
+            },
+        }
+    }),
     afterMount(({ actions }) => {
         actions.reload()
     }),

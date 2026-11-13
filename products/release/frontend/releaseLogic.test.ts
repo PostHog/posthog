@@ -1,10 +1,12 @@
 import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { initKeaTests } from '~/test/init'
@@ -64,6 +66,23 @@ describe('releaseLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(mockedReleasesList).toHaveBeenCalledTimes(calls)
+    })
+
+    it('counts a release page open once per page, not per hash change', async () => {
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation()
+        router.actions.push(urls.release('r1'))
+        const logic = releaseLogic()
+        logic.mount()
+
+        router.actions.push(urls.release('r1'), {}, { panel: 'discussion' })
+        router.actions.push(urls.release('r2'))
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(capture.mock.calls.filter(([event]) => event === 'release page opened')).toEqual([
+            ['release page opened', { release_id: 'r1' }],
+            ['release page opened', { release_id: 'r2' }],
+        ])
+        capture.mockRestore()
     })
 
     it.each([
