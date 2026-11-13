@@ -17,6 +17,7 @@ import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.se
 import { AttachmentUploads, MessageBodySizing, SendRefusal } from '../messaging/attachment-uploads'
 import { EMAIL_QUEUE_PRIORITY, EmailQueuePriorityClass, cdpEmailQueuedTotal } from '../messaging/email-priority'
 import {
+    EmailSkipReason,
     EmailStatusService,
     EmailStatusUpdate,
     jobTriggerEvent,
@@ -100,6 +101,16 @@ const writeStatus = (
     emailStatus.queue(update)
     void emailStatus.flush().catch((error) => warnTelemetryFlushFailed(error, update.messageId))
 }
+
+// The refusals that the email worker records as a skipped send when it finds the same problem. A quota limit and an
+// inactive workflow are not skipped sends, because the caller can send again after it waits or fixes the workflow.
+const isSkippedSendRefusal = (
+    refusal: TransactionalSendRefusal
+): refusal is TransactionalSendRefusal & EmailSkipReason =>
+    refusal === 'sending_suspended' ||
+    refusal === 'sending_paused' ||
+    refusal === 'recipient_suppressed' ||
+    refusal === 'recipient_unreachable'
 
 const scheduledAtOfRunningRow = (job: CyclotronJobInvocation): DateTime | undefined => {
     const firstScheduledAt = (job.state as CyclotronJobInvocationHogFlow['state'] | null)?.firstScheduledAt
@@ -217,6 +228,17 @@ export class TransactionalSends {
                 : await this.refusal(team.id, hogFlow, transactionalEmailRecipients(request), senderKind)
             if (refusal) {
                 await releaseKey()
+                if (isSkippedSendRefusal(refusal)) {
+                    this.deps.emailStatus.queueRefusedSend({
+                        teamId: team.id,
+                        messageId: invocation.id,
+                        recipient: to,
+                        functionId: hogFlow.id,
+                        reason: refusal,
+                        messageCreatedAt: messageCreatedAtOf(invocation.state.event),
+                    })
+                    void this.deps.emailStatus.flush().catch((error) => warnTelemetryFlushFailed(error, invocation.id))
+                }
                 return { outcome: refusal }
             }
             if (send?.attachments?.length && shape) {
