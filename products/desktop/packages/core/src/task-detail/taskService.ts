@@ -23,6 +23,7 @@ import { TASK_CREATION_EFFECTS, TASK_CREATION_HOST } from "./identifiers";
 import type { TaskCreationEffects } from "./taskCreationEffects";
 import type { ITaskCreationHost } from "./taskCreationHost";
 import { TaskCreationSaga } from "./taskCreationSaga";
+import type { WarmTaskSubmission } from "./warmTaskService";
 
 export type { TaskCreationInput, TaskCreationOutput };
 export { TASK_SERVICE } from "./identifiers";
@@ -104,7 +105,10 @@ export class TaskService {
   public async createTask(
     input: TaskCreationInput,
     onTaskReady?: (output: TaskCreationOutput) => void,
-    options?: { skipCloudUsagePreflight?: boolean },
+    options?: {
+      skipCloudUsagePreflight?: boolean;
+      warmSubmission?: WarmTaskSubmission;
+    },
   ): Promise<CreateTaskResult> {
     this.log.info("Creating task", {
       workspaceMode: input.workspaceMode,
@@ -183,6 +187,7 @@ export class TaskService {
     const creator = new TaskCreationSaga(
       {
         posthogClient,
+        warmSubmission: options?.warmSubmission,
         host: this.host,
         sessionService: this.sessionService,
         piRunner: this.piRunner,
