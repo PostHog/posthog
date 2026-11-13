@@ -31,12 +31,15 @@ from products.signals.backend.activity_summary.read import (
     ActivitySummaryTheme,
     ActivitySummaryView,
 )
+from products.signals.backend.activity_summary.render import InboxStrength
 from products.signals.backend.artefact_schemas import RankingModelResult, RankingScore
 from products.signals.backend.models import (
     PersonalInboxRanking,
     SignalReport,
+    SignalReportAction,
     SignalReportArtefact,
     SignalReportAssignment,
+    SignalReviewerExclusion,
 )
 from products.signals.backend.personal_ranking import serve as personal_ranking_serve
 from products.signals.backend.personal_ranking.candidates import Candidate
@@ -47,6 +50,7 @@ from products.signals.backend.personal_ranking.config import (
     ReasonLimits,
     parse_config,
 )
+from products.signals.backend.personal_ranking.inbox_activity import read_inbox_activity
 from products.signals.backend.personal_ranking.list_sort import personal_ranking_state
 from products.signals.backend.personal_ranking.logic import (
     BUILT_EVENT,
@@ -367,8 +371,10 @@ class TestInputParts(SimpleTestCase):
         candidates = [_candidate(1, _IDS[0]), _candidate(2, _IDS[1], predictions=None, needs_you=())]
 
         assert (
-            input_hash(candidates, config=CONFIG, limit=25, activity_summary_version=7, focus="checkout")
-            == "3d3077866e85c6b1868f952a33a297762db56b2abc2978e2e68bdcf4811c4baf"
+            input_hash(
+                candidates, config=CONFIG, limit=25, activity_summary_version=7, focus="checkout", inbox_activity=None
+            )
+            == "9fd317c4f9be057d443190b2b97bc2608552333a6e816da77c07db2867b275e1"
         )
 
     @parameterized.expand(
@@ -424,7 +430,12 @@ class TestInputParts(SimpleTestCase):
     ) -> None:
         stored = PersonalInboxRanking(
             input_parts=input_parts(
-                [_candidate(1, _IDS[0])], config=CONFIG, limit=25, activity_summary_version=7, focus=None
+                [_candidate(1, _IDS[0])],
+                config=CONFIG,
+                limit=25,
+                activity_summary_version=7,
+                focus=None,
+                inbox_activity=None,
             )
         )
         current = input_parts(
@@ -433,6 +444,7 @@ class TestInputParts(SimpleTestCase):
             limit=25,
             activity_summary_version=summary_version,
             focus=None,
+            inbox_activity=None,
         )
 
         assert compare_inputs(stored, current, rank_top=10) == dataclasses.replace(
@@ -448,6 +460,7 @@ class TestInputParts(SimpleTestCase):
                 limit=25,
                 activity_summary_version=7,
                 focus=None,
+                inbox_activity=None,
             ),
             result={"ranked": [{"report_id": ids[1]}, {"report_id": ids[0]}, {"report_id": ids[2]}]},
         )
@@ -457,6 +470,7 @@ class TestInputParts(SimpleTestCase):
             limit=25,
             activity_summary_version=7,
             focus=None,
+            inbox_activity=None,
         )
 
         changes = compare_inputs(stored, current, rank_top=2)
@@ -478,7 +492,14 @@ class TestInputParts(SimpleTestCase):
     def test_a_previous_list_without_parts_reports_why(
         self, _name: str, previous: PersonalInboxRanking | None, expected: tuple[str, ...]
     ) -> None:
-        current = input_parts([_candidate(1, _IDS[0])], config=CONFIG, limit=25, activity_summary_version=7, focus=None)
+        current = input_parts(
+            [_candidate(1, _IDS[0])],
+            config=CONFIG,
+            limit=25,
+            activity_summary_version=7,
+            focus=None,
+            inbox_activity=None,
+        )
 
         assert compare_inputs(previous, current, rank_top=10) == InputChanges(changed_parts=expected)
 
@@ -890,6 +911,50 @@ class TestBuildPersonalRanking(BaseTest):
             assert [candidate.report_id for candidate in build.candidates] == [str(own.id)]
             assert (build.candidates[0].predictions is not None) is staff
 
+    def test_the_inbox_activity_block_reaches_the_prompt_and_the_event(self) -> None:
+        routed = self._names_me(self._report("Export job timeouts"))
+        SignalReportAction.objects.for_team(self.team.id).create(
+            team=self.team,
+            report=routed,
+            user=self.user,
+            type="feedback",
+            metadata={"sentiment": "positive"},
+            last_at=timezone.now(),
+        )
+        self.create.return_value = _response(_answer([_entry("c1", 1)]))
+        config = PersonalRankingConfig(inbox_activity_lines=5)
+
+        build = build_personal_ranking(self.team, self.user, config=config, dry_run=False)
+
+        ref = build.candidates[0].ref
+        message = self.create.call_args.kwargs["messages"][1]["content"]
+        assert "# Recent inbox activity" in message
+        assert f"- {ref} | " in message and "rated it useful" in message
+        event = self.capture.call_args.kwargs["properties"]
+        assert (event["inbox_activity_lines"], event["inbox_activity_candidate_lines"]) == (1, 1)
+        assert event["inbox_activity_strength_counts"] == {"rated": 1}
+        assert "Export job timeouts" not in json.dumps(event)
+
+    def test_the_block_is_off_by_default_and_leaves_the_prompt_and_hash_unchanged(self) -> None:
+        routed = self._names_me(self._report("Export job timeouts"))
+        SignalReportAction.objects.for_team(self.team.id).create(
+            team=self.team,
+            report=routed,
+            user=self.user,
+            type="feedback",
+            metadata={"sentiment": "positive"},
+            last_at=timezone.now(),
+        )
+        self.create.return_value = _response(_answer([_entry("c1", 1)]))
+
+        build = build_personal_ranking(self.team, self.user, config=PersonalRankingConfig(), dry_run=True)
+
+        message = self.create.call_args.kwargs["messages"][1]["content"]
+        assert "# Recent inbox activity" not in message
+        assert build.inbox_activity is None
+        assert build.input_parts is not None
+        assert "inbox_activity" not in build.input_parts["parts"]
+
     def test_configured_pools_keep_their_order_and_names(self) -> None:
         claimed = self._report("Claimed", status=SignalReport.Status.IN_PROGRESS)
         SignalReportAssignment.all_teams.create(team=self.team, report=claimed, actor_kind="user", actor_user=self.user)
@@ -1293,6 +1358,56 @@ class TestForMeEndpoint(APIBaseTest):
         else:
             assert response.status_code == 404
         assert (self._rows(), self.queued) == (0, [])
+
+
+class TestReadInboxActivity(BaseTest):
+    def _report(self, title: str, **fields: Any) -> SignalReport:
+        return SignalReport.objects.create(
+            team=self.team, title=title, summary=f"{title} summary", signal_count=1, total_weight=1.0, **fields
+        )
+
+    def _acted(self, report: SignalReport, user: User, days_ago: float = 1) -> None:
+        action = SignalReportAction.objects.for_team(self.team.id).create(
+            team=self.team, report=report, user=user, type="view", last_at=timezone.now()
+        )
+        # A view on two days is the lightest fact the block keeps at the default minimum strength.
+        SignalReportAction.objects.for_team(self.team.id).filter(id=action.id).update(
+            first_at=timezone.now() - datetime.timedelta(days=days_ago + 1),
+            last_at=timezone.now() - datetime.timedelta(days=days_ago),
+        )
+
+    def test_only_the_person_and_project_reach_the_block(self) -> None:
+        other = User.objects.create_and_join(self.organization, "other@example.com", None)
+        mine = self._report("Export job timeouts")
+        theirs = self._report("Checkout funnel drops")
+        self._acted(mine, self.user)
+        self._acted(mine, other)
+        self._acted(theirs, other)
+        SignalReviewerExclusion.objects.create(
+            team=self.team, subject_user_uuid=self.user.uuid, repository="example-org/billing", instruction="moved on"
+        )
+        SignalReviewerExclusion.objects.create(
+            team=self.team, subject_user_uuid=other.uuid, repository="example-org/web", instruction="not mine"
+        )
+        SignalReviewerExclusion.objects.create(
+            team=self.team,
+            subject_user_uuid=self.user.uuid,
+            repository="example-org/old",
+            instruction="revoked",
+            status=SignalReviewerExclusion.Status.REVOKED,
+        )
+
+        config = PersonalRankingConfig(inbox_activity_lines=10, inbox_activity_min_strength=InboxStrength.VIEWED)
+        block = read_inbox_activity(self.team, self.user, config, now=timezone.now())
+
+        assert block is not None
+        assert [sorted(line.report_ids) for line in block.lines] == [[str(mine.id)]]
+        assert [area.repository for area in block.exclusions] == ["example-org/billing"]
+
+    def test_the_block_is_none_when_lines_are_zero(self) -> None:
+        self._acted(self._report("Export job timeouts"), self.user)
+
+        assert read_inbox_activity(self.team, self.user, PersonalRankingConfig(), now=timezone.now()) is None
 
 
 class TestPersonalRankingState(SimpleTestCase):

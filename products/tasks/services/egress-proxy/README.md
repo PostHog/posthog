@@ -1,7 +1,7 @@
 # Agent egress
 
 This module verifies run capabilities and relays HTTP requests to one configured endpoint.
-It does not yet include a runnable service, sandbox provisioning, credential injection, registry client or production metrics.
+Tasks owns registration and capability issuance. The runnable service, registry client, sandbox wiring and credential injection are still to come.
 
 ## Adapter contract
 
@@ -27,8 +27,8 @@ If either deadline cannot be set, the relay reports the failure through `OnError
 
 ## Registration and time
 
-`Lookup` returns the current registration. It can use a local cache while the authorization lease is valid; reads cannot extend that lease.
-The registration layer owns updates, invalidation and renewal.
+`Lookup` receives the verified team, run and execution IDs and returns their current registration.
+It can use a local cache while the authorization lease is valid; reads cannot extend that lease.
 A missing run returns `ErrUnauthorized`; lookup failures and timeouts return `ErrUnavailable`.
 Production callers must return HTTP 503 for unavailable authorization and count it separately from rejected identities, without token values or per-run metric labels. Only the test handler does this mapping today.
 
@@ -36,6 +36,48 @@ Production callers must return HTTP 503 for unavailable authorization and count 
 The verifier rejects late results.
 `ClockSkew` allows drift for issued-at and not-before times; zero allows none.
 Tests allow three seconds. Capability, certificate-chain and lease expiry stay strict, even on reused TLS connections.
+
+### Tasks registration
+
+Trusted workers use `AgentEgressRegistry` in `backend/logic/services/agent_egress.py` to register, renew, revoke and issue capabilities.
+Registration binds one execution to its team, actor, relay key, exact hostname and region, with a 30-second lease.
+It keeps the run's exact team ID, including for child environments.
+Reads and registration retries do not renew it. Renewal requires a live lease; an expired or revoked execution cannot be reused.
+Replacement requires the previous execution ID and keeps the old registration revoked.
+Workers recover that ID through `latest`, which includes expired and revoked registrations but cannot authorize requests.
+The registry assigns actor epochs under the run lock: one for the first execution, increasing on each replacement and unchanged on retries.
+Cancellation requests stop lookup, renewal and issuance even before the run reaches a terminal status.
+
+Capabilities last five minutes, with `iss=posthog:tasks`, `aud=posthog:agent_egress`, `sub` set to the run ID and a separate `execution_id`.
+Issuance checks current registration and pins the signing key in the run's existing `sandbox_jwt_kid` state.
+A removed pinned key stops issuance instead of silently changing the signer.
+
+The read-only route is:
+
+```text
+GET /api/projects/{team_id}/internal/agent_egress/runs/{run_id}/executions/{execution_id}
+```
+
+It uses a separate service JWT with audience `posthog:agent_egress_registry`, `operation=lookup`, and matching `team_id`, `sub`, `execution_id` and `region` claims.
+Include integer `iat` and `exp`, at most 30 seconds apart.
+Configure `AGENT_EGRESS_REGION` and dedicated `AGENT_EGRESS_REGISTRY_JWT_SECRETS` independently per region; keys are comma-separated, newest first. Both default to empty.
+Guest capabilities cannot call this route. Missing or inactive registrations return 404; no write route is exposed.
+Registry clients must treat 401/403 as service-authentication failures, not revoked guest authority, and report them as unavailable.
+The `/internal/` route also needs private ingress when the service is deployed.
+
+### Verification keys
+
+Export the public `kid` → PEM bundle from the repository root:
+
+```bash
+python manage.py export_sandbox_jwt_public_keys > sandbox-jwt-public-keys.json
+```
+
+The export includes all configured signing keys' public halves and any explicit verification keys.
+`identity.ParseKeyBundle` accepts RSA public keys only. Private signing keys stay with the issuer.
+Publish the new public key before switching signing keys, and keep the old key while pinned runs still use it.
+Mounting and reloading this bundle belongs to the runnable-service deployment; it is not wired here yet.
+Launch integration must revoke the old registration before resume or restore, then register the new execution and relay key.
 
 ## General forwarding decision
 
@@ -84,6 +126,8 @@ From the repository root:
 go -C products/tasks/services/egress-proxy test -race ./...
 ```
 
-Tests use generated keys and an in-memory registry. They cover identity binding, reused HTTP/2 connections, expiry, revocation, execution changes, lookup failures, clock skew and stalled uploads.
+Go tests use generated keys and an in-memory registry. A shared synthetic fixture checks that Python issuance matches Go verification.
+Tasks tests cover registration, renewal, replacement, revocation, scoped lookup and key rotation.
+The transport tests cover identity binding, reused HTTP/2 connections, expiry, lookup failures, clock skew and stalled uploads.
 Guest-to-relay traffic uses plain HTTP on loopback; only relay-to-service TLS is tested. The deployed private bridge still needs isolation tests.
 Tests use no Modal sandbox or upstream credentials. Task launches are unchanged.

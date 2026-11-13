@@ -69,7 +69,7 @@ class SavingsEstimate:
     background_seconds_saved: float
     main_saving: WarehouseSuggestionMainSaving
     bytes_saved: float
-    clears_a_floor: bool
+    qualifies: bool
     score: float
 
 
@@ -262,12 +262,12 @@ class MaterializeCandidate(Candidate):
             (
                 estimate
                 for estimate in (estimate_savings(context, reads, interval, refresh) for interval in intervals)
-                if estimate.clears_a_floor
+                if estimate.qualifies
             ),
             None,
         )
         if estimate is None:
-            return "savings stay under the floors at every allowed refresh interval"
+            return "it saves too little or scans too much more at every allowed refresh interval"
         basis = interval_basis(
             estimate.interval,
             frequency.bounds.allowed,
@@ -309,8 +309,8 @@ class MaterializeCandidate(Candidate):
         if cost is None:
             return _Unmeasured(recomputations=recomputations)
         estimate = recomputation_savings(context, reads, recomputations, interval, cost)
-        if not estimate.clears_a_floor:
-            return "savings stay under the floors at the interval the views that read it need"
+        if not estimate.qualifies:
+            return "it saves too little or scans too much more at the interval the views that read it need"
         return _proposal(
             context,
             saved_query,
@@ -535,6 +535,7 @@ def _estimate(
         saved.read_bytes >= rules.min_bytes_saved
         and saved.read_bytes >= rules.min_saved_share * cost_without.read_bytes
     )
+    within_extra_bytes = saved.read_bytes >= -rules.max_extra_bytes
     time_ratio = saved.seconds / rules.min_seconds_saved
     bytes_ratio = saved.read_bytes / rules.min_bytes_saved
     bytes_lead = clears_bytes and (not clears_time or bytes_ratio > time_ratio)
@@ -547,7 +548,7 @@ def _estimate(
         background_seconds_saved=background_saved.seconds,
         main_saving=_main_saving(bytes_lead, waiting_saved.seconds, background_saved.seconds),
         bytes_saved=saved.read_bytes,
-        clears_a_floor=clears_time or clears_bytes,
+        qualifies=(clears_time or clears_bytes) and within_extra_bytes,
         score=max(time_ratio, bytes_ratio),
     )
 

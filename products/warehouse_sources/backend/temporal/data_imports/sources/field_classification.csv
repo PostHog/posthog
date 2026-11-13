@@ -182,7 +182,7 @@ Blueshift,api_key region,,,,,blueshift
 Bluesky,actor,,,,,bluesky
 Bluetally,api_key tenant_id,,,,,bluetally
 BolRetailer,client_id client_secret,,,,,bol-retailer
-BoldDesk,,,,,,bolddesk
+BoldDesk,domain api_key,,,,,bolddesk
 BoldSign,api_key region,,,,,bold-sign
 Boulevard,,,,,,boulevard
 Box,,,,,,box
@@ -338,7 +338,7 @@ Curve,,,,,,curve
 Custom,manifest_json auth_token auth_api_key auth_password auth_oauth2_client_secret auth_oauth2_refresh_token auth_oauth2_integration_id,,,,,
 CustomerIO,app_api_key region,,,,,customer-io
 Customerly,access_token,,,,,customerly
-Cyberimpact,,,,,,cyberimpact
+Cyberimpact,api_token,,,,,cyberimpact
 Cybersource,,,,,,cybersource
 D2lBrightspace,,,,,,d2l-brightspace
 DagsterCloud,organization deployment api_token,,,,,dagster-cloud
@@ -1302,7 +1302,7 @@ TwelveLabs,api_key,,,,,twelve-labs
 Twenty,api_key base_url,,,,,twenty
 Twilio,account_sid auth_method,,,,,twilio
 Twitch,,,,,,twitch
-Twitter,bearer_token username,,,,,twitter
+Twitter,bearer_token username,,,search_query,,twitter
 TwitterAds,,twitter_ads_integration_id,account_id,,,twitter-ads
 TwoC2p,,,,,,two-c2p
 TyntecSMS,api_key,,,request_ids,,tyntec-sms

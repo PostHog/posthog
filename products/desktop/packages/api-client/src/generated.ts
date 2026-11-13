@@ -11480,7 +11480,8 @@ export namespace Schemas {
         | "open_feature_flag"
         | "edit_exposure_criteria"
         | "adjust_distribution"
-        | "use_first_seen_variant";
+        | "use_first_seen_variant"
+        | "move_start_date";
     export type ExperimentExposureHealthFindingCode =
         | "zero_exposures"
         | "srm"
@@ -18565,6 +18566,8 @@ export namespace Schemas {
         auto_publish: boolean | null;
         channel: string | null;
         scheduled_at: string | null;
+        warm_submission_id: string | null;
+        warm_run_id: string | null;
         start_run: boolean;
         signal_report_discussion_question: string;
         naming_source: string;
@@ -18816,6 +18819,7 @@ export namespace Schemas {
         | CodexTaskRunCreateSchema
         | TaskRunResumeRequestSchema;
     export type TaskRunErrorResponse = Partial<{
+        id: unknown;
         detail: string;
         error: string;
         type: string;
@@ -19150,6 +19154,23 @@ export namespace Schemas {
          * The user's resolved GitHub login, or null when no GitHub identity is linked.
          */
         github_login: string | null;
+    };
+    /**
+     * Response for a successful warm request — the draft Task + idling warm Run reused on submit.
+     */
+    export type WarmTaskResponse = {
+        /**
+         * Id of the draft Task birthed for the warm Run.
+         */
+        task_id: string;
+        /**
+         * Id of the idling warm Run. The normal create+run path reuses and activates it on submit.
+         */
+        run_id: string;
+        /**
+         * Response for a successful warm request — the draft Task + idling warm Run reused on submit.
+         */
+        permission_mode_mutable?: boolean | undefined;
     };
     export type _DateRange = Partial<{
         date_from: string | null;
