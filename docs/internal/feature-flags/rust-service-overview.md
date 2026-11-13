@@ -144,6 +144,19 @@ Authenticated via:
 
 Current implementation returns flag definitions with cohort data from HyperCache, with PostgreSQL fallback on cache miss. Supports ETag-based conditional requests (`If-None-Match` header) to avoid re-transferring unchanged definitions. Rate limited per team (default 600/minute).
 
+The `v` query parameter selects the feed.
+Exactly `v=2` selects the definitions v2 feed, which carries config version 2 flags beside the legacy ones.
+Every other value, a repeated `v`, and no `v` select the legacy feed.
+
+A `v=2` request reads the team's `flags_with_cohorts_v2.json` entry and its ETag from Redis only.
+A team that holds no config version 2 flag has no such entry, and the legacy entry then answers exactly as it does for an unversioned request: same body, same ETag, same 304 handling.
+A missing v2 entry requests no rebuild.
+An ETag without its payload, or a payload that cannot be read, also falls back to the legacy entry.
+
+Authentication, both rate-limit budgets, the quota check and billing are the same for both feeds.
+`flags_flag_definitions_feed_total` counts requests by the feed they asked for (`requested`), the entry that answered (`served`) and the SDK name (`library`).
+The request log line carries `requests_v2`, `sdk_name` and `sdk_version`.
+
 Billing quota enforcement matches Django's `/api/feature_flag/local_evaluation` behavior:
 
 - **Quota check**: Uses `FeatureFlagsLimiter.is_limited(token)` to verify the team hasn't exceeded their feature flag request quota. Returns HTTP 402 with a JSON body (`{"type": "quota_limited", "code": "payment_required", ...}`) when the quota is exceeded.

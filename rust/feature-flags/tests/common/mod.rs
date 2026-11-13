@@ -399,6 +399,28 @@ impl ServerHandle {
                 }
             };
 
+            let flags_with_cohorts_v2_hypercache_reader = match HyperCacheReader::new(
+                redis_reader_client.clone(),
+                HyperCacheConfig::new(
+                    "feature_flags".to_string(),
+                    feature_flags::api::flag_definitions::FLAG_DEFINITIONS_V2_OBJECT_NAME
+                        .to_string(),
+                    config.object_storage_region.clone(),
+                    config.object_storage_bucket.clone(),
+                ),
+            )
+            .await
+            {
+                Ok(reader) => Arc::new(reader),
+                Err(e) => {
+                    tracing::error!(
+                        "Failed to create flags_with_cohorts v2 HyperCacheReader: {:?}",
+                        e
+                    );
+                    return;
+                }
+            };
+
             // Create team metadata hypercache reader
             let mut team_hypercache_config = HyperCacheConfig::new(
                 "team_metadata".to_string(),
@@ -470,6 +492,7 @@ impl ServerHandle {
                 flags_hypercache_reader,
                 flag_definitions_cache,
                 flags_with_cohorts_hypercache_reader,
+                flags_with_cohorts_v2_hypercache_reader,
                 team_hypercache_reader,
                 config_hypercache_reader,
                 RayonDispatcher::new(2, None),
