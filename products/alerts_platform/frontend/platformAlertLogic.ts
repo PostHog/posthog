@@ -28,7 +28,9 @@ import { platformAlertsPartialUpdate, platformAlertsRetrieve, platformAlertsSnoo
 import {
     GroupingModeEnumApi,
     PlatformAlertApi,
+    PatchedPlatformAlertConfigurationEditApi,
     PlatformAlertConfigurationApi,
+    PlatformAlertConfigurationSourceKindEnumApi,
     PlatformAlertOwnerEnumApi,
 } from './generated/api.schemas'
 import {
@@ -42,6 +44,13 @@ import {
 import { PLATFORM_ALERTS_BREADCRUMB } from './platformAlertsLogic'
 
 const EMPTY_RULE_METADATA_FORM: RuleMetadataForm = { labels: [], annotations: [] }
+
+type EditableSourceKind = PatchedPlatformAlertConfigurationEditApi['source_kind']
+
+// Error tracking has only appearance alerts, which the API does not edit yet.
+function isEditableSourceKind(kind: PlatformAlertConfigurationSourceKindEnumApi): kind is EditableSourceKind {
+    return kind !== 'error_tracking'
+}
 const RULE_METADATA_FIELD_BY_ATTR: Record<string, keyof RuleMetadataForm> = {
     labels: 'labels',
     annotations: 'annotations',
@@ -247,9 +256,14 @@ export const platformAlertLogic: LogicWrapper<platformAlertLogicType> = kea<plat
                     annotations: ruleMetadataEntriesError(annotations),
                 }) as DeepPartialMap<RuleMetadataForm, ValidationErrorType>,
             submit: async ({ labels, annotations }: RuleMetadataForm) => {
+                const sourceKind = values.configuration!.source_kind
+                if (!isEditableSourceKind(sourceKind)) {
+                    actions.setRuleMetadataFormManualErrors({ labels: "This alert's labels can't be edited yet." })
+                    return
+                }
                 try {
                     const updated = await platformAlertsPartialUpdate(String(values.currentTeamId), props.id, {
-                        source_kind: values.configuration!.source_kind,
+                        source_kind: sourceKind,
                         labels: ruleMetadataRecord(labels),
                         annotations: ruleMetadataRecord(annotations),
                     })
