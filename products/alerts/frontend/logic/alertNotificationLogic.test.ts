@@ -4,13 +4,16 @@ import api from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 
 import { initKeaTests } from '~/test/init'
-import { HogFunctionType, IntegrationType } from '~/types'
+import { IntegrationType } from '~/types'
 
 import {
     alertsDestinationsDeleteCreate,
+    alertsDestinationsList,
     alertsDestinationsPagerdutyCreate,
+    alertsDestinationsWebhookCreate,
     alertsTestDeliveryCreate,
 } from 'products/alerts/frontend/generated/api'
+import type { AlertDestinationListItemApi } from 'products/alerts/frontend/generated/api.schemas'
 import {
     ALERT_NOTIFICATION_TYPE_DISCORD,
     ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS,
@@ -22,28 +25,26 @@ import {
 import { alertNotificationLogic } from './alertNotificationLogic'
 
 jest.mock('products/alerts/frontend/generated/api', () => ({
+    alertsDestinationsCreate: jest.fn(),
     alertsDestinationsDeleteCreate: jest.fn(),
+    alertsDestinationsList: jest.fn(),
     alertsDestinationsPagerdutyCreate: jest.fn(),
+    alertsDestinationsWebhookCreate: jest.fn(),
     alertsTestDeliveryCreate: jest.fn(),
 }))
 
 describe('alertNotificationLogic', () => {
     let logic: ReturnType<typeof alertNotificationLogic.build>
-    let createSpy: jest.SpyInstance
-    let listSpy: jest.SpyInstance
 
     beforeEach(() => {
         initKeaTests()
-        listSpy = jest.spyOn(api.hogFunctions, 'list').mockResolvedValue({ results: [], count: 0 })
-        createSpy = jest
-            .spyOn(api.hogFunctions, 'create')
-            .mockImplementation(async (data) => ({ id: 'hf-1', ...data }) as HogFunctionType)
+        jest.clearAllMocks()
+        jest.mocked(alertsDestinationsList).mockResolvedValue([])
+        jest.mocked(alertsDestinationsWebhookCreate).mockResolvedValue({ hog_function_ids: ['hf-1'] })
     })
 
     afterEach(() => {
         logic?.unmount()
-        createSpy.mockRestore()
-        listSpy.mockRestore()
     })
 
     const makeSlackIntegration = (id: number): IntegrationType => ({
@@ -174,72 +175,22 @@ describe('alertNotificationLogic', () => {
         })
     })
 
-    it('creates a Discord destination HogFunction end-to-end', async () => {
+    it.each([
+        [ALERT_NOTIFICATION_TYPE_DISCORD, 'https://discord.com/api/webhooks/123/abc', 'discord'],
+        [ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS, 'https://example.webhook.office.com/webhookb2/abc', 'teams'],
+        [ALERT_NOTIFICATION_TYPE_WEBHOOK, 'https://example.com/hook', 'webhook'],
+    ] as const)('creates a %s destination through the alert API', async (type, webhookUrl, apiType) => {
         logic = alertNotificationLogic({ alertId: 'alert-123' })
         logic.mount()
+        logic.actions.addPendingNotification({ type, webhookUrl })
 
-        // Drive the inline editor: pick Discord, enter a webhook URL, stage it
-        logic.actions.setSelectedType(ALERT_NOTIFICATION_TYPE_DISCORD)
-        logic.actions.setWebhookUrl('https://discord.com/api/webhooks/123/abc')
-        logic.actions.addPendingNotification({
-            type: ALERT_NOTIFICATION_TYPE_DISCORD,
-            webhookUrl: 'https://discord.com/api/webhooks/123/abc',
-        })
-
-        await expectLogic(logic).toMatchValues({
-            pendingNotifications: [
-                { type: ALERT_NOTIFICATION_TYPE_DISCORD, webhookUrl: 'https://discord.com/api/webhooks/123/abc' },
-            ],
-        })
-
-        // Saving the alert flushes pending notifications through the real payload builder + API
-        logic.actions.createPendingHogFunctions('alert-123', 'Daily revenue check')
+        logic.actions.createPendingDestinations('alert-123')
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(createSpy).toHaveBeenCalledTimes(1)
-        const payload = createSpy.mock.calls[0][0]
-        expect(payload.template_id).toBe('template-discord')
-        expect(payload.name).toBe('Daily revenue check: Discord')
-        expect(payload.enabled).toBe(true)
-        expect(payload.inputs?.webhookUrl).toEqual({ value: 'https://discord.com/api/webhooks/123/abc' })
-        expect(payload.inputs?.content?.value).toContain('{event.properties.alert_name}')
-
-        await expectLogic(logic).toMatchValues({ pendingNotifications: [] })
-    })
-
-    it('creates a Microsoft Teams destination HogFunction end-to-end', async () => {
-        logic = alertNotificationLogic({ alertId: 'alert-123' })
-        logic.mount()
-
-        // Drive the inline editor: pick Microsoft Teams, enter a webhook URL, stage it
-        logic.actions.setSelectedType(ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS)
-        logic.actions.setWebhookUrl('https://example.webhook.office.com/webhookb2/abc')
-        logic.actions.addPendingNotification({
-            type: ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS,
-            webhookUrl: 'https://example.webhook.office.com/webhookb2/abc',
+        expect(alertsDestinationsWebhookCreate).toHaveBeenCalledWith(expect.any(String), 'alert-123', {
+            type: apiType,
+            webhook_url: webhookUrl,
         })
-
-        await expectLogic(logic).toMatchValues({
-            pendingNotifications: [
-                {
-                    type: ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS,
-                    webhookUrl: 'https://example.webhook.office.com/webhookb2/abc',
-                },
-            ],
-        })
-
-        // Saving the alert flushes pending notifications through the real payload builder + API
-        logic.actions.createPendingHogFunctions('alert-123', 'Daily revenue check')
-        await expectLogic(logic).toFinishAllListeners()
-
-        expect(createSpy).toHaveBeenCalledTimes(1)
-        const payload = createSpy.mock.calls[0][0]
-        expect(payload.template_id).toBe('template-microsoft-teams')
-        expect(payload.name).toBe('Daily revenue check: Microsoft Teams')
-        expect(payload.enabled).toBe(true)
-        expect(payload.inputs?.webhookUrl).toEqual({ value: 'https://example.webhook.office.com/webhookb2/abc' })
-        expect(payload.inputs?.text?.value).toContain('{event.properties.alert_name}')
-
         await expectLogic(logic).toMatchValues({ pendingNotifications: [] })
     })
 
@@ -255,10 +206,9 @@ describe('alertNotificationLogic', () => {
             severity: 'error',
             region: 'eu',
         })
-        logic.actions.createPendingHogFunctions('alert-123', 'Daily revenue check')
+        logic.actions.createPendingDestinations('alert-123')
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(createSpy).not.toHaveBeenCalled()
         expect(alertsDestinationsPagerdutyCreate).toHaveBeenCalledWith(expect.any(String), 'alert-123', {
             pagerduty_routing_key: 'a'.repeat(32),
             pagerduty_severity: 'error',
@@ -266,14 +216,32 @@ describe('alertNotificationLogic', () => {
         })
         await expectLogic(logic).toMatchValues({ pendingNotifications: [] })
 
-        logic.actions.deleteExistingPagerDutyDestination([
-            { id: 'hf-open' } as HogFunctionType,
-            { id: 'hf-close' } as HogFunctionType,
-        ])
+        logic.actions.deleteDestination({
+            id: 'row-1',
+            hog_function_ids: ['hf-open', 'hf-close'],
+            type: 'pagerduty',
+        } as AlertDestinationListItemApi)
         await expectLogic(logic).toFinishAllListeners()
 
         expect(alertsDestinationsDeleteCreate).toHaveBeenCalledWith(expect.any(String), 'alert-123', {
             hog_function_ids: ['hf-open', 'hf-close'],
+        })
+    })
+
+    it('removes a destination whose HogFunctions are gone by its platform id', async () => {
+        jest.mocked(alertsDestinationsDeleteCreate).mockResolvedValue(undefined)
+        logic = alertNotificationLogic({ alertId: 'alert-123' })
+        logic.mount()
+
+        logic.actions.deleteDestination({
+            id: 'row-1',
+            hog_function_ids: [],
+            type: 'slack',
+        } as unknown as AlertDestinationListItemApi)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(alertsDestinationsDeleteCreate).toHaveBeenCalledWith(expect.any(String), 'alert-123', {
+            destination_ids: ['row-1'],
         })
     })
 
