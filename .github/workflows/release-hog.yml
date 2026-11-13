@@ -552,6 +552,8 @@ jobs:
         runs-on: ubuntu-24.04
         timeout-minutes: 10
         permissions:
+            # The approvals of the run that prepared the release, which the late approver check reads.
+            actions: read
             contents: read
             pull-requests: read
         outputs:
