@@ -110,7 +110,7 @@ postHogCapture({
             type: 'string',
             label: 'Event UUID',
             description:
-                'Sets the UUID of the event, such as an ID the sender repeats when it retries a delivery: {request.body.id}. The value must be a UUID, or the request fails with a 400 error. Leave empty to give each event a new UUID.',
+                'If the sender includes a UUID that stays the same when it retries a delivery, map it here, such as {request.body.id}. Other values fail the request with a 400 error. Leave empty to give each event a new UUID.',
             secret: false,
             required: false,
         },
