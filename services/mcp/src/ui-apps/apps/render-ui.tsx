@@ -1,7 +1,7 @@
 import '../styles/tailwind.css'
 
 import type { App } from '@modelcontextprotocol/ext-apps'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 
 import type { UiAppKey } from '../../resources/ui-apps.generated'
@@ -10,18 +10,20 @@ import { AppErrorState } from '../components/AppErrorState'
 import { AppLoadingState } from '../components/AppLoadingState'
 import { AppWrapper } from '../components/AppWrapper'
 import { RENDER_DISPATCH } from '../generated/render-dispatch.generated'
+import { APP_DATA_META_KEY } from '../types'
 import { loadRenderUiData } from './render-ui-data'
 
 /**
  * Envelope emitted by the `render-ui` server tool. It carries the tool to render
- * and its input, never the data itself. The data arrives preloaded on the result's
- * app-only `_meta`, or the app fetches it via `callServerTool`, then mounts the
+ * and its input. The data arrives preloaded, on the result's app-only `_meta` or
+ * in the envelope, or the app fetches it via `callServerTool`, then mounts the
  * matching view from the generated dispatch registry.
  */
 interface RenderUiEnvelope {
     tool_name: string
     tool_input?: Record<string, unknown>
     app_key: UiAppKey
+    [APP_DATA_META_KEY]?: unknown
 }
 
 function RenderUiApp(): JSX.Element {
@@ -58,6 +60,8 @@ function RenderUiContent({
     const toolName = envelope.tool_name
     const appKey = envelope.app_key
     const toolInputJson = JSON.stringify(envelope.tool_input ?? {})
+    const envelopeAppData = useRef(envelope[APP_DATA_META_KEY])
+    envelopeAppData.current = envelope[APP_DATA_META_KEY]
     useEffect(() => {
         capture('mcp_ui_app_render_requested', { rendered_tool_name: toolName, app_key: envelope.app_key })
     }, [toolName, envelope.app_key])
@@ -69,7 +73,14 @@ function RenderUiContent({
         let cancelled = false
         setData(null)
         setError(null)
-        loadRenderUiData(app, toolName, JSON.parse(toolInputJson) as Record<string, unknown>, appKey, resultMeta)
+        loadRenderUiData(
+            app,
+            toolName,
+            JSON.parse(toolInputJson) as Record<string, unknown>,
+            appKey,
+            resultMeta,
+            envelopeAppData.current
+        )
             .then((result) => {
                 if (cancelled) {
                     return

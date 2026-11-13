@@ -92,7 +92,8 @@ export function createRenderUiTool(
     allTools: Tool<ZodObjectAny>[],
     context: Context,
     mcpClientName?: string,
-    loadAppData?: RenderUiAppDataLoader
+    loadAppData?: RenderUiAppDataLoader,
+    options: { appDataInStructuredContent?: boolean } = {}
 ): Tool<RenderUiSchema> | null {
     const renderableNames = getRenderableToolNames(allTools)
     if (renderableNames.length === 0) {
@@ -142,6 +143,9 @@ export function createRenderUiTool(
                     tool_name: tool.name,
                     tool_input: toolInput,
                     app_key: appKey,
+                    ...(options.appDataInStructuredContent && appData !== undefined
+                        ? { [APP_DATA_META_KEY]: appData }
+                        : {}),
                     _analytics: {
                         distinctId,
                         toolName: RENDER_UI_TOOL_NAME,

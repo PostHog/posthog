@@ -6,17 +6,23 @@ import { APP_DATA_META_KEY } from '@/ui-apps/types'
 
 describe('render-ui data loading', () => {
     it.each([
-        { appKey: 'survey' as const, toolName: 'survey-get' },
-        { appKey: 'query-results' as const, toolName: 'query-trends' },
-    ])('draws $appKey from preloaded data without calling the server', async ({ appKey, toolName }) => {
-        const callServerTool = vi.fn().mockRejectedValue(new Error('MCP error -32603'))
-        const meta = { [APP_DATA_META_KEY]: { results: [] } }
+        { appKey: 'survey' as const, toolName: 'survey-get', carrier: 'the result _meta' },
+        { appKey: 'query-results' as const, toolName: 'query-trends', carrier: 'the result _meta' },
+        { appKey: 'survey' as const, toolName: 'survey-get', carrier: 'the envelope' },
+    ])(
+        'draws $appKey from data preloaded on $carrier without calling the server',
+        async ({ appKey, toolName, carrier }) => {
+            const callServerTool = vi.fn().mockRejectedValue(new Error('MCP error -32603'))
+            const data = { results: [] }
+            const meta = carrier === 'the result _meta' ? { [APP_DATA_META_KEY]: data } : null
+            const envelopeAppData = carrier === 'the envelope' ? data : undefined
 
-        expect(await loadRenderUiData({ callServerTool }, toolName, {}, appKey, meta)).toEqual({
-            structuredContent: { results: [] },
-        })
-        expect(callServerTool).not.toHaveBeenCalled()
-    })
+            expect(await loadRenderUiData({ callServerTool }, toolName, {}, appKey, meta, envelopeAppData)).toEqual({
+                structuredContent: data,
+            })
+            expect(callServerTool).not.toHaveBeenCalled()
+        }
+    )
 
     it('fetches from the server when the result carried no preloaded data', async () => {
         const result = { structuredContent: { id: 'example' }, content: [] }
@@ -73,6 +79,24 @@ describe('render-ui data loading', () => {
         expect(callServerTool).toHaveBeenCalledExactlyOnceWith({
             name: 'survey-get',
             arguments: { surveyId: 'example' },
+        })
+    })
+
+    it('retries through the advertised exec tool when the host refuses the direct call', async () => {
+        const data = { id: 'example' }
+        const callServerTool = vi.fn(async ({ name }: { name: string }): Promise<CallToolResult> => {
+            if (name !== 'exec') {
+                throw new Error('MCP error -32000: Tool not found')
+            }
+            return { content: [{ type: 'text', text: JSON.stringify(data) }] }
+        })
+
+        expect(await loadRenderUiData({ callServerTool }, 'survey-get', { surveyId: 'example' }, 'survey')).toEqual({
+            structuredContent: data,
+        })
+        expect(callServerTool).toHaveBeenLastCalledWith({
+            name: 'exec',
+            arguments: { command: 'call --json survey-get {"surveyId":"example"}' },
         })
     })
 })
