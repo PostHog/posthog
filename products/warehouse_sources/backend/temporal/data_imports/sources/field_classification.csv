@@ -167,7 +167,7 @@ Billit,,,,,,billit
 Billomat,billomat_id api_key registered_app,,,,,billomat
 BingAds,,bing_ads_integration_id,account_id,,,bing-ads
 BingWebmasterTools,api_key site_urls,,,,,bing-webmaster-tools
-Bird,api_key,,,,,bird
+Bird,,,,,,bird
 Bitbucket,workspace auth_method,,,,,bitbucket
 Bitly,,,,,,bitly
 Bitrise,api_token,,,,,bitrise
@@ -182,7 +182,7 @@ Blueshift,api_key region,,,,,blueshift
 Bluesky,actor,,,,,bluesky
 Bluetally,api_key tenant_id,,,,,bluetally
 BolRetailer,client_id client_secret,,,,,bol-retailer
-BoldDesk,,,,,,bolddesk
+BoldDesk,domain api_key,,,,,bolddesk
 BoldSign,api_key region,,,,,bold-sign
 Boulevard,,,,,,boulevard
 Box,,,,,,box
@@ -338,7 +338,7 @@ Curve,,,,,,curve
 Custom,manifest_json auth_token auth_api_key auth_password auth_oauth2_client_secret auth_oauth2_refresh_token auth_oauth2_integration_id,,,,,
 CustomerIO,app_api_key region,,,,,customer-io
 Customerly,access_token,,,,,customerly
-Cyberimpact,,,,,,cyberimpact
+Cyberimpact,api_token,,,,,cyberimpact
 Cybersource,,,,,,cybersource
 D2lBrightspace,,,,,,d2l-brightspace
 DagsterCloud,organization deployment api_token,,,,,dagster-cloud

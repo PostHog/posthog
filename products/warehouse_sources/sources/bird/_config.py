@@ -6,4 +6,4 @@ from products.warehouse_sources.sources.sdk import config
 
 @config.config
 class BirdSourceConfig(config.Config):
-    api_key: str
+    pass
