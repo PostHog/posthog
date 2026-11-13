@@ -119,12 +119,31 @@ describe('hog query', () => {
     })
 
     test.each([
-        ['an agent gets the results of a query that finishes within the minute', false, 3, '"rows":[["$pageview",70]'],
-        ['a person at a terminal waits for a query that runs past the minute', true, 40, '│ $pageview │'],
-    ])('run: %s', async (_name, tty, polls, expected) => {
-        const result = await runHog(['query', 'run', 'select 1'], {
+        [
+            'an agent gets the results of a query that finishes within the minute',
+            'select 1',
+            { stdoutIsTTY: false },
+            3,
+            '"rows":[["$pageview",70]',
+        ],
+        [
+            'a person at a terminal waits for a query that runs past the minute',
+            'select 1',
+            { stdoutIsTTY: true },
+            40,
+            '│ $pageview │',
+        ],
+        [
+            'a person who pipes the query into a terminal waits past the minute too',
+            '-',
+            { stdoutIsTTY: true, stdinIsTTY: false, stdin: 'select 1' },
+            40,
+            '│ $pageview │',
+        ],
+    ])('run: %s', async (_name, query, terminal, polls, expected) => {
+        const result = await runHog(['query', 'run', query], {
             env: TEST_CREDENTIALS,
-            stdoutIsTTY: tty,
+            ...terminal,
             respond: slowQueries(polls),
         })
 

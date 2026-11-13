@@ -1,4 +1,3 @@
-import { inCIWithoutAPerson } from '@/core/approval'
 import { defineCommand } from '@/core/command'
 import type { Context } from '@/core/context'
 import { EXIT_PENDING, EXIT_SUCCESS, EXIT_USAGE, HogError } from '@/core/errors'
@@ -67,12 +66,19 @@ function done(response: HogQLResponse): RunResult {
     }
 }
 
-// A person and a CI job without an agent never run `--wait`, so they wait until the query ends.
+// A person whose stdout is a terminal and a CI job without an agent never run `--wait`, so they wait
+// until the query ends. That holds when the query comes in on stdin, which leaves `ctx.prompts` and
+// its spinner undefined, so the person gets one line on stderr instead.
 async function follow(ctx: Context, id: QueryId): Promise<RunResult> {
     const { runtime } = ctx
-    const waitsToTheEnd = ctx.prompts !== undefined || inCIWithoutAPerson(ctx)
+    const waitsToTheEnd = ctx.mode.agent === undefined && (runtime.stdoutIsTTY || ctx.mode.isCI)
     const deadline = waitsToTheEnd ? undefined : runtime.now() + AGENT_WAIT_MS
     const spinner = ctx.prompts?.spinner(`Waiting for query ${id} to finish`)
+    if (!spinner && waitsToTheEnd && runtime.stdoutIsTTY) {
+        runtime.writeStderr(
+            `Waiting for query ${id} to finish. After Ctrl-C, run ${resumeCommand(id)} to wait for it again.\n`
+        )
+    }
     let state: QueryState
     try {
         state = await waitForQuery(runtime, await ctx.posthog(), id, deadline)
