@@ -41,7 +41,6 @@ describe('oauthAuthorizeLogic', () => {
         delete (window as any).POSTHOG_APP_CONTEXT
     })
 
-    // What the control for every permission sends.
     const setAllScopeAccess = (level: ScopeAccessLevel): void =>
         logic.actions.setScopeGroupAccess(
             logic.values.scopeRows.map((row) => row.key),

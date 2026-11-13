@@ -110,16 +110,14 @@ export default meta
 
 type Story = StoryObj<{}>
 
-// Few permissions: every group starts open. experiment:read is required but not requested, and
-// feature_flag:write is required, so both rows show a lock.
+// Both required scopes show a lock, and experiment:read is required without being requested.
 export const FewPermissions: Story = {
     decorators: [withOAuthApplication({ required_scopes: ['experiment:read', 'feature_flag:write'] })],
     render: () => <App />,
     parameters: authorizeParameters('openid email feature_flag:read query:read dashboard:write insight:write'),
 }
 
-// More permissions than the open threshold: every group starts closed, and the header of a group with
-// a required row shows a lock. The narrow width is an OAuth popup, where group labels truncate.
+// The narrow width is an OAuth popup window, where group labels truncate.
 export const ManyPermissions: Story = {
     decorators: [withContentSceneHeight, withOAuthApplication({ required_scopes: ['feature_flag:read'] })],
     render: () => <App />,
@@ -133,14 +131,12 @@ export const ManyPermissions: Story = {
     },
 }
 
-// `*` gets a group of its own. Read grants every object's read scope and Write grants `*`.
 export const FullAccess: Story = {
     decorators: [withOAuthApplication({ required_scopes: [] })],
     render: () => <App />,
     parameters: authorizeParameters('*'),
 }
 
-// The server resolved the request to identity scopes only, so the list holds a sentence and no group.
 export const IdentityOnly: Story = {
     decorators: [withOAuthApplication({ required_scopes: [] })],
     render: () => <App />,

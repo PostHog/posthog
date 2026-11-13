@@ -52,8 +52,7 @@ const oauthDisabledReasons = (
 const WILDCARD_LABEL = 'All PostHog data'
 const WILDCARD_GROUP_LABEL = 'Full access'
 
-// A request with this many rows or fewer opens every group, so the whole list shows at once.
-// A longer one starts with every group closed, so each header reads as a summary.
+// Past this many rows every group starts closed, so each header reads as a summary.
 export const SCOPE_GROUPS_OPEN_MAX_ROWS = 8
 
 // Fallback for scopes absent from API_SCOPES (e.g. server-side scopes the local list lags
@@ -82,7 +81,6 @@ export const requiredLevelsFromScopes = (requiredScopes: string[]): Map<string, 
     return levels
 }
 
-// The level the user picked per scope object. An object with no pick sits at its requested ceiling.
 export type ScopeAccessSelections = Record<string, ScopeAccessLevel>
 
 // One row per scope object. The requested set caps the ceiling, the required set
@@ -153,8 +151,7 @@ const IDENTITY_SCOPE_NOUNS: Record<string, string> = {
     profile: 'basic account information',
 }
 
-// One sentence for the identity scopes a client asked for, such as `openid`. They have no levels to
-// pick, so the consent list states them instead of giving them a row.
+// Identity scopes such as `openid` have no levels to pick, so the list states them in one sentence.
 export function identityScopeSummary(scopes: string[], appName: string): string | null {
     const nouns = scopes.flatMap((scope) => (IDENTITY_SCOPE_NOUNS[scope] ? [IDENTITY_SCOPE_NOUNS[scope]] : []))
     if (nouns.length === 0) {

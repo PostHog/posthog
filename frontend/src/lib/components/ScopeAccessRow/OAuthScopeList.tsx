@@ -10,20 +10,15 @@ import { ScopeAccessGroup } from './ScopeAccessGroup'
 import { ScopeRowsLevelControl } from './ScopeRowsLevelControl'
 
 interface OAuthScopeListProps {
-    /** The sentence for the identity scopes, or null when the client asked for none. */
     identitySummary: string | null
     groups: OAuthScopeGroup[]
     onChangeRow: (scopeObject: string, level: ScopeAccessLevel) => void
     onChangeGroup: (scopeObjects: string[], level: ScopeAccessLevel) => void
-    /** Prefix of the `data-attr`s on the groups and on the control for every permission. */
     dataAttrPrefix: string
-    /** Classes for the header row, such as the sticky styling of a scrolling card. */
     headerClassName?: string
-    /** Classes for the identity sentence and the groups under the header. */
     bodyClassName?: string
 }
 
-/** The permissions an OAuth client asks for, in product-area groups that open or close together. */
 export function OAuthScopeList({
     identitySummary,
     groups,

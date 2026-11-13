@@ -11,13 +11,10 @@ import {
 interface ScopeRowsLevelControlProps {
     rows: ScopePickerRow[]
     onChange: (scopeObjects: string[], level: ScopeAccessLevel) => void
-    /** Names the control for screen readers, e.g. "Product analytics access". */
     ariaLabel: string
-    /** Prefix of each option's `data-attr`: `<prefix>-<level>`. */
     dataAttrPrefix: string
 }
 
-/** A No access / Read / Write control that sets several scope rows at once. */
 export function ScopeRowsLevelControl({
     rows,
     onChange,
