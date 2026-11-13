@@ -1,6 +1,6 @@
 import posthog from 'posthog-js'
 
-import { SURVEY_CREATED_SOURCE } from 'scenes/surveys/constants'
+import { NewSurvey, SURVEY_CREATED_SOURCE } from 'scenes/surveys/constants'
 
 import { MultipleSurveyQuestion, Survey, SurveyQuestionType } from '~/types'
 
@@ -104,8 +104,9 @@ export function reportSurveyCreated(
 export type SiteThemeCardState = 'available' | 'not_on_site' | 'replay_off'
 export type SiteThemeOutcome = 'suggested' | 'no_recording' | 'unreadable' | 'gave_up'
 
-export function reportSurveyThemeSelected(surveyId: string, themeId: string): void {
-    posthog.capture('survey theme selected', { survey_id: surveyId, theme_id: themeId })
+// The team appearance settings and a new survey pass an unsaved survey; $pathname tells them apart.
+export function reportSurveyThemeSelected(survey: Survey | NewSurvey, themeId: string): void {
+    posthog.capture('survey theme selected', { survey_id: survey.id === 'new' ? null : survey.id, theme_id: themeId })
 }
 
 export function reportSiteThemeCardViewed(surveyId: string, state: SiteThemeCardState): void {

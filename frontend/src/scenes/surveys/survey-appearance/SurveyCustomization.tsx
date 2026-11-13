@@ -59,7 +59,7 @@ export function Customization({
     const surveyAppearance = { ...defaultSurveyAppearance, ...survey.appearance }
     const selectedThemeId = getMatchingSurveyThemeId(survey.appearance)
     const selectTheme = (theme: SurveyTheme): void => {
-        reportSurveyThemeSelected(survey.id, theme.id)
+        reportSurveyThemeSelected(survey, theme.id)
         onAppearanceChange(theme.appearance)
     }
     const siteThemeCard = useSiteThemeCard({

@@ -62,7 +62,7 @@ export function AppearanceStep(): JSX.Element {
     }
 
     const handleThemeSelect = (theme: SurveyTheme): void => {
-        reportSurveyThemeSelected(survey.id, theme.id)
+        reportSurveyThemeSelected(survey, theme.id)
         setSelectedThemeId(theme.id)
         onAppearanceChange(theme.appearance)
     }

@@ -2,7 +2,7 @@ import posthog from 'posthog-js'
 
 import { Survey, SurveyQuestionType, SurveyType } from '~/types'
 
-import { reportSurveyCreated, reportSurveyEdited } from './surveyUsage'
+import { reportSurveyCreated, reportSurveyEdited, reportSurveyThemeSelected } from './surveyUsage'
 
 describe('surveyUsage', () => {
     it('reports survey configuration without question text or responses', () => {
@@ -83,4 +83,19 @@ describe('surveyUsage', () => {
             capture.mockRestore()
         }
     )
+
+    it.each([
+        ['a saved survey', 'survey-example', 'survey-example'],
+        ['an unsaved survey or the team appearance settings', 'new', null],
+    ])('reports the theme selected on %s', (_name, surveyId, expectedSurveyId) => {
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation()
+
+        reportSurveyThemeSelected({ id: surveyId } as Survey, 'ocean')
+
+        expect(capture).toHaveBeenCalledWith('survey theme selected', {
+            survey_id: expectedSurveyId,
+            theme_id: 'ocean',
+        })
+        capture.mockRestore()
+    })
 })
