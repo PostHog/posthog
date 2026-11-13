@@ -3369,6 +3369,7 @@ describe('Hogflow Executor', () => {
                             siteUrl: hub.SITE_URL,
                             recipientPreferences: recipientPreferencesService,
                             events: { capture: () => Promise.resolve() },
+                            teamWorkflowsConfig: new TeamWorkflowsConfigService(hub.postgres, hub.pubSub),
                             sesBucket: {
                                 limiter: { claimUpTo: () => Promise.resolve(1) } as unknown as RateLimiterService,
                                 key: '@posthog/ses/billing-test',

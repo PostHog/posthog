@@ -20,6 +20,8 @@ import { PlatformAlertCustomSnoozeModal } from './PlatformAlertCustomSnoozeModal
 import { SOURCE_KINDS, describeOverflow, describeOverflowDetail, sourceAlertUrl } from './platformAlertFormat'
 import { PlatformAlertGroupsTable } from './PlatformAlertGroupsTable'
 import { PlatformAlertLogicProps, platformAlertLogic } from './platformAlertLogic'
+import { PlatformAlertRuleMetadata } from './PlatformAlertRuleMetadata'
+import { PlatformAlertRuleMetadataModal } from './PlatformAlertRuleMetadataModal'
 
 export const scene: SceneExport = {
     component: PlatformAlertScene,
@@ -29,8 +31,9 @@ export const scene: SceneExport = {
 
 export function PlatformAlertScene(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { configuration, configurationLoading, configurationError, canSnoozeGroups } = useValues(platformAlertLogic)
-    const { loadConfiguration } = useActions(platformAlertLogic)
+    const { configuration, configurationLoading, configurationError, canSnoozeGroups, canEditRuleMetadata } =
+        useValues(platformAlertLogic)
+    const { loadConfiguration, openRuleMetadataModal } = useActions(platformAlertLogic)
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     if (!featureFlags[FEATURE_FLAGS.PLATFORM_ALERTS]) {
@@ -96,6 +99,25 @@ export function PlatformAlertScene(): JSX.Element {
             />
             <SceneSection title="Configuration">
                 <PlatformAlertConfigurationDetails configuration={configuration} />
+            </SceneSection>
+            <SceneSection
+                title="Labels and annotations"
+                description="Labels say who owns the alert, such as its team or severity. Annotations give responders context, such as a runbook link."
+                actions={
+                    canEditRuleMetadata ? (
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            onClick={openRuleMetadataModal}
+                            data-attr="platform-alert-rule-metadata-edit"
+                        >
+                            Edit
+                        </LemonButton>
+                    ) : undefined
+                }
+            >
+                <PlatformAlertRuleMetadata configuration={configuration} />
+                <PlatformAlertRuleMetadataModal />
             </SceneSection>
             <SceneSection
                 title="Groups"

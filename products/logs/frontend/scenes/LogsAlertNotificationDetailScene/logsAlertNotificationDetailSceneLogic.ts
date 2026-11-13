@@ -131,7 +131,11 @@ export interface logsAlertNotificationDetailSceneLogicMeta {
         alertId: (arg: any) => string
         hogFunctionId: (arg: any) => string
         firstSlackIntegration: (slackIntegrations: IntegrationType[] | undefined) => IntegrationType | undefined
-        destinationGroup: (hogFunctions: HogFunctionType[], hogFunctionId: string) => LogsAlertDestinationGroup | null
+        destinationGroup: (
+            hogFunctions: HogFunctionType[],
+            hogFunctionId: string,
+            alert: LogsAlertConfigurationDetailApi | null
+        ) => LogsAlertDestinationGroup | null
         recentSendsDue: (
             featureFlags: FeatureFlagsSet,
             destinationGroup: LogsAlertDestinationGroup | null,
@@ -281,10 +285,24 @@ export const logsAlertNotificationDetailSceneLogic = kea<logsAlertNotificationDe
             (slackIntegrations: IntegrationType[] | undefined): IntegrationType | undefined => slackIntegrations?.[0],
         ],
         destinationGroup: [
-            (s) => [s.hogFunctions, s.hogFunctionId],
-            (hogFunctions: HogFunctionType[], hogFunctionId: string): LogsAlertDestinationGroup | null => {
+            (s) => [s.hogFunctions, s.hogFunctionId, s.alert],
+            (
+                hogFunctions: HogFunctionType[],
+                hogFunctionId: string,
+                alert: LogsAlertConfigurationDetailApi | null
+            ): LogsAlertDestinationGroup | null => {
                 const groups = groupLogsAlertDestinations(hogFunctions, () => null)
-                return groups.find((g) => g.hogFunctions.some((hf) => hf.id === hogFunctionId)) ?? null
+                const group = groups.find((g) => g.hogFunctions.some((hf) => hf.id === hogFunctionId)) ?? null
+                // The alert's own list splits groups that differ by more than the URL, such as a header,
+                // so the page keeps to the functions that list puts in this destination.
+                const listed = alert?.destinations.find((d) => d.hog_function_ids.includes(hogFunctionId))
+                if (!group || !listed) {
+                    return group
+                }
+                return {
+                    ...group,
+                    hogFunctions: group.hogFunctions.filter((hf) => listed.hog_function_ids.includes(hf.id)),
+                }
             },
         ],
         // Due once per page: a pause or enable reloads the functions but changes no past send, and a

@@ -8,6 +8,7 @@
         "@posthog/quill": "workspace:*",
         "@posthog/quill-charts": "workspace:*",
         "kea": "catalog:",
+        "kea-disposables": "catalog:",
         "kea-forms": "catalog:",
         "kea-loaders": "catalog:",
         "kea-router": "catalog:",
@@ -28,8 +29,10 @@
         "@testing-library/user-event": "*",
         "@tiptap/core": "*",
         "@types/react": "*",
+        "@types/react-dom": "*",
         "clsx": "*",
         "fuse.js": "*",
-        "react": "*"
+        "react": "*",
+        "react-dom": "*"
     }
 }
