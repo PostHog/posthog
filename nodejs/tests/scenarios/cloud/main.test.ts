@@ -806,10 +806,12 @@ describe('cloud controller', () => {
         expect(lastReceipt(runId)).toMatchObject({ clean: false })
 
         cloud.heal()
+        const cleanupStartedAt = now.getTime()
         await expect(main(['cleanup', profilePath(), runId], controller)).resolves.toBe(0)
 
         expect(cloud.billable()).toEqual([])
         expect(cloud.schedules.size).toBe(0)
+        expect(now.getTime() - cleanupStartedAt).toBeLessThan(HOUR_MS / 6)
     })
 
     it.each<[string, (fake: FakeCloud) => void, string]>([
@@ -901,15 +903,28 @@ describe('cloud controller', () => {
         ['could not look it up', ['describe-db-clusters', 'list-secrets']],
         ['could list nothing', ['describe-stack-resources', 'get-resources', 'describe-db-clusters', 'list-secrets']],
     ])('names a secret that outlives the stack in a later cleanup, when the run %s', async (_, failing) => {
-        const { controller } = prepare({ cloud: { outlives: ['AWS::SecretsManager::Secret'] } })
+        const { controller } = prepare({
+            cloud: { outlives: ['AWS::SecretsManager::Secret'] },
+            profile: (p) => ({ ...p, admission: { ...p.admission, teardownAllowance: '2m' } }),
+        })
         failing.forEach((operation) => cloud.failWhen(operation, () => true))
+        onSleep = () => {
+            if (cloud.resources.length > 0) {
+                interrupt?.()
+            }
+        }
 
         await expect(main(['run', profilePath()], controller)).resolves.toBe(2)
         expect(err.join('\n')).toContain('could not list the secret and backups of cluster')
 
         cloud.heal()
         err.length = 0
-        now = new Date(now.getTime() + HOUR_MS / 6)
+        await expect(main(['cleanup', profilePath(), leasedRunId()], controller)).resolves.toBe(2)
+        expect(err.join('\n')).toContain('until the tag listings catch up')
+        expect(cloud.schedules.size).toBe(2)
+
+        err.length = 0
+        now = new Date(now.getTime() + HOUR_MS / 3)
         await expect(main(['cleanup', profilePath(), leasedRunId()], controller)).resolves.toBe(2)
 
         const [secret] = cloud.billable().filter((resource) => resource.startsWith('AWS::SecretsManager::Secret'))

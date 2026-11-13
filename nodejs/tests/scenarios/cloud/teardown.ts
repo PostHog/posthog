@@ -22,6 +22,7 @@ export type Receipt = {
 
 const GONE = 'gone'
 const DELETE_ATTEMPTS = 2
+const TAG_LISTING_LAG_MS = 15 * 60_000
 const CLUSTER = 'AWS::RDS::DBCluster'
 const RDS_CLUSTER_TAG = 'aws:rds:primaryDBClusterArn'
 const STACK = 'AWS::CloudFormation::Stack'
@@ -275,7 +276,7 @@ async function receiptOf(
     manifest: Manifest,
     inventory: Inventory,
     lost: string[],
-    until: number
+    { until, listedBy }: { until: number; listedBy: number }
 ): Promise<Receipt> {
     for (;;) {
         const { failures, tagged } = await discover(controller, profile, manifest, inventory)
@@ -290,8 +291,17 @@ async function receiptOf(
             resources.push({ ...resource, state })
         }
         const gone = resources.every(({ state }) => state === GONE)
-        if ((gone && failures.length === 0) || controller.now().getTime() >= until) {
-            const unlisted = [...lost, ...failures]
+        const caughtUp = controller.now().getTime() >= listedBy
+        if ((gone && failures.length === 0 && caughtUp) || controller.now().getTime() >= until) {
+            const unlisted = [
+                ...lost,
+                ...failures,
+                ...(caughtUp
+                    ? []
+                    : [
+                          `everything an earlier receipt missed, until the tag listings catch up at ${new Date(listedBy).toISOString()}`,
+                      ]),
+            ]
             return {
                 runId: manifest.runId,
                 stackName: manifest.stackName,
@@ -320,16 +330,19 @@ export async function teardown(controller: Controller, profile: CloudProfile, ma
             ].map((resource) => [keyOfResource(resource), resource])
         )
         const lost: string[] = []
-        await listInto(inventory, lost, 'the earlier receipts', async () =>
-            (await receiptsOf(evidence, manifest)).flatMap(({ resources }) =>
-                resources.map(({ type, id }) => ({ type, id }))
-            )
-        )
+        let listedBy = 0
+        await listInto(inventory, lost, 'the earlier receipts', async () => {
+            const receipts = await receiptsOf(evidence, manifest)
+            if (receipts.some(({ unlisted }) => unlisted.length > 0)) {
+                listedBy = Date.parse(receipts[0].checkedAt) + TAG_LISTING_LAG_MS
+            }
+            return receipts.flatMap(({ resources }) => resources.map(({ type, id }) => ({ type, id })))
+        })
         lost.push(...(await discover(controller, profile, manifest, inventory)).failures)
         await deleteStack(controller, profile, manifest, until).catch((error: Error) =>
             controller.warn(`Could not delete stack ${manifest.stackName}: ${error.message}`)
         )
-        receipt = await receiptOf(controller, profile, manifest, inventory, lost, until)
+        receipt = await receiptOf(controller, profile, manifest, inventory, lost, { until, listedBy })
         await evidence.put(
             keyOf(manifest.runId, `receipts/${receipt.checkedAt}-${randomUUID()}.json`),
             JSON.stringify(receipt, null, 2)
