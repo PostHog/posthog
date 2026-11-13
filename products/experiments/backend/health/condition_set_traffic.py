@@ -32,13 +32,11 @@ from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
-from posthog.hogql.parser import parse_expr, parse_select
+from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
-from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
-from posthog.models.team.team import Team
 from posthog.utils import safe_cache_add
 
 from products.experiments.backend.facade.contracts import ExperimentHealthReaderAccess
@@ -59,11 +57,10 @@ from products.experiments.backend.health.pinned_share import (
 )
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     aggregates_by_group,
-    get_entity_key,
     multivariate_flag_response_expr,
 )
 from products.experiments.backend.models.experiment import Experiment
-from products.feature_flags.backend.facade.flags import flag_calls_only_in_flag_evaluations
+from products.feature_flags.backend.facade.flag_calls import FlagCalls
 
 QUERY_TIMEOUT_SECONDS = 10
 _ANSWER_CACHE_SECONDS = int(timedelta(days=1).total_seconds())
@@ -136,49 +133,14 @@ def denied_scanned_properties(reader_access: ExperimentHealthReaderAccess) -> fr
     return reader_access.denied_event_properties & _SCANNED_PROPERTIES
 
 
-@frozen
-class _FlagCalls:
-    """The table that holds the team's flag calls, and the fields there that the scan filters and groups by."""
-
-    table: tuple[str, ...]
-    only_calls: ast.Expr
-    flag_key: ast.Expr
-    entity: ast.Expr
-
-    @classmethod
-    def of(cls, team: Team, group_type_index: int | None) -> "_FlagCalls":
-        # Events hold none of the team's new flag calls when the team reads the native JSON events table, or when
-        # its organization is on FLAG_EVALUATIONS_ONLY. HogQL then moves a read of flag calls from events to
-        # flag_evaluations, but not this scan's read: there `person_id` applies person merges, and HogQL refuses a
-        # move that changes which person a field reads. So the scan reads flag_evaluations by name.
-        if not flag_calls_only_in_flag_evaluations(team):
-            return cls(
-                table=("events",),
-                only_calls=parse_expr("event = '$feature_flag_called'"),
-                flag_key=parse_expr("properties.$feature_flag"),
-                entity=ast.Field(chain=[get_entity_key(group_type_index)]),
-            )
-        return cls(
-            table=("posthog", "flag_evaluations"),
-            only_calls=ast.Constant(value=True),
-            flag_key=ast.Field(chain=["flag_key"]),
-            entity=ast.Field(
-                chain=[
-                    get_entity_key(group_type_index)
-                    if aggregates_by_group(group_type_index)
-                    else "flag_evaluation_person_id"
-                ]
-            ),
-        )
-
-
 def query_condition_set_traffic(
     experiment: Experiment, *, window_start: datetime, window_end: datetime
 ) -> ConditionSetTraffic:
     """The calls of the experiment's flag in `[window_start, window_end)`."""
     team = experiment.team
     flag = experiment.feature_flag
-    flag_calls = _FlagCalls.of(team, flag.aggregation_group_type_index)
+    group_type_index = flag.aggregation_group_type_index
+    flag_calls = FlagCalls.of(team)
     query = parse_select(
         """
         SELECT condition_set, count(), sum(calls), sum(remotely_evaluated_calls), countIf(assigned_outside)
@@ -213,7 +175,7 @@ def query_condition_set_traffic(
             "table": ast.Field(chain=list(flag_calls.table)),
             "only_calls": flag_calls.only_calls,
             "flag_key_field": flag_calls.flag_key,
-            "entity": flag_calls.entity,
+            "entity": flag_calls.actor_column(group_type_index if aggregates_by_group(group_type_index) else None),
             "matched_reason": ast.Constant(value=_MATCHED_REASON),
             "flag_version": ast.Constant(value=flag.version),
             "locally_evaluated_reason": ast.Constant(value=_LOCALLY_EVALUATED_REASON),
