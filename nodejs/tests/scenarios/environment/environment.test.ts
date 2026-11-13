@@ -415,13 +415,14 @@ describe('scenario environment', () => {
         it.each<[string, Record<string, string>, number]>([
             ['the default', {}, 3],
             ['a profile setting', { CDP_FETCH_RETRIES: '5' }, 5],
+            ['a setting the worker cannot parse, as the worker keeps its default', { CDP_FETCH_RETRIES: 'many' }, 3],
         ])('reads the fetch retries of the hogflow worker from %s', (_story, settings, retries) => {
             expect(fetchRetriesOf(hogflowWorker(settings))).toBe(retries)
         })
 
-        it('refuses fetch retries that are not a number', () => {
-            expect(() => fetchRetriesOf(hogflowWorker({ CDP_FETCH_RETRIES: 'many' }))).toThrow(
-                'CDP_FETCH_RETRIES many is not a number of retries'
+        it('refuses fetch retries that never run out', () => {
+            expect(() => fetchRetriesOf(hogflowWorker({ CDP_FETCH_RETRIES: 'Infinity' }))).toThrow(
+                'CDP_FETCH_RETRIES Infinity is not a number of retries'
             )
         })
 
