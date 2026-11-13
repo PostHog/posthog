@@ -76,7 +76,9 @@ from products.experiments.backend.health.exposure_gate import load_split_history
 from products.experiments.backend.health.registry import (
     EXPOSURE_HEALTH_CHECKS,
     evaluate as evaluate_health,
+    not_checked_health,
 )
+from products.experiments.backend.health.skips import NOT_ON_FLAG_RULE
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
 from products.experiments.backend.hogql_queries.base_query_utils import (
     analysis_window,
@@ -419,7 +421,7 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
     def _evaluate_health(self, exposures: ExposureTotals, exposure_params: ExposureQueryParams) -> ExperimentHealth:
         if self._rule is not None:
             # The checks read the release conditions and the variants of a v1 flag, and none reads a rule yet.
-            return ExperimentHealth(findings=(), checks=())
+            return not_checked_health(EXPOSURE_HEALTH_CHECKS, NOT_ON_FLAG_RULE)
         reader_access = self._reader_access()
         # The cache key carries the reader's property access rules, so an answer that depends on them is not shared
         # with a reader who has other rules.

@@ -12,6 +12,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     EventsNode,
+    ExperimentExposureHealthCheckStatus,
     ExperimentExposureQuery,
     ExperimentExposureQueryResponse,
     ExperimentFunnelMetric,
@@ -22,6 +23,7 @@ from posthog.schema import (
 )
 
 from products.experiments.backend.facade.enums import PrecomputeSkipReason
+from products.experiments.backend.health.skips import NOT_ON_FLAG_RULE
 from products.experiments.backend.hogql_queries.experiment_exposures_query_runner import ExperimentExposuresQueryRunner
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.hogql_queries.test.experiment_query_runner.base import ExperimentQueryRunnerBaseTest
@@ -283,7 +285,9 @@ class TestRuleLinkedExperiment(ExperimentQueryRunnerBaseTest):
         assert runner._multivariate_data() == {
             "variants": [{"key": "control", "rollout_percentage": 30}, {"key": "test", "rollout_percentage": 70}]
         }
-        assert response.health_checks == []
+        assert {(check.status, check.reason) for check in response.health_checks} == {
+            (ExperimentExposureHealthCheckStatus.NOT_CHECKED, NOT_ON_FLAG_RULE)
+        }
         assert response.health_findings == []
 
     @parameterized.expand(
