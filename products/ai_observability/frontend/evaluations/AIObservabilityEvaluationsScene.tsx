@@ -20,6 +20,7 @@ import { EvaluationTemplatesEmptyState } from './EvaluationTemplates'
 import { llmEvaluationsLogic } from './llmEvaluationsLogic'
 import { EvaluationResultsTable } from './overview/EvaluationResultsTable'
 import { EvaluationsOverview } from './overview/EvaluationsOverview'
+import { EvaluationSuggestions } from './suggestions/EvaluationSuggestions'
 
 function AIObservabilityEvaluationsContent(): JSX.Element {
     const evaluationsLogic = llmEvaluationsLogic()
@@ -38,6 +39,7 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
         useActions(evaluationsLogic)
     const { searchParams } = useValues(router)
     const settingsUrl = urls.settings('project-ai-observability', 'ai-observability-byok')
+    const suggestionsEnabled = useFeatureFlag('LLM_ANALYTICS_EVAL_SUGGESTIONS')
 
     // A failed list is not an empty project. The overview still loads, and in a directory it shows a retry.
     const showEmptyState =
@@ -66,6 +68,8 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
                     </div>
                 </LemonBanner>
             )}
+
+            {suggestionsEnabled && !selectedDirectory && <EvaluationSuggestions />}
 
             <div className={showEmptyState ? 'hidden' : 'flex flex-wrap justify-between items-start gap-3'}>
                 <div className="min-w-0 flex-1 basis-64">

@@ -152,6 +152,7 @@ def reset_clickhouse_tables():
     from products.error_tracking.backend.sql import (
         TRUNCATE_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_TABLE_SQL,
         TRUNCATE_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_SQL,
+        TRUNCATE_ERROR_TRACKING_ISSUE_TAGS_TABLE_SQL,
     )
 
     # REMEMBER TO ADD ANY NEW CLICKHOUSE TABLES TO THIS ARRAY!
@@ -166,6 +167,7 @@ def reset_clickhouse_tables():
         TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL(),
         TRUNCATE_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES_TABLE_SQL(),
         TRUNCATE_ERROR_TRACKING_FINGERPRINT_ISSUE_STATE_TABLE_SQL(),
+        TRUNCATE_ERROR_TRACKING_ISSUE_TAGS_TABLE_SQL(),
         TRUNCATE_DOCUMENT_EMBEDDINGS_TABLE_SQL(),
         TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL,
         TRUNCATE_COHORTPEOPLE_TABLE_SQL,
@@ -589,14 +591,12 @@ def mock_code_based_verifier(request, mocker):
     Mock the CodeBasedVerifier.should_send_code_based_verification method to return False for all tests.
     Can be disabled by using @pytest.mark.disable_mock_code_based_verifier decorator.
     """
-    from posthog.helpers.two_factor_session import CodeBasedVerificationCheckResult
-
     if "disable_mock_code_based_verifier" in request.keywords:
         return
 
     mocker.patch(
         "posthog.helpers.two_factor_session.CodeBasedVerifier.should_send_code_based_verification",
-        return_value=CodeBasedVerificationCheckResult(should_send=False),
+        return_value=False,
     )
 
 

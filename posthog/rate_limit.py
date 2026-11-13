@@ -774,6 +774,28 @@ class AEOPromptSuggestionsSustainedRateThrottle(_TeamBucketRateThrottle):
     rate = "30/hour"
 
 
+# AEO keyword suggestions queue the same kind of Celery job, so they get the same limits in a bucket of their own.
+class AEOKeywordSuggestionsBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "aeo_keyword_suggestions_burst"
+    rate = "5/minute"
+
+
+class AEOKeywordSuggestionsSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "aeo_keyword_suggestions_sustained"
+    rate = "30/hour"
+
+
+# AEO setup runs a prompt and a keyword suggestion call in one job, so it gets tighter limits of its own.
+class AEOSetupBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "aeo_setup_burst"
+    rate = "3/minute"
+
+
+class AEOSetupSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "aeo_setup_sustained"
+    rate = "10/hour"
+
+
 # The AEO keyword report and modifiers recompute their numbers from every answered check in the window
 # on each request, matching each keyword against each answer text in Postgres or scanning every search in
 # Python. The project-global Burst/Sustained pair never throttles the session-authenticated UI, so this

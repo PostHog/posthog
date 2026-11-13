@@ -6,6 +6,7 @@ import { AppMetricsAggregator } from '~/common/services/app-metrics-aggregator'
 import { QuotaResource } from '~/common/services/quota-limiting.service'
 import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
 import { logger } from '~/common/utils/logger'
+import { UnknownTokenRecorder } from '~/logs/services/unknown-token-recorder'
 import type { LogsSettings } from '~/types'
 import { HealthCheckResult, PluginServerService } from '~/types'
 
@@ -16,8 +17,10 @@ import {
     LogsIngestionConsumerDeps,
     UsageStatsByTeam,
     describeBatchPosition,
+    teamIdMatchesCsv,
 } from '../logs-ingestion-consumer'
 import type { MetricRuleSource } from '../metrics-rules/compile-metric-rules'
+import { MetricRulesEmission } from '../metrics-rules/metric-rules-window'
 import { MetricSeriesAdmission } from '../metrics-rules/tally'
 import type { RetentionRuleSource } from '../retention/compile-retention-rules'
 import { LogsSamplingService } from '../sampling/logs-sampling.service'
@@ -53,9 +56,11 @@ export class LogsIngestionFrameworkConsumer {
     private readonly appMetricsAggregator: AppMetricsAggregator
     private readonly redis: RedisV2
     private readonly rateLimiter: LogsRateLimiterService
+    private readonly unknownTokens: UnknownTokenRecorder
     private readonly internalLogsVerifier: InternalLogsVerifier
     private readonly samplingService: LogsSamplingService
     private readonly metricSeriesAdmission = new MetricSeriesAdmission()
+    private readonly metricRulesEmission: MetricRulesEmission
     private readonly gates: LogsFeatureGates
     // Built lazily, because subclass field initializers run after this constructor.
     private pipelineContext?: LogsPipelineContext
@@ -92,12 +97,19 @@ export class LogsIngestionFrameworkConsumer {
             poolMaxSize: mergedConfig.REDIS_POOL_MAX_SIZE,
         })
         this.rateLimiter = new LogsRateLimiterService(mergedConfig, this.redis, rateLimiterName)
+        this.unknownTokens = new UnknownTokenRecorder(this.redis)
         this.internalLogsVerifier = new InternalLogsVerifier(
             mergedConfig.LOGS_INTERNAL_INGESTION_SIGNING_KEYS,
             mergedConfig.LOGS_INTERNAL_INGESTION_ENABLED_TEAMS,
             deps.internalSourcePolicies
         )
         this.samplingService = new LogsSamplingService(this.redis, mergedConfig.LOGS_LIMITER_TTL_SECONDS)
+        const metricRulesWindowTeams = mergedConfig.LOGS_METRICS_RULES_WINDOW_TEAMS
+        this.metricRulesEmission = new MetricRulesEmission(
+            deps.metricsEmitter,
+            (teamId) => teamIdMatchesCsv(metricRulesWindowTeams, teamId),
+            mergedConfig.LOGS_METRICS_RULES_WINDOW_MS
+        )
         this.gates = {
             backfillEnabledTeams: mergedConfig.LOGS_BACKFILL_ENABLED_TEAMS,
             samplingEnabledTeams: mergedConfig.LOGS_SAMPLING_ENABLED_TEAMS,
@@ -137,9 +149,11 @@ export class LogsIngestionFrameworkConsumer {
                 deps: this.deps,
                 usageMetrics: new LogsUsageMetricsQueue(this.appMetricsAggregator, identity.appSource),
                 rateLimiter: this.rateLimiter,
+                unknownTokens: this.unknownTokens,
                 samplingService: this.samplingService,
                 internalLogsVerifier: this.internalLogsVerifier,
                 metricSeriesAdmission: this.metricSeriesAdmission,
+                metricRulesEmission: this.metricRulesEmission,
                 defaultRetentionDays: (teamId, logsSettings) => this.defaultRetentionDays(teamId, logsSettings),
             }
         }
@@ -258,12 +272,19 @@ export class LogsIngestionFrameworkConsumer {
             return await instrumentFn('logsIngestionConsumer.handleEachBatch', async () => {
                 return await this.processKafkaBatch(messages)
             })
-        })
+        }, this.flushMetricRuleWindow)
+    }
+
+    // Revocation runs after the revoked partitions' batches finish, so their counts are in the open window.
+    private readonly flushMetricRuleWindow = async (): Promise<void> => {
+        await this.metricRulesEmission.flushOpen()
     }
 
     public async stop(): Promise<void> {
         logger.info('💤', 'Stopping consumer...')
         await this.kafkaConsumer.disconnect()
+        // The last batch has finished, so the open metric-rule window holds every count still unsent.
+        await this.metricRulesEmission.flushAll()
         logger.info('💤', 'Consumer stopped!')
     }
 

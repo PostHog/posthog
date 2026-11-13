@@ -151,9 +151,12 @@ def validate_file_system_path(path: Any) -> str:
         raise serializers.ValidationError("Path must be a string.")
     if len(path) > MAX_PATH_LENGTH:
         raise serializers.ValidationError(f"Path must be {MAX_PATH_LENGTH} characters or fewer.")
-    if len(split_path(path)) > MAX_PATH_SEGMENTS:
+    segments = [segment for segment in split_path(path) if segment.strip()]
+    if not segments:
+        raise serializers.ValidationError("Path must include a name.")
+    if len(segments) > MAX_PATH_SEGMENTS:
         raise serializers.ValidationError(f"Path can be at most {MAX_PATH_SEGMENTS} levels deep.")
-    return path
+    return join_path(segments)
 
 
 def validate_file_system_placement(folder: str | None, name: str | None) -> None:
@@ -174,6 +177,25 @@ class FileSystemListQuerySerializer(serializers.Serializer):
         default=False,
         help_text="Include meta.tags, the tag names, for dashboards and insights on this page.",
     )
+    type = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Only entries of this type, such as 'insight', 'dashboard', 'notebook' or 'folder'.",
+    )
+    ref = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text=(
+            "Only entries pointing at this item: the insight or notebook short_id, or the dashboard id. "
+            "Combine with type to find an item's entry in the project tree."
+        ),
+    )
+    path = serializers.CharField(required=False, allow_blank=True, help_text="Only the entry at exactly this path.")
+    parent = serializers.CharField(  # type: ignore[assignment]
+        required=False,
+        allow_blank=True,
+        help_text="Only entries under this folder path, at any depth, such as 'Experiments/Q4'.",
+    )
     path__iexact = serializers.CharField(
         required=False,
         help_text="Only the file or folder at this exact path, compared without case.",
@@ -193,6 +215,16 @@ class FileSystemFolderCountSerializer(serializers.Serializer):
 
 class FileSystemFolderCountsSerializer(serializers.Serializer):
     results = FileSystemFolderCountSerializer(many=True, help_text="Each folder that directly holds a counted file.")
+
+
+class FileSystemMoveRequestSerializer(serializers.Serializer):
+    new_path = serializers.CharField(
+        help_text=(
+            "Full new path for the entry, including its own name as the last segment, such as "
+            "'Experiments/Q4/Weekly signups'. Missing parent folders are created. Escape a '/' inside a "
+            "name as '\\/'."
+        ),
+    )
 
 
 class FileSystemDeleteQuerySerializer(serializers.Serializer):
@@ -1667,6 +1699,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         shortcuts.filter(path=join_path([split_path(old_path)[-1]])).update(path=join_path([split_path(new_path)[-1]]))
         shortcuts.update(ref=new_path)
 
+    @extend_schema(request=FileSystemMoveRequestSerializer, responses=FileSystemSerializer)
     @action(methods=["POST"], detail=True)
     def move(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()

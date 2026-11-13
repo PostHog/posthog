@@ -69,8 +69,7 @@ from products.experiments.backend.health.checks.zero_exposures import reads_expo
 from products.experiments.backend.health.context import (
     ExposureSegment,
     ExposureTotals,
-    FlagHistory,
-    FlagHistoryNotChecked,
+    flag_calls_readable,
     load_health_context,
 )
 from products.experiments.backend.health.exposure_gate import load_split_history
@@ -400,30 +399,38 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             self._flag_history_access = (self.user.pk, readable)
         return self._flag_history_access[1]
 
-    def _flag_history(self) -> FlagHistory | FlagHistoryNotChecked | None:
+    def _reader_access(self) -> ExperimentHealthReaderAccess | None:
+        """What the reader may read for the health checks. None when their property access rules failed to load."""
         try:
             restrictions = get_restricted_properties_with_group_type_index_for_team(
                 user=self.user if isinstance(self.user, User) else None, team_id=self.team.pk
             )
         except Exception as error:
-            # The exposure answer must not fail for the history that only explains one finding.
+            # The exposure answer must not fail for the inputs that only explain some findings.
             capture_exception(error)
             return None
-        reader_access = ExperimentHealthReaderAccess(
+        return ExperimentHealthReaderAccess(
             can_read_flag_history=self._can_read_flag_history(),
             # The reader is already querying the exposure events.
             can_query_events=True,
             denied_event_properties=split_restricted_property_names(restrictions).event,
         )
-        return load_split_history(self.experiment, reader_access=reader_access)
 
     def _evaluate_health(self, exposures: ExposureTotals, exposure_params: ExposureQueryParams) -> ExperimentHealth:
         if self._rule is not None:
             # The checks read the release conditions and the variants of a v1 flag, and none reads a rule yet.
             return ExperimentHealth(findings=(), checks=())
-        context = load_health_context(self.experiment, exposures, can_read_flag_history=self._can_read_flag_history())
-        if reads_flag_history(context):
-            context = replace(context, flag_history=self._flag_history())
+        reader_access = self._reader_access()
+        # The cache key carries the reader's property access rules, so an answer that depends on them is not shared
+        # with a reader who has other rules.
+        context = load_health_context(
+            self.experiment,
+            exposures,
+            can_read_flag_history=self._can_read_flag_history(),
+            can_read_flag_calls=reader_access is not None and flag_calls_readable(reader_access),
+        )
+        if reads_flag_history(context) and reader_access is not None:
+            context = replace(context, flag_history=load_split_history(self.experiment, reader_access=reader_access))
         # These queries run for every reader, a userless run included. The findings depend on them, and the cache key
         # doesn't say who computed the answer, so every reader with the same key shares it.
         if reads_segments(context):
@@ -705,7 +712,7 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
 
     def get_cache_payload(self) -> dict:
         payload = super().get_cache_payload()
-        payload["experiment_exposures_response_version"] = 5
+        payload["experiment_exposures_response_version"] = 6
         # The sample ratio finding can name a split change from the flag's history, so a reader who can't read the
         # history, a userless run included, must not get a cached answer of one who can.
         if not self._can_read_flag_history():

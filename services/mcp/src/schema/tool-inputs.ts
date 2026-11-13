@@ -7,9 +7,11 @@ import {
 } from '../generated/ai_observability/api'
 import { BillingUsageRetrieveQueryParams } from '../generated/billing/api'
 import { FeatureFlagsPartialUpdateBody, FeatureFlagsPartialUpdateParams } from '../generated/feature_flags/api'
+import { HogFlowsActionsEmailPartialUpdateBody } from '../generated/workflows/api'
 // Relative (not `@/`) imports: this module is loaded by the tsx schema-generation
 // script, and both modules are pure constants/functions — no `.md` imports to choke on.
 import { castStringToInt, normalizeParamAliases } from '../tools/cast-helpers'
+import { HogQLFilters } from './query'
 
 export const CanvasStateReadLimitSchema = z.number().int().min(1).max(100).default(20)
 export const CanvasStateKeysOnlySchema = z.boolean().default(true)
@@ -131,9 +133,29 @@ export const ExternalDataJobsBeforeSchema = z
     .string()
     .describe('ISO timestamp — only return jobs created before this date (e.g. "2025-12-31T23:59:59Z").')
 
+// Agents often send one comma-separated string ("users,orders") instead of a list. The preprocess splits it,
+// and the advertised JSON schema still shows the array.
 export const ExternalDataJobsSchemasSchema = z
-    .array(z.string())
+    .preprocess(
+        (value) =>
+            typeof value === 'string'
+                ? value
+                      .split(',')
+                      .map((name) => name.trim())
+                      .filter((name) => name !== '')
+                : value,
+        z.array(z.string())
+    )
     .describe('Filter jobs by table schema names (e.g. ["users", "orders"]). Only returns jobs for these tables.')
+
+export const EXTERNAL_DATA_JOBS_MAX_LIMIT = 100
+
+export const ExternalDataJobsLimitSchema = z
+    .preprocess(castStringToInt, z.number().int().min(1).max(EXTERNAL_DATA_JOBS_MAX_LIMIT))
+    .describe(
+        `Maximum number of jobs to return, from 1 to ${EXTERNAL_DATA_JOBS_MAX_LIMIT} (default 20). Jobs are newest first. ` +
+            'To get older jobs, pass the returned `next_before` as `before`.'
+    )
 
 export const BillingTeamIdsSchema = z
     .array(z.number().int().positive())
@@ -1167,6 +1189,27 @@ export const DebugMcpUiAppsSchema = z.object({
 // PostHog AI tools
 export const ExecuteSQLSchema = z.object({
     query: z.string().min(1).describe('The final SQL query to be executed.'),
+    // The backend validates the full filter union; narrowing it here can strip group or cohort metadata.
+    filters: z
+        .looseObject({
+            dateRange: z
+                .looseObject({
+                    ...HogQLFilters.shape.dateRange.unwrap().shape,
+                    explicitDate: z.boolean().nullish(),
+                })
+                .nullish(),
+            properties: z
+                .array(z.record(z.string(), z.unknown()))
+                .nullish()
+                .describe(
+                    'Complete property-filter objects from the editor, including type, key, operator, value, and group_type_index for group filters. Preserve all fields and boolean values; the backend validates each filter.'
+                ),
+            filterTestAccounts: z.boolean().nullish(),
+        })
+        .nullish()
+        .describe(
+            'Structured filters applied through SQL filter placeholders. When working in the SQL editor, copy current_query_node.source.filters here and preserve {filters} in each relevant source scan. Keep dateRange, properties, and filterTestAccounts unless the user asks to change them. Pass an empty object to clear filters. Not supported with sendRawQuery.'
+        ),
     context: z
         .string()
         .optional()
@@ -1596,7 +1639,7 @@ export const EmailTemplateDesignPatchSchema = z.strictObject({
 export const WorkflowActionEmailPatchSchema = z
     .object({
         id: z.string().describe('The workflow (HogFlow) id.'),
-        action_id: z.string().describe('Id of the function_email step whose email to edit.'),
+        action_id: z.string().describe('Id of the function_email or email_sandbox step whose email to edit.'),
         operations: z
             .array(EmailDesignPatchOperationSchema)
             .min(1)
@@ -1611,8 +1654,9 @@ export const WorkflowActionEmailPatchSchema = z
             .optional()
             .describe(
                 "Partial email fields deep-merged into the step's email (a null leaf deletes the key): subject, " +
-                    'preheader, text, to, from, replyTo, cc, bcc. The design is edited via operations, and html is ' +
-                    'always re-rendered from it.'
+                    'preheader, text, to, from, replyTo, cc, bcc. A sandbox step (type email_sandbox) takes only ' +
+                    'subject, preheader, text and to. The design is edited via operations, and html is always ' +
+                    're-rendered from it.'
             ),
         base_updated_at: z
             .string()
@@ -1621,12 +1665,14 @@ export const WorkflowActionEmailPatchSchema = z
                 'Optimistic concurrency: the updated_at (or draft_updated_at) last loaded. If the stored workflow ' +
                     'is newer, the patch is rejected with 409 instead of clobbering a concurrent edit.'
             ),
+        sender: HogFlowsActionsEmailPartialUpdateBody().shape.sender,
+        drop_own_sender_settings: HogFlowsActionsEmailPartialUpdateBody().shape.drop_own_sender_settings,
     })
     .superRefine((data, ctx) => {
-        if (!data.operations?.length && !data.email_patch) {
+        if (!data.operations?.length && !data.email_patch && !data.sender) {
             ctx.addIssue({
                 code: 'custom',
-                message: 'Provide operations and/or email_patch.',
+                message: 'Provide operations, email_patch, or sender.',
             })
         }
     })

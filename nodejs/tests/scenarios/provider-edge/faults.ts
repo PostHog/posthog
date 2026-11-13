@@ -3,22 +3,34 @@ import { z } from 'zod'
 
 import { Duration, durationMs } from '../duration'
 
-const Match = z.object({ recipient: z.string().optional() }).strict()
+const RecipientMatch = z.object({ recipient: z.string().optional() }).strict()
+const HostMatch = z.object({ host: z.string().optional() }).strict()
 
 const Dose = z.union([
     z.object({ count: z.number().int().min(1) }).strict(),
     z.object({ share: z.number().gt(0).max(1) }).strict(),
 ])
 
-export const CardFault = z
-    .object({
-        name: z.literal('ses.reject'),
-        params: z.object({ type: z.literal('rejected') }).strict(),
-        match: Match.optional(),
-        dose: Dose,
-        for: Duration.optional(),
-    })
-    .strict()
+export const CardFault = z.discriminatedUnion('name', [
+    z
+        .object({
+            name: z.literal('ses.reject'),
+            params: z.object({ type: z.literal('rejected') }).strict(),
+            match: RecipientMatch.optional(),
+            dose: Dose,
+            for: Duration.optional(),
+        })
+        .strict(),
+    z
+        .object({
+            name: z.literal('dest.status'),
+            params: z.object({ code: z.number().int().min(200).max(599) }).strict(),
+            match: HostMatch.optional(),
+            dose: Dose,
+            for: Duration.optional(),
+        })
+        .strict(),
+])
 export type CardFault = z.infer<typeof CardFault>
 
 export type SesStatusAnswer = { status: number; type: string; message: string }
@@ -29,26 +41,41 @@ export type SesAnswer =
     | { kind: 'no-answer' }
     | { kind: 'stalled-body' }
 
+export type WebhookAnswer = { kind: 'webhook-status'; status: number }
+
 export type FaultRule = {
     name: string
-    answer: SesAnswer
-    match?: z.infer<typeof Match>
+    answer: SesAnswer | WebhookAnswer
+    match?: { recipient?: string; host?: string }
     dose: z.infer<typeof Dose>
     for?: string
 }
 
+type FaultedRequest = { channel: 'ses'; recipients: string[] } | { channel: 'webhook'; host: string }
+
 const REJECTED: SesStatusAnswer = { status: 400, type: 'MessageRejected', message: 'Message rejected' }
 
 export function ruleOf(fault: CardFault): FaultRule {
-    return { ...fault, answer: { kind: 'status', answer: REJECTED } }
+    switch (fault.name) {
+        case 'ses.reject':
+            return { ...fault, answer: { kind: 'status', answer: REJECTED } }
+        case 'dest.status':
+            return { ...fault, answer: { kind: 'webhook-status', status: fault.params.code } }
+    }
 }
 
 type ActiveFault = { id: string; rule: FaultRule; until: number; matched: number; applied: number }
 
 const SHARE_TOLERANCE = 1e-9
 
-function matches(rule: FaultRule, recipients: string[]): boolean {
-    return rule.match?.recipient === undefined || recipients.includes(rule.match.recipient)
+function matches({ answer, match }: FaultRule, request: FaultedRequest): boolean {
+    if (request.channel === 'webhook') {
+        return answer.kind === 'webhook-status' && (match?.host === undefined || match.host === request.host)
+    }
+    return (
+        answer.kind !== 'webhook-status' &&
+        (match?.recipient === undefined || request.recipients.includes(match.recipient))
+    )
 }
 
 function doseTakes({ rule: { dose }, matched, applied }: ActiveFault): boolean {
@@ -79,11 +106,21 @@ export class FaultList {
         this.faults = []
     }
 
-    take(recipients: string[]): FaultRule | undefined {
+    takeSes(recipients: string[]): { name: string; answer: SesAnswer } | undefined {
+        const rule = this.take({ channel: 'ses', recipients })
+        return rule && rule.answer.kind !== 'webhook-status' ? { name: rule.name, answer: rule.answer } : undefined
+    }
+
+    takeWebhook(host: string): { name: string; status: number } | undefined {
+        const rule = this.take({ channel: 'webhook', host })
+        return rule?.answer.kind === 'webhook-status' ? { name: rule.name, status: rule.answer.status } : undefined
+    }
+
+    private take(request: FaultedRequest): FaultRule | undefined {
         const now = Date.now()
         this.faults = this.faults.filter((fault) => fault.until > now)
         for (const fault of this.faults) {
-            if (!matches(fault.rule, recipients)) {
+            if (!matches(fault.rule, request)) {
                 continue
             }
             fault.matched += 1

@@ -1,3 +1,5 @@
+from datetime import UTC
+
 from products.experiments.backend.facade.contracts import (
     ExperimentHealthFinding,
     ExperimentHealthFindingActionKind,
@@ -32,10 +34,15 @@ def zero_exposures_values(ctx: HealthContext) -> CheckValues:
     if exposures is None:
         return {}
     hours = exposures.hours_since_launch
-    return {
+    values = {
         ExperimentHealthValueKey.EXPOSED_COUNT: exposures.total,
         ExperimentHealthValueKey.SINCE_LAUNCH_HOURS: None if hours is None else round(hours, 1),
     }
+    last_called_at = ctx.flag_last_called_at
+    # The flag's calls tell why nobody is exposed only when the exposures count them.
+    if ctx.exposure_events is None or ctx.exposure_events.required_flag_key is None or last_called_at is None:
+        return values
+    return {**values, ExperimentHealthValueKey.FLAG_LAST_CALLED_AT: last_called_at.astimezone(UTC).isoformat()}
 
 
 def zero_exposures(ctx: HealthContext) -> CheckOutcome:

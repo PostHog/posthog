@@ -44,7 +44,7 @@ const plainTextPrefix = (message: string): string | undefined =>
     /^\s*[{[]/.test(message) ? undefined : sanitizeSesField(message, 200)
 
 export type SnsEnvelopeVerdict =
-    | { kind: 'records'; records: SesEventRecord[]; fromEnvelope: boolean }
+    | { kind: 'records'; records: SesEventRecord[]; fromEnvelope: boolean; messageId?: string }
     | { kind: 'ack' }
     | { kind: 'reject'; status: number; error: string; certificateUnavailable?: boolean }
 
@@ -203,8 +203,15 @@ export class SnsEnvelopeVerifier {
             return check
         }
         const { parsed } = check
-        const records = parsed.mode === 'raw' ? parsed.records : this.parseNotificationRecords(parsed.envelope)
-        return { kind: 'records', records, fromEnvelope: parsed.mode === 'sns' }
+        if (parsed.mode === 'raw') {
+            return { kind: 'records', records: parsed.records, fromEnvelope: false }
+        }
+        return {
+            kind: 'records',
+            records: this.parseNotificationRecords(parsed.envelope),
+            fromEnvelope: true,
+            messageId: parsed.envelope.MessageId,
+        }
     }
 
     protected async verifyEnvelope(
