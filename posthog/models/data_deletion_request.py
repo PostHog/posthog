@@ -675,9 +675,10 @@ class DataDeletionRequest(UUIDModel):
     property_removal_marker = models.DateTimeField(
         null=True,
         blank=True,
-        help_text="inserted_at/_timestamp stamp applied to cleaned re-inserts of this property_removal "
-        "request. Set once on the first execution attempt and reused by every retry so re-runs recognize "
-        "already-cleaned rows and never insert a second copy. Cleared when deletion criteria change.",
+        help_text="Cutoff of this property_removal request: rows ingested at or after it are out of scope, and "
+        "cleaned re-inserts carry a _timestamp one second past it. Set once on the first execution attempt and "
+        "reused by every retry so re-runs recognize already-cleaned rows and never insert a second copy. Cleared "
+        "when deletion criteria change.",
     )
 
     # The team_id this request was loaded from the DB with (None until loaded). Set by from_db so
@@ -823,8 +824,7 @@ class DataDeletionRequest(UUIDModel):
             self.min_timestamp = None
             self.max_timestamp = None
             self.stats_calculated_at = None
-            # Rows cleaned under the old criteria are ordinary candidates for the new ones. A stale marker would
-            # make the copy pass skip them as already cleaned.
+            # A stale marker would leave out every row ingested since the earlier run.
             self.property_removal_marker = None
             if self.status != RequestStatus.DRAFT:
                 self.status = RequestStatus.DRAFT
