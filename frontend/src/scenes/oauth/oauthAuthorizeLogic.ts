@@ -13,7 +13,7 @@ import {
     IDENTITY_SCOPES,
     buildOAuthScopeRows,
     grantedResourceScopes,
-    identityScopeSummary,
+    identityScopeRows,
     oauthScopeGroups,
     requiredLevelsFromScopes,
     type OAuthScopeGroup,
@@ -155,7 +155,7 @@ export interface oauthAuthorizeLogicValues {
     effectiveScopes: string[]
     emaIssuerConsent: OAuthEmaIssuerConsent | null
     filteredTeams: TeamBasicType[] | null
-    identitySummary: string | null
+    identityScopeRows: OAuthScopeRow[]
     isCanceling: boolean
     isMcpResource: boolean
     isOauthAuthorizationSubmitting: boolean
@@ -337,7 +337,7 @@ export interface oauthAuthorizeLogicMeta {
             sortedTeams: TeamBasicType[] | null,
             selectedOrganization: string | null
         ) => TeamBasicType[] | null
-        identitySummary: (scopes: string[], appName: string) => string | null
+        identityScopeRows: (scopes: string[], appName: string) => OAuthScopeRow[]
         requiredScopeLevels: (oauthApplication: OAuthApplicationPublicMetadata | null) => Map<string, RequiredLevel>
         alreadyGrantedScopeLevels: (alreadyGrantedScopes: string[]) => Map<string, RequiredLevel>
         consentResourceScopes: (
@@ -352,7 +352,7 @@ export interface oauthAuthorizeLogicMeta {
             alreadyGrantedScopeLevels: Map<string, RequiredLevel>,
             appName: string
         ) => OAuthScopeRow[]
-        scopeGroups: (scopeRows: OAuthScopeRow[]) => OAuthScopeGroup[]
+        scopeGroups: (scopeRows: OAuthScopeRow[], identityScopeRows: OAuthScopeRow[]) => OAuthScopeGroup[]
         effectiveScopes: (
             scopes: string[],
             scopeRows: OAuthScopeRow[],
@@ -795,9 +795,9 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
                 return teams.filter((t) => t.organization === selectedOrg)
             },
         ],
-        identitySummary: [
+        identityScopeRows: [
             (s) => [s.scopes, s.appName],
-            (scopes: string[], appName: string): string | null => identityScopeSummary(scopes, appName),
+            (scopes: string[], appName: string): OAuthScopeRow[] => identityScopeRows(scopes, appName),
         ],
         requiredScopeLevels: [
             (s) => [s.oauthApplication],
@@ -867,8 +867,9 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
             },
         ],
         scopeGroups: [
-            (s) => [s.scopeRows],
-            (scopeRows: OAuthScopeRow[]): OAuthScopeGroup[] => oauthScopeGroups(scopeRows),
+            (s) => [s.scopeRows, s.identityScopeRows],
+            (scopeRows: OAuthScopeRow[], identityScopeRows: OAuthScopeRow[]): OAuthScopeGroup[] =>
+                oauthScopeGroups(scopeRows, identityScopeRows),
         ],
         effectiveScopes: [
             (s) => [s.scopes, s.scopeRows, s.oauthApplication, s.alreadyGrantedScopes],

@@ -5,13 +5,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { scopeGroupsStartOpen } from 'lib/oauthScopeRows'
-import {
-    DEFAULT_OAUTH_SCOPES,
-    type ScopeAccessLevel,
-    getScopeGroupLabel,
-    scopeGroupLevel,
-    scopeGroupTooltip,
-} from 'lib/scopes'
+import { DEFAULT_OAUTH_SCOPES, type ScopeAccessLevel, scopeGroupLevel, scopeGroupTooltip } from 'lib/scopes'
 import { userLogic } from 'scenes/userLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -654,16 +648,19 @@ describe('oauthAuthorizeLogic', () => {
         })
     })
     describe('grouping', () => {
-        it('puts every row in its product-area group, required rows included', () => {
+        it('puts every row in its product-area group, required and identity rows included', () => {
             logic.actions.setScopes(['openid', 'feature_flag:write', 'session_recording:write', 'insight:write'])
             withRequiredScopes(['feature_flag:write', 'experiment:read'])
+
             const groups = logic.values.scopeGroups
-            expect(groups.flatMap((group) => group.rows.map((row) => row.key)).sort()).toEqual(
-                logic.values.scopeRows.map((row) => row.key).sort()
-            )
-            for (const group of groups) {
-                expect(group.rows.map((row) => getScopeGroupLabel(row.key))).toEqual(group.rows.map(() => group.label))
-            }
+
+            expect(groups.map((group) => [group.label, group.rows.map((row) => row.key)])).toEqual([
+                ['Product analytics', ['insight']],
+                ['Session replay', ['session_recording']],
+                ['Feature flags, experiments & surveys', ['experiment', 'feature_flag']],
+                ['Organization & account', ['openid']],
+            ])
+            expect(groups[3].rows[0]).toMatchObject({ value: 'read', minLevel: 'read', maxLevel: 'read' })
             expect(scopeGroupsStartOpen(groups)).toBe(true)
         })
 
@@ -680,6 +677,7 @@ describe('oauthAuthorizeLogic', () => {
             logic.actions.setScopes(['openid', '*'])
             expect(logic.values.scopeGroups.map((group) => [group.label, group.rows.map((row) => row.key)])).toEqual([
                 ['Full access', ['*']],
+                ['Organization & account', ['openid']],
             ])
         })
 

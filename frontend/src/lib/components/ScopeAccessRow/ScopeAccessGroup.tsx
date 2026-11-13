@@ -90,12 +90,15 @@ export function ScopeAccessGroup({
                             )}
                         </span>
                     </span>
-                    <ScopeRowsLevelControl
-                        rows={rows}
-                        onChange={onChangeGroup}
-                        ariaLabel={`${label} access`}
-                        dataAttrPrefix={`${dataAttrPrefix}-${groupSlug}`}
-                    />
+                    {/* An open group shows a control on every row, so a second one in the header would repeat them. */}
+                    {!open && (
+                        <ScopeRowsLevelControl
+                            rows={rows}
+                            onChange={onChangeGroup}
+                            ariaLabel={`${label} access`}
+                            dataAttrPrefix={`${dataAttrPrefix}-${groupSlug}`}
+                        />
+                    )}
                 </div>
             </div>
             {open && (

@@ -85,7 +85,6 @@ export const OAuthAuthorizeRedirecting = ({
 export const OAuthAuthorize = (): JSX.Element => {
     const {
         scopeGroups,
-        identitySummary,
         oauthApplication,
         oauthApplicationLoading,
         appName,
@@ -410,7 +409,6 @@ export const OAuthAuthorize = (): JSX.Element => {
 
                         <div className="flex flex-col">
                             <OAuthScopeList
-                                identitySummary={identitySummary}
                                 groups={scopeGroups}
                                 onChangeRow={setScopeAccess}
                                 onChangeGroup={setScopeGroupAccess}

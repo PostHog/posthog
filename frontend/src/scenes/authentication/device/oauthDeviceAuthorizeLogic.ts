@@ -8,7 +8,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import {
     buildOAuthScopeRows,
     grantedResourceScopes,
-    identityScopeSummary,
+    identityScopeRows,
     oauthScopeGroups,
     requiredLevelsFromScopes,
     type OAuthScopeGroup,
@@ -93,7 +93,7 @@ export interface oauthDeviceAuthorizeLogicValues {
     deviceGrantLoading: boolean
     error: string | null
     goingToLogin: boolean
-    identitySummary: string | null
+    identityScopeRows: OAuthScopeRow[]
     isStepUp: boolean
     keptScopes: string[]
     organizationId: string | null
@@ -224,7 +224,7 @@ export interface oauthDeviceAuthorizeLogicMeta {
             projectId: number | null,
             organizationId: string | null
         ) => boolean
-        identitySummary: (deviceGrant: DeviceGrantDetailsApi | null) => string | null
+        identityScopeRows: (deviceGrant: DeviceGrantDetailsApi | null) => OAuthScopeRow[]
         consentResourceScopes: (deviceGrant: DeviceGrantDetailsApi | null) => string[]
         requiredScopeLevels: (deviceGrant: DeviceGrantDetailsApi | null) => Map<string, RequiredLevel>
         scopeRows: (
@@ -233,7 +233,7 @@ export interface oauthDeviceAuthorizeLogicMeta {
             requiredScopeLevels: Map<string, RequiredLevel>,
             scopeAccessSelections: ScopeAccessSelections
         ) => OAuthScopeRow[]
-        scopeGroups: (scopeRows: OAuthScopeRow[]) => OAuthScopeGroup[]
+        scopeGroups: (scopeRows: OAuthScopeRow[], identityScopeRows: OAuthScopeRow[]) => OAuthScopeGroup[]
         requiredScopesNote: (scopeRows: OAuthScopeRow[], deviceGrant: DeviceGrantDetailsApi | null) => string | null
         keptScopes: (deviceGrant: DeviceGrantDetailsApi | null, scopeRows: OAuthScopeRow[]) => string[]
     }
@@ -413,10 +413,10 @@ export const oauthDeviceAuthorizeLogic = kea<oauthDeviceAuthorizeLogicType>([
                 return added > 0 && added < (deviceGrant?.scopes.length ?? 0)
             },
         ],
-        identitySummary: [
+        identityScopeRows: [
             (s) => [s.deviceGrant],
-            (deviceGrant: DeviceGrantDetailsApi | null): string | null =>
-                deviceGrant ? identityScopeSummary(deviceGrant.scopes, deviceGrant.client_name) : null,
+            (deviceGrant: DeviceGrantDetailsApi | null): OAuthScopeRow[] =>
+                deviceGrant ? identityScopeRows(deviceGrant.scopes, deviceGrant.client_name) : [],
         ],
         consentResourceScopes: [
             (s) => [s.deviceGrant],
@@ -450,8 +450,9 @@ export const oauthDeviceAuthorizeLogic = kea<oauthDeviceAuthorizeLogicType>([
                     : [],
         ],
         scopeGroups: [
-            (s) => [s.scopeRows],
-            (scopeRows: OAuthScopeRow[]): OAuthScopeGroup[] => oauthScopeGroups(scopeRows),
+            (s) => [s.scopeRows, s.identityScopeRows],
+            (scopeRows: OAuthScopeRow[], identityScopeRows: OAuthScopeRow[]): OAuthScopeGroup[] =>
+                oauthScopeGroups(scopeRows, identityScopeRows),
         ],
         // Why the locked rows can't be removed, such as the scopes a step-up adds.
         requiredScopesNote: [

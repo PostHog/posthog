@@ -15,16 +15,8 @@ import { oauthDeviceAuthorizeLogic } from '../oauthDeviceAuthorizeLogic'
 import { DeviceProjectPicker } from './DeviceProjectPicker'
 
 export function DeviceReview({ deviceGrant }: { deviceGrant: DeviceGrantDetailsApi }): JSX.Element {
-    const {
-        projectId,
-        decisionLoading,
-        error,
-        isStepUp,
-        identitySummary,
-        scopeGroups,
-        requiredScopesNote,
-        keptScopes,
-    } = useValues(oauthDeviceAuthorizeLogic)
+    const { projectId, decisionLoading, error, isStepUp, scopeGroups, requiredScopesNote, keptScopes } =
+        useValues(oauthDeviceAuthorizeLogic)
     const { approve, deny, setScopeAccess, setScopeGroupAccess } = useActions(oauthDeviceAuthorizeLogic)
 
     return (
@@ -57,7 +49,6 @@ export function DeviceReview({ deviceGrant }: { deviceGrant: DeviceGrantDetailsA
                     <DeviceProjectPicker />
                     <div className="flex flex-col">
                         <OAuthScopeList
-                            identitySummary={identitySummary}
                             groups={scopeGroups}
                             onChangeRow={setScopeAccess}
                             onChangeGroup={setScopeGroupAccess}

@@ -1,6 +1,8 @@
 import {
     API_SCOPES,
     clampScopeLevel,
+    getScopeDescription,
+    getScopeGroupLabel,
     groupScopeRows,
     scopeRowWarning,
     type ScopeAccessLevel,
@@ -145,28 +147,40 @@ export function grantedResourceScopes(
     })
 }
 
-const IDENTITY_SCOPE_NOUNS: Record<string, string> = {
-    openid: 'user ID',
-    email: 'email address',
-    profile: 'basic account information',
+const IDENTITY_SCOPE_LABELS: Record<string, string> = {
+    openid: 'User ID',
+    email: 'Email address',
+    profile: 'Profile',
 }
 
-// Identity scopes such as `openid` have no levels to pick, so the list states them in one sentence.
-export function identityScopeSummary(scopes: string[], appName: string): string | null {
-    const nouns = scopes.flatMap((scope) => (IDENTITY_SCOPE_NOUNS[scope] ? [IDENTITY_SCOPE_NOUNS[scope]] : []))
-    if (nouns.length === 0) {
-        return null
-    }
-    const list = nouns.length === 1 ? nouns[0] : `${nouns.slice(0, -1).join(', ')} and ${nouns[nouns.length - 1]}`
-    return `${appName} can also see your ${list}.`
+// Identity scopes such as `openid` have no read or write level, so their rows are locked at read. They are
+// display-only: the grant takes identity scopes from the request, never from these rows.
+export function identityScopeRows(scopes: string[], appName: string): OAuthScopeRow[] {
+    return scopes
+        .filter((scope) => IDENTITY_SCOPE_LABELS[scope])
+        .map((scope) => ({
+            key: scope,
+            label: IDENTITY_SCOPE_LABELS[scope],
+            info: getScopeDescription(scope),
+            value: 'read',
+            muted: false,
+            disabledReasons: { none: `${appName} needs this to identify you`, write: 'Account details are read-only' },
+            minLevel: 'read',
+            maxLevel: 'read',
+            alreadyGranted: false,
+        }))
 }
 
-// The rows in product-area groups. `*` is not in any product area, so it gets a group of its own.
-export function oauthScopeGroups(rows: OAuthScopeRow[]): OAuthScopeGroup[] {
-    const wildcardRows = rows.filter((row) => row.key === '*')
+// The rows in product-area groups. Identity rows join the group of the `user` scope. `*` is not in any
+// product area, so it gets a group of its own.
+export function oauthScopeGroups(resourceRows: OAuthScopeRow[], identityRows: OAuthScopeRow[]): OAuthScopeGroup[] {
+    const wildcardRows = resourceRows.filter((row) => row.key === '*')
+    const identityKeys = new Set(identityRows.map((row) => row.key))
     return [
         ...(wildcardRows.length > 0 ? [{ label: WILDCARD_GROUP_LABEL, rows: wildcardRows }] : []),
-        ...groupScopeRows(rows.filter((row) => row.key !== '*')),
+        ...groupScopeRows([...identityRows, ...resourceRows.filter((row) => row.key !== '*')], (row) =>
+            getScopeGroupLabel(identityKeys.has(row.key) ? 'user' : row.key)
+        ),
     ]
 }
 

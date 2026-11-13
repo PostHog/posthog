@@ -10,7 +10,6 @@ import { ScopeAccessGroup } from './ScopeAccessGroup'
 import { ScopeRowsLevelControl } from './ScopeRowsLevelControl'
 
 interface OAuthScopeListProps {
-    identitySummary: string | null
     groups: OAuthScopeGroup[]
     onChangeRow: (scopeObject: string, level: ScopeAccessLevel) => void
     onChangeGroup: (scopeObjects: string[], level: ScopeAccessLevel) => void
@@ -20,7 +19,6 @@ interface OAuthScopeListProps {
 }
 
 export function OAuthScopeList({
-    identitySummary,
     groups,
     onChangeRow,
     onChangeGroup,
@@ -57,23 +55,18 @@ export function OAuthScopeList({
                     </div>
                 )}
             </div>
-            <div className={clsx('flex flex-col gap-2', bodyClassName)}>
-                {identitySummary && <p className="m-0 text-secondary">{identitySummary}</p>}
-                {groups.length > 0 && (
-                    <div className="flex flex-col">
-                        {groups.map((group) => (
-                            <ScopeAccessGroup
-                                // A group keeps its own open state, so a change of `allOpen` remounts it with the new default.
-                                key={`${group.label}-${allOpen}`}
-                                group={group}
-                                defaultOpen={allOpen}
-                                onChangeRow={onChangeRow}
-                                onChangeGroup={onChangeGroup}
-                                dataAttrPrefix={dataAttrPrefix}
-                            />
-                        ))}
-                    </div>
-                )}
+            <div className={clsx('flex flex-col', bodyClassName)}>
+                {groups.map((group) => (
+                    <ScopeAccessGroup
+                        // A group keeps its own open state, so a change of `allOpen` remounts it with the new default.
+                        key={`${group.label}-${allOpen}`}
+                        group={group}
+                        defaultOpen={allOpen}
+                        onChangeRow={onChangeRow}
+                        onChangeGroup={onChangeGroup}
+                        dataAttrPrefix={dataAttrPrefix}
+                    />
+                ))}
             </div>
         </>
     )
