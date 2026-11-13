@@ -3176,7 +3176,9 @@ class TestAlertDestinations(APIBaseTest):
         (hog_function_id,) = created.json()["hog_function_ids"]
         hog_function = HogFunction.objects.get(id=hog_function_id)
         assert hog_function.template_id == template.id
-        assert (hog_function.inputs or {})["webhookUrl"]["value"] == url
+        assert (hog_function.encrypted_inputs or {})["webhookUrl"]["value"] == url
+        read = self.client.get(f"/api/projects/{self.team.id}/hog_functions/{hog_function_id}/").json()
+        assert read["inputs"]["webhookUrl"] == {"secret": True}
 
         listed = self.client.get(self.url)
 
