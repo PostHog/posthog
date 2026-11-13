@@ -183,9 +183,9 @@ class EventColumn:
 class GeoipStagingTable:
     """The enriched rows of one run, on each shard of the events cluster.
 
-    The table holds the plain (no DEFAULT, no MATERIALIZED) columns of `sharded_events` under the same
-    sort key and version column, so a row and its original collapse in a ReplacingMergeTree. Two extra
-    columns keep the original JSON for a rollback.
+    The table holds the plain (no DEFAULT, no MATERIALIZED) columns of `sharded_events` and `inserted_at`
+    under the same sort key and version column, so a row and its original collapse in a
+    ReplacingMergeTree. Two extra columns keep the original JSON for a rollback.
     """
 
     id: uuid.UUID
@@ -236,10 +236,16 @@ class GeoipStagingTable:
         client.execute(f"SYSTEM SYNC REPLICA {self.qualified_name} STRICT")
 
 
+# A DEFAULT column the copy keeps from its original. Deletions match on `inserted_at`, so a copy stamped
+# with its own insert time would survive a deletion requested before the repair.
+KEPT_DEFAULT_COLUMNS = ("inserted_at",)
+
+
 def read_columns(client: Client, table: str, *, plain_only: bool) -> list[EventColumn]:
-    # A DEFAULT or MATERIALIZED column is left out so that the target computes it from the enriched
-    # properties, the same way it does for a row from Kafka.
-    kind_filter = " AND default_kind = ''" if plain_only else ""
+    # Any other DEFAULT or MATERIALIZED column is left out so that the target computes it from the
+    # enriched properties, the same way it does for a row from Kafka.
+    kept = ", ".join(f"'{name}'" for name in KEPT_DEFAULT_COLUMNS)
+    kind_filter = f" AND (default_kind = '' OR name IN ({kept}))" if plain_only else ""
     rows = client.execute(
         f"""
         SELECT name, type FROM system.columns

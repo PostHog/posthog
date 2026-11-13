@@ -426,6 +426,7 @@ def assert_damaged_events_staged(
     columns = [column.name for column in cluster.any_host_by_role(table.columns, NodeRole.DATA).result()]
     original = row_by_uuid(cluster, EVENTS_DATA_TABLE(), damaged.uuid, columns)
     copy = row_by_uuid(cluster, table.qualified_name, damaged.uuid, columns)
+    assert "inserted_at" in columns
     assert {name for name in columns if original[name] != copy[name]} == {
         "properties",
         "person_properties",
