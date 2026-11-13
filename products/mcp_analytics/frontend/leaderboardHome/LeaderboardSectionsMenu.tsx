@@ -11,43 +11,42 @@ import {
     DropdownMenuTrigger,
 } from '@posthog/quill-primitives'
 
-import { MCP_DASHBOARD_CARDS, McpDashboardCardId } from './dashboardCards'
-import { mcpDashboardCardsLogic } from './mcpDashboardCardsLogic'
+import { LEADERBOARD_SECTION_IDS, leaderboardSectionTitle } from './leaderboardSections'
+import { mcpLeaderboardSectionsLogic } from './mcpLeaderboardSectionsLogic'
 
-export function DashboardCardsMenu({ cardsWithoutData }: { cardsWithoutData: McpDashboardCardId[] }): JSX.Element {
-    const { hiddenCards, isCardVisible } = useValues(mcpDashboardCardsLogic)
-    const { toggleCard, showAllCards } = useActions(mcpDashboardCardsLogic)
+export function LeaderboardSectionsMenu(): JSX.Element {
+    const { hiddenSections, isSectionVisible } = useValues(mcpLeaderboardSectionsLogic)
+    const { toggleSection, showAllSections } = useActions(mcpLeaderboardSectionsLogic)
 
     return (
         <DropdownMenu>
             <DropdownMenuTrigger
                 render={<Button variant="outline" className="whitespace-nowrap" data-attr="mcp-dashboard-customize" />}
             >
-                <span>{hiddenCards.length > 0 ? `${hiddenCards.length} hidden` : 'Customize'}</span>
+                <span>{hiddenSections.length > 0 ? `${hiddenSections.length} hidden` : 'Customize'}</span>
                 <IconChevronDown />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="min-w-56">
-                {MCP_DASHBOARD_CARDS.map(({ id, label }) => (
+                {LEADERBOARD_SECTION_IDS.map((id) => (
                     <DropdownMenuCheckboxItem
                         key={id}
-                        checked={isCardVisible(id)}
-                        onCheckedChange={() => toggleCard(id)}
+                        checked={isSectionVisible(id)}
+                        onCheckedChange={() => toggleSection(id)}
                         closeOnClick={false}
-                        tooltip={cardsWithoutData.includes(id) ? 'No data in this date range' : undefined}
-                        data-attr={`mcp-dashboard-card-${id}`}
+                        data-attr={`mcp-dashboard-section-${id}`}
                     >
-                        {label}
+                        {leaderboardSectionTitle(id)}
                     </DropdownMenuCheckboxItem>
                 ))}
-                {hiddenCards.length > 0 && (
+                {hiddenSections.length > 0 && (
                     <>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem
-                            onClick={showAllCards}
+                            onClick={showAllSections}
                             closeOnClick={false}
-                            data-attr="mcp-dashboard-show-all-cards"
+                            data-attr="mcp-dashboard-show-all-sections"
                         >
-                            Show all cards
+                            Show all sections
                         </DropdownMenuItem>
                     </>
                 )}

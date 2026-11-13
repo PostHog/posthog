@@ -2043,7 +2043,7 @@ from = [
 
 [[modules]]
 path = "products.release"
-depends_on = ["posthog", "products.feature_flags", "products.workflows"]
+depends_on = ["posthog", "products.feature_flags", "products.product_analytics", "products.surveys", "products.workflows"]
 layer = "modules"
 
 [[interfaces]]
