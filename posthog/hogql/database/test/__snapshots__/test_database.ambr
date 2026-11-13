@@ -13768,7 +13768,7 @@
               },
               "sampling_mode": {
                   "chain": null,
-                  "description": "Quality pre-filter: focused, balanced or comprehensive.",
+                  "description": "Deprecated: scanners no longer filter on quality, so every scanner scans as comprehensive.",
                   "fields": null,
                   "hogql_value": "sampling_mode",
                   "id": null,
@@ -30578,7 +30578,7 @@
               },
               "sampling_mode": {
                   "chain": null,
-                  "description": "Quality pre-filter: focused, balanced or comprehensive.",
+                  "description": "Deprecated: scanners no longer filter on quality, so every scanner scans as comprehensive.",
                   "fields": null,
                   "hogql_value": "sampling_mode",
                   "id": null,
