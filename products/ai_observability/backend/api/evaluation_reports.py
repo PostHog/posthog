@@ -866,11 +866,17 @@ class EvaluationReportViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewse
                 # The page waits for a run created after this time. The running job may already have stored its run,
                 # so a duplicate answers with when that job started rather than when this request arrived.
                 started_at = _workflow_start_time(client, workflow_id) or requested_at.replace(second=0, microsecond=0)
-                return Response({"requested_at": started_at.isoformat()}, status=status.HTTP_202_ACCEPTED)
+                return Response(
+                    EvaluationReportGenerateResponseSerializer({"requested_at": started_at}).data,
+                    status=status.HTTP_202_ACCEPTED,
+                )
             logger.exception("Failed to trigger evaluation report generation", report_id=str(report.id))
             return Response(
                 {"error": "Failed to trigger report generation"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
-        return Response({"requested_at": requested_at.isoformat()}, status=status.HTTP_202_ACCEPTED)
+        return Response(
+            EvaluationReportGenerateResponseSerializer({"requested_at": requested_at}).data,
+            status=status.HTTP_202_ACCEPTED,
+        )
