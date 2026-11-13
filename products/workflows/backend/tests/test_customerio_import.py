@@ -794,6 +794,9 @@ class TestWorkflowImportAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         _sync_templates()
+        flag = patch("posthoganalytics.feature_enabled", return_value=True)
+        flag.start()
+        self.addCleanup(flag.stop)
 
     def _post(self, body: dict[str, Any]) -> Any:
         return self.client.post(f"/api/projects/{self.team.id}/workflow_imports/", body, format="json")
