@@ -3178,6 +3178,11 @@ async def test_chqueries_middleware_tags_http_request_id_under_asgi(header_value
     response = await AsyncClient().get("/api/_http_request_id_probe/", headers={"X-Request-ID": header_value})
 
     assert response.content.decode() == expected_tag
+    if expected_tag == "None":
+        assert "X-Request-ID" not in response.headers
+    else:
+        # Any API response, not only query ones, so frontend failure events can join the backend logs.
+        assert response.headers["X-Request-ID"] == expected_tag
 
 
 @override_settings(ROOT_URLCONF=__name__)
