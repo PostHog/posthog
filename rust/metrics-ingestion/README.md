@@ -23,12 +23,11 @@ HTTP: `/_health`, `/_ready`, and the Prometheus metrics on both `/_metrics` and 
 
 ### Primary mode
 
-Primary mode behaves as the Node consumer: Node's topics and producers, `ingested_event` writes, and usage records to usage-ingestion over gRPC (`x-client-name: metrics`), dated by the Kafka message timestamp. [PORTING.md](PORTING.md) lists what it does not reproduce.
+Primary mode behaves as the Node consumer: Node's topics and producers, `ingested_event` writes, and usage records to usage-ingestion over gRPC (`x-client-name: metrics`), dated by the Kafka message timestamp, and confirmed unknown tokens go to `capture_logs:unknown_tokens` in the metrics Redis. [PORTING.md](PORTING.md) lists what it does not reproduce.
 
 Primary mode cannot replace the Node consumer yet:
 
 - The aggregation step is not ported. Primary mode refuses to start unless `METRICS_AGGREGATION_ENABLED_TEAMS` is empty, and its default is `*` outside production.
-- The unknown-token recorder is not ported, so capture-logs does not learn which metrics tokens belong to no team.
 - The per-team OTLP counters (`metrics_ingestion_bytes_ingested_total`, `metrics_ingestion_records_ingested_total`) are not ported. They are the only signal of which teams ingest metrics.
 
 ## Shadow mode
@@ -47,6 +46,7 @@ A new consumer group starts at the oldest offset, as in Node. To keep the first 
 | Usage records (usage-ingestion gRPC) | Dropped, no client is built | They bill. |
 | `ingested_event` write | Skipped | Postgres is read only for the shadow. |
 | Rate-limit buckets | Kept under `@posthog-metrics-rust-shadow/` in Node's metrics Redis | Spending Node's tokens would drop Node's traffic. The shadow sees the same traffic, so its buckets drain at the same rate. |
+| Unknown-token writes to `capture_logs:unknown_tokens` | Skipped, no recorder is built | The set is production state that capture-logs uses to turn tokens away. |
 | Quota limits | Read from the production PostHog Redis, as Node does | `ZRANGEBYSCORE` only, so it writes nothing. |
 
 The shadow `metrics` output carries `source_offset` next to Node's `source_topic` and `source_partition`, so each output names its input message. Primary mode never writes it.

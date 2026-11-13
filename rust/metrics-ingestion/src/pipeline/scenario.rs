@@ -313,6 +313,7 @@ pub fn scenario_parts(
         clock,
         dev_env: false,
         source_offset_header: false,
+        unknown_tokens: None,
     };
     let config = match get(scenario, "config") {
         Some(JsValue::Object(o)) => o.clone(),

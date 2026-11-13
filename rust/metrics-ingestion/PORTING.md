@@ -32,9 +32,9 @@ Every value in the corpus is opaque text, not Avro, so the corpus says nothing a
 | `metrics-retry.ts` | `pipeline::retry` | Done |
 | `services/metrics-rate-limiter.service.ts`, `services/metrics-redis.ts` | `pipeline::rate_limiter`, `service` | Done, with `METRICS_LIMITER_FAIL_OPEN`. The fail-open cases are unit tests, not corpus scenarios |
 | `metrics-usage.ts`, `metrics-usage-steps.ts` | `pipeline::usage` | Done |
-| `metrics-ingestion-pipeline.ts`, `metrics-pipeline-consumer.ts` | `pipeline::consumer` | Done, without the aggregation step and the unknown-token recorder |
+| `metrics-ingestion-pipeline.ts`, `metrics-pipeline-consumer.ts` | `pipeline::consumer` | Done, without the aggregation step |
 | `aggregate-metrics-step.ts`, `aggregate-metric-records.ts`, `metric-record-avro.ts` | none | Not ported |
-| `nodejs/src/logs/services/unknown-token-recorder.ts` | none | Not ported |
+| `nodejs/src/logs/services/unknown-token-recorder.ts` | `pipeline::unknown_tokens` | Done, primary mode only. The write is bounded by a 1-second timeout, where Node bounds only the pool acquire |
 | `config.ts`, `outputs/*`, `servers/ingestion-metrics-server.ts` | `service`, `bin/metrics-ingestion.rs` | Done, with shadow mode |
 | `ingestion-otel-metrics.ts` | none | Not ported |
 
@@ -54,7 +54,6 @@ Every value in the corpus is opaque text, not Avro, so the corpus says nothing a
 ## Known differences
 
 - The aggregation step is not ported. For the teams in `METRICS_AGGREGATION_ENABLED_TEAMS`, Node decodes each Avro message, merges the sum and delta histogram points of one series that fall in one 15-second bucket, and writes the message again. It can also drop a message whose points all moved into another message. Rust produces every message unchanged. Usage is recorded before that step, so billing does not differ. Primary mode refuses to start while the setting is not empty. A shadow starts, and its `metrics` output differs from Node's for each batch that Node aggregated. Node writes a random Avro sync marker, so a port must compare decoded records, not bytes.
-- The unknown-token recorder is not ported. Node writes a token that kept resolving to no team to the `capture_logs:unknown_tokens` sorted set in the metrics Redis, where capture-logs reads it to refuse the token. Rust only drops the message.
 - `ingestion-otel-metrics.ts` is not ported. Node pushes per-team `metrics_ingestion_bytes_ingested_total` and `metrics_ingestion_records_ingested_total` over OTLP; the Rust consumer does not, so a shadow cannot count twice.
 - With no team enabled for rate limiting, the Rust limiter sends nothing to Redis. Node still runs an empty pipeline, which needs a pooled Redis client.
 - With `METRICS_LIMITER_FAIL_OPEN`, Node also turns off the ioredis offline queue and bounds the pool acquire. Rust bounds the Redis call at the same 2 seconds, which covers both.

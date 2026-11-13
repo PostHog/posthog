@@ -21,6 +21,7 @@ use super::steps::{
     create_rate_limit_metrics_step,
 };
 use super::types::{MetricsMessageContext, MetricsPipelineInput};
+use super::unknown_tokens::UnknownTokens;
 use super::usage::{emit_metrics_usage, MetricsUsageAccumulator, MetricsUsageBatchContext};
 
 pub type BackgroundTask = BoxFuture<'static, anyhow::Result<()>>;
@@ -40,6 +41,8 @@ pub struct MetricsPipelineConsumerDeps {
     pub dev_env: bool,
     /// Shadow mode only, so a comparator can find the input message. Node never writes `source_offset`.
     pub source_offset_header: bool,
+    /// `None` in shadow mode, because the set lives in production Redis.
+    pub unknown_tokens: Option<Arc<dyn UnknownTokens>>,
 }
 
 pub struct MetricsPipelineContext {

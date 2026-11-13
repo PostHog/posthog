@@ -106,6 +106,9 @@ async fn resolve_team(
         }
         Ok(None) => {
             tracing::error!(token_with_no_team = token, "team_not_found");
+            if let Some(unknown_tokens) = &deps.unknown_tokens {
+                unknown_tokens.record(token);
+            }
             count_dropped("team_not_found", Arc::from("unknown"));
             Ok(drop("team_not_found"))
         }

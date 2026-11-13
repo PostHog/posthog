@@ -23,6 +23,7 @@ use logs_ingestion::service::{
 use rdkafka::consumer::Consumer;
 use sqlx::PgPool;
 
+use crate::pipeline::unknown_tokens::UnknownTokenRecorder;
 use crate::pipeline::{MetricsPipelineConsumer, MetricsPipelineConsumerDeps};
 use config::ServiceConfig;
 
@@ -41,6 +42,7 @@ pub fn shadow_deps(mut deps: MetricsPipelineConsumerDeps) -> MetricsPipelineCons
     deps.usage_batch = Arc::new(shadow::DiscardUsageRecords);
     deps.key_root = KeyRoot::MetricsShadow;
     deps.source_offset_header = true;
+    deps.unknown_tokens = None;
     deps
 }
 
@@ -65,6 +67,7 @@ pub fn build_deps(
         _ => None,
     };
     let clock = system_clock();
+    let clock_for_tokens = clock.clone();
     let posthog_redis =
         redis_deps::ReconnectingRedis::new(redis_deps::connection_info(&config.posthog_redis)?)?;
     let metrics_redis =
@@ -85,7 +88,7 @@ pub fn build_deps(
         )),
         outputs,
         usage_batch,
-        token_bucket_redis: Arc::new(RedisTokenBucket::new(metrics_redis)),
+        token_bucket_redis: Arc::new(RedisTokenBucket::new(metrics_redis.clone())),
         key_root: if config.node_env == NodeEnv::Test {
             KeyRoot::Test
         } else {
@@ -94,6 +97,10 @@ pub fn build_deps(
         clock,
         dev_env: config.node_env == NodeEnv::Development,
         source_offset_header: false,
+        unknown_tokens: Some(Arc::new(UnknownTokenRecorder::new(
+            metrics_redis,
+            clock_for_tokens,
+        ))),
     };
     Ok(match config.mode {
         RunMode::Primary => deps,
