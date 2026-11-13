@@ -1206,7 +1206,20 @@ class Database(BaseModel):
         # is noise, and on a direct connection the same name can exist in the broader
         # catalog without being available on the source we actually queried.
         lowered = name.casefold()
-        candidates = {c for c in candidates if c.casefold() != lowered}
+        candidates = {c for c in candidates if c.casefold() != lowered and not self.is_table_access_denied(c)}
+        if "." not in name:
+            qualified_name = f"posthog.{name}"
+            try:
+                qualified_node = self.get_table_node(qualified_name)
+            except ResolutionError:
+                pass
+            else:
+                if (
+                    qualified_node.table is not None
+                    and not qualified_node.hidden
+                    and not self.is_table_access_denied(qualified_name)
+                ):
+                    return [qualified_name]
         prefix, dot, _ = name.rpartition(".")
         if dot:
             schema = prefix.casefold()
@@ -1259,6 +1272,10 @@ class Database(BaseModel):
             "persons",
             "sessions",
             "logs",
+            "posthog.ai_events",
+            "posthog.trace_spans",
+            "posthog.trace_attributes",
+            "posthog.metrics",
             *self.get_system_table_names(),
         ]
 

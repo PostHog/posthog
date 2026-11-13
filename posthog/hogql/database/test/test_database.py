@@ -306,6 +306,32 @@ class TestTableNodeCaseInsensitiveLookup(TestCase):
 
 
 class TestUnknownTableSuggestions(TestCase):
+    @parameterized.expand(["ai_events", "trace_spans", "trace_attributes", "metrics", "metric_samples"])
+    def test_missing_posthog_namespace(self, table_name: str) -> None:
+        database = Database()
+        with self.assertRaises(QueryError) as error:
+            database.get_table(table_name)
+        assert str(error.exception) == f"Unknown table `{table_name}`. Did you mean: posthog.{table_name}?"
+        assert database.get_table(f"posthog.{table_name}") is not None
+
+    def test_default_catalog_exposes_user_facing_namespaced_tables(self) -> None:
+        tables = Database().get_posthog_table_names()
+        assert {"posthog.ai_events", "posthog.trace_spans", "posthog.trace_attributes", "posthog.metrics"} <= set(
+            tables
+        )
+        assert "posthog.trace_spans_kafka_metrics" not in tables
+        assert "posthog.metrics_kafka_metrics" not in tables
+        assert "trace_spans" not in tables
+
+    @parameterized.expand([("metrics", True), ("error_tracking_recent_issue_state", False)])
+    def test_does_not_suggest_denied_or_hidden_namespaced_tables(self, table_name: str, denied: bool) -> None:
+        database = Database()
+        if denied:
+            database._denied_tables.add(f"posthog.{table_name}")
+        with self.assertRaises(QueryError) as error:
+            database.get_table(table_name)
+        assert f"posthog.{table_name}" not in str(error.exception)
+
     @parameterized.expand(
         [
             (

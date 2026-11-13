@@ -56,6 +56,10 @@ The totals cover measured runs only; missing measurements and days without measu
 The current UTC day is excluded because usage is updated daily.
 These measurements describe query work and are not billing amounts.
 
+## Built-in SQL tables
+
+The SQL catalog lists `posthog.ai_events`, `posthog.trace_spans`, `posthog.trace_attributes`, and `posthog.metrics` with their required namespace. Unknown unqualified table names suggest the matching visible `posthog.*` table when one exists.
+
 ## SQL editor drafts
 
 Saving a view infers its column types with LIMIT 0 on the outer SELECT branches and explicit IN subqueries.
