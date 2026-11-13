@@ -4,6 +4,8 @@ from typing import Any
 from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _create_person, flush_persons_and_events
 from unittest.mock import MagicMock, patch
 
+from django.db import transaction
+
 from celery.exceptions import Retry
 from parameterized import parameterized
 from rest_framework import status
@@ -78,7 +80,8 @@ class TestPeopleImport(_StorageMixin, ClickhouseTestMixin, BaseTest):
             {"Email": "other@example.com", "Distinct ID": "user-1", "subscriptionPlan": "Same person twice"},
         ]
 
-        summary = start_people_import(team=self.team, user=self.user, name="Spring sale", rows=rows)
+        with self.captureOnCommitCallbacks(execute=True):
+            summary = start_people_import(team=self.team, user=self.user, name="Spring sale", rows=rows)
 
         assert [(p["distinct_id"], p["properties"]) for p in self.stored_people()] == [
             ("user-1", {"email": "ada@example.com", "subscriptionPlan": "Pro"}),
@@ -104,7 +107,10 @@ class TestPeopleImport(_StorageMixin, ClickhouseTestMixin, BaseTest):
         cohort = Cohort.objects.create(team=self.team, name="Pro customers", is_static=True)
         rows = [{"email": "Ada@example.com", "plan": "Pro"}, {"email": "new@example.com", "plan": "Free"}]
 
-        with patch("products.workflows.backend.tasks.people_import.schedule_people_import_fill") as fill:
+        with (
+            patch("products.workflows.backend.tasks.people_import.schedule_people_import_fill") as fill,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
             summary = start_people_import(
                 team=self.team,
                 user=self.user,
@@ -130,6 +136,15 @@ class TestPeopleImport(_StorageMixin, ClickhouseTestMixin, BaseTest):
         cohort.refresh_from_db()
         assert cohort.is_calculating
 
+    def test_a_rolled_back_caller_sends_no_events(self) -> None:
+        with self.captureOnCommitCallbacks(execute=True), self.assertRaises(RuntimeError):
+            with transaction.atomic():
+                start_people_import(team=self.team, user=self.user, name="List", rows=[{"email": "a@example.com"}])
+                raise RuntimeError("a later list failed")
+
+        self.dispatch.assert_not_called()
+        self.stall_check.assert_not_called()
+
     @parameterized.expand(
         [
             ("id_names_the_person", {"email": "a@example.com", "ID": "user-7"}, ("user-7", {"email": "a@example.com"})),
@@ -143,7 +158,8 @@ class TestPeopleImport(_StorageMixin, ClickhouseTestMixin, BaseTest):
     def test_id_column_names_the_person_without_a_distinct_id_column(
         self, _name: str, row: dict[str, str], expected: tuple[str, dict[str, str]]
     ) -> None:
-        start_people_import(team=self.team, user=self.user, name="List", rows=[row])
+        with self.captureOnCommitCallbacks(execute=True):
+            start_people_import(team=self.team, user=self.user, name="List", rows=[row])
 
         assert [(p["distinct_id"], p["properties"]) for p in self.stored_people()] == [expected]
 
@@ -208,7 +224,8 @@ class TestPeopleImport(_StorageMixin, ClickhouseTestMixin, BaseTest):
             access_level=PropertyAccessLevel.READ_WRITE.value,
         )
 
-        start_people_import(team=self.team, user=self.user, name="List", rows=[{"email": "ada@example.com"}])
+        with self.captureOnCommitCallbacks(execute=True):
+            start_people_import(team=self.team, user=self.user, name="List", rows=[{"email": "ada@example.com"}])
 
         assert [person["distinct_id"] for person in self.stored_people()] == ["user-1"]
 
@@ -342,15 +359,16 @@ class TestPeopleImportTasks(_StorageMixin, BaseTest):
         assert (key in self.storage.objects) is (outcome == "waits")
         assert cohort.is_calculating is (outcome != "fails")
 
-    @parameterized.expand([("still_calculating", True, True), ("finished", False, False)])
-    def test_stall_check_ends_an_import_that_never_finished(self, _name: str, calculating: bool, ended: bool) -> None:
+    @parameterized.expand([("rows_left", True, True), ("finished_while_a_later_import_runs", False, False)])
+    def test_stall_check_ends_only_its_own_unfinished_import(self, _name: str, rows_left: bool, ended: bool) -> None:
         cohort_id, key = self._stage()
-        Cohort.objects.filter(pk=cohort_id).update(is_calculating=calculating)
+        if not rows_left:
+            self.storage.delete(key)
 
         fail_people_import_if_stalled(team_id=self.team.id, cohort_id=cohort_id, storage_key=key)
 
         cohort = Cohort.objects.get(pk=cohort_id)
-        assert (cohort.errors_calculating, key in self.storage.objects) == ((1, False) if ended else (0, True))
+        assert (cohort.errors_calculating, cohort.is_calculating) == ((1, False) if ended else (0, True))
 
 
 class TestPeopleImportAPI(_StorageMixin, ClickhouseTestMixin, APIBaseTest):

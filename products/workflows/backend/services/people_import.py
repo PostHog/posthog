@@ -8,6 +8,7 @@ from typing import TypedDict
 
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import validate_email
+from django.db import transaction
 from django.db.models import F
 from django.utils import timezone
 
@@ -169,22 +170,31 @@ def start_people_import(
 
     try:
         object_storage.write(storage_key, json.dumps(people))
-        if send_events:
-            capture_people_import.delay(team_id=team.id, cohort_id=target_id, storage_key=storage_key)
-        else:
-            schedule_people_import_fill(team_id=team.id, cohort_id=target_id, storage_key=storage_key)
-        # A worker that dies mid-task, or a task that can't schedule the next one, leaves the cohort calculating.
-        # The stuck-cohort sweep resets an uploaded cohort only after SOURCELESS_STATIC_COHORT_STUCK_AFTER. The sweep
-        # does not delete the stored rows. This check ends the import sooner and deletes them.
-        fail_people_import_if_stalled.apply_async(
-            kwargs={"team_id": team.id, "cohort_id": target_id, "storage_key": storage_key},
-            countdown=int(STALLED_IMPORT_AFTER.total_seconds()),
-        )
     except Exception:
-        # No task would finish this cohort. The stuck-cohort sweep would leave it calculating until
-        # SOURCELESS_STATIC_COHORT_STUCK_AFTER passes.
         fail_people_import(team.id, target_id, storage_key)
         raise
+
+    def dispatch() -> None:
+        try:
+            if send_events:
+                capture_people_import.delay(team_id=team.id, cohort_id=target_id, storage_key=storage_key)
+            else:
+                schedule_people_import_fill(team_id=team.id, cohort_id=target_id, storage_key=storage_key)
+            # A worker that dies mid-task, or a task that can't schedule the next one, leaves the cohort calculating.
+            # The stuck-cohort sweep resets an uploaded cohort only after SOURCELESS_STATIC_COHORT_STUCK_AFTER. The
+            # sweep does not delete the stored rows. This check ends the import sooner and deletes them.
+            fail_people_import_if_stalled.apply_async(
+                kwargs={"team_id": team.id, "cohort_id": target_id, "storage_key": storage_key},
+                countdown=int(STALLED_IMPORT_AFTER.total_seconds()),
+            )
+        except Exception:
+            # No task would finish this cohort. The stuck-cohort sweep would leave it calculating until
+            # SOURCELESS_STATIC_COHORT_STUCK_AFTER passes.
+            fail_people_import(team.id, target_id, storage_key)
+            raise
+
+    # A caller's transaction can still roll back the cohort, and events sent before that can't be taken back.
+    transaction.on_commit(dispatch)
 
     return PeopleImportSummary(
         cohort_id=target_id,
@@ -232,7 +242,8 @@ def fail_people_import(team_id: int, cohort_id: int, storage_key: str) -> None:
 
 
 def fail_stalled_people_import(team_id: int, cohort_id: int, storage_key: str) -> bool:
-    if not Cohort.objects.filter(pk=cohort_id, team_id=team_id, is_calculating=True).exists():
+    # A finished import deletes its rows. Checking them, not the cohort, leaves a later import of the cohort alone.
+    if object_storage.read(storage_key, missing_ok=True) is None:
         return False
     fail_people_import(team_id, cohort_id, storage_key)
     return True
