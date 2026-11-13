@@ -1385,6 +1385,10 @@ class TestSystemAlertTablesAccess(BaseTest):
         psak.save()
         _, denied = _compute_system_table_access_decision(self.team, ProjectSecretAPIKeyUser(psak))
         assert table_name not in denied
+        assert "insights" in denied
+        database = Database.create_for(team=self.team, user=ProjectSecretAPIKeyUser(psak))
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=database)
+        prepare_and_print_ast(parse_select(f"SELECT id FROM system.{table_name}"), context, dialect="clickhouse")
 
         resources = queried_access_controlled_resources(
             HogQLQuery(query=f"SELECT id FROM system.{table_name}"), self.team
