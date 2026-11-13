@@ -71504,6 +71504,18 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `points` - points
+     * * `summary` - summary
+     */
+    export type MetricQueryOutputEnum = typeof MetricQueryOutputEnum[keyof typeof MetricQueryOutputEnum];
+
+
+    export const MetricQueryOutputEnum = {
+      Points: 'points',
+      Summary: 'summary',
+    } as const;
+
+    /**
      * * `rate` - rate
      * * `increase` - increase
      */
@@ -127112,8 +127124,38 @@ export namespace Schemas {
     export interface _MetricSeries {
       /** Label values identifying this series. Empty for an ungrouped query. */
       labels: _MetricSeriesLabels;
-      /** Time-bucketed points, ordered by time ascending. */
-      points: _MetricQueryPoint[];
+      /** Time-bucketed points, ordered by time ascending. Absent for instant queries and the summary output. */
+      points?: _MetricQueryPoint[];
+      /**
+         * Instant queries only: the series' value at 'time'.
+         * @nullable
+         */
+      value?: number | null;
+      /**
+         * Instant queries: the time of 'value' (for the builder, the start of the bucket). Summary output: the time of 'last'.
+         * @nullable
+         */
+      time?: string | null;
+      /**
+         * Summary output only: the last non-null value.
+         * @nullable
+         */
+      last?: number | null;
+      /**
+         * Summary output only: the smallest non-null value.
+         * @nullable
+         */
+      min?: number | null;
+      /**
+         * Summary output only: the largest non-null value.
+         * @nullable
+         */
+      max?: number | null;
+      /**
+         * Summary output only: the mean of the non-null values.
+         * @nullable
+         */
+      avg?: number | null;
       /**
          * Metric the series was computed from. Null for formula results.
          * @nullable
@@ -127504,6 +127546,15 @@ export namespace Schemas {
          * @nullable
          */
       limit?: number | null;
+      /** Return one value per series instead of a time series. PromQL runs as an instant query at 'time'. The builder returns the last complete bucket before 'time', 5 minutes wide unless 'interval' says otherwise. Each series then has 'value' and 'time' instead of 'points'. Cannot be combined with 'dateFrom', 'dateTo' or 'output'. */
+      instant?: boolean;
+      /** Evaluation time of an instant query: ISO 8601 or a relative offset like dateFrom. Defaults to now. Setting it makes the query instant. */
+      time?: string;
+      /** 'points' (default) returns every point. 'summary' runs the same range query but returns per series only 'last' (the last non-null value), its 'time', and 'min', 'max' and 'avg' over the non-null points.
+       *
+       * * `points` - points
+       * * `summary` - summary */
+      output?: MetricQueryOutputEnum;
     }
 
     export interface _MetricQueryCount {
@@ -127534,6 +127585,8 @@ export namespace Schemas {
       omitted_empty_series?: number;
       /** Number of series left out by 'limit'. Set only when it left some out. */
       omitted_by_limit?: number;
+      /** Search params that open this query in the metrics viewer, e.g. /metrics?<url_params>. For a builder query the viewer cannot show (a 'resource' or 'attribute' scope, an unusual quantile), they open the viewer without it. */
+      url_params?: string;
     }
 
     export interface _MetricSamplesBody {
@@ -128040,6 +128093,111 @@ export namespace Schemas {
       events?: _SpanEvent[];
     }
 
+    /**
+     * Span count per service, largest first (top 10).
+     */
+    export type _TraceSummaryServices = {[key: string]: number};
+
+    export interface _TraceSummarySpan {
+      /** Span's ID within the trace. */
+      span_id?: string;
+      /** Span name, truncated to 120 characters. */
+      name: string;
+      /** Service that emitted the span. Omitted when it is the root span's service. */
+      service?: string;
+      /** Span duration in milliseconds. */
+      duration_ms: number;
+      /** Duration not covered by child spans, in milliseconds. */
+      self_ms: number;
+      /** Present and true when the span has error status. */
+      error?: boolean;
+    }
+
+    export interface _TraceSummaryPathEntry {
+      /** Span's ID within the trace. */
+      span_id?: string;
+      /** Span name, truncated to 120 characters. */
+      name: string;
+      /** Service that emitted the span. Omitted when it is the root span's service. */
+      service?: string;
+      /** Span duration in milliseconds. */
+      duration_ms: number;
+      /** Duration not covered by child spans, in milliseconds. */
+      self_ms: number;
+      /** Present and true when the span has error status. */
+      error?: boolean;
+      /** Nesting depth below the root, which is 0. */
+      depth: number;
+      /** Present when consecutive same-named siblings were collapsed into this entry; durations are summed. */
+      count?: number;
+    }
+
+    export interface _TraceSummaryRepeated {
+      /** Span name, truncated to 120 characters. */
+      name: string;
+      /** Service that emitted the spans. Omitted when it is the root span's service. */
+      service?: string;
+      /** How many spans in the trace have this service and name. */
+      count: number;
+      /** Summed duration of those spans, in milliseconds. */
+      total_ms: number;
+      /** Longest of those spans, in milliseconds. */
+      max_ms: number;
+    }
+
+    export interface _TraceSummaryError {
+      /** Span's ID within the trace. */
+      span_id?: string;
+      /** Span name, truncated to 120 characters. */
+      name: string;
+      /** Service that emitted the span. Omitted when it is the root span's service. */
+      service?: string;
+      /** Span duration in milliseconds. */
+      duration_ms: number;
+      /** Duration not covered by child spans, in milliseconds. */
+      self_ms: number;
+      /** Present and true when the span has error status. */
+      error?: boolean;
+      /**
+         * The exception message, or the error attribute the span carries. Null when the span records none.
+         * @nullable
+         */
+      message: string | null;
+    }
+
+    export interface _TraceSummary {
+      /** The trace ID. */
+      trace_id?: string;
+      /** When the earliest span started (ISO 8601). */
+      start?: string;
+      /** First span start to last span end, in milliseconds. */
+      duration_ms?: number;
+      /** Spans summarized. */
+      span_count: number;
+      /** Distinct services in the trace. */
+      service_count?: number;
+      /** Spans with error status. */
+      error_count?: number;
+      /** True when the trace has more spans than were summarized, so counts are lower bounds. */
+      truncated: boolean;
+      /** The trace's root span. */
+      root?: _TraceSummarySpan;
+      /** Span count per service, largest first (top 10). */
+      services?: _TraceSummaryServices;
+      /** Spans with the most self time, largest first. Self time on a parent is uninstrumented work. */
+      top_self_time?: _TraceSummarySpan[];
+      /** The spans the trace's end time waits on, in start order, walking back from the root's end. Spans that ran in parallel and finished earlier are left out. */
+      critical_path?: _TraceSummaryPathEntry[];
+      /** Spans on the critical path left out because each took under 1% of the root's duration. */
+      critical_path_omitted?: number;
+      /** True when the critical path was cut at summaryLimit entries (at most 20). */
+      critical_path_truncated?: boolean;
+      /** Service and name pairs that occur more than once, by total duration. Many fast repeats point at an N+1 pattern. */
+      repeated_spans?: _TraceSummaryRepeated[];
+      /** Error spans, earliest first. */
+      errors?: _TraceSummaryError[];
+    }
+
     export interface _TracingAggregationQueryBody {
       /** Date range for the primary window. Defaults to last hour. */
       dateRange?: _TracingDateRange;
@@ -128540,11 +128698,21 @@ export namespace Schemas {
          * @minimum 0
          */
       offset?: number;
+      /** Return a compact digest of the trace in `summary` instead of every span (`results` comes back empty): duration, root span, span/service/error counts, the top spans by self time, the critical path from the root, span names that repeat (N+1 queries), and error spans with their message. Covers the first 2000 spans; `summary.truncated` is true when the trace has more. Ignores `offset` and `excludeAttributes`. */
+      summary?: boolean;
+      /**
+         * With `summary`, how many entries each summary list keeps (1-50). Defaults to 10.
+         * @minimum 1
+         * @maximum 50
+         */
+      summaryLimit?: number;
     }
 
     export interface _TracingTraceResponse {
-      /** Spans in the trace, earliest first. */
+      /** Spans in the trace, earliest first. Empty when `summary` is requested. */
       results: _TraceSpan[];
+      /** The trace digest, present when `summary` is true. */
+      summary?: _TraceSummary;
       /** Whether a further page of spans exists. */
       hasMore: boolean;
       /**
