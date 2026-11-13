@@ -222,6 +222,7 @@ jobs:
                   export COMMIT_SHA
                   # The tag step releases nothing when no desktop commit landed after the last
                   # release tag, so the run must not wait for the backend in that case.
+                  # This fetch runs before the backend wait, so the checkout's App token is still valid.
                   git fetch --quiet --no-tags origin master
                   LATEST_TAG=$(git tag --list 'desktop-v[0-9]*.[0-9]*' --sort=-v:refname | grep -E '^desktop-v[0-9]+\.[0-9]+(\.0)?$' | head -1 || true)
                   if [ -n "$LATEST_TAG" ] && [ "$(git rev-list "$LATEST_TAG".."$COMMIT_SHA" --count -- products/desktop/ packages/agent/)" -eq 0 ]; then
@@ -245,13 +246,31 @@ jobs:
                       ;;
                   esac
 
+            # An App installation token expires after one hour, and the waits above can outlast it,
+            # so the tag step mints its own token.
+            - name: Get app token for the tag push
+              id: app-token-tag
+              if: steps.quiet.outputs.proceed != 'false' && steps.master-ci-run.outputs.proceed != 'false' && steps.master-ci-verdict.outputs.proceed != 'false' && steps.backend-deploy.outputs.proceed != 'false'
+              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+              uses: getsentry/action-github-app-token@v4.0.0
+              with:
+                  app_id: ${{ vars.GH_APP_ARRAY_RELEASER_APP_ID }}
+                  private_key: ${{ secrets.GH_APP_ARRAY_RELEASER_PRIVATE_KEY }}
+
             - name: Compute version and create tag
               if: steps.quiet.outputs.proceed != 'false' && steps.master-ci-run.outputs.proceed != 'false' && steps.master-ci-verdict.outputs.proceed != 'false' && steps.backend-deploy.outputs.proceed != 'false'
               env:
-                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+                  GH_TOKEN: ${{ steps.app-token-tag.outputs.token }}
                   REPOSITORY: ${{ github.repository }}
                   TESTED_SHA: ${{ steps.master-ci-run.outputs.sha }}
               run: |
+                  REPO_URL="https://x-access-token:${GH_TOKEN}@github.com/$REPOSITORY"
+                  # The checkout stored its own, possibly expired, token as an extra header for
+                  # github.com. An empty value clears that header, so git sends the fresh token.
+                  git_with_fresh_token() {
+                    git -c http.https://github.com/.extraheader= "$@"
+                  }
+
                   LATEST_TAG=$(git tag --list 'desktop-v[0-9]*.[0-9]*' --sort=-v:refname | grep -E '^desktop-v[0-9]+\.[0-9]+(\.0)?$' | head -1 || true)
 
                   if [ -z "$LATEST_TAG" ]; then
@@ -262,7 +281,7 @@ jobs:
                   # The tag points at the commit the suite ran on, which can be newer than
                   # this checkout, so fetch master before the commit is used.
                   if [ -n "$TESTED_SHA" ]; then
-                    git fetch --no-tags origin master
+                    git_with_fresh_token fetch --no-tags "$REPO_URL" master
                   fi
                   TARGET="${TESTED_SHA:-HEAD}"
 
@@ -291,4 +310,4 @@ jobs:
                   git config user.email "github-actions[bot]@users.noreply.github.com"
                   git config user.name "github-actions[bot]"
                   git tag -a "$TAG" -m "Release $TAG" "$TARGET"
-                  git push "https://x-access-token:${GH_TOKEN}@github.com/$REPOSITORY" "$TAG"
+                  git_with_fresh_token push "$REPO_URL" "$TAG"

@@ -92,6 +92,7 @@ jobs:
 
                   # The backend wait below checks this commit, so the tag must point at it and
                   # not at a newer master.
+                  # This fetch runs before the backend wait, so the checkout's App token is still valid.
                   git fetch --quiet --no-tags origin refs/heads/master
                   TARGET=$(git rev-parse 'FETCH_HEAD^{commit}')
 
@@ -154,14 +155,32 @@ jobs:
                   esac
                   exit 1
 
+            # An App installation token expires after one hour, and the backend wait can outlast it,
+            # so the tag step mints its own token.
+            - name: Get app token for the tag push
+              id: app-token-tag
+              if: steps.version.outputs.tag != ''
+              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+              uses: getsentry/action-github-app-token@v4.0.0
+              with:
+                  app_id: ${{ vars.GH_APP_ARRAY_RELEASER_APP_ID }}
+                  private_key: ${{ secrets.GH_APP_ARRAY_RELEASER_PRIVATE_KEY }}
+
             - name: Create tag
               if: steps.version.outputs.tag != ''
               env:
-                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+                  GH_TOKEN: ${{ steps.app-token-tag.outputs.token }}
                   REPOSITORY: ${{ github.repository }}
                   TAG: ${{ steps.version.outputs.tag }}
                   TARGET: ${{ steps.version.outputs.target }}
               run: |
+                  REPO_URL="https://x-access-token:${GH_TOKEN}@github.com/$REPOSITORY"
+                  # The checkout stored its own, possibly expired, token as an extra header for
+                  # github.com. An empty value clears that header, so git sends the fresh token.
+                  git_with_fresh_token() {
+                    git -c http.https://github.com/.extraheader= "$@"
+                  }
+
                   # Annotated tags need a local tagger identity even when the push uses an app token.
                   git config user.email "github-actions[bot]@users.noreply.github.com"
                   git config user.name "github-actions[bot]"
@@ -169,11 +188,11 @@ jobs:
                   echo "Creating tag: $TAG at $TARGET"
                   for attempt in 1 2 3; do
                     git tag -a "$TAG" -m "Agent release $TAG" "$TARGET"
-                    if git push "https://x-access-token:${GH_TOKEN}@github.com/$REPOSITORY" "$TAG"; then
+                    if git_with_fresh_token push "$REPO_URL" "$TAG"; then
                       exit 0
                     fi
                     # The remote can accept a tag before the connection fails.
-                    if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null; then
+                    if git_with_fresh_token ls-remote --exit-code --tags "$REPO_URL" "refs/tags/$TAG" >/dev/null; then
                       echo "Tag $TAG already exists on origin. Nothing new to release."
                       exit 0
                     fi
