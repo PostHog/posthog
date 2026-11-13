@@ -35,7 +35,10 @@ function defaultController(): Controller {
 
 async function run(controller: Controller, loaded: RunInputs): Promise<number> {
     const { profile } = loaded
-    await teardownExpired(controller, profile)
+    if (!(await teardownExpired(controller, profile, { retryLeftovers: false }))) {
+        controller.warn('Refused the run: an expired run still holds resources.')
+        return EXIT_CODE.invalid
+    }
     const admission = await admit(controller, profile)
     if ('problems' in admission) {
         controller.warn(`Refused the run:\n${admission.problems.map((problem) => `- ${problem}`).join('\n')}`)
@@ -67,7 +70,7 @@ async function run(controller: Controller, loaded: RunInputs): Promise<number> {
 async function cleanup(controller: Controller, profile: CloudProfile, target: string): Promise<number> {
     const clean =
         target === '--expired'
-            ? await teardownExpired(controller, profile)
+            ? await teardownExpired(controller, profile, { retryLeftovers: true })
             : await teardown(controller, profile, await manifestOf(controller, profile.baseline.evidenceBucket, target))
     return clean ? EXIT_CODE.passed : EXIT_CODE.invalid
 }

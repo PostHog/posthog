@@ -136,10 +136,15 @@ async function sessionOf({ aws, env }: Controller, needed: Date): Promise<Sessio
     return endOf(token.expiresAt)
 }
 
-function probesOf({ baseline }: CloudProfile, now: Date): [string, string[]][] {
+function probesOf({ baseline, host }: CloudProfile, now: Date): [string, string[]][] {
     const minuteAgo = new Date(now.getTime() - 60_000).toISOString()
     return [
         ['cloudformation:DescribeStacks', ['cloudformation', 'describe-stacks', '--stack-name', PROBE_ID]],
+        [
+            'cloudformation:DescribeStackResources',
+            ['cloudformation', 'describe-stack-resources', '--stack-name', PROBE_ID],
+        ],
+        ['ssm:GetParameter', ['ssm', 'get-parameter', '--name', host.imageParameter]],
         ['scheduler:GetSchedule', ['scheduler', 'get-schedule', '--name', PROBE_ID]],
         [
             's3:ListBucket',
@@ -192,6 +197,10 @@ function probesOf({ baseline }: CloudProfile, now: Date): [string, string[]][] {
             ],
         ],
         ['rds:DescribeDBClusters', ['rds', 'describe-db-clusters', '--db-cluster-identifier', PROBE_ID]],
+        [
+            'rds:DescribeDBClusterSnapshots',
+            ['rds', 'describe-db-cluster-snapshots', '--db-cluster-identifier', PROBE_ID],
+        ],
         ['ec2:DescribeInstances', ['ec2', 'describe-instances', '--max-items', '1']],
         ['secretsmanager:DescribeSecret', ['secretsmanager', 'describe-secret', '--secret-id', PROBE_ID]],
         [

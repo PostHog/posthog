@@ -17,14 +17,21 @@ type Resource = {
     runTag?: string
     clusterResourceId?: string
     secretArn?: string
+    image?: string
 }
 
 type Stack = {
     name: string
+    arn: string
     token: string
     status: string
+    pendingReads: number
+    runTag?: string
     parameters: Record<string, string>
-    template: { Resources: Record<string, { Type: string; Condition?: string; Properties: Record<string, unknown> }> }
+    template: {
+        Parameters: Record<string, { Type: string }>
+        Resources: Record<string, { Type: string; Condition?: string; Properties: Record<string, unknown> }>
+    }
     resources: Resource[]
 }
 
@@ -100,6 +107,7 @@ export class FakeCloud implements Aws {
     readonly denied: Set<string>
     readonly stacks = new Map<string, Stack>()
     readonly resources: Resource[] = []
+    readonly parameterStore = new Map<string, string>()
     private deleteFailures: number
     private readonly failures = new Map<string, number>()
     private readonly lostResponses = new Map<string, number>()
@@ -115,6 +123,7 @@ export class FakeCloud implements Aws {
         this.orderable = options.orderable ?? ['db.r8g.2xlarge', 'db.serverless']
         this.denied = new Set(options.denied ?? [])
         this.deleteFailures = options.deleteFailures ?? 0
+        this.parameterStore.set('/test/ubuntu/ami-id', 'ami-0000000000000000a')
     }
 
     failOnCall(operation: string, nth: number = 1): void {
@@ -181,20 +190,42 @@ export class FakeCloud implements Aws {
         return answer
     }
 
-    private parametersOf(flags: Map<string, string>): Record<string, string> {
-        const listed = parseJSON(flags.get('parameters')!) as { ParameterKey: string; ParameterValue: string }[]
-        return Object.fromEntries(listed.map(({ ParameterKey, ParameterValue }) => [ParameterKey, ParameterValue]))
+    private parametersOf(
+        flags: Map<string, string>,
+        template: Stack['template'],
+        previous: Record<string, string> = {}
+    ): Record<string, string> {
+        const listed = parseJSON(flags.get('parameters')!) as {
+            ParameterKey: string
+            ParameterValue?: string
+            UsePreviousValue?: boolean
+        }[]
+        return Object.fromEntries(
+            listed.map(({ ParameterKey, ParameterValue, UsePreviousValue }) => {
+                const value = UsePreviousValue ? previous[ParameterKey] : ParameterValue!
+                const fromStore = template.Parameters[ParameterKey].Type.startsWith('AWS::SSM::Parameter::Value')
+                return [ParameterKey, fromStore ? this.parameterStore.get(value)! : value]
+            })
+        )
     }
 
     private provision(stack: Stack): void {
         const sub = (value: unknown): string =>
             String(value).replace(/\$\{(\w+)\}/g, (_, name: string) => stack.parameters[name])
         const id = stack.parameters.RunId
+        const runTag = stack.runTag
         for (const [logicalId, { Type, Condition, Properties }] of Object.entries(stack.template.Resources)) {
             const wanted = Condition === undefined || stack.parameters[Condition] === 'true'
-            if (!wanted || stack.resources.some((resource) => resource.logicalId === logicalId)) {
+            const current = stack.resources.filter(
+                (resource) => resource.logicalId.startsWith(logicalId) && !DELETED_STATES.has(resource.state)
+            )
+            const replaced =
+                Type === 'AWS::EC2::Instance' &&
+                current.some(({ type, image }) => type === Type && image !== stack.parameters.HostImage)
+            if (!wanted || (current.length > 0 && !replaced)) {
                 continue
             }
+            this.removeResources(stack, (resource) => current.includes(resource))
             const identifier = (property: string): string =>
                 sub((Properties[property] as { 'Fn::Sub': string })['Fn::Sub'])
             const created: Resource[] = []
@@ -215,7 +246,7 @@ export class FakeCloud implements Aws {
                         id: clusterId,
                         arn: `arn:aws:rds:us-east-1:${this.account}:cluster:${clusterId}`,
                         state: 'available',
-                        runTag: id,
+                        runTag,
                         clusterResourceId: `cluster-${randomUUID()}`,
                         secretArn: secret.arn,
                     },
@@ -229,7 +260,7 @@ export class FakeCloud implements Aws {
                     id: instanceId,
                     arn: `arn:aws:rds:us-east-1:${this.account}:db:${instanceId}`,
                     state: 'available',
-                    runTag: id,
+                    runTag,
                 })
             } else if (Type === 'AWS::EC2::Instance') {
                 const instanceId = `i-${randomUUID().replace(/-/g, '').slice(0, 17)}`
@@ -241,7 +272,8 @@ export class FakeCloud implements Aws {
                         id: instanceId,
                         arn: `arn:aws:ec2:us-east-1:${this.account}:instance/${instanceId}`,
                         state: 'running',
-                        runTag: id,
+                        runTag,
+                        image: stack.parameters.HostImage,
                     },
                     {
                         logicalId: `${logicalId}Volume`,
@@ -249,7 +281,7 @@ export class FakeCloud implements Aws {
                         id: volumeId,
                         arn: `arn:aws:ec2:us-east-1:${this.account}:volume/${volumeId}`,
                         state: 'in-use',
-                        runTag: id,
+                        runTag: Properties.PropagateTagsToVolumeOnCreation === true ? runTag : undefined,
                     }
                 )
                 const marker = { ready: 'host/ready', failed: 'host/failed', silent: undefined }[
@@ -269,8 +301,13 @@ export class FakeCloud implements Aws {
     private requestStackDeletion(name: string): void {
         const stack = this.stacks.get(name)
         if (stack && !stack.status.startsWith('DELETE_COMPLETE')) {
-            stack.status = 'DELETE_IN_PROGRESS'
+            this.transition(stack, 'DELETE_IN_PROGRESS')
         }
+    }
+
+    private transition(stack: Stack, status: string): void {
+        stack.status = status
+        stack.pendingReads = 1
     }
 
     private settleStack(name: string): void {
@@ -301,6 +338,12 @@ export class FakeCloud implements Aws {
         for (const resource of stack.resources.filter(removed)) {
             resource.state = resource.type === 'AWS::EC2::Instance' ? 'terminated' : 'gone'
         }
+    }
+
+    private creating(resource: Resource): boolean {
+        return [...this.stacks.values()].some(
+            ({ status, resources }) => status === 'CREATE_IN_PROGRESS' && resources.includes(resource)
+        )
     }
 
     private liveResource(type: string, id: string, operation: string, code: string): Resource {
@@ -366,10 +409,14 @@ export class FakeCloud implements Aws {
                         })),
                 }
             case 'cloudformation describe-stacks': {
-                const stack = this.stackOf(operation, flags.get('stack-name')!)
-                const status = stack.status
-                this.settleStack(stack.name)
-                return { Stacks: [{ StackName: stack.name, StackStatus: status }] }
+                const described = this.stackOf(operation, flags.get('stack-name')!)
+                if (described.pendingReads > 0) {
+                    described.pendingReads--
+                } else {
+                    this.settleStack(described.name)
+                }
+                const stack = this.stackOf(operation, described.name)
+                return { Stacks: [{ StackName: stack.name, StackStatus: stack.status }] }
             }
             case 'cloudformation create-stack': {
                 const name = flags.get('stack-name')!
@@ -384,33 +431,46 @@ export class FakeCloud implements Aws {
                     throw new Error('the fake cloud models only stacks that delete on failure under a service role')
                 }
                 const template = parse(readFileSync(flags.get('template-body')!.replace(/^file:\/\//, ''), 'utf8'))
-                this.stacks.set(name, {
+                const tags = parseJSON(flags.get('tags') ?? '[]') as { Key: string; Value: string }[]
+                const stack: Stack = {
                     name,
+                    arn: `arn:aws:cloudformation:us-east-1:${this.account}:stack/${name}/${randomUUID()}`,
                     token: flags.get('client-request-token')!,
                     status: 'CREATE_IN_PROGRESS',
-                    parameters: this.parametersOf(flags),
+                    pendingReads: 1,
+                    runTag: tags.find(({ Key }) => Key === 'scenario-run')?.Value,
+                    parameters: this.parametersOf(flags, template),
                     template,
                     resources: [],
-                })
-                this.provision(this.stacks.get(name)!)
+                }
+                this.stacks.set(name, stack)
+                this.provision(stack)
                 return { StackId: name }
             }
             case 'cloudformation update-stack': {
                 const stack = this.stackOf(operation, flags.get('stack-name')!)
-                stack.parameters = this.parametersOf(flags)
-                stack.status = 'UPDATE_IN_PROGRESS'
+                stack.parameters = this.parametersOf(flags, stack.template, stack.parameters)
+                this.transition(stack, 'UPDATE_IN_PROGRESS')
                 this.provision(stack)
                 return { StackId: stack.name }
             }
-            case 'cloudformation delete-stack':
+            case 'cloudformation delete-stack': {
+                const status = this.stacks.get(flags.get('stack-name')!)?.status ?? ''
+                if (/^UPDATE_.*IN_PROGRESS$/.test(status)) {
+                    throw serviceError(
+                        operation,
+                        'ValidationError',
+                        `Stack is in ${status} state and can not be deleted`
+                    )
+                }
                 this.requestStackDeletion(flags.get('stack-name')!)
                 return null
+            }
             case 'cloudformation describe-stack-resources':
                 return {
                     StackResources: this.stackOf(operation, flags.get('stack-name')!)
-                        .resources.filter(
-                            ({ logicalId }) => !logicalId.endsWith('Volume') && !logicalId.endsWith('Secret')
-                        )
+                        .resources.filter((resource) => !this.creating(resource))
+                        .filter(({ logicalId }) => !logicalId.endsWith('Volume') && !logicalId.endsWith('Secret'))
                         .map(({ logicalId, type, id }) => ({
                             LogicalResourceId: logicalId,
                             ResourceType: type,
@@ -494,10 +554,21 @@ export class FakeCloud implements Aws {
             case 'resourcegroupstaggingapi get-resources': {
                 const runId = /Values=(.+)$/.exec(flags.get('tag-filters') ?? '')?.[1]
                 return {
-                    ResourceTagMappingList: this.resources
-                        .filter((resource) => resource.runTag === runId)
+                    ResourceTagMappingList: [...this.stacks.values(), ...this.resources]
+                        .filter(
+                            (tagged) =>
+                                tagged.runTag === runId &&
+                                !('type' in tagged ? this.creating(tagged) : tagged.status === 'CREATE_IN_PROGRESS')
+                        )
                         .map(({ arn }) => ({ ResourceARN: arn })),
                 }
+            }
+            case 'ssm get-parameter': {
+                const value = this.parameterStore.get(flags.get('name')!)
+                if (value === undefined) {
+                    throw serviceError(operation, 'ParameterNotFound', `${flags.get('name')} not found`)
+                }
+                return { Parameter: { Name: flags.get('name'), Value: value } }
             }
             case 's3api put-object':
                 this.objects.set(flags.get('key')!, readFileSync(flags.get('body')!, 'utf8'))

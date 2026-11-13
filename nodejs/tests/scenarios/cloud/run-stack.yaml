@@ -45,7 +45,7 @@ Parameters:
     HostEbsGb:
         Type: Number
     HostImage:
-        Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+        Type: AWS::EC2::Image::Id
 
 Conditions:
     ReaderEnabled:

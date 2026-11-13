@@ -12,8 +12,6 @@ export const POLL_MS = 15_000
 const TEMPLATE = path.join(__dirname, 'run-stack.yaml')
 const SETTLED = /(_COMPLETE|_FAILED)$/
 
-export class RunInvalid extends Error {}
-
 export async function stackStatus({ aws }: Controller, stackName: string): Promise<string | undefined> {
     try {
         const { Stacks } = (await aws.call(['cloudformation', 'describe-stacks', '--stack-name', stackName])) as {
@@ -35,21 +33,18 @@ export async function settledStatus(
     signal?: AbortSignal
 ): Promise<string | undefined> {
     for (;;) {
+        signal?.throwIfAborted()
         const status = await stackStatus(controller, stackName)
-        if (status === undefined || SETTLED.test(status)) {
+        if (status === undefined || SETTLED.test(status) || controller.now().getTime() >= until) {
             return status
         }
-        if (controller.now().getTime() >= until) {
-            throw new RunInvalid(`Stack ${stackName} is still ${status}.`)
-        }
-        signal?.throwIfAborted()
         await controller.sleep(POLL_MS)
     }
 }
 
-function parametersOf(profile: CloudProfile, manifest: Manifest, readerEnabled: boolean): string {
+function parametersOf(profile: CloudProfile, manifest: Manifest, image: string): Record<string, string> {
     const { baseline, host } = profile
-    const values: Record<string, string> = {
+    return {
         RunId: manifest.runId,
         Commit: manifest.commit,
         EvidenceBucket: baseline.evidenceBucket,
@@ -57,7 +52,7 @@ function parametersOf(profile: CloudProfile, manifest: Manifest, readerEnabled: 
         EngineVersion: profile.engineVersion,
         WriterClass: profile.writerClass,
         ReaderMaxAcu: String(profile.readerAcu.max),
-        ReaderEnabled: String(readerEnabled),
+        ReaderEnabled: 'false',
         AvailabilityZone: profile.availabilityZone,
         DbSubnetGroup: baseline.dbSubnetGroup,
         DatabaseSecurityGroup: baseline.databaseSecurityGroup,
@@ -69,11 +64,15 @@ function parametersOf(profile: CloudProfile, manifest: Manifest, readerEnabled: 
         HostInstanceProfile: baseline.hostInstanceProfile,
         HostClass: host.class,
         HostEbsGb: String(host.ebsGb),
-        HostImage: host.imageParameter,
+        HostImage: image,
     }
-    return JSON.stringify(
-        Object.entries(values).map(([ParameterKey, ParameterValue]) => ({ ParameterKey, ParameterValue }))
-    )
+}
+
+async function imageOf({ aws }: Controller, profile: CloudProfile): Promise<string> {
+    const { Parameter } = (await aws.call(['ssm', 'get-parameter', '--name', profile.host.imageParameter])) as {
+        Parameter: { Value: string }
+    }
+    return Parameter.Value
 }
 
 function refuseCreationNearExpiry(
@@ -84,7 +83,7 @@ function refuseCreationNearExpiry(
 ): void {
     const lastCreation = Date.parse(manifest.expiresAt) - durationMs(profile.admission.teardownAllowance)
     if (controller.now().getTime() >= lastCreation) {
-        throw new RunInvalid(`The lease ends at ${manifest.expiresAt}, too soon to ${what}.`)
+        throw new Error(`The lease ends at ${manifest.expiresAt}, too soon to ${what}.`)
     }
 }
 
@@ -99,7 +98,7 @@ async function waitForHost(
     for (;;) {
         const markers = await evidence.keys(keyOf(manifest.runId, 'host/'))
         if (markers.includes(keyOf(manifest.runId, 'host/failed'))) {
-            throw new RunInvalid(
+            throw new Error(
                 `The run host failed to bootstrap. Its log is s3://${evidence.name}/${keyOf(manifest.runId, 'host/bootstrap.log')}.`
             )
         }
@@ -107,7 +106,7 @@ async function waitForHost(
             return
         }
         if (controller.now().getTime() >= deadline) {
-            throw new RunInvalid(`The run host was not ready within ${profile.host.bootstrapDeadline}.`)
+            throw new Error(`The run host was not ready within ${profile.host.bootstrapDeadline}.`)
         }
         signal.throwIfAborted()
         await controller.sleep(POLL_MS)
@@ -121,6 +120,8 @@ export async function createRunStack(
     signal: AbortSignal
 ): Promise<void> {
     refuseCreationNearExpiry(controller, profile, manifest, 'create the stack')
+    const image = await imageOf(controller, profile)
+    signal.throwIfAborted()
     await controller.aws.call([
         'cloudformation',
         'create-stack',
@@ -129,7 +130,12 @@ export async function createRunStack(
         '--template-body',
         `file://${TEMPLATE}`,
         '--parameters',
-        parametersOf(profile, manifest, false),
+        JSON.stringify(
+            Object.entries(parametersOf(profile, manifest, image)).map(([ParameterKey, ParameterValue]) => ({
+                ParameterKey,
+                ParameterValue,
+            }))
+        ),
         '--role-arn',
         profile.baseline.stackServiceRole,
         '--on-failure',
@@ -141,7 +147,7 @@ export async function createRunStack(
     ])
     const status = await settledStatus(controller, manifest.stackName, Date.parse(manifest.expiresAt), signal)
     if (status !== 'CREATE_COMPLETE') {
-        throw new RunInvalid(`Stack ${manifest.stackName} ended ${status ?? 'deleted'}, not CREATE_COMPLETE.`)
+        throw new Error(`Stack ${manifest.stackName} ended ${status ?? 'deleted'}, not CREATE_COMPLETE.`)
     }
     await waitForHost(controller, profile, manifest, signal)
 }
@@ -153,6 +159,7 @@ export async function addReader(
     signal: AbortSignal
 ): Promise<void> {
     refuseCreationNearExpiry(controller, profile, manifest, 'add the reader')
+    signal.throwIfAborted()
     await controller.aws.call([
         'cloudformation',
         'update-stack',
@@ -160,12 +167,18 @@ export async function addReader(
         manifest.stackName,
         '--use-previous-template',
         '--parameters',
-        parametersOf(profile, manifest, true),
+        JSON.stringify(
+            Object.keys(parametersOf(profile, manifest, '')).map((ParameterKey) =>
+                ParameterKey === 'ReaderEnabled'
+                    ? { ParameterKey, ParameterValue: 'true' }
+                    : { ParameterKey, UsePreviousValue: true }
+            )
+        ),
         '--role-arn',
         profile.baseline.stackServiceRole,
     ])
     const status = await settledStatus(controller, manifest.stackName, Date.parse(manifest.expiresAt), signal)
     if (status !== 'UPDATE_COMPLETE') {
-        throw new RunInvalid(`Stack ${manifest.stackName} ended ${status ?? 'deleted'}, not UPDATE_COMPLETE.`)
+        throw new Error(`Stack ${manifest.stackName} ended ${status ?? 'deleted'}, not UPDATE_COMPLETE.`)
     }
 }
