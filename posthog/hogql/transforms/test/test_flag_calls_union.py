@@ -1846,6 +1846,15 @@ class TestFlagCallsUnionRows(ClickhouseTestMixin, APIBaseTest):
                 PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
                 "negatedPersonFiltersNotIn",
             ),
+            param(
+                "negated_person_filters_under_person_id_pushdown",
+                f"SELECT distinct_id, event FROM events WHERE {MIXED} AND person.properties.email != 'r@x.com' "
+                "ORDER BY timestamp, distinct_id",
+                PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
+                "negatedPersonFiltersNotIn",
+                shared_modifiers={"personIdPushdown": True},
+                pushed_sql="where_optimization",
+            ),
             (
                 "session_id_pushdown",
                 f"SELECT distinct_id, event, session.$session_duration FROM events WHERE {MIXED} "
@@ -1862,15 +1871,24 @@ class TestFlagCallsUnionRows(ClickhouseTestMixin, APIBaseTest):
             ),
         ]
     )
-    def test_pushdown_does_not_change_the_rows(self, _name: str, query: str, poe: PersonsOnEventsMode, modifier: str):
+    def test_pushdown_does_not_change_the_rows(
+        self,
+        _name: str,
+        query: str,
+        poe: PersonsOnEventsMode,
+        modifier: str,
+        shared_modifiers: dict[str, Any] | None = None,
+        pushed_sql: str | None = None,
+    ):
         self.addCleanup(cleanup_materialized_columns)
         materialize("person", "email")
 
-        pushed = self._run(query, READ, poe, **{modifier: True}).results
-        flat = self._run(query, READ, poe, **{modifier: False}).results
+        pushed = self._run(query, READ, poe, **{**(shared_modifiers or {}), modifier: True})
+        flat = self._run(query, READ, poe, **{**(shared_modifiers or {}), modifier: False}).results
 
-        assert len(pushed) >= 2
-        assert sorted(map(str, pushed)) == sorted(map(str, flat))
+        assert len(pushed.results) >= 2
+        assert sorted(map(str, pushed.results)) == sorted(map(str, flat))
+        assert pushed_sql is None or pushed_sql in (pushed.clickhouse or "")
 
     @parameterized.expand(
         [
