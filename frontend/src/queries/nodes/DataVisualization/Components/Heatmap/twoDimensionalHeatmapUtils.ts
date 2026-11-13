@@ -32,6 +32,13 @@ export function getDistinctHeatmapLabels(values: unknown[], nullLabel: string): 
 const compareHeatmapLabels = (left: string, right: string): number =>
     left.localeCompare(right, undefined, { numeric: true, sensitivity: 'base' })
 
+export const sortHeatmapColumns = (columnLabels: string[], order?: HeatmapSortOrder): string[] =>
+    order
+        ? [...columnLabels].sort(
+              (left, right) => compareHeatmapLabels(left, right) * (order === HeatmapSortOrder.Asc ? 1 : -1)
+          )
+        : columnLabels
+
 const compareHeatmapValues = (
     left: number | null | undefined,
     right: number | null | undefined,

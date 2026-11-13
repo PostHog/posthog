@@ -33025,6 +33025,9 @@
                 "xAxisLabel": {
                     "type": "string"
                 },
+                "xAxisSortOrder": {
+                    "$ref": "#/definitions/HeatmapSortOrder"
+                },
                 "yAxisColumn": {
                     "type": "string"
                 },

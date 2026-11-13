@@ -6560,6 +6560,7 @@ class HeatmapSettings(BaseModel):
     valueColumn: str | None = None
     xAxisColumn: str | None = None
     xAxisLabel: str | None = None
+    xAxisSortOrder: HeatmapSortOrder | None = None
     yAxisColumn: str | None = None
     yAxisLabel: str | None = None
 

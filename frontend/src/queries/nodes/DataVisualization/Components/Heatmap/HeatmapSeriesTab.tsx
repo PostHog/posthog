@@ -13,7 +13,7 @@ import {
 
 import { getSeriesColorPalette } from 'lib/colors'
 
-import { HeatmapGradientStop, HeatmapSettings } from '~/queries/schema/schema-general'
+import { HeatmapGradientStop, HeatmapSettings, HeatmapSortOrder } from '~/queries/schema/schema-general'
 
 import { dataVisualizationLogic } from '../../dataVisualizationLogic'
 import { HEATMAP_GRADIENT_PRESETS, resolveGradientStops, sortGradientStops } from './heatmapUtils'
@@ -89,6 +89,19 @@ export const HeatmapSeriesTab = (): JSX.Element => {
                     options={columnOptions}
                     disabledReason={responseLoading ? 'Query loading...' : undefined}
                     onChange={(value) => updateHeatmapSettings({ xAxisColumn: value ?? undefined })}
+                />
+                <LemonLabel className="mt-2 mb-1">X-axis order</LemonLabel>
+                <LemonSelect
+                    className="w-full"
+                    value={heatmapSettings.xAxisSortOrder ?? 'query'}
+                    options={[
+                        { value: 'query', label: 'Query order' },
+                        { value: HeatmapSortOrder.Asc, label: 'Ascending' },
+                        { value: HeatmapSortOrder.Desc, label: 'Descending' },
+                    ]}
+                    onChange={(value) =>
+                        updateHeatmapSettings({ xAxisSortOrder: value === 'query' ? undefined : value })
+                    }
                 />
                 <LemonLabel className="mt-2 mb-1">X-axis label</LemonLabel>
                 <LemonInput
