@@ -5,8 +5,7 @@ import { urls } from 'scenes/urls'
 
 import { getNavProductPages, navProductHrefForPath } from '~/layout/panel-layout/navbar/tabs/navProductItems'
 import { splitPath } from '~/layout/panel-layout/ProjectTree/utils'
-import { pinKey } from '~/layout/today/sidebar/sidebarPinsLogic'
-import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-general'
+import { FileSystemImport } from '~/queries/schema/schema-general'
 
 export function monitorAreaEnabled(featureFlags: FeatureFlagsSet): boolean {
     return !!featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV] && !!featureFlags[FEATURE_FLAGS.MONITOR_AREA]
@@ -120,7 +119,7 @@ export function isErrorTrackingIssuePath(path: string): boolean {
 }
 
 // pinned: shortcut `type` values. Pins are saved with them, so renaming one drops everyone's pins of that type.
-const TODAY_MONITOR_RECENT_TYPES = ['error_tracking_issue', 'logs_view'] as const
+export const TODAY_MONITOR_RECENT_TYPES = ['error_tracking_issue', 'logs_view'] as const
 
 export type TodayMonitorRecentType = (typeof TODAY_MONITOR_RECENT_TYPES)[number]
 
@@ -128,10 +127,6 @@ export interface TodayMonitorRecent {
     type: TodayMonitorRecentType
     name: string
     href: string
-}
-
-export interface TodayMonitorPin extends TodayMonitorRecent {
-    key: string
 }
 
 /**
@@ -142,27 +137,4 @@ export const TODAY_MONITOR_RECENT_KEY = 'todayMonitorRecent'
 
 export function monitorRecentRowKey(href: string): string {
     return `recent:${href}`
-}
-
-function isMonitorRecentType(type: string | undefined): type is TodayMonitorRecentType {
-    return (TODAY_MONITOR_RECENT_TYPES as readonly (string | undefined)[]).includes(type)
-}
-
-export function monitorPinsFromShortcuts(shortcuts: FileSystemEntry[]): TodayMonitorPin[] {
-    const pins = new Map<string, TodayMonitorPin>()
-    for (const shortcut of shortcuts) {
-        if (!shortcut.href || !isMonitorRecentType(shortcut.type)) {
-            continue
-        }
-        const key = pinKey(shortcut.type, shortcut.href)
-        if (!pins.has(key)) {
-            pins.set(key, {
-                key,
-                type: shortcut.type,
-                name: splitPath(shortcut.path).at(-1) ?? shortcut.path,
-                href: shortcut.href,
-            })
-        }
-    }
-    return [...pins.values()]
 }

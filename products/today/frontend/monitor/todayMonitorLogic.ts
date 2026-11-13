@@ -9,17 +9,17 @@ import { sidebarPinsLogic } from '~/layout/today/sidebar/sidebarPinsLogic'
 import {
     MonitorProduct,
     MonitorProducts,
-    TodayMonitorPin,
     TodayMonitorRecent,
     monitorItems,
     monitorProductForPath,
     monitorRecentRowKey,
-    monitorPinsFromShortcuts,
 } from '~/layout/today/todayMonitor'
 import { todayMonitorRecentsLogic } from '~/layout/today/todayMonitorRecentsLogic'
 import { matchesPaneQuery } from '~/layout/today/todayPaneSearch'
 import { TODAY_USER_PERSIST_OPTIONS } from '~/layout/today/todayUserPersistOptions'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
+
+import { TodayMonitorPin, monitorPinsFromShortcuts } from './todayMonitorPins'
 
 // pinned: persisted section ids and the `section` property of `monitor section toggled`.
 export type TodayMonitorSection = 'pinned' | 'recents' | 'products'
