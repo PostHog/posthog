@@ -443,7 +443,19 @@ export class KafkaConsumerV2 {
         this.rdKafkaConsumer.setDefaultConsumeTimeout(0)
         try {
             while (batch.length > 0 && batch.length < this.fetchBatchSize && bytes < this.fetchBatchMaxBytes) {
-                const next = await this.consume(1)
+                let next: Message[]
+                try {
+                    next = await this.consume(1)
+                } catch (error) {
+                    // Native consume(n) also returns the messages it has collected and drops an error
+                    // that arrives after the first message.
+                    logger.warn('📝', 'kafka_consumer_v2_partial_batch_after_consume_error', {
+                        error: String(error),
+                        groupId: this.config.groupId,
+                        collected: batch.length,
+                    })
+                    break
+                }
                 if (next.length === 0) {
                     break
                 }
