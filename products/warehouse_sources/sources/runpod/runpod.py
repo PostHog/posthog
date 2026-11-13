@@ -111,8 +111,6 @@ def _fetch_json(
 
 def _rows_from(data: dict[str, Any], key: str, url: str) -> list[dict[str, Any]]:
     rows = data.get(key)
-    if rows is None:
-        return []
     if not isinstance(rows, list):
         raise ValueError(f"RunPod API returned a non-list `{key}` for url={url}")
     return rows
@@ -148,8 +146,8 @@ def _billing_row_id(record: dict[str, Any]) -> str:
     # v2 has no GPU type grouping, so that part is always None.
     parts = [record.get("time"), record.get("podId"), record.get("serverlessId"), None]
     # v1 network volume billing was one account-wide record per bucket; v2 is one per volume.
-    if record.get("networkVolumeId") is not None:
-        parts.append(record["networkVolumeId"])
+    if (volume_id := record.get("networkVolumeId")) is not None:
+        parts.append(volume_id)
     return _row_id(*parts)
 
 
@@ -262,12 +260,13 @@ def _iter_inventory_rows(
         url = _build_url(config.path, {"limit": INVENTORY_PAGE_SIZE, "cursor": cursor})
         data = _fetch_json(session, url, headers, logger)
         items = _rows_from(data, config.response_key, url)
+        pagination = data.get("pagination") or {}
+        del data
         if config.sensitive_keys:
             items = [_strip_sensitive_keys(item, config.sensitive_keys) for item in items]
         if items:
             yield items
 
-        pagination = data.get("pagination") or {}
         cursor = pagination.get("nextCursor")
         if not pagination.get("hasNextPage") or not cursor:
             break

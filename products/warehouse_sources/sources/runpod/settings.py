@@ -32,7 +32,6 @@ _TIME_INCREMENTAL_FIELD: list[IncrementalField] = [
 class RunPodEndpointConfig:
     name: str
     path: str
-    # The response key that holds the list of rows.
     response_key: str
     primary_keys: list[str]
     # Billing endpoints return time-bucketed usage records windowed by startTime/endTime, one record

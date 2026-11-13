@@ -203,7 +203,7 @@ class TestSampleCapture:
         # Endpoints whose responses carry user-configured env secrets are excluded from HTTP sample
         # capture — the env values have arbitrary names the name-based scrubbers can't redact — while
         # secret-free endpoints keep capture on for debugging fixtures.
-        result, _ = _collect([{}], endpoint)
+        result, _ = _collect([{runpod.RUNPOD_ENDPOINTS[endpoint].response_key: []}], endpoint)
 
         assert result.session_options[0].get("capture") is expected_capture
 
