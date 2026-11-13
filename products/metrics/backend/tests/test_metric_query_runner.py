@@ -1,8 +1,10 @@
 import re
+import json
 import struct
 import datetime as dt
 import threading
 from typing import Any
+from urllib.parse import parse_qs
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -1355,6 +1357,106 @@ class TestGroupBy(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual({s["labels"]["env"] for s in body["results"]}, expected_envs)
         self.assertEqual(body.get("omitted_empty_series"), omitted_empty)
         self.assertEqual(body.get("omitted_by_limit"), omitted_by_limit)
+
+    def _query_via_api(self, **options: Any) -> dict[str, Any]:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/metrics/query",
+            data={"query": {"metricName": "req", "aggregation": "sum", "groupBy": [{"key": "env"}], **options}},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        return response.json()
+
+    @parameterized.expand(
+        [
+            # The bucket at anchor-4m is still filling at that time, so the last complete one is anchor-5m.
+            ("last_bucket_has_samples", 4, {"prod": 2.0, "dev": 10.0}, 5),
+            ("last_bucket_is_empty", 3, {"prod": None, "dev": None}, None),
+        ]
+    )
+    def test_instant_builder_query_returns_the_last_complete_bucket(
+        self, _name: str, minutes_before: int, expected: dict[str, float | None], bucket_minutes_before: int | None
+    ) -> None:
+        body = self._query_via_api(
+            instant=True, interval="minute", time=(self.anchor - dt.timedelta(minutes=minutes_before)).isoformat()
+        )
+
+        by_env = {s["labels"]["env"]: s for s in body["results"]}
+        self.assertEqual({env: s["value"] for env, s in by_env.items()}, expected)
+        expected_time = (
+            None if bucket_minutes_before is None else self.anchor - dt.timedelta(minutes=bucket_minutes_before)
+        )
+        time = by_env["prod"]["time"]
+        self.assertEqual(time and dt.datetime.fromisoformat(time), expected_time)
+        self.assertNotIn("points", by_env["prod"])
+
+    def test_summary_builder_query_reduces_each_series(self) -> None:
+        body = self._query_via_api(
+            interval="minute",
+            dateFrom=(self.anchor - dt.timedelta(hours=1)).isoformat(),
+            dateTo=self.anchor.isoformat(),
+            output="summary",
+        )
+
+        by_env = {s["labels"]["env"]: s for s in body["results"]}
+        self.assertEqual(
+            {env: (s["last"], s["min"], s["max"], s["avg"]) for env, s in by_env.items()},
+            {"prod": (2.0, 1.0, 2.0, 1.5), "dev": (10.0, 0.0, 10.0, 5.0)},
+        )
+
+    def test_builder_query_links_to_the_metrics_viewer(self) -> None:
+        body = self._query_via_api(
+            filters=[{"key": "env", "op": "neq", "value": "staging"}],
+            dateFrom="-1h",
+            interval="minute",
+        )
+
+        params = parse_qs(body["url_params"])
+        self.assertEqual(
+            (params["activeTab"], params["dateFrom"], params["interval"]), (["viewer"], ["-1h"], ["minute"])
+        )
+        self.assertEqual(
+            json.loads(params["clauses"][0]),
+            [
+                {
+                    "name": "a",
+                    "metricName": "req",
+                    "aggregation": "sum",
+                    "groupBy": ["env"],
+                    "filterGroup": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {
+                                        "type": "metric_attribute",
+                                        "key": "env",
+                                        "value": ["staging"],
+                                        "operator": "is_not",
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                }
+            ],
+        )
+
+    @parameterized.expand(
+        [
+            ("non_auto_scope", {"metricName": "req", "groupBy": [{"key": "env", "scope": "resource"}]}),
+            ("empty_filter_value", {"metricName": "req", "filters": [{"key": "env", "op": "neq", "value": ""}]}),
+            ("uppercase_clause_name", {"clauses": [{"name": "A", "metricName": "req"}], "formula": "A * 2"}),
+        ]
+    )
+    def test_builder_query_the_viewer_cannot_show_links_to_the_viewer(self, _name: str, query: dict) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/metrics/query", data={"query": query}, content_type="application/json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(response.json()["url_params"], "activeTab=viewer")
 
     def test_series_cap_keeps_largest(self):
         with patch("products.metrics.backend.facade.api.MAX_SERIES_PER_CLAUSE", 1):
