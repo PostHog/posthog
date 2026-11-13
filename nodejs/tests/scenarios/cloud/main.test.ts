@@ -1262,6 +1262,21 @@ describe('cloud controller', () => {
             'reader above 1 ACU before T0',
         ],
         [
+            'a minute before T0 averaging above 1 ACU whose maximum CloudWatch left out',
+            {
+                readerAcu: [
+                    ...minutes(-3, -3, 1, 1),
+                    { minute: -2, avg: 1.3 },
+                    ...minutes(-1, -1, 1, 1),
+                    ...minutes(0, 0, 2.5, 1.4),
+                    ...minutes(1, 2, 8, 6),
+                ],
+            },
+            () => undefined,
+            'invalid',
+            'reader above 1 ACU before T0',
+        ],
+        [
             'no capacity before T0',
             { readerAcu: [...minutes(0, 0, 2.5, 1.4), ...minutes(1, 2, 8, 6)] },
             () => undefined,
@@ -1378,7 +1393,10 @@ describe('cloud controller', () => {
             ...p,
             admission: { ...p.admission, rates: { ...p.admission.rates, hostPerHour: 2 } },
         }))
-        const other = await fingerprintOf((p) => ({ ...p, pooler: { ...p.pooler, replicas: 3 } }))
+        const other = await fingerprintOf((p) => ({
+            ...p,
+            pooler: { ...p.pooler, settings: { ...p.pooler.settings, default_pool_size: 40 } },
+        }))
 
         expect(first).toMatch(/^[0-9a-f]{64}$/)
         expect(repriced).toBe(first)
@@ -1396,7 +1414,12 @@ describe('cloud controller', () => {
     })
 
     it.each<[string, Partial<FakeCloudOptions>, boolean, (fake: FakeCloud) => void]>([
-        ['Scenario runs refuses an invalid run', { outlives: ['AWS::EC2::Volume'] }, true, () => undefined],
+        [
+            'Scenario runs refuses the scorecard of an invalid run',
+            { outlives: ['AWS::EC2::Volume'] },
+            true,
+            () => undefined,
+        ],
         [
             'the bucket refuses the copy and no Scenario runs credentials are set',
             {},

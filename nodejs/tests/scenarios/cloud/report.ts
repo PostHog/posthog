@@ -146,7 +146,7 @@ async function keepEnhancedMonitoring(
 
 function judgeCapacity({ minutes }: Capacity, t0: number): { scalars: Record<string, number | null>; reason?: string } {
     const t0Minute = minuteOf(t0)
-    const maxima = minutes.flatMap(({ at, max }) => (max === undefined ? [] : [{ at, max }]))
+    const maxima = minutes.flatMap(({ at, avg, max = avg }) => (max === undefined ? [] : [{ at, max }]))
     const before = maxima.filter(({ at }) => at < t0Minute)
     const after = maxima.filter(({ at }) => at >= t0Minute)
     const peak = after.reduce<{ at: number; max: number } | undefined>(
@@ -194,17 +194,8 @@ function environmentOf(profile: CloudProfile, manifest: Manifest, runnerFingerpr
         runner_profile_hash: manifest.inputs['runner-profile.yaml'],
         deviations: DEVIATIONS,
     }
-    const { clusterParameterGroup, instanceParameterGroup } = profile.baseline
     const fingerprint = createHash('sha256')
-        .update(
-            JSON.stringify([
-                environment,
-                profile.pooler,
-                clusterParameterGroup,
-                instanceParameterGroup,
-                runnerFingerprint ?? null,
-            ])
-        )
+        .update(JSON.stringify([environment, profile.pooler, runnerFingerprint ?? null]))
         .digest('hex')
     return { ...environment, cloud_profile_hash: manifest.inputs['cloud-profile.yaml'], fingerprint }
 }

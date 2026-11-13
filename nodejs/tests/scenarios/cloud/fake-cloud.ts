@@ -44,7 +44,7 @@ type Card = {
     reportsDone: boolean
 }
 
-export type ReaderMinute = { minute: number; max: number; avg?: number }
+export type ReaderMinute = { minute: number; max?: number; avg?: number }
 
 type MetricQuery = {
     Id: string
