@@ -8,6 +8,7 @@ jest.mock('~/ingestion/pipelines/sessionreplay/sessions/metrics', () => ({
     SessionBatchMetrics: {
         observeKeystoreRedisLatency: jest.fn(),
         incrementKeystoreRedisWriteErrors: jest.fn(),
+        incrementKeystoreRedisReadErrors: jest.fn(),
     },
 }))
 
@@ -173,11 +174,24 @@ describe('RedisCachedKeyStore', () => {
             await expect(cachedKeyStore.getKey('session-123', 1)).rejects.toThrow('Get failed')
         })
 
-        it('should release Redis client even if get fails', async () => {
-            mockRedisClient.get.mockRejectedValue(new Error('Redis get failed'))
+        it.each([
+            ['get rejects', () => mockRedisClient.get.mockRejectedValue(new Error('Command timed out'))],
+            ['pool acquire rejects', () => mockRedisPool.acquire.mockRejectedValueOnce(new Error('acquire timeout'))],
+        ])('should return the delegate key when the cache read fails because %s', async (_, setup) => {
+            setup()
 
-            await expect(cachedKeyStore.getKey('session-123', 1)).rejects.toThrow('Redis get failed')
-            expect(mockRedisPool.release).toHaveBeenCalledWith(mockRedisClient)
+            const result = await cachedKeyStore.getKey('session-123', 1)
+
+            expect(result).toEqual(mockSessionKey)
+            expect(mockDelegate.getKey).toHaveBeenCalledWith('session-123', 1)
+        })
+
+        it('should release Redis client when get fails', async () => {
+            mockRedisClient.get.mockRejectedValue(new Error('Command timed out'))
+
+            await cachedKeyStore.getKey('session-123', 1)
+
+            expect(mockRedisPool.release).toHaveBeenCalledTimes(mockRedisPool.acquire.mock.calls.length)
         })
 
         it('should isolate cache entries by teamId', async () => {

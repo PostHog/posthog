@@ -92,7 +92,12 @@ export class RedisCachedKeyStore implements KeyStore {
     }
 
     async getKey(sessionId: string, teamId: number): Promise<SessionKey> {
-        const cached = await this.getCached(sessionId, teamId)
+        // The delegate holds every key and deletion, so a failed cache read (e.g. a command timeout) only costs a lookup.
+        const cached = await this.getCached(sessionId, teamId).catch((error) => {
+            SessionBatchMetrics.incrementKeystoreRedisReadErrors()
+            logger.warn('🔑', 'keystore_redis_cache_read_failed', { sessionId, teamId, error: serializeError(error) })
+            return null
+        })
         if (cached) {
             return cached
         }
