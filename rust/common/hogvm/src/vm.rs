@@ -10,6 +10,7 @@ use crate::{
     error::VmError,
     memory::{HeapReference, VmHeap},
     ops::Operation,
+    print::assert_repeats_fit,
     program::Token,
     state::{
         chunk_str, chunk_to_symbol, close_over_cells, closure_from_json, closure_to_json,
@@ -1334,6 +1335,7 @@ impl<'a> HogVM<'a> {
     }
 
     pub fn hog_to_json(&self, value: &HogValue) -> Result<JsonValue, VmError> {
+        assert_repeats_fit(&self.heap, value, MAX_JSON_SERDE_DEPTH)?;
         self.hog_to_json_impl(value, 0)
     }
 

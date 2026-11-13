@@ -177,6 +177,8 @@ impl ExecutionContext {
         self.ordered_globals = Some(globals);
     }
 
+    /// For a host that steps the VM itself and calls `HogVM::take_result`. `sync_execute` and the
+    /// resumable drivers drop the VM, so with this set they return null.
     pub fn with_raw_result(mut self) -> Self {
         self.raw_result = true;
         self

@@ -82,6 +82,28 @@ fn a_missing_key_under_an_ordered_global_reads_null() {
     assert_eq!(hogvm::sync_execute(&context, false).unwrap(), Value::Null);
 }
 
+// return [inputs.list.1, inputs.list.-1, inputs.list.3, inputs.list.<i64::MIN>]
+#[test]
+fn an_ordered_global_array_reads_by_index_from_either_end() {
+    let context = ExecutionContext::with_defaults(program(
+        r#"["_H", 1, 33, 1, 32, "list", 32, "inputs", 1, 3, 33, -1, 32, "list", 32, "inputs", 1, 3, 33, 3, 32, "list", 32, "inputs", 1, 3, 33, -9223372036854775808, 32, "list", 32, "inputs", 1, 3, 43, 4, 38]"#,
+    ))
+    .with_ordered_globals(OrderedJson::Object(vec![(
+        "inputs".into(),
+        OrderedJson::Object(vec![(
+            "list".into(),
+            OrderedJson::Array(vec![
+                OrderedJson::String(Arc::from("first")),
+                OrderedJson::String(Arc::from("last")),
+            ]),
+        )]),
+    )]));
+    assert_eq!(
+        hogvm::sync_execute(&context, false).unwrap(),
+        json!(["first", "last", null, null])
+    );
+}
+
 #[test]
 fn memory_bytes_counts_stack_strings_and_push_stack_answers_a_call() {
     // let s := concat('ab', 'cd'); return s

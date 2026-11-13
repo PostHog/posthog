@@ -84,7 +84,7 @@ impl VmHeap {
     }
 
     pub(crate) fn get(&self, ptr: HeapReference) -> Result<&HogLiteral, VmError> {
-        if self.inner.len() < ptr.idx {
+        if self.inner.len() <= ptr.idx {
             return Err(VmError::HeapIndexOutOfBounds);
         }
 
@@ -101,7 +101,7 @@ impl VmHeap {
     // us allocate more than the strict limit. We assert the limits in places we use get_mut,
     // by calling assert_can_allocate above
     pub(crate) fn get_mut(&mut self, ptr: HeapReference) -> Result<&mut HogLiteral, VmError> {
-        if self.inner.len() < ptr.idx {
+        if self.inner.len() <= ptr.idx {
             return Err(VmError::HeapIndexOutOfBounds);
         }
 

@@ -64,3 +64,38 @@ fn string_building_calls_refuse_results_past_the_heap_limit() {
         json!("1-2")
     );
 }
+
+// let a := {'x': 1}; for (let i := 0; i < 22; i := i + 1) { a := {'l': a, 'r': a} }
+// return length(<call>(a))
+fn shared_references(call: &str) -> String {
+    format!(
+        r#"["_H", 1, 32, "x", 33, 1, 42, 1, 33, 0, 33, 22, 36, 1, 15, 40, 21, 32, "l", 36, 0, 32, "r", 36, 0, 42, 2, 37, 0, 33, 1, 36, 1, 6, 37, 1, 39, -28, 35, 36, 0, 2, "{call}", 1, 2, "length", 1, 38]"#
+    )
+}
+// return length(concat(inputs.t, inputs.t, inputs.t))
+const CONCAT_SHARED: &str = r#"["_H", 1, 32, "t", 32, "inputs", 1, 2, 32, "t", 32, "inputs", 1, 2, 32, "t", 32, "inputs", 1, 2, 2, "concat", 3, 2, "length", 1, 38]"#;
+// return length(jsonStringify(inputs.tree))
+const STRINGIFY_TREE: &str =
+    r#"["_H", 1, 32, "tree", 32, "inputs", 1, 2, 2, "jsonStringify", 1, 2, "length", 1, 38]"#;
+
+#[test]
+fn printing_shared_references_stops_at_the_heap_limit() {
+    for call in ["jsonStringify", "toString", "concat"] {
+        let program = Program::new(serde_json::from_str(&shared_references(call)).unwrap());
+        let context = ExecutionContext::with_defaults(program.unwrap());
+        let failure = sync_execute(&context, false).unwrap_err();
+        assert!(
+            matches!(failure.error, VmError::OutOfResource(_)),
+            "{call}: {:?}",
+            failure.error
+        );
+    }
+    let big = json!({"inputs": {"t": "x".repeat(3 * 1024 * 1024)}});
+    let failure = sync_execute(&context(CONCAT_SHARED, big), false).unwrap_err();
+    assert!(matches!(failure.error, VmError::OutOfResource(_)));
+
+    let rows: Vec<Value> = (0..20_000).map(|i| json!({"k": i, "v": "text"})).collect();
+    let tree = json!({"inputs": {"tree": rows}});
+    let printed = sync_execute(&context(STRINGIFY_TREE, tree), false).unwrap();
+    assert!(printed.as_i64().unwrap() > 400_000, "{printed}");
+}

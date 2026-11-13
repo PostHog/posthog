@@ -148,7 +148,7 @@ pub fn get_json_nested<'h>(
                 let idx = match raw {
                     0 => return Ok(None),
                     r if r > 0 && r <= len => (r - 1) as usize,
-                    r if r < 0 && -r <= len => (len + r) as usize,
+                    r if r < 0 && r.unsigned_abs() <= len as u64 => (len + r) as usize,
                     _ => return Ok(None),
                 };
                 let Some(found) = values.get(idx) else {
@@ -189,7 +189,7 @@ pub fn get_ordered_nested<'h>(
                 let len = values.len() as i64;
                 let idx = match raw {
                     r if r > 0 && r <= len => (r - 1) as usize,
-                    r if r < 0 && -r <= len => (len + r) as usize,
+                    r if r < 0 && r.unsigned_abs() <= len as u64 => (len + r) as usize,
                     _ => return Ok(None),
                 };
                 &values[idx]

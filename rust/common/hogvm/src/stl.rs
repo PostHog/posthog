@@ -23,6 +23,7 @@ use crate::{
     construct_free_standing,
     error::VmError,
     memory::{HeapReference, VmHeap},
+    print::assert_repeats_fit,
     print_hog_string_output,
     program::Module,
     util::{get_json_nested, regex_extract, regex_match},
@@ -469,7 +470,10 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 let mut out = String::new();
                 for arg in &args {
                     if !matches!(arg.deref(&vm.heap)?, HogLiteral::Null) {
-                        out.push_str(&print_hog_string_output(&vm.heap, arg)?);
+                        let part = print_hog_string_output(&vm.heap, arg)?;
+                        vm.heap
+                            .assert_can_allocate(out.len().saturating_add(part.len()))?;
+                        out.push_str(&part);
                     }
                 }
                 Ok(HogLiteral::from(out).into())
@@ -556,6 +560,7 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                     !args.is_empty(),
                     "jsonStringify requires at least one argument",
                 )?;
+                assert_repeats_fit(&vm.heap, &args[0], MAX_JSON_SERDE_DEPTH)?;
                 let s = json_stringify(&vm.heap, &args[0], &mut Vec::new(), 0)?;
                 Ok(HogLiteral::from(s).into())
             }),
@@ -848,7 +853,7 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 } else {
                     usize::MAX
                 };
-                // JavaScript `split('')` gives one element per character and no empty ends.
+                // JavaScript `split('')` gives one element per UTF-16 unit, which would split a surrogate pair.
                 let pieces: Vec<&str> = if sep.is_empty() {
                     s.char_indices()
                         .map(|(i, c)| &s[i..i + c.len_utf8()])
