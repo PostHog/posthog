@@ -53,7 +53,7 @@ python manage.py run_aeo_citation_checks --team-id <id>
 
 ### Add and edit in the app
 
-The AI visibility page in Web analytics (`/web/content-autopilot`) has an Overview tab for the prompt-set summary and a Prompts tab to add prompts (one per line, with an optional topic), edit a prompt's text or topic, turn prompts on or off, and archive them.
+The AI visibility page in Web analytics (`/web/ai-visibility`) has an Overview tab for the prompt-set summary and a Prompts tab to add prompts (one per line, with an optional topic), edit a prompt's text or topic, turn prompts on or off, and archive them.
 Its Opportunities and Drafts tabs are content autopilot, which drafts pages for prompts where the engines did not cite the site.
 
 ### Suggested prompts
@@ -201,7 +201,7 @@ The AI visibility page has a Keywords tab with the list, the report and the modi
 
 ## Content autopilot
 
-Web analytics' Content autopilot (`/web/content-autopilot`, flag `web-analytics-content-autopilot`) reads this table through `list_citation_gaps` in `facade/api.py`. Each active prompt that an engine answered without citing a target domain becomes a content opportunity, and a person picks which ones to draft. Its Prompts tab opens with an overview of the last 30 days against the 30 days before (prompts tracked, checks run, mention and citation rates), the citation rate per engine per day, the mention rate per topic (a row filters the list to that topic), and the sites the engines cite most. Below it lists the prompt set with each prompt's latest result per engine, and a switch on each row turns the prompt on or off. A "Show archived" switch adds archived prompts to the list. Clicking a prompt opens its detail: its current version, citation rate per engine, a 30-day grid of results, the latest answer per engine, its versions when it has more than one, and the full check history with the version each check ran. The detail can archive and restore the prompt. Adding prompts or changing their text goes through the API or the MCP tools. Drafting and its review flow live in `products/web_analytics/backend/content_autopilot/`.
+Web analytics' Content autopilot (`/web/ai-visibility`, flag `web-analytics-content-autopilot`) reads this table through `list_citation_gaps` in `facade/api.py`. Each active prompt that an engine answered without citing a target domain becomes a content opportunity, and a person picks which ones to draft. Its Prompts tab opens with an overview of the last 30 days against the 30 days before (prompts tracked, checks run, mention and citation rates), the citation rate per engine per day, the mention rate per topic (a row filters the list to that topic), and the sites the engines cite most. Below it lists the prompt set with each prompt's latest result per engine, and a switch on each row turns the prompt on or off. A "Show archived" switch adds archived prompts to the list. Clicking a prompt opens its detail: its current version, citation rate per engine, a 30-day grid of results, the latest answer per engine, its versions when it has more than one, and the full check history with the version each check ran. The detail can archive and restore the prompt. Adding prompts or changing their text goes through the API or the MCP tools. Drafting and its review flow live in `products/web_analytics/backend/content_autopilot/`.
 
 ## Cost
 

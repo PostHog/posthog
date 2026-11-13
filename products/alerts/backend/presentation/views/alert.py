@@ -125,6 +125,7 @@ from products.alerts.backend.facade.destinations import (
     build_insight_alert_slack_config,
     count_active_alert_destinations,
     create_alert_destination_hog_functions,
+    log_destination_changes,
     soft_delete_alert_destinations,
     validate_destination_data,
 )
@@ -2613,6 +2614,14 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         except AlertDestinationValidationError as error:
             raise as_drf_validation_error(error)
 
+        log_destination_changes(
+            team_id=alert.team_id,
+            alert_id=alert.id,
+            actor_id=user.id,
+            was_impersonated=is_impersonated(request),
+            action="created",
+            destination_types=dict.fromkeys(hog_function_ids, data["type"]),
+        )
         posthoganalytics.capture(
             distinct_id=str(user.distinct_id),
             event="insight alert destination created",
@@ -2639,7 +2648,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         hog_function_ids = serializer.validated_data["hog_function_ids"]
 
         try:
-            soft_delete_alert_destinations(
+            removed = soft_delete_alert_destinations(
                 team_id=self.team_id,
                 alert_id=str(alert.id),
                 allowed_event_ids=INSIGHT_ALERT_DESTINATION_EVENT_IDS,
@@ -2647,6 +2656,15 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
         except AlertDestinationValidationError as error:
             raise as_drf_validation_error(error)
+
+        log_destination_changes(
+            team_id=alert.team_id,
+            alert_id=alert.id,
+            actor_id=request.user.id,
+            was_impersonated=is_impersonated(request),
+            action="deleted",
+            destination_types=removed,
+        )
 
         posthoganalytics.capture(
             distinct_id=str(request.user.distinct_id),
