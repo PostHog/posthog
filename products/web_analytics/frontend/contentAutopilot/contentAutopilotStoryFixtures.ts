@@ -1,5 +1,6 @@
 import type {
     AEOBrandApi,
+    AEOEngineSettingApi,
     AEOKeywordApi,
     AEOKeywordModifierReportApi,
     AEOKeywordReportApi,
@@ -1036,3 +1037,12 @@ export const EXAMPLE_KEYWORD_MODIFIERS: AEOKeywordModifierReportApi = {
         },
     ],
 }
+
+export const EXAMPLE_ENGINE_SETTINGS: AEOEngineSettingApi[] = [
+    { engine: 'claude-web-search', mode: 'web_search', available: true, enabled: true, frequency: 'daily' },
+    { engine: 'openai-web-search', mode: 'web_search', available: true, enabled: true, frequency: 'daily' },
+    { engine: 'perplexity-web-search', mode: 'web_search', available: false, enabled: true, frequency: 'daily' },
+    { engine: 'exa-answer', mode: 'web_search', available: true, enabled: false, frequency: 'daily' },
+    { engine: 'claude-no-search', mode: 'no_search', available: true, enabled: true, frequency: 'weekly' },
+    { engine: 'openai-no-search', mode: 'no_search', available: true, enabled: false, frequency: 'daily' },
+]
