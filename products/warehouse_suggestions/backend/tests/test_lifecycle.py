@@ -36,6 +36,7 @@ from products.warehouse_suggestions.backend.logic.candidates.registry import CAN
 from products.warehouse_suggestions.backend.logic.job import WaitingSuggestions, surface_more, waiting_suggestions
 from products.warehouse_suggestions.backend.logic.lifecycle import _pick_in_turns, apply_run
 from products.warehouse_suggestions.backend.logic.reads import SubjectReads, SubjectRefreshes
+from products.warehouse_suggestions.backend.logic.rules import RULES
 from products.warehouse_suggestions.backend.logic.suggestions import transition_to
 from products.warehouse_suggestions.backend.models import WarehouseSuggestion, WarehouseSuggestionTeamConfig
 from products.warehouse_suggestions.backend.tests.factories import busy_reads, context, team_reads, view, view_subject
@@ -46,6 +47,9 @@ NOTIFY = "products.warehouse_suggestions.backend.logic.assignment.create_notific
 FLAG = "products.warehouse_suggestions.backend.logic.assignment.is_warehouse_suggestions_enabled"
 CAN_TAKE = "products.warehouse_suggestions.backend.logic.assignment.can_take"
 NOW = datetime(2026, 10, 7, 9, tzinfo=UTC)
+SURFACING_RULES = replace(
+    RULES, lifecycle=replace(RULES.lifecycle, max_surfaced_per_day=5, max_open=15, max_open_per_kind=3)
+)
 READ_COST_BEFORE = {"read_seconds_per_month": 5000.0, "read_bytes_per_month": 5e12, "human_reads_per_month": 200.0}
 REFRESH_COST_BEFORE = {"refresh_seconds_per_month": 5000.0, "refresh_bytes_per_month": 5e12}
 READS_NOW = busy_reads(
@@ -93,6 +97,7 @@ class TestApplyRun(BaseTest):
             team_reads({}, recent_days_with_data=recent_days_with_data),
             views=[view(view_id, materializes=True) for view_id in view_ids],
             team_id=self.team.pk,
+            rules=SURFACING_RULES,
         )
 
     def _draft(
@@ -618,7 +623,12 @@ class TestSurfaceMore(BaseTest):
             )
             for index in range(sum(counts.values()))
         ]
-        ctx = context(team_reads({}), views=[view(saved_query.id) for saved_query in views], team_id=self.team.pk)
+        ctx = context(
+            team_reads({}),
+            views=[view(saved_query.id) for saved_query in views],
+            team_id=self.team.pk,
+            rules=SURFACING_RULES,
+        )
         view_ids = iter(saved_query.id for saved_query in views)
         drafts = [
             CANDIDATES[kind].draft(ctx, view_subject(next(view_ids)), PAYLOADS[kind], score=1, score_inputs={})
@@ -647,7 +657,7 @@ class TestSurfaceMore(BaseTest):
         self.notify.reset_mock()
 
         with self.captureOnCommitCallbacks(execute=True):
-            surfaced = surface_more(self.team, surface_q(surface), now=NOW + timedelta(hours=1))
+            surfaced = surface_more(self.team, surface_q(surface), now=NOW + timedelta(hours=1), rules=SURFACING_RULES)
 
         assert (Counter(row.kind for row in surfaced), {row.assignee_id for row in surfaced}, self.notify.called) == (
             expected,
@@ -671,9 +681,12 @@ class TestSurfaceMore(BaseTest):
         WarehouseSuggestionTeamConfig.objects.filter(team=self.team).update(**config)
         waiting = surface_q(WarehouseSuggestionSurface.MODELS)
 
-        surfaced = surface_more(self.team, waiting, now=NOW + timedelta(hours=1))
+        surfaced = surface_more(self.team, waiting, now=NOW + timedelta(hours=1), rules=SURFACING_RULES)
 
-        assert (surfaced, waiting_suggestions(self.team.pk, waiting, now=NOW + timedelta(hours=1))) == (
+        assert (
+            surfaced,
+            waiting_suggestions(self.team.pk, waiting, now=NOW + timedelta(hours=1), rules=SURFACING_RULES),
+        ) == (
             [],
             WaitingSuggestions(count=0, can_show_more=False),
         )
@@ -682,7 +695,10 @@ class TestSurfaceMore(BaseTest):
         self._seed({WarehouseSuggestionKind.MATERIALIZE: 4})
 
         waiting = waiting_suggestions(
-            self.team.pk, surface_q(WarehouseSuggestionSurface.MODELS), now=NOW + timedelta(hours=1)
+            self.team.pk,
+            surface_q(WarehouseSuggestionSurface.MODELS),
+            now=NOW + timedelta(hours=1),
+            rules=SURFACING_RULES,
         )
 
         assert waiting == WaitingSuggestions(count=1, can_show_more=False)
@@ -691,7 +707,7 @@ class TestSurfaceMore(BaseTest):
         ctx, drafts = self._seed(
             {WarehouseSuggestionKind.CERTIFY: 6, WarehouseSuggestionKind.MATERIALIZE: 6}, surface=False
         )
-        surface_more(self.team, surface_q(WarehouseSuggestionSurface.MODELS), now=NOW)
+        surface_more(self.team, surface_q(WarehouseSuggestionSurface.MODELS), now=NOW, rules=SURFACING_RULES)
         self._close_surfaced()
 
         daily = apply_run(ctx, self.team, drafts, NOW + timedelta(hours=1), surface=True)

@@ -282,6 +282,7 @@ describe('DashboardItems', () => {
                     updateContainerWidth: mockUpdateContainerWidth,
                     updateTileColor: jest.fn(),
                     toggleTileDescription: jest.fn(),
+                    updateTileDisplayOptions: jest.fn(),
                     removeTile: mockRemoveTile,
                     duplicateTile: jest.fn(),
                     refreshDashboardItem: jest.fn(),

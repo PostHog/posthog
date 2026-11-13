@@ -7783,6 +7783,45 @@ describe("AgentServer HTTP Mode", () => {
       },
     );
 
+    it.each([
+      {
+        mrUrl: undefined,
+        expected: [
+          "git push -u origin <branch>",
+          ".gitlab/merge_request_templates/",
+        ],
+      },
+      {
+        mrUrl: "https://gitlab.com/acme/platform/api/-/merge_requests/7",
+        expected: [
+          'operation "view"',
+          "git remote set-branches --add origin <branch>",
+          "git fetch origin +refs/heads/<branch>:refs/remotes/origin/<branch>",
+          "git checkout -b <branch> --track origin/<branch>",
+        ],
+      },
+    ])(
+      "gives GitLab instructions instead of GitHub ones for a GitLab auto-publish run (mr=$mrUrl)",
+      async ({ mrUrl, expected }) => {
+        vi.stubEnv("POSTHOG_GIT_PROVIDER", "gitlab");
+        vi.stubEnv("POSTHOG_CODE_INTERACTION_ORIGIN", "slack");
+        const s = createServer();
+        await openProduct(s, "slack");
+
+        const prompt = (s as unknown as TestableServer).buildCloudSystemPrompt(
+          mrUrl,
+        );
+
+        expect(prompt).toContain("gitlab_merge_request");
+        for (const text of expected) {
+          expect(prompt).toContain(text);
+        }
+        for (const githubOnly of ["git_signed_commit", "gh pr", "gh_stack"]) {
+          expect(prompt).not.toContain(githubOnly);
+        }
+      },
+    );
+
     it("returns auto-PR prompt for Slack-origin runs", async () => {
       process.env.POSTHOG_CODE_INTERACTION_ORIGIN = "slack";
       const s = createServer();
