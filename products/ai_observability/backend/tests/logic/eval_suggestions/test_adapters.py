@@ -302,6 +302,17 @@ class TestAdaptedChecks:
                 ],
                 True,
             ),
+            (
+                "too_many_addresses_to_check",
+                adapters.sensitive_data(),
+                [
+                    _answer(
+                        " ".join(["jane.doe@acme.io"] * 50) + " leak@acme.io",
+                        **{"$ai_input": [{"role": "user", "content": "Find jane.doe@acme.io"}]},
+                    )
+                ],
+                None,
+            ),
             ("number_input", adapters.sensitive_data(), [_answer("Ask jane.doe@acme.io", **{"$ai_input": 42})], False),
             ("empty_input", adapters.sensitive_data(), [_answer("Ask jane.doe@acme.io", **{"$ai_input": []})], False),
             (

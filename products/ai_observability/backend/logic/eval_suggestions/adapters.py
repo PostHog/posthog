@@ -277,7 +277,7 @@ if (match(final_text, '(^|[^A-Za-z0-9_-])(sk-[A-Za-z0-9_-]{{20,}}|AKIA[0-9A-Z]{{
 fun addresses_in(text) {{
     let found := []
     let rest := text
-    let remaining := 20
+    let remaining := 50
     while (remaining > 0) {{
         remaining := remaining - 1
         let email := extractRegex(rest, '[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:[.][A-Za-z0-9-]+)*[.][A-Za-z]{{2,}}')
@@ -327,7 +327,13 @@ if (typeof(latest) == 'string') {{
         given := addresses_in(user_text)
     }}
 }}
-for (let i, address in addresses_in(final_text)) {{
+let answered := addresses_in(final_text)
+// The scan stops at 50 addresses, so an answer with more cannot be cleared.
+if (length(answered) >= 50) {{
+    print('Too many email addresses in the final message to check')
+    return null
+}}
+for (let i, address in answered) {{
     let domain := splitByString('@', address)[2]
     let automated := position(address, 'noreply') > 0 or position(address, 'no-reply') > 0
     if (not has(ignored_domains, domain) and not automated and not has(given, address)) {{
