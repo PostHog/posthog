@@ -836,16 +836,29 @@ describe('EmailService', () => {
                 message: 'Service unavailable',
             }
 
-            it.each<[string, () => EmailService]>([
+            it.each<[string, () => EmailService, Record<string, unknown>]>([
                 [
                     'answers 503',
                     () => {
                         ses.failWith(unavailable)
                         return service
                     },
+                    {},
                 ],
-                ['refuses the connection', () => createService({ sesEndpoint: 'http://127.0.0.1:1' })],
-            ])('reschedules the email when SES %s, and sends it once SES is back', async (_name, outage) => {
+                ['refuses the connection', () => createService({ sesEndpoint: 'http://127.0.0.1:1' }), {}],
+                [
+                    'answers 503 to a workflow with a sending rate limit',
+                    () => {
+                        ses.failWith(unavailable)
+                        invocation.hogFunction.metadata = { email_sending_rate_limit: { count: 1, period: 'hour' } }
+                        return createService(
+                            {},
+                            { workflowEmailRateLimiter: createRateLimiter('ses-outage-rate-test') }
+                        )
+                    },
+                    { workflowRateClaimed: expect.any(String) },
+                ],
+            ])('reschedules the email when SES %s, and sends it once SES is back', async (_name, outage, claims) => {
                 const now = Date.now()
                 const result = await outage().executeSendEmail(invocation)
 
@@ -854,6 +867,7 @@ describe('EmailService', () => {
                 expect(result.invocation.queueMetadata).toEqual({
                     ...invocation.queueMetadata,
                     sesUnavailableRetries: 1,
+                    ...claims,
                 })
                 expect(result.invocation.queueScheduledAt!.toMillis()).toBeGreaterThanOrEqual(now + 2_000)
 
@@ -869,6 +883,11 @@ describe('EmailService', () => {
                 ['SES stays down past the last retry', { sesUnavailableRetries: 10 }, unavailable],
                 ['the connection drops after the request went out, so SES may have taken it', {}, 'drop-connection'],
                 ['a dropped connection comes before SDK retries that get 503', {}, ['drop-connection', unavailable]],
+                [
+                    'a gateway timeout, which may come after SES took the email, comes before SDK retries that get 503',
+                    {},
+                    [{ status: 504, type: 'GatewayTimeout', message: 'Gateway timeout' }, unavailable],
+                ],
             ])('fails the email when %s', async (_name, metadata, fault) => {
                 invocation.queueMetadata = { ...invocation.queueMetadata, ...metadata }
                 ses.failWith(fault)

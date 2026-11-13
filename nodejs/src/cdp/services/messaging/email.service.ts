@@ -235,10 +235,9 @@ const FIRST_STEP_AFTER_SIGNING = 'deserialize'
 
 const BENEATH_THE_DESERIALIZER = 'low'
 
-const sesRefused = (response: unknown): boolean => {
-    const statusCode = (response as { statusCode?: number } | undefined)?.statusCode
-    return statusCode !== undefined && (statusCode < 200 || statusCode >= 300)
-}
+// A gateway 502 or 504 can come after SES took the request, so it does not count as refused.
+const sesRefused = (statusCode: number | undefined): boolean =>
+    statusCode !== undefined && (statusCode < 200 || statusCode >= 300) && statusCode !== 502 && statusCode !== 504
 
 // Each of these fails before a connection exists, so SES never saw the request.
 const SES_UNREACHED_ERROR_CODES = ['ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN']
@@ -261,9 +260,9 @@ function trackSesAttempts(command: SendEmailCommand): SesAttempts {
                 }
                 throw error
             })
-            lastAttemptFoundSesUnavailable =
-                ((httpAnswer.response as { statusCode?: number } | undefined)?.statusCode ?? 0) >= 500
-            if (sesRefused(httpAnswer.response)) {
+            const statusCode = (httpAnswer.response as { statusCode?: number } | undefined)?.statusCode
+            lastAttemptFoundSesUnavailable = statusCode === 503
+            if (sesRefused(statusCode)) {
                 attemptsSesMayHaveAccepted--
             }
             return httpAnswer
@@ -727,6 +726,10 @@ export class EmailService {
         let failureReason: EmailStatusReason = 'provider_error'
         let messageId: string | undefined
         let teamBudgetCharged = false
+        const sendStep = invocation.state.actionId
+            ? `${invocation.state.actionId}:${invocation.state.actionStepCount ?? 0}`
+            : invocation.id
+        let workflowRateClaimed = invocation.queueMetadata?.workflowRateClaimed === sendStep
 
         try {
             // Team-level kill switches: staff suspend all workflow email for a team whose sender
@@ -907,10 +910,6 @@ export class EmailService {
             // limiter's Valkey is down claimUpTo returns 0, so sends wait (never drop) until it
             // recovers — same fail-closed stance as the global SES gate.
             const workflowRateLimit = parseWorkflowEmailRateLimit(invocation.hogFunction.metadata)
-            const sendStep = invocation.state.actionId
-                ? `${invocation.state.actionId}:${invocation.state.actionStepCount ?? 0}`
-                : invocation.id
-            let workflowRateClaimed = invocation.queueMetadata?.workflowRateClaimed === sendStep
             if (workflowRateLimit && this.workflowEmailRateLimiter && !isTest && !workflowRateClaimed) {
                 const periodSeconds = workflowRateLimit.period === 'minute' ? 60 : 3600
                 const refillPerSecond = workflowRateLimit.count / periodSeconds
@@ -1118,6 +1117,7 @@ export class EmailService {
                     ...invocation.queueMetadata,
                     sesUnavailableRetries: retries,
                     ...(teamBudgetCharged ? { teamBudgetClaimed: true } : {}),
+                    ...(workflowRateClaimed ? { workflowRateClaimed: sendStep } : {}),
                 }
                 result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: retryDelayMs })
                 addLog(
