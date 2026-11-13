@@ -9,7 +9,10 @@ from posthog.kafka_client.routing import get_producer
 from posthog.kafka_client.topics import KAFKA_NOTIFICATION_EVENTS
 from posthog.models import Organization, Team, User
 
-from products.access_control.backend.facade.user_access_control import ACCESS_CHECKABLE_RESOURCES
+from products.access_control.backend.facade.user_access_control import (
+    ACCESS_CONTROL_RESOURCES,
+    RESOURCE_INHERITANCE_MAP,
+)
 from products.notifications.backend.cache import invalidate_unread_count_for_users
 from products.notifications.backend.facade.contracts import NotificationData
 from products.notifications.backend.facade.enums import (
@@ -22,6 +25,10 @@ from products.notifications.backend.models import NotificationEvent
 from products.notifications.backend.resolvers import RecipientsResolver
 
 logger = structlog.get_logger(__name__)
+
+# Resource types whose access control decides who may see a notification. An inherited type such as
+# `inbox` has no rules of its own, and the access check resolves it to its parent (`task`).
+ACCESS_CHECKED_RESOURCE_TYPES: frozenset[str] = frozenset({*ACCESS_CONTROL_RESOURCES, *RESOURCE_INHERITANCE_MAP})
 
 
 def _publish_to_kafka(event: NotificationEvent) -> None:
@@ -155,7 +162,7 @@ def publish_resources_edited(
 
     resolver = RecipientsResolver()
     recipient_user_ids = resolver.resolve(TargetType.TEAM, str(team.id), team.id)
-    if ac_resource_type and ac_resource_type in ACCESS_CHECKABLE_RESOURCES:
+    if ac_resource_type and ac_resource_type in ACCESS_CHECKED_RESOURCE_TYPES:
         recipient_user_ids = resolver.filter_by_access_control(recipient_user_ids, ac_resource_type, team)
 
     if not recipient_user_ids:
@@ -227,7 +234,7 @@ def create_notification(data: NotificationData) -> NotificationEvent | None:
     if team is not None:
         resolved_user_ids = _filter_by_project_access(resolved_user_ids, team)
 
-    if team is not None and data.resource_type and str(data.resource_type) in ACCESS_CHECKABLE_RESOURCES:
+    if team is not None and data.resource_type and str(data.resource_type) in ACCESS_CHECKED_RESOURCE_TYPES:
         resolved_user_ids = resolver.filter_by_access_control(resolved_user_ids, str(data.resource_type), team)
 
     # Per-user pref filter must run AFTER AC — prefs cannot override access denials.
