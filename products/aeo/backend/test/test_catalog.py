@@ -233,13 +233,13 @@ class TestSyncBrandsFromRun(BaseTest):
 
 
 class TestListDomainsAcrossTeams(BaseTest):
-    def test_lists_brand_domains_and_recently_cited_hosts_from_every_team(self) -> None:
+    def test_lists_brand_domains_and_recently_cited_hosts_from_every_team_most_cited_first(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="other aeo team")
         create_own_brand(self.team, "example.com")
         create_brand(other_team, "rival")
         cited = {
             create_citation_check(self.team, "recent"): (["docs.example.com", "www.g2.com"], 1),
-            create_citation_check(other_team, "other"): (["news.example.net", ""], 2),
+            create_citation_check(other_team, "other"): (["news.example.net", "www.g2.com", ""], 2),
             create_citation_check(self.team, "old"): (["old.example.org"], 31),
         }
         for check_id, (hosts, days_ago) in cited.items():
@@ -249,4 +249,4 @@ class TestListDomainsAcrossTeams(BaseTest):
 
         domains = list_domains_across_teams(cited_since=timezone.now() - dt.timedelta(days=30))
 
-        assert domains == {"example.com", "rival.example.com", "docs.example.com", "www.g2.com", "news.example.net"}
+        assert domains == ["www.g2.com", "docs.example.com", "news.example.net", "example.com", "rival.example.com"]
