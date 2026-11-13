@@ -251,6 +251,60 @@ def _forward_through_connection(
     return ForwardResult(status=res.status_code, data=body)
 
 
+def _connection_scoped_team_ids(integration: IntegrationRecord) -> list[int] | None:
+    """The projects the connection's token is limited to, read by having the target introspect the
+    token itself. Self-introspection needs no extra scope. Returns None when the answer can't be
+    read, so the caller falls back to the user's current project there."""
+    token = _connection_access_token(integration)
+    base = posthog_connect_base_url(integration.config.get("region"))
+    try:
+        res = requests.request(
+            "POST",
+            f"{base}/oauth/introspect/",
+            data={"token": token},
+            headers={"Authorization": f"Bearer {token}", CONNECTION_MARKER_HEADER: "1"},
+            timeout=CONNECTION_FORWARD_TIMEOUT_SECONDS,
+            allow_redirects=False,
+        )
+        body = res.json() if res.status_code == status.HTTP_200_OK else None
+    except (requests.RequestException, ValueError):
+        return None
+    if not isinstance(body, dict) or not body.get("active"):
+        return None
+    scoped = body.get("scoped_teams")
+    if not isinstance(scoped, list) or not all(type(team_id) is int for team_id in scoped):
+        return None
+    return scoped
+
+
+def _lookup_connected_team(
+    integration: IntegrationRecord, team_id: int, me: dict[str, Any]
+) -> tuple[dict[str, Any], dict[str, Any]] | None:
+    """Find the name and organization of a project on the far side that is not the user's current
+    one. The current organization's team list is free, as `api/users/@me/` already returned it. A
+    project in another organization needs one more read, which the connection's scopes may not
+    allow."""
+    organization = me.get("organization") or {}
+    for team in organization.get("teams") or []:
+        if isinstance(team, dict) and team.get("id") == team_id:
+            return team, organization
+
+    result = _forward_through_connection(integration, "GET", f"api/projects/{team_id}/")
+    project = result.data if isinstance(result.data, dict) else {}
+    if result.status != status.HTTP_200_OK or project.get("id") != team_id:
+        return None
+    organization_id = str(project.get("organization") or "")
+    organization_name = next(
+        (
+            org.get("name") or ""
+            for org in me.get("organizations") or []
+            if isinstance(org, dict) and str(org.get("id")) == organization_id
+        ),
+        "",
+    )
+    return project, {"id": organization_id, "name": organization_name}
+
+
 class PostHogConnectionForwardSerializer(serializers.Serializer):
     method = serializers.ChoiceField(
         choices=list(_ALLOWED_METHODS), help_text="HTTP method to use against the target project's API."
@@ -365,7 +419,9 @@ class PostHogConnectionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def target(self, request: Request, pk: str | None = None, **kwargs: Any) -> Response:
         integration = self._authorized_connection(request, pk)
 
-        cache_key = f"posthog_connection_target:{integration.id}"
+        # A reconnect writes a new `refreshed_at` (a token refresh does too), so a new consent gets a new
+        # key and takes effect at once instead of after the cache expires.
+        cache_key = f"posthog_connection_target:{integration.id}:{integration.config.get('refreshed_at')}"
         try:
             cached = cache.get(cache_key)
         except Exception:
@@ -383,13 +439,37 @@ class PostHogConnectionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 status=status.HTTP_502_BAD_GATEWAY,
             )
 
+        # `api/users/@me/` reports the user's current project on the far side. The project picked at
+        # consent can be a different one, and the token works only there.
+        base_url = posthog_connect_base_url(integration.config.get("region"))
+        scoped_team_ids = _connection_scoped_team_ids(integration)
+        if scoped_team_ids and team["id"] not in scoped_team_ids:
+            if len(scoped_team_ids) > 1:
+                return Response(
+                    {
+                        "error": "This connection can use several projects, and your current project there is "
+                        f"not one of them. In {base_url}, switch to the project you want, then try again."
+                    },
+                    status=status.HTTP_502_BAD_GATEWAY,
+                )
+            found = _lookup_connected_team(integration, scoped_team_ids[0], me)
+            if found is None:
+                return Response(
+                    {
+                        "error": f"This connection can use only project {scoped_team_ids[0]}, and its details "
+                        f"could not be read. In {base_url}, switch to project {scoped_team_ids[0]}, then try again."
+                    },
+                    status=status.HTTP_502_BAD_GATEWAY,
+                )
+            team, organization = found
+
         payload = {
             "project_id": team["id"],
             "project_name": team.get("name") or "",
             "organization_id": str(organization.get("id") or ""),
             "organization_name": organization.get("name") or "",
             "region": (integration.config.get("region") or "").upper(),
-            "base_url": posthog_connect_base_url(integration.config.get("region")),
+            "base_url": base_url,
         }
         try:
             cache.set(cache_key, payload, timeout=CONNECTION_TARGET_CACHE_SECONDS)
