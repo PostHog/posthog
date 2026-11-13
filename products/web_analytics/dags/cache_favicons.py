@@ -229,7 +229,7 @@ def cache_aeo_domain_favicons(
         context.log.info(f"Found {len(previously_cached)} previously cached domains.")
 
     favicons, all_cached_domains, skipped_count = _download_and_cache_favicons(
-        context, s3, sorted(aeo_domains), previously_cached
+        context, s3, aeo_domains, previously_cached
     )
 
     context.log.info(f"Successfully cached {len(favicons)} new favicons, skipped {skipped_count} already cached.")
