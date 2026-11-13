@@ -6,6 +6,7 @@
   topic registry so ids stay stable; new topics get labels; the week is then re-assigned.
 """
 
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
@@ -17,6 +18,8 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
 
 from products.mcp_analytics.backend.facade.contracts import IntentGenerationUnavailable
@@ -51,11 +54,17 @@ class RunOutcome:
     error_message: str = ""
 
 
+def _query_tags(team: Team):  # noqa: ANN202
+    """Every ClickHouse read and write of a run carries the product tags, as the query runners do."""
+    return tags_context(product=Product.MCP_ANALYTICS, feature=Feature.QUERY, team_id=team.pk, kind="temporal")
+
+
 def _run_id(kind: str, now: datetime) -> str:
-    return f"{kind}-{now.strftime('%Y%m%dT%H%M%S')}"
+    # A retry of the same window must get a fresh id: (team, run_id) is unique in Postgres.
+    return f"{kind}-{now.strftime('%Y%m%dT%H%M%S')}-{uuid.uuid4().hex[:6]}"
 
 
-def run_sync(team: Team, *, window_start: datetime, window_end: datetime) -> RunOutcome:
+def _run_sync(team: Team, *, window_start: datetime, window_end: datetime) -> RunOutcome:
     run = persist.start_run(
         team, kind=Kind.SYNC, run_id=_run_id(Kind.SYNC, window_end), window_start=window_start, window_end=window_end
     )
@@ -83,7 +92,7 @@ WHERE run_id = {run_id}
 """
 
 
-def run_assign(team: Team, *, window_start: datetime, window_end: datetime) -> RunOutcome:
+def _run_assign(team: Team, *, window_start: datetime, window_end: datetime) -> RunOutcome:
     run = persist.start_run(
         team,
         kind=Kind.ASSIGN,
@@ -180,7 +189,7 @@ def _sample_texts_by_cluster(
     return texts
 
 
-def run_refit(
+def _run_refit(
     team: Team, *, now: datetime, lookback_days: int = FIT_LOOKBACK_DAYS, sample_size: int = FIT_SAMPLE_SIZE
 ) -> RunOutcome:
     window_start = now - timedelta(days=lookback_days)
@@ -247,3 +256,20 @@ def run_refit(
         n_topics=len(persisted.topic_ids_by_cluster),
         n_outliers=n_outliers,
     )
+
+
+def run_sync(team: Team, *, window_start: datetime, window_end: datetime) -> RunOutcome:
+    with team_scope(team.pk), _query_tags(team):
+        return _run_sync(team, window_start=window_start, window_end=window_end)
+
+
+def run_assign(team: Team, *, window_start: datetime, window_end: datetime) -> RunOutcome:
+    with team_scope(team.pk), _query_tags(team):
+        return _run_assign(team, window_start=window_start, window_end=window_end)
+
+
+def run_refit(
+    team: Team, *, now: datetime, lookback_days: int = FIT_LOOKBACK_DAYS, sample_size: int = FIT_SAMPLE_SIZE
+) -> RunOutcome:
+    with team_scope(team.pk), _query_tags(team):
+        return _run_refit(team, now=now, lookback_days=lookback_days, sample_size=sample_size)
