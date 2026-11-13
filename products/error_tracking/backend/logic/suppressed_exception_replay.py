@@ -14,7 +14,7 @@ from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime
 from typing import Any, Literal, cast
 
-from confluent_kafka import Consumer, Message, Producer, TopicPartition
+from confluent_kafka import TIMESTAMP_NOT_AVAILABLE, Consumer, KafkaException, Message, Producer, TopicPartition
 
 from posthog.dataclasses import frozen
 from posthog.settings.kafka import KafkaProfileSettings
@@ -37,6 +37,9 @@ class ReplayWindow:
             raise ValueError("The replay window needs timezone-aware timestamps.")
         if self.start >= self.end:
             raise ValueError("The replay window start must be before its end.")
+
+    def contains(self, timestamp_ms: int) -> bool:
+        return self.start.timestamp() * 1000 <= timestamp_ms < self.end.timestamp() * 1000
 
 
 @frozen
@@ -67,6 +70,7 @@ class PartitionRange:
 @frozen
 class ReplayResult:
     scanned: int
+    out_of_window: int
     replayed: int
     unparseable: int
     errors: int
@@ -79,6 +83,7 @@ class _RunProgress:
 
     remaining: dict[int, PartitionRange]
     scanned: int = 0
+    out_of_window: int = 0
     replayed: int = 0
     unparseable: int = 0
     errors: int = 0
@@ -86,6 +91,7 @@ class _RunProgress:
     def result(self, *, complete: bool) -> ReplayResult:
         return ReplayResult(
             scanned=self.scanned,
+            out_of_window=self.out_of_window,
             replayed=self.replayed,
             unparseable=self.unparseable,
             errors=self.errors,
@@ -299,9 +305,11 @@ class SuppressedExceptionReplayer:
             raise ValueError(f"Topic {self._topic} was not found on this cluster.")
         selected = select_partitions(list(topic_metadata.partitions), partitions)
 
-        committed = self._consumer.committed(
-            [TopicPartition(self._topic, partition) for partition in selected],
-            timeout=self._request_timeout_seconds,
+        committed = _without_errors(
+            self._consumer.committed(
+                [TopicPartition(self._topic, partition) for partition in selected],
+                timeout=self._request_timeout_seconds,
+            )
         )
         return plan_partition_ranges(
             start_offsets=self._offsets_at(selected, window.start),
@@ -315,7 +323,7 @@ class SuppressedExceptionReplayer:
             committed_offsets={entry.partition: _valid_offset(entry.offset) for entry in committed},
         )
 
-    def run(self, ranges: Sequence[PartitionRange]) -> ReplayResult:
+    def run(self, ranges: Sequence[PartitionRange], window: ReplayWindow) -> ReplayResult:
         progress = _RunProgress(remaining={partition_range.partition: partition_range for partition_range in ranges})
         self._consumer.assign(
             [
@@ -337,9 +345,10 @@ class SuppressedExceptionReplayer:
                 continue
             idle = 0
 
-            delivered = self._replay_batch(messages, progress)
+            delivered = self._replay_batch(messages, window, progress)
             self._log(
-                f"progress: scanned={progress.scanned} replayed={progress.replayed} "
+                f"progress: scanned={progress.scanned} out_of_window={progress.out_of_window} "
+                f"replayed={progress.replayed} "
                 f"unparseable={progress.unparseable} errors={progress.errors} "
                 f"partitions_left={len(progress.remaining)}"
             )
@@ -348,8 +357,8 @@ class SuppressedExceptionReplayer:
 
         return progress.result(complete=not progress.remaining)
 
-    def _replay_batch(self, messages: Sequence[Message], progress: _RunProgress) -> bool:
-        """Replay one consumed batch and commit it. Return False when the broker rejected a record."""
+    def _replay_batch(self, messages: Sequence[Message], window: ReplayWindow, progress: _RunProgress) -> bool:
+        """Replay one consumed batch and commit it. Return False when the broker rejected a record or the commit."""
         # confluent-kafka reports a rejected record through the delivery callback, not through
         # produce() or flush(). Without this list the run would commit past records the broker
         # never took.
@@ -375,7 +384,7 @@ class SuppressedExceptionReplayer:
                 continue
             if offset < partition_range.end_offset:
                 next_offsets[partition] = offset + 1
-                produced += self._replay_message(message, progress, on_delivery)
+                produced += self._replay_message(message, window, progress, on_delivery)
             if offset + 1 >= partition_range.end_offset:
                 del progress.remaining[partition]
                 finished.append(TopicPartition(self._topic, partition))
@@ -386,7 +395,7 @@ class SuppressedExceptionReplayer:
     def _deliver_batch(
         self, produced: int, next_offsets: Mapping[int, int], delivery_failures: Sequence[str], progress: _RunProgress
     ) -> bool:
-        """Wait for the broker to take the batch, then commit it. Return False when it rejected a record."""
+        """Wait for the broker to take the batch, then commit it. Return False when it rejected either."""
         if self._producer is None:
             return True
         self._producer.flush()
@@ -397,15 +406,34 @@ class SuppressedExceptionReplayer:
             self._log(f"delivery failed for {failed} record(s); stopping: {delivery_failures[0]}")
             return False
         if next_offsets:
-            self._consumer.commit(
+            # A synchronous commit reports a partition it could not save in its return value, and
+            # it does not raise. A run that ignored it would report completion, and the next run
+            # would replay this batch again.
+            committed = self._consumer.commit(
                 offsets=[TopicPartition(self._topic, partition, offset) for partition, offset in next_offsets.items()],
                 asynchronous=False,
             )
+            commit_failures = [entry for entry in committed or [] if entry.error is not None]
+            if commit_failures:
+                progress.errors += len(commit_failures)
+                self._log(
+                    f"commit failed for {len(commit_failures)} partition(s); stopping: {commit_failures[0].error}"
+                )
+                return False
         return True
 
-    def _replay_message(self, message: Message, progress: _RunProgress, on_delivery: Callable[[Any, Any], None]) -> int:
+    def _replay_message(
+        self, message: Message, window: ReplayWindow, progress: _RunProgress, on_delivery: Callable[[Any, Any], None]
+    ) -> int:
         """Classify one message and produce it when it matches. Return the number of records produced."""
         progress.scanned += 1
+        # Capture's producers do not write in timestamp order, so the offsets between the two
+        # lookups also hold messages from just outside the window. Those were not part of the
+        # request, and replaying one would duplicate an event that was ingested normally.
+        timestamp_type, timestamp_ms = message.timestamp()
+        if timestamp_type != TIMESTAMP_NOT_AVAILABLE and not window.contains(timestamp_ms):
+            progress.out_of_window += 1
+            return 0
         headers = cast("Sequence[Header] | None", message.headers())
         value = cast("bytes | None", message.value())
         classification = classify_message(headers, value, self._criteria)
@@ -425,7 +453,7 @@ class SuppressedExceptionReplayer:
             [TopicPartition(self._topic, partition, timestamp_ms) for partition in partitions],
             timeout=self._request_timeout_seconds,
         )
-        return {entry.partition: _valid_offset(entry.offset) for entry in resolved}
+        return {entry.partition: _valid_offset(entry.offset) for entry in _without_errors(resolved)}
 
     def _produce(
         self,
@@ -437,9 +465,9 @@ class SuppressedExceptionReplayer:
         producer = cast(Producer, self._producer)
         while True:
             try:
-                # The record carries no timestamp, so it gets the current time. That places it
-                # after the end of the window, where a second run of the same window cannot
-                # read it.
+                # The record carries no timestamp, so it gets the current time. The window has
+                # already ended, so that places the record after it, where a second run of the
+                # same window cannot read it.
                 producer.produce(
                     topic=self._topic,
                     key=key,
@@ -451,6 +479,13 @@ class SuppressedExceptionReplayer:
             except BufferError:
                 # The local produce queue is full. Let it drain, then retry the same message.
                 producer.poll(1.0)
+
+
+def _without_errors(entries: Sequence[TopicPartition]) -> Sequence[TopicPartition]:
+    for entry in entries:
+        if entry.error is not None:
+            raise KafkaException(entry.error)
+    return entries
 
 
 def _valid_offset(offset: int) -> int | None:

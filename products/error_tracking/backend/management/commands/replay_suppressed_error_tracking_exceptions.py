@@ -5,7 +5,9 @@ exceptions of one project that match every --property filter, and produces them 
 topic. Fix or remove the suppression rule first, or the pipeline drops the replayed events again.
 
 Choose a window in which none of the matching events were ingested. The replay does not check
-ClickHouse, so a matching event that was ingested normally is ingested a second time.
+ClickHouse, so a matching event that was ingested normally is ingested a second time. The window
+must have ended: the replayed events get the current time, so a window that is still open would
+contain them, and the next run would replay them again.
 
 Usage:
     # Dry run (default): print the offset range of each partition and count the matching events
@@ -28,10 +30,12 @@ from __future__ import annotations
 
 import signal
 from argparse import ArgumentParser, ArgumentTypeError
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from django.core.management.base import BaseCommand, CommandError
+
+from confluent_kafka import KafkaException
 
 from posthog.dataclasses import frozen
 from posthog.kafka_client.profiles import KafkaClusterProfile
@@ -115,8 +119,8 @@ class Command(BaseCommand):
         parser.add_argument(
             "--profile",
             choices=[profile.value for profile in KafkaClusterProfile],
-            default=KafkaClusterProfile.DEFAULT.value,
-            help="Kafka cluster profile that provides the brokers and credentials.",
+            default=None,
+            help="Kafka cluster profile that provides the brokers and credentials. The default is the topic's profile.",
         )
         parser.add_argument("--bootstrap-servers", default=None, help="Brokers to use instead of the profile's.")
         parser.add_argument(
@@ -147,19 +151,25 @@ class Command(BaseCommand):
             window = ReplayWindow(start=options["start"], end=options["end"])
         except ValueError as error:
             raise CommandError(str(error)) from error
+        if window.end > datetime.now(UTC):
+            raise CommandError("--end is in the future. A rerun would replay the events this run produces.")
+        properties: dict[str, str] = {}
+        for property_filter in options["properties"]:
+            if property_filter.key in properties:
+                raise CommandError(f"--property {property_filter.key} is given more than once.")
+            properties[property_filter.key] = property_filter.value
         try:
             team = Team.objects.get(pk=options["team_id"])
         except Team.DoesNotExist as error:
             raise CommandError(f"Project {options['team_id']} does not exist.") from error
-        criteria = ReplayCriteria(
-            token=team.api_token,
-            properties={property_filter.key: property_filter.value for property_filter in options["properties"]},
-        )
+        criteria = ReplayCriteria(token=team.api_token, properties=properties)
 
         live_run: bool = options["live_run"]
         topic: str = options["topic"]
         group_id: str = options["group_id"] or default_group_id(window=window, criteria=criteria)
-        profile = get_profile_settings(profile=KafkaClusterProfile(options["profile"]))
+        profile = get_profile_settings(
+            topic=topic, profile=KafkaClusterProfile(options["profile"]) if options["profile"] else None
+        )
 
         stop_requested = {"value": False}
 
@@ -198,7 +208,7 @@ class Command(BaseCommand):
         try:
             try:
                 ranges = replayer.plan(window, options["partitions"])
-            except ValueError as error:
+            except (ValueError, KafkaException) as error:
                 raise CommandError(str(error)) from error
             self.stdout.write(
                 f"{'LIVE' if live_run else 'DRY-RUN'}: topic {topic}, group {group_id}, "
@@ -209,7 +219,7 @@ class Command(BaseCommand):
                     f"  partition {partition_range.partition}: "
                     f"offsets {partition_range.start_offset} to {partition_range.end_offset}"
                 )
-            result = replayer.run(ranges)
+            result = replayer.run(ranges, window)
         finally:
             consumer.close()
             if producer is not None:
@@ -218,7 +228,7 @@ class Command(BaseCommand):
         verb = "Replayed" if live_run else "Would replay"
         counts = (
             f"{verb} {result.replayed} of {result.scanned} scanned message(s); "
-            f"{result.unparseable} unparseable, {result.errors} error(s)"
+            f"{result.out_of_window} outside the window, {result.unparseable} unparseable, {result.errors} error(s)"
         )
         if not result.complete:
             raise CommandError(f"{counts}. The window is not fully read, so rerun the same command to resume.")

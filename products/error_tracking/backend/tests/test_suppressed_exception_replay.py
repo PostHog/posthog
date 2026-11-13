@@ -1,15 +1,22 @@
 import json
+from datetime import UTC, datetime
+from types import SimpleNamespace
 from typing import Any, cast
 
 from unittest import TestCase
 
-from confluent_kafka import Consumer, Producer, TopicPartition
+from django.core.management import call_command
+from django.core.management.base import CommandError
+from django.test import SimpleTestCase
+
+from confluent_kafka import TIMESTAMP_CREATE_TIME, Consumer, KafkaError, KafkaException, Producer, TopicPartition
 from parameterized import parameterized
 
 from products.error_tracking.backend.logic.suppressed_exception_replay import (
     Header,
     PartitionRange,
     ReplayCriteria,
+    ReplayWindow,
     SuppressedExceptionReplayer,
     classify_message,
     parse_partition_spec,
@@ -20,6 +27,10 @@ from products.error_tracking.backend.logic.suppressed_exception_replay import (
 TOPIC = "ingestion-errortracking-main_test"
 TOKEN = "phc_replayed_project"
 CRITERIA = ReplayCriteria(token=TOKEN, properties={"service": "checkout"})
+WINDOW = ReplayWindow(start=datetime(2026, 1, 10, 9, tzinfo=UTC), end=datetime(2026, 1, 10, 10, tzinfo=UTC))
+WINDOW_START_MS = int(WINDOW.start.timestamp() * 1000)
+WINDOW_END_MS = int(WINDOW.end.timestamp() * 1000)
+BROKER_ERROR = KafkaError(KafkaError._TIMED_OUT)  # type: ignore[attr-defined]
 
 
 def _payload(*, token: str = TOKEN, event: str = "$exception", properties: dict[str, Any] | None = None) -> bytes:
@@ -116,11 +127,22 @@ class PlanPartitionRangesTest(TestCase):
 
 
 class FakeMessage:
-    def __init__(self, partition: int, offset: int, value: bytes, headers: list[Header] | None = None) -> None:
+    def __init__(
+        self,
+        partition: int,
+        offset: int,
+        value: bytes,
+        headers: list[Header] | None = None,
+        timestamp_ms: int = WINDOW_START_MS,
+    ) -> None:
         self._partition = partition
         self._offset = offset
         self._value = value
         self._headers = headers
+        self._timestamp_ms = timestamp_ms
+
+    def timestamp(self) -> tuple[int, int]:
+        return (TIMESTAMP_CREATE_TIME, self._timestamp_ms)
 
     def error(self) -> None:
         return None
@@ -144,8 +166,12 @@ class FakeMessage:
 class FakeConsumer:
     """Serves each partition's log from the assigned offset, and keeps serving past any end offset."""
 
-    def __init__(self, logs: dict[int, list[FakeMessage]]) -> None:
+    def __init__(
+        self, logs: dict[int, list[FakeMessage]], fail_commit: bool = False, fail_offset_lookup: bool = False
+    ) -> None:
         self._logs = logs
+        self._fail_commit = fail_commit
+        self._fail_offset_lookup = fail_offset_lookup
         self._positions: dict[int, int] = {}
         self._paused: set[int] = set()
         self.committed_offsets: dict[int, int] = {}
@@ -167,8 +193,25 @@ class FakeConsumer:
     def pause(self, partitions: list[TopicPartition]) -> None:
         self._paused.update(tp.partition for tp in partitions)
 
-    def commit(self, offsets: list[TopicPartition], asynchronous: bool) -> None:
+    def commit(self, offsets: list[TopicPartition], asynchronous: bool) -> list[Any]:
+        if self._fail_commit:
+            return [SimpleNamespace(partition=tp.partition, error=BROKER_ERROR) for tp in offsets]
         self.committed_offsets.update({tp.partition: tp.offset for tp in offsets})
+        return [SimpleNamespace(partition=tp.partition, error=None) for tp in offsets]
+
+    def list_topics(self, topic: str, timeout: float) -> Any:
+        partitions = dict.fromkeys(self._logs)
+        return SimpleNamespace(topics={topic: SimpleNamespace(error=None, partitions=partitions)})
+
+    def committed(self, partitions: list[TopicPartition], timeout: float) -> list[Any]:
+        return [SimpleNamespace(partition=tp.partition, offset=-1001, error=None) for tp in partitions]
+
+    def offsets_for_times(self, partitions: list[TopicPartition], timeout: float) -> list[Any]:
+        error = BROKER_ERROR if self._fail_offset_lookup else None
+        return [SimpleNamespace(partition=tp.partition, offset=-1001 if error else 0, error=error) for tp in partitions]
+
+    def get_watermark_offsets(self, partition: TopicPartition, timeout: float) -> tuple[int, int]:
+        return (0, len(self._logs[partition.partition]))
 
 
 class FakeProducer:
@@ -217,7 +260,8 @@ class SuppressedExceptionReplayerTest(TestCase):
             [
                 PartitionRange(partition=0, start_offset=1, end_offset=4),
                 PartitionRange(partition=1, start_offset=0, end_offset=1),
-            ]
+            ],
+            WINDOW,
         )
 
         assert (result.scanned, result.replayed, result.complete) == (4, 3, True)
@@ -234,7 +278,9 @@ class SuppressedExceptionReplayerTest(TestCase):
         )
         producer = FakeProducer()
 
-        result = self._replayer(consumer, producer).run([PartitionRange(partition=0, start_offset=0, end_offset=3)])
+        result = self._replayer(consumer, producer).run(
+            [PartitionRange(partition=0, start_offset=0, end_offset=3)], WINDOW
+        )
 
         assert (result.replayed, result.complete) == (1, True)
         assert [record["key"] for record in producer.produced] == [b"key-0-0"]
@@ -243,7 +289,7 @@ class SuppressedExceptionReplayerTest(TestCase):
     def test_dry_run_counts_without_committing(self) -> None:
         consumer = FakeConsumer({0: _log(0, [_payload(), _payload()])})
 
-        result = self._replayer(consumer, None).run([PartitionRange(partition=0, start_offset=0, end_offset=2)])
+        result = self._replayer(consumer, None).run([PartitionRange(partition=0, start_offset=0, end_offset=2)], WINDOW)
 
         assert (result.scanned, result.replayed, result.complete) == (2, 2, True)
         assert consumer.committed_offsets == {}
@@ -252,7 +298,7 @@ class SuppressedExceptionReplayerTest(TestCase):
         consumer = FakeConsumer({0: _log(0, [_payload(), _payload(), _payload(), _payload()])})
 
         result = self._replayer(consumer, FakeProducer(fail_delivery=True)).run(
-            [PartitionRange(partition=0, start_offset=0, end_offset=4)]
+            [PartitionRange(partition=0, start_offset=0, end_offset=4)], WINDOW
         )
 
         assert (result.replayed, result.errors, result.complete) == (0, 2, False)
@@ -262,7 +308,62 @@ class SuppressedExceptionReplayerTest(TestCase):
         consumer = FakeConsumer({0: _log(0, [_payload()])})
 
         result = self._replayer(consumer, FakeProducer()).run(
-            [PartitionRange(partition=0, start_offset=0, end_offset=3)]
+            [PartitionRange(partition=0, start_offset=0, end_offset=3)], WINDOW
         )
 
         assert (result.replayed, result.complete) == (1, False)
+
+    def test_skips_messages_whose_timestamp_is_outside_the_window(self) -> None:
+        consumer = FakeConsumer(
+            {
+                0: [
+                    FakeMessage(0, 0, _payload(), _headers(), timestamp_ms=WINDOW_START_MS - 1),
+                    FakeMessage(0, 1, _payload(), _headers(), timestamp_ms=WINDOW_START_MS),
+                    FakeMessage(0, 2, _payload(), _headers(), timestamp_ms=WINDOW_END_MS),
+                ]
+            }
+        )
+        producer = FakeProducer()
+
+        result = self._replayer(consumer, producer).run(
+            [PartitionRange(partition=0, start_offset=0, end_offset=3)], WINDOW
+        )
+
+        assert (result.out_of_window, result.replayed, result.complete) == (2, 1, True)
+        assert [record["key"] for record in producer.produced] == [b"key-0-1"]
+
+    def test_commit_failure_stops_the_run_as_incomplete(self) -> None:
+        consumer = FakeConsumer({0: _log(0, [_payload(), _payload(), _payload(), _payload()])}, fail_commit=True)
+
+        result = self._replayer(consumer, FakeProducer()).run(
+            [PartitionRange(partition=0, start_offset=0, end_offset=4)], WINDOW
+        )
+
+        assert (result.replayed, result.errors, result.complete) == (2, 1, False)
+
+    def test_plan_fails_when_an_offset_lookup_reports_a_partition_error(self) -> None:
+        consumer = FakeConsumer({0: _log(0, [_payload()])}, fail_offset_lookup=True)
+
+        with self.assertRaises(KafkaException):
+            self._replayer(consumer, None).plan(WINDOW)
+
+
+class ReplayCommandArgumentsTest(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("window_ends_in_the_future", "2999-01-01T00:00:00+00:00", ["service=checkout"], "future"),
+            (
+                "property_given_twice",
+                "2026-01-10T10:00:00+00:00",
+                ["service=checkout", "service=search"],
+                "more than once",
+            ),
+        ]
+    )
+    def test_rejects(self, _name: str, end: str, properties: list[str], expected_message: str) -> None:
+        arguments = ["--team-id", "1", "--start", "2026-01-10T09:00:00+00:00", "--end", end]
+        for property_filter in properties:
+            arguments += ["--property", property_filter]
+
+        with self.assertRaisesRegex(CommandError, expected_message):
+            call_command("replay_suppressed_error_tracking_exceptions", *arguments)
