@@ -1,4 +1,4 @@
-//! Loader retries are not ported, because the logs servers build their loaders without `loaderRetry`.
+//! `loaderRetry` is not ported. The hog function loaders, the only ones Node builds with it, retry in `hog_functions::with_loader_retry`.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};

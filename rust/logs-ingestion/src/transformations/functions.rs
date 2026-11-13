@@ -144,12 +144,13 @@ impl HogFunction {
             .iter()
             .map(|(k, v)| (k.to_utf8_lossy().into_owned(), v.clone()))
             .collect();
-        // `Array#sort` is stable, and a NaN difference counts as equal.
-        entries.sort_by(|(_, a), (_, b)| {
-            (order(a) - order(b))
-                .partial_cmp(&0.0)
-                .unwrap_or(Ordering::Equal)
-        });
+        // `Array#sort` is stable. A NaN order goes last here, because a comparator that calls NaN
+        // equal to every value is not a total order, and `sort_by` can panic on one.
+        let sort_key = |input: &JsValue| match order(input) {
+            n if n.is_nan() => f64::INFINITY,
+            n => n + 0.0,
+        };
+        entries.sort_by(|(_, a), (_, b)| sort_key(a).total_cmp(&sort_key(b)));
         let inputs = entries
             .into_iter()
             .map(|(key, input)| {

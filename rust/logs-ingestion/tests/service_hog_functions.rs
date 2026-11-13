@@ -127,10 +127,15 @@ async fn loads_transformations_with_smallint_order_and_decrypted_inputs() {
     )
     .await;
 
+    sqlx::query("UPDATE posthog_hogfunction SET name = NULL WHERE name = 'unordered'")
+        .execute(&pool)
+        .await
+        .unwrap();
+
     let source = PgHogFunctions::new(pool.clone(), Arc::new(EncryptedFields::new(KEY).unwrap()));
     let functions = source.transformations(TEAM_ID as i64).await.unwrap();
     let names: Vec<&str> = functions.iter().map(|f| f.name.as_str()).collect();
-    assert_eq!(names, vec!["first", "second", "unordered"]);
+    assert_eq!(names, vec!["first", "second", "null"]);
     assert_eq!(functions[0].execution_order, Some(2.0));
     assert_eq!(functions[0].id, first);
     assert!(functions[0].bytecode.is_ok());
@@ -146,5 +151,5 @@ async fn loads_transformations_with_smallint_order_and_decrypted_inputs() {
     source.reload(&TEAM_ID.to_string(), &[first.to_string()]);
     let reloaded = source.transformations(TEAM_ID as i64).await.unwrap();
     let names: Vec<&str> = reloaded.iter().map(|f| f.name.as_str()).collect();
-    assert_eq!(names, vec!["second", "first", "unordered"]);
+    assert_eq!(names, vec!["second", "first", "null"]);
 }

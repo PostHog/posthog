@@ -13,8 +13,7 @@ use sqlx::{PgPool, Row};
 use crate::js::{json_parse, JsValue};
 use crate::pipeline::errors::is_dependency_unavailable;
 use crate::transformations::functions::{
-    row_from_js, sort_hog_functions, HogFunction, HogFunctionRow, HogFunctionSource,
-    TRANSFORMATION_LOG_TYPE,
+    sort_hog_functions, HogFunction, HogFunctionRow, HogFunctionSource, TRANSFORMATION_LOG_TYPE,
 };
 
 use super::lazy_loader::{LazyLoader, LazyLoaderOptions, LoadResult};
@@ -161,9 +160,10 @@ async fn fetch_functions(
         let function = HogFunction::from_row(HogFunctionRow {
             id: row.try_get("id")?,
             team_id: row.try_get::<i32, _>("team_id")? as i64,
+            // The failure annotation is a JavaScript template string, which prints a null name as `null`.
             name: row
                 .try_get::<Option<String>, _>("name")?
-                .unwrap_or_default(),
+                .unwrap_or_else(|| "null".to_string()),
             function_type: row
                 .try_get::<Option<String>, _>("type")?
                 .unwrap_or_default(),
@@ -282,19 +282,6 @@ impl HogFunctionSource for PgHogFunctions {
         sort_hog_functions(&mut functions);
         Ok(functions)
     }
-}
-
-pub fn function_from_js(value: &JsValue, fields: &EncryptedFields) -> HogFunction {
-    let mut row = row_from_js(value);
-    if let Some(JsValue::Object(o)) = Some(value) {
-        if let Some(JsValue::String(token)) = o.get("encrypted_inputs") {
-            row.encrypted_inputs = decrypt_encrypted_inputs(
-                Some(&crate::js::json_stringify(&JsValue::String(token.clone()))),
-                fields,
-            );
-        }
-    }
-    HogFunction::from_row(row)
 }
 
 #[cfg(test)]

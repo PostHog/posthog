@@ -1,9 +1,10 @@
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use hogvm::{
     ExecutionContext, HeapReference, HogLiteral, HogVM, HogValue, Num, OrderedJson, Program,
-    StepOutcome, VmError,
+    StepOutcome, VmError, MAX_JSON_SERDE_DEPTH,
 };
 
 use crate::attribute_value::{decode_log_attribute_value, encode_log_attribute_value};
@@ -189,10 +190,11 @@ pub fn redact_sensitive_values(message: &str, sensitive: &[String]) -> String {
         return message.to_string();
     }
     let mut variants: Vec<String> = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
     for value in sensitive.iter().filter(|v| !v.is_empty()) {
         let escaped = json_stringify(&JsValue::string(value));
         for variant in [value.clone(), escaped[1..escaped.len() - 1].to_string()] {
-            if !variants.contains(&variant) {
+            if seen.insert(variant.clone()) {
                 variants.push(variant);
             }
         }
@@ -252,9 +254,11 @@ pub enum ConvertError {
     TooLarge,
 }
 
-/// Past these a converted value is far over the 1 MiB record cap, so it can only fail.
+/// These bound the memory and the stack of one conversion. A result under the 1 MiB record cap can
+/// have more values or levels than these, and it fails here where Node applies it.
 const MAX_CONVERTED_NODES: usize = 100_000;
 const MAX_CONVERTED_BYTES: usize = LOG_TRANSFORMATION_MEMORY_LIMIT_BYTES;
+const MAX_CONVERTED_DEPTH: usize = MAX_JSON_SERDE_DEPTH;
 
 struct Converter<'a> {
     vm: &'a HogVM<'a>,
@@ -297,6 +301,10 @@ impl Converter<'_> {
         let Ok(literal) = value.deref(&self.vm.heap) else {
             return Ok(JsValue::Null);
         };
+        // The recursion uses the thread's stack, and a stack overflow ends the process.
+        if self.path.len() >= MAX_CONVERTED_DEPTH {
+            return Err(ConvertError::TooLarge);
+        }
         if let Some(ptr) = pointer {
             self.path.push(ptr);
         }
@@ -392,14 +400,23 @@ pub fn hog_to_js(
     value: &HogValue,
     sensitive: &[String],
 ) -> Result<JsValue, ConvertError> {
-    Converter {
+    hog_values_to_js(vm, std::slice::from_ref(value), sensitive).map(|mut values| values.remove(0))
+}
+
+/// The values share one node and byte limit, so many arguments cannot each use a full limit.
+pub fn hog_values_to_js(
+    vm: &HogVM,
+    values: &[HogValue],
+    sensitive: &[String],
+) -> Result<Vec<JsValue>, ConvertError> {
+    let mut converter = Converter {
         vm,
         sensitive,
         path: Vec::new(),
         nodes: 0,
         bytes: 0,
-    }
-    .convert(value)
+    };
+    values.iter().map(|v| converter.convert(v)).collect()
 }
 
 pub type PrintHandler<'a> = dyn FnMut(&HogVM, Vec<HogValue>) -> Result<(), String> + 'a;
@@ -420,7 +437,11 @@ pub fn run_program<T>(
     finish: impl FnOnce(&HogVM, HogValue) -> Result<T, String>,
 ) -> VmRun<T> {
     let start = Instant::now();
-    let deadline = start + Duration::from_secs_f64(timeout_ms.max(0.0) / 1000.0);
+    // A timeout too large for an `Instant` is no deadline.
+    let deadline = Duration::try_from_secs_f64(timeout_ms.max(0.0) / 1000.0)
+        .ok()
+        .and_then(|timeout| start.checked_add(timeout));
+    let past_deadline = || deadline.is_some_and(|deadline| Instant::now() > deadline);
     let context = ExecutionContext::with_defaults(program.clone())
         .with_ordered_globals(globals)
         .with_raw_result()
@@ -435,17 +456,31 @@ pub fn run_program<T>(
                 number_to_string(timeout_ms / 1000.0)
             )
         };
+        // Strings on the stack are outside the heap limit. A native call can return one, and reading
+        // an element of an array copies one, so the bound is checked after a call and with the clock.
+        let within_memory = |vm: &HogVM| {
+            let used = vm.memory_bytes();
+            if used > LOG_TRANSFORMATION_MEMORY_LIMIT_BYTES {
+                return Err(format!(
+                    "HogVMException: Memory limit of {LOG_TRANSFORMATION_MEMORY_LIMIT_BYTES} bytes exceeded. Tried to allocate {used} bytes."
+                ));
+            }
+            Ok(())
+        };
         loop {
             match vm.step().map_err(|e| vm_error_text(&e))? {
                 StepOutcome::Continue => {
                     ops += 1;
-                    if ops & DEADLINE_CHECK_MASK == 0 && Instant::now() > deadline {
-                        return Err(timed_out(ops));
+                    if ops & DEADLINE_CHECK_MASK == 0 {
+                        if past_deadline() {
+                            return Err(timed_out(ops));
+                        }
+                        within_memory(&vm)?;
                     }
                 }
                 StepOutcome::NativeCall(name, args) => {
                     ops += 1;
-                    if Instant::now() > deadline {
+                    if past_deadline() {
                         return Err(timed_out(ops));
                     }
                     if name == "print" {
@@ -459,13 +494,7 @@ pub fn run_program<T>(
                             .execute_native_function_call(&mut vm, &name, args)
                             .map_err(|e| vm_error_text(&e))?;
                     }
-                    // Strings live on the stack, outside the heap limit, so the bound is checked here.
-                    let used = vm.memory_bytes();
-                    if used > LOG_TRANSFORMATION_MEMORY_LIMIT_BYTES {
-                        return Err(format!(
-                            "HogVMException: Memory limit of {LOG_TRANSFORMATION_MEMORY_LIMIT_BYTES} bytes exceeded. Tried to allocate {used} bytes."
-                        ));
-                    }
+                    within_memory(&vm)?;
                 }
                 StepOutcome::Finished(_) => {
                     let value = vm.take_result().unwrap_or(HogValue::Lit(HogLiteral::Null));
@@ -658,16 +687,12 @@ pub fn execute_log_transformation(
     let mut logs: Vec<String> = Vec::new();
     let mut print = |vm: &HogVM, args: Vec<HogValue>| -> Result<(), String> {
         if logs.len() < MAX_LOG_TRANSFORMATION_PRINT_LOGS {
-            let args = args
-                .iter()
-                .map(|a| hog_to_js(vm, a, &[]))
-                .collect::<Result<Vec<_>, _>>()
-                .map_err(|e| match e {
-                    ConvertError::Cyclic => {
-                        "TypeError: Converting circular structure to JSON".to_string()
-                    }
-                    ConvertError::TooLarge => "RangeError: Invalid string length".to_string(),
-                })?;
+            let args = hog_values_to_js(vm, &args, &[]).map_err(|e| match e {
+                ConvertError::Cyclic => {
+                    "TypeError: Converting circular structure to JSON".to_string()
+                }
+                ConvertError::TooLarge => "RangeError: Invalid string length".to_string(),
+            })?;
             logs.push(sanitize_log_message(&args, sensitive));
         }
         Ok(())

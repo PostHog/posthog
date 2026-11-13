@@ -65,7 +65,7 @@ impl HogFunctionMonitoring {
 
     /// `queueLogs` with `fixLogDeduplication`: ClickHouse dedupes equal timestamps, so each later entry moves 1 ms past the one before.
     pub fn queue_logs(&self, mut entries: Vec<LogEntry>) {
-        if entries.is_empty() {
+        if entries.is_empty() || !self.write_log_entries {
             return;
         }
         entries.sort_by(|a, b| a.timestamp_ms.total_cmp(&b.timestamp_ms));
@@ -92,20 +92,17 @@ impl HogFunctionMonitoring {
                 tracing::error!(error = %error, "failed to flush app metrics");
             }
         };
-        let logs =
-            futures::future::join_all(messages.into_iter().filter(|_| self.write_log_entries).map(
-                |value| async move {
-                    let length = value.len();
-                    let message = OutputMessage {
-                        value: Some(value.into()),
-                        key: None,
-                        headers: Default::default(),
-                    };
-                    if let Err(error) = self.outputs.produce(LOG_ENTRIES_OUTPUT, message).await {
-                        tracing::error!(error = %error, length, "failed to produce log entry");
-                    }
-                },
-            ));
+        let logs = futures::future::join_all(messages.into_iter().map(|value| async move {
+            let length = value.len();
+            let message = OutputMessage {
+                value: Some(value.into()),
+                key: None,
+                headers: Default::default(),
+            };
+            if let Err(error) = self.outputs.produce(LOG_ENTRIES_OUTPUT, message).await {
+                tracing::error!(error = %error, length, "failed to produce log entry");
+            }
+        }));
         futures::join!(metrics, logs);
         histogram!("cdp_hog_function_monitoring_flush_duration_seconds")
             .record(start.elapsed().as_secs_f64());

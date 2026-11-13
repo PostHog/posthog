@@ -288,9 +288,21 @@ A parsed `FilterGroupNode` implements `metric_rules::FilterGroupMatcher` with `f
   - String indexes (`length`, `substring`, `position`) count UTF-16 units as in Node. A Rust string cannot hold half of a surrogate pair, so a slice that splits one gives U+FFFD where Node keeps the lone surrogate, and `splitByString('', s)` keeps an astral character whole.
   - `replaceAll` and `replaceOne` do not expand `$&` and the other `String.prototype.replace` patterns in the replacement.
   - VM error texts other than a thrown Hog error differ.
-  - Converting a value for `print` or a result stops past 100,000 nodes or 8 MiB, which shared references reach quickly, and fails the invocation. Node expands such a value in full.
+  - Converting a value for `print` or a result stops past 100,000 values, 8 MiB or 256 levels of nesting, and fails the invocation. Shared references reach these quickly. A result under the 1 MiB record cap can still exceed the value or nesting limit, and Node applies it. All arguments of one `print` share the limits.
+  - `toString`, `concat` and `jsonStringify` fail when the containers that a value reaches more than once hold more text than the heap has room for. Node fails such a value at its own memory limit, at a different size.
+  - `jsonStringify` writes `,` and `:` separators and keeps the decimal point of a float (`{"a": 1, "b": 2.0}`), as the Python VM does. Node writes `{"a":1,"b":2}`.
+  - `print` returns null. Node returns `undefined`, so a result field set from `print(...)` is invalid there and cleared here.
+  - A global chain that ends in `.length` on a string or an array reads null. Node reads the length.
+  - A result key named `__proto__` is ignored. Node sets the prototype with it, so `{'__proto__': {'body': 'x'}}` changes the body there when the function has no secret inputs.
+  - A Hog date that a result stringifies into an attribute has its keys in sorted order (`__hogDate__`, `day`, `month`, `year`). Node writes `year`, `month`, `day`.
+  - An integer above 2^53 keeps its exact value where Node rounds it to a double.
+  - An input template that returns a cyclic value fails the function. Node resolves it.
+  - An input with no `value` key is null. Node holds `undefined`, which matters only when a program stringifies `inputs`.
   - A closure in a result converts to the Node closure object. Its upvalue ids count from 1 per conversion, and a native function reference carries Rust's `ip` and `chunk`, so those two can differ from Node's.
-  - A panic in one function run fails that invocation (`logs_ingestion_transformations_unexpected_errors_total`) and keeps the record, as Node's catch does for a transformer bug.
+  - A panic in one function run fails that invocation (`logs_ingestion_transformations_unexpected_errors_total`) and keeps the record, as Node's catch does for a transformer bug. A panic between function runs also keeps the record and counts the same metric, where an error there in Node fails the message.
+- **Input order with a non-numeric `order`.** Node's comparator returns NaN for it, and the sort result is not defined. The port sorts such an input last.
+- **The `instance_id` of a function log** is a UUID v7. Node writes a `UUIDT`.
+- **A Fernet token dated more than 60 seconds in the future** does not decrypt, because the `fernet` crate checks the timestamp without a TTL. Node and Django do not read it.
 - **`encrypted_inputs` that do not decrypt.** Node keeps the token string, and spreading it adds one `undefined` input per character. The port treats the function as having no encrypted inputs.
 - **Function logs to the logs product.** With `hog_function_transformations` in `CDP_INTERNAL_LOGS_SOURCES`, Node also posts function logs to capture-logs through `InternalLogsProducer` (`createTransformationsMonitoringService`), and counts them as `loop_guard` when the batch carries the internal-logs header. The port ignores `CDP_INTERNAL_LOGS_SOURCES` and writes function logs to `log_entries` only.
 - **The `logs.transformations.*` span attributes** are not ported.
@@ -307,7 +319,7 @@ A parsed `FilterGroupNode` implements `metric_rules::FilterGroupMatcher` with `f
 - **Consumer telemetry.** The node-rdkafka statistics, loop-stall health check and batch histograms are not ported. Liveness is the lifecycle heartbeat on every loop turn.
 - **A full producer queue.** node-rdkafka fails the produce at once; the port waits up to 10 s for queue space first. Both then retry in place and fail the batch, so the wait runs once per retry attempt.
 - **`USAGE_INGESTION_TLS=true`.** The workspace `tonic` has no TLS feature, so the service refuses to start with it.
-- **`LazyLoader` instrumentation.** The OpenTelemetry spans and the hit and miss counters are not ported; `lazy_loader_cache_size` is. Loader retries are not ported, because the logs servers build their loaders without `loaderRetry`.
+- **`LazyLoader` instrumentation.** The OpenTelemetry spans and the hit and miss counters are not ported; `lazy_loader_cache_size` is. `loaderRetry` is not an option of the port's `LazyLoader`. Only the hog function loaders use it in Node, and `service::hog_functions` retries them with the same timing.
 - **Rule-cache spans.** The `logs.sampling.*`, `logs.retention.*`, `traces.retention.*` and `logs.patterns.*` span attributes are not ported.
 - **Metric-rule windows.** Node sums metric-rule tallies across batches for teams in `LOGS_METRICS_RULES_WINDOW_TEAMS` (`metrics-rules/metric-rules-window.ts`) and sends the open window on shutdown. The port ignores `LOGS_METRICS_RULES_WINDOW_TEAMS` and `LOGS_METRICS_RULES_WINDOW_MS`, and sends one point per series per batch for every team.
 - **The logs Redis password.** Node never passes `LOGS_REDIS_PASSWORD` to the logs Redis client, and neither does the port.

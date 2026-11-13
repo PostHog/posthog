@@ -4,6 +4,7 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use hogvm::OrderedJson;
 use metrics::{counter, histogram};
+use tokio::sync::Semaphore;
 
 use crate::attribute_value::{decode_log_attribute_value, encode_log_attribute_value};
 use crate::avro::{AvroMap, AvroValue};
@@ -336,9 +337,20 @@ pub fn transform_message(
             }
             continue;
         }
-        if ctx.transform_record(&mut staged.record) {
-            ctx.result.records_dropped += 1;
-            dropped[index] = true;
+        match guarded(|| ctx.transform_record(&mut staged.record)) {
+            Some(true) => {
+                ctx.result.records_dropped += 1;
+                dropped[index] = true;
+            }
+            Some(false) => {}
+            // The record goes on with what the functions before the panic wrote to it.
+            None => {
+                counter!("logs_ingestion_transformations_unexpected_errors_total").increment(1);
+                tracing::error!(
+                    team_id = run.team_id,
+                    "[logs-transformer] unexpected error outside a function run"
+                );
+            }
         }
     }
     let mut index = 0;
@@ -354,6 +366,9 @@ pub struct LogsTransformerService {
     monitoring: Arc<HogFunctionMonitoring>,
     config: LogsTransformerConfig,
     clock: Clock,
+    /// One VM thread runs at a time, as Node's single thread does. The timeout and the budgets are
+    /// wall-clock, so VM threads that wait for a CPU would time out and spend the budgets.
+    vm_slot: Arc<Semaphore>,
 }
 
 impl LogsTransformerService {
@@ -368,6 +383,7 @@ impl LogsTransformerService {
             monitoring,
             config,
             clock,
+            vm_slot: Arc::new(Semaphore::new(1)),
         }
     }
 
@@ -411,12 +427,15 @@ impl LogsTransformerService {
         if functions.is_empty() || records.is_empty() {
             return Ok(MessageTransformResult::default());
         }
+        // The thread holds the permit to its end, also when this future is dropped first.
+        let permit = self.vm_slot.clone().acquire_owned().await.ok();
         let shared = Arc::new(Mutex::new(std::mem::take(records)));
         let task_records = shared.clone();
         let config = self.config.clone();
         let clock = self.clock.clone();
         // The VM is CPU-bound for up to the message budget, so it runs off the async workers.
         let joined = tokio::task::spawn_blocking(move || {
+            let _permit = permit;
             let run = MessageRun {
                 team_id,
                 functions: &functions,
@@ -430,7 +449,7 @@ impl LogsTransformerService {
         })
         .await;
         *records = std::mem::take(&mut *shared.lock().unwrap_or_else(|e| e.into_inner()));
-        // Fail open like Node's catch: the records go on as the task left them.
+        // Node has no catch here and fails the message. The port fails open: the records go on as the task left them.
         let result = match joined {
             Ok(result) => result,
             Err(error) => {
