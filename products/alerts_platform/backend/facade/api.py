@@ -284,15 +284,13 @@ def native_configuration_matches(
 
 
 def search_held_configurations(
-    *, team_ids: Collection[int], source_kind: SourceKind, query: str | None, limit: int
-) -> tuple[tuple[HeldAlertSearchMatch, ...], int]:
+    *, team_ids: Collection[int], source_kind: SourceKind, query: str | None
+) -> tuple[HeldAlertSearchMatch, ...]:
     """The alerts of a kind whose settings the platform holds in these teams, for a source's search
     beside its own rows: every alert with no source row, and every copy the platform owns. Ranked by
-    how well the name matches `query` on core search's scale, or in name order without one. At most
-    `limit`, with how many match in all."""
-    return platform_reads.search_held_configurations(
-        team_ids=team_ids, source_kind=source_kind.value, query=query, limit=limit
-    )
+    how well the name matches `query` on core search's scale, or in name order without one. Every
+    match comes back, so the source can apply its own read gates before it pages."""
+    return platform_reads.search_held_configurations(team_ids=team_ids, source_kind=source_kind.value, query=query)
 
 
 def enabled_native_configurations(

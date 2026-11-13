@@ -11,7 +11,7 @@ from functools import reduce
 from typing import Any, cast
 from uuid import UUID
 
-from django.db.models import Case, Exists, Max, OuterRef, Prefetch, Q, QuerySet, Subquery, Value, When
+from django.db.models import Case, Exists, FloatField, Max, OuterRef, Prefetch, Q, QuerySet, Subquery, Value, When
 from django.db.models.functions import Coalesce
 
 from posthog.helpers.full_text_search import build_rank
@@ -272,15 +272,15 @@ _SEARCH_RANK_THRESHOLD = 0.05
 
 
 def search_held_configurations(
-    *, team_ids: Collection[int], source_kind: str, query: str | None, limit: int
-) -> tuple[tuple[HeldAlertSearchMatch, ...], int]:
+    *, team_ids: Collection[int], source_kind: str, query: str | None
+) -> tuple[HeldAlertSearchMatch, ...]:
     """The alerts of a kind whose settings the platform holds in these teams, ranked by how well their name
-    matches `query`, or in name order without one, at most `limit` of them, and how many match in all."""
+    matches `query`, or in name order without one."""
     if not team_ids:
-        return (), 0
+        return ()
     # The caller names the teams, as a source's readers of its own rows across teams do.
     rows = PlatformAlertConfiguration.objects.unscoped().annotate(
-        rank=build_rank({"name": "A"}, query, config="simple") if query else Value(None)
+        rank=build_rank({"name": "A"}, query, config="simple") if query else Value(None, output_field=FloatField())
     )
     rows = rows.filter(
         Q(legacy_configuration_id__isnull=True) | Q(owner=PlatformAlertOwner.PLATFORM),
@@ -290,9 +290,8 @@ def search_held_configurations(
     rows = (
         rows.filter(rank__gt=_SEARCH_RANK_THRESHOLD).order_by("-rank", "id") if query else rows.order_by("name", "id")
     )
-    total = rows.count()
     instances = PlatformAlert.objects.unscoped().filter(configuration=OuterRef("pk"))
-    page = rows.annotate(
+    matches = rows.annotate(
         public_id=_PUBLIC_ID,
         instance_state=Case(
             When(
@@ -305,18 +304,20 @@ def search_held_configurations(
         "team_id",
         "name",
         "enabled",
+        "source_config",
         "check_interval_minutes",
         "instance_state",
         "check_status",
         "snooze_until",
         "rank",
-    )[:limit]
+    )
     return tuple(
         HeldAlertSearchMatch(
             public_id=public_id,
             team_id=team_id,
             name=name,
             enabled=enabled,
+            source_config=source_config,
             check_interval_minutes=check_interval_minutes,
             state=PlatformAlertState(
                 InstanceCheckState.composed(
@@ -329,8 +330,8 @@ def search_held_configurations(
             snooze_until=snooze_until,
             rank=rank,
         )
-        for public_id, team_id, name, enabled, check_interval_minutes, instance_state, check_status, snooze_until, rank in page
-    ), total
+        for public_id, team_id, name, enabled, source_config, check_interval_minutes, instance_state, check_status, snooze_until, rank in matches
+    )
 
 
 def enabled_native_configurations(

@@ -13,7 +13,7 @@ from asgiref.sync import sync_to_async
 from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
-from posthog.models import Team
+from posthog.models import OrganizationMembership, Team
 from posthog.models.scoping import team_scope
 
 from products.access_control.backend.models.access_control import AccessControl
@@ -483,15 +483,45 @@ class TestEntitySearchContext(NonAtomicBaseTest):
             team_id=self.team.pk, legacy_configuration_id=own.id, name="Latency shadow", owner="source", **source
         )
         native = await create(team_id=self.team.pk, name="Latency native", owner="platform", **source)
-
-        results, counts = await self.context.search_entities({"alert_configuration"}, "latency")
-
-        assert {(r["result_id"], r["extra_fields"]["name"]) for r in results} == {
+        denied = await Insight.objects.acreate(team=self.team, name="Denied", saved=True)
+        await AlertConfiguration.objects.acreate(team=self.team, insight=denied, name="Latency denied row")
+        await create(
+            team_id=self.team.pk,
+            name="Latency denied native",
+            owner="platform",
+            source_kind="insight",
+            source_config={"insight_id": denied.id},
+            check_interval_minutes=60,
+        )
+        await sync_to_async(self._deny_insight)(denied)
+        expected = {
             (str(own.id), "Latency row"),
             (str(moved.id), "Latency copy"),
             (str(native.id), "Latency native"),
         }
+
+        results, counts = await self.context.search_entities({"alert_configuration"}, "latency")
+        listed, total = await self.context.list_entities("alert_configuration")
+
+        assert {(r["result_id"], r["extra_fields"]["name"]) for r in results} == expected
         assert counts["alert_configuration"] == 3
+        assert {(r["result_id"], r["extra_fields"]["name"]) for r in listed} == expected
+        assert total == 3
+
+    def _deny_insight(self, insight: Insight) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        AccessControl.objects.create(
+            team=self.team,
+            resource="insight",
+            resource_id=str(insight.id),
+            access_level="none",
+            organization_member=self.organization_membership,
+        )
 
     async def test_list_entities_account(self):
         account = await Account.objects.unscoped().acreate(team=self.team, name="Acme Corp", external_id="acme-1")

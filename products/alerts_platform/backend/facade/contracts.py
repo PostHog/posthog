@@ -1121,6 +1121,8 @@ class HeldAlertSearchMatch:
     team_id: int
     name: str
     enabled: bool
+    # What the source's own read gates check, such as the insight an insight alert watches.
+    source_config: dict[str, Any]
     check_interval_minutes: int
     # The one state a source shows, composed as `runtime_by_public_id` does. A mute is left to the source.
     state: PlatformAlertState

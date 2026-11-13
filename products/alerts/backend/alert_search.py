@@ -7,7 +7,7 @@ row, and a moved alert, whose row may not follow them.
 from datetime import datetime
 from typing import Any, Final
 
-from django.db.models import Value
+from django.db.models import FloatField, Value
 from django.utils import timezone
 
 from posthog.helpers.full_text_search import build_rank
@@ -20,6 +20,7 @@ from products.alerts.backend.platform_insight_alert import interval_of
 from products.alerts_platform.backend.facade.api import search_held_configurations
 from products.alerts_platform.backend.facade.contracts import HeldAlertSearchMatch, SourceKind
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
+from products.product_analytics.backend.facade.models import Insight
 
 ENTITY_TYPE: Final = "alert_configuration"
 
@@ -35,9 +36,15 @@ def search_insight_alerts(
     with_access_levels: bool = False,
     include_count: bool = True,
 ) -> tuple[list[dict[str, Any]], int]:
-    # nosemgrep: environment-model-scoped-by-project -- core search covers every entity by project, so alerts match it
-    project_rows = AlertConfiguration.objects.filter(team__project_id=project_id)
-    rows = access_control.filter_queryset_by_access_level(project_rows.exclude(owner=PlatformAlertOwner.PLATFORM))
+    team_ids = list(Team.objects.filter(project_id=project_id).values_list("id", flat=True))
+    # An alert is readable only with its insight, as the alert API gates it.
+    viewable_insights = access_control.filter_queryset_by_access_level(Insight.objects.filter(team_id__in=team_ids))
+
+    rows = access_control.filter_queryset_by_access_level(
+        AlertConfiguration.objects.filter(team_id__in=team_ids, insight__in=viewable_insights).exclude(
+            owner=PlatformAlertOwner.PLATFORM
+        )
+    )
     if query:
         rows = (
             rows.annotate(rank=build_rank({"name": "A"}, query, config="simple"))
@@ -45,7 +52,7 @@ def search_insight_alerts(
             .order_by("-rank", "id")
         )
     else:
-        rows = rows.annotate(rank=Value(None)).order_by("name", "id")
+        rows = rows.annotate(rank=Value(None, output_field=FloatField())).order_by("name", "id")
     row_results = [
         _result(str(alert_id), name, enabled, state, calculation_interval, rank)
         for alert_id, name, enabled, state, calculation_interval, rank in rows.values_list(
@@ -53,12 +60,15 @@ def search_insight_alerts(
         )[:limit]
     ]
 
-    team_ids = list(Team.objects.filter(project_id=project_id).values_list("id", flat=True))
-    held, held_count = search_held_configurations(
-        team_ids=team_ids, source_kind=SourceKind.INSIGHT, query=query, limit=limit
+    held = search_held_configurations(team_ids=team_ids, source_kind=SourceKind.INSIGHT, query=query)
+    readable_insight_ids = set(
+        viewable_insights.filter(id__in={match.source_config.get("insight_id") for match in held}).values_list(
+            "id", flat=True
+        )
     )
+    readable = [match for match in held if match.source_config.get("insight_id") in readable_insight_ids]
     now = timezone.now()
-    held_results = [_held_result(match, now=now) for match in held]
+    held_results = [_held_result(match, now=now) for match in readable[:limit]]
 
     merged = [*row_results, *held_results]
     if query:
@@ -73,7 +83,7 @@ def search_insight_alerts(
     if not query:
         for result in results:
             result.pop("rank")
-    total = rows.count() + held_count if include_count else 0
+    total = rows.count() + len(readable) if include_count else 0
     return results, total
 
 
