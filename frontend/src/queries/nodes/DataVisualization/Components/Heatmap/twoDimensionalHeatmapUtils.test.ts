@@ -7,10 +7,28 @@ import {
     getSortingFromHeatmapSettings,
     HEATMAP_ROW_LABEL_SORT_KEY,
     HeatmapCellValues,
+    sortHeatmapColumns,
     sortHeatmapRows,
 } from './twoDimensionalHeatmapUtils'
 
 describe('twoDimensionalHeatmapUtils', () => {
+    it.each([
+        [HeatmapSortOrder.Asc, ['-2', '1.2', '-10', '1.11'], ['-10', '-2', '1.11', '1.2']],
+        [HeatmapSortOrder.Desc, ['-2', '1.2', '-10', '1.11'], ['1.2', '1.11', '-2', '-10']],
+        [
+            HeatmapSortOrder.Asc,
+            ['-2', '-3a', '-10', 'Stage 10', 'Stage 2'],
+            ['-10', '-2', '-3a', 'Stage 2', 'Stage 10'],
+        ],
+        [
+            HeatmapSortOrder.Desc,
+            ['-2', '-3a', '-10', 'Stage 10', 'Stage 2'],
+            ['Stage 10', 'Stage 2', '-3a', '-2', '-10'],
+        ],
+    ])('orders numeric and text columns %s: %j', (order, labels, expected) => {
+        expect(sortHeatmapColumns(labels, order)).toEqual(expected)
+    })
+
     const rowLabels = ['United States', 'Germany', 'Canada', 'France']
     const cellValues: HeatmapCellValues = {
         Canada: { Enterprise: 6, Growth: 1 },
