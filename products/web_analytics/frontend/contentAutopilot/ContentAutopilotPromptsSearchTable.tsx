@@ -5,8 +5,8 @@ import { pluralize } from 'lib/utils/strings'
 
 import type { AEOPromptSetSearchApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
+import { ContentAutopilotEngineMarks } from './ContentAutopilotEngineMarks'
 import { OVERVIEW_DAYS } from './contentAutopilotPromptsOverviewLogic'
-import { engineLabel } from './utils'
 
 type SearchRow = AEOPromptSetSearchApi
 type SearchColumn = LemonTableColumn<SearchRow, keyof SearchRow | undefined>
@@ -54,7 +54,7 @@ export const ContentAutopilotPromptsSearchTable = ({
         {
             title: 'Engines',
             key: 'engines',
-            render: (_, row) => <span className="text-muted">{row.engines.map(engineLabel).join(', ')}</span>,
+            render: (_, row) => <ContentAutopilotEngineMarks engines={row.engines} />,
         },
     ]
     return (
@@ -89,11 +89,6 @@ export const ContentAutopilotPromptsSearchTable = ({
                 ),
             }}
             emptyState={`No web searches in the last ${OVERVIEW_DAYS} days. Only some engines report the searches they run.`}
-            footer={
-                <span className="px-3 py-2 text-xs text-muted">
-                    The web searches the engines ran while answering your prompts. Expand one to see its prompts.
-                </span>
-            }
         />
     )
 }

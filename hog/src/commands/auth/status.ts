@@ -35,8 +35,11 @@ export default defineCommand({
 
     human({ result, out }) {
         if (!result.authenticated) {
-            out.line(out.style(result.error ? `Not logged in: ${result.error}` : 'Not logged in.', 'yellow', 'bold'))
-            out.line(`Run ${out.style(result.next, 'bold')} next.`)
+            out.report({
+                status: 'failed',
+                result: result.error ? `Not logged in: ${result.error}` : 'Not logged in',
+                notes: [`Run ${out.style(result.next, 'bold')} next.`],
+            })
             return
         }
         // The email and project name come from PostHog, and anyone who can rename the project sets the name.

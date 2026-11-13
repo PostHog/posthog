@@ -89,6 +89,9 @@ export interface certificationsLogicActions {
         force?: boolean
         shallow?: boolean
     } // databaseTableListLogic
+    refreshDatabaseSchema: () => {
+        value: true
+    } // databaseTableListLogic
     certifyCertification: (id: string) => {
         id: string
     }
@@ -170,7 +173,7 @@ export type certificationsLogicType = MakeLogicType<
 export const certificationsLogic = kea<certificationsLogicType>([
     path(['products', 'data_catalog', 'frontend', 'certificationsLogic']),
     connect(() => ({
-        actions: [databaseTableListLogic, ['loadDatabase']],
+        actions: [databaseTableListLogic, ['loadDatabase', 'refreshDatabaseSchema']],
     })),
     actions({
         setFilters: (filters: Partial<CertificationsFilters>) => ({ filters }),
@@ -287,7 +290,7 @@ export const certificationsLogic = kea<certificationsLogicType>([
                     values.certifications.map((certification) => (certification.id === id ? updated : certification))
                 )
                 // Badges elsewhere read certification state off the shared schema, so refresh it.
-                actions.loadDatabase({ force: true })
+                actions.refreshDatabaseSchema()
             } catch (error) {
                 lemonToast.error(apiErrorDetail(error) || failureMessage)
             } finally {
@@ -324,7 +327,7 @@ export const certificationsLogic = kea<certificationsLogicType>([
             loadCertificationsSuccess: () => showHighlightedPage(),
             suggestionAccepted: () => {
                 actions.loadCertifications()
-                actions.loadDatabase({ force: true })
+                actions.refreshDatabaseSchema()
             },
             openNewCertificationModal: () => actions.loadDatabase(),
             createCertification: async () => {
@@ -379,7 +382,7 @@ export const certificationsLogic = kea<certificationsLogicType>([
                         values.certifications.filter((certification) => certification.id !== id)
                     )
                     // Badges elsewhere read certification state off the shared schema, so refresh it.
-                    actions.loadDatabase({ force: true })
+                    actions.refreshDatabaseSchema()
                     lemonToast.success('Certification revoked')
                 } catch (error) {
                     lemonToast.error(apiErrorDetail(error) || 'Could not revoke the certification. Try again.')

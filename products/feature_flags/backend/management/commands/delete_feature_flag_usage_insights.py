@@ -447,11 +447,6 @@ class Command(BaseCommand):
 
     def _delete_orphaned(self) -> None:
         """Pass 2 (opt-in): generated insights left on a generated dashboard no flag row points at."""
-        # Anchor on the dashboard the generator stamps, so a name match is never the only evidence that
-        # PostHog created the insight. Pass 1 owns every dashboard a flag row still references, so this
-        # pass exists for dashboards with no flag row at all (hard-deleted rows, see
-        # _free_key_held_by_soft_deleted_flags in products/feature_flags/backend/api/feature_flag.py);
-        # ones whose dashboard was deleted outright stay out of scope.
         # Requiring the generator's marker keeps rows an edit has already disqualified out of the scan
         # entirely. `_keep_ids` would spare them anyway, so this only saves fetching them.
         insights = Insight.objects.filter(_classifier_q(), is_sample=True)
@@ -467,6 +462,11 @@ class Command(BaseCommand):
                 break
             last_id = batch[-1].id
 
+            # Anchor on the dashboard the generator stamps, so a name match is never the only evidence that
+            # PostHog created the insight. Pass 1 owns every dashboard a flag row still references, so this
+            # pass exists for dashboards with no flag row at all (hard-deleted rows, see
+            # _free_key_held_by_soft_deleted_flags in products/feature_flags/backend/api/feature_flag.py);
+            # ones whose dashboard was deleted, soft or hard, stay out of scope.
             on_generated_dashboards = dashboards_api.insight_ids_on_template_dashboards(
                 insight_ids=[c.id for c in batch],
                 name_prefix=USAGE_DASHBOARD_NAME_PREFIX,

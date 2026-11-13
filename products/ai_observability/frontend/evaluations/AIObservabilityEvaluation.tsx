@@ -42,6 +42,7 @@ import { evaluationReportLogic } from './evaluationReportLogic'
 import { LLMEvaluationLogicProps, hasUnsetConditionRollout, llmEvaluationLogic } from './llmEvaluationLogic'
 import { EvaluationDetailResults } from './overview/EvaluationDetailResults'
 import { statusReasonLabel, statusReasonRecoveryLabel } from './statusDisplay'
+import { EvaluationFixSuggestionBanner } from './suggestions/EvaluationFixSuggestionBanner'
 
 const RUNS_BACKFILL_TIME_FORMAT = { formatDate: 'MMM D, YYYY', formatTime: 'HH:mm' }
 
@@ -223,6 +224,15 @@ export function AIObservabilityEvaluation(): JSX.Element {
                 </LemonBanner>
             )}
 
+            {typeof searchParams.suggestion === 'string' && (
+                <EvaluationFixSuggestionBanner
+                    suggestionId={searchParams.suggestion}
+                    evaluationId={evaluation.id}
+                    userAccessLevel={evaluation.user_access_level ?? undefined}
+                    hasUnsavedChanges={unsaved}
+                />
+            )}
+
             <LemonTabs
                 activeKey={activeTab}
                 onChange={(key) => setActiveTab(key)}
@@ -376,7 +386,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                         label: 'Configuration',
                         'data-attr': 'llma-evaluation-configuration-tab',
                         content: (
-                            <div className="max-w-4xl mx-auto">
+                            <div className="max-w-6xl mx-auto">
                                 <EvaluationConfigurationForm />
                                 <div className="flex justify-end mt-6">
                                     <AccessControlAction

@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { isProductionEnv } from '@/db/role-guard'
-import { loadConfig, loadMigrateConfig } from '@/lib/config'
+import { loadConfig, loadMaintenanceConfig, loadMigrateConfig } from '@/lib/config'
 
 const VAR = 'CREDENTIALS_SERVICE_RELOAD_SECONDS'
 
@@ -200,6 +200,94 @@ describe('loadConfig database', () => {
         process.env.CREDENTIALS_SERVICE_DATABASE_URL = URL
         process.env.CREDENTIALS_SERVICE_DATABASE_POOL_SIZE = size
         expect(() => loadConfig()).toThrow('CREDENTIALS_SERVICE_DATABASE_POOL_SIZE')
+    })
+})
+
+describe('loadConfig audit', () => {
+    const KEYS = [
+        'CREDENTIALS_SERVICE_AUDIT_EXPORT_ENABLED',
+        'CREDENTIALS_SERVICE_AUDIT_CAPTURE_HOST',
+        'CREDENTIALS_SERVICE_AUDIT_CAPTURE_API_KEY',
+    ]
+
+    afterEach(() => {
+        for (const key of KEYS) {
+            delete process.env[key]
+        }
+    })
+
+    it('leaves the export off when nothing is set', () => {
+        expect(loadConfig().auditExport).toBeUndefined()
+    })
+
+    it('turns the export on with a host and a key', () => {
+        process.env.CREDENTIALS_SERVICE_AUDIT_EXPORT_ENABLED = 'true'
+        process.env.CREDENTIALS_SERVICE_AUDIT_CAPTURE_HOST = 'https://capture.example.com'
+        process.env.CREDENTIALS_SERVICE_AUDIT_CAPTURE_API_KEY = 'phc_fake'
+        expect(loadConfig().auditExport).toMatchObject({ host: 'https://capture.example.com', batchSize: 500 })
+    })
+
+    it.each([
+        ['no host or key', { CREDENTIALS_SERVICE_AUDIT_EXPORT_ENABLED: 'true' }],
+        [
+            'a host that is not http',
+            {
+                CREDENTIALS_SERVICE_AUDIT_EXPORT_ENABLED: 'true',
+                CREDENTIALS_SERVICE_AUDIT_CAPTURE_HOST: 'ftp://x',
+                CREDENTIALS_SERVICE_AUDIT_CAPTURE_API_KEY: 'phc_fake',
+            },
+        ],
+    ])('fails the boot on %s', (_label, env) => {
+        Object.assign(process.env, env)
+        expect(() => loadConfig()).toThrow()
+    })
+})
+
+describe('loadMaintenanceConfig', () => {
+    const VARS = ['CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL', 'CREDENTIALS_SERVICE_AUDIT_RETENTION_DAYS']
+
+    afterEach(() => {
+        for (const key of VARS) {
+            delete process.env[key]
+        }
+    })
+
+    it('needs the migrate URL, and does not fall back to the runtime URL', () => {
+        process.env.CREDENTIALS_SERVICE_DATABASE_URL = 'postgres://runtime'
+        expect(loadMaintenanceConfig()).toBeUndefined()
+        delete process.env.CREDENTIALS_SERVICE_DATABASE_URL
+    })
+
+    it('keeps 30 days when nothing else is set', () => {
+        process.env.CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL = 'postgres://migrate'
+        expect(loadMaintenanceConfig()).toEqual({
+            url: 'postgres://migrate',
+            retentionDays: 30,
+            deleteUnexported: false,
+        })
+    })
+
+    it.each([
+        ['true', true],
+        ['false', false],
+        ['1', false],
+    ])('reads DELETE_UNEXPORTED=%s as %s', (value, expected) => {
+        process.env.CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL = 'postgres://migrate'
+        process.env.CREDENTIALS_SERVICE_AUDIT_RETENTION_DELETE_UNEXPORTED = value
+        expect(loadMaintenanceConfig()?.deleteUnexported).toBe(expected)
+        delete process.env.CREDENTIALS_SERVICE_AUDIT_RETENTION_DELETE_UNEXPORTED
+    })
+
+    it('accepts the maximum retention', () => {
+        process.env.CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL = 'postgres://migrate'
+        process.env.CREDENTIALS_SERVICE_AUDIT_RETENTION_DAYS = '60'
+        expect(loadMaintenanceConfig()?.retentionDays).toBe(60)
+    })
+
+    it.each(['61', '0', '-1', '30x'])('refuses retention %j', (days) => {
+        process.env.CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL = 'postgres://migrate'
+        process.env.CREDENTIALS_SERVICE_AUDIT_RETENTION_DAYS = days
+        expect(() => loadMaintenanceConfig()).toThrow('CREDENTIALS_SERVICE_AUDIT_RETENTION_DAYS')
     })
 })
 

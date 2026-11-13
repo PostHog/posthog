@@ -1,12 +1,14 @@
 import { useValues } from 'kea'
 import { cloneElement, useEffect, useState } from 'react'
 
-import { LemonColorGlyph, LemonInput, LemonLabel, Popover } from '@posthog/lemon-ui'
-
 import { DataColorToken } from 'lib/colors'
+import { LemonInput } from 'lib/lemon-ui/LemonInput'
+import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
+import { Popover } from 'lib/lemon-ui/Popover'
 import { dataThemeLogic } from 'lib/logic/dataThemeLogic'
 
 import { LemonColorButton } from './LemonColorButton'
+import { LemonColorGlyph } from './LemonColorGlyph'
 import { LemonColorList } from './LemonColorList'
 
 type LemonColorPickerBaseProps = {

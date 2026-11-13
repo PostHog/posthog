@@ -41,6 +41,10 @@ describe('HogFlow step previews', () => {
             }),
             ['To person@example.com'],
         ],
+        [
+            action('email_sandbox', { inputs: { email: { value: { to: { email: 'member@example.com' } } } } }),
+            ['To member@example.com'],
+        ],
         [action('function_sms', { inputs: { phoneNumber: { value: '+15555550123' } } }), ['To +15555550123']],
         [action('function_push', { inputs: { title: { value: 'Welcome back' } } }), ['Welcome back']],
         [action('exit', {}), ['End workflow']],
@@ -53,6 +57,7 @@ describe('HogFlow step previews', () => {
         [action('random_cohort_branch', {}), ['0 cohorts']],
         [action('function', { template_id: 'template-webhook' }), ['POST']],
         [action('function_email', {}), ['Email']],
+        [action('email_sandbox', { inputs: { email: { value: {} } } }), ['Email']],
         [action('function_sms', {}), ['SMS']],
         [action('function_push', {}), ['Push notification']],
     ])('falls back to a generic label when the config carries no inputs', (workflowAction, expected) => {

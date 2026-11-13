@@ -6,6 +6,7 @@ export type McpDashboardCardId =
     | 'model'
     | 'protocol-version'
     | 'tool-errors'
+    | 'tool-latency'
     | 'notable-sessions'
     | 'recent-activity'
 
@@ -18,6 +19,7 @@ const CARD_LABELS: Record<McpDashboardCardId, string> = {
     model: 'Share of calls by model',
     'protocol-version': 'Calls by MCP protocol version',
     'tool-errors': 'Tools with the highest error rate',
+    'tool-latency': 'Slowest tools by p95 latency',
     'notable-sessions': 'Sessions flagged for review',
     'recent-activity': 'Recent activity',
 }

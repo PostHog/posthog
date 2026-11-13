@@ -831,6 +831,32 @@ export interface GitHubTeamsResponseApi {
     has_more: boolean
 }
 
+export interface GitLabProjectApi {
+    /** GitLab numeric project ID. */
+    id: number
+    /** Full project path, including nested groups, such as `acme/platform/api`. Use it as a task repository. */
+    path_with_namespace: string
+    /** Project page on GitLab. */
+    web_url: string
+    /**
+     * Default branch of the project. Null for a project without commits.
+     * @nullable
+     */
+    default_branch: string | null
+}
+
+export interface GitLabProjectsResponseApi {
+    /** The connected project, when the token has the Developer role or higher on it. Empty when it does not, or when it does not match the search. */
+    projects: GitLabProjectApi[]
+    /** Token scopes that coding tasks need and the token does not have. Empty when the token has them, or when GitLab does not report the token's scopes. */
+    missing_scopes: string[]
+    /**
+     * Date when the token expires. Null when it does not expire or GitLab does not report it.
+     * @nullable
+     */
+    token_expires_at: string | null
+}
+
 export interface JiraProjectApi {
     /** Jira project ID. */
     id: string
@@ -1512,6 +1538,13 @@ export type IntegrationsGithubTeamsRetrieveParams = {
 export type IntegrationsGitlabMembersRetrieveParams = {
     /**
      * Optional case-insensitive name search. Leave blank to list the first users.
+     */
+    search?: string
+}
+
+export type IntegrationsGitlabProjectsRetrieveParams = {
+    /**
+     * Optional search on the project name or path. Leave blank to list the most recently active projects.
      */
     search?: string
 }

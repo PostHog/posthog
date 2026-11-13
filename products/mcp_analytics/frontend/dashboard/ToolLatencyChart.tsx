@@ -1,0 +1,34 @@
+import { type ValueDomain } from '@posthog/quill-charts'
+
+import { type ToolRow } from '../mcpDashboardOverviewLogic'
+import { formatMs, formatMsAsSeconds } from './formatters'
+import { RankedToolBarChart, type RankedToolBarChartProps } from './RankedToolBarChart'
+
+const p95 = (row: ToolRow): number => row.p95_duration_ms
+
+// Headroom past the slowest tool, which the axis then rounds up, so that tool's value label fits.
+const latencyDomain = (maxMs: number): ValueDomain => ({ min: 0, include: [maxMs * 1.2] })
+
+const latencyTooltipRows = (row: ToolRow): [string, string][] => [
+    ['p95', formatMs(row.p95_duration_ms)],
+    ['Calls', String(row.total_calls)],
+]
+
+export function ToolLatencyChart({ theme, ...props }: Omit<RankedToolBarChartProps, 'title'>): JSX.Element {
+    return (
+        <RankedToolBarChart
+            {...props}
+            theme={theme}
+            title="Slowest tools by p95 latency"
+            metric={{
+                label: 'p95',
+                // data-color-13, an amber warning hue beside the error card's red. Blue here means call volume.
+                color: theme.colors[12],
+                value: p95,
+                formatValue: formatMsAsSeconds,
+                valueDomain: latencyDomain,
+                tooltipRows: latencyTooltipRows,
+            }}
+        />
+    )
+}
