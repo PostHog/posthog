@@ -1,9 +1,11 @@
+import { mkdirSync, realpathSync } from 'fs'
 import path from 'path'
 import { parseArgs } from 'util'
 
 import { seedBacklog } from './backlog/backlog'
-import { CardError, LoadedCard, load, readProfile } from './cards'
+import { Backlog, CardError, LoadedCard, Profile, load, readProfile } from './cards'
 import { createEnvironment, defaultStateDir } from './environment/environment'
+import { StackConflictError, holdRunLock } from './environment/processes'
 import { roleSpecs, secretsOf } from './environment/roles'
 import { cyclotronUrlOf } from './environment/stack'
 import { Runner, createRunner } from './runner/runner'
@@ -76,6 +78,31 @@ async function seedBacklogOf(profilePath: string, env: NodeJS.ProcessEnv): Promi
         return EXIT_CODE.invalid
     }
     const stateDir = defaultStateDir(env)
+    mkdirSync(stateDir, { recursive: true })
+    const release = await holdRunLock(realpathSync(stateDir)).catch((error: unknown) => {
+        if (error instanceof StackConflictError) {
+            process.stderr.write(`${error.message}\n`)
+            return undefined
+        }
+        throw error
+    })
+    if (release === undefined) {
+        return EXIT_CODE.invalid
+    }
+    try {
+        return await seedHeld(name, backlog, settings, stateDir, env)
+    } finally {
+        await release()
+    }
+}
+
+async function seedHeld(
+    name: string,
+    backlog: Backlog,
+    settings: Profile['settings'],
+    stateDir: string,
+    env: NodeJS.ProcessEnv
+): Promise<number> {
     const [spec] = roleSpecs(env, { url: '' }, secretsOf(env), stateDir, settings)
     const { queues, bytes, manifest } = await seedBacklog(name, backlog, cyclotronUrlOf(spec), stateDir)
     for (const { queue, target, live } of queues) {
