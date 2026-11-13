@@ -139,6 +139,12 @@ class ImportProvider(ABC):
         errors, or ImportProviderUnavailable when the provider can't answer.
         """
 
+    def check_step_access(self, team_id: int, credentials: ImportCredentials, steps: list[str]) -> None:
+        """Refuse a key that can't read the selected steps, before the import claims its run. Raises
+        ImportCredentialsInvalid, with a message naming what is missing. A provider whose keys all read the same does
+        nothing here."""
+        return None
+
     def store_credentials(self, team_id: int, credentials: ImportCredentials, created_by_id: int | None) -> int | None:
         """Store checked credentials on first use and return the integration id.
 
