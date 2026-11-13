@@ -119,7 +119,14 @@ STALE_LOCAL_QUEUED_TASK_RUN_ERRORS_COUNTER = Counter(
 )
 
 
-@shared_task(ignore_result=True, soft_time_limit=120, time_limit=150)
+@shared_task(
+    ignore_result=True,
+    soft_time_limit=120,
+    time_limit=150,
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    max_retries=3,
+)
 @skip_team_scope_audit
 def store_pinned_recording_metadata(team_id: int, session_ids: list[str]) -> None:
     """Store start_time and retention on pinned recordings so collection counts drop them once they expire."""
@@ -134,7 +141,8 @@ def store_pinned_recording_metadata(team_id: int, session_ids: list[str]) -> Non
     ):
         timestamps = found[recording.session_id]
         recording.start_time = timestamps.min_timestamp
-        recording.retention_period_days = timestamps.retention_period_days
+        # Match the 30-day default ClickHouse applies to recordings with no stored retention
+        recording.retention_period_days = timestamps.retention_period_days or 30
         recording.save(update_fields=["start_time", "retention_period_days"])
 
 
