@@ -112,11 +112,13 @@ class FakeSes:
                 "get_identity_verification_attributes": self._get_identity_verification_attributes,
                 "get_identity_dkim_attributes": self._get_identity_dkim_attributes,
                 "get_identity_mail_from_domain_attributes": self._get_identity_mail_from_domain_attributes,
+                "delete_identity": self._delete_identity,
             },
             "sesv2": {
                 "create_tenant": self._create_tenant,
                 "create_tenant_resource_association": self._create_tenant_resource_association,
                 "list_resource_tenants": self._list_resource_tenants,
+                "list_email_identities": self._list_email_identities,
                 "delete_tenant_resource_association": self._delete_tenant_resource_association,
                 "put_email_identity_feedback_attributes": self._put_email_identity_feedback_attributes,
             },
@@ -220,6 +222,25 @@ class FakeSes:
         if ResourceArn not in resources:
             raise ClientError({"Error": {"Code": "NotFoundException"}}, "DeleteTenantResourceAssociation")
         resources.discard(ResourceArn)
+        return {}
+
+    def _list_email_identities(self, **_paging: Any) -> dict[str, Any]:
+        return {
+            "EmailIdentities": [
+                {
+                    "IdentityType": "DOMAIN",
+                    "IdentityName": identity.domain,
+                    "VerificationStatus": self.verification_status(identity).upper(),
+                }
+                for identity in self.identities.values()
+            ]
+        }
+
+    def _delete_identity(self, *, Identity: str) -> dict:
+        self.writes.append("delete_identity")
+        if any(self.identity_arn(Identity) in resources for resources in self.tenant_resources.values()):
+            raise ClientError({"Error": {"Code": "ConflictException"}}, "DeleteIdentity")
+        self.identities.pop(Identity, None)
         return {}
 
     def _known(self, domains: list[str]) -> list[SesIdentity]:

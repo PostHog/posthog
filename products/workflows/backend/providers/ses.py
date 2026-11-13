@@ -988,6 +988,23 @@ class SESProvider:
             logger.exception(f"SES API error deleting identity: {e}")
             raise
 
+    def list_failed_domain_identities(self) -> list[str]:
+        """The domain identities of this region whose verification failed."""
+        failed: list[str] = []
+        next_token: str | None = None
+        while True:
+            response = self.ses_v2_client.list_email_identities(
+                PageSize=1000, **({"NextToken": next_token} if next_token else {})
+            )
+            failed.extend(
+                identity["IdentityName"]
+                for identity in response["EmailIdentities"]
+                if identity.get("IdentityType") == "DOMAIN" and identity.get("VerificationStatus") == "FAILED"
+            )
+            next_token = response.get("NextToken")
+            if not next_token:
+                return failed
+
     def list_bounce_suppressions(self) -> Iterator[list[str]]:
         """Yield the email addresses on the account-level suppression list for a bounce, one page at a time."""
         next_token: str | None = None
