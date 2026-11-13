@@ -90,6 +90,7 @@ from ee.hogai.context.insight.format import (
     StickinessResultsFormatter,
     TrendsResultsFormatter,
     format_access_control_warnings,
+    format_row_limit_notice,
     format_warehouse_suggestions,
     format_warehouse_sync_warnings,
     get_boxplot_results,
@@ -689,9 +690,11 @@ class AssistantQueryExecutor:
         if not is_supported_query(query):
             raise NotImplementedError(f"Unsupported query type: {query_type}")
 
-        warning_prefix = format_warehouse_sync_warnings(response) + format_access_control_warnings(response)
-        result_budget = self._max_sql_result_chars
         is_sql = isinstance(query, AssistantHogQLQuery | HogQLQuery | DataVisualizationNode)
+        warning_prefix = format_warehouse_sync_warnings(response) + format_access_control_warnings(response)
+        if is_sql:
+            warning_prefix += format_row_limit_notice(response)
+        result_budget = self._max_sql_result_chars
         if is_sql and result_budget is not None:
             result_budget -= len(warning_prefix)
             if result_budget < SQLResultsFormatter.MIN_RESULT_CHARS:
