@@ -4,7 +4,7 @@
 # To keep an operation off on purpose, set enabled: false and give a disabled_reason.
 category: PostHog Review
 feature: code_review
-url_prefix: /code-review
+url_prefix: /stamphog
 ui_apps: {}
 tools:
     code-review-approvals-pull-requests-get:
