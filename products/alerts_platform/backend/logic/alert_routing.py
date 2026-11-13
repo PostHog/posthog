@@ -40,10 +40,10 @@ _EQUALS: Final = "="
 
 
 def list_receivers(*, team_id: int, ids: Collection[UUID] | None = None) -> tuple[StoredAlertReceiver, ...]:
-    rows = AlertReceiver.objects.for_team(team_id)
+    receivers = AlertReceiver.objects.for_team(team_id)
     if ids is not None:
-        rows = rows.filter(id__in=ids)
-    rows = rows.annotate(route_count=Count("routes")).order_by("name", "id")
+        receivers = receivers.filter(id__in=ids)
+    rows = receivers.annotate(route_count=Count("routes")).order_by("name", "id")
     return tuple(_stored_receiver(row, row.route_count) for row in rows)
 
 
