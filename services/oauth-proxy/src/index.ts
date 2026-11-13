@@ -9,6 +9,7 @@
  */
 import { handleAuthorize } from '@/handlers/authorize'
 import { handleCallback } from '@/handlers/callback'
+import { EMA_SETUP_PATH, handleEmaTrustedIssuer } from '@/handlers/ema'
 import { FONT_PATHS, handleFont } from '@/handlers/fonts'
 import { handleClientManifest, handleMetadata, handleOpenIdConfiguration, handleScopes } from '@/handlers/metadata'
 import { handleIntrospect, handleJwks, handleRevoke, handleUserInfo } from '@/handlers/passthrough'
@@ -83,6 +84,11 @@ const routes: Route[] = [
         paths: ['/oauth/token', '/token'],
         method: 'POST',
         handler: handleToken,
+    },
+    {
+        paths: [EMA_SETUP_PATH],
+        method: 'PUT',
+        handler: handleEmaTrustedIssuer,
     },
     {
         paths: ['/oauth/revoke'],

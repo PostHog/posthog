@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 
-import { IconClock, IconWarning } from '@posthog/icons'
+import { IconClock } from '@posthog/icons'
 import { Badge, Spinner, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
@@ -28,12 +28,11 @@ export function QuillInsightMetaContent({
     loadingQueued,
     showDescription,
     infoPopover,
-    dataRetentionWarning,
     queryScanTooltip,
     queryScanActionable,
     warehouseSyncTooltip,
 }: InsightMetaContentProps): JSX.Element {
-    const hasTitleIndicator = !!(infoPopover || dataRetentionWarning || queryScanTooltip || warehouseSyncTooltip)
+    const hasTitleIndicator = !!(infoPopover || queryScanTooltip || warehouseSyncTooltip)
     const titleContent = (
         <>
             <span className={clsx('text-primary', hasTitleIndicator && 'truncate')}>
@@ -65,11 +64,6 @@ export function QuillInsightMetaContent({
                     </LinkPrimitive>
                 ) : (
                     titleContent
-                )}
-                {dataRetentionWarning && (
-                    <TitleIndicator tooltip={dataRetentionWarning}>
-                        <IconWarning className="text-base text-warning" />
-                    </TitleIndicator>
                 )}
                 {queryScanTooltip && (
                     <TitleIndicator tooltip={queryScanTooltip}>

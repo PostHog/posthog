@@ -7,6 +7,7 @@ import {
     liveRankedRows,
     liveReferrerCounts,
     liveUsersOnlineFromQuery,
+    liveWorld,
 } from '@/model/adapters/live'
 
 import { LiveDemo } from './live'
@@ -38,6 +39,7 @@ describe('LiveDemo', () => {
         expect(referrers.reduce((sum, row) => sum + row.views, 0)).toBe(activity.pageviews)
         expect(liveBreakdown(demo.respond('device', now), 'devices').rows.length).toBeGreaterThan(1)
         expect(liveBreakdown(demo.respond('geo', now), 'countries').total).toBe(activity.uniqueVisitors)
+        expect(liveWorld(demo.respond('geo', now)).countries.length).toBeGreaterThanOrEqual(15)
         expect(liveEvents(demo.respond('recentEvents', now))).toHaveLength(50)
         expect(liveUsersOnlineFromQuery(demo.respond('usersOnline', now))).toBeGreaterThan(0)
     })

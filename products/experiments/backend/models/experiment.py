@@ -1,10 +1,10 @@
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Collection, Sequence
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Literal
 
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
-from django.db.models import Exists, OuterRef, QuerySet
+from django.db.models import QuerySet
 from django.db.models.fields.json import KeyTextTransform
 from django.utils import timezone
 
@@ -16,7 +16,7 @@ from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.tagged_items_relation import Taggable
-from posthog.models.utils import RootTeamMixin, UUIDModel
+from posthog.models.utils import RootTeamManager, RootTeamMixin, UUIDModel
 
 from products.feature_flags.backend.facade.filters import (
     CohortRestrictionBlocker,
@@ -57,6 +57,25 @@ ExposureFreezeBlocker = (
     Literal["draft", "stopped", "paused", "already_frozen", "no_flag", "flag_deleted", "flag_rule"]
     | CohortRestrictionBlocker
 )
+
+
+class LiveExperimentManager(RootTeamManager):
+    """Experiments the API still shows, which is every row whose `deleted` is not true.
+
+    This is a manager rather than a filter because the flag ownership table in
+    `products/feature_flags/backend/ownership.py` reads each owning relation through a named
+    manager, so only a manager can keep a deleted experiment out of it.
+
+    `deleted` is nullable, and `filter_experiments_queryset` counts a null as live, so this
+    excludes true instead of keeping false. An experiment a user can still open must keep its
+    flag, because that page is where the user unlinks it.
+
+    Inherits `RootTeamManager` because `RootTeamMixin` makes that the default manager, and a manager
+    on the model that does not inherit it would lose the project-scoped team rewriting.
+    """
+
+    def get_queryset(self):
+        return super().get_queryset().exclude(deleted=True)
 
 
 class Experiment(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.Model):
@@ -169,6 +188,11 @@ class Experiment(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMixi
     feature_flag_rule_id = models.UUIDField(null=True, blank=True)
     # The immutable first-start snapshot preserves the rule and relevant flag context after winner shipping.
     feature_flag_rule_snapshot = models.JSONField(null=True, blank=True)
+
+    # Django puts a locally declared manager first, so without this line `live_objects` becomes
+    # the default manager and hides soft-deleted rows from readers such as restore.
+    objects = RootTeamManager()  # type: ignore[misc]
+    live_objects = LiveExperimentManager()
 
     class Meta:
         db_table = "posthog_experiment"
@@ -414,24 +438,32 @@ class Experiment(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMixi
         )
 
 
-def live_experiments_for_flag(feature_flag_id: Any) -> "QuerySet[Experiment]":
+def _live_experiments() -> "QuerySet[Experiment]":
     """Single source of truth for the `has_experiment` predicate: a flag has a linked
     experiment iff a non-deleted Experiment row references it. The Rust flags service
-    (rust/feature-flags/src/flags/feature_flag_list.rs) mirrors this in hand-written SQL —
-    keep the two in lockstep.
-
-    Accepts a concrete id or an `OuterRef`, so it backs both helpers below.
+    (rust/feature-flags/src/flags/feature_flag_list.rs) mirrors this in hand-written SQL,
+    so keep the two in lockstep.
     """
-    return Experiment.objects.filter(feature_flag_id=feature_flag_id, deleted=False)
+    return Experiment.objects.filter(deleted=False)
 
 
-def live_experiment_exists() -> Exists:
-    """`Exists` subquery for `.annotate()` over many flags. For a single in-hand flag, use `flag_has_live_experiment`."""
-    return Exists(live_experiments_for_flag(OuterRef("pk")))
+def live_experiments_for_flag(feature_flag_id: int) -> "QuerySet[Experiment]":
+    return _live_experiments().filter(feature_flag_id=feature_flag_id)
+
+
+def live_experiment_flag_ids(feature_flag_ids: Collection[int], *, using: str) -> frozenset[int]:
+    """The ids among `feature_flag_ids` that a live experiment uses, read in one query from the database alias
+    `using`. An empty collection returns an empty set without a query."""
+    return frozenset(
+        _live_experiments()
+        .using(using)
+        .filter(feature_flag_id__in=list(feature_flag_ids))
+        .values_list("feature_flag_id", flat=True)
+    )
 
 
 def flag_has_live_experiment(feature_flag_id: int) -> bool:
-    """Instance-level companion to `live_experiment_exists` — same predicate, one flag."""
+    """`live_experiments_for_flag` for one flag."""
     return live_experiments_for_flag(feature_flag_id).exists()
 
 

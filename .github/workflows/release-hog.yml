@@ -24,18 +24,32 @@ env:
     # The version the flox environment pins for hog, as in ci-hog.yml.
     BUN_VERSION: 1.4.2
     RELEASE_BRANCH: chore/release-hog
-    # What compiles into hog, for the approval check in prepare-release: hog, the MCP library it bundles,
-    # the product files that library imports or copies in, and the lockfile and patches that pick their
-    # dependencies. The build job's sparse checkout names the same trees.
+    # Everything that decides what the build job ships, for the approval checks: hog, the MCP library and
+    # workspace packages it bundles, the product files that library imports or copies in, what picks and
+    # installs the dependencies (the root package's install scripts run during the build), and this
+    # workflow. Keep it in step with the build job's sparse checkout.
     HOG_SOURCE_PATHS: >-
         hog
         services/mcp
+        tools/openapi-codegen
+        packages/llm-normalizer
+        packages/quill
         products/notebooks
         products/product_analytics/mcp
         products/posthog_ai/skills/querying-posthog-data/references/guidelines.md
         products/ai_observability/backend/prompts/parser_recipe_examples.yaml
+        package.json
         pnpm-lock.yaml
+        pnpm-workspace.yaml
+        .nvmrc
+        .npmrc
+        .pnpmfile.cjs
         patches
+        .husky
+        bin/fix-rdkafka-paths
+        .github/actions/pnpm-install
+        .github/actions/setup-pnpm
+        .github/workflows/release-hog.yml
 
 jobs:
     check-changesets:
@@ -165,8 +179,8 @@ jobs:
 
             # The release ships every change to hog's sources since the last release, so nobody who
             # authored or merged one of those pull requests may approve it. The range ends at the commit
-            # checked out here, and "Ensure master did not advance" stops the run when master moves on,
-            # so the release branch holds only checked changes. Every lookup that fails stops the run.
+            # checked out here. The release job checks what merged after it, while the release pull
+            # request waited in the merge queue.
             - name: Check approvers against every change since the last release
               id: range-guard
               env:
@@ -192,62 +206,9 @@ jobs:
                       exit 1
                   fi
 
-                  read -ra paths <<<"$HOG_SOURCE_PATHS"
-                  commits=$(git log --format=%H "$base..HEAD" -- "${paths[@]}")
-                  shas=()
-                  if [ -n "$commits" ]; then
-                      mapfile -t shas <<<"$commits"
-                  fi
-
-                  # One GraphQL query per 10 commits returns each commit's merged pull request with its
-                  # author and merger, which commits/{sha}/pulls leaves out. Larger batches pass GitHub's
-                  # 10-second query limit on this repository, and a 502 or timeout gets two more tries.
-                  owner=${REPOSITORY%%/*}
-                  name=${REPOSITORY#*/}
-                  pulls=""
-                  for ((i = 0; i < ${#shas[@]}; i += 10)); do
-                      fields=""
-                      for sha in "${shas[@]:i:10}"; do
-                          fields+="c$sha: object(oid: \"$sha\") { ... on Commit { associatedPullRequests(first: 10) { nodes { number merged author { login } mergedBy { login } } } } } "
-                      done
-                      for attempt in 1 2 3; do
-                          if response=$(gh api graphql -f query="query { repository(owner: \"$owner\", name: \"$name\") { $fields } }"); then
-                              break
-                          fi
-                          if [ "$attempt" -eq 3 ]; then
-                              echo "::error::GitHub couldn't list the pull requests of the released commits"
-                              exit 1
-                          fi
-                          sleep $((attempt * 5))
-                      done
-                      if [ "$(jq '.errors // [] | length' <<<"$response")" -ne 0 ]; then
-                          echo "::error::GitHub couldn't list the pull requests of the released commits"
-                          jq -c '.errors' <<<"$response"
-                          exit 1
-                      fi
-
-                      unlinked=$(jq -r '.data.repository | to_entries[] | select([.value.associatedPullRequests.nodes[]? | select(.merged)] | length == 0) | .key | ltrimstr("c")' <<<"$response")
-                      if [ -n "$unlinked" ]; then
-                          echo "::error::These released commits have no merged pull request, so their authors can't be ruled out:"
-                          printf '%s\n' "$unlinked"
-                          exit 1
-                      fi
-
-                      pulls+=$(jq -r '.data.repository[].associatedPullRequests.nodes[] | select(.merged) | [.number, (.author.login // ""), (.mergedBy.login // "")] | @tsv' <<<"$response")
-                      pulls+=$'\n'
-                  done
-                  echo "Checked ${#shas[@]} commits since $last_tag against the approvals of $(paste -sd ' ' - <<<"$approvers")"
-
-                  blocked=""
-                  while IFS= read -r approver; do
-                      numbers=$(awk -F '\t' -v who="$approver" '$2 == who || $3 == who { print "#" $1 }' <<<"$pulls" | sort -u | paste -sd ' ' -)
-                      if [ -n "$numbers" ]; then
-                          blocked+="${blocked:+, }$approver ($numbers)"
-                      fi
-                  done <<<"$approvers"
-                  if [ -n "$blocked" ]; then
-                      echo "violations=$blocked" >> "$GITHUB_OUTPUT"
-                      echo "::error::These approvers authored or merged a pull request this release ships: $blocked. Re-run the failed jobs and have someone else approve."
+                  mapfile -t approver_list <<<"$approvers"
+                  if ! hog/release/check-approvers.sh "$base" HEAD "${approver_list[@]}"; then
+                      echo "::error::Re-run the failed jobs and have someone else approve."
                       exit 1
                   fi
 
@@ -387,7 +348,12 @@ jobs:
               if: steps.check-changes.outputs.committed == 'true'
               uses: planetscale/ghcommit-action@25309d8005ac7c3bcd61d3fe19b69e0fe47dbdde # v0.2.20
               with:
-                  commit_message: 'chore(cli): release hog v${{ steps.prepare-release.outputs.new-version }}'
+                  # The release job reads the run from the message, to check its approvers against what
+                  # merges while the release pull request waits.
+                  commit_message: |
+                      chore(cli): release hog v${{ steps.prepare-release.outputs.new-version }}
+
+                      hog-release-run: ${{ github.run_id }}
                   repo: ${{ github.repository }}
                   branch: ${{ env.RELEASE_BRANCH }}
               env:
@@ -584,7 +550,7 @@ jobs:
         name: Identify merged hog release
         needs: check-changesets
         runs-on: ubuntu-24.04
-        timeout-minutes: 5
+        timeout-minutes: 10
         permissions:
             contents: read
             pull-requests: read
@@ -596,12 +562,17 @@ jobs:
             build-date: ${{ steps.release-metadata.outputs.build-date }}
             slack-ts: ${{ steps.release-metadata.outputs.slack-ts }}
         steps:
+            # The history, for the approver check of what merged while the release pull request waited.
             - name: Checkout repository
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   ref: ${{ github.sha }}
+                  fetch-depth: 0
+                  filter: blob:none
                   persist-credentials: false
-                  sparse-checkout: hog/package.json
+                  sparse-checkout: |
+                      hog/package.json
+                      hog/release/check-approvers.sh
                   sparse-checkout-cone-mode: false
 
             - name: Identify release commit
@@ -641,15 +612,31 @@ jobs:
                   release_pr=$(printf '%s\n' "$release_prs" | sed -n '1p')
                   pr_data=$(gh api "repos/$REPOSITORY/pulls/$release_pr")
 
-                  # Only the hog releaser App may open the pull request and make its commit, which the
-                  # API signs for an App.
+                  # Only the hog releaser App may open the pull request and make its commit. GitHub
+                  # commits and signs what the App writes through the API, so a commit a person signed,
+                  # even one that names the App as its author, doesn't pass.
                   head=$(printf '%s' "$pr_data" | jq -r '.head.sha')
                   head_data=$(gh api "repos/$REPOSITORY/commits/$head")
                   if [ "$(printf '%s' "$pr_data" | jq -r '.head.repo.full_name')" != "$REPOSITORY" ] \
                       || [ "$(printf '%s' "$pr_data" | jq -r '.user.login')" != "$RELEASER_LOGIN" ] \
                       || [ "$(printf '%s' "$head_data" | jq -r '.author.login // empty')" != "$RELEASER_LOGIN" ] \
+                      || [ "$(printf '%s' "$head_data" | jq -r '.committer.login // empty')" != web-flow ] \
                       || [ "$(printf '%s' "$head_data" | jq -r '.commit.verification.verified')" != true ]; then
                       echo "::error::The release pull request and its commit were not both made by $RELEASER_LOGIN"
+                      exit 1
+                  fi
+
+                  # What landed on master, whatever the pull request held: release files only, and a
+                  # package.json that differs in its version alone, so nothing the build runs changed.
+                  landed=$(git diff --name-only "$RELEASE_COMMIT^1" "$RELEASE_COMMIT")
+                  unexpected=$(printf '%s\n' "$landed" | grep -Ev '^hog/(package\.json|CHANGELOG\.md|\.sampo/(changesets|prerelease)/[^/]+\.md)$' || true)
+                  if [ -n "$unexpected" ]; then
+                      echo "::error::The hog release commit changes more than the release files:"
+                      echo "$unexpected"
+                      exit 1
+                  fi
+                  if [ "$(git show "$RELEASE_COMMIT^1:hog/package.json" | jq -S 'del(.version)')" != "$(git show "$RELEASE_COMMIT:hog/package.json" | jq -S 'del(.version)')" ]; then
+                      echo "::error::The hog release commit changes hog/package.json beyond its version"
                       exit 1
                   fi
 
@@ -689,14 +676,58 @@ jobs:
                   build_date=$(printf '%s' "$head_data" | jq -r '.commit.committer.date')
                   slack_ts=$(printf '%s' "$pr_data" | jq -r '.body // ""' | sed -n 's/.*hog-release-slack-thread: \([0-9.]*\).*/\1/p' | head -n 1)
 
+                  prepare_run=$(printf '%s' "$head_data" | jq -r '.commit.message' | sed -n 's/^hog-release-run: \([0-9][0-9]*\)$/\1/p' | head -n 1)
+                  if [ -z "$prepare_run" ]; then
+                      echo "::error::The release commit doesn't name the run that prepared it"
+                      exit 1
+                  fi
+
                   {
                       echo "is-release=true"
                       echo "version=$version"
+                      echo "prepare-run=$prepare_run"
+                      echo "approved-commit=$(printf '%s' "$head_data" | jq -r '.parents[0].sha')"
                       echo "release-tag=$release_tag"
                       echo "release-commit=$RELEASE_COMMIT"
                       echo "build-date=$build_date"
                       echo "slack-ts=$slack_ts"
                   } >> "$GITHUB_OUTPUT"
+
+            # prepare-release checked its approvers against hog changes up to the commit it released
+            # from. Changes that merged while the release pull request waited in the queue ship too.
+            - name: Check approvers against changes merged after the approval
+              id: late-range-guard
+              if: steps.release-metadata.outputs.is-release == 'true'
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  REPOSITORY: ${{ github.repository }}
+                  RELEASE_COMMIT: ${{ github.sha }}
+                  PREPARE_RUN: ${{ steps.release-metadata.outputs.prepare-run }}
+                  APPROVED_COMMIT: ${{ steps.release-metadata.outputs.approved-commit }}
+              run: |
+                  set -euo pipefail
+
+                  run_path=$(gh api "repos/$REPOSITORY/actions/runs/$PREPARE_RUN" --jq '.path')
+                  if [ "$run_path" != .github/workflows/release-hog.yml ]; then
+                      echo "::error::Run $PREPARE_RUN, which the release commit names, isn't a Release hog run"
+                      exit 1
+                  fi
+                  approvers=$(gh api "repos/$REPOSITORY/actions/runs/$PREPARE_RUN/approvals" \
+                      --jq '[.[] | select(.state == "approved") | .user.login] | unique | .[]')
+                  if [ -z "$approvers" ]; then
+                      echo "::error::Run $PREPARE_RUN has no approval in hog-release to check"
+                      exit 1
+                  fi
+                  if ! git merge-base --is-ancestor "$APPROVED_COMMIT" "$RELEASE_COMMIT^1"; then
+                      echo "::error::The commit the release was approved at, $APPROVED_COMMIT, isn't on master"
+                      exit 1
+                  fi
+
+                  mapfile -t approver_list <<<"$approvers"
+                  if ! hog/release/check-approvers.sh "$APPROVED_COMMIT" "$RELEASE_COMMIT^1" "${approver_list[@]}"; then
+                      echo "::error::The release can't publish. Revert the release pull request, which restores its changesets and starts a new release for someone else to approve."
+                      exit 1
+                  fi
 
             - name: Notify Slack - Publish needs approval
               if: steps.release-metadata.outputs.slack-ts != ''

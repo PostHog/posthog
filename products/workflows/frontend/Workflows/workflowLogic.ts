@@ -4903,7 +4903,7 @@ export const workflowLogic = kea<workflowLogicType>([
             actions.replayDeferredResourceEdited()
             // Load schedules whatever the trigger is. A schedule outlives a switch to another trigger,
             // and a save that cannot see it creates a second one that fires next to it.
-            if (originalWorkflow.id) {
+            if (props.id && props.id !== 'new') {
                 try {
                     const schedules = await api.hogFlows.getHogFlowSchedules(originalWorkflow.id)
                     actions.setSchedules(schedules)
