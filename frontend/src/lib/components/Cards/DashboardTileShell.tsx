@@ -26,11 +26,7 @@ export const DashboardTileShell = React.forwardRef<HTMLDivElement, DashboardTile
     return (
         <div
             ref={ref}
-            className={clsx(
-                'rounded',
-                !transparent && 'bg-surface-primary border',
-                className
-            )}
+            className={clsx('rounded', !transparent && 'bg-surface-primary border', className)}
             {...divProps}
         >
             {children}
