@@ -109,6 +109,8 @@ logger = logging.getLogger(__name__)
 
 DELETE_PREVIEW_ENTRY_LIMIT = 200
 
+UNFILED_WORKFLOW_FOLDERS = ("Unfiled/Workflows", "Unfiled/Email templates")
+
 # One message for every reason a restore is refused (missing, already live, or off-limits), so the
 # endpoint can't be used to learn which refs exist.
 # The file system rows whose objects carry tags, with the model field the row's `ref` names.
@@ -935,25 +937,21 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def _visible_files(self, queryset: QuerySet) -> QuerySet:
         if self._workflow_files_enabled:
             return queryset
-        other_files = (
-            self._scope_by_project(FileSystem.objects.all())
-            .filter(path__startswith=Concat(OuterRef("path"), Value("/")))
-            .exclude(type__in=WORKFLOW_FILE_SYSTEM_TYPES)
-            .exclude(type="folder", path__in=["Unfiled/Workflows", "Unfiled/Email templates"])
-        )
-        workflow_files = self._scope_by_project(FileSystem.objects.all()).filter(
-            path__startswith=Concat(OuterRef("path"), Value("/")), type__in=WORKFLOW_FILE_SYSTEM_TYPES
-        )
-        return (
-            queryset.exclude(type__in=WORKFLOW_FILE_SYSTEM_TYPES)
-            .alias(_has_other_files=Exists(other_files), _has_workflow_files=Exists(workflow_files))
-            .exclude(
-                type="folder",
-                path__in=["Unfiled", "Unfiled/Workflows", "Unfiled/Email templates"],
-                _has_other_files=False,
-                _has_workflow_files=True,
+        # Each check matches a constant path prefix, so Postgres runs it at most once per statement. A prefix built
+        # from the outer row's path cannot use an index and scans the project once per row.
+        files = self._scope_by_project(FileSystem.objects.all())
+        only_workflow_files = Q()
+        for folder in ("Unfiled", *UNFILED_WORKFLOW_FOLDERS):
+            under = files.filter(path__startswith=f"{folder}/")
+            other_files = under.exclude(type__in=WORKFLOW_FILE_SYSTEM_TYPES).exclude(
+                type="folder", path__in=UNFILED_WORKFLOW_FOLDERS
             )
-        )
+            only_workflow_files |= (
+                Q(type="folder", path=folder)
+                & Exists(under.filter(type__in=WORKFLOW_FILE_SYSTEM_TYPES))
+                & ~Exists(other_files)
+            )
+        return queryset.exclude(type__in=WORKFLOW_FILE_SYSTEM_TYPES).exclude(only_workflow_files)
 
     def _filter_queryset_by_parents_lookups(self, queryset):
         return self._scope_by_project(queryset)
@@ -2054,7 +2052,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         """
 
         # TODO: this needs some concurrency controls or a unique index
-        scoped_files = self._visible_files(self._scope_by_project_and_environment(FileSystem.objects.all()))
+        scoped_files = self._scope_by_project_and_environment(FileSystem.objects.all())
         existing_paths = set(scoped_files.values_list("path", flat=True))
 
         folders_to_create = []

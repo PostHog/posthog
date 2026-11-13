@@ -490,26 +490,31 @@ describe('API helper', () => {
         } satisfies Partial<ApiError>)
     })
 
-    it('reports the DRF error code of a failed response as a client_request_failure', async () => {
+    it('reports the DRF error code and backend request id of a failed response', async () => {
         fakeFetch.mockResolvedValueOnce({
             ok: false,
             status: 400,
             statusText: '',
-            headers: new Headers(),
+            headers: new Headers({ 'X-Request-ID': 'AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA' }),
             json: () =>
                 Promise.resolve({ type: 'validation_error', code: 'token_invalid', detail: 'Token is not valid' }),
         })
 
-        await api.create('api/users/@me/two_factor_validate/', { token: '123456' }).catch(() => null)
+        const failure = await api.create('api/users/@me/two_factor_validate/', { token: '123456' }).catch((e) => e)
 
+        // Lowercased, so it equals `request_id` on the backend log lines of the same request.
+        const requestId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
         expect(posthog.capture).toHaveBeenCalledWith(
             'client_request_failure',
             expect.objectContaining({
                 pathname: '/api/users/@me/two_factor_validate/',
                 status: 400,
                 code: 'token_invalid',
+                http_request_id: requestId,
             })
         )
+        expect(failure).toBeInstanceOf(ApiError)
+        expect(failure.requestId).toBe(requestId)
     })
 
     describe('OAuth mode auth headers', () => {
