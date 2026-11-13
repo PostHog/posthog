@@ -1,15 +1,18 @@
 from collections import Counter
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
-from typing import Literal
+from functools import partial
+from typing import Literal, TypeVar
 from uuid import UUID
 
 from django.db import transaction
 from django.db.models import CharField, Exists, OuterRef, Q, QuerySet
 from django.db.models.functions import Cast
 
+from posthog.models import Team
 from posthog.models.activity_logging.activity_log import ActivityLog, field_name_overrides
 
-from products.signals.backend.models import AutonomyPriority, SignalTeamConfig
+from products.signals.backend.models import AutonomyPriority, SignalScoutConfig, SignalSourceConfig, SignalTeamConfig
 from products.signals.backend.trial.policy import (
     TrialFlagDecision,
     TrialPolicy,
@@ -18,6 +21,8 @@ from products.signals.backend.trial.policy import (
 )
 
 GRANDFATHERED_AUTOSTART_PRIORITY = AutonomyPriority.P2
+
+_Row = TypeVar("_Row", SignalTeamConfig, Team)
 
 OrganizationOutcome = Literal[
     "grandfathered", "activated_after_launch", "billing_cutover_pending", "flag_unconfirmed", "usage_based_pricing"
@@ -76,12 +81,28 @@ def unchosen_autostart_priority_configs(*, team_id: int | None = None) -> QueryS
     return configs
 
 
-def _organization_outcome_for(config: SignalTeamConfig) -> OrganizationOutcome:
-    organization_id = config.team.organization_id
+def teams_without_config(*, team_id: int | None = None) -> QuerySet[Team]:
+    """Projects that run a signal source or scout and have no config row.
+
+    Auto-start treats a missing row as automatic pull requests on with the P4 threshold. Projects
+    that never ran self-driving produce no reports, so they get no row.
+    """
+    teams = Team.objects.filter(
+        Exists(SignalSourceConfig.objects.filter(team_id=OuterRef("pk")))
+        | Exists(SignalScoutConfig.objects.unscoped().filter(team_id=OuterRef("pk"))),
+        ~Exists(SignalTeamConfig.objects.filter(team_id=OuterRef("pk"))),
+    )
+    if team_id is not None:
+        teams = teams.filter(pk=team_id)
+    return teams
+
+
+def _organization_outcome_for(team: Team) -> OrganizationOutcome:
+    organization_id = team.organization_id
     activated = activated_before_pricing_launch(organization_id)
     cutover_pending = activated and spend_billing_starts_later(organization_id)
     flag = (
-        TrialPolicy(config.team).flag_decision()
+        TrialPolicy(team).flag_decision()
         if activated and not cutover_pending
         else TrialFlagDecision(enabled=None, confirmed=False)
     )
@@ -101,27 +122,48 @@ def _apply_priority(config: SignalTeamConfig) -> bool:
         return True
 
 
+def _create_config(team: Team) -> bool:
+    # A row created since the selection may hold a person's choice, so it is left alone.
+    _, created = SignalTeamConfig.objects.get_or_create(
+        team_id=team.pk, defaults={"default_autostart_priority": GRANDFATHERED_AUTOSTART_PRIORITY}
+    )
+    return created
+
+
+def _batches(rows: QuerySet[_Row], batch_size: int) -> Iterator[list[_Row]]:
+    after_pk = None
+    while True:
+        page = rows.order_by("pk")
+        if after_pk is not None:
+            page = page.filter(pk__gt=after_pk)
+        batch = list(page[:batch_size])
+        if not batch:
+            return
+        yield batch
+        after_pk = batch[-1].pk
+
+
 def backfill_grandfathered_autostart_priority(
     *, apply: bool, team_id: int | None, batch_size: int
 ) -> PriorityBackfillSummary:
     summary = PriorityBackfillSummary()
     organization_outcomes: dict[UUID, OrganizationOutcome] = {}
-    after_pk = None
-    while True:
-        configs = unchosen_autostart_priority_configs(team_id=team_id).select_related("team").order_by("pk")
-        if after_pk is not None:
-            configs = configs.filter(pk__gt=after_pk)
-        batch = list(configs[:batch_size])
-        if not batch:
-            return summary
-        for config in batch:
-            organization_id = config.team.organization_id
-            if organization_id not in organization_outcomes:
-                organization_outcomes[organization_id] = _organization_outcome_for(config)
-            outcome: str = organization_outcomes[organization_id]
-            if outcome == "grandfathered":
-                summary.team_ids.append(config.team_id)
-                if apply:
-                    outcome = "updated" if _apply_priority(config) else "changed_during_run"
-            summary.outcomes[outcome] += 1
-        after_pk = batch[-1].pk
+
+    def record(team: Team, write: Callable[[], bool], written: str) -> None:
+        if team.organization_id not in organization_outcomes:
+            organization_outcomes[team.organization_id] = _organization_outcome_for(team)
+        outcome: str = organization_outcomes[team.organization_id]
+        if outcome == "grandfathered":
+            summary.team_ids.append(team.pk)
+            if apply:
+                outcome = written if write() else "changed_during_run"
+        summary.outcomes[outcome] += 1
+
+    configs = unchosen_autostart_priority_configs(team_id=team_id).select_related("team")
+    for config_batch in _batches(configs, batch_size):
+        for config in config_batch:
+            record(config.team, partial(_apply_priority, config), "updated")
+    for team_batch in _batches(teams_without_config(team_id=team_id), batch_size):
+        for team in team_batch:
+            record(team, partial(_create_config, team), "created")
+    return summary

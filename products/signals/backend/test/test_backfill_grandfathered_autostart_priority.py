@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from io import StringIO
 from typing import Any
 
@@ -9,12 +10,15 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from posthog.models import Team
+
 from products.signals.backend.autostart_priority_backfill import organization_outcome
-from products.signals.backend.models import SignalTeamConfig
+from products.signals.backend.models import SignalSourceConfig, SignalTeamConfig
 from products.signals.backend.trial.policy import TrialFlagDecision
 
 _FLAG = "products.signals.backend.trial.policy.posthoganalytics.feature_enabled"
 _ACTIVATED_BEFORE_LAUNCH = {"completed_at": "2026-01-01T00:00:00+00:00"}
+_BEFORE_LAUNCH = datetime(2026, 1, 1, tzinfo=UTC)
 
 
 class TestOrganizationOutcome(SimpleTestCase):
@@ -108,3 +112,22 @@ class TestBackfillGrandfatheredAutostartPriority(APIBaseTest):
 
         config.refresh_from_db()
         assert config.default_autostart_priority == "P4"
+
+    def test_apply_creates_a_p2_config_for_a_project_with_a_source_and_no_config(self) -> None:
+        self._source_before_launch(self.team)
+        project_without_signals = Team.objects.create(organization=self.organization, project=self.project)
+
+        output = self._run()
+        assert not SignalTeamConfig.objects.filter(team=self.team).exists()
+        assert "grandfathered: 1" in output
+
+        output = self._run("--apply")
+        assert SignalTeamConfig.objects.get(team=self.team).default_autostart_priority == "P2"
+        assert not SignalTeamConfig.objects.filter(team=project_without_signals).exists()
+        assert "created: 1" in output
+
+    def _source_before_launch(self, team: Team) -> None:
+        source = SignalSourceConfig.objects.create(
+            team=team, source_product="error_tracking", source_type="issue_created"
+        )
+        SignalSourceConfig.objects.filter(pk=source.pk).update(created_at=_BEFORE_LAUNCH)

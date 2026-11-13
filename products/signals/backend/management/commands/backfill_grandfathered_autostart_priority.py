@@ -13,6 +13,7 @@ class Command(BaseCommand):
     help = (
         "Set the project pull request threshold to P2 for projects that have automatic pull requests on, "
         "never chose a threshold, and belong to an organization on the grandfathered self-driving plan. "
+        "A project with a signal source or scout and no config row gets a new config row with that threshold. "
         "An organization is skipped when the pricing flag gives no confirmed answer. "
         "Dry run unless --apply is passed. Safe to rerun: an updated row no longer matches."
     )
