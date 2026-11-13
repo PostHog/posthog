@@ -51744,6 +51744,13 @@ export namespace Schemas {
          */
       readonly table_id: string | null;
       should_sync?: boolean;
+      /** Whether this table is queryable live on a synced source with live queries on, without syncing it. Synced tables are always queryable live. */
+      live_query_enabled?: boolean;
+      /**
+         * Why this table can't be made queryable live without syncing it, or null when it can.
+         * @nullable
+         */
+      readonly live_query_unavailable_reason: string | null;
       /** @nullable */
       readonly last_synced_at: string | null;
       /**
@@ -51924,6 +51931,8 @@ export namespace Schemas {
       id: string;
       /** Whether the schema should be queryable/synced. */
       should_sync?: boolean;
+      /** Whether the table is queryable live without syncing it. Only for synced sources with live queries on, and not for tables with row filters or masked columns. */
+      live_query_enabled?: boolean;
       /** Requested sync mode for the schema (incremental, full_refresh, append, cdc, or xmin).
        *
        * * `full_refresh` - full_refresh
@@ -88985,6 +88994,13 @@ export namespace Schemas {
          */
       readonly table_id?: string | null;
       should_sync?: boolean;
+      /** Whether this table is queryable live on a synced source with live queries on, without syncing it. Synced tables are always queryable live. */
+      live_query_enabled?: boolean;
+      /**
+         * Why this table can't be made queryable live without syncing it, or null when it can.
+         * @nullable
+         */
+      readonly live_query_unavailable_reason?: string | null;
       /** @nullable */
       readonly last_synced_at?: string | null;
       /**
