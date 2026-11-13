@@ -9631,14 +9631,14 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
 
         assert (result.affected, result.total) == (1, 3)
         assert create_for_spy.call_count == 1
-        denominator_queries = [query for query in queries if "count(DISTINCT" not in query]
+        person_count_queries = [query for query in queries if "argMax(person.is_deleted" in query]
+        assert len(person_count_queries) == 2
+        for query in person_count_queries:
+            assert_memory_bounded(query)
+        denominator_queries = [query for query in person_count_queries if "count(DISTINCT" not in query]
         assert denominator_queries
         for query in denominator_queries:
             assert "in(tuple(person.id, person.version)" not in query
-        total_count_queries = [query for query in denominator_queries if "argMax(person.is_deleted" in query]
-        assert total_count_queries
-        for query in total_count_queries:
-            assert_memory_bounded(query)
 
     @parameterized.expand(
         [
