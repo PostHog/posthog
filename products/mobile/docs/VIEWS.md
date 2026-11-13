@@ -96,8 +96,8 @@ The "SQL views" dashboard (`demo-dash-sql`) has a SQL table, a SQL line chart, a
 
 ## The Views tab
 
-The third slot of the bottom bar opens the Views tab (`app/(tabs)/views/index.tsx`, `src/features/views/list/ViewsScreen.tsx`).
-The slot after it holds one pinned list from Browse: Errors, Sessions, Web analytics or Live (see [DECISIONS.md](DECISIONS.md#navigation-pins)).
+The fourth slot of the bottom bar, after Home, Inbox and Chats, opens the Views tab (`app/(tabs)/views/index.tsx`, `src/features/views/list/ViewsScreen.tsx`).
+The slot after it, which held one pinned list from Browse, is retired, so no list is pinned to the bar (see [DECISIONS.md](DECISIONS.md#navigation-pins)).
 It replaced the Products slot, which opened the web app's product library. `mobile_products_opened` went with it; the bar now sends `mobile_views_opened` when the tab is selected, with the pin count from the cached pin list.
 
 The screen is one `SectionList`: a search field, Pinned, Recent and Browse.
@@ -153,9 +153,9 @@ Pin and unpin stay with the session and project that started them; changing eith
 ### Search and Browse
 
 Search shows local matches first (pins as their cards, Recent rows), then dashboards and insights from the server, without the views already shown.
-Browse has Dashboards, Insights, Web analytics, Live, Sessions and Errors. Web analytics, Live, Sessions and Errors open as a pushed screen or, when pinned, as a slot in the nav pill. A long press on any of these four rows offers "Pin to navigation" or "Unpin from navigation" (see [DECISIONS.md](DECISIONS.md#navigation-pins)). In the demo, Sessions and Errors are dimmed; Web analytics and Live have demo data.
+Browse has Dashboards, Insights, Web analytics, Live, Sessions and Errors. Web analytics, Sessions and Errors open as a pushed screen, and Live switches to the Home tab (`openBrowseEntry` in `browseRoutes.ts`). While the pin slot is retired, a long press on these rows does nothing (see [DECISIONS.md](DECISIONS.md#navigation-pins)). In the demo, Sessions and Errors are dimmed; Web analytics and Live have demo data.
 The Dashboards and Insights lists (`app/views/browse/*.tsx`, `src/features/views/browse/BrowseListScreen.tsx`) load 30 rows at a time and search on the server with `useBrowseSearch`.
-Their Browse rows send `mobile_browse_list_opened` (`section`: `dashboards` or `insights`; `from`: `browse` or `search`). Each next page that loads sends `mobile_browse_list_paged` (`section`, `pages_loaded`), and a failed first page sends `mobile_views_error_shown` (`screen: browse`).
+Their Browse rows send `mobile_browse_list_opened` (`section`: `dashboards` or `insights`; `from`: `browse` or `search`). The Live, Sessions and Errors rows send it too, with `section` `live`, `replay` or `errors`. Each next page that loads sends `mobile_browse_list_paged` (`section`, `pages_loaded`), and a failed first page sends `mobile_views_error_shown` (`screen: browse`).
 `mobile_views_searched` (`section`: `views`, `dashboards` or `insights`; `query_length`, `result_count`) goes once per settled query, from the Views list and from each Browse list.
 
 ### Routes
@@ -222,7 +222,7 @@ The queries port the web's tiles in `webAnalyticsLogic.tsx` (`src/api/webAnalyti
 - **Refresh.** Each card is one `RefreshItem` in screen order, overview first. Every card counts as visible, so one screen open reads up to 8 queries through the shared queue. A range or filter change is a new open path (`rangeKey`), like a range change on other screens; a metric or tab change drops any queued reads for the replaced card and reads the newly selected one. The full list is its own screen with one item.
 - **States.** The whole screen shows the skeleton until the overview arrives, and the error state when the overview fails. Each card then has its own skeleton, "No data for this range." and "Couldn't load this data. Pull down to try again.", and dims its values when its last read failed.
 - **Demo.** `src/demo/webAnalytics.ts` answers every query with invented hedgebox.net data that follows the range and the filters: a filter scales the counts by the share of the row it came from, so the overview with "Path: /pricing" shows the visitors of the /pricing row.
-- **Two chromes.** `WebAnalyticsScreen({ from, chrome })` is pushed (`stack`: Back chip, the 26pt title, More) or a pinned tab (`tab`: the tabs header draws the title and the status line, and the range button is the first row of the content). The More sheet of the pushed screen has "Pin to navigation" (`view-nav-pin`, or `view-nav-unpin`) above "Open on web"; on the tab, the tabs menu has "Unpin from navigation" and "Open on web".
+- **Two chromes.** `WebAnalyticsScreen({ from, chrome })` is pushed (`stack`: Back chip, the 26pt title, More) or a pinned tab (`tab`: the tabs header draws the title and the status line, and the range button is the first row of the content). The More sheet of the pushed screen and the tabs menu on the tab both have "Open on web". Their "Pin to navigation" rows (`view-nav-pin`, `nav-list-pin`) are hidden while the pin slot is retired.
 - **Live chip.** A pill with a green dot and the users online count (`web-analytics-live-chip`) sits right of the title, or right of the range button on the tab. It reads "Live" until a count arrives. A tap pushes Live with `from=web_analytics`. The count comes from `useLiveUsersOnline` (`src/features/live/hooks.ts`): the live events stats read on Cloud, else the HogQL count on the `live` budget, every 30 seconds, only while the screen is focused and the app is in the foreground. It never runs Live's full read.
 
 Events: `mobile_web_analytics_metric_selected` (`metric`), `mobile_web_analytics_breakdown_changed` (`tile`, `breakdown`, `from`: `card` or `list`, `source`: `user` for a picked tab or `drill_down` for the tab a new row filter moves the tile to), `mobile_web_analytics_filter_added` (`property`, `source`: `card`, `list` or `undo`), `mobile_web_analytics_filter_removed` (`property`, `source`: `chip`, `clear_all`, `undo` or `row`), `mobile_web_analytics_list_opened` (`tile`, `breakdown`) and `mobile_web_analytics_web_tile_opened` (`tile`). Filter events name the property, never the value.
@@ -357,7 +357,7 @@ normalized email and selected project as person-property overrides for flag eval
 account changes and foreground returns. An earlier account's pending flag response cannot replace the current flags.
 
 An off flag hides the corresponding Browse and search entry and navigation pin. Saved pin preferences remain on
-the device, so enabling the flag restores the slot. Both tab and pushed list/detail routes also check the flag;
+the device. Both tab and pushed list/detail routes also check the flag;
 a disabled route returns to the person's start page before mounting the feature screen.
 
 For local UI checks, development bundles accept comma-separated keys in `EXPO_PUBLIC_FEATURE_FLAGS`.

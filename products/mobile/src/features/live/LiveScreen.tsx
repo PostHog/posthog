@@ -3,8 +3,7 @@ import { type ReactElement, useCallback, useState } from 'react'
 import { Linking, RefreshControl, ScrollView, type StyleProp, Text, type TextStyle, View } from 'react-native'
 
 import type { ProjectScope } from '@/api/reports'
-import { changeNavPin } from '@/features/tabs/navPinActions'
-import { type NavChrome, useIsNavPinned } from '@/features/tabs/navPinStore'
+import type { NavChrome } from '@/features/tabs/navPinStore'
 import { TabHeaderPublisher } from '@/features/tabs/TabHeaderPublisher'
 import { TABS_HEADER_BOTTOM } from '@/features/tabs/TabsHeader'
 import { HeaderMenu } from '@/features/views/screen/HeaderMenu'
@@ -22,7 +21,6 @@ import type { ViewEntry } from '@/model/views'
 import { Eyebrow } from '@/ui/Eyebrow'
 import { ExternalLinkIcon } from '@/ui/icons/ExternalLinkIcon'
 import { PauseIcon } from '@/ui/icons/PauseIcon'
-import { PinIcon } from '@/ui/icons/PinIcon'
 import { PlayIcon } from '@/ui/icons/PlayIcon'
 import { WarningIcon } from '@/ui/icons/WarningIcon'
 import { LiveDot } from '@/ui/LiveDot'
@@ -60,15 +58,17 @@ export function LiveScreen({ from, chrome }: { from: ViewEntry; chrome: NavChrom
     const back = useViewBack()
     const insets = useScreenInsets()
     const tabBottom = useTabBottomOffset()
-    // The screen owns the toasts, so the More menu's pin change shows one whatever the body shows.
     const toasts = useToasts()
-    const pinned = useIsNavPinned('live')
     const [menuOpen, setMenuOpen] = useState(false)
     const allowed = access.state === 'ok'
     const tab = chrome === 'tab'
+    // The tabs layout counts Home opens once per tab switch, because this focus effect also fires when a pushed screen,
+    // Settings or the chat sheet closes over Home.
     useFocusEffect(
         useCallback(() => {
-            trackLiveOpened({ from, chrome })
+            if (chrome === 'stack') {
+                trackLiveOpened({ from, chrome })
+            }
         }, [from, chrome])
     )
     const webUrl = viewWebUrl(scope, '/web/live')
@@ -107,12 +107,6 @@ export function LiveScreen({ from, chrome }: { from: ViewEntry; chrome: NavChrom
                     onClose={() => setMenuOpen(false)}
                     testID="live-menu"
                     items={[
-                        {
-                            key: pinned ? 'unpin' : 'pin',
-                            label: pinned ? 'Unpin from navigation' : 'Pin to navigation',
-                            Icon: PinIcon,
-                            onPress: () => changeNavPin('live', !pinned, 'list_menu', toasts.show),
-                        },
                         {
                             key: 'web',
                             label: 'Open on web',

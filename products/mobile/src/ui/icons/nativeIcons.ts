@@ -1,5 +1,6 @@
 export const nativeIcons = {
     home: require('./native/home.png'),
+    inbox: require('./native/inbox.png'),
     chats: require('./native/chats.png'),
     views: require('./native/views.png'),
     errors: require('./native/errors.png'),

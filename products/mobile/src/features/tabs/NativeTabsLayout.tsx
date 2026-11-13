@@ -1,6 +1,8 @@
 import { useSegments } from 'expo-router'
 import { NativeTabs } from 'expo-router/native-tabs'
 import { type ReactElement, useRef } from 'react'
+import { useInboxHasUnread } from '@/features/inbox/useInboxHasUnread'
+import { trackLiveOpened } from '@/features/live/analytics'
 import { useViewsOpenedEvent } from '@/features/views/list/useViewsOpenedEvent'
 import { track } from '@/lib/analytics'
 import { useMobileProductFlags } from '@/lib/featureFlags'
@@ -10,35 +12,35 @@ import { useColors } from '@/ui/theme'
 import { useNativeRail } from '@/ui/useNativeRail'
 import { isNavPin, NAV_PINS, useNavPins } from './navPinStore'
 import { type TabKey, useTabHeaderStore } from './tabHeaderStore'
-import { tabForRoute, tabRouteName } from './tabRoutes'
+import { BAR_TABS, tabForRoute, tabRouteName } from './tabRoutes'
 import { visibleNavPins } from './visibleNavPins'
 
 const LABELS: Record<TabKey, string> = {
-    inbox: 'Home',
+    live: 'Home',
+    inbox: 'Inbox',
     chats: 'Chats',
     views: 'Views',
     errors: 'Errors',
     replay: 'Sessions',
     web_analytics: 'Web analytics',
-    live: 'Live',
 }
 const ICONS = {
-    inbox: nativeIcons.home,
+    live: nativeIcons.home,
+    inbox: nativeIcons.inbox,
     chats: nativeIcons.chats,
     views: nativeIcons.views,
     errors: nativeIcons.errors,
     replay: nativeIcons.replay,
     web_analytics: nativeIcons.webAnalytics,
-    live: nativeIcons.live,
 } satisfies Record<TabKey, unknown>
 const TEST_IDS: Record<TabKey, string> = {
-    inbox: 'inbox-nav-home',
+    live: 'inbox-nav-home',
+    inbox: 'nav-inbox',
     chats: 'inbox-nav-chat',
     views: 'inbox-nav-views',
     errors: 'nav-pin-errors',
     replay: 'nav-pin-replay',
     web_analytics: 'nav-pin-web_analytics',
-    live: 'nav-pin-live',
 }
 
 export function NativeTabsLayout(): ReactElement {
@@ -51,9 +53,13 @@ export function NativeTabsLayout(): ReactElement {
     const flags = useMobileProductFlags()
     const segments: readonly string[] = useSegments()
     const [group, route] = segments
+    const inboxUnread = useInboxHasUnread()
+    // The navigator may keep the first listeners it gets, so the focus listener reads the dot through a ref.
+    const inboxUnreadRef = useRef(inboxUnread)
+    inboxUnreadRef.current = inboxUnread
     const shownPins = visibleNavPins(pins, group === '(tabs)' ? tabForRoute(route) : focused, flags)
     // Every pinnable tab stays registered, the shown pin first so it takes the slot after Views.
-    const tabs: TabKey[] = ['inbox', 'chats', 'views', ...new Set([...shownPins, ...NAV_PINS])]
+    const tabs: TabKey[] = [...BAR_TABS, ...new Set([...shownPins, ...NAV_PINS])]
     useViewsOpenedEvent(focused === 'views')
     return (
         <NativeTabs
@@ -61,6 +67,7 @@ export function NativeTabsLayout(): ReactElement {
             disableHiddenAnimation
             tintColor={colors.ink}
             iconColor={colors.ink}
+            badgeBackgroundColor={colors.blue}
             preferredPlacement="tabBar"
             screenListeners={({ route }) => ({
                 focus: () => {
@@ -68,7 +75,8 @@ export function NativeTabsLayout(): ReactElement {
                     useTabHeaderStore.getState().setFocused(tab)
                     if (lastFocused.current === tab) return
                     lastFocused.current = tab
-                    if (tab === 'inbox') track('mobile_inbox_opened')
+                    if (tab === 'live') trackLiveOpened({ from: 'tab', chrome: 'tab' })
+                    if (tab === 'inbox') track('mobile_inbox_opened', { had_unread: inboxUnreadRef.current })
                     if (tab === 'chats') track('mobile_chats_opened')
                 },
             })}
@@ -86,6 +94,7 @@ export function NativeTabsLayout(): ReactElement {
                 >
                     <NativeTabs.Trigger.Icon src={ICONS[tab]} renderingMode="template" />
                     <NativeTabs.Trigger.Label hidden>{LABELS[tab]}</NativeTabs.Trigger.Label>
+                    {tab === 'inbox' && inboxUnread ? <NativeTabs.Trigger.Badge /> : null}
                 </NativeTabs.Trigger>
             ))}
         </NativeTabs>

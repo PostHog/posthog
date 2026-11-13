@@ -36,9 +36,23 @@ Choices the build contract left open, with the reason for each.
 - **Overlays on the report screen are components, not routes.** The chat sheet is a route
   (`presentation: 'transparentModal'`, no stack animation) that draws its own scrim and 94% sheet,
   so it looks the same on iOS, Android and web.
-- **Inbox and Chats are tabs** (`app/(tabs)/`, `Tabs` from `expo-router/js-tabs` with a custom `tabBar`), so the
-  bottom bar renders once and stays put when the tab changes. `backBehavior="firstRoute"`: Android back from Chats
-  returns to Inbox, and back from Inbox leaves the app.
+- **Home, Inbox, Chats and Views are tabs** (`app/(tabs)/`, `Tabs` from `expo-router/js-tabs` with a custom `tabBar`),
+  so the bottom bar renders once and stays put when the tab changes. `backBehavior="firstRoute"`: Android back from
+  another tab returns to Home, and back from Home leaves the app.
+- **Home is the Live screen.** Most people open the app to see their data, so Live (`app/(tabs)/live/`, `/live`) is the
+  first tab and the default start page, and the inbox is the second tab. The tabs header keeps the title "Live". The
+  bar sends `mobile_live_opened` (`from: tab`) once per switch to Home, like the Inbox and Chats opens, because a
+  focus effect would count again each time a pushed screen, Settings or the chat sheet closes over Home.
+- **The Inbox tab shows a blue dot** while the inbox had an unread report the last time it loaded.
+  `useInboxHasUnread` reads the first page the inbox saves in the query cache (`read-inbox`) and never fetches, so
+  there is no dot until the inbox has loaded once, on this launch or an earlier one, and the dot cannot announce a new
+  report. The inbox saves that page only after the full read-state request succeeds.
+  Opening a report while that request is pending preserves the saved unread states until a full response arrives.
+  `mobile_inbox_opened` sends `had_unread`, the dot's state when the Inbox opened. iOS native tabs show the dot as an
+  empty badge.
+- **A report opened from a push on a cold start sits above the inbox.** The app would open on Home, so routing
+  navigates to `/inbox` before it pushes the report, and Back returns to the inbox. A tap while the app runs pushes
+  the report above the current screen.
 - **Menus and sheets draw through `OverlayPortal`.** The tab navigator draws its bar after the scenes, so an overlay
   inside a tab scene would draw under the bar. `FloatingCard` and `BottomSheet` render into the `OverlayHost` in
   `TabsLayout`, above the bar. Screens outside the tabs have no host, so their overlays render in place.
@@ -70,9 +84,8 @@ Choices the build contract left open, with the reason for each.
   match the prototype's wrapping of headlines, ledes, questions, PR titles and quotes.
 - **Focus ring.** Web text fields drop the browser outline; the field container is the affordance.
 - **Disabled chat tools.** Expand renders at 40% opacity because it does nothing yet.
-- **Nav pill** shows the handoff's three slots as Home, Chat and Products. The app has no Spaces or
-  Views, so the chat-bubbles slot opens the chat sheet and the grid slot opens the web app's product
-  library (`/project/{id}/library`, the web rail's Products pane), which has no product screen in the app.
+- **Nav pill** shows Home, Inbox, Chats and Views, then the Chat button.
+  On narrow screens or with larger system text, Chat shows only its icon so each tab stays at least 44pt wide (see [Navigation pins](#navigation-pins)).
 - **Bottom padding floor.** `bottomOffset()` never returns less than 16pt. The handoff's bottom paddings include the
   34pt home indicator, so on a device with a home button (inset 0) several came out between 0 and 14pt.
 
@@ -308,14 +321,21 @@ See [DATA.md](DATA.md) for the endpoint map and every adapter rule.
 
 ## Navigation pins
 
-- **Errors, Sessions, Web analytics and Live are Views rows, not fixed tabs.** The Browse group lists Dashboards, Insights, Web analytics, Live, Sessions, Errors. Sessions replaces the old Recordings row, which opened the web.
+- **The pin slot is retired.** Home became Live and the Inbox took the fourth slot, so the pill has no room after
+  Views. `MAX_NAV_PINS` in `navPinSlot.ts` is 0: every "Pin to navigation" item is hidden, the Browse rows have no
+  long-press menu, and a saved list stays on the device but loads as no pins. The pin code stays, dormant, until the
+  decision whether to remove it. `TabsLayout.test.tsx` raises the cap to 1 in one test to keep it covered. The rest
+  of this section describes the dormant behavior.
+- **Live is not a pin.** It is Home, so `NAV_PINS` has Errors, Sessions and Web analytics, and a saved Live pin is
+  dropped when the list loads.
+- **Errors, Sessions, Web analytics and Live are Views rows.** The Browse group lists Dashboards, Insights, Web analytics, Live, Sessions, Errors. Sessions replaces the old Recordings row, which opened the web. Live is also Home, so its Browse row switches to the Home tab instead of pushing a second Live screen (`browseRoutes.ts`).
 - **A pin adds one slot after Views.** Long-press the Browse row, or use the pushed screen's More menu (More sheet on Web analytics), for "Pin to navigation". Both changes confirm with the Views toast and Undo.
 - **One user slot.** Five 44pt slots and the labelled Chat button do not fit a 375pt or 393pt phone: about 199pt and 217pt are left for 220pt of slots. Four fit everywhere, so the pill has Home, Chats, Views and one pin. Pinning another list replaces the pin, the toast says "Pinned, replacing Errors" (or "Web analytics", the longest label), and Undo puts the old pin back. The store keeps a list (`MAX_NAV_PINS`), so a larger cap needs no change to the saved format.
 - **A device preference.** `navPinStore` keeps the pins in AsyncStorage for every project, and sign-out keeps them, like the pin hint: they hold no account data.
-- **Every tab route is always registered.** `app/(tabs)/errors/`, `replay/`, `web-analytics/` and `live/` exist whether pinned or not; the bar draws a slot only for a pin. A list unpinned from its own tab keeps its slot until the person leaves it, so Undo has a place to return to. The same rule shows the slot of a start page tab that is not pinned. While such a tab is focused, its tabs menu offers "Pin to navigation" and "Open on web". Route names are the folder names, so `tabRoutes.ts` maps the `web_analytics` key to the `web-analytics` route.
+- **Every tab route is always registered.** `app/(tabs)/errors/`, `replay/` and `web-analytics/` exist whether pinned or not; the bar draws a slot only for a pin. iOS cannot select a hidden native tab, so while the slot is retired the `/errors`, `/replay` and `/web-analytics` tab paths land on Home there. A list unpinned from its own tab keeps its slot until the person leaves it, so Undo has a place to return to. The same rule shows the slot of a start page tab that is not pinned. While such a tab is focused, its tabs menu offers "Pin to navigation" and "Open on web". Route names are the folder names, so `tabRoutes.ts` maps the `web_analytics` key to the `web-analytics` route.
 - **`/errors` is the pushed screen.** The Errors and Sessions tabs share their path with the stack screens, and Expo Router resolves a path without a group to the stack screen. `openNavTarget` reaches the tab as `/(tabs)/errors`. Web analytics and Live keep their pushed `/views/web-analytics` and `/views/live` routes, which deep links open, so their tabs are `/web-analytics` and `/live` with no clash. `navPinRoutes.test.tsx` checks all four.
 - **Only Errors and Sessions have release flags.** Web analytics and Live have no flag, so `navPinEnabled` treats a pin without a flag as on.
-- **The lists count their own opens.** The bar sends `mobile_inbox_opened` and `mobile_chats_opened` only; `mobile_errors_opened`, `mobile_replay_opened`, `mobile_view_opened` (`view_type: web_analytics`) and `mobile_live_opened` come from the screens with `chrome`, because the same screens also open pushed from Views. A tab stays mounted, so each screen counts every visit: with a focus effect, or with `useTabVisit` for the Web analytics view event.
+- **The lists count their own opens.** The bar sends `mobile_live_opened` for Home, `mobile_inbox_opened` and `mobile_chats_opened`; `mobile_errors_opened`, `mobile_replay_opened`, `mobile_view_opened` (`view_type: web_analytics`) and the pushed Live screen's `mobile_live_opened` come from the screens with `chrome`, because the same screens also open pushed from Views. A tab stays mounted, so each screen counts every visit: with a focus effect, or with `useTabVisit` for the Web analytics view event.
 - **Sessions and Errors rows are disabled in the demo**, as Recordings was, because the demo has no issues or recordings. Web analytics and Live have demo data.
 
 ## Errors
