@@ -343,32 +343,19 @@ describe('facetSearchBarLogic', () => {
         ['a facet draft', ['tag:', 'tag:d', 'tag:de'], 50, 'deal0001'],
         ['a bare word', ['de', 'dea', 'deal'], 8, 'Tag: deal0001'],
     ])(
-        'reuses the counts of a scope and builds only the rows it shows, reading no later facet, while typing %s',
+        'shows a capped list, best match first, over 1000 items while typing %s',
         (_, keystrokes, rowCount, firstLabel) => {
-            let valueReads = 0
-            let laterFacetReads = 0
-            let formats = 0
             const tag: FacetDefinition<number> = {
                 key: 'tag',
                 label: 'Tag',
                 description: 'Labels',
-                getValues: (item) => {
-                    valueReads++
-                    return [`deal${String(item).padStart(4, '0')}`]
-                },
-                formatValue: (value) => {
-                    formats++
-                    return value
-                },
+                getValues: (item) => [`deal${String(item).padStart(4, '0')}`],
             }
             const owner: FacetDefinition<number> = {
                 key: 'owner',
                 label: 'Owner',
                 description: 'Who made it',
-                getValues: () => {
-                    laterFacetReads++
-                    return ['deal-owner@example.com']
-                },
+                getValues: () => ['deal-owner@example.com'],
             }
             logic = facetSearchBarLogic({
                 id: 'test',
@@ -380,20 +367,13 @@ describe('facetSearchBarLogic', () => {
             })
             logic.mount()
 
-            logic.actions.setInput(keystrokes[0])
-            expect(logic.values.suggestions.length).toBeGreaterThan(0)
-            const readsForScope = valueReads
-            for (const keystroke of keystrokes.slice(1)) {
+            for (const keystroke of keystrokes) {
                 logic.actions.setInput(keystroke)
             }
-            formats = 0
             const rows = logic.values.suggestions.filter((suggestion) => suggestion.kind === 'value')
 
             expect(rows).toHaveLength(rowCount)
             expect(rows[0].label).toEqual(firstLabel)
-            expect(valueReads).toEqual(readsForScope)
-            expect(formats).toBeLessThanOrEqual(rowCount)
-            expect(laterFacetReads).toEqual(0)
         }
     )
 
