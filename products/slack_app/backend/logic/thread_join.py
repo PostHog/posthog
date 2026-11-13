@@ -43,3 +43,7 @@ def decide_thread_join(
     if mode == ThreadJoinMode.ASK_PER_THREAD:
         return ThreadJoinDecision.ASK_FOR_THREAD
     return ThreadJoinDecision.DENY
+
+
+def joiner_uses_owner_account(integration: "WorkspaceIntegration", mapping: "SlackThreadTaskMapping") -> bool:
+    return resolve_thread_join_mode(integration, mapping.mentioning_slack_user_id) != ThreadJoinMode.ALLOW

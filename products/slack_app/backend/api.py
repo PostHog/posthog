@@ -4301,6 +4301,7 @@ def post_thread_join_prompt(
             "text": {
                 "type": "mrkdwn",
                 "text": f"<@{joiner_slack_user_id}> wants to work with me in {thread_label}. "
+                "If you let people join, I use your GitHub account for their messages. You still own the task. "
                 + ("Let anyone join this thread?" if opens_thread else "Let them join?"),
             },
         },

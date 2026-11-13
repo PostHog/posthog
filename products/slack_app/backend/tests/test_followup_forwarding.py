@@ -20,6 +20,7 @@ from posthog.models.user_integration import UserIntegration
 
 from products.signals.backend.facade import report_tasks
 from products.slack_app.backend.api import SlackUserContext
+from products.slack_app.backend.logic.task_handover import parse_handover_target
 from products.slack_app.backend.models import SlackSettings, SlackThreadJoin, SlackThreadTaskMapping, ThreadJoinMode
 from products.slack_app.backend.services.run_preferences import SLACK_DEFAULT_MODEL
 from products.slack_app.backend.services.slack_messages import (
@@ -1458,16 +1459,30 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
 
     @parameterized.expand(
         [
-            ("allow", ThreadJoinMode.ALLOW, None, True, False),
+            ("allow", ThreadJoinMode.ALLOW, None, True, False, False),
             # A creator who never picked a mode lets anyone join.
-            ("unset", None, None, True, False),
-            ("ask_per_person", ThreadJoinMode.ASK_PER_PERSON, None, False, True),
-            ("ask_per_person_already_joined", ThreadJoinMode.ASK_PER_PERSON, ["U_BOB"], True, False),
-            ("ask_per_person_after_someone_else_joined", ThreadJoinMode.ASK_PER_PERSON, ["U_CAROL"], False, True),
-            ("ask_per_thread", ThreadJoinMode.ASK_PER_THREAD, None, False, True),
-            ("ask_per_thread_after_someone_else_joined", ThreadJoinMode.ASK_PER_THREAD, ["U_CAROL"], True, False),
-            ("never", ThreadJoinMode.NEVER, None, False, False),
-            ("never_after_joining", ThreadJoinMode.NEVER, ["U_BOB"], True, False),
+            ("unset", None, None, True, False, False),
+            ("ask_per_person", ThreadJoinMode.ASK_PER_PERSON, None, False, True, False),
+            ("ask_per_person_already_joined", ThreadJoinMode.ASK_PER_PERSON, ["U_BOB"], True, False, True),
+            (
+                "ask_per_person_after_someone_else_joined",
+                ThreadJoinMode.ASK_PER_PERSON,
+                ["U_CAROL"],
+                False,
+                True,
+                False,
+            ),
+            ("ask_per_thread", ThreadJoinMode.ASK_PER_THREAD, None, False, True, False),
+            (
+                "ask_per_thread_after_someone_else_joined",
+                ThreadJoinMode.ASK_PER_THREAD,
+                ["U_CAROL"],
+                True,
+                False,
+                True,
+            ),
+            ("never", ThreadJoinMode.NEVER, None, False, False, False),
+            ("never_after_joining", ThreadJoinMode.NEVER, ["U_BOB"], True, False, True),
         ]
     )
     @patch("products.slack_app.backend.api.post_thread_join_prompt")
@@ -1481,6 +1496,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         joined,
         delivered,
         prompted,
+        uses_owner_account,
         mock_slack_cls,
         mock_resolve,
         mock_signal,
@@ -1513,6 +1529,66 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         if delivered:
             # A run on the creator's plan takes the joiner's turn on that plan.
             assert mock_signal.call_args.kwargs["plan_owner_consented"] is True
+            assert mock_signal.call_args.kwargs["actor_user_id"] == (self.user.id if uses_owner_account else bob.id)
+
+    @parameterized.expand(
+        [
+            ("owner_hands_over", "U_ALICE", True, True, "completed", True, "<@U_BOB> You own this task now"),
+            ("helper_cannot_take_the_task", "U_BOB", True, True, "completed", False, "Only <@U_ALICE> can hand over"),
+            ("target_without_project_access", "U_ALICE", False, True, "completed", False, "has no access"),
+            ("target_without_github", "U_ALICE", True, False, "completed", False, "must connect GitHub"),
+            ("active_run", "U_ALICE", True, True, "in_progress", False, "Finish or cancel active runs"),
+        ]
+    )
+    @patch("products.tasks.backend.facade.api.user_has_usable_personal_github")
+    @patch("products.tasks.backend.facade.api.signal_task_run_user_message", return_value=True)
+    @patch("products.slack_app.backend.api.resolve_slack_user")
+    @patch("posthog.models.integration.SlackIntegration")
+    def test_handover_command_moves_the_task_only_when_every_check_passes(
+        self,
+        _name,
+        sender,
+        target_has_access,
+        target_has_github,
+        run_status,
+        handed_over,
+        expected_reply,
+        mock_slack_cls,
+        mock_resolve,
+        mock_signal,
+        mock_github,
+    ):
+        bob = User.objects.create(email="bob@test.com", first_name="Bob")
+        for member in (self.user, bob):
+            OrganizationMembership.objects.create(organization=self.org, user=member)
+        self.TaskRun.objects.filter(id=self.task_run.id).update(status=run_status)
+        mapping = self._create_mapping(mentioning_user="U_ALICE")
+        SlackThreadJoin.objects.for_team(self.team.id).create(
+            team=self.team, thread_mapping=mapping, slack_user_id="U_CAROL"
+        )
+        mock_slack = MagicMock()
+        mock_slack_cls.return_value = mock_slack
+        mock_resolve.return_value = SlackUserContext(user=bob, slack_email=None) if target_has_access else None
+        mock_github.return_value = target_has_github
+
+        result = forward_posthog_code_followup_activity(
+            _make_inputs(self.integration.id, self.user.id),
+            "C123",
+            "1234.5678",
+            sender,
+            "<@BOT> hand over to <@U_BOB>",
+            "1234.5679",
+        )
+
+        assert result is True
+        mock_signal.assert_not_called()
+        replies = [c.kwargs["text"] for c in mock_slack.client.chat_postMessage.call_args_list]
+        assert any(expected_reply in reply for reply in replies), replies
+        self.task.refresh_from_db()
+        mapping.refresh_from_db()
+        assert self.task.created_by_id == (bob.id if handed_over else self.user.id)
+        assert mapping.mentioning_slack_user_id == ("U_BOB" if handed_over else "U_ALICE")
+        assert SlackThreadJoin.objects.for_team(self.team.id).filter(thread_mapping=mapping).exists() is not handed_over
 
     @parameterized.expand(
         [
@@ -1955,6 +2031,21 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
             channel="C123", timestamp="1234.5679", name="eyes"
         )
         mock_slack_instance.client.reactions_add.assert_any_call(channel="C123", timestamp="1234.5679", name="x")
+
+
+class TestParseHandoverTarget(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("tagged_command", "<@BOT> hand over to <@U2>", "U2"),
+            ("untagged_command_with_label", "hand over to <@U2|sam>", "U2"),
+            ("one_word_and_period", "<@BOT> Handover to <@U2>.", "U2"),
+            ("command_inside_a_sentence", "<@BOT> please hand over to <@U2> the doc", None),
+            ("question_about_a_handover", "<@BOT> who did the hand over to <@U2>?", None),
+            ("normal_message", "<@BOT> fix the bug", None),
+        ]
+    )
+    def test_only_a_whole_message_command_names_a_target(self, _name, text, expected):
+        assert parse_handover_target(text) == expected
 
 
 class TestEnforcePostHogCodeBillingQuotaActivity(TestCase):

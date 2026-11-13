@@ -13,9 +13,15 @@ from temporalio import activity
 from posthog.dataclasses import frozen
 from posthog.temporal.common.utils import close_db_connections
 
+from products.slack_app.backend.analytics import capture_slack_event
 from products.slack_app.backend.facade.api import slack_artifact_delivery_state_updates
 from products.slack_app.backend.logic.reply_suggestions import clear_open_suggestions
-from products.slack_app.backend.logic.thread_join import ThreadJoinDecision, decide_thread_join
+from products.slack_app.backend.logic.task_handover import hand_over_slack_task, parse_handover_target
+from products.slack_app.backend.logic.thread_join import (
+    ThreadJoinDecision,
+    decide_thread_join,
+    joiner_uses_owner_account,
+)
 from products.slack_app.backend.services.slack_messages import (
     SlackThreadMessage,
     context_block,
@@ -1040,6 +1046,28 @@ def forward_posthog_code_followup_activity(
 
     actor_user = mapping.task.created_by
     followup_user_text_prefix: str | None = None
+    if (handover_target := parse_handover_target(event_text)) is not None:
+        resolved_target = None
+        if slack_user_id == mapping.mentioning_slack_user_id and handover_target != slack_user_id:
+            resolved_target = resolve_slack_user(
+                slack, integration, handover_target, channel, thread_ts, post_feedback=False
+            )
+        handover = hand_over_slack_task(
+            mapping,
+            sender_slack_user_id=slack_user_id,
+            target_slack_user_id=handover_target,
+            target_user=resolved_target.user if resolved_target else None,
+        )
+        _clear_processing_reaction(slack, channel, user_message_ts)
+        post_slack_thread_reply(slack.client, channel=channel, thread_ts=thread_ts, text=handover.reply)
+        capture_slack_event(
+            integration,
+            "slack_task_handover_requested",
+            slack_user_id=slack_user_id,
+            task_id=str(mapping.task_id),
+            outcome=handover.outcome.value,
+        )
+        return True
     if slack_user_id != mapping.mentioning_slack_user_id:
         # Checked before the Slack lookup below, so a message the creator's mode drops costs
         # no Slack call.
@@ -1051,7 +1079,7 @@ def forward_posthog_code_followup_activity(
             return True
         # The follow-up is from a different Slack user than the one who started the
         # thread. Try to resolve them to a PostHog user with access to the same team
-        # — if so, let them participate under their own sandbox token, with their
+        # — if so, let them participate, with their
         # name prefixed onto the text so the agent sees who spoke.
         resolved = resolve_slack_user(slack, integration, slack_user_id, channel, thread_ts)
         if not resolved:
@@ -1066,7 +1094,8 @@ def forward_posthog_code_followup_activity(
         # `slack_email` is None on the linked-user resolver path; fall through
         # to the user's PostHog email rather than interpolating literal "None: "
         # into the LLM-forwarded prefix when both name and slack_email are absent.
-        actor_user = resolved.user
+        if join == ThreadJoinDecision.ALLOW and not joiner_uses_owner_account(integration, mapping):
+            actor_user = resolved.user
         actor_name = resolved.user.get_full_name() or resolved.slack_email or resolved.user.email
         followup_user_text_prefix = f"{actor_name}: "
         logger.info(
