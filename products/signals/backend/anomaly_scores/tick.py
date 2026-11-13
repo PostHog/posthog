@@ -51,14 +51,16 @@ from products.signals.backend.anomaly_scores.config import (
     read_payload,
     resolve_profile,
 )
-from products.signals.backend.anomaly_scores.due_list import record_failed, record_scored
+from products.signals.backend.anomaly_scores.due_list import first_listed_at, record_failed, record_scored
 from products.signals.backend.anomaly_scores.emission import emit, score_events
 from products.signals.backend.anomaly_scores.metrics import record_candidates, record_pick
 from products.signals.backend.anomaly_scores.queue import (
     ATTEMPT_COOLDOWN,
     SKIP_COOLDOWN,
+    FirstTrainReport,
     InsightPick,
     TeamCensus,
+    analytics_source_enabled_at,
     mark_attempted,
     mark_empty_train,
     mark_too_expensive,
@@ -113,6 +115,7 @@ _CAPTURE_TIMEOUT = datetime.timedelta(minutes=1)
 TICK_BUDGET = datetime.timedelta(minutes=10)
 # A census key lives past its UTC day, so a tick at the end of the day still reads it.
 _CENSUS_TTL = datetime.timedelta(days=2)
+_FIRST_TRAIN_SENT_TTL = datetime.timedelta(days=30)
 # The last batch can start at the budget, and the summary capture runs after it.
 TICK_TIMEOUT = _PLAN_TIMEOUT + TICK_BUDGET + _INSIGHT_TIMEOUT + _CAPTURE_TIMEOUT
 
@@ -151,6 +154,7 @@ class AnomalyScoringTickPlan:
     due_insights: int | None = None
     oldest_due_seconds: int | None = None
     oldest_refresh_seconds: int | None = None
+    first_train: FirstTrainReport | None = None
     cpu: CpuSpendReport | None = None
 
 
@@ -223,6 +227,7 @@ class AnomalyScoringTickResult:
     due_insights: int | None = None
     oldest_due_seconds: int | None = None
     oldest_refresh_seconds: int | None = None
+    first_train: FirstTrainReport | None = None
     # The CPU spend that the plan read, and what its CPU limits left out. None when the plan did not run.
     cpu: CpuSpendReport | None = None
     # Shards that started picks, the most picks that one shard started, and the time of the slowest shard.
@@ -279,6 +284,7 @@ def plan_tick(limit: int | None, now: datetime.datetime) -> AnomalyScoringTickPl
         due_insights=selection.due_insights,
         oldest_due_seconds=selection.oldest_due_seconds,
         oldest_refresh_seconds=selection.oldest_refresh_seconds,
+        first_train=selection.first_train,
         cpu=selection.cpu,
     )
 
@@ -404,6 +410,8 @@ def run_insight(input: ScoreInsightInput, now: datetime.datetime) -> ScoreInsigh
         empty_train_streak=empty_train,
     )
     record_pick(status=result.status, interval=interval, duration_ms=duration_ms, events=result.events, run=result.run)
+    if pick.first_train and result.series and result.run != ScoringRun.SCORE:
+        capture_first_train(pick, now)
     capture_pick(
         pick,
         status=result.status,
@@ -448,6 +456,32 @@ def capture_pick(
             "too_expensive_streak": too_expensive,
             "empty_train_streak": empty_train,
         },
+    )
+
+
+def _first_train_key(team_id: int) -> str:
+    return f"signals:anomaly_scoring:first_train:{team_id}"
+
+
+def capture_first_train(pick: InsightPick, now: datetime.datetime) -> None:
+    """One event per project, from its first trained daily model, with the time since the project was enrolled."""
+    # `add` sets the key only when it is missing, so two picks of one project in one tick send one event.
+    if not cache.add(_first_train_key(pick.team_id), True, timeout=_FIRST_TRAIN_SENT_TTL.total_seconds()):
+        return
+    listed_at = first_listed_at(pick.team_id)
+    source_enabled_at = analytics_source_enabled_at(pick.team_id)
+    properties = {
+        "deployment": settings.CLOUD_DEPLOYMENT,
+        "team_id": pick.team_id,
+        "insight_id": pick.insight_id,
+        "seconds_since_source_enabled": None
+        if source_enabled_at is None
+        else round((now - source_enabled_at).total_seconds()),
+        "seconds_since_listed": None if listed_at is None else round((now - listed_at).total_seconds()),
+    }
+    logger.info("anomaly_scoring_first_train", **properties)
+    ph_background_capture()(
+        distinct_id=ANOMALY_SCORING_FLAG_DISTINCT_ID, event="anomaly scoring first train", properties=properties
     )
 
 
@@ -596,12 +630,14 @@ def capture_tick(result: AnomalyScoringTickResult) -> None:
         due_insights=result.due_insights,
         oldest_due_seconds=result.oldest_due_seconds,
         oldest_refresh_seconds=result.oldest_refresh_seconds,
+        first_train=result.first_train,
         shards=result.shards,
         max_shard_picks=result.max_shard_picks,
         longest_shard_ms=result.longest_shard_ms,
         cpu=result.cpu,
     )
     cpu = result.cpu
+    first_train = result.first_train
     ph_background_capture()(
         distinct_id=ANOMALY_SCORING_FLAG_DISTINCT_ID,
         event="anomaly scoring tick",
@@ -640,6 +676,9 @@ def capture_tick(result: AnomalyScoringTickResult) -> None:
             "due_insights": result.due_insights,
             "oldest_due_seconds": result.oldest_due_seconds,
             "oldest_refresh_seconds": result.oldest_refresh_seconds,
+            "first_train_waiting_teams": first_train.waiting_teams if first_train else None,
+            "picked_first_train": first_train.picked if first_train else None,
+            "never_scored_due": first_train.never_scored_due if first_train else None,
             "shards": result.shards,
             "max_shard_picks": result.max_shard_picks,
             "longest_shard_ms": result.longest_shard_ms,
@@ -749,6 +788,7 @@ class AnomalyScoringTickWorkflow:
             due_insights=plan.due_insights,
             oldest_due_seconds=plan.oldest_due_seconds,
             oldest_refresh_seconds=plan.oldest_refresh_seconds,
+            first_train=plan.first_train,
             shards=len(shards),
             max_shard_picks=max((len(shard.started) for shard in shards), default=0),
             longest_shard_ms=max((shard.duration_ms for shard in shards), default=0),
