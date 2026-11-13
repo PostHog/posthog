@@ -33,7 +33,9 @@ import {
     analyticsSourceKey,
 } from './analyticsFeed'
 import { analyticsFeedLogic, selectAnalyticsFeed } from './analyticsFeedLogic'
+import { analyticsItemActionsLogic } from './analyticsItemActionsLogic'
 import { analyticsShareLogic } from './analyticsShareLogic'
+import { analyticsTagsLogic } from './analyticsTagsLogic'
 import {
     ANALYTICS_FILE_SYSTEM_TYPES,
     AnalyticsItem,
@@ -210,9 +212,15 @@ export interface analyticsListLogicActions {
         key: string
         page: null | import('./analyticsFeed').AnalyticsSourcePage
     } // analyticsFeedLogic
+    itemChanged: () => {
+        value: true
+    } // analyticsItemActionsLogic
     shareToSpaceDone: () => {
         value: true
     } // analyticsShareLogic
+    tagsSaved: () => {
+        value: true
+    } // analyticsTagsLogic
     deleteSavedItem: (savedItem: FileSystemEntry) => {
         savedItem: FileSystemEntry
     } // projectTreeDataLogic
@@ -421,6 +429,10 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
             ['ensureFeed', 'refreshFeed', 'sourceRefreshed'],
             analyticsShareLogic,
             ['shareToSpaceDone'],
+            analyticsTagsLogic,
+            ['tagsSaved'],
+            analyticsItemActionsLogic,
+            ['itemChanged'],
             todayAnalyticsLogic,
             ['folderCreated'],
             projectTreeDataLogic,
@@ -945,6 +957,8 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
             },
             // A move or a new folder changes what this list holds, so it reads again.
             shareToSpaceDone: () => actions.loadList(),
+            tagsSaved: () => actions.loadList(),
+            itemChanged: () => actions.loadList(),
             folderCreated: () => actions.loadList(),
             // Drags and folder deletes go through the project tree, which reports here once they land.
             movesSettled: () => actions.loadList(),
