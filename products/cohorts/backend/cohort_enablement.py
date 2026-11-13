@@ -28,8 +28,25 @@ from products.cohorts.backend.realtime_teams import is_processing_team
 
 logger = structlog.get_logger(__name__)
 
+
+def flag_calls_table_refusal(cohort: Cohort) -> str | None:
+    """Why the cohort's behavioral backfill can't pick the table to read its flag calls from, or None.
+
+    The backfill run makes the same check when it pins its table, and it refuses a cohort that fails it.
+    """
+    try:
+        pin_behavioral_run([cohort], cohort.team)
+    except FlagCallsTableUnresolved as error:
+        return str(error)
+    return None
+
+
+def _behavioral_turn_on_ineligibility_reason(cohort: Cohort) -> str | None:
+    return behavioral_backfill_ineligibility_reason(cohort) or flag_calls_table_refusal(cohort)
+
+
 _INELIGIBILITY_REASON = {
-    CohortBackfillKind.BEHAVIORAL: behavioral_backfill_ineligibility_reason,
+    CohortBackfillKind.BEHAVIORAL: _behavioral_turn_on_ineligibility_reason,
     CohortBackfillKind.PERSON_PROPERTY: person_backfill_ineligibility_reason,
 }
 
@@ -137,20 +154,8 @@ def _refuse_unless_it_can_be_ready(cohort: Cohort) -> None:
         raise RealtimeTurnOnRefused(f"{refusal}, because it is deleted.")
     if cohort.cohort_type != CohortType.REALTIME:
         raise RealtimeTurnOnRefused(f"{refusal}, because its criteria aren't supported in realtime.")
-    kinds = [CohortBackfillKind(kind) for kind in cohort._required_backfill_stamps()]
-    for kind in kinds:
-        reason = _INELIGIBILITY_REASON[kind](cohort)
+    for kind in cohort._required_backfill_stamps():
+        reason = _INELIGIBILITY_REASON[CohortBackfillKind(kind)](cohort)
         if reason is not None:
             logger.info("cohort_realtime_turn_on_refused", cohort_id=cohort.id, team_id=cohort.team_id, reason=reason)
             raise RealtimeTurnOnRefused(f"{refusal}, because PostHog can't prepare one of its criteria in realtime.")
-    if CohortBackfillKind.BEHAVIORAL in kinds:
-        # The backfill run pins the same table, so a cohort that fails here would get no run and never be ready.
-        try:
-            pin_behavioral_run([cohort], cohort.team)
-        except FlagCallsTableUnresolved as error:
-            logger.info(
-                "cohort_realtime_turn_on_refused", cohort_id=cohort.id, team_id=cohort.team_id, reason=str(error)
-            )
-            raise RealtimeTurnOnRefused(
-                f"{refusal}, because PostHog can't prepare one of its criteria in realtime."
-            ) from error

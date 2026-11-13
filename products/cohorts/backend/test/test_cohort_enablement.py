@@ -75,6 +75,13 @@ class TestCohortEnablement(BaseTest):
             organization=self.organization, defaults={"flag_evaluations_mode": mode}
         )
 
+    def _cohort(self, *leaves: dict, **kwargs) -> Cohort:
+        return Cohort.objects.create(
+            team=self.team,
+            filters={"properties": {"type": "AND", "values": list(leaves)}},
+            **{"cohort_type": CohortType.REALTIME, **kwargs},
+        )
+
     def test_turning_on_a_flag_call_cohort_in_flag_evaluations_only_mode(self) -> None:
         self._set_flag_evaluations_mode(FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
         cohort = self._cohort(FLAG_CALL_LEAF)
@@ -83,13 +90,6 @@ class TestCohortEnablement(BaseTest):
             turned_on = turn_realtime_on(self.team.id, cohort.id, can_edit=lambda _: True)
 
         assert turned_on == [cohort.id]
-
-    def _cohort(self, *leaves: dict, **kwargs) -> Cohort:
-        return Cohort.objects.create(
-            team=self.team,
-            filters={"properties": {"type": "AND", "values": list(leaves)}},
-            **{"cohort_type": CohortType.REALTIME, **kwargs},
-        )
 
     def test_turning_on_a_cohort_turns_on_what_it_nests_and_queues_both_builds(self) -> None:
         nested = self._cohort(PAGEVIEW_LEAF)

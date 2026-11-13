@@ -116,6 +116,7 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.cdp.backend.filters import build_behavioral_event_expr
 from products.cohorts.backend.cohort_enablement import (
     RealtimeTurnOnRefused,
+    flag_calls_table_refusal,
     turn_realtime_off,
     turn_realtime_on,
     turn_realtime_on_for_included_cohorts,
@@ -2070,35 +2071,12 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         # Passing no attrs reads the stored definition. Cohort.properties would rewrite the stored
         # legacy groups in place.
         existing_properties = _flat_properties(self._effective_filters_after_update({}))
-        if mode == FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY and self._edits_cohort_with_realtime_on(attrs, team):
-            # An edit of a cohort with realtime on queues a backfill of every criterion. In this mode cohort-seeder
-            # reads flag calls only from flag_evaluations, and it refuses a run with a criterion that table can't serve.
-            existing_properties = []
         added = _added_unsupported_hidden_event_reference(new_properties, existing_properties, team)
         if added is not None:
             raise ValidationError(
                 {"filters": f"You can't save this criterion on {added.event}. {added.reason}"},
                 code="hidden_event",
             )
-
-    def _edits_cohort_with_realtime_on(self, attrs: dict, team: Team) -> bool:
-        # A new cohort turns realtime on through turn_realtime_on, which refuses a cohort the seeder can't backfill.
-        instance = cast(Optional[Cohort], self.instance)
-        if instance is None or not instance.realtime_enabled:
-            return False
-        if attrs.get("is_static", instance.is_static):
-            return False
-        filters = attrs.get("filters")
-        if not filters:
-            return instance.cohort_type == CohortType.REALTIME
-        # Mirrors how update() sets cohort_type.
-        _, cohort_type, _ = validate_filters_and_compute_realtime_support(
-            filters,
-            team,
-            current_cohort_type=attrs.get("cohort_type", instance.cohort_type),
-            cohort_count=instance.count,
-        )
-        return cohort_type == CohortType.REALTIME
 
     @staticmethod
     def _cohort_error_message(exc: PydanticValidationError) -> str:
@@ -2270,6 +2248,23 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
                 cohort.cohort_type = computed_cohort_type
             else:
                 cohort.filters = filters
+
+        # A criteria edit of a cohort with realtime on queues a backfill. The backfill refuses a cohort whose
+        # flag calls it can't read. The cohort would then never be ready.
+        if (
+            filters_changed
+            and cohort.realtime_enabled
+            and not cohort.is_static
+            and cohort.cohort_type == CohortType.REALTIME
+            and flag_calls_table_refusal(cohort) is not None
+        ):
+            raise ValidationError(
+                {
+                    "filters": "Realtime is on for this cohort, and PostHog can't prepare one of its criteria in "
+                    "realtime. Change that criterion, or turn realtime off first."
+                },
+                code="realtime_criteria_unsupported",
+            )
 
         # A cohort that stops being realtime stops emitting membership changes, so its workflows would
         # never trigger and their branches would read frozen membership, with no error anywhere.
