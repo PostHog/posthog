@@ -102,6 +102,13 @@ pub fn login_with_use_cases(host_override: Option<String>, use_cases: Vec<&str>)
     crate::safe_println!("Your authorization code:");
     crate::safe_println!("  ✨ {} ✨", device_data.user_code);
     crate::safe_println!();
+    crate::safe_println!(
+        "If you don't have a PostHog account yet, sign up on that page and confirm your email first."
+    );
+    crate::safe_println!(
+        "PostHog then asks you to approve the code. Once you approve it, come back to the terminal."
+    );
+    crate::safe_println!();
     crate::safe_println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
     crate::safe_println!();
 
