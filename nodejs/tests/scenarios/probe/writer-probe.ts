@@ -43,6 +43,7 @@ export async function createWriterProbe(cyclotronUrl: string): Promise<WriterPro
         if (open === undefined) {
             const client = new Client({
                 connectionString: cyclotronUrl,
+                application_name: 'scenario-writer-probe',
                 connectionTimeoutMillis: TIMEOUT_MS,
                 statement_timeout: TIMEOUT_MS,
                 query_timeout: TIMEOUT_MS,
