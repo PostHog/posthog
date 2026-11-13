@@ -9,6 +9,8 @@ from parameterized import parameterized
 from products.cdp.backend.templates.helpers import BaseHogFunctionTemplateSimpleTest
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.webhook_template import template
 
+OTHER_SIGNATURE = "f" * 64
+
 
 class TestStripeWarehouseWebhookTemplate(BaseHogFunctionTemplateSimpleTest):
     template = template
@@ -58,10 +60,15 @@ class TestStripeWarehouseWebhookTemplate(BaseHogFunctionTemplateSimpleTest):
     @parameterized.expand(
         [
             ("timestamp_then_signature", lambda t, v1: f"t={t},v1={v1}"),
-            ("unknown_field_after_signature", lambda t, v1: f"t={t},v1={v1},attempt=2"),
-            ("unknown_field_before_timestamp", lambda t, v1: f"sdk_hint=abc,t={t},v1={v1}"),
+            (
+                "diagnostic_fields_and_second_v1",
+                lambda t, v1: (
+                    f"t={t},v1={v1},v1={OTHER_SIGNATURE},v0={OTHER_SIGNATURE},"
+                    "secret=whsec_test,destination=we_test,payload=a1b2c3d4"
+                ),
+            ),
+            ("matching_v1_last", lambda t, v1: f"t={t},v1={OTHER_SIGNATURE},v1={v1}"),
             ("signature_before_timestamp", lambda t, v1: f"v1={v1},t={t}"),
-            ("v0_signature", lambda t, v1: f"t={t},v1={v1},v0=deadbeef"),
         ]
     )
     def test_valid_signed_webhook(self, _name, format_header):

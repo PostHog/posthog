@@ -132,10 +132,13 @@ describe('stripe webhook template', () => {
     })
 
     it.each([
-        ['an unknown field after the signature', (t: number, v1: string) => `t=${t},v1=${v1},attempt=2`],
-        ['an unknown field before the timestamp', (t: number, v1: string) => `sdk_hint=abc,t=${t},v1=${v1}`],
+        [
+            'diagnostic fields and a second v1 signature',
+            (t: number, v1: string) =>
+                `t=${t},v1=${v1},v1=${OTHER_SIGNATURE},v0=${OTHER_SIGNATURE},secret=whsec_test,destination=we_test,payload=a1b2c3d4`,
+        ],
+        ['the matching v1 signature last', (t: number, v1: string) => `t=${t},v1=${OTHER_SIGNATURE},v1=${v1}`],
         ['the signature before the timestamp', (t: number, v1: string) => `v1=${v1},t=${t}`],
-        ['a v0 signature', (t: number, v1: string) => `t=${t},v1=${v1},v0=deadbeef`],
     ])('should accept a stripe-signature header with %s', async (_, formatHeader) => {
         const response = await tester.invoke(
             {
@@ -213,6 +216,8 @@ describe('stripe webhook template', () => {
         expect(response.capturedPostHogEvents[0].distinct_id).toEqual(`${key}:1234`)
     })
 })
+
+const OTHER_SIGNATURE = 'f'.repeat(64)
 
 const createStripeWebhook = (
     secret: string,

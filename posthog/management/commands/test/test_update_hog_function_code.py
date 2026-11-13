@@ -146,6 +146,56 @@ if (res.status >= 400) {
 """.strip()
 
 
+# The signature parsing lines of both Stripe webhook templates before the fix, with the code between them trimmed.
+STRIPE_STALE_PARSING = """let timestamp := null
+let v1Signature := null
+for (let _, part in splitByString(',', request.headers['stripe-signature'])) {
+    let trimmed := trim(part)
+    if (trimmed like 't=%') {
+        timestamp := splitByString('=', trimmed, 2)[2]
+    }
+    if (trimmed like 'v1=%') {
+        let v1Parts := splitByString('=', trimmed, 2)
+        v1Signature := v1Parts[2]
+    }
+}
+if (empty(timestamp) or empty(v1Signature)) {
+    return {'httpResponse': {'status': 400, 'body': 'Could not parse signature'}}
+}
+let computedSignature := sha256HmacChainHex([inputs.signing_secret, concat(timestamp, '.', request.stringBody)])
+if (computedSignature != v1Signature) {
+    return {'httpResponse': {'status': 400, 'body': 'Bad signature'}}
+}
+"""
+
+STRIPE_FIXED_PARSING = """let timestamp := null
+let v1Signatures := []
+for (let _, part in splitByString(',', request.headers['stripe-signature'])) {
+    let trimmed := trim(part)
+    if (startsWith(trimmed, 't=')) {
+        timestamp := splitByString('=', trimmed, 2)[2]
+    }
+    if (startsWith(trimmed, 'v1=')) {
+        let v1Parts := splitByString('=', trimmed, 2)
+        v1Signatures := arrayPushBack(v1Signatures, v1Parts[2])
+    }
+}
+if (empty(timestamp) or empty(v1Signatures)) {
+    return {'httpResponse': {'status': 400, 'body': 'Could not parse signature'}}
+}
+let computedSignature := sha256HmacChainHex([inputs.signing_secret, concat(timestamp, '.', request.stringBody)])
+if (not has(v1Signatures, computedSignature)) {
+    return {'httpResponse': {'status': 400, 'body': 'Bad signature'}}
+}
+"""
+
+# A function whose owner rewrote the comparison. A partial rewrite would leave it reading a variable that no longer
+# exists, so the migration must leave it alone.
+STRIPE_HAND_EDITED_PARSING = STRIPE_STALE_PARSING.replace(
+    "if (computedSignature != v1Signature) {", "if (lower(computedSignature) != lower(v1Signature)) {"
+)
+
+
 class TestUpdateHogFunctionCode(BaseTest):
     def setUp(self):
         super().setUp()
@@ -627,35 +677,29 @@ class TestUpdateHogFunctionCode(BaseTest):
         ]
     )
     def test_stripe_signature_header_parsing_migration(self, function_type, template_id) -> None:
-        stale_hog = (
-            "let timestamp := null\n"
-            "let v1Signature := null\n"
-            "for (let _, part in splitByString(',', request.headers['stripe-signature'])) {\n"
-            "    let trimmed := trim(part)\n"
-            "    if (trimmed like 't=%') {\n"
-            "        timestamp := splitByString('=', trimmed, 2)[2]\n"
-            "    }\n"
-            "    if (trimmed like 'v1=%') {\n"
-            "        v1Signature := splitByString('=', trimmed, 2)[2]\n"
-            "    }\n"
-            "}\n"
-        )
+        stale, hand_edited = self._create_stripe_functions(function_type, template_id)
+
+        for expected in ("Updated: 1", "Updated: 0"):
+            out = StringIO()
+            call_command("update_hog_function_code", replace_key="stripe-signature-header-parsing", stdout=out)
+            self.assertIn(expected, out.getvalue())
+
+        stale.refresh_from_db()
+        hand_edited.refresh_from_db()
+        assert stale.hog == STRIPE_FIXED_PARSING
+        assert stale.bytecode == compile_hog_for_check(stale.hog, function_type)
+        assert hand_edited.hog == STRIPE_HAND_EDITED_PARSING
+
+    def _create_stripe_functions(self, function_type: str, template_id: str) -> list[HogFunction]:
         with patch("products.cdp.backend.models.hog_functions.hog_function.reload_hog_functions_on_workers"):
-            function = HogFunction.objects.create(
-                team=self.team,
-                name="Stripe webhook",
-                type=function_type,
-                template_id=template_id,
-                hog=stale_hog,
-                enabled=True,
-            )
-
-            for expected in ("Updated: 1", "Updated: 0"):
-                out = StringIO()
-                call_command("update_hog_function_code", replace_key="stripe-signature-header-parsing", stdout=out)
-                self.assertIn(expected, out.getvalue())
-
-        function.refresh_from_db()
-        assert "if (startsWith(trimmed, 't=')) {" in function.hog
-        assert "if (startsWith(trimmed, 'v1=')) {" in function.hog
-        assert function.bytecode == compile_hog_for_check(function.hog, function_type)
+            return [
+                HogFunction.objects.create(
+                    team=self.team,
+                    name="Stripe webhook",
+                    type=function_type,
+                    template_id=template_id,
+                    hog=hog,
+                    enabled=True,
+                )
+                for hog in (STRIPE_STALE_PARSING, STRIPE_HAND_EDITED_PARSING)
+            ]

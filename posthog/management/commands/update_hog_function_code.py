@@ -25,6 +25,9 @@ class _ReplaceOption(TypedDict):
     # would otherwise also match code deliberately left behind (e.g. a sunset version kept dead on
     # purpose), this pins the run to the intended cohort.
     only_if_contains: NotRequired[str]
+    # Skip a function unless every replacement matches. For options whose replacements rename a variable across
+    # several lines, a partial match would leave hand-edited code reading a variable that no longer exists.
+    all_or_nothing: NotRequired[bool]
 
 
 class Command(BaseCommand):
@@ -167,19 +170,28 @@ class Command(BaseCommand):
             },
             # Existing Microsoft Ads destinations hash email and phone in a form Microsoft cannot match, and do
             # not send the required dataProvider. One replacement covers both checks, so it cannot half-apply.
-            # The header parser matched keys with an unanchored `like`, so a new header field such as
-            # `attempt=2` was read as the timestamp and every delivery carrying it failed with Bad signature.
+            # The header parser matched keys with an unanchored `like`, so a field such as `secret=whsec_...`
+            # was read as the timestamp. It also kept only the last `v1` signature, while Stripe sends one per
+            # active signing secret. Either way, deliveries failed with Bad signature.
             "stripe-signature-header-parsing": {
                 "template_ids": ["template-source-stripe-webhook", "template-warehouse-source-stripe"],
                 "function_types": ["source_webhook", "warehouse_source_webhook"],
+                "all_or_nothing": True,
                 "replacements": [
+                    {"from_string": "let v1Signature := null", "to_string": "let v1Signatures := []"},
+                    {"from_string": "if (trimmed like 't=%') {", "to_string": "if (startsWith(trimmed, 't=')) {"},
+                    {"from_string": "if (trimmed like 'v1=%') {", "to_string": "if (startsWith(trimmed, 'v1=')) {"},
                     {
-                        "from_string": "if (trimmed like 't=%') {",
-                        "to_string": "if (startsWith(trimmed, 't=')) {",
+                        "from_string": "v1Signature := v1Parts[2]",
+                        "to_string": "v1Signatures := arrayPushBack(v1Signatures, v1Parts[2])",
                     },
                     {
-                        "from_string": "if (trimmed like 'v1=%') {",
-                        "to_string": "if (startsWith(trimmed, 'v1=')) {",
+                        "from_string": "if (empty(timestamp) or empty(v1Signature)) {",
+                        "to_string": "if (empty(timestamp) or empty(v1Signatures)) {",
+                    },
+                    {
+                        "from_string": "if (computedSignature != v1Signature) {",
+                        "to_string": "if (not has(v1Signatures, computedSignature)) {",
                     },
                 ],
             },
@@ -294,6 +306,11 @@ if (not empty(inputs.phone)) {
 
                 required_marker = replaceOption.get("only_if_contains")
                 if required_marker and required_marker not in destination.hog:
+                    continue
+
+                if replaceOption.get("all_or_nothing") and not all(
+                    replacement["from_string"] in destination.hog for replacement in replaceOption["replacements"]
+                ):
                     continue
 
                 new_hog = destination.hog
