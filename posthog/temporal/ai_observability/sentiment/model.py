@@ -9,7 +9,9 @@ The ONNX model is baked into the Docker image at build time
 (see Dockerfile.llm-analytics). The worker expects it at ONNX_CACHE_DIR.
 """
 
+import asyncio
 import threading
+import contextvars
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
@@ -37,7 +39,7 @@ _model_cache: dict[str, Any] = {}
 _thread_state = threading.local()
 # Runs inference off the event loop's default executor, so that evals waiting for inference
 # never hold the threads that event fetches and hog evals use.
-inference_executor = ThreadPoolExecutor(max_workers=INFERENCE_THREADS, thread_name_prefix="sentiment-inference")
+_inference_executor = ThreadPoolExecutor(max_workers=INFERENCE_THREADS, thread_name_prefix="sentiment-inference")
 
 
 def _load_model() -> Any:
@@ -134,3 +136,9 @@ def classify(texts: list[str]) -> list[SentimentResult]:
     # Pipeline with top_k=None returns list of list[dict] for batch input
     batch_results = _thread_pipeline()(texts, batch_size=CLASSIFY_BATCH_SIZE)
     return [_parse_single_result(result) for result in batch_results]
+
+
+async def classify_in_executor(texts: list[str]) -> list[SentimentResult]:
+    # Copy the context like asyncio.to_thread does, so log lines keep their bound fields.
+    context = contextvars.copy_context()
+    return await asyncio.get_running_loop().run_in_executor(_inference_executor, context.run, classify, texts)
