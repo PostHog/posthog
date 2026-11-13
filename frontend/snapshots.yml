@@ -8647,17 +8647,17 @@ snapshots:
     products-web-analytics-content-autopilot-validation-summary--ready-to-download--light:
         hash: v1.k794b7964.f639222c8527f580b0a7d50335747380610569aefbac7407470e6ad296ba8853.zIXXIN4nBZV1mazHQrhFcswCdHx7awK23LO95NJ5uoc
     products-web-analytics-content-autopilot-workspace--active-run--dark:
-        hash: v1.k794b7964.ba1388f459dd378a850a50f14c718ef650599e5e94f705695d858b6db764266e.c5Effdbx1aXRx5FWArZFiB1MUeqW2xmfsNpySAQkT1g
+        hash: v1.k794b7964.375e0ceb5ce8c1d8a073e9270b4ce4b8788532155eb12a075b53954193d64cc8.oVhewG-aW2IkKuzYiILLMvCxMbgkT9us6C82TeC5k5A
     products-web-analytics-content-autopilot-workspace--active-run--light:
-        hash: v1.k794b7964.6c7c088e6c0f4d90543aef13fc3258800877ffa67205b77a7d2500e9060dca4d.wslk0rrH1LFqp14IYJmyOj1Xrr_5JWvYOIZ-I3KuseA
+        hash: v1.k794b7964.e59d9819560f33953694feb4c3ace3b953e2ec27bb9919704d31e3774e33144e.5oeiNgV6UDmujc2kzzAHPkhQLunTZwtI_rxwJ89hTQA
     products-web-analytics-content-autopilot-workspace--drafts-tab--dark:
-        hash: v1.k794b7964.6e7956c22d736304d0ea4076f1af7abd25fec42a5723eaed5ec7097f800acb68.4cZubPHIMADyJItmAq6iawDK5tlCU3E8FoQNL8sDlH8
+        hash: v1.k794b7964.7ba617116674e33555ba68e8220936f543b22c1ab87c64744de72f9582f6e3cf.jYNuvlXmdkgXtqjVIJaUN4A2U7euW2OH3nPueUX2000
     products-web-analytics-content-autopilot-workspace--drafts-tab--light:
-        hash: v1.k794b7964.c698b3497921efce09035fadc38b87783f89c94a55f6a50be4ba425215f7ea7a.Yn9sLP6fg2o5Tm5LTyOv7Zdpoe-NcGTv07xP16mm9OQ
+        hash: v1.k794b7964.c6e2e53d161a9c7fe3ead5697732e2e22bb088859187a22e5ae4f895925535b1.OYIOwNK02bYCJEu2mfIvj4dUwJoal2arQeN0Xm-EQM4
     products-web-analytics-content-autopilot-workspace--failed-run--dark:
-        hash: v1.k794b7964.61f82d935f1fb7236f2fcf500ef9e80dba0fd2bb501a9613c02641cf722b9b94.XtVwF4yWDqEI-E9q7yBLyKKmwi87xAbK8fdIQ_D8yrQ
+        hash: v1.k794b7964.5fcdd1359486540571d220740f7dfb4fd1f522c3bb5448cc1bad4ab20f09d0c9.hJIy7gAixPJeAlLIBiH8137N1HKxNZW08_rSg2TPUAA
     products-web-analytics-content-autopilot-workspace--failed-run--light:
-        hash: v1.k794b7964.3634d4bac23407e9054286f63e7e1161c94c11de6c80302f30b834e2ff58b6bc.q1sPx_XYHadVzyDbumNNkcaTomhsgS86jUqyUBUhaVY
+        hash: v1.k794b7964.37c1b7fe6962545d1c72913fd8ecb91b36276d000bbae6cee5646746d2824606.waPPxJu7ek4et1Uv4gHMerBkseQL7gFkoXZuFnqqZs4
     products-web-analytics-content-autopilot-workspace--keywords-tab--dark:
         hash: v1.k794b7964.4444d8e19183d18c00c50fb55bd4f3be939ef0e74d6d71c620224d3caf1f1583.X6Fu7zh_QNyOyt1bznlKWe281WSBQlbQAFWiEZOTJFY
     products-web-analytics-content-autopilot-workspace--keywords-tab--light:
@@ -8691,13 +8691,13 @@ snapshots:
     products-web-analytics-content-autopilot-workspace--rankings-tab--light:
         hash: v1.k794b7964.fda2fb54622e1d1b88be4bc122a804a4de241f70a89a293e10204c731e62b762.H04yGa38bukw9KanDkhM67hMyUO-6YGXWFdCeZlBftA
     products-web-analytics-content-autopilot-workspace--ready-for-review--dark:
-        hash: v1.k794b7964.7d8b104ab5b0662cc143b11772e120ded45ed704acb365a86a05b2e7ce1ccfaa.i07R2f3xhVxMDAxv4RU4IjpVoGBRv2jKYaiDRRWQgtg
+        hash: v1.k794b7964.2a3e633264ca1493ddd6a91b3d3aeb247f7c9b5ad2eb169cc6208fe4863a47fa.t7_z46rUxt63ACMnS7rDjGwGj6G650k6JBnHUyFXuuk
     products-web-analytics-content-autopilot-workspace--ready-for-review--light:
-        hash: v1.k794b7964.703bc980b910be2da7b5761bec4d255f368b5aeae50d1eda90ec891ae472f335.ltbxMG2Etv-97jTuQJwGHxvkbq_i7BtJYL6sZq-IBlc
+        hash: v1.k794b7964.14e5b90a71cc19f06d4170417c46d8060d60e54f6fe046428e4694cb07da646c.-c8eJkz2OH-eafYhJoSt3wbJI6XqBcCkLw_buIvA1rU
     products-web-analytics-content-autopilot-workspace--site-settings--dark:
-        hash: v1.k794b7964.d18b438e3b3be526e100b8a08f1e7a221c5418e323f1fa79a4a64c5db8f6419f.d36i7_jtkTzzmAtGQAPccWpwqS2ve7vXnpiMvF3v2EU
+        hash: v1.k794b7964.2e355e6f5d94396fa305160722518abe11e65669c7e7c31907626a03ac79b266.A_h-EV6JZo7snDBzL6fANSy9M1wEl-BuhFtawkjznCc
     products-web-analytics-content-autopilot-workspace--site-settings--light:
-        hash: v1.k794b7964.b573e5a5caab5feafb94f1f44f4ded759c854db30fb447ce97f2089ca02acef1.SbkTshaQBeFdWtxeXb1AB-PiU3MrDeIS_Fg8_8xD_cU
+        hash: v1.k794b7964.4882bb5443d819d097ebf44be2961dbddf391d112ca1aabf62e798b0ae49b784.2jV6dI_pSpCL9PeyRnm8QwsDp4DIegvb6fZ9NYyO4-8
     products-web-analytics-heatmaps-page-history-tile--captured--dark:
         hash: v1.k794b7964.f413577b9b77e5609dfd55b0d14582561ff63365e2f0f2fcbe3d8ece4c13002a.3l1GQMU3xn1wph28KJq3vuY3Z0Lg-FEpiDNug82yI68
     products-web-analytics-heatmaps-page-history-tile--captured--light:
