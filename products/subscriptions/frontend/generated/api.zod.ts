@@ -721,3 +721,13 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
             ),
     })
     .describe('Standard Subscription serializer.')
+
+/**
+ * Take ownership of this subscription and enable it. Only organization admins can assign another member. The new owner needs access to its content. Deliveries run with the owner's access, so this is how a subscription continues after its owner left.
+ */
+export const SubscriptionsTakeOwnershipCreateBody = /* @__PURE__ */ zod.object({
+    user_uuid: zod
+        .uuid()
+        .optional()
+        .describe("New owner's user UUID. Must be an active organization member. Defaults to yourself."),
+})

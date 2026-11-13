@@ -1036,6 +1036,11 @@ export interface AlertCreateUrlDestinationApi {
     webhook_url: string
 }
 
+export interface AlertTransferOwnershipApi {
+    /** New owner's user UUID. Must be an active organization member. Defaults to yourself. */
+    user_uuid?: string
+}
+
 /**
  * * `email` - email
  * * `destination` - destination

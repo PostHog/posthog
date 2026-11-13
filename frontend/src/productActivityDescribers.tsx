@@ -137,6 +137,10 @@ export const productActivityDescribers: Partial<Record<ActivityScope, () => Prom
         import('../../products/stamphog/frontend/activityDescriber').then(
             (module) => module.stamphogRepoConfigActivityDescriber
         ),
+    [ActivityScope.SUBSCRIPTION]: () =>
+        import('../../products/subscriptions/frontend/activityDescriber').then(
+            (module) => module.subscriptionActivityDescriber
+        ),
     [ActivityScope.SURVEY]: () =>
         import('scenes/surveys/surveyActivityDescriber').then((module) => module.surveyActivityDescriber),
     [ActivityScope.TICKET]: () =>

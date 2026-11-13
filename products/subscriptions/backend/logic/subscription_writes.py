@@ -79,7 +79,7 @@ from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_tea
 
 from .subscription_reads import context_rows, subscription_record
 from .summary_quota import invalidate_summary_quota_cache, validate_summary_enabled_org_limit
-from .visibility import blocked_target_ids, require_viewer_access, viewable_queryset
+from .visibility import blocked_target_ids, require_viewer_access, viewable_queryset, viewable_subscriptions
 
 MAX_AI_SUBSCRIPTION_CONTEXTS: int = int(SubscriptionAIContextLimit.model_fields["root"].default)
 AI_DELIVERY_DISPLAY_FIELDS = frozenset(
@@ -1048,40 +1048,64 @@ def take_subscription_ownership(
     *,
     team: Team,
     organization: Organization,
-    user: User,
+    actor: User,
     viewer: UserAccessControl,
     subscription_id: int,
     analytics_props: AnalyticsProps,
+    owner: User,
 ) -> SubscriptionRecord:
-    """Make `user` the owner and enable the subscription, so deliveries run with their access.
+    """Make `owner` the owner and enable the subscription, so deliveries run with their access.
 
     Every refusal comes before the owner changes, so a refused takeover leaves the subscription as
     it was: the new owner must be able to view the dashboard or insight and read every table the
     subscription delivers, and the enable must pass its usual checks as the new owner.
     """
+    owner_denial = "you don't" if owner.pk == actor.pk else "the new owner doesn't"
+    owner_requirement = "You need" if owner.pk == actor.pk else "The new owner needs"
+    owner_access = viewer if owner.pk == actor.pk else UserAccessControl(user=owner, team=team)
     instance = Subscription.objects.get(pk=subscription_id, team_id=team.id)
+    if owner.pk != actor.pk and not viewer.is_organization_admin:
+        raise SubscriptionPermissionDeniedError(
+            "Only an organization admin can assign a subscription to another person. "
+            "Take ownership yourself or ask an admin to transfer it."
+        )
     try:
-        assert_creator_can_run(user, team, instance.dashboard, instance.insight)
+        assert_creator_can_run(owner, team, instance.dashboard, instance.insight)
     except (CreatorLeftOrganizationError, UserAccessControlError):
-        raise SubscriptionRequestInvalidError("Can't take ownership: you don't have access to this content.") from None
+        raise SubscriptionRequestInvalidError(
+            f"Can't take ownership: {owner_denial} have access to this content."
+        ) from None
+    if not viewable_subscriptions(
+        Subscription.objects.filter(team_id=team.id, pk=instance.pk), owner_access, team.id
+    ).exists():
+        raise SubscriptionRequestInvalidError(
+            f"{owner_requirement} access to the subscription's insights, dashboards, and report contexts."
+        )
+    if (
+        instance.resource_type == Subscription.ResourceType.AI_PROMPT
+        and not owner_access.check_access_level_for_resource("query", "viewer")
+    ):
+        raise SubscriptionRequestInvalidError(f"{owner_requirement} query access for AI prompt subscriptions.")
     # The enable below only compiles the queries when it enables a disabled row, so an enabled one is
     # checked here, as the new owner.
     if instance.enabled:
         denied_resources = denied_resources_in_subscription(
-            user=user, team=team, user_access_control=viewer, subscription_id=subscription_id, attrs={}
+            user=owner, team=team, user_access_control=owner_access, subscription_id=subscription_id, attrs={}
         )
         if denied_resources:
             denied_names = ", ".join(f"`{name}`" for name in denied_resources)
-            raise SubscriptionRequestInvalidError(f"Can't take ownership: you don't have access to {denied_names}.")
+            raise SubscriptionRequestInvalidError(
+                f"Can't take ownership: {owner_denial} have access to {denied_names}."
+            )
     # The new owner is set in memory only: the re-enable check reads it off the instance, and the
     # enable's save persists it with `enabled`.
     previous_owner = instance.created_by
-    instance.created_by = user
+    instance.created_by = owner
     subscription_write = _SubscriptionWrite(
         team=team,
         organization=organization,
-        user=user,
-        viewer=viewer,
+        user=owner,
+        viewer=owner_access,
         instance=instance,
         partial=True,
         is_create_request=False,
@@ -1093,11 +1117,11 @@ def take_subscription_ownership(
     log_activity(
         organization_id=team.organization_id,
         team_id=team.id,
-        user=user,
+        user=actor,
         was_impersonated=get_was_impersonated(),
         item_id=updated.id,
         scope="Subscription",
-        activity="took_ownership",
+        activity="took_ownership" if owner.pk == actor.pk else "transferred_ownership",
         detail=Detail(
             name=updated.display_name,
             changes=[
@@ -1106,7 +1130,7 @@ def take_subscription_ownership(
                     action="changed",
                     field="created_by",
                     before={"id": previous_owner.id, "email": previous_owner.email} if previous_owner else None,
-                    after={"id": user.id, "email": user.email},
+                    after={"id": owner.id, "email": owner.email},
                 )
             ],
         ),

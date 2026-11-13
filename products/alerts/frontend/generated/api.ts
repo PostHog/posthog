@@ -20,6 +20,7 @@ import type {
     AlertSimulateApi,
     AlertSimulateResponseApi,
     AlertTestDeliveryResponseApi,
+    AlertTransferOwnershipApi,
     AlertsListParams,
     AlertsPagerdutyAvailabilityRetrieveParams,
     AlertsRetrieveParams,
@@ -273,16 +274,19 @@ export const getAlertsTakeOwnershipCreateUrl = (projectId: string, id: string) =
 }
 
 /**
- * Make the requesting user the owner of this alert and enable it. Checks run with the owner's access, so this is how an alert continues after its owner left.
+ * Take ownership of this alert and enable it. Only organization admins can assign another member. The new owner needs access to its content. Checks run with the owner's access, so this is how an alert continues after its owner left.
  */
 export const alertsTakeOwnershipCreate = async (
     projectId: string,
     id: string,
+    alertTransferOwnershipApi?: AlertTransferOwnershipApi,
     options?: RequestInit
 ): Promise<AlertApi> => {
     return apiMutator<AlertApi>(getAlertsTakeOwnershipCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(alertTransferOwnershipApi),
     })
 }
 

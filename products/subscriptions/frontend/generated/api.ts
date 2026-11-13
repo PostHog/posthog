@@ -15,6 +15,7 @@ import type {
     PatchedSubscriptionWriteApi,
     SubscriptionApi,
     SubscriptionDeliveryApi,
+    SubscriptionTransferOwnershipApi,
     SubscriptionWriteApi,
     SubscriptionsDeliveriesListParams,
     SubscriptionsListParams,
@@ -153,16 +154,19 @@ export const getSubscriptionsTakeOwnershipCreateUrl = (projectId: string, id: st
 }
 
 /**
- * Make the requesting user the owner of this subscription and enable it. Deliveries run with the owner's access, so this is how a subscription continues after its owner left.
+ * Take ownership of this subscription and enable it. Only organization admins can assign another member. The new owner needs access to its content. Deliveries run with the owner's access, so this is how a subscription continues after its owner left.
  */
 export const subscriptionsTakeOwnershipCreate = async (
     projectId: string,
     id: string,
+    subscriptionTransferOwnershipApi?: SubscriptionTransferOwnershipApi,
     options?: RequestInit
 ): Promise<SubscriptionApi> => {
     return apiMutator<SubscriptionApi>(getSubscriptionsTakeOwnershipCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(subscriptionTransferOwnershipApi),
     })
 }
 

@@ -619,8 +619,8 @@ def insight_short_ids_watched_by(*, team_id: int, user_id: int, limit: int) -> l
     return list(dict.fromkeys(short_id for _, short_id in newest_first))[:limit]
 
 
-def assign_alert_owner(*, team_id: int, alert_id: uuid.UUID, user: User, was_impersonated: bool) -> None:
-    """Make `user` the owner of the alert and record the takeover in the activity log.
+def assign_alert_owner(*, team_id: int, alert_id: uuid.UUID, owner: User, actor: User, was_impersonated: bool) -> None:
+    """Make `owner` the owner of the alert and record the takeover in the activity log.
 
     `created_by` is excluded from the save diff, so the takeover gets its own activity. An alert with
     no insight row is the platform's, which stores its creator.
@@ -630,20 +630,20 @@ def assign_alert_owner(*, team_id: int, alert_id: uuid.UUID, user: User, was_imp
     )
     if alert is not None:
         previous_owner = alert.created_by
-        alert.created_by = user
+        alert.created_by = owner
         alert.save(update_fields=["created_by"])
     else:
         alert = _native_alert(team_id=team_id, alert_id=alert_id)
         previous_owner = alert.created_by
-        _assign_native_creator(team_id=team_id, alert_id=alert_id, user=user)
+        _assign_native_creator(team_id=team_id, alert_id=alert_id, user=owner)
     log_activity(
         organization_id=alert.team.organization_id,
         team_id=alert.team_id,
-        user=user,
+        user=actor,
         was_impersonated=was_impersonated,
         item_id=alert.id,
         scope="AlertConfiguration",
-        activity="took_ownership",
+        activity="took_ownership" if owner.pk == actor.pk else "transferred_ownership",
         detail=Detail(
             name=alert.name or f"Alert for {alert.insight.name}",
             changes=[
@@ -652,7 +652,7 @@ def assign_alert_owner(*, team_id: int, alert_id: uuid.UUID, user: User, was_imp
                     action="changed",
                     field="created_by",
                     before={"id": previous_owner.id, "email": previous_owner.email} if previous_owner else None,
-                    after={"id": user.id, "email": user.email},
+                    after={"id": owner.id, "email": owner.email},
                 )
             ],
             context=AlertConfigurationContext(
