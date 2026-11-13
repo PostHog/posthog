@@ -16,6 +16,7 @@ import { ContentAutopilotPromptsOverview } from './ContentAutopilotPromptsOvervi
 import { ContentAutopilotPromptSuggestModal } from './ContentAutopilotPromptSuggestModal'
 import { ContentAutopilotProposalDetail } from './ContentAutopilotProposalDetail'
 import { ContentAutopilotRankings } from './ContentAutopilotRankings'
+import { ContentAutopilotSettings } from './ContentAutopilotSettings'
 import { ContentAutopilotSetup } from './ContentAutopilotSetup'
 import { ContentAutopilotSiteGate } from './ContentAutopilotSiteGate'
 
@@ -93,8 +94,8 @@ export const ContentAutopilot = (): JSX.Element => {
                             icon={<IconGear />}
                             active={workspaceTab === 'settings'}
                             onClick={() => setWorkspaceTab('settings')}
-                            tooltip="Site settings"
-                            aria-label="Site settings"
+                            tooltip="Settings"
+                            aria-label="Settings"
                             data-attr="content-autopilot-settings"
                         />
                     </div>
@@ -122,12 +123,12 @@ export const ContentAutopilot = (): JSX.Element => {
                     ) : workspaceTab === 'settings' && profile ? (
                         <div className="flex flex-col gap-4" data-attr="content-autopilot-settings-page">
                             <ContentAutopilotPageHeader
-                                title="Site settings"
+                                title="Settings"
                                 backLabel="Overview"
                                 backDataAttr="content-autopilot-settings-back"
                                 onBack={() => setWorkspaceTab('overview')}
                             />
-                            <ContentAutopilotSetup />
+                            <ContentAutopilotSettings />
                         </div>
                     ) : (
                         <LemonTabs<ContentAutopilotWorkspaceTab>
