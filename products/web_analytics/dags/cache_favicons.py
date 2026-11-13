@@ -285,7 +285,7 @@ def cache_authorized_domain_favicons_schedule(_context: dagster.ScheduleEvaluati
 
 
 @dagster.schedule(
-    cron_schedule="23 4 * * 1",  # Weekly, Mondays at 04:23 UTC
+    cron_schedule="23 * * * *",  # Hourly; only domains not cached yet are downloaded
     job=cache_aeo_domain_favicons_job,
     execution_timezone="UTC",
     tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
