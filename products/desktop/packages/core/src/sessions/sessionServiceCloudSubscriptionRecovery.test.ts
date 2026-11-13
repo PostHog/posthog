@@ -377,3 +377,33 @@ describe("SessionService cloud subscription recovery", () => {
     expect(watchMutate).toHaveBeenCalledTimes(2);
   });
 });
+
+describe("SessionService moving a task's session to another run", () => {
+  it("keeps the queued messages when the task's latest run changes", () => {
+    const { service, sessions } = createHarness();
+    sessions[RUN_ID].messageQueue = [
+      { id: "queued-1", content: "next step", queuedAt: 1 },
+    ];
+    sessions[RUN_ID].editingQueuedId = "queued-1";
+
+    service.watchCloudTask(
+      TASK_ID,
+      "run-2",
+      "https://us.posthog.com",
+      2,
+      undefined,
+      undefined,
+      undefined,
+      "claude",
+      undefined,
+      undefined,
+      undefined,
+      "in_progress",
+    );
+
+    expect(sessions["run-2"].messageQueue).toEqual([
+      { id: "queued-1", content: "next step", queuedAt: 1 },
+    ]);
+    expect(sessions["run-2"].editingQueuedId).toBe("queued-1");
+  });
+});
