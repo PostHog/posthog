@@ -388,13 +388,17 @@ fi
 # POSTHOG_WATCH=0 opts out of all of it; POSTHOG_WORKTREES_AUTOCLEAN=0 and
 # POSTHOG_CLICKHOUSE_IDLE_STOP_MINUTES=0 turn off one job each.
 _WATCH_PID="$(cat "$HOME/.config/posthog/watch.lock" 2>/dev/null)"
+_WATCH_ALIVE=0
+if [[ -n "$_WATCH_PID" ]] && kill -0 "$_WATCH_PID" 2>/dev/null; then
+  _WATCH_ALIVE=1
+fi
 if [[ "${POSTHOG_WATCH:-1}" != "0" ]] && [[ -z "${CI:-}" ]] && [[ -x "$UV_PROJECT_ENVIRONMENT/bin/python" ]] \
-  && ! { [[ -n "$_WATCH_PID" ]] && kill -0 "$_WATCH_PID" 2>/dev/null; }; then
+  && [[ "$_WATCH_ALIVE" == "0" ]]; then
   mkdir -p "$HOME/.cache/posthog"
   "$UV_PROJECT_ENVIRONMENT/bin/python" -P -m hogli watch >>"$HOME/.cache/posthog/watch.log" 2>&1 &
   disown
 fi
-unset _WATCH_PID
+unset _WATCH_PID _WATCH_ALIVE
 
 # Install shell completions for hogli
 HOGLI_COMPLETION_DIR="$FLOX_ENV_CACHE/completions"

@@ -12,14 +12,13 @@ import sys
 import time
 import fcntl
 import subprocess
-import urllib.error
-import urllib.request
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import IO
 
 import click
+import requests
 
 from .doctor import _STOP_GRACE_SECONDS, _compose_project_name
 from .worktrees import _UNATTENDED_LOCK
@@ -128,13 +127,13 @@ class ClickHouseUsage:
 
 
 def _clickhouse_query(sql: str) -> str | None:
-    request = urllib.request.Request(CLICKHOUSE_HTTP_URL, data=sql.encode(), method="POST")
     try:
-        with urllib.request.urlopen(request, timeout=5) as response:
-            body: bytes = response.read()
-    except (urllib.error.URLError, OSError):
+        response = requests.post(CLICKHOUSE_HTTP_URL, data=sql, timeout=5)
+    except requests.RequestException:
         return None
-    return body.decode().strip()
+    if not response.ok:
+        return None
+    return response.text.strip()
 
 
 # The process runners of `hogli start` (also detached), and the web server and Celery when run by hand.
