@@ -19,7 +19,7 @@ use replay_core_v4::inspect::dom::UrlLimit;
 use replay_core_v4::inspect::stats::BlockStats;
 use replay_core_v4::keys::batch::{FlushKeys, KeyStore, SessionId};
 use replay_core_v4::keys::kms::AwsKms;
-use replay_core_v4::keys::rows::{key_month, write_day};
+use replay_core_v4::keys::rows::write_day;
 use replay_core_v4::keys::table::{AwsKeyTable, CachedKeyTable};
 use tokio::sync::Semaphore;
 
@@ -133,11 +133,7 @@ impl FlushWork {
 }
 
 /// Resolves the keys of the flush's sessions. Keys are stored before anything is sealed with them, as in v3.
-async fn resolve_keys(
-    blocks: &[Arc<Block>],
-    writer: &Writer,
-    day: &str,
-) -> Result<FlushKeys, FlushError> {
+async fn resolve_keys(blocks: &[Arc<Block>], writer: &Writer) -> Result<FlushKeys, FlushError> {
     let sessions: Vec<SessionId> = blocks
         .iter()
         .map(|b| SessionId {
@@ -147,7 +143,7 @@ async fn resolve_keys(
         .collect::<BTreeSet<_>>()
         .into_iter()
         .collect();
-    let keys = writer.keys.keys_for_flush(&sessions, day).await?;
+    let keys = writer.keys.keys_for_flush(&sessions).await?;
     counter!("ai_research_v4_recorder_dropped_sessions_total").increment(keys.dropped.len() as u64);
     Ok(keys)
 }
@@ -167,24 +163,18 @@ pub async fn write_flush(
         Some(done) => done.clone(),
         None => {
             let day = write_day(now);
-            let keys = Arc::new(resolve_keys(blocks, writer, &day).await?);
+            let keys = Arc::new(resolve_keys(blocks, writer).await?);
             resolved.insert((day, keys)).clone()
         }
     };
     drop(resolved);
-    let month = key_month(&day);
     let attempt = FlushAttempt::new(now);
     let already_sent = |reference: &str| {
         writer
             .sent_urls
             .contains_key(&(day.clone(), reference.to_owned()))
     };
-    let urls = FlushUrls::new(
-        blocks.iter().map(|block| &**block),
-        &keys,
-        month,
-        &already_sent,
-    );
+    let urls = FlushUrls::new(blocks.iter().map(|block| &**block), &keys, &already_sent);
 
     let object_key = object_key(&day, now);
     let seals: Vec<_> = blocks
@@ -195,17 +185,12 @@ pub async fn write_flush(
                 team_id: block.session.team_id,
                 session_id: block.session.session_id.clone(),
             };
-            let key = keys.sessions.get(&id)?.clone();
-            let team_key = *keys.team_months.get(&block.session.team_id)?;
-            let (block, object_key, month, work) = (
-                block.clone(),
-                object_key.clone(),
-                month.to_owned(),
-                work.clone(),
-            );
+            let (key, team_key) = keys.session(&id)?;
+            let (key, team_key) = (key.clone(), *team_key);
+            let (block, object_key, work) = (block.clone(), object_key.clone(), work.clone());
             let seal = seal_blocking(&writer.seal_permits, move || {
                 let compressed = work.compressed(Arc::as_ptr(&block) as usize, || {
-                    compress_block(&block, &key, &team_key, &month)
+                    compress_block(&block, &key, &team_key)
                 })?;
                 seal_compressed(&compressed, &object_key)
             });
@@ -279,7 +264,6 @@ pub async fn write_flush(
         new_images(&mut sealed),
         &keys,
         &day,
-        month,
         &writer.images_bucket,
         &writer.store,
         now,
