@@ -1,3 +1,4 @@
+import { AddressInfo, Socket, connect, createServer } from 'net'
 import { Client, Pool } from 'pg'
 import { Histogram, register } from 'prom-client'
 import { v7 as uuidv7 } from 'uuid'
@@ -1562,9 +1563,9 @@ describe('Cyclotron V2', () => {
             })
 
             it.each([
-                ['reclaims it once its job is gone', true, ['created']],
-                ['keeps it while its job still exists', false, ['mismatch']],
-            ])('for an expired key the janitor has not swept, %s', async (_name, jobGone, expected) => {
+                ['reclaims it once its job is gone', true, null, ['created']],
+                ['keeps it while its job still exists', false, { fingerprint: 'a' }, ['mismatch']],
+            ])('for an expired key the janitor has not swept, %s', async (_name, jobGone, found, expected) => {
                 const id = uuidv7()
                 await manager.createJobsIdempotently([keyed(id, 'a')])
                 if (jobGone) {
@@ -1575,8 +1576,21 @@ describe('Cyclotron V2', () => {
                     [id]
                 )
 
+                expect(await manager.findIdempotencyKey(id)).toEqual(found)
                 expect(await manager.createJobsIdempotently([keyed(id, 'b')])).toEqual(expected)
                 expect(await totalJobCount()).toBe(1)
+            })
+
+            it('reports the stored fingerprint of a key that answers replayed or mismatch', async () => {
+                const id = uuidv7()
+                await manager.claimJobs([keyed(id, 'a')])
+
+                expect(await manager.claimJobs([keyed(id, 'a')])).toEqual([
+                    { outcome: 'replayed', storedFingerprint: 'a' },
+                ])
+                expect(await manager.claimJobs([keyed(id, 'b')])).toEqual([
+                    { outcome: 'mismatch', storedFingerprint: 'a' },
+                ])
             })
 
             it('answers a repeat while the queue is full, and still refuses a new key', async () => {
@@ -1709,6 +1723,146 @@ describe('Cyclotron V2', () => {
                     ['replayed', 'replayed'],
                     ['replayed', 'replayed'],
                 ])
+            })
+
+            it('gives up a claim held by an uncommitted claim past its lock timeout, writing neither key nor job', async () => {
+                const id = uuidv7()
+                const blocker = await assertPool.connect()
+                await blocker.query('BEGIN')
+                await blocker.query(
+                    `INSERT INTO cyclotron_idempotency_keys (id, team_id, fingerprint, expires_at)
+                     VALUES ($1, 1, 'a', NOW() + interval '1 day')`,
+                    [id]
+                )
+                try {
+                    await expect(manager.claimJobs([keyed(id, 'a')], { lockTimeoutMs: 200 })).rejects.toMatchObject({
+                        code: '55P03',
+                    })
+                    expect(await backendsWaitingOnLocks()).toBe(0)
+                } finally {
+                    await blocker.query('ROLLBACK')
+                    blocker.release()
+                }
+
+                expect(await manager.findIdempotencyKey(id)).toBeNull()
+                expect(await totalJobCount()).toBe(0)
+                expect(await manager.claimJobs([keyed(id, 'a')], { lockTimeoutMs: 200 })).toEqual([
+                    { outcome: 'created' },
+                ])
+            }, 5000)
+        })
+
+        describe('findIdempotencyKey under a stalled database', () => {
+            let bounded: CyclotronV2Manager
+
+            beforeEach(async () => {
+                bounded = createManager({
+                    pool: { dbUrl: DB_URL, maxConnections: 1 },
+                    idempotencyKeyLookupTimeoutMs: 200,
+                })
+                await bounded.connect()
+            })
+
+            afterEach(async () => {
+                await bounded.disconnect()
+            })
+
+            it('gives up on a lookup stuck behind a lock, cancels it in the database, and answers the next one', async () => {
+                const blocker = await assertPool.connect()
+                await blocker.query('BEGIN')
+                await blocker.query('LOCK TABLE cyclotron_idempotency_keys IN ACCESS EXCLUSIVE MODE')
+                try {
+                    await expect(bounded.findIdempotencyKey(uuidv7())).rejects.toThrow()
+                    expect(await backendsWaitingOnLocks()).toBe(0)
+                } finally {
+                    await blocker.query('ROLLBACK')
+                    blocker.release()
+                }
+
+                expect(await bounded.findIdempotencyKey(uuidv7())).toBeNull()
+            })
+
+            it('gives up on a connection that stops answering, drops it, and answers the next lookup', async () => {
+                const pool: Pool = bounded['lookupPool']
+                const connect = pool.connect.bind(pool)
+                // Stands in for a network stall: the server never sees BEGIN, so statement_timeout can't end it.
+                jest.spyOn(pool, 'connect').mockImplementationOnce(async () => {
+                    const client = await connect()
+                    const query = client.query.bind(client)
+                    jest.spyOn(client, 'query').mockImplementation(((text: unknown, ...rest: unknown[]) =>
+                        typeof text === 'string' && text.startsWith('BEGIN')
+                            ? new Promise(() => undefined)
+                            : query(text as string, ...(rest as []))) as typeof client.query)
+                    return client
+                })
+
+                await expect(bounded.findIdempotencyKey(uuidv7())).rejects.toThrow()
+                expect(pool.totalCount).toBe(0)
+
+                expect(await bounded.findIdempotencyKey(uuidv7())).toBeNull()
+            })
+
+            it('gives up on a database that accepts the connection and never answers, and closes it', async () => {
+                const open = new Set<Socket>()
+                const silent = createServer((socket) => {
+                    open.add(socket)
+                    // Reads and drops the startup message, so the socket sees the client hang up.
+                    socket.resume()
+                    socket.on('close', () => open.delete(socket))
+                })
+                await new Promise<void>((resolve) => silent.listen(0, '127.0.0.1', resolve))
+                const { port } = silent.address() as AddressInfo
+                const stalled = createManager({
+                    pool: { dbUrl: `postgres://posthog:posthog@127.0.0.1:${port}/cyclotron`, maxConnections: 1 },
+                    idempotencyKeyLookupTimeoutMs: 200,
+                })
+                try {
+                    await expect(stalled.findIdempotencyKey(uuidv7())).rejects.toThrow()
+                    await waitForExpect(() => expect(open.size).toBe(0), 2000, 10)
+                } finally {
+                    open.forEach((socket) => socket.destroy())
+                    silent.close()
+                    await stalled.disconnect()
+                }
+            })
+
+            it('keeps a connection that finished after the lookup gave up, so the next lookup uses it', async () => {
+                const slow = createServer((socket) => {
+                    socket.pause()
+                    setTimeout(() => {
+                        const db = connect(5432, 'localhost')
+                        socket.pipe(db).pipe(socket)
+                    }, 300)
+                })
+                await new Promise<void>((resolve) => slow.listen(0, '127.0.0.1', resolve))
+                const { port } = slow.address() as AddressInfo
+                const lagging = createManager({
+                    pool: {
+                        dbUrl: `postgres://posthog:posthog@127.0.0.1:${port}/test_cyclotron_node`,
+                        maxConnections: 1,
+                    },
+                    idempotencyKeyLookupTimeoutMs: 200,
+                })
+                try {
+                    await expect(lagging.findIdempotencyKey(uuidv7())).rejects.toThrow()
+                    await waitForExpect(() => expect(lagging['lookupPool'].idleCount).toBe(1), 2000, 10)
+
+                    expect(await lagging.findIdempotencyKey(uuidv7())).toBeNull()
+                } finally {
+                    await lagging.disconnect()
+                    slow.close()
+                }
+            })
+
+            it('gives up while every lookup connection is busy, and answers once one comes back', async () => {
+                const held = await bounded['lookupPool'].connect()
+                try {
+                    await expect(bounded.findIdempotencyKey(uuidv7())).rejects.toThrow()
+                } finally {
+                    held.release()
+                }
+
+                expect(await bounded.findIdempotencyKey(uuidv7())).toBeNull()
             })
         })
     })

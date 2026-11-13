@@ -20,6 +20,7 @@ from products.conversations.backend.models import (
     EmailThreadMessageDirection,
 )
 from products.conversations.backend.services import gmail_sync
+from products.conversations.backend.services.html_text import html_to_text
 from products.customer_analytics.backend.facade.email_matching import recalculate_email_thread_links
 from products.customer_analytics.backend.facade.testing import create_account
 
@@ -435,4 +436,4 @@ class TestGmailSync(BaseTest):
 
 class TestHtmlToText:
     def test_many_sibling_paragraphs_flatten_in_one_pass(self) -> None:
-        assert gmail_sync._html_to_text("<p>x</p>" * 20_000) == "\n\n".join(["x"] * 20_000)
+        assert html_to_text("<p>x</p>" * 20_000) == "\n\n".join(["x"] * 20_000)
