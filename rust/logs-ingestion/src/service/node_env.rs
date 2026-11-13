@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::js::{JsObject, JsString, JsValue};
 use crate::metric_rules::js_parse_float;
-use crate::property_filter::coerce::js_parse_int;
+use crate::property_filter::coerce::js_trim;
 
 pub type Env = HashMap<String, String>;
 
@@ -50,6 +50,25 @@ pub fn kafka_topic(env: &Env, name: &str) -> String {
     format!("{prefix}{name}{suffix}")
 }
 
+/// `parseNumberFromEnv`: trim, drop one pair of matching quotes, then `parseFloat`. `None` keeps the default.
+fn parse_number_from_env(raw: &str) -> Option<f64> {
+    let trimmed = js_trim(raw);
+    let mut chars = trimmed.chars();
+    let quoted = match (chars.next(), chars.next_back()) {
+        // `.` does not match a line terminator, so a quoted value that spans lines keeps its quotes.
+        (Some(open @ ('"' | '\'')), Some(close)) if open == close => Some(chars.as_str())
+            .filter(|inner| !inner.contains(['\n', '\r', '\u{2028}', '\u{2029}'])),
+        _ => None,
+    };
+    let unquoted = js_trim(quoted.unwrap_or(trimmed));
+    if unquoted.is_empty() {
+        // `parseFloat('')` is NaN too. Node spells this case out for a value that was only quotes.
+        return None;
+    }
+    let value = js_parse_float(&JsString::from(unquoted.to_string()));
+    (!value.is_nan()).then_some(value)
+}
+
 /// The default's type picks the parse.
 pub fn override_with_env(defaults: &[(&str, JsValue)], env: &Env) -> JsObject {
     let mut out = JsObject::new();
@@ -57,11 +76,16 @@ pub fn override_with_env(defaults: &[(&str, JsValue)], env: &Env) -> JsObject {
         let value = match env.get(*key) {
             None => default.clone(),
             Some(raw) => match default {
-                // `indexOf('.')` is 0 only for a leading dot, which takes `parseInt`.
-                JsValue::Number(_) if raw.starts_with('.') => {
-                    JsValue::Number(js_parse_int(raw, None))
-                }
-                JsValue::Number(_) => JsValue::Number(js_parse_float(&JsString::from(raw.clone()))),
+                JsValue::Number(_) => match parse_number_from_env(raw) {
+                    Some(number) => JsValue::Number(number),
+                    None => {
+                        tracing::error!(
+                            key,
+                            "Ignoring {key}: its env value is not a number, keeping the default"
+                        );
+                        default.clone()
+                    }
+                },
                 JsValue::Bool(_) => JsValue::Bool(string_to_boolean(raw)),
                 _ => JsValue::string(raw),
             },
@@ -174,8 +198,19 @@ mod tests {
         assert_eq!(o.get("B"), Some(&JsValue::Bool(true)));
         assert_eq!(o.get("S"), Some(&JsValue::string("")));
         assert_eq!(o.get("D"), Some(&JsValue::Number(2.0)));
-        let o = override_with_env(&defaults, &env(&[("N", ".5")]));
-        assert!(matches!(o.get("N"), Some(JsValue::Number(n)) if n.is_nan()));
+        for (raw, expected) in [
+            (".5", 0.5),
+            (" \"500\" ", 500.0),
+            ("'7'", 7.0),
+            // An unparsable value keeps the default.
+            ("", 1.0),
+            ("abc", 1.0),
+            ("\"\"", 1.0),
+            ("\"5'", 1.0),
+        ] {
+            let o = override_with_env(&defaults, &env(&[("N", raw)]));
+            assert_eq!(o.get("N"), Some(&JsValue::Number(expected)), "{raw:?}");
+        }
     }
 
     #[test]
