@@ -122,9 +122,11 @@ def _catalog_refusal_reason(cohort: Cohort) -> str | None:
 
 NO_BEHAVIORAL_FILTER = "has no behavioral filter"
 NO_PERSON_FILTER = "has no person filter with a condition hash"
+REALTIME_OFF = "realtime is off"
 # Reasons that say only that this run kind does not apply to the cohort. Every save of a cohort
-# carrying the other kind's leaves produces one, so they are not a refusal an operator can act on.
-INAPPLICABLE_BACKFILL_REASONS = frozenset({NO_BEHAVIORAL_FILTER, NO_PERSON_FILTER})
+# carrying the other kind's leaves produces one, and a cohort nobody turned realtime on for is not
+# refused, so none of them is a refusal an operator can act on.
+INAPPLICABLE_BACKFILL_REASONS = frozenset({NO_BEHAVIORAL_FILTER, NO_PERSON_FILTER, REALTIME_OFF})
 
 
 def person_backfill_ineligibility_reason(cohort: Cohort) -> str | None:
@@ -132,6 +134,8 @@ def person_backfill_ineligibility_reason(cohort: Cohort) -> str | None:
     and the dispatch receiver so none of them can judge a cohort backfillable that another refuses."""
     if cohort.cohort_type != CohortType.REALTIME:
         return "not realtime"
+    if not cohort.realtime_enabled:
+        return REALTIME_OFF
     if cohort.is_static:
         return "static"
     if cohort.deleted:
@@ -156,6 +160,8 @@ def behavioral_backfill_ineligibility_reason(cohort: Cohort) -> str | None:
     """
     if cohort.cohort_type != CohortType.REALTIME:
         return "not realtime"
+    if not cohort.realtime_enabled:
+        return REALTIME_OFF
     if cohort.is_static:
         return "static"
     if cohort.deleted:
@@ -479,10 +485,11 @@ def _eligible_team_cohorts(
 ) -> list[Cohort]:
     # Narrow on the SQL-expressible half of eligibility before locking: `select_for_update` locks
     # every row the query returns, so an unnarrowed team scan would hold `FOR UPDATE` on static,
-    # deleted, and non-realtime cohorts that were never candidates, blocking edits to them.
+    # deleted, non-realtime and switched-off cohorts that were never candidates, blocking edits to them.
     queryset = Cohort.objects.select_related("team").filter(
         team_id=team_id,
         cohort_type=CohortType.REALTIME,
+        realtime_enabled_at__isnull=False,
         is_static=False,
         deleted=False,
     )

@@ -56,7 +56,12 @@ def filters(*leaves: dict) -> dict:
 @override_settings(REALTIME_COHORT_TEAM_ALLOWLIST="all")
 class TestRealtimeReadiness(BaseTest):
     def _cohort(self, **kwargs) -> Cohort:
-        defaults = {"team": self.team, "cohort_type": CohortType.REALTIME, "filters": filters(BEHAVIORAL_LEAF)}
+        defaults = {
+            "team": self.team,
+            "cohort_type": CohortType.REALTIME,
+            "realtime_enabled_at": timezone.now(),
+            "filters": filters(BEHAVIORAL_LEAF),
+        }
         return Cohort.objects.create(**{**defaults, **kwargs})
 
     def _run(
@@ -401,11 +406,16 @@ class TestRealtimeReadiness(BaseTest):
     @parameterized.expand(
         [
             ("static", {"is_static": True, "cohort_type": CohortType.STATIC}, (CohortRealtimeState.STATIC, None, None)),
-            ("not_realtime", {"cohort_type": CohortType.BEHAVIORAL}, (CohortRealtimeState.DAILY, None, None)),
+            (
+                "not_realtime",
+                {"cohort_type": CohortType.BEHAVIORAL, "realtime_enabled_at": None},
+                (CohortRealtimeState.DAILY, None, None),
+            ),
             (
                 "history_over_limit",
                 {
                     "cohort_type": None,
+                    "realtime_enabled_at": None,
                     "filters": filters({**BEHAVIORAL_LEAF, "time_value": 2, "time_interval": "year"}),
                 },
                 (CohortRealtimeState.DAILY, CohortRealtimeUnavailableReason.HISTORY_OVER_LIMIT, 400),
@@ -413,6 +423,16 @@ class TestRealtimeReadiness(BaseTest):
             # Neither kind of criteria decides anything: the realtime evaluator has no leaf to key
             # membership on, and the flag API does not gate on a cohort reference either.
             ("cohort_reference_only", {"filters": filters(COHORT_LEAF)}, None),
+            (
+                "realtime_off",
+                {"realtime_enabled_at": None, "last_backfill_events_at": timezone.now()},
+                (CohortRealtimeState.OFF, None, None),
+            ),
+            (
+                "person_properties_with_realtime_off",
+                {"realtime_enabled_at": None, "filters": filters(PERSON_LEAF)},
+                (CohortRealtimeState.PERSON_PROPERTIES, None, None),
+            ),
         ]
     )
     def test_cohorts_outside_the_realtime_path(

@@ -4,7 +4,6 @@ import { IconBolt, IconWarning } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { cohortFilterName } from 'lib/components/PropertyFilters/utils'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
@@ -19,8 +18,7 @@ import { cohortCanBeRestored } from './deletedCohortFilters'
  */
 export function CohortConditionLink({ property }: { property: CohortPropertyFilter }): JSX.Element {
     const { cohortsById } = useValues(cohortsModel)
-    const realtimeTargetingEnabled = useFeatureFlag('REALTIME_COHORT_FLAG_TARGETING')
-    const isRealtime = realtimeTargetingEnabled && cohortsById[property.value]?.realtime?.state === 'ready'
+    const isRealtime = cohortsById[property.value]?.realtime?.state === 'ready'
 
     if (property.cohort_deleted) {
         // A missing cohort has no page to open. A soft-deleted cohort's page has a restore action.

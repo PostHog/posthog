@@ -25,6 +25,8 @@ class CohortVisitor(
         "last_backfill_events_at",
         "last_backfill_person_properties_at",
         "last_realtime_cohort_calculation_at",
+        # A copy arrives with realtime off, because turning it on runs checks and starts a build.
+        "realtime_enabled_at",
         "filters_shape_hash",
         "behavioral_filters_shape_hash",
         "person_filters_shape_hash",

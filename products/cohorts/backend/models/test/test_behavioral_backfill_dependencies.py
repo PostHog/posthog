@@ -95,6 +95,7 @@ class TestBehavioralBackfillDependencies(BaseTest):
         return Cohort.objects.create(
             team=self.team,
             cohort_type=CohortType.REALTIME,
+            realtime_enabled_at=timezone.now(),
             filters=self._filters(window_days, person_hash=person_hash),
         )
 
@@ -249,6 +250,7 @@ class TestBehavioralBackfillDependencies(BaseTest):
         cohort = Cohort.objects.create(
             team=self.team,
             cohort_type=CohortType.REALTIME,
+            realtime_enabled_at=timezone.now(),
             filters=self._filters(7),
             last_backfill_events_at=ready_at,
             last_realtime_cohort_calculation_at=ready_at,
@@ -323,6 +325,7 @@ class TestBehavioralBackfillDependencies(BaseTest):
             Cohort.objects.create(
                 team=self.team,
                 cohort_type=CohortType.REALTIME,
+                realtime_enabled_at=timezone.now(),
                 filters=self._filters(7, windowless=True),
             )
 
@@ -342,6 +345,23 @@ class TestBehavioralBackfillDependencies(BaseTest):
         ):
             self._cohort(None, person_hash="person-a")
 
+        self.assertEqual(self._refused_count(CohortBackfillKind.BEHAVIORAL), before)
+
+    @override_settings(COHORT_BACKFILL_TRIGGER_TEAM_ALLOWLIST="all")
+    def test_a_cohort_with_realtime_off_enqueues_nothing_and_reports_no_refusal(self) -> None:
+        redis = self._redis()
+        before = self._refused_count(CohortBackfillKind.BEHAVIORAL)
+        with (
+            mock.patch("products.cohorts.backend.models.dependencies.get_redis_client", return_value=redis),
+            mock.patch("posthog.tasks.calculate_cohort.trigger_cohort_backfill_run_task.apply_async") as enqueue,
+        ):
+            cohort = Cohort.objects.create(
+                team=self.team, cohort_type=CohortType.REALTIME, filters=self._filters(7, person_hash="person-a")
+            )
+            cohort.filters = self._filters(30, person_hash="person-b")
+            cohort.save()
+
+        enqueue.assert_not_called()
         self.assertEqual(self._refused_count(CohortBackfillKind.BEHAVIORAL), before)
 
     def _refused_count(self, kind: CohortBackfillKind) -> float:
@@ -403,7 +423,12 @@ class TestBehavioralBackfillDependencies(BaseTest):
         # well: a pruning person run stores state valid only for the tree it pinned, and the
         # behavioral run is what nulls the events stamp flags route on. The cohort is created before
         # the trigger allowlist opens, so the create dispatches nothing real behind the edit's mocks.
-        cohort = Cohort.objects.create(team=self.team, cohort_type=CohortType.REALTIME, filters=self._filters(**before))
+        cohort = Cohort.objects.create(
+            team=self.team,
+            cohort_type=CohortType.REALTIME,
+            realtime_enabled_at=timezone.now(),
+            filters=self._filters(**before),
+        )
         redis = self._redis()
         with (
             override_settings(COHORT_BACKFILL_TRIGGER_TEAM_ALLOWLIST="all"),
@@ -473,7 +498,12 @@ class TestBehavioralBackfillDependencies(BaseTest):
         # where no behavioral run re-walks the tree. Removing the last person leaf is in this set
         # because the person run its hash change would ask for is refused: the cohort has no person
         # leaf left to pin.
-        cohort = Cohort.objects.create(team=self.team, cohort_type=CohortType.REALTIME, filters=self._filters(**before))
+        cohort = Cohort.objects.create(
+            team=self.team,
+            cohort_type=CohortType.REALTIME,
+            realtime_enabled_at=timezone.now(),
+            filters=self._filters(**before),
+        )
         redis = self._redis()
         with (
             override_settings(COHORT_BACKFILL_TRIGGER_TEAM_ALLOWLIST="all"),
@@ -670,6 +700,7 @@ class TestBehavioralBackfillDependencies(BaseTest):
         params: dict = {
             "team": self.team,
             "cohort_type": CohortType.REALTIME,
+            "realtime_enabled_at": timezone.now(),
             "filters": self._filters(7, **filter_kwargs),
             **overrides,
         }

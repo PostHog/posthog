@@ -135,6 +135,7 @@ class TestCollectRunInventory(BaseTest):
             team_id=team_id or self.team.id,
             name=name,
             cohort_type=CohortType.REALTIME,
+            realtime_enabled_at=timezone.now(),
             filters={
                 "properties": {
                     "type": "AND",

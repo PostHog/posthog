@@ -211,6 +211,7 @@ def _compute_flag_excluded_behavioral_cohort_ids(team_id: int, *, allow_realtime
             "is_static",
             "filters",
             "cohort_type",
+            "realtime_enabled_at",
             "last_backfill_person_properties_at",
             "last_backfill_events_at",
         )
@@ -590,14 +591,34 @@ def _backfill_trigger_kind(instance: Cohort, kwargs: dict, *, shape_changed: boo
     update_fields = kwargs.get("update_fields")
     if update_fields is not None and "filters" not in update_fields:
         return None
-    if instance.cohort_type != CohortType.REALTIME or instance.is_static or instance.deleted:
+    if (
+        instance.cohort_type != CohortType.REALTIME
+        or not instance.realtime_enabled
+        or instance.is_static
+        or instance.deleted
+    ):
         return None
     if kwargs.get("created", False):
         return CohortBackfillTrigger.COHORT_CREATED
     return CohortBackfillTrigger.COHORT_EDITED if shape_changed else None
 
 
-def _supersede_cohort_backfills(cohort: Cohort, kind: CohortBackfillKind) -> None:
+def queue_cohort_backfill(cohort: Cohort, trigger_kind: str, kind: CohortBackfillKind) -> None:
+    """Queue one debounced run-creation task on commit, when the team and the cohort can take the run."""
+    if not is_cohort_backfill_trigger_team(cohort.team_id):
+        return
+    if not is_processing_team(cohort.team_id, fresh=True):
+        COHORT_BACKFILL_TRIGGER_COUNTER.labels(backfill_kind=kind, outcome="not_realtime_team").inc()
+        return
+    ineligibility = _backfill_ineligibility_reason(cohort, kind)
+    if ineligibility is not None:
+        _report_backfill_ineligible(cohort, kind, ineligibility)
+        return
+
+    transaction.on_commit(lambda: _trigger_cohort_backfill(cohort, trigger_kind, kind))
+
+
+def supersede_cohort_backfills(cohort: Cohort, kind: CohortBackfillKind) -> None:
     try:
         from products.cohorts.backend.backfill.runs import (
             supersede_active_runs,  # noqa: PLC0415 — avoids a model-load cycle
@@ -646,7 +667,7 @@ def cohort_behavioral_shape_changed_supersede(sender, instance, **kwargs):
         return
 
     COHORT_REALTIME_STATE_ORPHANED_COUNTER.labels(reason="leaf_state_key_changed").inc()
-    transaction.on_commit(lambda: _supersede_cohort_backfills(instance, CohortBackfillKind.BEHAVIORAL))
+    transaction.on_commit(lambda: supersede_cohort_backfills(instance, CohortBackfillKind.BEHAVIORAL))
 
 
 @receiver(post_save, sender=Cohort)
@@ -666,7 +687,7 @@ def cohort_person_shape_changed_supersede(sender, instance, **kwargs):
         return
 
     COHORT_REALTIME_STATE_ORPHANED_COUNTER.labels(reason="person_condition_hash_changed").inc()
-    transaction.on_commit(lambda: _supersede_cohort_backfills(instance, CohortBackfillKind.PERSON_PROPERTY))
+    transaction.on_commit(lambda: supersede_cohort_backfills(instance, CohortBackfillKind.PERSON_PROPERTY))
 
 
 @receiver(post_save, sender=Cohort)
@@ -686,21 +707,8 @@ def cohort_behavioral_shape_changed_backfill(sender, instance, **kwargs):
     try:
         # Decided in memory first, so a save that triggers nothing never reads the team's access.
         trigger_kind = _backfill_trigger_kind(instance, kwargs, shape_changed=instance._leaf_shape_changed)
-        if trigger_kind is None:
-            return
-        if not is_cohort_backfill_trigger_team(instance.team_id):
-            return
-        if not is_processing_team(instance.team_id, fresh=True):
-            COHORT_BACKFILL_TRIGGER_COUNTER.labels(
-                backfill_kind=CohortBackfillKind.BEHAVIORAL, outcome="not_realtime_team"
-            ).inc()
-            return
-        ineligibility = _backfill_ineligibility_reason(instance, CohortBackfillKind.BEHAVIORAL)
-        if ineligibility is not None:
-            _report_backfill_ineligible(instance, CohortBackfillKind.BEHAVIORAL, ineligibility)
-            return
-
-        transaction.on_commit(lambda: _trigger_cohort_backfill(instance, trigger_kind, CohortBackfillKind.BEHAVIORAL))
+        if trigger_kind is not None:
+            queue_cohort_backfill(instance, trigger_kind, CohortBackfillKind.BEHAVIORAL)
     except Exception as error:
         logger.exception(
             "failed_to_handle_cohort_behavioral_shape_change",
@@ -721,23 +729,8 @@ def cohort_person_shape_changed_backfill(sender, instance, **kwargs):
     try:
         # Decided in memory first, so a save that triggers nothing never reads the team's access.
         trigger_kind = _backfill_trigger_kind(instance, kwargs, shape_changed=instance._person_shape_changed)
-        if trigger_kind is None:
-            return
-        if not is_cohort_backfill_trigger_team(instance.team_id):
-            return
-        if not is_processing_team(instance.team_id, fresh=True):
-            COHORT_BACKFILL_TRIGGER_COUNTER.labels(
-                backfill_kind=CohortBackfillKind.PERSON_PROPERTY, outcome="not_realtime_team"
-            ).inc()
-            return
-        ineligibility = _backfill_ineligibility_reason(instance, CohortBackfillKind.PERSON_PROPERTY)
-        if ineligibility is not None:
-            _report_backfill_ineligible(instance, CohortBackfillKind.PERSON_PROPERTY, ineligibility)
-            return
-
-        transaction.on_commit(
-            lambda: _trigger_cohort_backfill(instance, trigger_kind, CohortBackfillKind.PERSON_PROPERTY)
-        )
+        if trigger_kind is not None:
+            queue_cohort_backfill(instance, trigger_kind, CohortBackfillKind.PERSON_PROPERTY)
     except Exception as error:
         logger.exception(
             "failed_to_handle_cohort_person_shape_change",

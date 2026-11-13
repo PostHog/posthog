@@ -559,6 +559,11 @@ def _validate_behavioral_cohort_for_feature_flag(
                 detail=f"Cohort '{cohort.name}' has an event-based condition{condition_clause} and cannot be used in feature flags.",
                 code=BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
             )
+        if not cohort.realtime_enabled:
+            raise serializers.ValidationError(
+                detail=f"Realtime is off for cohort '{cohort.name}'. Turn it on from the cohort's page, and feature flags can target the cohort once it's ready.",
+                code=BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
+            )
         raise serializers.ValidationError(
             detail=f"Cohort '{cohort.name}' isn't ready for feature flags yet. Open the cohort to see whether PostHog is still preparing it, and try again once it shows as realtime.",
             code=BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,

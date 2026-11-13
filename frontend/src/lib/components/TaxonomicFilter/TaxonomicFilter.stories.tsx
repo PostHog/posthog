@@ -851,7 +851,6 @@ export const CohortsWithRealtimeStates: Story = {
         }),
     ],
     parameters: {
-        featureFlags: [FEATURE_FLAGS.REALTIME_COHORT_FLAG_TARGETING],
         // The preparing cohort's tag holds a spinner while its build runs, so the runner cannot
         // wait for every loader to disappear here.
         testOptions: { waitForLoadersToDisappear: false, waitForSelector: '[data-attr="cohort-realtime-tag"]' },

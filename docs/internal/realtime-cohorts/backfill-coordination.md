@@ -40,7 +40,7 @@ A run is owed when the cohort's current definition has state or downstream rows 
 
 | Trigger             | Created by                                                                       | Scope  |
 | ------------------- | -------------------------------------------------------------------------------- | ------ |
-| `cohort_created`    | Saving a new realtime cohort                                                     | Cohort |
+| `cohort_created`    | Turning realtime on for a cohort, on create or later                             | Cohort |
 | `cohort_edited`     | An edit that invalidates a kind, see below                                       | Cohort |
 | `team_enablement`   | An operator command, to backfill every eligible cohort of a team, or chosen ones | Team   |
 | `disaster_recovery` | An operator command after a store loss                                           | Team   |
@@ -122,6 +122,23 @@ sequenceDiagram
 
 From there the seeder takes over.
 [The seeder](seeder.md) describes the rest.
+
+### Turning realtime on and off
+
+A cohort carries a realtime switch, `realtime_enabled_at`, which is null while realtime is off.
+The save path, both run creators, the team runs and `realtime_cohort_team_access enable` skip a cohort that is off, and the finalizer refuses to stamp it.
+`products/cohorts/backend/cohort_enablement.py` turns the switch on and off.
+
+- **On.** It refuses a team the pipeline does not process, and a cohort that can never be ready.
+  It also turns on every realtime cohort the cohort includes as criteria.
+  For each cohort it turns on, it fills the shape hashes, clears the stamps, and queues one `cohort_created` build per kind through the debounce above.
+  The seeder parses trigger kinds, so a new kind would need a seeder deploy first.
+- **Off.** It clears the stamps and, on commit, supersedes the cohort's active runs of both kinds.
+  It leaves the cohorts it includes on.
+  The cohort API refuses it while a flag that is not deleted or archived reaches the cohort and the cohort has event criteria, while an active workflow relies on the cohort, or while a cohort that is on includes it.
+
+Migration `0023` turned realtime on for every realtime cohort of the teams the pipeline processed when it ran.
+It dated each switch at the cohort's creation, so the runs already in flight could still stamp.
 
 ## Pinning
 
@@ -264,8 +281,8 @@ Other cases to know:
 - **A cohort re-enters the realtime set without a leaf change.**
   An undelete, a static-to-dynamic switch, or regained realtime support leaves the hashes as they were, so no run is owed, and the cohort keeps whatever stamps it had.
 - **A save from a stale copy of the row.**
-  The API saves the whole row, so a rename that read the cohort before the finalizer stamped can write the empty stamp back.
-  The cohort loses readiness until the next invalidating edit or an operator run.
+  The API's edit leaves the realtime switch and the stamps out of its save, so a rename that read the cohort before a stamp, a turn-on or a turn-off cannot write the old values back.
+  Code that saves a whole cohort row still can.
 - **A seeder-side failure.**
   A run the seeder fails keeps its stamp empty and frees its slot.
   Nothing re-creates it.

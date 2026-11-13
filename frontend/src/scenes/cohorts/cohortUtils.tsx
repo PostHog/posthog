@@ -170,6 +170,9 @@ export function createCohortFormData(
         description: cohort.description ?? '',
         ...(cohort.csv ? { csv: cohort.csv } : {}),
         ...(cohort.is_static ? { is_static: cohort.is_static } : {}),
+        ...(cohort.id === 'new' && cohort.realtime_enabled && offersRealtimeOnCreate(cohort)
+            ? { realtime_enabled: true }
+            : {}),
         ...(typeof cohort._create_in_folder === 'string' ? { _create_in_folder: cohort._create_in_folder } : {}),
         filters: JSON.stringify(
             cohort.is_static && !preserveStaticFilters
@@ -764,11 +767,16 @@ export const COHORT_MATCHING_DAYS = {
     '30': 'month',
 }
 
-function hasBehavioralCriteria(group: CohortCriteriaGroupFilter | AnyCohortCriteriaType): boolean {
+export function hasBehavioralCriteria(group: CohortCriteriaGroupFilter | AnyCohortCriteriaType): boolean {
     if ('values' in group && Array.isArray(group.values)) {
         return (group.values as (CohortCriteriaGroupFilter | AnyCohortCriteriaType)[]).some(hasBehavioralCriteria)
     }
     return group.type === BehavioralFilterKey.Behavioral
+}
+
+/** Whether a new cohort can ask for realtime when it is created. Each turn-on starts a build from past events. */
+export function offersRealtimeOnCreate(cohort: CohortType): boolean {
+    return !cohort.is_static && !!cohort.filters?.properties && hasBehavioralCriteria(cohort.filters.properties)
 }
 
 /** Why a broadcast can't send to this cohort, mirroring the batch audience check on the server. */

@@ -47,6 +47,7 @@ import type {
     ProjectApi,
     SharingConfigurationApi,
     TeamFeatureFlagPolicyConfigApi,
+    TeamRealtimeCohortsApi,
 } from '~/generated/core/api.schemas'
 import { RootAssistantMessage } from '~/queries/schema/schema-assistant-messages'
 import type {
@@ -946,6 +947,8 @@ export interface TeamType extends TeamBasicType {
     base_currency: CurrencyCode
     managed_viewsets: Record<DataWarehouseManagedViewsetKind, boolean>
     flag_evaluations_mode: FlagEvaluationsModeEnumApi
+    // Optional so cached team objects from before this field shipped still typecheck.
+    realtime_cohorts?: TeamRealtimeCohortsApi
     receive_org_level_activity_logs: boolean | null
     customer_analytics_config: CustomerAnalyticsConfig
     workflows_config: WorkflowsConfig
@@ -1947,6 +1950,7 @@ export interface CohortType {
     /** Whether feature flags can target this cohort, and the progress of the history build that
      * gets it there. Null on projects the realtime pipeline does not cover. */
     realtime?: CohortRealtimeReadinessApi | null
+    realtime_enabled?: boolean
     _create_in_folder?: string | null
     _create_static_person_ids?: string[]
 }

@@ -12,7 +12,6 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { INSTANTLY_AVAILABLE_PROPERTIES } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { GroupsAccessStatus, groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { GroupsIntroductionOption } from 'lib/introductions/GroupsIntroductionOption'
 import { IconArrowDown, IconArrowUp, IconErrorOutline, IconSubArrowRight } from 'lib/lemon-ui/icons'
@@ -43,6 +42,7 @@ import {
     PropertyOperator,
 } from '~/types'
 
+import { useRealtimeCohortsServing } from 'products/cohorts/frontend/realtime/useRealtimeCohortsServing'
 import { CohortConditionLink } from 'products/feature_flags/frontend/CohortConditionLink'
 import { ConditionSetSummary } from 'products/feature_flags/frontend/ConditionSetSummary'
 import { FractionalRolloutWarning } from 'products/feature_flags/frontend/FractionalRolloutWarning'
@@ -165,7 +165,7 @@ export function FeatureFlagReleaseConditions({
 
     const { groupsAccessStatus } = useValues(groupsAccessLogic)
 
-    const realtimeCohortFlagTargeting = useFeatureFlag('REALTIME_COHORT_FLAG_TARGETING')
+    const realtimeCohortFlagTargeting = useRealtimeCohortsServing()
 
     const featureFlagVariants = nonEmptyFeatureFlagVariants || nonEmptyVariants
 
