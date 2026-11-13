@@ -14,9 +14,11 @@ from unittest.mock import patch
 
 from django.test import Client
 
+from posthog.constants import AvailableFeature
 from posthog.models.user import User
 from posthog.models.user_integration import UserIntegration
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.slack_app.backend.services.slack_user_oauth import (
     CallbackState,
     InviteToken,
@@ -102,8 +104,9 @@ class TestAuthorizeView:
         assert "response_type=code" in location
         assert "user_scope" not in location
 
+    @pytest.mark.parametrize("slack_mcp", [True, False])
     def test_search_scopes_flag_asks_for_user_scopes_on_the_invite_workspace(
-        self, logged_in_client, workspace_integration
+        self, slack_mcp: bool, logged_in_client, workspace_integration
     ):
         client, _ = logged_in_client
         token = InviteToken(
@@ -116,6 +119,14 @@ class TestAuthorizeView:
                 return_value=True,
             ),
             patch(
+                "products.slack_app.backend.views.slack_user_link.is_slack_app_slack_mcp_enabled",
+                return_value=slack_mcp,
+            ),
+            patch(
+                "products.slack_app.backend.views.slack_user_link.slack_mcp_user_scopes",
+                return_value=("channels:history", "search:read.public"),
+            ),
+            patch(
                 "posthog.credentials_service.instance_settings.get_instance_settings",
                 return_value={"SLACK_APP_CLIENT_ID": "cid", "SLACK_APP_CLIENT_SECRET": "csecret"},
             ),
@@ -126,7 +137,14 @@ class TestAuthorizeView:
         params = parse_qs(location.query)
         assert f"{location.scheme}://{location.netloc}{location.path}" == "https://slack.com/oauth/v2/authorize"
         assert params["team"] == [SLACK_TEAM_ID]
-        assert {"search:read.public", "search:read.im", "users:read.email"} <= set(params["user_scope"][0].split(","))
+        user_scopes = params["user_scope"][0].split(",")
+        if slack_mcp:
+            # The Slack MCP's allowlist is the whole request: the MCP store sends this token upstream, so the link
+            # holds exactly what the server may read, and no optional private search.
+            assert set(user_scopes) == {"channels:history", "search:read.public"}
+        else:
+            assert {"search:read.public", "search:read.im", "users:read.email"} <= set(user_scopes)
+        assert len(user_scopes) == len(set(user_scopes))
         state = CallbackState.decode(params["state"][0])
         assert state is not None and state.search_scopes is True
 
@@ -200,12 +218,34 @@ class TestCallbackView:
         # render the friendly "Slack authorization was canceled." copy.
         self._assert_settings_redirect_error(response, "access_denied")
 
-    @pytest.mark.parametrize("search_scopes", [False, True])
+    @pytest.mark.parametrize(
+        "search_scopes, slack_mcp, project_access",
+        [
+            (False, True, True),
+            (True, True, True),
+            (True, False, True),
+            # An organization member who cannot reach the invite's project gets the link and no installation in it.
+            (True, True, False),
+        ],
+    )
     def test_happy_path_creates_link_and_redirects_to_settings(
-        self, search_scopes: bool, logged_in_client, workspace_integration
+        self, search_scopes: bool, slack_mcp: bool, project_access: bool, logged_in_client, workspace_integration
     ):
         client, user = logged_in_client
         state = self._state_for(user, workspace_integration.team_id, search_scopes=search_scopes)
+        if not project_access:
+            # A private project: the organization has access control, and the project's default is no access.
+            organization = workspace_integration.team.organization
+            organization.available_product_features = [
+                {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+            ]
+            organization.save()
+            AccessControl.objects.create(
+                team=workspace_integration.team,
+                resource="project",
+                resource_id=str(workspace_integration.team_id),
+                access_level="none",
+            )
 
         with (
             patch("products.slack_app.backend.views.slack_user_link.is_slack_app_oauth_enabled", return_value=True),
@@ -214,6 +254,14 @@ class TestCallbackView:
                 return_value=self._identity(user_scopes="search:read.public users:read" if search_scopes else ""),
             ) as exchange,
             patch("products.slack_app.backend.views.slack_user_link.start_work_focus") as work_focus,
+            patch(
+                "products.slack_app.backend.views.slack_user_link.connect_slack_mcp_from_slack_link",
+                return_value=True,
+            ) as connect_slack_mcp,
+            patch(
+                "products.slack_app.backend.views.slack_user_link.is_slack_app_slack_mcp_enabled",
+                return_value=slack_mcp,
+            ),
             patch("posthog.models.integration.slack.WebClient"),
             patch("products.slack_app.backend.analytics.ph_background_capture") as mock_ph,
             patch("products.slack_app.backend.views.slack_user_link.request_onboarding") as mock_refresh_card,
@@ -223,12 +271,15 @@ class TestCallbackView:
         self._assert_settings_redirect_success(response)
         assert exchange.call_args.kwargs["search_scopes"] is search_scopes
         assert work_focus.called is search_scopes
+        assert connect_slack_mcp.called is (search_scopes and slack_mcp and project_access)
         assert mock_refresh_card.call_args.args[1] == SLACK_USER_ID
         mock_ph.return_value.alias.assert_called_once_with(
             previous_id=user.distinct_id, distinct_id=f"slack:{SLACK_TEAM_ID}:{SLACK_USER_ID}"
         )
         link = UserIntegration.objects.get(user=user, kind=UserIntegration.IntegrationKind.SLACK)
         assert link.integration_id == SLACK_USER_ID
+        if connect_slack_mcp.called:
+            assert connect_slack_mcp.call_args.kwargs["slack_link_id"] == str(link.id)
         assert link.config["slack_team_id"] == SLACK_TEAM_ID
         assert link.config["slack_team_name"] == "My Workspace"
         assert link.config["slack_email_at_link"] == "dev@slack.example"

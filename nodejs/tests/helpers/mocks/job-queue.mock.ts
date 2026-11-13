@@ -22,6 +22,7 @@ export function createMockJobQueue(): jest.Mocked<IdempotentJobQueue> {
         cancelInvocations: jest.fn().mockResolvedValue(undefined),
         heartbeatInvocations: jest.fn().mockResolvedValue(undefined),
         deferInvocations: jest.fn().mockResolvedValue(undefined),
+        stillOwns: jest.fn().mockResolvedValue(true),
         queueInvocationsIdempotently: jest.fn(
             async (entries: IdempotentInvocation[]): Promise<CyclotronV2IdempotentClaim[]> => {
                 const outcomes: CyclotronV2IdempotentClaim[] = []

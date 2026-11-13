@@ -82,4 +82,18 @@ describe('cyclotron probe', () => {
 
         expect(await probe.unfinishedJobs({ teams: [OURS], queues: ['hogflow', 'email'] })).toBe(unfinished)
     })
+
+    it('counts only the running jobs of the teams on the queue a valve waits for', async () => {
+        await insert([
+            { team: OURS, queue: 'email', status: 'running' },
+            { team: OURS, queue: 'email', status: 'running' },
+            { team: OURS, queue: 'email', status: 'available' },
+            { team: OURS, queue: 'hogflow', status: 'running' },
+            { team: THEIRS, queue: 'email', status: 'running' },
+        ])
+
+        const probe = createCyclotronProbe(PROBE_URL)
+
+        expect(await probe.runningJobs({ teams: [OURS], queues: ['email'] })).toBe(2)
+    })
 })
