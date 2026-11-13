@@ -64,6 +64,7 @@ from posthog.dags.data_deletion_requests import (
     verify_property_removal,
     verify_property_removal_shard,
 )
+from posthog.dags.deletes import deletes_job
 from posthog.dags.tests.conftest import insert_flag_evaluations
 from posthog.models.data_deletion_request import (
     DataDeletionRequest,
@@ -1067,27 +1068,13 @@ def test_auto_approve_schedule_launches_a_run_on_tick():
 PROP_TEAM_ID = 88888
 
 
-@pytest.mark.parametrize(
-    "engine, timestamp_expression",
-    [
-        pytest.param(
-            "ReplicatedReplacingMergeTree",
-            "CAST(toDateTime(toDateTime64(%(inserted_at_marker)s, 6, 'UTC')) + 1 AS DateTime) AS `_timestamp`",
-            id="replacing_merge_tree_bumps_version",
-        ),
-        pytest.param("ReplicatedMergeTree", "`_timestamp`", id="plain_merge_tree_keeps_kafka_time"),
-    ],
-)
-def test_property_removal_cleaned_select_expressions(engine: str, timestamp_expression: str) -> None:
+def test_property_removal_cleaned_select_expressions() -> None:
     client = Mock(spec=Client)
-    client.execute.side_effect = [
-        [
-            ("properties", "String"),
-            ("person_properties", "String"),
-            ("inserted_at", "Nullable(DateTime64(6, 'UTC'))"),
-            ("_timestamp", "DateTime"),
-        ],
-        [(engine,)],
+    client.execute.return_value = [
+        ("properties", "String"),
+        ("person_properties", "String"),
+        ("inserted_at", "Nullable(DateTime64(6, 'UTC'))"),
+        ("_timestamp", "DateTime"),
     ]
     request = DeletionRequestContext(
         request_id=str(uuid4()),
@@ -1116,7 +1103,8 @@ def test_property_removal_cleaned_select_expressions(engine: str, timestamp_expr
         "JSONDropKeysPool(if(empty(person_properties), '{}', person_properties), %(person_keys)s)) "
         "AS String) AS `person_properties`" in cleaned.expressions
     )
-    assert timestamp_expression in cleaned.expressions
+    assert "`inserted_at`" in cleaned.expressions
+    assert "CAST(toDateTime(toDateTime64(%(marker)s, 6, 'UTC')) + 1 AS DateTime) AS `_timestamp`" in cleaned.expressions
 
 
 def _insert_events_with_properties(events: list[tuple], client: Client) -> None:
@@ -2009,23 +1997,25 @@ def test_full_job_property_removal_clears_materialized_columns(
         cluster.any_host(partial(_drop_default_mat_columns, col_defs)).result()
 
 
-def _insert_events_with_properties_and_inserted_at(events: list[tuple], client: Client) -> None:
+def _insert_events_with_properties_and_inserted_at(events: list[tuple], client: Client, **row_values: object) -> None:
     # writable_events does not expose inserted_at, so write the shard-local table directly.
+    columns = ", ".join(["team_id, event, uuid, distinct_id, timestamp, properties, inserted_at", *row_values])
     client.execute(
-        "INSERT INTO sharded_events (team_id, event, uuid, distinct_id, timestamp, properties, inserted_at) VALUES",
-        events,
+        f"INSERT INTO sharded_events ({columns}) VALUES",
+        [(*row, *row_values.values()) for row in events],
     )
 
 
-def _count_marker_rows(team_id: int, marker: datetime, client: Client) -> tuple[int, int]:
+def _row_counts_against_marker(team_id: int, marker: datetime, client: Client) -> tuple[int, int, int]:
+    # Rows with the bumped _timestamp, rows ingested before the marker, and all rows.
     marker_str = marker.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S.%f")
     row = client.execute(
-        "SELECT countIf(_timestamp = toDateTime(toDateTime64(%(marker)s, 6, 'UTC')) + 1), count() "
-        "FROM events "
-        "WHERE team_id = %(team_id)s AND inserted_at = toDateTime64(%(marker)s, 6, 'UTC')",
+        "SELECT countIf(_timestamp = toDateTime(toDateTime64(%(marker)s, 6, 'UTC')) + 1), "
+        "countIf(inserted_at < toDateTime64(%(marker)s, 6, 'UTC')), count() "
+        "FROM events WHERE team_id = %(team_id)s",
         {"team_id": team_id, "marker": marker_str},
     )
-    return row[0][0], row[0][1]
+    return row[0][0], row[0][1], row[0][2]
 
 
 @pytest.mark.django_db
@@ -2145,6 +2135,14 @@ def test_full_job_property_removal_fresh_run_after_failure_restores_every_row(
     events = [(PROP_TEAM_ID, "$pageview", uuid4(), ts, props) for ts in timestamps]
     cluster.any_host(partial(_insert_events_with_properties, events)).result()
     months = sorted({ts.strftime("%Y%m") for ts in timestamps})
+    # A legacy row with no inserted_at, in the month the reingest retries.
+    legacy_ts = next(ts for ts in timestamps if ts.strftime("%Y%m") == months[1])
+    cluster.any_host(
+        partial(
+            _insert_events_with_properties_and_inserted_at,
+            [(PROP_TEAM_ID, "$pageview", uuid4(), "legacy", legacy_ts, props, None)],
+        )
+    ).result()
 
     request = _property_removal_request(start_time=now - timedelta(days=100))
     run_config = {"ops": {"load_property_removal_request": {"config": {"request_id": str(request.pk)}}}}
@@ -2168,24 +2166,63 @@ def test_full_job_property_removal_fresh_run_after_failure_restores_every_row(
     marker = request.property_removal_marker
     assert marker is not None
 
+    # A late copy of a staged event, in the month the reingest retries. It arrives after the marker, so it
+    # is out of scope, and Kafka received it in the second that cleaned rows carry in _timestamp.
+    late_uuid, late_ts = next((uuid, ts) for _, _, uuid, ts, _ in events if ts.strftime("%Y%m") == months[1])
+    cluster.any_host(
+        partial(
+            _insert_events_with_properties_and_inserted_at,
+            [(PROP_TEAM_ID, "$pageview", late_uuid, "late", late_ts, props, marker + timedelta(seconds=2))],
+            _timestamp=marker.replace(microsecond=0) + timedelta(seconds=1),
+        )
+    ).result()
+
     # The admin Retry button starts a fresh run from the load op.
     rerun = data_deletion_request_property_removal.execute_in_process(
         run_config=run_config, resources={"cluster": cluster}
     )
     assert rerun.success
 
-    assert cluster.any_host(partial(_count_events_by_name, PROP_TEAM_ID, "$pageview")).result() == len(events)
-    for row_props in cluster.any_host(partial(_get_properties, PROP_TEAM_ID, "$pageview")).result():
-        assert "secret" not in row_props
-        assert "keep" in row_props
-    # Cleaned rows carry the persisted marker on inserted_at AND the bumped _timestamp version,
-    # so a replacing merge deterministically keeps them over any residual original.
-    stamped, total = cluster.any_host(partial(_count_marker_rows, PROP_TEAM_ID, marker)).result()
-    assert (stamped, total) == (len(events), len(events))
+    assert cluster.any_host(partial(_count_events_by_name, PROP_TEAM_ID, "$pageview")).result() == len(events) + 2
+    all_props = cluster.any_host(partial(_get_properties, PROP_TEAM_ID, "$pageview")).result()
+    assert all("keep" in row_props for row_props in all_props)
+    assert sum("secret" in row_props for row_props in all_props) == 1
+    # Cleaned rows carry the bumped _timestamp version, so a replacing merge keeps them over any residual
+    # original. They keep their original inserted_at, so a deletion requested before the removal reaches them.
+    counts = cluster.any_host(partial(_row_counts_against_marker, PROP_TEAM_ID, marker)).result()
+    assert counts == (len(events) + 2, len(events), len(events) + 2)
     # Cleanup empties every staged file once the request is verified.
     assert _non_empty_staged_files(cluster, _request_context(request)) == []
     request.refresh_from_db()
     assert request.status == RequestStatus.COMPLETED
+
+
+@pytest.mark.django_db
+def test_reingest_refuses_staged_rows_without_the_cleaned_timestamp(cluster: ClickhouseCluster):
+    now = datetime.now(UTC)
+    props = json.dumps({"secret": "value", "keep": "yes"})
+    events = [(PROP_TEAM_ID, "$pageview", uuid4(), now - timedelta(hours=i + 1), props) for i in range(3)]
+    cluster.any_host(partial(_insert_events_with_properties, events)).result()
+    request = _property_removal_request(start_time=now - timedelta(days=7))
+    run_config = {"ops": {"load_property_removal_request": {"config": {"request_id": str(request.pk)}}}}
+
+    # An earlier version of the job staged rows with their Kafka _timestamp, then died after the delete.
+    with (
+        patch("posthog.dags.data_deletion_requests._CLEANED_TIMESTAMP", "`_timestamp`"),
+        _fail_before_recording("deleted"),
+    ):
+        assert not data_deletion_request_property_removal.execute_in_process(
+            run_config=run_config, resources={"cluster": cluster}, raise_on_error=False
+        ).success
+    DataDeletionRequest.objects.filter(pk=request.pk).update(status=RequestStatus.APPROVED)
+
+    rerun = data_deletion_request_property_removal.execute_in_process(
+        run_config=run_config, resources={"cluster": cluster}, raise_on_error=False
+    )
+
+    assert not rerun.success
+    assert cluster.any_host(partial(_count_events_by_name, PROP_TEAM_ID, "$pageview")).result() == 0
+    assert _non_empty_staged_files(cluster, _request_context(request)) != []
 
 
 @pytest.mark.django_db
@@ -2322,6 +2359,112 @@ def test_delete_guards_against_source_changes_after_copy(cluster: ClickhouseClus
     copy_property_removal_shard(build_op_context(), cluster, target, ctx)
     delete_property_removal_shard(build_op_context(), cluster, target, ctx)
     assert cluster.any_host(partial(_count_events_by_name, PROP_TEAM_ID, "$pageview")).result() == 0
+
+
+def _surviving_rows_with_secret(team_id: int, client: Client) -> dict[str, tuple[int, int]]:
+    # Per table, (rows, rows that still carry the property). _row_exists = 1 excludes lightweight-deleted
+    # rows, which stay readable until a merge.
+    counts = {}
+    for table in ("events", "flag_evaluations"):
+        [[rows, with_secret]] = client.execute(
+            f"SELECT count(), countIf(JSONHas(properties, 'secret')) FROM {table} "
+            "WHERE team_id = %(team_id)s AND _row_exists = 1",
+            {"team_id": team_id},
+        )
+        counts[table] = (rows, with_secret)
+    return counts
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("deletion", ["person", "adhoc_uuid", "deferred_event_removal_with_predicate"])
+def test_a_property_removal_does_not_hide_rows_from_a_deletion_queued_before_it(
+    cluster: ClickhouseCluster, deletion: str
+):
+    from posthog.models.async_deletion import AsyncDeletion, DeletionType
+    from posthog.models.organization import Organization
+    from posthog.models.person.sql import PERSON_DISTINCT_ID_OVERRIDES_TABLE
+    from posthog.models.team import Team
+
+    team = Team.objects.create(organization=Organization.objects.create(name=deletion), name=deletion)
+    now = datetime.now(UTC)
+    ingested = now - timedelta(hours=2)
+    requested = now - timedelta(hours=1)
+    person_id, row_uuid = uuid4(), uuid4()
+    props = json.dumps({"secret": "value", "keep": "yes"})
+    cluster.any_host(
+        partial(
+            _insert_events_with_properties_and_inserted_at,
+            [(team.id, FLAG_EVALUATIONS_SOURCE_EVENT, row_uuid, "someone", ingested, props, ingested)],
+            person_id=person_id,
+        )
+    ).result()
+    cluster.any_host(
+        partial(
+            _insert_flag_evaluations_with_properties,
+            [(team.id, "someone", props, str(row_uuid), ingested, ingested)],
+            person_id=person_id,
+        )
+    ).result()
+
+    if deletion == "person":
+        AsyncDeletion.objects.create(team_id=team.id, deletion_type=DeletionType.Person, key=str(person_id))
+        AsyncDeletion.objects.filter(team_id=team.id).update(created_at=requested)
+        # The drain loads person deletions requested before the oldest override, so one override after
+        # the request lets it through.
+        cluster.any_host(
+            lambda client: client.execute(
+                f"INSERT INTO {PERSON_DISTINCT_ID_OVERRIDES_TABLE} (team_id, distinct_id, person_id, _timestamp, version) VALUES",
+                [(team.id, "unrelated", uuid4(), now + timedelta(days=1), 1)],
+            )
+        ).result()
+    elif deletion == "adhoc_uuid":
+        cluster.any_host(
+            lambda client: client.execute(
+                f"INSERT INTO {ADHOC_EVENTS_DELETION_TABLE} (team_id, uuid, created_at) VALUES",
+                [(team.id, row_uuid, requested)],
+            )
+        ).result()
+    else:
+        # The queue stamps created_at with the current time, which already sits between the ingestion and
+        # the property removal below.
+        event_removal = DataDeletionRequest.objects.create(
+            team_id=team.id,
+            request_type=RequestType.EVENT_REMOVAL,
+            delete_all_events=True,
+            start_time=now - timedelta(days=1),
+            end_time=now + timedelta(minutes=1),
+            hogql_predicate="properties.secret = 'value'",
+            status=RequestStatus.QUEUED,
+            execution_mode=ExecutionMode.DEFERRED.value,
+        )
+        _run_event_deletion(cluster, _request_context(event_removal))
+        assert cluster.any_host(partial(_adhoc_pending_uuids, team.id)).result() == {row_uuid}
+
+    # The property removal strips the property the deferred request's predicate matched on.
+    property_removal = DataDeletionRequest.objects.create(
+        team_id=team.id,
+        request_type=RequestType.PROPERTY_REMOVAL,
+        events=[FLAG_EVALUATIONS_SOURCE_EVENT],
+        properties=["secret"],
+        start_time=now - timedelta(days=1),
+        end_time=now + timedelta(minutes=1),
+        status=RequestStatus.APPROVED,
+    )
+    assert data_deletion_request_property_removal.execute_in_process(
+        run_config={"ops": {"load_property_removal_request": {"config": {"request_id": str(property_removal.pk)}}}},
+        resources={"cluster": cluster},
+    ).success
+    assert cluster.any_host(partial(_surviving_rows_with_secret, team.id)).result() == {
+        "events": (1, 0),
+        "flag_evaluations": (1, 0),
+    }
+
+    deletes_job.execute_in_process(resources={"cluster": cluster})
+
+    assert cluster.any_host(partial(_surviving_rows_with_secret, team.id)).result() == {
+        "events": (0, 0),
+        "flag_evaluations": (0, 0),
+    }
 
 
 @pytest.mark.django_db

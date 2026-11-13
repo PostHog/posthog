@@ -108,9 +108,8 @@ class DeletionRequestContext:
     execution_mode: str = ExecutionMode.IMMEDIATE.value
     delete_all_events: bool = False
     hogql_predicate: str = ""
-    # Set by load_property_removal_request from the persisted request field; cleaned re-inserts
-    # get this exact value stamped onto inserted_at so the delete pass can exclude them via
-    # inserted_at < marker, and re-runs recognize rows already cleaned by earlier attempts.
+    # Set by load_property_removal_request from the persisted request field. Property removal leaves
+    # out rows ingested at or after it. Cleaned re-inserts carry a _timestamp one second past it.
     inserted_at_marker: datetime | None = None
 
 
@@ -257,10 +256,13 @@ def _property_removal_where(
     when the worker holds a different DB connection from the test/request
     transaction.
 
-    ``inserted_at_max`` bounds both passes: cleaned re-inserts are stamped with
-    that exact value, so ``inserted_at < marker`` skips them. Legacy rows may
-    have ``inserted_at IS NULL`` and are still originals to delete — the NULL
-    branch keeps them in scope.
+    ``inserted_at_max`` bounds both passes, so rows ingested after the marker stay
+    out of scope. Legacy rows may have ``inserted_at IS NULL`` and are still
+    originals to delete — the NULL branch keeps them in scope.
+
+    Cleaned re-inserts keep their original ``inserted_at``, so the bound does not
+    exclude them. The presence check does: the copy refuses a staged row that still
+    carries a target property, so no cleaned row matches this predicate.
     """
     presence_clauses: list[str] = []
     if ctx.properties:
@@ -303,9 +305,7 @@ def _property_removal_where(
     if inserted_at_max is not None:
         # Cast explicitly to DateTime64(6) — without it the parameter is parsed as DateTime
         # (second precision), which truncates microseconds and causes the comparison to skip
-        # originals whose inserted_at falls in the same second as the marker. The cleaned
-        # re-inserts (which stamp inserted_at = marker via the same parameter) suffer the
-        # same truncation in the mutation, so both sides must use the cast.
+        # originals whose inserted_at falls in the same second as the marker.
         parts.append("AND (inserted_at IS NULL OR inserted_at < toDateTime64(%(inserted_at_max)s, 6, 'UTC'))")
         params["inserted_at_max"] = inserted_at_max
     return " ".join(p for p in parts if p), params
@@ -997,8 +997,8 @@ def load_property_removal_request(
 
         _record_execution_attempt(request, context.run_id)
 
-        # Set once and reused verbatim by every retry: all attempts must agree on which
-        # inserted_at value identifies cleaned re-inserts, or re-runs duplicate them.
+        # Set once and reused verbatim by every retry. All attempts must agree on the _timestamp that
+        # cleaned re-inserts carry, or a retry cannot find the rows an earlier attempt reingested.
         if request.property_removal_marker is None:
             request.property_removal_marker = timezone.now()
             request.save(update_fields=["property_removal_marker", "updated_at"])
@@ -1296,20 +1296,17 @@ def _cleaned_select_list(
         "AND default_kind NOT IN ('MATERIALIZED', 'ALIAS', 'EPHEMERAL') ORDER BY position",
         {"db": django_settings.CLICKHOUSE_DATABASE, "table": target.table},
     )
-    [[engine]] = client.execute(
-        "SELECT engine FROM system.tables WHERE database = %(db)s AND name = %(table)s",
-        {"db": django_settings.CLICKHOUSE_DATABASE, "table": target.table},
-    )
-    params: dict = {"inserted_at_marker": marker_str}
-    replacements: dict[str, str] = {"inserted_at": "toDateTime64(%(inserted_at_marker)s, 6, 'UTC')"}
-    # Bump the ReplacingMergeTree version (ver=_timestamp) past the original's, so a merge that
-    # meets a cleaned row and an original with the same sorting key keeps the cleaned row. +1
-    # second because _timestamp is second-precision while the marker is microsecond-precision.
+    if "_timestamp" not in {name for name, _ in rows}:
+        raise dagster.Failure(description=f"[{target.mapping_key}] {target.table} has no _timestamp column")
+    params: dict = {"marker": marker_str}
+    # A cleaned row keeps its original inserted_at. A deletion request bounds its rows by inserted_at, so
+    # a later stamp would hide the row from every deletion requested before this removal ran.
+    # _timestamp is the ReplacingMergeTree version, so the bump makes a merge keep the cleaned row over an
+    # original with the same sorting key. _staged_rows also matches on it.
     # flag_evaluations_backfill reads max(_timestamp) per Kafka partition as the consumer position. On
     # flag_evaluations a bumped row can therefore make a stalled partition look current (see
     # _KAFKA_POSITION_QUERY there).
-    if "ReplacingMergeTree" in engine:
-        replacements["_timestamp"] = "toDateTime(toDateTime64(%(inserted_at_marker)s, 6, 'UTC')) + 1"
+    replacements: dict[str, str] = {"_timestamp": _CLEANED_TIMESTAMP}
     # On the JSON table the column round-trips through a string: serialize it, drop the keys, and
     # let the cast below turn the cleaned string back into the JSON column type.
     if deletion_request.properties:
@@ -1331,6 +1328,51 @@ def _cleaned_select_list(
         ],
         params=params,
     )
+
+
+# One second past the marker, because _timestamp has second precision and the marker has microseconds.
+_CLEANED_TIMESTAMP = "toDateTime(toDateTime64(%(marker)s, 6, 'UTC')) + 1"
+
+
+def _staged_rows(staging: _ShardStaging, months: list[str]) -> str:
+    """A filter for the cleaned rows that the staged files of ``months`` hold.
+
+    A cleaned row has a ``_timestamp`` one second past the marker and an ``inserted_at`` no later than the
+    marker. An original that shares its uuid either arrived before the marker, so its Kafka time in
+    ``_timestamp`` is earlier, or arrived after it, so its ``inserted_at`` is later. Neither matches all
+    three columns, as long as Kafka and ClickHouse clocks agree to within a second. ``ifNull`` lets a legacy
+    row with no ``inserted_at`` match, because ``IN`` never matches a NULL. The constant ``_timestamp``
+    comparison drops most rows before the set lookup. The caller passes ``marker``.
+    """
+    if not months:
+        return "0"
+    columns = "uuid, _timestamp, ifNull(inserted_at, toDateTime64(0, 6, 'UTC'))"
+    return (
+        f"_timestamp = {_CLEANED_TIMESTAMP} AND ({columns}) IN (SELECT {columns} FROM s3({staging.data_args(months)}))"
+    )
+
+
+def _refuse_unmatchable_staged_rows(
+    client: Client, staging: _ShardStaging, target: PropertyRemovalTarget, months: list[str], params: dict
+) -> None:
+    """Fail when a staged row lacks the _timestamp that _staged_rows matches on.
+
+    An earlier version of this job left _timestamp unchanged on a table that is not a ReplacingMergeTree.
+    The reingest could not find those rows again after a partial insert, so a retry would insert them twice.
+    """
+    if not months:
+        return
+    [[unmatchable]] = client.execute(
+        f"SELECT count() FROM s3({staging.data_args(months)}) WHERE _timestamp != {_CLEANED_TIMESTAMP}",
+        params,
+        settings=_LONG_QUERY_SETTINGS,
+    )
+    if unmatchable:
+        raise dagster.Failure(
+            description=f"[{target.mapping_key}] {unmatchable} staged rows do not carry the _timestamp that "
+            "cleaned rows get, so a retry could not find them in the table. An earlier version of this job "
+            "staged them. Reingest them by hand instead of re-running this step."
+        )
 
 
 def _sync_replica(client: Client, target: PropertyRemovalTarget, log: QueryLogger) -> None:
@@ -1650,14 +1692,13 @@ def reingest_property_removal_shard(
     Each month gets its own progress file, so a retry repeats only the month that failed.
     """
     db = django_settings.CLICKHOUSE_DATABASE
-    marker_str = _marker_str(deletion_request)
     staging = _ShardStaging(request_id=deletion_request.request_id, target=target)
     log = _query_logger(context, target)
     params = {
         "team_id": deletion_request.team_id,
         "start_time": deletion_request.start_time,
         "end_time": deletion_request.end_time,
-        "marker": marker_str,
+        "marker": _marker_str(deletion_request),
     }
 
     def reingest(client: Client) -> int:
@@ -1674,17 +1715,18 @@ def reingest_property_removal_shard(
         # that part here, the leftover count below misses those rows and the insert adds them a second
         # time.
         _sync_replica(client, target, log)
+        pending = sorted(month for month in copied["months"] if f"{_REINGESTED}_{month}" not in steps)
+        _refuse_unmatchable_staged_rows(client, staging, target, pending, params)
         for month, expected in sorted(copied["months"].items()):
             if f"{_REINGESTED}_{month}" in steps:
                 continue
             month_params = {**params, "month": int(month)}
-            cleaned_rows = (
+            # A failed earlier attempt may have inserted part of this month. The clear removes only rows
+            # in the file, so the insert below brings back every row it removes.
+            partial_rows = (
                 "team_id = %(team_id)s AND timestamp >= %(start_time)s AND timestamp < %(end_time)s "
-                "AND toYYYYMM(timestamp) = %(month)s AND inserted_at = toDateTime64(%(marker)s, 6, 'UTC')"
+                f"AND toYYYYMM(timestamp) = %(month)s AND {_staged_rows(staging, [month])}"
             )
-            # A failed earlier attempt may have inserted part of this month. Only rows whose uuid is in
-            # the file are cleared, so every row removed here comes back with the insert below.
-            partial_rows = f"{cleaned_rows} AND uuid IN (SELECT uuid FROM s3({staging.data_args([month])}))"
             leftovers = client.execute(
                 f"SELECT count() FROM {db}.{target.table} WHERE {partial_rows}",
                 month_params,
@@ -1773,10 +1815,7 @@ def verify_property_removal_shard(
             predicate.params,
             settings=_LONG_QUERY_SETTINGS,
         )[0][0]
-        cleaned_rows = (
-            "team_id = %(team_id)s AND timestamp >= %(start_time)s AND timestamp < %(end_time)s "
-            "AND inserted_at = toDateTime64(%(marker)s, 6, 'UTC')"
-        )
+        in_scope = "team_id = %(team_id)s AND timestamp >= %(start_time)s AND timestamp < %(end_time)s"
         cleaned_params = {
             "team_id": deletion_request.team_id,
             "start_time": deletion_request.start_time,
@@ -1787,14 +1826,19 @@ def verify_property_removal_shard(
         presence = _target_presence_clause(deletion_request, target, predicate.mat_cols)
         unexpired_sql, unexpired_params = _unexpired_rows(client, target.deletion_target)
         expected_months = staging.unexpired_uuids(client, copied["months"], unexpired_sql, unexpired_params)
-        cleaned_stats = client.execute(
-            f"SELECT toString(toYYYYMM(timestamp)) AS month, uniqExactIf(uuid, {unexpired_sql}), countIf({presence}) "
-            f"FROM {db}.{target.table} WHERE {cleaned_rows} GROUP BY month",
-            {**cleaned_params, **unexpired_params},
-            settings=_LONG_QUERY_SETTINGS,
-        )
-        cleaned_months = {month: count for month, count, _ in cleaned_stats if count}
-        still_present = sum(present for _, _, present in cleaned_stats)
+        cleaned_months: dict[str, int] = {}
+        still_present = 0
+        # One month at a time, so each IN set holds one staged file, as in the reingest.
+        for month in sorted(copied["months"]):
+            [[count, present]] = client.execute(
+                f"SELECT uniqExactIf(uuid, {unexpired_sql}), countIf({presence}) FROM {db}.{target.table} "
+                f"WHERE {in_scope} AND toYYYYMM(timestamp) = %(month)s AND {_staged_rows(staging, [month])}",
+                {**cleaned_params, **unexpired_params, "month": int(month)},
+                settings=_LONG_QUERY_SETTINGS,
+            )
+            if count:
+                cleaned_months[month] = count
+            still_present += present
         if remaining or still_present or cleaned_months != expected_months:
             raise dagster.Failure(
                 description=f"[{target.mapping_key}] verification failed: {remaining} originals remain, "
