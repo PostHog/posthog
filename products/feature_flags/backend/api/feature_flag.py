@@ -3894,7 +3894,7 @@ class EvaluationFeatureFlagSerializer(MinimalFeatureFlagSerializer):
         fields = [*MinimalFeatureFlagSerializer.Meta.fields, "has_experiment"]
 
     def get_has_experiment(self, feature_flag: FeatureFlag) -> bool:
-        # The evaluation/cache batch queries annotate `_has_experiment` via a bulk Exists,
+        # The evaluation/cache batch queries set `_has_experiment` from one bulk read,
         # so this avoids an N+1. The exists() fallback only fires for unannotated callers.
         cached = getattr(feature_flag, "_has_experiment", None)
         if cached is not None:

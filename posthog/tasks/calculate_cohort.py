@@ -1361,6 +1361,9 @@ COHORT_BACKFILL_REFUSAL_OUTCOMES: dict[BackfillRefusalReason, str] = {
     # one trips it again on every later trigger until someone raises the limit. Nothing clears on
     # its own.
     BackfillRefusalReason.SIZING_SCAN_CAP_EXCEEDED: "refused_ineligible",
+    # A cohort over the scan limit is an expected outcome, not an incident, so it stays out of the
+    # over-budget alert. The stored refusal is how staff find it.
+    BackfillRefusalReason.SCAN_OVER_LIMIT: "refused_ineligible",
     BackfillRefusalReason.DEFINITION_CHANGED: "refused_transient",
     # The cohort's batch query fails to compile on every trigger until the cohort or the compiler changes.
     BackfillRefusalReason.FLAG_CALLS_TABLE_UNRESOLVED: "refused_ineligible",
@@ -1371,7 +1374,7 @@ COHORT_BACKFILL_REFUSAL_OUTCOMES: dict[BackfillRefusalReason, str] = {
 # and dies with it, after the edit's supersession already ran. The creators refuse duplicates, so
 # the redelivery this trades into is harmless. The queue matches the module's other
 # ClickHouse-touching tasks: the person creator runs a sizing scan bounded by
-# `BEHAVIORAL_BACKFILL_PERSON_SIZING_MAX_SECONDS`.
+# `BEHAVIORAL_BACKFILL_PERSON_SIZING_MAX_SECONDS`, and the behavioral creator a scan estimate.
 @shared_task(
     ignore_result=True,
     acks_late=True,

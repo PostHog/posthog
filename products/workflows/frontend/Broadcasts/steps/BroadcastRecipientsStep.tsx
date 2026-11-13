@@ -8,7 +8,6 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
-import { COHORTS_ONLY_SUPPORT_IN_PICKER_PROPS } from 'scenes/feature-flags/cohortPickerProps'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -219,7 +218,6 @@ export function BroadcastRecipientsStep(): JSX.Element {
                 orFiltering
                 sendAllKeyUpdates
                 allowRelativeDateOptions
-                {...COHORTS_ONLY_SUPPORT_IN_PICKER_PROPS}
                 hideBehavioralCohorts={!cohortConditionsEnabled}
                 logicalRowDivider
                 onChange={(properties) => setAudienceProperties(properties)}

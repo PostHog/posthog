@@ -249,6 +249,16 @@ def test_retryable_errors_cover_exhausted_quota_retries():
     assert any(pattern in error_msg for pattern in patterns)
 
 
+def test_retryable_errors_cover_exhausted_conflict_retries():
+    # `_run_report` already retries a 409 inline as a transient Google-side concurrency conflict;
+    # once that budget is spent too, it must still be treated as retryable rather than page as a bug.
+    error_msg = (
+        "409 Client Error: Conflict for url: https://analyticsdata.googleapis.com/v1beta/properties/123456789:runReport"
+    )
+    patterns = GoogleAnalyticsSource().get_retryable_errors()
+    assert error_message_matches(error_msg, patterns)
+
+
 @pytest.mark.parametrize(
     "error_msg",
     [

@@ -335,8 +335,17 @@ export interface HogFunctionTiming {
 }
 
 // IMPORTANT: All queue names should be lowercase and only [A-Z0-9] characters are allowed.
-export const CYCLOTRON_INVOCATION_JOB_QUEUES = ['hog', 'hogoverflow', 'hogflow', 'email', 'emailsandbox'] as const
+export const CYCLOTRON_INVOCATION_JOB_QUEUES = [
+    'hog',
+    'hogoverflow',
+    'hogdlq',
+    'hogflow',
+    'email',
+    'emailsandbox',
+] as const
 export type CyclotronJobQueueKind = (typeof CYCLOTRON_INVOCATION_JOB_QUEUES)[number]
+
+export const DEAD_LETTER_QUEUE = 'hogdlq' satisfies CyclotronJobQueueKind
 
 export const CYCLOTRON_JOB_QUEUE_SOURCES = ['postgres', 'postgres-v2', 'kafka'] as const
 export type CyclotronJobQueueSource = (typeof CYCLOTRON_JOB_QUEUE_SOURCES)[number]
@@ -487,6 +496,15 @@ export type MessageOptOutRecord = {
     categoryId: string
 }
 
+export type QueuedIdempotencyKey = {
+    hash: string
+    fingerprint: string
+    currentFingerprint?: string
+    senderKind?: 'email_sandbox'
+    scheduledAt?: string
+    replayFields?: Record<string, number>
+}
+
 export type HogFlowInvocationContext = {
     event: HogFunctionInvocationGlobals['event']
     personId?: string // Persisted person UUID, used when distinct_id is not available (e.g. batch workflows, manual person triggers)
@@ -538,6 +556,7 @@ export type HogFlowInvocationContext = {
         // Failed cohort membership lookups so far on this step. The step retries on a backoff while
         // this stays under the limit, because a lookup timeout is usually a short stall.
         cohortLookupAttempts?: number
+        renderTimeoutAttempts?: number
         // Set when a cohort membership lookup failed on every attempt. The run aborts on it whatever
         // on_error says, because the default 'continue' takes the continue edge, and on a branch that
         // edge sends a member down the path for people outside the cohort.
@@ -613,8 +632,10 @@ export type HogFlowInvocationContext = {
     conversionCounted?: boolean
     variables?: Record<string, any>
     send?: QueuedSend
+    senderKind?: 'email_sandbox'
     scheduledAt?: string
     statusAt?: string
+    idempotencyKey?: QueuedIdempotencyKey
     // Sticky counter incremented by the rerun paginator on rehydration. Lets
     // the lifecycle row producer derive `attempts` / `is_retry` for hog flows
     // the same way it does for hog functions, so the `max_attempts` guard on
