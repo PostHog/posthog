@@ -25,7 +25,9 @@ mod tests {
             feature_flag_list::PreparedFlags,
             flag_group_type_mapping::{GroupTypeCacheManager, GroupTypeMapping},
             flag_match_reason::FeatureFlagMatchReason,
-            flag_matching::{FeatureFlagMatch, FeatureFlagMatcher, PropertyContext},
+            flag_matching::{
+                FeatureFlagMatch, FeatureFlagMatcher, HashKeyOverrideLookupResult, PropertyContext,
+            },
             flag_matching_utils::{
                 get_fetch_calls_count, get_hash_key_override_lookup_count, reset_fetch_calls_count,
                 reset_hash_key_override_lookup_count, set_feature_flag_hash_key_overrides,
@@ -8969,7 +8971,10 @@ mod tests {
         let response = matcher
             .evaluate_flags_with_overrides(
                 overrides,
-                std::future::ready((None, true)),
+                std::future::ready(HashKeyOverrideLookupResult {
+                    overrides: None,
+                    failed: true,
+                }),
                 Uuid::new_v4(),
                 precomputed.evaluation_stages,
                 precomputed.flags_with_missing_deps,
@@ -9087,7 +9092,10 @@ mod tests {
         let response = matcher
             .evaluate_flags_with_overrides(
                 overrides,
-                std::future::ready((None, true)),
+                std::future::ready(HashKeyOverrideLookupResult {
+                    overrides: None,
+                    failed: true,
+                }),
                 Uuid::new_v4(),
                 precomputed.evaluation_stages,
                 precomputed.flags_with_missing_deps,
@@ -9186,7 +9194,7 @@ mod tests {
         let result = matcher
             .evaluate_flags_with_overrides(
                 Default::default(),
-                std::future::ready((None, false)),
+                std::future::ready(HashKeyOverrideLookupResult::default()),
                 Uuid::new_v4(),
                 precomputed.evaluation_stages,
                 precomputed.flags_with_missing_deps,
@@ -9290,7 +9298,7 @@ mod tests {
         let result = matcher
             .evaluate_flags_with_overrides(
                 Default::default(),
-                std::future::ready((None, false)),
+                std::future::ready(HashKeyOverrideLookupResult::default()),
                 Uuid::new_v4(),
                 precomputed.evaluation_stages,
                 precomputed.flags_with_missing_deps,
@@ -9391,7 +9399,7 @@ mod tests {
         let result = matcher
             .evaluate_flags_with_overrides(
                 Default::default(),
-                std::future::ready((None, false)),
+                std::future::ready(HashKeyOverrideLookupResult::default()),
                 Uuid::new_v4(),
                 precomputed.evaluation_stages,
                 precomputed.flags_with_missing_deps,
@@ -9491,7 +9499,7 @@ mod tests {
         let result = matcher
             .evaluate_flags_with_overrides(
                 Default::default(),
-                std::future::ready((None, false)),
+                std::future::ready(HashKeyOverrideLookupResult::default()),
                 Uuid::new_v4(),
                 precomputed.evaluation_stages,
                 precomputed.flags_with_missing_deps,
@@ -9590,7 +9598,7 @@ mod tests {
         let result = matcher
             .evaluate_flags_with_overrides(
                 Default::default(),
-                std::future::ready((None, false)),
+                std::future::ready(HashKeyOverrideLookupResult::default()),
                 Uuid::new_v4(),
                 precomputed.evaluation_stages,
                 precomputed.flags_with_missing_deps,
@@ -10829,7 +10837,7 @@ mod tests {
         let result = matcher
             .evaluate_flags_with_overrides(
                 Default::default(),
-                std::future::ready((None, false)),
+                std::future::ready(HashKeyOverrideLookupResult::default()),
                 Uuid::new_v4(),
                 precomputed.evaluation_stages,
                 precomputed.flags_with_missing_deps,
@@ -10922,7 +10930,7 @@ mod tests {
         let result = matcher
             .evaluate_flags_with_overrides(
                 Default::default(),
-                std::future::ready((None, false)),
+                std::future::ready(HashKeyOverrideLookupResult::default()),
                 Uuid::new_v4(),
                 precomputed.evaluation_stages,
                 precomputed.flags_with_missing_deps,

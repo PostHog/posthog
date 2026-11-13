@@ -70,6 +70,14 @@ pub struct FlagEvaluationOverrides {
     pub request_hash_key_override: Option<String>,
 }
 
+/// What the hash key override lookup found.
+#[derive(Debug, Default)]
+pub struct HashKeyOverrideLookupResult {
+    pub overrides: Option<HashMap<String, String>>,
+    /// True when a persons DB call in the lookup failed.
+    pub failed: bool,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EvaluationType {
     Sequential,
@@ -590,7 +598,7 @@ impl HashKeyOverrideLookup {
         self,
         flags_have_experience_continuity_enabled: bool,
         hash_key_override: Option<String>,
-    ) -> (Option<HashMap<String, String>>, bool) {
+    ) -> HashKeyOverrideLookupResult {
         let hash_key_timer = common_metrics::timing_guard(FLAG_HASH_KEY_PROCESSING_TIME, &[]);
         let (hash_key_overrides, flag_hash_key_override_error) =
             if flags_have_experience_continuity_enabled {
@@ -670,7 +678,10 @@ impl HashKeyOverrideLookup {
             with_canonical_log(|log| log.hash_key_override_status = Some(status));
         }
 
-        (hash_key_overrides, flag_hash_key_override_error)
+        HashKeyOverrideLookupResult {
+            overrides: hash_key_overrides,
+            failed: flag_hash_key_override_error,
+        }
     }
 
     /// Processes hash key overrides for feature flags with experience continuity enabled.
@@ -1055,7 +1066,6 @@ impl FeatureFlagMatcher {
             )
             .await?;
 
-        // A hash key override error already sets `errors_while_computing_flags`.
         let has_errors = flags_response.errors_while_computing_flags || has_cycle_errors;
 
         eval_timer
@@ -1229,7 +1239,7 @@ impl FeatureFlagMatcher {
     pub async fn evaluate_flags_with_overrides(
         &mut self,
         overrides: FlagEvaluationOverrides,
-        hash_key_lookup: impl Future<Output = (Option<HashMap<String, String>>, bool)>,
+        hash_key_lookup: impl Future<Output = HashKeyOverrideLookupResult>,
         request_id: Uuid,
         evaluation_stages: Vec<Vec<FeatureFlag>>,
         flags_with_missing_deps: HashSet<i32>,
@@ -1264,7 +1274,13 @@ impl FeatureFlagMatcher {
         // `biased` polls the lookup first, so when both hit the persons DB deadline together, the
         // canonical log records the lookup's operation, as it did when the lookup ran first.
         let mut db_prep_flags_map = HashMap::new();
-        let ((hash_key_overrides, hash_key_override_error), db_prep_errors) = tokio::join!(
+        let (
+            HashKeyOverrideLookupResult {
+                overrides: hash_key_overrides,
+                failed: hash_key_override_error,
+            },
+            db_prep_errors,
+        ) = tokio::join!(
             biased;
             hash_key_lookup,
             async {
@@ -1305,7 +1321,7 @@ impl FeatureFlagMatcher {
                 .add_flag_evaluation_result(flag_id, FlagValue::Boolean(false));
         }
 
-        // Step 3: Evaluate flags stage by stage in dependency order
+        // Evaluate flags stage by stage in dependency order
         self.flag_evaluation_state.failed_flag_ids =
             ids_of_failed_flags(evaluated_flags_map.values()).collect();
         for stage in evaluation_stages {
