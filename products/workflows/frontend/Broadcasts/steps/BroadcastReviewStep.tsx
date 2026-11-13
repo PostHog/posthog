@@ -130,7 +130,9 @@ export function BroadcastReviewStep(): JSX.Element {
                         </span>
                     ) : (
                         <span className="text-warning">
-                            {["Couldn't estimate the audience size", blastRadiusError].filter(Boolean).join('. ')}
+                            {["Couldn't estimate the audience size", blastRadiusError]
+                                .filter(Boolean)
+                                .join('. Details: ')}
                         </span>
                     )}
                     <RealtimeCohortCalculatingBanner status={blastRadius?.realtime_cohort} />
