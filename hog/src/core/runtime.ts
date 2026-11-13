@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { access, chmod, lstat, mkdir, readdir, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises'
-import { homedir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
 
 import type {
@@ -13,6 +13,7 @@ import type {
 import { HogError } from './errors'
 import { clackPrompts, type Prompts } from './prompts'
 import { DEFAULT_TELEMETRY_TOKEN } from './telemetry'
+import { TELEMETRY_WORKER_ARG } from './telemetry-worker'
 
 export type Env = Readonly<Record<string, string | undefined>>
 
@@ -77,6 +78,10 @@ export interface Runtime {
     openUrl: (url: string) => Promise<boolean>
     prompts: Prompts
     secrets: Secrets
+    // Hands a telemetry batch to a detached hog process that sends it, so this run can exit without
+    // waiting on the network. Resolves to false when no process could start, and the caller sends
+    // the batch itself. Undefined in tests, which read the batch from the request it sends.
+    sendTelemetryInBackground: ((body: string) => Promise<boolean>) | undefined
     // The project token for anonymous usage events. Undefined turns them off, as in tests.
     telemetryToken: string | undefined
     // Accepts any TLS certificate from here on, for every request, including the API tools' own.
@@ -309,6 +314,34 @@ export function processRuntime(): Runtime {
         prompts: clackPrompts(),
         secrets: bunSecrets(FROM_SOURCE ? 'com.posthog.hog.dev' : 'com.posthog.hog'),
         telemetryToken: DEFAULT_TELEMETRY_TOKEN,
+        sendTelemetryInBackground: async (body) => {
+            try {
+                const child = Bun.spawn(
+                    FROM_SOURCE
+                        ? [process.execPath, '--no-env-file', Bun.main, TELEMETRY_WORKER_ARG]
+                        : [process.execPath, TELEMETRY_WORKER_ARG],
+                    {
+                        // Its own session, and no stdout or stderr, so a pipe or an agent reading hog's
+                        // output sees it end when this process exits. It runs in a folder nobody
+                        // deletes, so it never holds open a folder that a person or a test removes.
+                        detached: true,
+                        stdin: 'pipe',
+                        stdout: 'ignore',
+                        stderr: 'ignore',
+                        windowsHide: true,
+                        cwd: tmpdir(),
+                    }
+                )
+                child.unref()
+                // hog exits once this resolves, and a body larger than the pipe's buffer that is
+                // still being written then reaches the worker cut short.
+                child.stdin.write(body)
+                await child.stdin.end()
+                return true
+            } catch {
+                return false
+            }
+        },
         skipTlsVerification: () => {
             // Runs only for --skip-ssl-verification, posthog-cli's opt-in flag for self-hosted certificates.
             process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0' // nosemgrep: trailofbits.generic.node-disable-certificate-validation.node-disable-certificate-validation

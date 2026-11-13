@@ -2,11 +2,13 @@ import { describe, expect, test } from 'bun:test'
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { z } from 'zod'
 
 import { runHog, TEST_CREDENTIALS, type HogRun } from '@/testing'
 
 import { SMALL_MAPPING } from '../../test/parity/fixtures'
 import { detectCi } from './ci'
+import { JsonObject, parseJsonOrUndefined } from './json'
 
 const TELEMETRY = 'https://us.i.posthog.com/batch/'
 const ON = { telemetryToken: 'phc_test' }
@@ -123,6 +125,41 @@ describe('telemetry', () => {
         const second = await runHog(['commands'], { ...ON, env: AGENT, files: first.files })
         expect(events(second)[0]!.distinct_id).toBe(events(first)[0]!.distinct_id)
         expect(first.files['/home/test/.posthog/hog-telemetry-id']).toBe(`${events(first)[0]!.distinct_id}\n`)
+    })
+
+    test.each([
+        [
+            'a run at a terminal or in an agent hands usage events to a background process',
+            ['commands'],
+            {},
+            true,
+            'background',
+        ],
+        ['a run in CI sends usage events itself', ['commands'], { GITHUB_ACTIONS: 'true' }, true, 'inline'],
+        ['a run with --debug sends usage events itself', ['commands', '--debug'], {}, true, 'inline'],
+        ['a run whose background process fails to start sends usage events itself', ['commands'], {}, false, 'inline'],
+    ])('%s', async (_name, argv, env, started, expected) => {
+        const background: string[] = []
+        const result = await runHog(argv, {
+            ...ON,
+            env: { ...AGENT, ...env },
+            respond: () => ({ status: 200, body: {} }),
+            backgroundTelemetry: async (body) => {
+                background.push(body)
+                return started
+            },
+        })
+
+        const handedOff = background.flatMap(
+            (body) =>
+                parseJsonOrUndefined(body, z.object({ api_key: z.string(), batch: z.array(JsonObject) }))?.batch ?? []
+        )
+        if (expected === 'background') {
+            expect(handedOff).toEqual([expect.objectContaining({ event: 'posthog cli command run' })])
+            expect(events(result)).toEqual([])
+        } else {
+            expect(events(result)).toEqual([expect.objectContaining({ event: 'posthog cli command run' })])
+        }
     })
 
     test.each([

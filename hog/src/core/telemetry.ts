@@ -15,9 +15,9 @@ import type { Schema } from './schema'
 // PostHog's own project, where posthog-cli release builds send their events too.
 export const DEFAULT_TELEMETRY_TOKEN = 'sTMFPsFhdP1Ssg'
 
-const TELEMETRY_HOST = INGESTION_HOSTS.us
+export const TELEMETRY_BATCH_URL = new URL('/batch/', INGESTION_HOSTS.us)
 // posthog-cli's timeout. A CLI must not hang on its own analytics.
-const SEND_TIMEOUT_MS = 5000
+export const SEND_TIMEOUT_MS = 5000
 const ID_FILE = 'hog-telemetry-id'
 const IDENTITY_FILE = 'hog-telemetry-identity.json'
 const LOOKUP_TIMEOUT_MS = 2000
@@ -138,6 +138,16 @@ export class Telemetry {
             distinct_id: sender.distinctId,
             properties: { ...sender.properties, ...properties },
         }))
+        // A person or agent waits for hog to exit, so a detached hog process sends the batch after
+        // this one ends. CI sends it inline because a CI job can end and kill a detached process
+        // before it sends, and --debug sends it inline to print the result.
+        if (
+            !debug &&
+            !isRunningInCI(this.runtime.env) &&
+            (await this.runtime.sendTelemetryInBackground?.(this.body(batch))) === true
+        ) {
+            return
+        }
         await this.post(batch, debug)
     }
 
@@ -208,10 +218,10 @@ export class Telemetry {
 
     private async post(batch: BatchEvent[], debug: boolean): Promise<boolean> {
         try {
-            const response = await this.runtime.fetch(new URL('/batch/', TELEMETRY_HOST), {
+            const response = await this.runtime.fetch(TELEMETRY_BATCH_URL, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ api_key: this.runtime.telemetryToken, batch }),
+                body: this.body(batch),
                 signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
             })
             if (debug) {
@@ -226,6 +236,10 @@ export class Telemetry {
             }
             return false
         }
+    }
+
+    private body(batch: BatchEvent[]): string {
+        return JSON.stringify({ api_key: this.runtime.telemetryToken, batch })
     }
 
     private commonProperties(): Record<string, unknown> {
