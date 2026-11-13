@@ -20,19 +20,13 @@ export function renderUiDataRequest(
     input: Record<string, unknown>,
     appKey: UiAppKey
 ): RenderUiDataRequest {
-    return appKey === 'query-results' ? execDataRequest(toolName, input) : { name: toolName, arguments: input }
-}
-
-function execDataRequest(toolName: string, input: Record<string, unknown>): RenderUiDataRequest {
-    return { name: 'exec', arguments: { command: `call --json ${toolName} ${JSON.stringify(input)}` } }
+    return appKey === 'query-results'
+        ? { name: 'exec', arguments: { command: `call --json ${toolName} ${JSON.stringify(input)}` } }
+        : { name: toolName, arguments: input }
 }
 
 export function readRenderUiData(result: CallToolResult, appKey: UiAppKey): RenderUiDataResult {
-    return appKey === 'query-results' ? readExecData(result) : result
-}
-
-function readExecData(result: CallToolResult): RenderUiDataResult {
-    if (result.isError) {
+    if (appKey !== 'query-results' || result.isError) {
         return result
     }
     const data = result.structuredContent ?? result._meta?.[APP_DATA_META_KEY]
@@ -48,25 +42,11 @@ export async function loadRenderUiData(
     toolName: string,
     input: Record<string, unknown>,
     appKey: UiAppKey,
-    resultMeta?: Record<string, unknown> | null,
-    envelopeAppData?: unknown
+    resultMeta?: Record<string, unknown> | null
 ): Promise<RenderUiDataResult> {
-    const preloaded = resultMeta?.[APP_DATA_META_KEY] ?? envelopeAppData
+    const preloaded = resultMeta?.[APP_DATA_META_KEY]
     if (preloaded !== undefined && preloaded !== null) {
         return { structuredContent: preloaded }
     }
-    const request = renderUiDataRequest(toolName, input, appKey)
-    try {
-        return readRenderUiData(await app.callServerTool(request), appKey)
-    } catch (error) {
-        if (request.name === 'exec') {
-            throw error
-        }
-        // Some hosts refuse an app call to a tool that `tools/list` did not advertise, so retry through `exec`.
-        try {
-            return readExecData(await app.callServerTool(execDataRequest(toolName, input)))
-        } catch {
-            throw error
-        }
-    }
+    return readRenderUiData(await app.callServerTool(renderUiDataRequest(toolName, input, appKey)), appKey)
 }

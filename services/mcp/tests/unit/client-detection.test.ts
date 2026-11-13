@@ -377,18 +377,6 @@ describe('MCPClientProfile', () => {
         })
     })
 
-    describe('needsAppDataInStructuredContent()', () => {
-        it.each([
-            ['the Cursor client name', { clientName: 'cursor-vscode' }, true],
-            ['the name-less Cursor user-agent', { userAgent: 'Cursor/3.1.15 (darwin arm64)' }, true],
-            ['Claude Code', { clientName: 'claude-code', vendorClient: 'ClaudeCode' }, false],
-            ['the openai-mcp client', { clientName: 'openai-mcp', userAgent: 'openai-mcp/1.0.0 (ChatGPT)' }, false],
-            ['a client with no hints', {}, false],
-        ])('for %s', (_label, input, expected) => {
-            expect(new MCPClientProfile(input).needsAppDataInStructuredContent()).toBe(expected)
-        })
-    })
-
     describe('isRenderUiHost()', () => {
         it.each([
             { vendorClient: 'ClaudeAI' },

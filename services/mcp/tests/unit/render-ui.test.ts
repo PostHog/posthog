@@ -129,7 +129,7 @@ describe('render-ui tool', () => {
         { host: 'a host that passes _meta to the app', appDataInStructuredContent: false },
         { host: 'a host whose apps never receive _meta', appDataInStructuredContent: true },
     ])(
-        'carries preloaded data on app-only _meta, and in the directive only for $host',
+        'carries preloaded data on app-only _meta, or in the directive for $host',
         async ({ appDataInStructuredContent }) => {
             const data = { id: 'abc', name: 'NPS' }
             const loadAppData = vi.fn().mockResolvedValue(data)
@@ -142,9 +142,8 @@ describe('render-ui tool', () => {
             })) as ToolResultPayload
 
             expect(loadAppData).toHaveBeenCalledExactlyOnceWith('survey-get', { surveyId: 'abc' }, 'survey')
-            expect(result._meta?.[APP_DATA_META_KEY]).toEqual(data)
             expect(JSON.stringify(result.content)).not.toContain('NPS')
-            expect(JSON.stringify(result.structuredContent).includes('NPS')).toBe(appDataInStructuredContent)
+            expect(result._meta?.[APP_DATA_META_KEY]).toEqual(appDataInStructuredContent ? undefined : data)
             expect(result.structuredContent?.[APP_DATA_META_KEY]).toEqual(appDataInStructuredContent ? data : undefined)
         }
     )

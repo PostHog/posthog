@@ -1045,7 +1045,7 @@ export class ToolExecutor {
             getEffectiveMCPClientIdentity(state.requestContext, state.sessionContext).mcpClientName,
             (toolName, toolInput, appKey) =>
                 this.loadRenderUiAppData(toolName, toolInput, appKey, state, analyticsMeta ?? {}),
-            { appDataInStructuredContent: state.clientProfile.needsAppDataInStructuredContent() }
+            { appDataInStructuredContent: state.clientProfile.isCursor() }
         )
         if (!renderUiTool) {
             return {

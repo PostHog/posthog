@@ -85,7 +85,7 @@ export type RenderUiAppDataLoader = (
  * has a renderable UI app (a `z.enum` needs at least one value, and there is
  * nothing to render anyway). It emits a render directive (`{ tool_name, tool_input,
  * app_key }` + the render-ui resourceUri) for the model, and the data from
- * `loadAppData` on the app-only `_meta` key. The UI app fetches the data itself when
+ * `loadAppData` on the app-only `_meta` key (in the directive for Cursor). The UI app fetches the data itself when
  * none was preloaded.
  */
 export function createRenderUiTool(
@@ -129,6 +129,7 @@ export function createRenderUiTool(
                 context.getDistinctId(),
                 loadAppData?.(tool.name, toolInput, appKey),
             ])
+            const appDataEntry = appData === undefined ? {} : { [APP_DATA_META_KEY]: appData }
 
             const payload: ToolResultPayload = {
                 content: [
@@ -143,9 +144,7 @@ export function createRenderUiTool(
                     tool_name: tool.name,
                     tool_input: toolInput,
                     app_key: appKey,
-                    ...(options.appDataInStructuredContent && appData !== undefined
-                        ? { [APP_DATA_META_KEY]: appData }
-                        : {}),
+                    ...(options.appDataInStructuredContent ? appDataEntry : {}),
                     _analytics: {
                         distinctId,
                         toolName: RENDER_UI_TOOL_NAME,
@@ -155,7 +154,7 @@ export function createRenderUiTool(
                 _meta: {
                     ui: { resourceUri: RENDER_UI_RESOURCE_URI },
                     [RESOURCE_URI_META_KEY]: RENDER_UI_RESOURCE_URI,
-                    ...(appData === undefined ? {} : { [APP_DATA_META_KEY]: appData }),
+                    ...(options.appDataInStructuredContent ? {} : appDataEntry),
                 },
             }
             return markExecPayload(payload)

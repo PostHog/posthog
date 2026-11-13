@@ -1,7 +1,7 @@
 import '../styles/tailwind.css'
 
 import type { App } from '@modelcontextprotocol/ext-apps'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 
 import type { UiAppKey } from '../../resources/ui-apps.generated'
@@ -15,8 +15,8 @@ import { loadRenderUiData } from './render-ui-data'
 
 /**
  * Envelope emitted by the `render-ui` server tool. It carries the tool to render
- * and its input. The data arrives preloaded, on the result's app-only `_meta` or
- * in the envelope, or the app fetches it via `callServerTool`, then mounts the
+ * and its input, plus the data for Cursor. Otherwise the data arrives preloaded on the result's
+ * app-only `_meta`, or the app fetches it via `callServerTool`, then mounts the
  * matching view from the generated dispatch registry.
  */
 interface RenderUiEnvelope {
@@ -60,12 +60,15 @@ function RenderUiContent({
     const toolName = envelope.tool_name
     const appKey = envelope.app_key
     const toolInputJson = JSON.stringify(envelope.tool_input ?? {})
-    const envelopeAppData = useRef(envelope[APP_DATA_META_KEY])
-    envelopeAppData.current = envelope[APP_DATA_META_KEY]
+    const envelopeData = envelope[APP_DATA_META_KEY] ?? null
+    const needsFetch = envelopeData === null
     useEffect(() => {
         capture('mcp_ui_app_render_requested', { rendered_tool_name: toolName, app_key: envelope.app_key })
     }, [toolName, envelope.app_key])
     useEffect(() => {
+        if (!needsFetch) {
+            return
+        }
         if (!app) {
             setError({ reason: 'no_app', message: 'Visualization unavailable: app context not provided.' })
             return
@@ -73,14 +76,7 @@ function RenderUiContent({
         let cancelled = false
         setData(null)
         setError(null)
-        loadRenderUiData(
-            app,
-            toolName,
-            JSON.parse(toolInputJson) as Record<string, unknown>,
-            appKey,
-            resultMeta,
-            envelopeAppData.current
-        )
+        loadRenderUiData(app, toolName, JSON.parse(toolInputJson) as Record<string, unknown>, appKey, resultMeta)
             .then((result) => {
                 if (cancelled) {
                     return
@@ -106,7 +102,7 @@ function RenderUiContent({
         return () => {
             cancelled = true
         }
-    }, [app, toolName, toolInputJson, appKey, resultMeta])
+    }, [app, toolName, toolInputJson, appKey, resultMeta, needsFetch])
 
     const render = RENDER_DISPATCH[envelope.app_key]
     const failureReason = render ? error?.reason : 'no_visualization'
@@ -130,10 +126,11 @@ function RenderUiContent({
     if (error) {
         return <AppErrorState message={error.message} />
     }
-    if (data === null) {
+    const viewData = envelopeData ?? data
+    if (viewData === null) {
         return <AppLoadingState />
     }
-    return render({ data, app, openLink })
+    return render({ data: viewData, app, openLink })
 }
 
 const container = document.getElementById('root')

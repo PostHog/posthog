@@ -128,9 +128,6 @@ export const LEGACY_DIALECT_ONLY_CLIENT_NAME_FRAGMENTS = ['antigravity'] as cons
 export const TOOLS_MODE_CLIENT_NAME_FRAGMENTS = ['cursor'] as const
 export const TOOLS_MODE_USER_AGENT_FRAGMENTS = ['cursor'] as const
 
-// Cursor passes a tool result's `structuredContent` to the UI app but not its `_meta`.
-export const STRUCTURED_APP_DATA_CLIENT_FRAGMENTS = ['cursor'] as const
-
 // Known `x-anthropic-client` (`vendorClient`) header values. Anthropic pools
 // MCP transports across all its products and reports the live one in this
 // header, so it's the reliable identifier for an Anthropic client (the
@@ -286,16 +283,20 @@ export class MCPClientProfile {
         this.uiSupported = input.uiSupported
     }
 
+    isCursor(): boolean {
+        return (
+            matchesAnyFragment(this.clientName, TOOLS_MODE_CLIENT_NAME_FRAGMENTS) ||
+            matchesAnyFragment(this.userAgent, TOOLS_MODE_USER_AGENT_FRAGMENTS)
+        )
+    }
+
     isToolsModeClient(): boolean {
         // The only clients that auto-select the full per-tool roster; everyone
         // else defaults to CLI (single-exec) mode — see `resolveMode`. Matched on
         // the self-reported `clientInfo.name` and the User-Agent (older Cursor
         // builds identify only through the UA); never on the vendor header, so
         // Anthropic pooled transports can't land in tools mode.
-        return (
-            matchesAnyFragment(this.clientName, TOOLS_MODE_CLIENT_NAME_FRAGMENTS) ||
-            matchesAnyFragment(this.userAgent, TOOLS_MODE_USER_AGENT_FRAGMENTS)
-        )
+        return this.isCursor()
     }
 
     isCliModeEnabled(): boolean {
@@ -367,13 +368,6 @@ export class MCPClientProfile {
             matchesAnyFragment(this.userAgent, ANTHROPIC_UI_HOST_USER_AGENT_FRAGMENTS) ||
             matchesProductName(this.userAgent, OPENAI_RENDER_UI_CLIENT_NAMES) ||
             matchesProductName(this.clientName, OPENAI_RENDER_UI_CLIENT_NAMES)
-        )
-    }
-
-    needsAppDataInStructuredContent(): boolean {
-        return (
-            matchesAnyFragment(this.clientName, STRUCTURED_APP_DATA_CLIENT_FRAGMENTS) ||
-            matchesAnyFragment(this.userAgent, STRUCTURED_APP_DATA_CLIENT_FRAGMENTS)
         )
     }
 
