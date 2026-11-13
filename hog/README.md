@@ -402,15 +402,16 @@ Use `minor` or `major` instead of `patch` when it fits. While the version is a p
 After the pull request merges to master, the workflow:
 
 1. Posts an approval request in the hog releases Slack channel.
-2. Waits for approval in the `hog-release` environment. Nobody who authored or merged a pull request that changed hog's sources since the last release can approve: `hog/`, `services/mcp/`, the product files the MCP library bundles, `pnpm-lock.yaml` and `patches/`. The workflow's `HOG_SOURCE_PATHS` lists them.
+2. Waits for approval in the `hog-release` environment. Nobody who authored or merged a pull request that changed what the build ships since the last release can approve: `hog/`, `services/mcp/`, the workspace packages and product files the MCP library bundles, the root `package.json`, the lockfile, `patches/`, the install actions and this workflow. The workflow's `HOG_SOURCE_PATHS` lists them.
 3. Runs `sampo release`, which bumps `hog/package.json` and writes `hog/CHANGELOG.md`, and opens a release pull request with the bump. A second App approves it, and it goes through the merge queue.
 
 Merging the release pull request runs the workflow again, which:
 
-4. Compiles every target, with the version and the release commit's date as the build date.
-5. Signs and notarizes the macOS builds in the `hog-publish` environment, which has no reviewers, admits only master, and is the only environment the release bucket trusts. A missing certificate or notarization credential fails the release. Then it uploads them to `releases.posthog.com/hog/v<version>/`.
-6. Runs the signed Apple silicon build in a job without secrets, to check that it starts.
-7. Creates the GitHub release and the `hog/v<version>` tag, then points `hog/latest/manifest.json`, the install scripts and `Formula/hog.rb` in `PostHog/homebrew-tap` at it, and publishes the npm packages. One release at a time does this step.
+4. Checks that the releaser App made the release commit, and that it changes only the release files and the version in `hog/package.json`. Then it runs the approver check again on what merged while the release pull request waited. When an approver authored or merged one of those changes, nothing publishes: revert the release pull request, which restores its changesets and starts a new release.
+5. Compiles every target, with the version and the release commit's date as the build date.
+6. Signs and notarizes the macOS builds in the `hog-publish` environment, which has no reviewers, admits only master, and is the only environment the release bucket trusts. A missing certificate or notarization credential fails the release. Then it uploads them to `releases.posthog.com/hog/v<version>/`.
+7. Runs the signed Apple silicon build in a job without secrets, to check that it starts.
+8. Creates the GitHub release and the `hog/v<version>` tag, then points `hog/latest/manifest.json`, the install scripts and `Formula/hog.rb` in `PostHog/homebrew-tap` at it, and publishes the npm packages. One release at a time does this step.
 
 A release takes two merges, the changeset and then the release pull request, and one approval.
 
