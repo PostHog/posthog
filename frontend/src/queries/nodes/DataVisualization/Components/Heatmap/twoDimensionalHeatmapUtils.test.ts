@@ -7,10 +7,18 @@ import {
     getSortingFromHeatmapSettings,
     HEATMAP_ROW_LABEL_SORT_KEY,
     HeatmapCellValues,
+    sortHeatmapColumns,
     sortHeatmapRows,
 } from './twoDimensionalHeatmapUtils'
 
 describe('twoDimensionalHeatmapUtils', () => {
+    it.each([
+        [HeatmapSortOrder.Asc, ['-10', '-2', '1.11', '1.2']],
+        [HeatmapSortOrder.Desc, ['1.2', '1.11', '-2', '-10']],
+    ])('orders signed and decimal column labels %s by value', (order, expected) => {
+        expect(sortHeatmapColumns(['-2', '1.2', '-10', '1.11'], order)).toEqual(expected)
+    })
+
     const rowLabels = ['United States', 'Germany', 'Canada', 'France']
     const cellValues: HeatmapCellValues = {
         Canada: { Enterprise: 6, Growth: 1 },
