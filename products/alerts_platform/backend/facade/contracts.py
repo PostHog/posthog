@@ -378,6 +378,9 @@ class PlatformAlertUpsert:
     created_by_id: int | None = None
     # None keeps the copy's own, so a source that records no first enable leaves the copy's alone.
     first_enabled_at: datetime | None = None
+    # When the source alert was created. The copy keeps it, so readers that sort a copy beside alerts
+    # with no source row order it by the alert's age rather than by when it was copied.
+    created_at: datetime | None = None
 
 
 @frozen

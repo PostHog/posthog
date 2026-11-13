@@ -197,15 +197,22 @@ def team_ids_with_copies(source_kind: str) -> tuple[int, ...]:
     )
 
 
-def owned_copy_ids(*, team_id: int, source_kind: str, created_by_uuid: UUID | None = None) -> tuple[UUID, ...]:
-    """The source row id of every copy of a kind the platform owns. With `created_by_uuid`, only the
-    ones that user created."""
+def owned_copy_keys(
+    *, team_id: int, source_kind: str, created_by_uuid: UUID | None = None
+) -> tuple[tuple[datetime, UUID], ...]:
+    """`(created_at, source row id)` of every copy of a kind the platform owns, newest first. With
+    `created_by_uuid`, only the ones that user created."""
     rows = PlatformAlertConfiguration.objects.for_team(team_id, canonical=True).filter(
         source_kind=source_kind, owner=PlatformAlertOwner.PLATFORM, legacy_configuration_id__isnull=False
     )
     if created_by_uuid is not None:
         rows = rows.filter(created_by__uuid=created_by_uuid)
-    return tuple(cast(UUID, legacy_id) for legacy_id in rows.values_list("legacy_configuration_id", flat=True))
+    return tuple(
+        (created_at, cast(UUID, legacy_id))
+        for created_at, legacy_id in rows.order_by("-created_at", "-id").values_list(
+            "created_at", "legacy_configuration_id"
+        )
+    )
 
 
 def owned_copies(

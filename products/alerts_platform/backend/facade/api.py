@@ -255,10 +255,13 @@ def native_configuration_keys(
     )
 
 
-def owned_copy_ids(*, team_id: int, source_kind: SourceKind, created_by_uuid: UUID | None = None) -> tuple[UUID, ...]:
-    """The source row id of every copy of a kind the platform owns, for a source that lists those
-    alerts from the platform. With `created_by_uuid`, only the ones that user created."""
-    return platform_reads.owned_copy_ids(
+def owned_copy_keys(
+    *, team_id: int, source_kind: SourceKind, created_by_uuid: UUID | None = None
+) -> tuple[tuple[datetime, UUID], ...]:
+    """`(created_at, source row id)` of every copy of a kind the platform owns, newest first, for a
+    source that lists those alerts from the platform. A copy carries its source row's `created_at`.
+    With `created_by_uuid`, only the ones that user created."""
+    return platform_reads.owned_copy_keys(
         team_id=team_id, source_kind=source_kind.value, created_by_uuid=created_by_uuid
     )
 
@@ -724,6 +727,20 @@ def match_first_enabled_at(
     was first turned on."""
     return platform_writes.match_first_enabled_at(
         source_kind=source_kind, team_id=team_id, first_enabled_of=first_enabled_of, dry_run=dry_run
+    )
+
+
+def match_created_at(
+    *,
+    source_kind: SourceKind,
+    team_id: int,
+    created_at_of: Callable[[Collection[UUID]], Mapping[UUID, datetime]],
+    dry_run: bool,
+) -> int:
+    """Sets `created_at` on the team's copies of `source_kind` to their source rows', where the two
+    differ, and returns the count. `created_at_of` maps the given source row ids to when each was created."""
+    return platform_writes.match_created_at(
+        source_kind=source_kind, team_id=team_id, created_at_of=created_at_of, dry_run=dry_run
     )
 
 

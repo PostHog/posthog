@@ -828,6 +828,11 @@ def upsert_configuration(upsert: PlatformAlertUpsert, *, revive: bool = False) -
             defaults=defaults,
             create_defaults={**defaults, "grouping": upsert.grouping.to_stored()},
         )
+        # `update()`, because `auto_now_add` replaces any value a create passes.
+        if upsert.created_at is not None and configuration.created_at != upsert.created_at:
+            PlatformAlertConfiguration.objects.unscoped().filter(pk=configuration.pk).update(
+                created_at=upsert.created_at
+            )
         if revived:
             PlatformAlert.objects.for_team(upsert.team_id).filter(configuration=configuration).update(
                 state=PlatformAlert.State.NOT_FIRING.value, firing_started_at=None
