@@ -1,4 +1,3 @@
-import { isWebKitBrowser } from './dom'
 import { unmappedStableChunkSpecifier } from './isChunkLoadError'
 
 /** Only the stable chunk build renders an import map (see posthog/stable_chunks.py). */
@@ -14,7 +13,12 @@ const PENDING_NAVIGATION_GRACE_MS = 10_000
 let lastBeforeUnloadAt: number | null = null
 
 // Firefox keeps a page with a `beforeunload` listener out of its back/forward cache, so only WebKit gets one.
-if (typeof window !== 'undefined' && isWebKitBrowser()) {
+// The check matches `isWebKitBrowser` in lib/utils/dom. An import of that file would add it to the entry chunk.
+const isWebKit =
+    typeof navigator !== 'undefined' &&
+    (navigator.vendor === 'Apple Computer, Inc.' || /iPad|iPhone|iPod/.test(navigator.userAgent))
+
+if (typeof window !== 'undefined' && isWebKit) {
     window.addEventListener('beforeunload', () => {
         lastBeforeUnloadAt = Date.now()
     })
