@@ -197,6 +197,23 @@ class TestReleaseAPI(APIBaseTest):
         if expected == status.HTTP_201_CREATED:
             assert response.json()[field] == [linked_id]
 
+    def test_a_deleted_linked_insight_stays_listed_until_unlinked(self) -> None:
+        insight_id, _ = self._linked_object("insight", "Adoption")
+        release_id = self.client.post(
+            self._url(), {"name": "Dark mode", "insight_ids": [insight_id]}, format="json"
+        ).json()["id"]
+        deleted = self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{insight_id}/", {"deleted": True}, format="json"
+        )
+        assert deleted.status_code == status.HTTP_200_OK, deleted.json()
+
+        listed = self.client.get(self._url()).json()["results"][0]
+        unlinked = self.client.patch(self._url(f"{release_id}/"), {"insight_ids": []}, format="json")
+
+        assert [(insight["id"], insight["deleted"]) for insight in listed["insights"]] == [(insight_id, True)]
+        assert unlinked.status_code == status.HTTP_200_OK, unlinked.json()
+        assert unlinked.json()["insight_ids"] == []
+
     @parameterized.expand([("survey",), ("insight",)])
     def test_hidden_surveys_and_insights_are_omitted_and_kept_on_update(self, kind: str) -> None:
         field = f"{kind}_ids"

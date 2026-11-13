@@ -67217,6 +67217,17 @@ export namespace Schemas {
       status: string;
     }
 
+    export interface LinkedInsightDTO {
+      /** True when the insight was deleted after it was linked. */
+      readonly deleted: boolean;
+      id: number;
+      short_id: string;
+      name: string;
+      created_at: string;
+      /** @nullable */
+      last_modified_at: string | null;
+    }
+
     /**
      * Minimal inbox `SignalReport` projection for the scout reverse lookup — just enough
      * for the scout UI to render a clickable chip and deep-link into the inbox, which loads
@@ -78726,6 +78737,8 @@ export namespace Schemas {
     }
 
     export interface ReleaseDTO {
+      /** ID, short ID, name and dates of each linked insight the caller can see, including deleted ones. */
+      readonly insights: readonly LinkedInsightDTO[];
       /** ID, name and status of each linked broadcast the caller can see. Deleted broadcasts are left out. */
       readonly broadcasts: readonly LinkedBroadcastDTO[];
       /** True when the release links flags the caller cannot see. Their IDs are left out of feature_flag_ids. */

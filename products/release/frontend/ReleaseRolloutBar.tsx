@@ -69,8 +69,8 @@ export function ReleaseRolloutBar({
         }),
     ]
     const segments = raw
+        .filter(({ left, right }) => left < end && right > 0)
         .map((segment) => ({ ...segment, width: Math.max(segment.right - segment.left, 4) }))
-        .filter(({ left, width }) => left < end && left + width > 0 && width > 0)
     if (!segments.length) {
         return null
     }

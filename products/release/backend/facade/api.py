@@ -55,6 +55,7 @@ class _Hidden:
     broadcasts: frozenset[UUID]
     surveys: frozenset[UUID]
     insights: frozenset[int]
+    insight_summaries: dict[int, contracts.LinkedInsightDTO]
     summaries: dict[UUID, contracts.LinkedBroadcastDTO]
 
 
@@ -64,11 +65,13 @@ def _hidden(lookups: LinkLookups, releases: list[Release]) -> _Hidden:
     survey_ids = sorted({survey_id for obj in releases for survey_id in obj.survey_ids}, key=str)
     insight_ids = sorted({insight_id for obj in releases for insight_id in obj.insight_ids})
     broadcasts = lookups.broadcasts(broadcast_ids)
+    insights = lookups.insights(insight_ids)
     return _Hidden(
         flags=lookups.flags(flag_ids).hidden,
         broadcasts=broadcasts.hidden,
         surveys=frozenset(survey_ids) - lookups.surveys(survey_ids).visible,
-        insights=frozenset(insight_ids) - lookups.insights(insight_ids).visible,
+        insights=frozenset(insight_ids) - insights.visible,
+        insight_summaries={summary.id: summary for summary in insights.summaries},
         summaries={summary.id: summary for summary in broadcasts.summaries},
     )
 
@@ -90,6 +93,11 @@ def _to_dto(obj: Release, hidden: _Hidden) -> contracts.ReleaseDTO:
         ],
         survey_ids=[survey_id for survey_id in obj.survey_ids if survey_id not in hidden.surveys],
         insight_ids=[insight_id for insight_id in obj.insight_ids if insight_id not in hidden.insights],
+        insights=[
+            hidden.insight_summaries[insight_id]
+            for insight_id in obj.insight_ids
+            if insight_id not in hidden.insights and insight_id in hidden.insight_summaries
+        ],
         created_at=obj.created_at,
     )
 

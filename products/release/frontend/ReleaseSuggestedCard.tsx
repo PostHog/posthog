@@ -178,6 +178,8 @@ export function ReleaseSuggestedCard({ row }: { row: ReleaseRow }): JSX.Element 
                                     size="xs"
                                     variant="link-muted"
                                     onClick={() => loadRelatedSuggestions(row)}
+                                    disabled={relatedSuggestionsLoading}
+                                    loading={relatedSuggestionsLoading}
                                     data-attr="release-suggested-retry"
                                 >
                                     Try again

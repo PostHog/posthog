@@ -26,7 +26,7 @@ from posthog.scopes import scopes_not_covered
 
 from products.feature_flags.backend.facade.api import existing_flag_ids
 from products.feature_flags.backend.facade.release_candidates import list_release_import_flags
-from products.product_analytics.backend.facade.api import existing_insight_ids
+from products.product_analytics.backend.facade.api import existing_insight_ids, insight_summaries
 from products.surveys.backend.facade.api import existing_survey_ids
 from products.workflows.backend.facade.api import (
     get_recent_batch_jobs,
@@ -122,19 +122,26 @@ class ReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def _insight_visibility(self, insight_ids: list[int]) -> contracts.InsightVisibility:
         if not insight_ids:
             return contracts.InsightVisibility(existing=frozenset(), visible=frozenset(), linkable=frozenset())
-        existing = frozenset(existing_insight_ids(insight_ids, project_id=self.team.project_id, include_deleted=True))
+        project_id = self.team.project_id
+        existing = frozenset(existing_insight_ids(insight_ids, project_id=project_id, include_deleted=True))
         if not self._holds_scope("insight:read"):
             return contracts.InsightVisibility(existing=existing, visible=frozenset(), linkable=frozenset())
         access_control = self.user_access_control
+        summaries = insight_summaries(insight_ids, project_id=project_id, access_control=access_control)
         return contracts.InsightVisibility(
             existing=existing,
-            visible=frozenset(
-                existing_insight_ids(
-                    insight_ids, project_id=self.team.project_id, access_control=access_control, include_deleted=True
+            visible=frozenset(summary.id for summary in summaries),
+            linkable=frozenset(summary.id for summary in summaries if not summary.deleted),
+            summaries=tuple(
+                contracts.LinkedInsightDTO(
+                    id=summary.id,
+                    short_id=summary.short_id,
+                    name=summary.name,
+                    created_at=summary.created_at,
+                    last_modified_at=summary.last_modified_at,
+                    deleted=summary.deleted,
                 )
-            ),
-            linkable=frozenset(
-                existing_insight_ids(insight_ids, project_id=self.team.project_id, access_control=access_control)
+                for summary in summaries
             ),
         )
 

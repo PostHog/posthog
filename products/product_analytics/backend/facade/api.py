@@ -31,6 +31,7 @@ from products.product_analytics.backend.facade.contracts import (
     InsightActionReference,
     InsightDashboardContext,
     InsightSeries,
+    InsightSummary,
     InsightVariableDefinition,
     SavedInsightDefinition,
     SavedTrendsInsight,
@@ -241,6 +242,26 @@ def existing_insight_ids(
     if access_control is not None:
         queryset = access_control.filter_queryset_by_access_level(queryset, include_all_if_admin=True)
     return set(queryset.values_list("id", flat=True))
+
+
+def insight_summaries(
+    insight_ids: Collection[int], *, project_id: int, access_control: UserAccessControl
+) -> list[InsightSummary]:
+    queryset = Insight.objects_including_soft_deleted.filter(team__project_id=project_id, id__in=list(insight_ids))
+    queryset = access_control.filter_queryset_by_access_level(queryset, include_all_if_admin=True)
+    return [
+        InsightSummary(
+            id=insight.id,
+            short_id=insight.short_id,
+            name=insight.name or insight.derived_name or "Untitled insight",
+            created_at=insight.created_at,
+            last_modified_at=insight.last_modified_at,
+            deleted=insight.deleted,
+        )
+        for insight in queryset.only(
+            "id", "short_id", "name", "derived_name", "created_at", "last_modified_at", "deleted"
+        )
+    ]
 
 
 def saved_trends_insights(

@@ -5,7 +5,7 @@ from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from posthog.models import OrganizationMembership
 
-from ..facade.contracts import LinkedBroadcastDTO, LinkedSendDTO, ReleaseDTO
+from ..facade.contracts import LinkedBroadcastDTO, LinkedInsightDTO, LinkedSendDTO, ReleaseDTO
 
 MAX_LINKED = 100
 
@@ -36,7 +36,22 @@ class LinkedBroadcastSerializer(DataclassSerializer):
         dataclass = LinkedBroadcastDTO
 
 
+class LinkedInsightSerializer(DataclassSerializer):
+    deleted = serializers.BooleanField(
+        read_only=True, help_text="True when the insight was deleted after it was linked."
+    )
+
+    class Meta:
+        dataclass = LinkedInsightDTO
+
+
 class ReleaseSerializer(DataclassSerializer):
+    insights = LinkedInsightSerializer(
+        many=True,
+        read_only=True,
+        help_text="ID, short ID, name and dates of each linked insight the caller can see, including deleted ones.",
+    )
+
     broadcasts = LinkedBroadcastSerializer(
         many=True,
         read_only=True,

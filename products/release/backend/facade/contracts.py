@@ -78,10 +78,21 @@ class SurveyVisibility:
 
 
 @dataclass(frozen=True)
+class LinkedInsightDTO:
+    id: int
+    short_id: str
+    name: str
+    created_at: datetime
+    last_modified_at: datetime | None
+    deleted: bool
+
+
+@dataclass(frozen=True)
 class InsightVisibility:
     existing: frozenset[int]
     visible: frozenset[int]
     linkable: frozenset[int]
+    summaries: tuple[LinkedInsightDTO, ...] = ()
 
     @property
     def hidden(self) -> frozenset[int]:
@@ -117,6 +128,7 @@ class ReleaseDTO:
     broadcasts: list[LinkedBroadcastDTO]
     survey_ids: list[UUID]
     insight_ids: list[int]
+    insights: list[LinkedInsightDTO]
     created_at: datetime
 
 

@@ -10,6 +10,7 @@ import { urls } from 'scenes/urls'
 import { surveysCreate, surveysList } from 'products/surveys/frontend/generated/api'
 import type { SurveyApi } from 'products/surveys/frontend/generated/api.schemas'
 
+import { releasesPartialUpdate } from './generated/api'
 import type { ReleaseDTOApi } from './generated/api.schemas'
 import { releaseLogic } from './releaseLogic'
 import { TrackRelated, relatedFor } from './releaseTracks'
@@ -31,6 +32,7 @@ export interface RelatedInsight {
     name: string
     createdAt: string
     lastModifiedAt: string | null
+    deleted?: boolean
 }
 
 export type RelatedKind = 'survey' | 'insight'
@@ -68,7 +70,6 @@ interface ReleaseRelatedLogicValues {
     linkedSurveys: Record<string, RelatedSurvey>
     linkedSurveysLoading: boolean
     linkedInsights: Record<number, RelatedInsight>
-    linkedInsightsLoading: boolean
     relatedSuggestions: RelatedSuggestions | null
     relatedSuggestionsLoading: boolean
     relatedSearch: RelatedSearch
@@ -88,11 +89,6 @@ interface ReleaseRelatedLogicActions {
         linkedSurveys: Record<string, RelatedSurvey>
     }
     loadLinkedSurveysFailure: (error: string) => { error: string }
-    loadLinkedInsights: () => void
-    loadLinkedInsightsSuccess: (linkedInsights: Record<number, RelatedInsight>) => {
-        linkedInsights: Record<number, RelatedInsight>
-    }
-    loadLinkedInsightsFailure: (error: string) => { error: string }
     loadRelatedSuggestions: (row: ReleaseRow) => ReleaseRow
     loadRelatedSuggestionsSuccess: (relatedSuggestions: RelatedSuggestions | null) => {
         relatedSuggestions: RelatedSuggestions | null
@@ -216,27 +212,6 @@ export const releaseRelatedLogic = kea<releaseRelatedLogicType>([
                         actions.setLinkedLookupFailed(true)
                     }
                     return Object.fromEntries(results.map((survey) => [survey.id, toSurvey(survey)]))
-                },
-            },
-        ],
-        linkedInsights: [
-            {} as Record<number, RelatedInsight>,
-            {
-                loadLinkedInsights: async () => {
-                    const ids = [...new Set(values.releases.flatMap((release) => release.insight_ids ?? []))]
-                    if (!ids.length) {
-                        return {}
-                    }
-                    const { results, failed } = await inBatches(ids, (batch) =>
-                        queryInsights(
-                            hogql`SELECT id, short_id, name, created_at, last_modified_at FROM system.insights
-                            WHERE deleted = 0 AND id IN ${batch} LIMIT ${LOOKUP_BATCH}`
-                        )
-                    )
-                    if (failed) {
-                        actions.setLinkedLookupFailed(true)
-                    }
-                    return Object.fromEntries(results.map((insight) => [insight.id, insight]))
                 },
             },
         ],
@@ -400,7 +375,6 @@ export const releaseRelatedLogic = kea<releaseRelatedLogicType>([
                 reloadLinked: () => false,
                 setLinkedLookupFailed: (state, { failed }) => state || failed,
                 loadLinkedSurveysFailure: () => true,
-                loadLinkedInsightsFailure: () => true,
             },
         ],
         creatingSurvey: [
@@ -422,12 +396,15 @@ export const releaseRelatedLogic = kea<releaseRelatedLogicType>([
                 ...Object.fromEntries(surveys.map((survey) => [survey.id, survey])),
             }),
         },
-        linkedInsights: {
-            rememberLinked: (state, { insights }) => ({
-                ...state,
-                ...Object.fromEntries(insights.map((insight) => [insight.id, insight])),
-            }),
-        },
+        linkedInsights: [
+            {} as Record<number, RelatedInsight>,
+            {
+                rememberLinked: (state, { insights }) => ({
+                    ...state,
+                    ...Object.fromEntries(insights.map((insight) => [insight.id, insight])),
+                }),
+            },
+        ],
     }),
     selectors({
         surveysById: [
@@ -443,14 +420,29 @@ export const releaseRelatedLogic = kea<releaseRelatedLogicType>([
             }),
         ],
         insightsById: [
-            (s) => [s.linkedInsights, s.relatedSuggestions, s.relatedSearch],
-            (linkedInsights, relatedSuggestions, relatedSearch): Record<number, RelatedInsight> => ({
+            (s) => [s.linkedInsights, s.relatedSuggestions, s.relatedSearch, s.releases],
+            (linkedInsights, relatedSuggestions, relatedSearch, releases): Record<number, RelatedInsight> => ({
                 ...Object.fromEntries(
                     [...(relatedSuggestions?.insights ?? []), ...relatedSearch.insights].map(
                         (insight: RelatedInsight) => [insight.id, insight]
                     )
                 ),
                 ...linkedInsights,
+                ...Object.fromEntries(
+                    (releases as ReleaseDTOApi[])
+                        .flatMap((release) => release.insights ?? [])
+                        .map((insight) => [
+                            insight.id,
+                            {
+                                id: insight.id,
+                                shortId: insight.short_id,
+                                name: insight.name,
+                                createdAt: insight.created_at,
+                                lastModifiedAt: insight.last_modified_at ?? null,
+                                deleted: insight.deleted,
+                            },
+                        ])
+                ),
             }),
         ],
         relatedByRelease: [
@@ -493,7 +485,17 @@ export const releaseRelatedLogic = kea<releaseRelatedLogicType>([
                     ],
                     []
                 )
-                actions.linkRelated(row.id, 'survey', survey.id)
+                const release = values.releases.find((item) => item.id === row.id)
+                const surveyIds = [...(release?.survey_ids ?? []), survey.id]
+                try {
+                    await releasesPartialUpdate(String(values.currentProjectId), row.id, { survey_ids: surveyIds })
+                } catch {
+                    lemonToast.error(
+                        'The survey was created but could not be linked to the release. Add it from "In this release".'
+                    )
+                    return
+                }
+                releaseLogic.actions.setReleaseLocally({ id: row.id, changes: { survey_ids: surveyIds } })
                 router.actions.push(urls.survey(survey.id))
             } catch {
                 lemonToast.error('Could not create the survey. Try again.')
@@ -504,11 +506,9 @@ export const releaseRelatedLogic = kea<releaseRelatedLogicType>([
         },
         reloadReleases: () => {
             actions.loadLinkedSurveys()
-            actions.loadLinkedInsights()
         },
         reloadLinked: () => {
             actions.loadLinkedSurveys()
-            actions.loadLinkedInsights()
         },
         linkRelated: ({ releaseId, kind, id }) => {
             const release = values.releases.find((item) => item.id === releaseId)
@@ -549,6 +549,5 @@ export const releaseRelatedLogic = kea<releaseRelatedLogicType>([
     })),
     afterMount(({ actions }) => {
         actions.loadLinkedSurveys()
-        actions.loadLinkedInsights()
     }),
 ])
