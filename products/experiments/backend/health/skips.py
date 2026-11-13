@@ -40,6 +40,7 @@ SPLIT_ASSIGNS_NOBODY = "The split assigns nobody, because every release conditio
 SPLIT_CHANGED_AFTER_END = "The variant split changed after the experiment ended, so it can't be compared with the run"
 NEEDS_EXPOSURES = "Runs once enough users are exposed"
 NEEDS_PRIMARY_METRIC = "Runs once the experiment has a primary metric"
+NOT_ON_FLAG_RULE = "Couldn't check because experiments on a feature flag rule aren't supported yet"
 
 
 def not_applicable(reason: str) -> CheckSkip:
