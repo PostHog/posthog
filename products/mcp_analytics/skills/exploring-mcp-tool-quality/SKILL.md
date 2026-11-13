@@ -53,7 +53,7 @@ writing queries.
 
 - **Count failures with the failure predicate, not `$mcp_is_error` alone**, and cast
   `$mcp_duration_ms` via `toFloat(...)`. The properties are strings. In the queries below,
-  `<is_failure>` stands for the failure predicate `toString(properties.$mcp_is_error) IN ('true', '1') AND NOT coalesce(toString(properties.$mcp_error_expected) IN ('true', '1'), false)`: a failed call the server did not mark as an expected outcome (`$mcp_error_expected`). Substitute it before running.
+  `<is_failure>` stands for the failure predicate `lower(toString(properties.$mcp_is_error)) IN ('true', '1') AND NOT coalesce(lower(toString(properties.$mcp_error_expected)) IN ('true', '1'), false)`: a failed call the server did not mark as an expected outcome (`$mcp_error_expected`). Substitute it before running.
 
 Always set a time range — these queries scan `events` otherwise.
 

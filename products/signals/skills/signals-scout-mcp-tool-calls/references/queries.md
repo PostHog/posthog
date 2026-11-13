@@ -24,7 +24,7 @@ throughout:
 
 - Use **only** `event = '$mcp_tool_call'` — never `IN ('$mcp_tool_call', 'mcp_tool_call')`,
   which double-counts via the transition-shim alias.
-- `<is_failure>` stands for the failure predicate `toString(properties.$mcp_is_error) IN ('true', '1') AND NOT coalesce(toString(properties.$mcp_error_expected) IN ('true', '1'), false)`: a failed call the server did not mark as an expected outcome (`$mcp_error_expected`). Substitute it before running. Compared as text because SDK versions stamp `$mcp_is_error` as a boolean, the string `'true'`, or `1`.
+- `<is_failure>` stands for the failure predicate `lower(toString(properties.$mcp_is_error)) IN ('true', '1') AND NOT coalesce(lower(toString(properties.$mcp_error_expected)) IN ('true', '1'), false)`: a failed call the server did not mark as an expected outcome (`$mcp_error_expected`). Substitute it before running. Compared as text because SDK versions stamp `$mcp_is_error` as a boolean, the string `'true'` in any case, or `1`.
 - Filter `properties.$mcp_source = 'posthog_mcp_analytics'` — keeps SDK-instrumented events
   (both PostHog's hono server and external customer servers), excludes pre-SDK legacy events.
   If a project's counts look suspiciously low, re-run the coverage probe without this filter

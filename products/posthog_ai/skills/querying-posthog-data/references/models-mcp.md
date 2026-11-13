@@ -103,7 +103,7 @@ The `coalesce(..., '[]')` is required: the property accessor is Nullable, and `J
 
 ## Example queries
 
-In the SQL below, `<is_failure>` stands for the failure predicate: `toString(properties.$mcp_is_error) IN ('true', '1') AND NOT coalesce(toString(properties.$mcp_error_expected) IN ('true', '1'), false)`. Substitute it before running. Compared as text because SDK versions stamp `$mcp_is_error` as a boolean, the string `'true'`, or `1`.
+In the SQL below, `<is_failure>` stands for the failure predicate: `lower(toString(properties.$mcp_is_error)) IN ('true', '1') AND NOT coalesce(lower(toString(properties.$mcp_error_expected)) IN ('true', '1'), false)`. Substitute it before running. Compared as text because SDK versions stamp `$mcp_is_error` as a boolean, the string `'true'` in any case, or `1`.
 
 The SQL below is the fallback for cross-tool rankings and custom cuts. For a single tool's numbers, call the typed tool from the table above instead of re-deriving these.
 
