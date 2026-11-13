@@ -46,9 +46,6 @@ Free mailbox domains such as gmail.com are rejected, and so is a domain another 
 Check `integrations-list` with `kind=email` first; each sender's `display_name` is its address.
 If a sender with the exact requested address exists, skip to step 3 with its `id`.
 Never create it again: re-creating an existing sender marks it unverified until the next successful verify.
-If a sender with a different address exists on the same domain, call `integrations-email-status-retrieve` with its `id` before creating the new one.
-Its `mail_from_mx` record sits at `<label>.<domain>`; note that `<label>` for step 2.
-If you cannot read it, stop and ask a project admin to add the sender or to tell you the label: creating it with another label moves the MAIL FROM for every sender on the domain.
 
 ### 2. Create the sender
 
@@ -56,7 +53,7 @@ Call `integrations-email-create` with `config.email` and `config.name`.
 The provider defaults to `ses`.
 The MAIL FROM subdomain belongs to the whole domain, not to one sender: creating a sender sets it for every sender on that domain.
 
-- When the domain already has a sender, pass the `<label>` from step 1 as `mail_from_subdomain`. Any other value moves the domain's MAIL FROM and breaks verification for the existing senders until new records are published.
+- When the domain already has a sender, the new sender keeps the domain's MAIL FROM subdomain whatever you pass, and the response carries the value that applies. Leave `mail_from_subdomain` out.
 - On a new domain, leave `mail_from_subdomain` at its default `feedback`. Pick another label such as `bounce` only if `feedback.<domain>` already has an MX record that does not point at `amazonses.com`, for example from another email tool.
 
 The returned `id` is the `integration_id` every other email tool takes.

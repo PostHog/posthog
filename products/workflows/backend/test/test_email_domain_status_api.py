@@ -11,7 +11,6 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.exceptions import ValidationError
 
-from posthog.event_usage import report_user_action
 from posthog.models.integration import Integration
 from posthog.models.integration.email import EmailIntegration, lock_sender_domain
 from posthog.models.organization import Organization, OrganizationMembership
@@ -44,8 +43,6 @@ SES_STATUS_READS = (
 class TestEmailDomainVerifiedEvent(EmailDomainApiTestCase):
     def setUp(self) -> None:
         super().setUp()
-        self.report_user_action.side_effect = report_user_action
-        self.capture = self.enterContext(patch("posthoganalytics.capture"))
         home_organization = Organization.objects.create(name="Home organization")
         OrganizationMembership.objects.create(organization=home_organization, user=self.user)
         self.user.current_organization = home_organization
@@ -66,8 +63,7 @@ class TestEmailDomainVerifiedEvent(EmailDomainApiTestCase):
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert [
             (call.kwargs["distinct_id"], call.kwargs["properties"]["method"], call.kwargs["groups"])
-            for call in self.capture.call_args_list
-            if call.kwargs.get("event") == "email domain verified"
+            for call in self.verified_events()
         ] == [
             (
                 self.user.distinct_id,
@@ -120,12 +116,10 @@ class TestEmailDomainVerification(EmailDomainApiTestCase):
         assert self.status_body(sender)["verified"] is True
         assert self.is_verified(sender) and self.is_verified(sibling)
         assert TeamWorkflowsConfig.objects.get(team_id=self.team.id).default_email_integration_id == sender
-        assert self.verified_events() == [
-            (
-                (ANY, "email domain verified", {"method": "agent", "seconds_since_created": ANY}),
-                {"team": ANY, "organization": ANY},
-            )
-        ]
+        assert [
+            (call.kwargs["properties"]["method"], "seconds_since_created" in call.kwargs["properties"])
+            for call in self.verified_events()
+        ] == [("agent", True)]
         self.reload_workers.assert_called_once_with(self.team.id, sorted([sender, sibling]))
         assert self.world.ses.writes.count("verify_domain_identity") == 3
 

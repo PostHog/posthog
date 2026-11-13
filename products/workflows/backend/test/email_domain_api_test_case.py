@@ -47,7 +47,7 @@ class EmailDomainApi(_PostHogTest):
         self.reload_workers = self.enterContext(
             patch("posthog.models.integration.email.reload_integrations_on_workers")
         )
-        self.report_user_action = self.enterContext(patch("posthog.api.integration.report_user_action"))
+        self.capture = self.enterContext(patch("posthoganalytics.capture"))
 
     def create_sender(self, email: str, *, team: Team | None = None) -> int:
         response = self.client.post(
@@ -92,10 +92,10 @@ class EmailDomainApi(_PostHogTest):
         return Integration.objects.get(id=integration_id).config["verified"]
 
     def verified_events(self) -> list[Any]:
-        return [call for call in self.report_user_action.call_args_list if call.args[1] == "email domain verified"]
+        return [call for call in self.capture.call_args_list if call.kwargs.get("event") == "email domain verified"]
 
     def verified_event_methods(self) -> list[str]:
-        return [call.args[2]["method"] for call in self.verified_events()]
+        return [call.kwargs["properties"]["method"] for call in self.verified_events()]
 
 
 @email_domain_settings
