@@ -15,7 +15,7 @@ TEMPORAL_CLIENT_CERT: str | None = os.getenv("TEMPORAL_CLIENT_CERT", None)
 TEMPORAL_CLIENT_KEY: str | None = os.getenv("TEMPORAL_CLIENT_KEY", None)
 TEMPORAL_WORKFLOW_MAX_ATTEMPTS: str = os.getenv("TEMPORAL_WORKFLOW_MAX_ATTEMPTS", "3")
 TEMPORAL_USE_PYDANTIC_CONVERTER: bool = get_from_env("TEMPORAL_USE_PYDANTIC_CONVERTER", False, type_cast=str_to_bool)
-# Each heartbeat that reaches Temporal Cloud is a billed action. Batch-export queues always flush every 5s.
+# Each heartbeat that reaches Temporal Cloud is a billed action.
 TEMPORAL_MAX_HEARTBEAT_THROTTLE_SECONDS: float = get_from_env(
     "TEMPORAL_MAX_HEARTBEAT_THROTTLE_SECONDS", 5.0, type_cast=float
 )

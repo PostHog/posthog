@@ -250,14 +250,10 @@ class ManagedWorker:
 
 
 DEFAULT_MAX_CONCURRENT_TASKS = 50
-# Batch-export activities can stall their event loop, so they flush sooner to leave more of the timeout as margin.
-BATCH_EXPORTS_MAX_HEARTBEAT_THROTTLE_INTERVAL = dt.timedelta(seconds=5)
 
 
-def max_heartbeat_throttle_interval(task_queue: str) -> dt.timedelta:
+def max_heartbeat_throttle_interval() -> dt.timedelta:
     """The SDK sends heartbeats every min(0.8 * heartbeat_timeout, this)."""
-    if task_queue in (settings.BATCH_EXPORTS_TASK_QUEUE, settings.SYNC_BATCH_EXPORTS_TASK_QUEUE):
-        return BATCH_EXPORTS_MAX_HEARTBEAT_THROTTLE_INTERVAL
     return dt.timedelta(seconds=settings.TEMPORAL_MAX_HEARTBEAT_THROTTLE_SECONDS)
 
 
@@ -591,7 +587,7 @@ async def create_worker(
                     ramp_throttle=activity_ramp_throttle,
                 ),
             ),
-            max_heartbeat_throttle_interval=max_heartbeat_throttle_interval(task_queue),
+            max_heartbeat_throttle_interval=max_heartbeat_throttle_interval(),
             **poller_kwargs,
         )
     else:
@@ -606,7 +602,7 @@ async def create_worker(
             activity_executor=ThreadPoolExecutor(max_workers=max_concurrent_activities or DEFAULT_MAX_CONCURRENT_TASKS),
             max_concurrent_activities=max_concurrent_activities or DEFAULT_MAX_CONCURRENT_TASKS,
             max_concurrent_workflow_tasks=max_concurrent_workflow_tasks or DEFAULT_MAX_CONCURRENT_TASKS,
-            max_heartbeat_throttle_interval=max_heartbeat_throttle_interval(task_queue),
+            max_heartbeat_throttle_interval=max_heartbeat_throttle_interval(),
             **poller_kwargs,
         )
 
@@ -623,7 +619,7 @@ async def create_worker(
                 for interceptor in ALL_INTERCEPTOR_CLASSES
                 if is_task_queue_supported(config.task_queue, interceptor)
             ],
-            max_heartbeat_throttle_interval=max_heartbeat_throttle_interval(config.task_queue),
+            max_heartbeat_throttle_interval=max_heartbeat_throttle_interval(),
             **poller_kwargs,
         )
         for config in activity_worker_configs
