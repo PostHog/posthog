@@ -12711,10 +12711,10 @@ Today (11): `cryptocurrencies`, `dividends`, `earnings`, `etfs`, `exchanges`, `f
 Diffed against: <https://twelvedata.com/docs>
 
 - [ ] `income_statement (and income_statement/consolidated)` — core fundamentals; revenue and margin history per symbol (high)
-- [ ] `balance_sheet (and balance_sheet/consolidated)` — assets, liabilities and equity history per symbol (high)
-- [ ] `cash_flow (and cash_flow/consolidated)` — operating, investing and financing cash flow history (high)
-- [ ] `statistics` — valuation and financial ratio snapshot; the most-queried fundamentals object (high)
-- [ ] `profile` — company metadata lookup (sector, industry, country) that resolves the symbols already synced in stocks (high)
+- [x] `balance_sheet (and balance_sheet/consolidated)` — assets, liabilities and equity history per symbol (high) → `balance_sheets` (full refresh, quarterly; the `/consolidated` raw layout is not synced)
+- [x] `cash_flow (and cash_flow/consolidated)` — operating, investing and financing cash flow history (high) → `cash_flows` (full refresh, quarterly; the `/consolidated` raw layout is not synced)
+- [x] `statistics` — valuation and financial ratio snapshot; the most-queried fundamentals object (high) → `statistics` (full refresh snapshot)
+- [x] `profile` — company metadata lookup (sector, industry, country) that resolves the symbols already synced in stocks (high) → `profiles` (full refresh)
 - [ ] `market_cap` — market capitalization time series, a standard breakdown dimension (medium)
 - [ ] `earnings_calendar, dividends_calendar, splits_calendar, ipo_calendar` — forward-looking market-wide event feeds; the existing earnings/dividends/splits tables are per-symbol history only (medium)
 - [ ] `institutional_holders, fund_holders, direct_holders` — ownership breakdown per symbol (medium)
