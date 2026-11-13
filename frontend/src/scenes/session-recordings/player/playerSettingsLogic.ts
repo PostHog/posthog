@@ -7,6 +7,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { FeatureFlagsSet, featureFlagLogic, peekFeatureFlag } from 'lib/logic/featureFlagLogic'
 import {
     ReplayLayout,
+    isFeedReplayLayout,
     isNewReplayLayout,
     offeredReplayLayout,
     replayLayoutFrom,
@@ -442,7 +443,7 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             })
         },
         setDebugMode: ({ open }) => {
-            if (open && values.watchDebugDock === 'bottom') {
+            if (open && values.watchDebugDock === 'bottom' && !isFeedReplayLayout(values.replayLayout)) {
                 actions.openWatchPanelSection('debug')
             }
         },
