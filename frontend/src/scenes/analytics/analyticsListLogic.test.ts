@@ -270,21 +270,33 @@ describe('analyticsListLogic', () => {
         expect(events).toContainEqual(['views list loaded', 'mine'])
     })
 
-    it('reports a folder visit once, however it starts, and a space only when it changes', async () => {
+    it('reports a folder visit once, cached only when its rows were shown before, and a space only when it changes', async () => {
         const logic = analyticsListLogic()
         logic.mount()
-        router.actions.push(urls.analyticsList({ folder: 'Growth' }))
-        await expectLogic(logic).toFinishAllListeners()
-        router.actions.push(urls.analyticsList({ folder: 'Growth' }))
-        await expectLogic(logic).toFinishAllListeners()
+        for (const filters of [
+            { folder: 'Growth' },
+            { folder: 'Growth' },
+            { folder: 'Product' },
+            { folder: 'Product', search: 'abc' },
+        ]) {
+            router.actions.push(urls.analyticsList(filters))
+            await expectLogic(logic).toFinishAllListeners()
+        }
 
         const events = capture.mock.calls
             .filter(([name]) => name !== '$pageview')
-            .map(([name, properties]) => [name, properties?.mode ?? properties?.nested])
+            .map(([name, properties]) =>
+                name === 'views list loaded'
+                    ? [name, properties.mode, properties.cached, properties.filters_active]
+                    : [name, properties?.nested]
+            )
         expect(events).toEqual([
-            ['views list loaded', 'folder'],
+            ['views list loaded', 'folder', false, false],
             ['analytics collection opened', false],
-            ['views list loaded', 'folder'],
+            ['views list loaded', 'folder', true, false],
+            ['views list loaded', 'folder', false, false],
+            ['analytics collection opened', false],
+            ['views list loaded', 'folder', false, true],
         ])
     })
 
