@@ -1897,6 +1897,19 @@ class GroupsTypesViewSetTestCase(APIBaseTest):
         self.assertEqual(cache.get(cache_key)[0]["name_singular"], "org")
         self.assertEqual(cache.get(stale_cache_key)[0]["name_singular"], "org")
 
+    def test_update_metadata_for_agents_accepts_object_body(self):
+        create_group_type_mapping(team=self.team, project=self.project, group_type="organization", group_type_index=0)
+
+        response = self.client.patch(
+            self.url + "/update_metadata_for_agents",
+            {"updates": [{"group_type_index": 0, "name_singular": "workspace", "name_plural": "workspaces"}]},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()[0]["name_singular"], "workspace")
+        self.assertEqual(response.json()[0]["name_plural"], "workspaces")
+
     def test_destroy_invalidates_cache(self):
         create_group_type_mapping(team=self.team, project=self.project, group_type="organization", group_type_index=0)
         cache_key, stale_cache_key = self._seed_cache()

@@ -1,0 +1,104 @@
+# MCP tools for reading and managing groups and group types.
+category: Groups
+feature: groups
+url_prefix: /groups
+ui_apps: {}
+tools:
+    groups-list:
+        operation: projects_groups_list
+        enabled: true
+        scopes:
+            - group:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List groups
+        description: >
+            List groups for a group type. Call groups-types-list first to find valid group type indices. You can filter by
+            a partial group key or search term, and use the cursor from the next URL to fetch another page.
+    groups-find:
+        operation: projects_groups_find_retrieve
+        enabled: true
+        scopes:
+            - group:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Find a group
+        param_overrides:
+            skip_create_notebook:
+                default: true
+        description: >
+            Find a group by its exact group type index and key. Call groups-types-list first to find valid group type
+            indices. This lookup does not create a CRM notebook.
+    groups-create:
+        operation: projects_groups_create
+        enabled: true
+        scopes:
+            - group:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create a group
+        description: >
+            Create a group with the given group type index and key, optionally with initial properties. Call
+            groups-types-list first to find valid group type indices. A group with the same key and type cannot already
+            exist.
+    groups-update-property:
+        operation: projects_groups_update_property_create
+        enabled: true
+        scopes:
+            - group:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Set a group property
+        description: >
+            Set or replace one property on an existing group. Provide the exact group type index and key, plus the
+            property name and a non-null JSON value. This overwrites that property if it already exists.
+    groups-delete-property:
+        operation: projects_groups_delete_property_create
+        rename_params:
+            $unset: property_name
+        enabled: true
+        scopes:
+            - group:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete a group property
+        description: >
+            Permanently remove one property from an existing group. Provide the exact group type index, group key, and
+            property name. This cannot be undone through this operation.
+    groups-types-list:
+        operation: projects_groups_types_list
+        enabled: true
+        scopes:
+            - group:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List group types
+        description: >
+            List this project's group types, their indices, and display names. Use the returned index with group
+            operations.
+    groups-types-update-metadata:
+        operation: projects_groups_types_update_metadata_for_agents_partial_update
+        enabled: true
+        scopes:
+            - group:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Rename group types
+        description: >
+            Update singular or plural display names for one or more group types. Each update must include a group type
+            index and can include either or both display names. Omitted names are left unchanged.
