@@ -3,7 +3,6 @@ from typing import Any, Optional
 
 from django.conf import settings
 
-import posthoganalytics
 from rest_framework import exceptions
 
 from posthog.hogql import ast
@@ -26,15 +25,15 @@ from products.feature_flags.backend.user_blast_radius import (
     unevaluable_filters_as_validation_errors,
 )
 from products.workflows.backend.services.batch_audience_cohorts import reject_excluded_cohort_without_members
+from products.workflows.backend.utils.audience_snapshot import batch_audience_flag_enabled
 
 EMAIL_DEDUPE_KEY = "email"
 SUPPORTED_DEDUPE_KEYS = (EMAIL_DEDUPE_KEY,)
 
 AUDIENCE_ID_WINDOWS_FLAG = "workflows-batch-audience-id-windows"
 
-# ClickHouse sorts a UUID by its second half first, so a range on that half prunes the person
-# table's (team_id, id) primary key. The RFC variant bits put almost every RFC 4122 person id (v4, v5, v7)
-# between 8000 and c000 there, so the windows split that range.
+# ClickHouse sorts a UUID by its second half first, so a range on that half prunes the (team_id, id) key.
+# The RFC 4122 variant bits put almost every person id (v4, v5, v7) between 8000 and c000 there.
 _ID_WINDOW_COUNT = 16
 _RANDOM_ID_PREFIX_START = 0x8000
 _RANDOM_ID_PREFIX_END = 0xC000
@@ -128,17 +127,7 @@ def reject_unusable_audience_conditions(team: Team, filters: dict) -> None:
 
 
 def audience_id_windows_enabled(team: Team) -> bool:
-    return bool(
-        posthoganalytics.feature_enabled(
-            AUDIENCE_ID_WINDOWS_FLAG,
-            str(team.uuid),
-            groups={"organization": str(team.organization_id), "project": str(team.id)},
-            group_properties={
-                "organization": {"id": str(team.organization_id)},
-                "project": {"id": str(team.id), "uuid": str(team.uuid)},
-            },
-        )
-    )
+    return batch_audience_flag_enabled(AUDIENCE_ID_WINDOWS_FLAG, team)
 
 
 def _clickhouse_uuid_order(uuid: str) -> int:

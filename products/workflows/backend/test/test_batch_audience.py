@@ -144,7 +144,7 @@ class TestBatchAudience(ClickhouseTestMixin, BaseTest):
         with (
             override_settings(WORKFLOWS_PERSON_BATCH_SIZE=2),
             patch(
-                "products.workflows.backend.services.batch_audience.posthoganalytics.feature_enabled",
+                "products.workflows.backend.utils.audience_snapshot.posthoganalytics.feature_enabled",
                 return_value=windows_enabled,
             ),
         ):

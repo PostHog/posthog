@@ -11,16 +11,20 @@ AUDIENCE_SNAPSHOT_WAIT_LIMIT = timedelta(hours=2)
 
 
 def use_audience_snapshot(team: Team) -> bool:
+    return batch_audience_flag_enabled(AUDIENCE_SNAPSHOT_FLAG, team)
+
+
+def batch_audience_flag_enabled(flag: str, team: Team) -> bool:
     # A flag service error must not stop the run from being dispatched, so it falls back to the old path.
     try:
         return bool(
             posthoganalytics.feature_enabled(
-                AUDIENCE_SNAPSHOT_FLAG,
+                flag,
                 str(team.uuid),
                 groups={"organization": str(team.organization_id), "project": str(team.id)},
                 group_properties={
                     "organization": {"id": str(team.organization_id)},
-                    "project": {"id": str(team.id)},
+                    "project": {"id": str(team.id), "uuid": str(team.uuid)},
                 },
                 send_feature_flag_events=False,
             )
