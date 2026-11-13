@@ -96,7 +96,7 @@ class DataDeletionRequestConfig(dagster.Config):
     request_id: str = pydantic.Field(description="UUID of the DataDeletionRequest to execute.")
 
 
-@dataclass
+@frozen
 class DeletionRequestContext:
     request_id: str
     team_id: int
