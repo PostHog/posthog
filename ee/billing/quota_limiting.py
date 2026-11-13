@@ -1,7 +1,7 @@
 import copy
 import json
 from collections.abc import Callable, Collection, Iterable, Iterator, Mapping, Sequence
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from enum import Enum
 from functools import lru_cache, partial
 from itertools import batched, groupby
@@ -302,8 +302,19 @@ def is_team_limited(team_api_token: str, resource: QuotaResource, cache_key: Quo
     allowance has nearly every team in it. Expired entries stay in the zset until the quota job
     removes them, so the score must be compared with the current time.
     """
+    return team_limited_until(team_api_token, resource, cache_key) is not None
+
+
+def team_limited_until(team_api_token: str, resource: QuotaResource, cache_key: QuotaLimitingCaches) -> datetime | None:
+    """When the team's entry in the resource's zset stops being in force, or None when no entry is in force now.
+
+    Capture limits the team until this time. The quota job can remove the entry earlier, for example after the
+    organization raises its limit.
+    """
     score = get_client().zscore(f"{cache_key.value}{resource.value}", team_api_token)
-    return score is not None and score >= timezone.now().timestamp()
+    if score is None or score < timezone.now().timestamp():
+        return None
+    return datetime.fromtimestamp(score, tz=UTC)
 
 
 def get_fresh_team_limited_resources(team_api_token: str) -> dict[QuotaResource, bool]:

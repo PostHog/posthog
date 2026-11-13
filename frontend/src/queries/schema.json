@@ -29395,7 +29395,8 @@
                 "bias_risk_multiple_excluded",
                 "multiple_variants_share",
                 "test_account_filter_removes_exposures",
-                "unserved_variant_exposures"
+                "unserved_variant_exposures",
+                "billing_limit"
             ],
             "type": "string"
         },
@@ -29526,7 +29527,8 @@
                 "bias_risk_multiple_excluded",
                 "multiple_variants_share",
                 "test_account_filter_removes_exposures",
-                "unserved_variant_exposures"
+                "unserved_variant_exposures",
+                "billing_limit"
             ],
             "type": "string"
         },

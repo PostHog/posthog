@@ -2386,6 +2386,7 @@ export type _ExperimentApiMetricsListApi = ExperimentApiMetricApi[]
  * * `zero_exposures` - Zero Exposures
  * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
  * * `unserved_variant_exposures` - Unserved Variant Exposures
+ * * `billing_limit` - Billing Limit
  * * `forced_variant_release_condition` - Forced Variant Release Condition
  * * `flag_variants_mismatch` - Flag Variants Mismatch
  * * `split_changed_mid_run` - Split Changed Mid Run
@@ -2418,6 +2419,7 @@ export const ExperimentHealthFindingCodeEnumApi = {
     ZeroExposures: 'zero_exposures',
     TestAccountFilterRemovesExposures: 'test_account_filter_removes_exposures',
     UnservedVariantExposures: 'unserved_variant_exposures',
+    BillingLimit: 'billing_limit',
     ForcedVariantReleaseCondition: 'forced_variant_release_condition',
     FlagVariantsMismatch: 'flag_variants_mismatch',
     SplitChangedMidRun: 'split_changed_mid_run',
@@ -2500,6 +2502,7 @@ export const ExperimentHealthFindingActionKindEnumApi = {
  * * `unserved_variant_exposures` - Unserved Variant Exposures
  * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
  * * `multiple_variants_share` - Multiple Variants Share
+ * * `billing_limit` - Billing Limit
  */
 export type ExperimentHealthCheckKeyEnumApi =
     (typeof ExperimentHealthCheckKeyEnumApi)[keyof typeof ExperimentHealthCheckKeyEnumApi]
@@ -2530,6 +2533,7 @@ export const ExperimentHealthCheckKeyEnumApi = {
     UnservedVariantExposures: 'unserved_variant_exposures',
     BiasRiskMultipleExcluded: 'bias_risk_multiple_excluded',
     MultipleVariantsShare: 'multiple_variants_share',
+    BillingLimit: 'billing_limit',
 } as const
 
 /**
@@ -2557,6 +2561,7 @@ export interface ExperimentHealthFindingApi {
      * * `zero_exposures` - Zero Exposures
      * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
      * * `unserved_variant_exposures` - Unserved Variant Exposures
+     * * `billing_limit` - Billing Limit
      * * `forced_variant_release_condition` - Forced Variant Release Condition
      * * `flag_variants_mismatch` - Flag Variants Mismatch
      * * `split_changed_mid_run` - Split Changed Mid Run
@@ -2623,7 +2628,8 @@ export interface ExperimentHealthFindingApi {
      * * `srm` - Srm
      * * `unserved_variant_exposures` - Unserved Variant Exposures
      * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
-     * * `multiple_variants_share` - Multiple Variants Share */
+     * * `multiple_variants_share` - Multiple Variants Share
+     * * `billing_limit` - Billing Limit */
     check: ExperimentHealthCheckKeyEnumApi
 }
 
@@ -2669,6 +2675,8 @@ export const ExperimentHealthCheckStatusEnumApi = {
  * * `flag_last_called_at` - When PostHog last recorded a call of the feature flag
  * * `since_start_hours` - Hours since the experiment's start date, which can be earlier than the launch
  * * `daily_calculation_ends_at` - When the daily calculation stops covering the experiment, a fixed number of days after its start date
+ * * `billing_limit_reached` - Whether the organization reached its billing limit for product analytics, so that PostHog drops the project's product analytics events
+ * * `billing_limit_ends_at` - When PostHog stops dropping the project's product analytics events, unless the limit lifts earlier
  * * `metric_name` - The name of a metric
  * * `metric_role` - Whether a metric is primary or secondary
  * * `ratio_side` - The side of a ratio metric, numerator or denominator, or null for the other metric types
@@ -2730,6 +2738,8 @@ export const ExperimentHealthValueKeyEnumApi = {
     FlagLastCalledAt: 'flag_last_called_at',
     SinceStartHours: 'since_start_hours',
     DailyCalculationEndsAt: 'daily_calculation_ends_at',
+    BillingLimitReached: 'billing_limit_reached',
+    BillingLimitEndsAt: 'billing_limit_ends_at',
     MetricName: 'metric_name',
     MetricRole: 'metric_role',
     RatioSide: 'ratio_side',
@@ -2813,6 +2823,8 @@ export interface ExperimentHealthRuleMinimumApi {
      * * `flag_last_called_at` - When PostHog last recorded a call of the feature flag
      * * `since_start_hours` - Hours since the experiment's start date, which can be earlier than the launch
      * * `daily_calculation_ends_at` - When the daily calculation stops covering the experiment, a fixed number of days after its start date
+     * * `billing_limit_reached` - Whether the organization reached its billing limit for product analytics, so that PostHog drops the project's product analytics events
+     * * `billing_limit_ends_at` - When PostHog stops dropping the project's product analytics events, unless the limit lifts earlier
      * * `metric_name` - The name of a metric
      * * `metric_role` - Whether a metric is primary or secondary
      * * `ratio_side` - The side of a ratio metric, numerator or denominator, or null for the other metric types
@@ -2877,6 +2889,8 @@ export interface ExperimentHealthCheckRuleApi {
      * * `flag_last_called_at` - When PostHog last recorded a call of the feature flag
      * * `since_start_hours` - Hours since the experiment's start date, which can be earlier than the launch
      * * `daily_calculation_ends_at` - When the daily calculation stops covering the experiment, a fixed number of days after its start date
+     * * `billing_limit_reached` - Whether the organization reached its billing limit for product analytics, so that PostHog drops the project's product analytics events
+     * * `billing_limit_ends_at` - When PostHog stops dropping the project's product analytics events, unless the limit lifts earlier
      * * `metric_name` - The name of a metric
      * * `metric_role` - Whether a metric is primary or secondary
      * * `ratio_side` - The side of a ratio metric, numerator or denominator, or null for the other metric types
@@ -2958,7 +2972,8 @@ export interface ExperimentHealthCheckResultApi {
      * * `srm` - Srm
      * * `unserved_variant_exposures` - Unserved Variant Exposures
      * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
-     * * `multiple_variants_share` - Multiple Variants Share */
+     * * `multiple_variants_share` - Multiple Variants Share
+     * * `billing_limit` - Billing Limit */
     key: ExperimentHealthCheckKeyEnumApi
     /** The problem the check looks for, for example 'Metrics not set up'. */
     name: string

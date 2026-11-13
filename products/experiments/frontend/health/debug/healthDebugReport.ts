@@ -346,6 +346,11 @@ function exposureChecks(input: HealthDebugInput): HealthDebugCheck[] {
     }
 
     return [
+        exposureCheck(
+            'billing_limit',
+            ['experiment'],
+            "It reads the organization's product analytics limit while the experiment runs. No input tab shows the limit."
+        ),
         exposureCheck('zero_exposures', ['experiment', 'flag', 'exposures'], null),
         exposureCheck(
             'test_account_filter_removes_exposures',
