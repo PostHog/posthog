@@ -614,8 +614,15 @@ jobs:
               run: |
                   set -euo pipefail
 
-                  release_prs=$(gh api --paginate "repos/$REPOSITORY/commits/$RELEASE_COMMIT/pulls" \
-                      --jq ".[] | select(.merged_at != null and .base.ref == \"master\" and .head.ref == \"$RELEASE_BRANCH\") | .number")
+                  # Every master commit comes from a merged pull request. None listed means GitHub hasn't
+                  # linked it yet, and skipping would leave a release unpublished without a word.
+                  merged_prs=$(gh api --paginate "repos/$REPOSITORY/commits/$RELEASE_COMMIT/pulls" \
+                      --jq '.[] | select(.merged_at != null and .base.ref == "master") | "\(.number) \(.head.ref)"')
+                  if [ -z "$merged_prs" ]; then
+                      echo "::error::GitHub lists no merged pull request for $RELEASE_COMMIT yet. Re-run the failed jobs in a minute."
+                      exit 1
+                  fi
+                  release_prs=$(awk -v branch="$RELEASE_BRANCH" '$2 == branch { print $1 }' <<<"$merged_prs")
                   release_count=$(printf '%s\n' "$release_prs" | sed '/^$/d' | wc -l)
                   if [ "$release_count" -eq 0 ]; then
                       echo "is-release=false" >> "$GITHUB_OUTPUT"
