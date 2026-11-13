@@ -771,6 +771,33 @@ def test_resolver_reads_through_an_injected_source() -> None:
     assert resolver.resolve("posthog/temporal/test_run.py").source == "posthog/temporal/owners.yaml"
 
 
+@pytest.mark.parametrize("include_added", [True, False])
+def test_resolver_can_omit_tree_metadata(include_added: bool) -> None:
+    class Source:
+        def read(self, path: str) -> str | None:
+            if path == "owners.yaml":
+                return "version: 1\nowners: [team-root]\nadditions: [team-review]\nsensitive: true\n"
+            return None
+
+        def path_kind(self, path: str) -> PathKind | None:
+            if not include_added:
+                raise OSError("Tree metadata is unavailable")
+            return None
+
+    resolution = OwnersResolver(source=Source()).resolve("new/app.py", include_added=include_added)
+
+    assert resolution.owners == ["team-root"]
+    assert resolution.additions == ["team-review"]
+    assert resolution.sensitive is True
+    assert resolution.is_owned
+    if include_added:
+        assert resolution.added is not None
+        assert resolution.added.path == "new"
+        assert resolution.added.additions == ["team-review"]
+    else:
+        assert resolution.added is None
+
+
 @pytest.mark.parametrize(
     "root_text,expected_prefetch",
     [

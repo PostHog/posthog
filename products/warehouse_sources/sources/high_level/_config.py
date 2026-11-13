@@ -6,4 +6,5 @@ from products.warehouse_sources.sources.sdk import config
 
 @config.config
 class HighLevelSourceConfig(config.Config):
-    pass
+    private_integration_token: str
+    location_id: str

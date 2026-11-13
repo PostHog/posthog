@@ -1,6 +1,7 @@
 import type { ColumnDef } from '@tanstack/react-table'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { useState } from 'react'
 
 import {
     IconChevronDown,
@@ -27,6 +28,7 @@ import {
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
+import { cn } from 'lib/utils/css-classes'
 import { urls } from 'scenes/urls'
 
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
@@ -37,7 +39,9 @@ import { AnalyticsFolderDropTarget } from './AnalyticsFolderDropTarget'
 import { analyticsListLogic } from './analyticsListLogic'
 import type { FolderRow } from './analyticsListLogic'
 import { AnalyticsOwner } from './AnalyticsOwner'
+import { AnalyticsPinHint } from './AnalyticsPinHint'
 import { AnalyticsPinMenuItem } from './AnalyticsPinMenuItem'
+import { analyticsPinnedLogic } from './analyticsPinnedLogic'
 import { analyticsShareLogic } from './analyticsShareLogic'
 import { AnalyticsSpaceGlyph } from './AnalyticsSpaceGlyph'
 import { AnalyticsTypeIcon } from './AnalyticsTypeIcon'
@@ -168,14 +172,23 @@ function SpaceCell({ item }: { item: AnalyticsItem }): JSX.Element {
 
 function ItemMenuCell({ item }: { item: AnalyticsItem }): JSX.Element {
     const { openShareToSpace } = useActions(analyticsShareLogic)
+    // Read here, not passed in by the column factory: new columns would remount this cell and close its open menu.
+    const { pinHintVisible } = useValues(analyticsPinnedLogic)
+    const { items } = useValues(analyticsListLogic)
+    const { hidePinHint } = useActions(analyticsPinnedLogic)
+    const pinHint = pinHintVisible && items[0]?.type === item.type && items[0]?.id === item.id
+    const [trigger, setTrigger] = useState<HTMLButtonElement | null>(null)
     return (
-        <DropdownMenu>
+        <DropdownMenu onOpenChange={(open) => open && pinHint && hidePinHint()}>
+            {pinHint && trigger && <AnalyticsPinHint anchor={trigger} />}
             <DropdownMenuTrigger
                 render={
                     <Button
+                        ref={setTrigger}
                         variant="default"
                         size="icon-sm"
                         aria-label={`Actions for ${item.name}`}
+                        className={cn(pinHint && 'ring-2 ring-ring')}
                         data-attr="analytics-list-row-menu"
                     />
                 }
@@ -395,7 +408,7 @@ export function analyticsListColumns({
             ? ([
                   {
                       id: 'last_viewed_at',
-                      header: 'Last viewed',
+                      header: 'Last viewed by me',
                       accessorFn: (row) => (row.kind === 'item' ? (row.item.entry?.last_viewed_at ?? null) : null),
                       sortDescFirst: true,
                       enableMultiSort: false,

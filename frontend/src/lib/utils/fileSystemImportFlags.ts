@@ -1,6 +1,6 @@
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 
-import type { FileSystemImport } from '~/queries/schema/schema-general'
+import type { FileSystemImport, FileSystemSearchTab } from '~/queries/schema/schema-general'
 
 /** Whether a navigation item's feature flag gate is open. An item with no flag is always shown. */
 export function isFileSystemImportFlagEnabled(
@@ -12,6 +12,11 @@ export function isFileSystemImportFlagEnabled(
     }
     const flags = featureFlags as Record<string, boolean | string | undefined>
     return [item.flag, ...(item.alternativeFlags ?? [])].some((flag) => !!flags[flag])
+}
+
+export function isFileSystemSearchTabShown(tab: FileSystemSearchTab, featureFlags: FeatureFlagsSet): boolean {
+    const flags = featureFlags as Record<string, boolean | string | undefined>
+    return (tab.requiredFlags ?? []).every((flag) => !!flags[flag]) && isFileSystemImportFlagEnabled(tab, featureFlags)
 }
 
 export function isFileSystemImportShown(

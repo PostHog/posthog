@@ -1,6 +1,7 @@
 import { IconClock } from '@posthog/icons'
 import { LemonBanner, LemonCheckbox, LemonDialog } from '@posthog/lemon-ui'
 
+import { TZLabel } from 'lib/components/TZLabel'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
@@ -94,6 +95,47 @@ export function confirmFreezeExposure(onConfirm: () => Promise<void>, exposedUse
         shouldAwaitSubmit: true,
         primaryButton: {
             children: 'Freeze exposure',
+            type: 'primary',
+            onClick: () => onConfirm(),
+            size: 'small',
+        },
+        secondaryButton: {
+            children: 'Cancel',
+            type: 'tertiary',
+            size: 'small',
+        },
+    })
+}
+
+/** `projectTimezone` is the one the health findings name their dates in, so the dialog shows the same date. */
+export function confirmMoveStartDate({
+    currentStartDate,
+    newStartDate,
+    projectTimezone,
+    onConfirm,
+}: {
+    currentStartDate: string
+    newStartDate: string
+    projectTimezone: string
+    onConfirm: () => Promise<void>
+}): void {
+    const date = (time: string): JSX.Element => (
+        <TZLabel time={time} displayTimezone={projectTimezone} formatDate="MMMM D, YYYY [at]" formatTime="h:mm A" />
+    )
+    LemonDialog.open({
+        title: 'Move the start date?',
+        content: (
+            <div className="text-sm text-secondary max-w-md">
+                <p>
+                    The start date moves from {date(currentStartDate)} to {date(newStartDate)}. The results will leave
+                    out the exposures in between.
+                </p>
+                <p>Your users see no change, and you can move the start date back later.</p>
+            </div>
+        ),
+        shouldAwaitSubmit: true,
+        primaryButton: {
+            children: 'Move start date',
             type: 'primary',
             onClick: () => onConfirm(),
             size: 'small',

@@ -5,7 +5,7 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingCode,
     ExperimentHealthFindingSeverity,
 )
-from products.experiments.backend.health.checks.bias_risk import MULTIPLE_VARIANT_KEY, multiple_variant_values
+from products.experiments.backend.health.checks.bias_risk import multiple_variant_values
 from products.experiments.backend.health.context import HealthContext
 from products.experiments.backend.health.skips import (
     RUNS_AFTER_LAUNCH,
@@ -14,6 +14,7 @@ from products.experiments.backend.health.skips import (
     not_applicable,
     not_checked,
 )
+from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
 
 # Some users get more than one ID in any experiment, for example one per device, so a low share is expected.
 # The share grows as users return and log in, so a lower line fires on a large part of all experiments. The cases

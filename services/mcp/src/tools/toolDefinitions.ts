@@ -83,7 +83,7 @@ let _toolDefinitions: ToolDefinitions | undefined = undefined
 let _generatedToolDefinitions: ToolDefinitions | undefined = undefined
 let _mergedToolDefinitions: ToolDefinitions | undefined = undefined
 
-const NOTEBOOK_BUILDER_TOOL_NAMES = ['notebooks-create', 'notebooks-create-markdown', 'notebooks-add-cell'] as const
+const NOTEBOOK_BUILDER_TOOL_NAMES = ['notebooks-create-markdown', 'notebooks-add-cell'] as const
 
 function addNotebookWidgetCatalog(definitions: ToolDefinitions): ToolDefinitions {
     const widgetCatalog = formatNotebookWidgetCatalogForAgents()
@@ -186,6 +186,7 @@ export function getToolDescription(toolName: string): string | undefined {
 }
 
 export interface ToolFilterOptions {
+    definitions?: ToolDefinitions | undefined
     features?: string[] | undefined
     tools?: string[] | undefined
     excludeTools?: string[] | undefined
@@ -290,7 +291,9 @@ export function toolPassesEntitlementGate(
 function filterToolEntries(options: ToolFilterOptions | undefined, applyFlagGate: boolean): [string, ToolDefinition][] {
     const { features, tools, readOnly, aiConsentGiven, featureFlags, scopedTeams, availableFeatures, isCloud } =
         options || {}
-    const toolDefinitions = getToolDefinitions()
+    const toolDefinitions = options?.definitions
+        ? { ...getToolDefinitions(), ...options.definitions }
+        : getToolDefinitions()
 
     let entries = Object.entries(toolDefinitions)
 
