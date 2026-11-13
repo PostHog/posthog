@@ -20,7 +20,6 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
-import { ReleaseAudienceCard } from './ReleaseAudienceCard'
 import { ReleaseDetailsCard } from './ReleaseDetailsCard'
 import { ReleaseHistory } from './ReleaseHistory'
 import { ReleaseLinkedCard } from './ReleaseLinkedCard'
@@ -32,6 +31,8 @@ import { ReleaseScheduleDialog } from './ReleaseScheduleDialog'
 import { ReleasesGate } from './ReleasesGate'
 import { ReleaseStatusCard } from './ReleaseStatusCard'
 import { ReleaseSuggestions } from './ReleaseSuggestions'
+import { ReleaseTrackCard } from './ReleaseTrackCard'
+import { STAGE_COLOR_VARS } from './releaseUtils'
 
 interface ReleaseSceneProps {
     id?: string
@@ -122,12 +123,12 @@ function ReleaseContent({ id }: ReleaseSceneProps): JSX.Element {
                     </div>
                 }
             />
-            <div data-quill className="@container flex flex-col gap-4 pb-8">
+            <div data-quill className={`@container flex flex-col gap-4 pb-8 ${STAGE_COLOR_VARS}`}>
                 <ReleasePartialLoadWarning />
                 <div className="grid items-start gap-4 @3xl:grid-cols-3">
                     <div className="flex min-w-0 flex-col gap-4 @3xl:col-span-2">
                         <ReleaseStatusCard row={row} />
-                        {row.flags.length > 0 && <ReleaseAudienceCard row={row} />}
+                        <ReleaseTrackCard row={row} />
                         <ReleaseHistory row={row} />
                     </div>
                     <div className="flex min-w-0 flex-col gap-4">

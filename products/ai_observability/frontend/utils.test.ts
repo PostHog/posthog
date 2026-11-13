@@ -1192,6 +1192,7 @@ describe('AI observability utils', () => {
             ['accepts {type: "text", text: "hi"}', { type: 'text', text: 'hi' }, true],
             ['accepts {type: "text", text: ""}', { type: 'text', text: '' }, true],
             ['rejects missing `text` property', { type: 'text' }, false],
+            ['rejects a non-string `text`', { type: 'text', text: { toString: null } }, false],
             ['rejects wrong `type` literal', { type: 'image', text: 'hi' }, false],
             ['rejects null', null, false],
             ['rejects undefined', undefined, false],

@@ -8,7 +8,7 @@ import posthog from 'posthog-js'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isUnderPath, removeProjectIdIfPresent } from 'lib/utils/kea-router'
-import { fromPostHogProducts } from 'scenes/analytics/analyticsUtils'
+import { fromPostHogProducts, isFromPostHogItem } from 'scenes/analytics/analyticsUtils'
 import { libraryTypeForPath } from 'scenes/library/libraryUtils'
 import { settingsSectionSceneForPath } from 'scenes/settings/settingsSectionScenes'
 import { urls } from 'scenes/urls'
@@ -129,7 +129,7 @@ export function railPaneForPath(pathname: string): TodayRailPane | null {
         isUnderPath(path, urls.notebooks()) ||
         isUnderPath(path, urls.dashboards()) ||
         isUnderPath(path, '/insights') ||
-        fromPostHogProducts().some((product) => isUnderPath(path, product.href.split(/[?#]/)[0]))
+        isFromPostHogItem(byPostHogItemForPath(path) ?? {})
     ) {
         return 'analytics'
     }
@@ -149,6 +149,17 @@ export function railPaneForPath(pathname: string): TodayRailPane | null {
 
 let navProductPages: FileSystemImport[] | null = null
 
+/**
+ * The By PostHog entry that owns this page. Its ready-made analytics belong to Analytics. Its other pages, like
+ * Session replay, belong to Products and keep an open Analytics pane open.
+ */
+function byPostHogItemForPath(path: string): FileSystemImport | undefined {
+    const items = fromPostHogProducts().map((product) => product.item)
+    // Matched like the Products tab, so a recording under /replay belongs to Session replay, not only its home page.
+    const href = navProductHrefForPath(path, items)
+    return href ? items.find((item) => item.href === href) : undefined
+}
+
 /** Whether the Products pane lists the product that owns this page. Some, like Dashboards, open under Analytics too. */
 function productsPaneListsPath(path: string): boolean {
     navProductPages ??= getNavProductPages()
@@ -166,8 +177,20 @@ function productsPaneKeepsPath(path: string, routePane: TodayRailPane | null): b
 }
 
 /**
- * The pane to show after a page change. A person, group or cohort opened while Analytics shows keeps Analytics, so a
- * drill-in from an insight does not switch the rail. `shownPane` is the pane on screen before the change, which is the
+ * Whether an open Analytics pane stays open on this page: a product By PostHog lists, the SQL editor its sidebar links
+ * to, or a person, group or cohort, so a drill-in from an insight does not switch the rail. Each of these opens its
+ * own pane when Analytics is not showing.
+ */
+function analyticsPaneKeepsPath(path: string, routePane: TodayRailPane | null): boolean {
+    return (
+        (routePane === 'people' && isPeopleDetailPath(path)) ||
+        !!byPostHogItemForPath(path) ||
+        isUnderPath(path, urls.sqlEditor())
+    )
+}
+
+/**
+ * The pane to show after a page change. `shownPane` is the pane on screen before the change, which is the
  * route's pane when nothing was picked.
  */
 function paneAfterNavigation(
@@ -186,7 +209,7 @@ function paneAfterNavigation(
     ) {
         return shownPane
     }
-    if (shownPane === 'analytics' && routePane === 'people' && isPeopleDetailPath(path)) {
+    if (shownPane === 'analytics' && analyticsPaneKeepsPath(path, routePane)) {
         return shownPane
     }
     return routePane ?? openPane

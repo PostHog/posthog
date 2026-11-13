@@ -25,8 +25,9 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fi
 
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.ai_observability.coordinator_metrics import increment_consent_query_failed
-from posthog.temporal.ai_observability.shared_activities import consented_team_ids
 from posthog.temporal.common.heartbeat import Heartbeater
+
+from products.ai_observability.backend.facade.evaluation_runtime import consented_team_ids
 
 logger = structlog.get_logger(__name__)
 
