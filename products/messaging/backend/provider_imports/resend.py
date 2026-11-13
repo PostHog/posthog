@@ -157,17 +157,6 @@ class ResendImportProvider(ImportProvider):
             ),
         ),
         ImportStepSpec(
-            key="contacts",
-            label="Contacts",
-            description=(
-                "Matches each contact to a person in PostHog by email and sets their first and last name. Fills a "
-                "cohort with all your contacts and one with each segment's contacts. Each person updated counts as "
-                "one event."
-            ),
-            count_labels=CONTACT_COUNT_LABELS,
-        ),
-        new_people_step("Resend"),
-        ImportStepSpec(
             key="opt_outs",
             label="Unsubscribed contacts",
             description=(
@@ -189,6 +178,18 @@ class ResendImportProvider(ImportProvider):
             ),
             count_labels=(("opted_out", "People with a new topic opt-out"), ("contacts", "Contacts checked")),
         ),
+        # After the opt-out steps, so no imported contact can be sent marketing email they left in Resend.
+        ImportStepSpec(
+            key="contacts",
+            label="Contacts",
+            description=(
+                "Matches each contact to a person in PostHog by email and sets their first and last name. Fills a "
+                "cohort with all your contacts and one with each segment's contacts. Each person updated counts as "
+                "one event."
+            ),
+            count_labels=CONTACT_COUNT_LABELS,
+        ),
+        new_people_step("Resend"),
         ImportStepSpec(
             key="templates",
             label="Templates",
