@@ -24,6 +24,7 @@ const ROW_FOR_KIND: Record<
 export interface QuillSuggestedModelsGroupsProps extends SuggestedModelsGroupsProps {
     renderSelection?: (suggestion: WarehouseSuggestionApi) => ReactNode
     renderGroupSelection?: (group: SuggestionGroup) => ReactNode
+    assigneeColumn?: boolean
 }
 
 export function QuillSuggestedModelsGroups({
@@ -31,6 +32,7 @@ export function QuillSuggestedModelsGroups({
     windowDays,
     renderSelection,
     renderGroupSelection,
+    assigneeColumn,
 }: QuillSuggestedModelsGroupsProps): JSX.Element {
     return (
         <>
@@ -39,6 +41,7 @@ export function QuillSuggestedModelsGroups({
                     key={group.kind}
                     {...SUGGESTED_MODEL_SECTIONS[group.kind]}
                     selection={renderGroupSelection?.(group)}
+                    assigneeColumn={assigneeColumn}
                 >
                     {group.suggestions.map((suggestion) => {
                         const RowComponent = ROW_FOR_KIND[group.kind] ?? QuillMaterializeSuggestionRow
@@ -48,6 +51,7 @@ export function QuillSuggestedModelsGroups({
                                 suggestion={suggestion}
                                 windowDays={windowDays}
                                 selection={renderSelection?.(suggestion)}
+                                assigneeColumn={assigneeColumn}
                             />
                         )
                     })}

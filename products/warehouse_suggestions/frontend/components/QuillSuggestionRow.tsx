@@ -8,10 +8,29 @@ import { SuggestionRowProps } from './SuggestionRow'
 
 export interface QuillRowSelectionProps {
     selection?: ReactNode
+    assigneeColumn?: boolean
 }
 
 export const QUILL_SAVING_COLUMNS_CLASS =
     '@min-[36rem]/suggestions:grid-cols-[minmax(0,1fr)_10rem_11rem] @min-[36rem]/suggestions:gap-x-3'
+
+export const QUILL_ASSIGNEE_COLUMNS_CLASS = '@min-[48rem]/suggestions:grid-cols-[minmax(0,1fr)_10rem_10rem_11rem]'
+
+export const QUILL_ASSIGNEE_CELL_CLASS =
+    'hidden min-w-0 @min-[48rem]/suggestions:col-start-3 @min-[48rem]/suggestions:flex'
+
+const INLINE_ASSIGNEE_HIDDEN_CLASS = '@min-[48rem]/suggestions:hidden'
+
+function QuillMetaItem({ children, className }: { children: ReactNode; className?: string }): JSX.Element {
+    return (
+        <span className={cn('-ml-4 inline-flex items-baseline', className)}>
+            <span aria-hidden className="w-4 shrink-0 text-center text-subtle-foreground">
+                ·
+            </span>
+            {children}
+        </span>
+    )
+}
 
 const AMOUNT_CLASS = 'text-sm font-semibold tabular-nums text-success-foreground'
 
@@ -53,6 +72,7 @@ export function QuillSuggestionRow({
     actions,
     leaving,
     selection,
+    assigneeColumn,
 }: SuggestionRowProps & QuillRowSelectionProps): JSX.Element {
     return (
         <div
@@ -68,7 +88,8 @@ export function QuillSuggestionRow({
                         'grid grid-cols-1 gap-y-2 px-3 py-2.5 @min-[36rem]/suggestions:items-center @min-[36rem]/suggestions:gap-x-3',
                         highlight
                             ? QUILL_SAVING_COLUMNS_CLASS
-                            : '@min-[36rem]/suggestions:grid-cols-[minmax(0,1fr)_auto]'
+                            : '@min-[36rem]/suggestions:grid-cols-[minmax(0,1fr)_auto]',
+                        assigneeColumn && QUILL_ASSIGNEE_COLUMNS_CLASS
                     )}
                 >
                     <div className="flex min-w-0 items-start gap-2">
@@ -87,22 +108,16 @@ export function QuillSuggestionRow({
                                 </div>
                             )}
                             <div className="flex flex-wrap items-baseline gap-x-4 gap-y-0.5 overflow-hidden text-xs text-muted-foreground">
-                                {[
-                                    ...meta,
+                                {meta.map((item, index) => (
+                                    <QuillMetaItem key={index}>{item}</QuillMetaItem>
+                                ))}
+                                <QuillMetaItem className={assigneeColumn ? INLINE_ASSIGNEE_HIDDEN_CLASS : undefined}>
                                     <QuillSuggestionAssigneeSelect
-                                        key="assignee"
                                         suggestionId={suggestionId}
                                         assignee={assignee}
                                         canAct={canAct}
-                                    />,
-                                ].map((item, index) => (
-                                    <span key={index} className="-ml-4 inline-flex items-baseline">
-                                        <span aria-hidden className="w-4 shrink-0 text-center text-subtle-foreground">
-                                            ·
-                                        </span>
-                                        {item}
-                                    </span>
-                                ))}
+                                    />
+                                </QuillMetaItem>
                             </div>
                         </div>
                     </div>
@@ -114,6 +129,16 @@ export function QuillSuggestionRow({
                                     {highlight.detail}
                                 </span>
                             )}
+                        </div>
+                    )}
+                    {assigneeColumn && (
+                        <div className={QUILL_ASSIGNEE_CELL_CLASS}>
+                            <QuillSuggestionAssigneeSelect
+                                suggestionId={suggestionId}
+                                assignee={assignee}
+                                canAct={canAct}
+                                column
+                            />
                         </div>
                     )}
                     <div

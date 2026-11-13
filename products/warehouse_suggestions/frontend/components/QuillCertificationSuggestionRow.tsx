@@ -18,6 +18,7 @@ export function QuillCertificationSuggestionRow({
     suggestion,
     windowDays,
     selection,
+    assigneeColumn,
 }: CertificationSuggestionRowProps & QuillRowSelectionProps): JSX.Element {
     const { actionsInFlight, leavingSuggestionIds } = useValues(warehouseSuggestionsLogic)
     const { acceptSuggestion, openAcceptConfirm } = useActions(warehouseSuggestionsLogic)
@@ -37,6 +38,7 @@ export function QuillCertificationSuggestionRow({
         <QuillSuggestionRow
             suggestionId={suggestion.id}
             selection={selection}
+            assigneeColumn={assigneeColumn}
             assignee={suggestion.assignee}
             canAct={suggestion.can_act}
             leaving={leaving}

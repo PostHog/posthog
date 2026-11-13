@@ -83,18 +83,25 @@ const BULK_ACTION_EVENT = 'warehouse suggestions bulk action'
 const DONE_VERBS: Record<BulkAction, string> = { accept: 'Approved', dismiss: 'Dismissed', assign: 'Assigned' }
 const FAILED_VERBS: Record<BulkAction, string> = { accept: 'approve', dismiss: 'dismiss', assign: 'assign' }
 
-function matchesFilters(
+export const ASSIGNEE_FILTERS: AssigneeFilter[] = ['anyone', 'me', 'unassigned']
+
+function matchesAssignee(
     suggestion: WarehouseSuggestionApi,
-    filters: SuggestionsSectionFilters,
+    assignee: AssigneeFilter,
     currentUserId: number | undefined
 ): boolean {
+    return (
+        assignee === 'anyone' ||
+        (assignee === 'me' && suggestion.assignee?.id === currentUserId) ||
+        (assignee === 'unassigned' && !suggestion.assignee)
+    )
+}
+
+function matchesFiltersExceptAssignee(suggestion: WarehouseSuggestionApi, filters: SuggestionsSectionFilters): boolean {
     const isTable = suggestion.subject_kind === 'table'
     const search = filters.search.trim().toLowerCase()
     return (
         (filters.kind === 'any' || suggestion.kind === filters.kind) &&
-        (filters.assignee === 'anyone' ||
-            (filters.assignee === 'me' && suggestion.assignee?.id === currentUserId) ||
-            (filters.assignee === 'unassigned' && !suggestion.assignee)) &&
         (filters.subject === 'any' || (filters.subject === 'tables') === isTable) &&
         (!search || suggestion.payload.subject_name.toLowerCase().includes(search))
     )
@@ -145,6 +152,7 @@ export interface warehouseSuggestionsSectionLogicValues {
     status: WarehouseSuggestionStatusApi | null // warehouseSuggestionsLogic
     suggestionGroups: SuggestionGroup[] // warehouseSuggestionsLogic
     acceptChoices: BulkAcceptChoices
+    assigneeCounts: Record<AssigneeFilter, number>
     bulkAcceptBlockedReason: string | undefined
     bulkAcceptOpen: boolean
     bulkActionRunning: BulkAction | null
@@ -231,6 +239,11 @@ export interface warehouseSuggestionsSectionLogicActions {
 export interface warehouseSuggestionsSectionLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         filtersActive: (filters: SuggestionsSectionFilters) => boolean
+        assigneeCounts: (
+            suggestionGroups: SuggestionGroup[],
+            filters: SuggestionsSectionFilters,
+            user: UserType | null
+        ) => Record<AssigneeFilter, number>
         filteredGroups: (
             suggestionGroups: SuggestionGroup[],
             filters: SuggestionsSectionFilters,
@@ -359,8 +372,25 @@ export const warehouseSuggestionsSectionLogic = kea<warehouseSuggestionsSectionL
     selectors({
         filtersActive: [
             (s) => [s.filters],
-            (filters: SuggestionsSectionFilters): boolean =>
-                filters.kind !== 'any' || filters.assignee !== 'anyone' || filters.subject !== 'any',
+            (filters: SuggestionsSectionFilters): boolean => filters.kind !== 'any' || filters.subject !== 'any',
+        ],
+        assigneeCounts: [
+            (s) => [s.suggestionGroups, s.filters, s.user],
+            (
+                groups: SuggestionGroup[],
+                filters: SuggestionsSectionFilters,
+                user: UserType | null
+            ): Record<AssigneeFilter, number> => {
+                const searched = groups.flatMap((group) =>
+                    group.suggestions.filter((suggestion) => matchesFiltersExceptAssignee(suggestion, filters))
+                )
+                return Object.fromEntries(
+                    ASSIGNEE_FILTERS.map((assignee) => [
+                        assignee,
+                        searched.filter((suggestion) => matchesAssignee(suggestion, assignee, user?.id)).length,
+                    ])
+                ) as Record<AssigneeFilter, number>
+            },
         ],
         filteredGroups: [
             (s) => [s.suggestionGroups, s.filters, s.user],
@@ -368,8 +398,10 @@ export const warehouseSuggestionsSectionLogic = kea<warehouseSuggestionsSectionL
                 groups
                     .map((group) => ({
                         ...group,
-                        suggestions: group.suggestions.filter((suggestion) =>
-                            matchesFilters(suggestion, filters, user?.id)
+                        suggestions: group.suggestions.filter(
+                            (suggestion) =>
+                                matchesFiltersExceptAssignee(suggestion, filters) &&
+                                matchesAssignee(suggestion, filters.assignee, user?.id)
                         ),
                     }))
                     .filter((group) => group.suggestions.length > 0),
