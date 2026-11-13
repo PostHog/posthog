@@ -1,3 +1,4 @@
+import { waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
@@ -674,13 +675,11 @@ describe('projectTreeDataLogic', () => {
         {
             change: 'deleted',
             act: (entry: FileSystemEntry): void => logic.actions.deleteItem(entry, 'test'),
-            settles: 'deleteSavedItem',
             expectedPaths: [] as string[],
         },
         {
             change: 'moved',
             act: (entry: FileSystemEntry): void => logic.actions.moveItem(entry, 'Archive/Flow', true, 'test'),
-            settles: 'movedItem',
             expectedPaths: ['Archive/Flow'],
         },
     ])('shows a file $change while its save refresh is in flight only where it now is', async (testCase) => {
@@ -694,7 +693,10 @@ describe('projectTreeDataLogic', () => {
         server.rename('file1', 'Reports/Flow two')
         server.holdNextRefRead()
         refreshTreeItem('hog_flow', 'flow1')
-        await expectLogic(logic, () => testCase.act(shownFile)).toDispatchActions([testCase.settles])
+        testCase.act(shownFile)
+        await waitFor(() =>
+            expect(logic.values.folders['Reports']?.some((entry) => entry.id === 'file1') ?? false).toBe(false)
+        )
         server.releaseHeldRefRead()
         await expectLogic(logic).toFinishAllListeners()
 
