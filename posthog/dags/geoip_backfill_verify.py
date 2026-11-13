@@ -2,13 +2,15 @@
 
 The job only reads. For each staged team it counts, on every shard:
 
-- `repaired`: staged events whose newest row in `sharded_events` has `$geoip_country_code`.
-- `pending`: staged events whose newest row still has none. Equal to the staged count before a resend.
+- `repaired`: staged events whose newest row in `sharded_events` holds the staged properties.
+- `pending`: staged events whose newest row still matches the staging filter: an `$ip` and no GeoIP.
+  Equal to the staged count before a resend.
+- `changed`: staged events whose newest row is neither, such as an event rewritten after staging.
 - `missing`: staged events with no row left in `sharded_events`, such as events a deletion removed.
 - `duplicate_rows`: extra rows of staged events that a merge has not collapsed yet. A query without
-  FINAL counts each of them as an event, so this is the double count the resend causes.
-- `left_in_windows`: with `windows` set, events written in the windows whose newest row still has an
-  `$ip` and no GeoIP. After a full resend, these are the addresses the MMDB has no record for.
+  FINAL counts each of them as an event. The resend deletes the originals, so this stays 0 after it.
+- `left_in_windows`: with `windows` set, events written in the windows whose newest row still matches
+  the staging filter. After a full resend, these are the addresses the MMDB has no record for.
 
 "Newest" is the row with the highest `_timestamp`, the one the ReplacingMergeTree keeps in a merge.
 """
@@ -35,6 +37,7 @@ from posthog.dags.geoip_backfill import (
     GeoipStagingTable,
     IngestionWindow,
     IngestionWindowConfig,
+    damaged,
     plan_windows,
     staged_team_ids,
     window_query_args,
@@ -44,7 +47,7 @@ from posthog.models.event.sql import EVENTS_DATA_TABLE
 
 GIB = 1024**3
 
-_COUNTERS = ("staged", "repaired", "pending", "missing", "duplicate_rows", "left_in_windows")
+_COUNTERS = ("staged", "repaired", "pending", "changed", "missing", "duplicate_rows", "left_in_windows")
 
 
 class GeoipVerifyConfig(dagster.Config):
@@ -75,19 +78,22 @@ class VerifyPlan:
 def staged_events_query(table: GeoipStagingTable) -> str:
     return f"""
         SELECT
-            team_id,
+            s.team_id,
             count(),
-            countIf(JSONHas(latest_properties, '$geoip_country_code')),
-            sum(copies - 1)
-        FROM (
+            countIf(e.latest_properties = s.properties),
+            countIf({damaged("e.latest_properties")}),
+            sum(e.copies - 1)
+        FROM {table.qualified_name} AS s FINAL
+        INNER JOIN (
             SELECT team_id, uuid, count() AS copies, argMax(properties, _timestamp) AS latest_properties
             FROM {EVENTS_DATA_TABLE()}
             WHERE team_id IN %(team_ids)s
                 AND timestamp >= %(timestamp_from)s AND timestamp <= %(timestamp_to)s
                 AND uuid IN (SELECT uuid FROM {table.qualified_name} WHERE team_id IN %(team_ids)s)
             GROUP BY team_id, uuid
-        )
-        GROUP BY team_id
+        ) AS e ON s.team_id = e.team_id AND s.uuid = e.uuid
+        WHERE s.team_id IN %(team_ids)s
+        GROUP BY s.team_id
     """
 
 
@@ -107,7 +113,7 @@ def left_in_window_query() -> str:
                 )
             GROUP BY team_id, uuid
         )
-        WHERE NOT JSONHas(latest_properties, '$geoip_country_code')
+        WHERE {damaged("latest_properties")}
         GROUP BY team_id
     """
 
@@ -140,7 +146,7 @@ class Verification:
     query_tags: DagsterTags
 
     def run(self) -> dict[str, Counter[int]]:
-        counts: dict[str, Counter[int]] = {name: Counter() for name in _COUNTERS}
+        counts: dict[str, Counter[int]] = {name: Counter() for name in (*_COUNTERS, "found")}
         for team_ids in _chunks(self.plan.team_ids, self.plan.config.team_chunk_size):
             self._count_staged(team_ids, counts)
             for window in self.plan.windows:
@@ -148,8 +154,8 @@ class Verification:
                 for team_id, events in self._on_every_shard(left_in_window_query(), args):
                     counts["left_in_windows"][team_id] += events
         for team_id, staged in counts["staged"].items():
-            found = counts["repaired"][team_id] + counts["pending"][team_id]
-            counts["missing"][team_id] = staged - found
+            counts["missing"][team_id] = staged - counts["found"].pop(team_id, 0)
+        del counts["found"]
         return counts
 
     def _count_staged(self, team_ids: tuple[int, ...], counts: dict[str, Counter[int]]) -> None:
@@ -181,11 +187,13 @@ class Verification:
             "timestamp_from": f"{min(span.timestamp_from for span in staged):%Y-%m-%d %H:%M:%S.%f}",
             "timestamp_to": f"{max(span.timestamp_to for span in staged):%Y-%m-%d %H:%M:%S.%f}",
         }
-        for team_id, events, repaired, duplicate_rows in self._on_every_shard(
+        for team_id, events, repaired, pending, duplicate_rows in self._on_every_shard(
             staged_events_query(self.plan.table), args
         ):
+            counts["found"][team_id] += events
             counts["repaired"][team_id] += repaired
-            counts["pending"][team_id] += events - repaired
+            counts["pending"][team_id] += pending
+            counts["changed"][team_id] += events - repaired - pending
             counts["duplicate_rows"][team_id] += duplicate_rows
 
     def _on_every_shard(self, query: str, args: dict[str, Any]) -> list[tuple[Any, ...]]:
@@ -217,7 +225,7 @@ def verify_geoip_backfill(
         "teams": dagster.MetadataValue.int(len(plan.team_ids)),
         **{name: dagster.MetadataValue.int(total) for name, total in totals.items()},
     }
-    for name in ("pending", "missing", "duplicate_rows", "left_in_windows"):
+    for name in ("pending", "changed", "missing", "duplicate_rows", "left_in_windows"):
         top = Counter({team_id: n for team_id, n in counts[name].items() if n})
         metadata[f"{name}_per_team"] = dagster.MetadataValue.json(
             {str(team_id): n for team_id, n in top.most_common(100)}
@@ -229,5 +237,5 @@ def verify_geoip_backfill(
 
 @dagster.job(tags=OWNER_TAG)
 def geoip_backfill_verify_job() -> None:
-    """Count the staged events that are repaired, pending, missing and duplicated, per team. Reads only."""
+    """Count the staged events that are repaired, pending, changed, missing and duplicated, per team. Reads only."""
     verify_geoip_backfill(plan_geoip_verify())

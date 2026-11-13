@@ -68,22 +68,30 @@ GIB = 1024**3
 # convergence gate does not report it as drift.
 STAGING_TABLE_PREFIX = "tmp_geoip_backfill_"
 
+
 # A successful lookup writes every GeoIP key into `$set`, with null for the missing ones. An event that
 # has neither the property nor the `$set` key therefore never went through a successful lookup.
-_WRITTEN_WITHOUT_GEOIP_FILTER = """
+def without_geoip(properties: str) -> str:
+    """Whether the properties JSON in the `properties` expression has no trace of a successful lookup."""
+    return (
+        f"NOT JSONHas({properties}, '$geoip_country_code') AND NOT JSONHas({properties}, '$set', '$geoip_country_code')"
+    )
+
+
+def damaged(properties: str) -> str:
+    """Whether the properties JSON in the `properties` expression has an address and no GeoIP."""
+    return f"JSONExtractString({properties}, '$ip') != '' AND {without_geoip(properties)}"
+
+
+_WRITTEN_IN_WINDOW = """
     timestamp >= %(event_time_floor)s AND timestamp < %(event_time_ceiling)s
     AND _timestamp >= %(written_from)s AND _timestamp < %(written_until)s
-    AND NOT JSONHas(properties, '$geoip_country_code')
-    AND NOT JSONHas(properties, '$set', '$geoip_country_code')
 """
-AFFECTED_EVENT_FILTER = _WRITTEN_WITHOUT_GEOIP_FILTER + "    AND JSONExtractString(properties, '$ip') != ''\n"
+_WRITTEN_WITHOUT_GEOIP_FILTER = f"{_WRITTEN_IN_WINDOW}    AND {without_geoip('properties')}\n"
+AFFECTED_EVENT_FILTER = f"{_WRITTEN_IN_WINDOW}    AND {damaged('properties')}\n"
 # ClickHouse cannot parse these properties, for example a lone surrogate escape, so the JSON functions in
 # the filters above read nothing and the job never finds such an event.
-_UNREADABLE_PROPERTIES_FILTER = """
-    timestamp >= %(event_time_floor)s AND timestamp < %(event_time_ceiling)s
-    AND _timestamp >= %(written_from)s AND _timestamp < %(written_until)s
-    AND NOT isValidJSON(properties)
-"""
+_UNREADABLE_PROPERTIES_FILTER = f"{_WRITTEN_IN_WINDOW}    AND NOT isValidJSON(properties)\n"
 
 _TEAM_FILTER = " AND team_id IN %(team_ids)s"
 

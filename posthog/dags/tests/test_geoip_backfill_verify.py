@@ -43,7 +43,13 @@ def test_verify_counts_the_staged_events_before_and_after_the_resend(
             written_minutes_ago=30,
             person_properties={},
         )
-        for label, ip in [("damaged", PUBLIC_IP), ("deleted", PUBLIC_IP), ("unknown_address", UNKNOWN_IP)]
+        for label, ip in [
+            ("damaged", PUBLIC_IP),
+            ("deleted", PUBLIC_IP),
+            ("unknown_address", UNKNOWN_IP),
+            # The test DB has only a continent for this address, so the repaired event has no country.
+            ("continent_only", "2a02:d500::1"),
+        ]
     ]
     deleted = events[1]
     seed(cluster, now, events)
@@ -59,20 +65,21 @@ def test_verify_counts_the_staged_events_before_and_after_the_resend(
         after = verify(cluster, staging_run_id, now)
 
         assert before == {
-            "staged": 2,
+            "staged": 3,
             "repaired": 0,
-            "pending": 2,
+            "pending": 3,
+            "changed": 0,
             "missing": 0,
             "duplicate_rows": 0,
-            "left_in_windows": 3,
+            "left_in_windows": 4,
         }
-        # The original of the damaged event stays next to its staged copy until a merge collapses them.
         assert after == {
-            "staged": 2,
-            "repaired": 1,
+            "staged": 3,
+            "repaired": 2,
             "pending": 0,
+            "changed": 0,
             "missing": 1,
-            "duplicate_rows": 1,
+            "duplicate_rows": 0,
             "left_in_windows": 1,
         }
     finally:
