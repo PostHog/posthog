@@ -578,6 +578,15 @@ class ExposureEvents:
 
 
 @frozen
+class EventsBillingLimit:
+    """The organization's billing limit for product analytics, as capture applies it to the project."""
+
+    # When capture stops dropping the project's product analytics events. None when no limit is in force. The limit can
+    # also lift earlier, for example when the organization raises it.
+    ends_at: datetime | None
+
+
+@frozen
 class HealthContext:
     """Every input of the health checks, loaded once, so that each check is a pure function of it."""
 
@@ -615,10 +624,9 @@ class HealthContext:
     # Whether the team has an active flag, which posthog-js needs to request flags on page load. None when not read:
     # it is read only for a draft whose flag has no recorded call.
     team_has_active_flag: bool | None
-    # Whether capture drops the project's events now, because the organization reached its billing limit for events.
-    # None when not read: it is read only for a running experiment without exposures, because a limit in force now
-    # says nothing about an earlier run. Also None when the read fails.
-    events_billing_limited: bool | None
+    # None when not read, and when the read fails. Only the exposure query reads it, and only for a running experiment,
+    # because a limit in force now says nothing about an earlier run.
+    events_billing_limit: EventsBillingLimit | None
     # The baseline set in the experiment's settings. None when unset: the analysis then picks a variant of the flag.
     baseline_variant_key: str | None
     primary_metric_count: int
@@ -847,22 +855,21 @@ def _flag_called_after_end(experiment: Experiment) -> bool | None:
     return None if _flag_calls_unrecorded(experiment) else False
 
 
-def _events_billing_limited(experiment: Experiment) -> bool | None:
+def load_events_billing_limit(team: Team) -> EventsBillingLimit | None:
     # Deferred because ee is optional, and the billing module imports the usage report stack. A build without ee has
     # no billing limits.
     try:
-        from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited  # noqa: PLC0415
+        from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, team_limited_until  # noqa: PLC0415
     except ImportError:
-        return False
+        return EventsBillingLimit(ends_at=None)
     try:
-        return is_team_limited(
-            experiment.team.api_token, QuotaResource.EVENTS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY
-        )
+        ends_at = team_limited_until(team.api_token, QuotaResource.EVENTS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY)
     except Exception as error:
-        # The exposure query builds this context, so a Redis error here would fail the exposure answer for a read
-        # that only explains one finding.
+        # The exposure query reads the limit for its cache key, so a Redis error here would fail the exposure answer
+        # for a read that only explains one finding.
         capture_exception(error)
         return None
+    return EventsBillingLimit(ends_at=ends_at)
 
 
 def _other_experiments_on_flag(experiment: Experiment) -> tuple[ExperimentOnFlag, ...]:
@@ -1164,6 +1171,7 @@ def load_health_context(
     flag_history: FlagHistory | FlagHistoryNotChecked | None = None,
     can_read_flag_history: bool = False,
     can_read_flag_calls: bool = False,
+    events_billing_limit: EventsBillingLimit | None = None,
 ) -> HealthContext:
     links = saved_metric_links(experiment)
     shared_metric_roles = [saved_metric_link_role(link) for link in links]
@@ -1192,11 +1200,7 @@ def load_health_context(
         team_has_active_flag=(
             has_active_flags(experiment.team) if flag_called is False and not experiment.is_launched else None
         ),
-        events_billing_limited=(
-            _events_billing_limited(experiment)
-            if experiment.is_running and exposures is not None and exposures.total == 0
-            else None
-        ),
+        events_billing_limit=events_billing_limit,
         baseline_variant_key=_configured_baseline_variant_key(experiment.stats_config),
         primary_metric_count=len(experiment.metrics or []) + shared_metric_roles.count("primary"),
         secondary_metric_count=len(experiment.metrics_secondary or []) + shared_metric_roles.count("secondary"),

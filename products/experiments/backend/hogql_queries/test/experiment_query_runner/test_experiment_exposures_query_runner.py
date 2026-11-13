@@ -58,6 +58,8 @@ from products.experiments.backend.hogql_queries.test.experiment_query_runner.uti
 from products.experiments.backend.test.utils import patch_exposure_event_flag
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
+from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, add_limited_team_tokens
+
 LEAVES_OUT_TEST_ACCOUNTS = {"key": "email", "value": "@example.com", "operator": "not_icontains", "type": "person"}
 KEEPS_MATCHING_USERS = {"key": "email", "value": "@example.org", "operator": "icontains", "type": "person"}
 HOGQL_FILTER = {"key": "not(person.properties.email ilike '%@example.com')", "type": "hogql"}
@@ -2133,6 +2135,40 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         self.team.save()
 
         self.assertEqual(cache_key() == before, same_key)
+
+    def _limit_events(self, days: int = 1) -> None:
+        add_limited_team_tokens(
+            QuotaResource.EVENTS,
+            {self.team.api_token: int((datetime.now(UTC) + timedelta(days=days)).timestamp())},
+            QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
+        )
+
+    def test_cache_key_follows_the_billing_limit(self) -> None:
+        query = self._running_exposure_query()
+
+        def cache_key() -> str:
+            return ExperimentExposuresQueryRunner(team=self.team, query=query).get_cache_key()
+
+        before = cache_key()
+        with patch("ee.billing.quota_limiting.get_client", side_effect=ConnectionError("Redis is unavailable")):
+            unreadable = cache_key()
+        self._limit_events()
+        limited = cache_key()
+        self._limit_events(days=2)
+
+        self.assertEqual((unreadable == before, limited == before, cache_key() == limited), (True, False, False))
+
+    def test_billing_limit_names_the_cause_of_zero_exposures(self) -> None:
+        query = self._running_exposure_query()
+
+        with time_machine.travel("2024-01-02T01:00:00Z", tick=False):
+            self._limit_events()
+            response = ExperimentExposuresQueryRunner(team=self.team, query=query).calculate()
+
+        self.assertEqual(
+            [(finding.code, finding.subcode) for finding in response.health_findings or []],
+            [(ExperimentExposureHealthFindingCode.BILLING_LIMIT, None)],
+        )
 
     @parameterized.expand(
         [

@@ -7,17 +7,23 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingSeverity,
     ExperimentHealthValueKey,
 )
+from products.experiments.backend.health.checks.billing_limit import billing_limit
 from products.experiments.backend.health.checks.exposure_criteria import exposure_criteria_cannot_match
 from products.experiments.backend.health.context import HealthContext
 from products.experiments.backend.health.delays import LAST_CALLED_AT_LAG, ZERO_EXPOSURES_GRACE_HOURS
-from products.experiments.backend.health.skips import RUNS_AFTER_LAUNCH, CheckOutcome, CheckValues, not_applicable
+from products.experiments.backend.health.skips import (
+    RUNS_AFTER_LAUNCH,
+    CheckOutcome,
+    CheckSkip,
+    CheckValues,
+    not_applicable,
+)
 
 # pinned: the finding's subcodes. The page sends them as `finding_subcode` on the health finding events.
 EXPERIMENT_PAUSED = "experiment_paused"
 FLAG_NOT_CALLED = "flag_not_called"
 CALLS_NOT_COUNTED = "calls_not_counted"
 CUSTOM_EXPOSURE_NOT_MATCHED = "custom_exposure_not_matched"
-BILLING_LIMIT = "billing_limit"
 # pinned: the finding's `reason`.
 TEST_ACCOUNT_FILTER = "test_account_filter"
 
@@ -67,38 +73,10 @@ def zero_exposures(ctx: HealthContext) -> CheckOutcome:
     # deletion.
     if flag is None or flag.deleted:
         return _cause_unknown(evidence, unit, ended=ctx.has_ended)
+    paused_or_limited = _paused_or_billing_limited(ctx, evidence, unit)
+    if paused_or_limited is not None:
+        return paused_or_limited
     events = ctx.exposure_events
-    # A flag that no code called since launch exposes nobody after a resume either, so the missing calls are the cause.
-    never_called = events is not None and events.required_flag_key is not None and ctx.flag_called_during_run is False
-    if ctx.is_paused and not never_called:
-        # Info, because the flag-state check already reports the pause, and a pause needs no fix.
-        return _finding(
-            subcode=EXPERIMENT_PAUSED,
-            severity=ExperimentHealthFindingSeverity.INFO,
-            title=f"No {unit}s exposed: the experiment is paused",
-            detail=(
-                "The experiment is paused, so its feature flag serves no variants and nobody is counted as exposed. "
-                f"Resume the experiment to expose {unit}s."
-            ),
-            evidence=evidence,
-            actions=(),
-        )
-    # A flag call recorded during the run means that capture took events after launch, so the limit began later and
-    # doesn't explain why none of those calls counted.
-    if ctx.events_billing_limited and ctx.flag_called_during_run is not True:
-        return _finding(
-            subcode=BILLING_LIMIT,
-            severity=ExperimentHealthFindingSeverity.WARNING,
-            title=f"No {unit}s exposed: the product analytics limit is reached",
-            detail=(
-                "Your organization reached its billing limit or free tier limit for product analytics, so PostHog "
-                f"drops the events this project sends, including the events that count {unit}s as exposed. Nobody is "
-                "counted until you raise the limit or subscribe on the billing page, or until the next billing period "
-                "starts. PostHog doesn't keep the events it drops, so they can't be counted later."
-            ),
-            evidence=evidence,
-            actions=(),
-        )
     if events is None:
         return _cause_unknown(evidence, unit, ended=ctx.has_ended)
     if events.required_flag_key is None:
@@ -221,6 +199,34 @@ def zero_exposures(ctx: HealthContext) -> CheckOutcome:
             ),
         )
     return _cause_unknown(evidence, unit, ended=ctx.has_ended)
+
+
+def _paused_or_billing_limited(
+    ctx: HealthContext, evidence: dict[str, int | str], unit: str
+) -> ExperimentHealthFinding | CheckSkip | None:
+    """The outcome when a pause or the billing limit explains why nobody is exposed, or None when neither does."""
+    events = ctx.exposure_events
+    # A flag that no code called since launch exposes nobody after a resume either, so the missing calls are the cause.
+    never_called = events is not None and events.required_flag_key is not None and ctx.flag_called_during_run is False
+    if ctx.is_paused and not never_called:
+        # Info, because the flag-state check already reports the pause, and a pause needs no fix.
+        return _finding(
+            subcode=EXPERIMENT_PAUSED,
+            severity=ExperimentHealthFindingSeverity.INFO,
+            title=f"No {unit}s exposed: the experiment is paused",
+            detail=(
+                "The experiment is paused, so its feature flag serves no variants and nobody is counted as exposed. "
+                f"Resume the experiment to expose {unit}s."
+            ),
+            evidence=evidence,
+            actions=(),
+        )
+    # The billing limit check names the limit, and every cause after this would blame the setup. A flag call recorded
+    # during the run means that capture took events after launch, so the limit began later and doesn't explain why
+    # none of those calls counted.
+    if ctx.flag_called_during_run is not True and isinstance(billing_limit(ctx), ExperimentHealthFinding):
+        return not_applicable("The billing limit check reports why no users are exposed")
+    return None
 
 
 def _test_accounts_filtered_out(
