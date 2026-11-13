@@ -179,6 +179,7 @@ export interface SignalReport extends Pick<SignalReportApi, 'monitoring_started_
     personal_tier?: SignalReportListApi['personal_tier']
     /** For the Personalized sort: why the personal ranking put the report where it is. Null when it did not rank the report. */
     personal_reason?: SignalReportListApi['personal_reason']
+    suggested_reviewer_count?: SignalReportListApi['suggested_reviewer_count']
 }
 
 export enum SignalReportStatus {

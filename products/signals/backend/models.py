@@ -2395,6 +2395,21 @@ class SignalReportSuggestedReviewer(TeamScopedRootMixin, UUIDModel):
         verbose_name = "Signal report suggested reviewer"
         verbose_name_plural = "Signal report suggested reviewers"
 
+    @classmethod
+    def counts_by_report(cls, report_ids: list[str], *, team_id: int) -> dict[str, int]:
+        """How many reviewers each report suggests, in one grouped query over the page.
+
+        Reports that suggest nobody are omitted.
+        """
+        if not report_ids:
+            return {}
+        rows = (
+            cls.all_teams.filter(team_id=team_id, report_id__in=report_ids)
+            .values("report_id")
+            .annotate(reviewer_count=models.Count("*"))
+        )
+        return {str(row["report_id"]): row["reviewer_count"] for row in rows}
+
 
 class SignalReportTask(UUIDModel):
     """Legacy task↔report link. Still the auto-start idempotency gate (an `implementation` row),

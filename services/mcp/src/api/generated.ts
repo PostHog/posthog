@@ -80028,6 +80028,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly personal_reason: string | null;
+      /** How many reviewers the report's newest reviewer suggestion names. */
+      readonly suggested_reviewer_count: number;
       /** Progress of the current Monitoring period, for the inbox row. Null unless the report is in Monitoring with open follow-up checks. */
       readonly monitoring_summary: ReportMonitoringSummary | null;
     }

@@ -23,6 +23,7 @@ import { isReportClaimable, reportClaimant } from '../../utils/reportClaim'
 import { reportOwnerKind } from '../../utils/reportFacts'
 import { QuillReportFacts } from '../detail/QuillReportFacts'
 import { useReportResolve } from '../detail/useReportResolve'
+import { useReportCardSelection } from './useReportCardSelection'
 import { useReportDismiss } from './useReportDismiss'
 
 // A row stacks its icons in a column, so more than 2 would make the row taller than its text.
@@ -59,6 +60,9 @@ export const QuillReportRow = memo(function QuillReportRow({
         .slice(0, MAX_ICONS)
         .map(sourceIcon)
 
+    // Hold a row, or Shift-click it, to select it. A click on a row action is not a selection gesture.
+    const { isSelected, cardHandlers } = useReportCardSelection(report.id, open)
+
     const { isDismissing, onDismissClick } = useReportDismiss({
         reportId: report.id,
         cardTitle: title,
@@ -91,7 +95,7 @@ export const QuillReportRow = memo(function QuillReportRow({
         : []
 
     return (
-        <li className="QuillReportRow group/report" data-attr="inbox-report-row">
+        <li className="QuillReportRow group/report" data-selected={isSelected} data-attr="inbox-report-row">
             <span className="QuillReportRow__icons" title={sources.title || sources.line}>
                 {icons.map((icon, index) => (
                     // eslint-disable-next-line react/forbid-dom-props
@@ -100,18 +104,20 @@ export const QuillReportRow = memo(function QuillReportRow({
                     </span>
                 ))}
             </span>
-            <LinkPrimitive
-                to={urls.inboxReport('reports', report.id)}
-                className="QuillReportRow__link"
-                data-attr="inbox-report-row-link"
-            >
-                <span className="QuillReportRow__title">{title}</span>
-                <QuillReportFacts
-                    report={report}
-                    timestampField={timestampField}
-                    className="mt-0.5 flex flex-wrap items-center gap-x-1.5"
-                />
-            </LinkPrimitive>
+            <div className="min-w-0" {...cardHandlers}>
+                <LinkPrimitive
+                    to={urls.inboxReport('reports', report.id)}
+                    className="QuillReportRow__link"
+                    data-attr="inbox-report-row-link"
+                >
+                    <span className="QuillReportRow__title">{title}</span>
+                    <QuillReportFacts
+                        report={report}
+                        timestampField={timestampField}
+                        className="mt-0.5 flex flex-wrap items-center gap-x-1.5"
+                    />
+                </LinkPrimitive>
+            </div>
             <div className="QuillReportRow__end">
                 {!phoneLayout && (
                     <span className="QuillReportRow__actions">

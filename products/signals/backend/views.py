@@ -160,6 +160,7 @@ from products.signals.backend.models import (
     SignalReportCheck,
     SignalReportMonitoringAttempt,
     SignalReportRefund,
+    SignalReportSuggestedReviewer,
     SignalScoutConfig,
     SignalSourceConfig,
     SignalTeamConfig,
@@ -3695,10 +3696,12 @@ class SignalReportViewSet(
                 report_ids, monitoring_enabled=self._report_monitoring_enabled
             )
             live_channel_ids = SignalReportArtefact.live_channel_ids_by_report(report_ids)
+            reviewer_counts = SignalReportSuggestedReviewer.counts_by_report(report_ids, team_id=self.team_id)
             for report in reports:
                 report.__dict__.update(
                     artefact_count=artefact_counts.get(str(report.id), 0),
                     channel_id=live_channel_ids.get(str(report.id)),
+                    suggested_reviewer_count=reviewer_counts.get(str(report.id), 0),
                 )
         claims = get_active_claims(team_id=self.team_id, report_ids=report_ids)
         monitoring_summaries_map: dict[str, ReportMonitoringSummary] = {}

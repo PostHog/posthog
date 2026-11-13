@@ -6,13 +6,11 @@ import { ReactNode, Ref } from 'react'
 import { Button, Skeleton, Text } from '@posthog/quill'
 
 import 'scenes/project-homepage/today/Today.scss'
-import { userLogic } from 'scenes/userLogic'
 
 import { inboxFiltersLogic } from '../../logics/inboxFiltersLogic'
-import { INBOX_SCOPE_ENTIRE_PROJECT } from '../../types'
 import type { MergedReportRow } from '../../utils/flatReportList'
-import { isForYouReport } from '../../utils/reportFacts'
 import { QuillReportRow } from '../cards/QuillReportRow'
+import { QuillInboxBulkSelectionBar } from '../shell/QuillInboxBulkSelectionBar'
 import { QuillInboxFilterChips } from '../shell/QuillInboxFilterChips'
 
 export type QuillReportsListState = 'empty-inbox' | 'loading' | 'failed' | 'no-match' | 'rows'
@@ -72,7 +70,8 @@ function RowsSkeleton({ count }: { count: number }): JSX.Element {
 /** The Quill view of the Reports tab. `ReportsTab` owns the data and the paging, and this only draws them. */
 export function QuillReportsList({
     state,
-    rows,
+    forYou,
+    others,
     totalCount,
     timestampField,
     emptyCopy,
@@ -87,7 +86,9 @@ export function QuillReportsList({
     onRetryPage,
 }: {
     state: QuillReportsListState
-    rows: MergedReportRow[]
+    /** The rows of the "For you" group. Empty when the list is not grouped. */
+    forYou: MergedReportRow[]
+    others: MergedReportRow[]
     /** How many reports the selected states hold on the server, loaded or not. */
     totalCount: number
     timestampField: 'created_at' | 'updated_at'
@@ -102,14 +103,9 @@ export function QuillReportsList({
     onRetry: () => void
     onRetryPage: () => void
 }): JSX.Element {
-    const { user } = useValues(userLogic)
-    const { scope, hasActiveFilters } = useValues(inboxFiltersLogic)
+    const { hasActiveFilters } = useValues(inboxFiltersLogic)
     const { clearFilters } = useActions(inboxFiltersLogic)
-    const myUuid = user?.uuid ?? null
-    // The "For you" group needs the whole project in the list. In a narrower scope every row is one group.
-    const grouped = scope === INBOX_SCOPE_ENTIRE_PROJECT && !hasActiveFilters
-    const forYou = grouped ? rows.filter(({ report }) => isForYouReport(report, myUuid)) : []
-    const others = grouped ? rows.filter(({ report }) => !isForYouReport(report, myUuid)) : rows
+    const rows = [...forYou, ...others]
     const count = Math.max(totalCount, rows.length)
 
     return (
@@ -195,6 +191,7 @@ export function QuillReportsList({
                         {hasMore && <div ref={sentinelRef} className="h-1" aria-hidden />}
                     </div>
                 )}
+                <QuillInboxBulkSelectionBar reports={rows.map(({ report }) => report)} />
             </div>
         </div>
     )
