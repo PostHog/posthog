@@ -3,7 +3,12 @@
 In shadow mode the check records what the browser sent and never changes the login result.
 """
 
+import time
 import hashlib
+from concurrent.futures import (
+    ThreadPoolExecutor,
+    TimeoutError as FuturesTimeoutError,
+)
 from enum import StrEnum
 
 from django.conf import settings
@@ -61,6 +66,14 @@ class TurnstileClientStatus(StrEnum):
     UNKNOWN = "unknown"
     ABSENT = "absent"
 
+
+# The requests timeouts do not cover a DNS lookup, so siteverify runs on a small shared pool and the
+# login waits for it at most SITEVERIFY_DEADLINE_SECONDS. A full queue means the upstream is stuck, so
+# later logins skip the call instead of queuing behind work they already gave up on.
+SITEVERIFY_DEADLINE_SECONDS = 2.0
+SITEVERIFY_MAX_WORKERS = 4
+SITEVERIFY_MAX_QUEUE = SITEVERIFY_MAX_WORKERS * 2
+_SITEVERIFY_EXECUTOR = ThreadPoolExecutor(max_workers=SITEVERIFY_MAX_WORKERS, thread_name_prefix="login-turnstile")
 
 _OUTCOME_BY_SITEVERIFY_RESULT = {
     SiteverifyResult.ACCEPTED: LoginTurnstileOutcome.PASSED,
@@ -157,8 +170,23 @@ def _decide(
         return LoginTurnstileOutcome.SKIPPED_KNOWN_DEVICE, None
     if not token:
         return LoginTurnstileOutcome.NO_TOKEN, None
-    siteverify = verify_login_turnstile_token(token, get_trusted_client_ip(request) or "")
+    siteverify = _verify_with_deadline(token, get_trusted_client_ip(request) or "")
     return _OUTCOME_BY_SITEVERIFY_RESULT[siteverify.result], siteverify
+
+
+def _verify_with_deadline(token: str, remote_ip: str) -> SiteverifyOutcome:
+    if _SITEVERIFY_EXECUTOR._work_queue.qsize() >= SITEVERIFY_MAX_QUEUE:
+        return SiteverifyOutcome(result=SiteverifyResult.UNAVAILABLE, error_codes=("verify-queue-full",))
+    start = time.perf_counter()
+    future = _SITEVERIFY_EXECUTOR.submit(verify_login_turnstile_token, token, remote_ip)
+    try:
+        return future.result(timeout=SITEVERIFY_DEADLINE_SECONDS)
+    except FuturesTimeoutError:
+        return SiteverifyOutcome(
+            result=SiteverifyResult.UNAVAILABLE,
+            error_codes=("deadline-exceeded",),
+            duration_seconds=time.perf_counter() - start,
+        )
 
 
 def _hash(value: str) -> str:

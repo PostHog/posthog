@@ -1,4 +1,6 @@
+import time
 import logging
+import threading
 from typing import Literal
 
 from posthog.test.base import BaseTest
@@ -175,6 +177,41 @@ class TestLoginChallenge(BaseTest):
 
         assert _decisions("no_token", recorded) == before + 1
         assert capture.call_args.kwargs["properties"]["client_status"] == recorded
+
+    def test_a_stalled_siteverify_gives_up_at_the_deadline(self):
+        release = threading.Event()
+
+        def stalled_verify(token: str, remote_ip: str) -> SiteverifyOutcome:
+            release.wait(5)
+            return SiteverifyOutcome(result=SiteverifyResult.ACCEPTED, duration_seconds=5.0)
+
+        start = time.monotonic()
+        try:
+            with (
+                override_instance_config("LOGIN_TURNSTILE_MODE", "shadow"),
+                patch("posthog.login_challenge.SITEVERIFY_DEADLINE_SECONDS", 0.05),
+                patch("posthog.login_challenge.verify_login_turnstile_token", stalled_verify),
+                patch("posthog.login_challenge.posthoganalytics.capture") as capture,
+            ):
+                outcome = self._record(_request(), token="tok", client_status="token")
+        finally:
+            release.set()
+
+        assert outcome == LoginTurnstileOutcome.VERIFY_UNAVAILABLE
+        assert time.monotonic() - start < 2
+        assert capture.call_args.kwargs["properties"]["outcome"] == "verify_unavailable"
+
+    def test_a_full_siteverify_queue_gives_up_without_a_call(self):
+        with (
+            override_instance_config("LOGIN_TURNSTILE_MODE", "shadow"),
+            patch("posthog.login_challenge.SITEVERIFY_MAX_QUEUE", 0),
+            patch("posthog.login_challenge.verify_login_turnstile_token") as verify,
+            patch("posthog.login_challenge.posthoganalytics.capture"),
+        ):
+            outcome = self._record(_request(), token="tok", client_status="token")
+
+        assert outcome == LoginTurnstileOutcome.VERIFY_UNAVAILABLE
+        verify.assert_not_called()
 
     def test_unexpected_error_returns_error_outcome(self):
         with (
