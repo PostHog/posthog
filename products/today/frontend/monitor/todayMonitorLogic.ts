@@ -5,7 +5,7 @@ import posthog from 'posthog-js'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 
-import { HrefPin, hrefPinsFromShortcuts } from '~/layout/today/sidebar/hrefPins'
+import { HrefPin, hrefPinsFromShortcuts, unpinnedRecents } from '~/layout/today/sidebar/hrefPins'
 import { sidebarPinsLogic } from '~/layout/today/sidebar/sidebarPinsLogic'
 import {
     MonitorProduct,
@@ -15,10 +15,10 @@ import {
     TodayMonitorRecentType,
     monitorItems,
     monitorProductForPath,
-    monitorRecentRowKey,
 } from '~/layout/today/todayMonitor'
-import { todayMonitorRecentsLogic } from '~/layout/today/todayMonitorRecentsLogic'
 import { matchesPaneQuery } from '~/layout/today/todayPaneSearch'
+import { TodayRecent, recentRowKey } from '~/layout/today/todayRecents'
+import { todayRecentsLogic } from '~/layout/today/todayRecentsLogic'
 import { TODAY_USER_PERSIST_OPTIONS } from '~/layout/today/todayUserPersistOptions'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
@@ -27,11 +27,11 @@ export type TodayMonitorSection = 'pinned' | 'recents' | 'products'
 
 export function activeMonitorRow(
     pathname: string,
-    currentRecent: TodayMonitorRecent | null,
+    currentRecent: TodayRecent | null,
     rows: Pick<TodayMonitorRecent, 'href'>[]
 ): string | null {
     if (currentRecent && rows.some((row) => row.href === currentRecent.href)) {
-        return monitorRecentRowKey(currentRecent.href)
+        return recentRowKey(currentRecent.href)
     }
     const product = monitorProductForPath(removeProjectIdIfPresent(pathname))
     return product ? `product:${product.key}` : null
@@ -46,8 +46,8 @@ export interface todayMonitorLogicValues {
         hash: string
     } // router
     shortcutData: FileSystemEntry[] // sidebarPinsLogic
-    currentRecent: TodayMonitorRecent | null // todayMonitorRecentsLogic
-    recentRows: TodayMonitorRecent[] // todayMonitorRecentsLogic
+    currentRecent: TodayRecent | null // todayRecentsLogic
+    monitorRecentRows: TodayMonitorRecent[] // todayRecentsLogic
     activeRow: string | null
     collapsedSections: TodayMonitorSection[]
     isSearching: boolean
@@ -79,12 +79,12 @@ export interface todayMonitorLogicMeta {
         matchingProducts: (products: MonitorProducts, searchQuery: string) => MonitorProduct[]
         pinnedRows: (shortcutData: FileSystemEntry[]) => HrefPin<TodayMonitorRecentType>[]
         matchingPinnedRows: (
-            pinnedRows: HrefPin<'error_tracking_issue' | 'logs_view'>[],
+            pinnedRows: HrefPin<'error_tracking_issue' | 'logs_view' | 'trace'>[],
             searchQuery: string
         ) => HrefPin<TodayMonitorRecentType>[]
         matchingRecentRows: (
-            recentRows: TodayMonitorRecent[],
-            pinnedRows: HrefPin<'error_tracking_issue' | 'logs_view'>[],
+            monitorRecentRows: any,
+            pinnedRows: HrefPin<'error_tracking_issue' | 'logs_view' | 'trace'>[],
             searchQuery: string
         ) => TodayMonitorRecent[]
         activeRow: (
@@ -94,8 +94,8 @@ export interface todayMonitorLogicMeta {
                 search: string
             },
             currentRecent: TodayMonitorRecent | null,
-            pinnedRows: HrefPin<'error_tracking_issue' | 'logs_view'>[],
-            recentRows: TodayMonitorRecent[]
+            pinnedRows: HrefPin<'error_tracking_issue' | 'logs_view' | 'trace'>[],
+            monitorRecentRows: any
         ) => string | null
         isSearching: (searchQuery: string) => boolean
         isSectionOpen: (
@@ -122,8 +122,8 @@ export const todayMonitorLogic = kea<todayMonitorLogicType>([
             ['location'],
             sidebarPinsLogic,
             ['shortcutData'],
-            todayMonitorRecentsLogic,
-            ['currentRecent', 'recentRows'],
+            todayRecentsLogic,
+            ['currentRecent', 'monitorRecentRows'],
         ],
     })),
     actions({
@@ -164,28 +164,26 @@ export const todayMonitorLogic = kea<todayMonitorLogicType>([
             (pinnedRows: HrefPin<TodayMonitorRecentType>[], searchQuery: string): HrefPin<TodayMonitorRecentType>[] =>
                 pinnedRows.filter((pin) => matchesPaneQuery(pin.name, searchQuery)),
         ],
-        // A pinned issue or view shows once, under Pinned, so its row value stays unique on the keyboard path.
         matchingRecentRows: [
-            (s) => [s.recentRows, s.pinnedRows, s.searchQuery],
+            (s) => [s.monitorRecentRows, s.pinnedRows, s.searchQuery],
             (
-                recentRows: TodayMonitorRecent[],
+                monitorRecentRows: TodayMonitorRecent[],
                 pinnedRows: HrefPin<TodayMonitorRecentType>[],
                 searchQuery: string
-            ): TodayMonitorRecent[] => {
-                const pinnedHrefs = new Set(pinnedRows.map((pin) => pin.href))
-                return recentRows.filter(
-                    (recent) => !pinnedHrefs.has(recent.href) && matchesPaneQuery(recent.name, searchQuery)
-                )
-            },
+            ): TodayMonitorRecent[] =>
+                unpinnedRecents(monitorRecentRows, pinnedRows).filter((recent) =>
+                    matchesPaneQuery(recent.name, searchQuery)
+                ),
         ],
         activeRow: [
-            (s) => [s.location, s.currentRecent, s.pinnedRows, s.recentRows],
+            (s) => [s.location, s.currentRecent, s.pinnedRows, s.monitorRecentRows],
             (
                 location: { pathname: string },
-                currentRecent: TodayMonitorRecent | null,
+                currentRecent: TodayRecent | null,
                 pinnedRows: HrefPin<TodayMonitorRecentType>[],
-                recentRows: TodayMonitorRecent[]
-            ): string | null => activeMonitorRow(location.pathname, currentRecent, [...pinnedRows, ...recentRows]),
+                monitorRecentRows: TodayMonitorRecent[]
+            ): string | null =>
+                activeMonitorRow(location.pathname, currentRecent, [...pinnedRows, ...monitorRecentRows]),
         ],
         isSearching: [(s) => [s.searchQuery], (searchQuery: string): boolean => searchQuery.trim() !== ''],
         /** A search opens every section, so no match hides in a collapsed one. */

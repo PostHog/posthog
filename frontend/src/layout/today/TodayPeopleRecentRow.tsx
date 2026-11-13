@@ -1,7 +1,8 @@
 import { IconBuilding, IconPeople, IconPerson, IconSupport } from '@posthog/icons'
 
-import { TodayPeopleRecent, TodayPeopleRecentType, peopleRecentRowKey } from './todayPeople'
+import { TodayPeopleRecent, TodayPeopleRecentType } from './todayPeople'
 import { TodayRecentRow } from './TodayRecentRow'
+import { recentRowKey } from './todayRecents'
 
 const RECENT_ICONS: Record<TodayPeopleRecentType, JSX.Element> = {
     person: <IconPerson />,
@@ -30,7 +31,7 @@ export function TodayPeopleRecentRow({
 }): JSX.Element {
     return (
         <TodayRecentRow
-            value={peopleRecentRowKey(recent.href)}
+            value={recentRowKey(recent.href)}
             name={recent.name}
             href={recent.href}
             icon={RECENT_ICONS[recent.type]}

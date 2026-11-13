@@ -19,13 +19,13 @@ describe('cohortSceneLogic', () => {
         const logic = cohortSceneLogic({ id: 5 })
         logic.mount()
 
-        expect(logic.values.todayPeopleRecent).toEqual({ type: 'cohort', name: 'Churned', href: urls.cohort(5) })
+        expect(logic.values.todayRecent).toEqual({ type: 'cohort', name: 'Churned', href: urls.cohort(5) })
     })
 
     it('gives no recent for a new cohort', () => {
         const logic = cohortSceneLogic({ id: 'new' })
         logic.mount()
 
-        expect(logic.values.todayPeopleRecent).toBeNull()
+        expect(logic.values.todayRecent).toBeNull()
     })
 })

@@ -1,9 +1,6 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { FilterLogicalOperator } from '~/types'
@@ -267,30 +264,14 @@ describe('logsSceneLogic', () => {
     })
 
     describe('savedView link', () => {
-        const setMonitorArea = (enabled: boolean): void => {
-            const flags = { [FEATURE_FLAGS.TODAY_RAIL_NAV]: true, [FEATURE_FLAGS.MONITOR_AREA]: enabled }
-            featureFlagLogic.actions.setFeatureFlags(Object.keys(flags), flags)
-        }
-
-        it('is ignored without monitor-area', async () => {
-            setMonitorArea(false)
-            await expectLogic(logic, () => {
-                router.actions.push('/logs', { savedView: 'abc123' })
-            }).toFinishAllListeners()
-
-            expect(logic.values.filters.searchTerm).toEqual('')
-            expect(logic.values.todayMonitorRecent).toBeNull()
-        })
-
         it('opens the saved view, keeps it in the link, and drops it when the link no longer names it', async () => {
-            setMonitorArea(true)
             await expectLogic(logic, () => {
                 router.actions.push('/logs', { savedView: 'abc123' })
             }).toFinishAllListeners()
 
             expect(logic.values.filters.searchTerm).toEqual('timeout')
             expect(router.values.searchParams).toHaveProperty('savedView', 'abc123')
-            expect(logic.values.todayMonitorRecent).toEqual({
+            expect(logic.values.todayRecent).toEqual({
                 type: 'logs_view',
                 name: 'Checkout timeouts',
                 href: '/logs?savedView=abc123',
@@ -302,7 +283,7 @@ describe('logsSceneLogic', () => {
                 router.actions.push('/logs')
             }).toFinishAllListeners()
 
-            expect(logic.values.todayMonitorRecent).toBeNull()
+            expect(logic.values.todayRecent).toBeNull()
         })
     })
 

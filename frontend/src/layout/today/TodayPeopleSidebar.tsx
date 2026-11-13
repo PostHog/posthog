@@ -5,14 +5,14 @@ import { useActions, useValues } from 'kea'
 import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
 
 import { customNavCountRegistry } from '~/layout/panel-layout/ProjectTree/customIconRegistry'
-import { SidebarRowEnter } from '~/layout/today/sidebar/SidebarRowEnter'
 import { SidebarSearchList } from '~/layout/today/sidebar/SidebarSearchList'
 import { SidebarSection } from '~/layout/today/sidebar/SidebarSection'
 
-import { peopleRecentRowKey } from './todayPeople'
 import { TodayPeopleRow, TodayPeopleRowKey, todayPeopleLogic } from './todayPeopleLogic'
 import { TodayPeopleNavRow } from './TodayPeopleNavRow'
 import { TodayPeopleRecentRow } from './TodayPeopleRecentRow'
+import { TodayPinnedRecentSections } from './TodayPinnedRecentSections'
+import { recentRowKey } from './todayRecents'
 
 function rowMeta(key: TodayPeopleRowKey, counts: Partial<Record<TodayPeopleRowKey, number>>): string | undefined {
     const count = counts[key]
@@ -61,46 +61,23 @@ export function TodayPeopleSidebar(): JSX.Element {
                         Nothing in People matches your search.
                     </div>
                 )}
-                {matchingPinnedRows.length > 0 && (
-                    <SidebarSection
-                        label="Pinned"
-                        open={isSectionOpen('pinned')}
-                        count={matchingPinnedRows.length}
-                        showCount={false}
-                        onToggle={() => toggleSection('pinned')}
-                        divider
-                        dataAttr="people-section-pinned"
-                    >
-                        {matchingPinnedRows.map((pin) => (
-                            <SidebarRowEnter key={pin.key} pinKey={pin.key}>
-                                <TodayPeopleRecentRow
-                                    recent={pin}
-                                    active={activeRow === peopleRecentRowKey(pin.href)}
-                                    dataAttr="people-sidebar-pinned"
-                                />
-                            </SidebarRowEnter>
-                        ))}
-                    </SidebarSection>
-                )}
-                {matchingRecentRows.length > 0 && (
-                    <SidebarSection
-                        label="Recents"
-                        open={isSectionOpen('recents')}
-                        count={matchingRecentRows.length}
-                        showCount={false}
-                        onToggle={() => toggleSection('recents')}
-                        divider
-                        dataAttr="people-section-recents"
-                    >
-                        {matchingRecentRows.map((recent) => (
-                            <TodayPeopleRecentRow
-                                key={recent.href}
-                                recent={recent}
-                                active={activeRow === peopleRecentRowKey(recent.href)}
-                            />
-                        ))}
-                    </SidebarSection>
-                )}
+                <TodayPinnedRecentSections
+                    pins={matchingPinnedRows}
+                    recents={matchingRecentRows}
+                    renderPin={(pin) => (
+                        <TodayPeopleRecentRow
+                            recent={pin}
+                            active={activeRow === recentRowKey(pin.href)}
+                            dataAttr="people-sidebar-pinned"
+                        />
+                    )}
+                    renderRecent={(recent) => (
+                        <TodayPeopleRecentRow recent={recent} active={activeRow === recentRowKey(recent.href)} />
+                    )}
+                    isSectionOpen={isSectionOpen}
+                    onToggleSection={toggleSection}
+                    dataAttrPrefix="people"
+                />
                 {rowSections.map((section) => (
                     <SidebarSection
                         key={section.key}

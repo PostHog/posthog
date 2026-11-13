@@ -1,15 +1,15 @@
 import { useActions, useValues } from 'kea'
 
-import { SidebarRowEnter } from '~/layout/today/sidebar/SidebarRowEnter'
 import { SidebarSearchList } from '~/layout/today/sidebar/SidebarSearchList'
 import { SidebarSection } from '~/layout/today/sidebar/SidebarSection'
-import { monitorRecentRowKey } from '~/layout/today/todayMonitor'
+import { TodayPinnedRecentSections } from '~/layout/today/TodayPinnedRecentSections'
+import { recentRowKey } from '~/layout/today/todayRecents'
 
 import { todayMonitorLogic } from './todayMonitorLogic'
 import { TodayMonitorProductRow } from './TodayMonitorProductRow'
 import { TodayMonitorRecentRow } from './TodayMonitorRecentRow'
 
-/** The Monitor sub-nav: the tools engineers start from, their pinned and recent issues and log views, then products. */
+/** The Monitor sub-nav: the tools engineers start from, their pinned and recent issues, log views and traces, then AI products. */
 export function TodayMonitorSidebar(): JSX.Element {
     const {
         matchingTools,
@@ -55,50 +55,30 @@ export function TodayMonitorSidebar(): JSX.Element {
                         Nothing in Monitor matches your search.
                     </div>
                 )}
-                {matchingPinnedRows.length > 0 && (
-                    <SidebarSection
-                        label="Pinned"
-                        open={isSectionOpen('pinned')}
-                        count={matchingPinnedRows.length}
-                        showCount={false}
-                        onToggle={() => toggleSection('pinned')}
-                        divider
-                        dataAttr="monitor-section-pinned"
-                    >
-                        {matchingPinnedRows.map((pin) => (
-                            <SidebarRowEnter key={pin.key} pinKey={pin.key}>
-                                <TodayMonitorRecentRow
-                                    recent={pin}
-                                    active={activeRow === monitorRecentRowKey(pin.href)}
-                                    dataAttr="monitor-sidebar-pinned"
-                                />
-                            </SidebarRowEnter>
-                        ))}
-                    </SidebarSection>
-                )}
-                {matchingRecentRows.length > 0 && (
-                    <SidebarSection
-                        label="Recents"
-                        open={isSectionOpen('recents')}
-                        count={matchingRecentRows.length}
-                        showCount={false}
-                        onToggle={() => toggleSection('recents')}
-                        divider
-                        dataAttr="monitor-section-recents"
-                    >
-                        {matchingRecentRows.map((recent) => (
-                            <TodayMonitorRecentRow
-                                key={recent.href}
-                                recent={recent}
-                                active={activeRow === monitorRecentRowKey(recent.href)}
-                                dataAttr="monitor-sidebar-recent"
-                            />
-                        ))}
-                    </SidebarSection>
-                )}
+                <TodayPinnedRecentSections
+                    pins={matchingPinnedRows}
+                    recents={matchingRecentRows}
+                    renderPin={(pin) => (
+                        <TodayMonitorRecentRow
+                            recent={pin}
+                            active={activeRow === recentRowKey(pin.href)}
+                            dataAttr="monitor-sidebar-pinned"
+                        />
+                    )}
+                    renderRecent={(recent) => (
+                        <TodayMonitorRecentRow
+                            recent={recent}
+                            active={activeRow === recentRowKey(recent.href)}
+                            dataAttr="monitor-sidebar-recent"
+                        />
+                    )}
+                    isSectionOpen={isSectionOpen}
+                    onToggleSection={toggleSection}
+                    dataAttrPrefix="monitor"
+                />
                 {matchingProducts.length > 0 && (
                     <SidebarSection
-                        label="Products"
+                        label="AI"
                         open={isSectionOpen('products')}
                         count={matchingProducts.length}
                         showCount={false}

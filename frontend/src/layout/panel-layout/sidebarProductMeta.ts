@@ -57,7 +57,6 @@ const descriptions: Record<string, string> = {
         'Send events from PostHog to the tools that need them. Connect product activity with the rest of your workflows.',
     Transformations:
         'Reshape incoming events before they reach your analyses. Keep event names and properties consistent across your tracking.',
-    Scouts: 'Agents that check your project on a schedule. Each one looks for a kind of problem and reports what it finds to your inbox.',
     Models: 'Turn SQL queries into reusable views and materialized views. Build on shared data models instead of repeating the same preparation in every analysis.',
 }
 
@@ -134,7 +133,6 @@ const examples: Record<string, string> = {
     Toolbar: 'Inspect elements on your website while setting up tracking.',
     Tracing: 'Follow a slow request across services to find the bottleneck.',
     'Uptime monitoring': 'Check whether your checkout page stayed up overnight.',
-    Scouts: 'Read what a scout found in your project overnight.',
     'Visual review': 'Review visual changes before they reach users.',
     'Web scripts': 'Add a website tag without changing your application code.',
     Wizard: 'Review the code changes an agent prepares to set up PostHog.',

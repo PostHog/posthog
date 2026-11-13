@@ -45,7 +45,7 @@ describe('groupLogic todayPeopleRecent', () => {
     it('gives the loaded group as a People recent', () => {
         const logic = groupLogic({ groupTypeIndex: 0, groupKey: 'acme' })
         logic.mount()
-        expect(logic.values.todayPeopleRecent).toBeNull()
+        expect(logic.values.todayRecent).toBeNull()
 
         logic.actions.loadGroupSuccess({
             group_type_index: 0,
@@ -55,7 +55,7 @@ describe('groupLogic todayPeopleRecent', () => {
             notebook: null,
         })
 
-        expect(logic.values.todayPeopleRecent).toEqual({
+        expect(logic.values.todayRecent).toEqual({
             type: 'group',
             name: 'Acme Inc',
             href: urls.group('0', 'acme'),

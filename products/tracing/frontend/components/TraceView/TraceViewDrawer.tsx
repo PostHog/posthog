@@ -22,6 +22,7 @@ export interface TraceViewDrawerProps {
     isFullscreen: boolean
     onToggleFullscreen: () => void
     shortcuts: React.ReactNode
+    titleAction?: React.ReactNode
     headerActions?: React.ReactNode
     footerActions?: React.ReactNode
     /** Draw over other modals and popovers, for a drawer opened from inside one. */
@@ -40,6 +41,7 @@ export function TraceViewDrawer({
     isFullscreen,
     onToggleFullscreen,
     shortcuts,
+    titleAction,
     headerActions,
     footerActions,
     forceAbovePopovers = false,
@@ -60,7 +62,12 @@ export function TraceViewDrawer({
             resizerLogicKey="trace-view-drawer"
             forceAbovePopovers={forceAbovePopovers}
             data-attr={dataAttr}
-            title={<span translate="no">{summary.rootSpan?.name ?? 'Trace'}</span>}
+            title={
+                <span className="flex items-center gap-1">
+                    <span translate="no">{summary.rootSpan?.name ?? 'Trace'}</span>
+                    {titleAction}
+                </span>
+            }
             description={
                 <div className="flex flex-wrap items-center gap-2">
                     <span className="font-mono text-xs" translate="no">

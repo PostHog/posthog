@@ -34,3 +34,9 @@ export function hrefPinsFromShortcuts<T extends string>(
     }
     return [...pins.values()]
 }
+
+/** The recents that are not pinned. A pinned record shows once, under Pinned, so its row value stays unique on the keyboard path. */
+export function unpinnedRecents<R extends { href: string }>(recents: R[], pins: { href: string }[]): R[] {
+    const pinnedHrefs = new Set(pins.map((pin) => pin.href))
+    return recents.filter((recent) => !pinnedHrefs.has(recent.href))
+}
