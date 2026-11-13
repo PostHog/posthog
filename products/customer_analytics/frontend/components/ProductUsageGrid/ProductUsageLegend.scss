@@ -1,0 +1,34 @@
+.ProductUsageLegend {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    container-type: inline-size;
+
+    &__grouping {
+        display: flex;
+        flex: 0 0 100px;
+        flex-direction: column;
+        gap: 2px;
+    }
+
+    > .DotMatrix__legend {
+        flex: 1;
+        min-width: 0;
+        padding: 0;
+    }
+}
+
+@container (max-width: 600px) {
+    .ProductUsageLegend__grouping {
+        flex-basis: auto;
+    }
+
+    .ProductUsageLegend > .DotMatrix__legend .DotMatrix__legend-row {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .ProductUsageLegend > .DotMatrix__legend .DotMatrix__legend-group {
+        flex-basis: auto;
+    }
+}

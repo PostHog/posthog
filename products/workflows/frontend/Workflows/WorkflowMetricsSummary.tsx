@@ -5,7 +5,7 @@ import { IconArrowRight, IconLetter, IconNotification } from '@posthog/icons'
 import { LemonLabel, LemonTable, LemonTableColumns, LemonTag, Link, SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { getColorVar } from 'lib/colors'
-import { type AppMetricsTimeSeriesResponse, appMetricsLogic } from 'lib/components/AppMetrics/appMetricsLogic'
+import { appMetricsLogic } from 'lib/components/AppMetrics/appMetricsLogic'
 import { AppMetricsTrends } from 'lib/components/AppMetrics/AppMetricsTrends'
 import { type ExpandableConfig } from 'lib/lemon-ui/LemonTable'
 import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
@@ -14,7 +14,7 @@ import { EmailMetricsIncidentBanner } from '../EmailMetricsIncidentBanner'
 import { EmailLinksTable } from './EmailLinksTable'
 import { WorkflowMetricCard } from './WorkflowMetricCard'
 import {
-    type EmailMetric,
+    EMAIL_METRIC_INVOCATION_FILTERS,
     type EmailMetricName,
     type EmailMetricRow,
     METRIC_COLORS,
@@ -29,7 +29,7 @@ const TRACKED_SENDS_TOOLTIP =
     'Untracked sends can never record opens or clicks, so engagement is shown against tracked sends (sent minus untracked). Counts and rates compare activity within the selected date range, so opens of emails sent before the range can push a rate above 100%.'
 
 const ISSUE_RATES_TOOLTIP =
-    'Bounces and spam complaints are shown as a share of emails sent. A prevented bounce, a send with no email address, or a frequency-capped send is skipped before it is sent, so it is shown as a share of every send the step attempted (sent plus skipped).'
+    'Bounces and spam complaints are shown as a share of emails sent. A prevented bounce, a send with no email address, a frequency-capped send, or a send blocked by the sandbox sender is skipped before it is sent, so it is shown as a share of every send the step attempted (sent plus skipped). The sandbox sender blocks a send that fails one of its checks, such as a recipient who is not a member of your organization.'
 
 // Opens and clicks are only possible on tracked sends, so pair the raw count with the denominator it
 // should be read against, plus the rate over that denominator. A step with no tracked sends shows a
@@ -81,6 +81,7 @@ export function WorkflowMetricsSummary({
         hasConversionGoal,
         messagingChannels,
         sentSummaryLabel,
+        getSentSummarySeries,
     } = useValues(workflowMetricsSummaryLogic(props))
     const { getDateRangeAbsolute } = useValues(appMetricsLogic({ logicKey: props.logicKey }))
     const { dateFrom, dateTo } = getDateRangeAbsolute()
@@ -102,7 +103,9 @@ export function WorkflowMetricsSummary({
             {
                 title: 'Step',
                 key: 'step',
-                render: (_, row) => <span className="font-medium">{row.email}</span>,
+                render: (_, row) => (
+                    <span className={row.removed ? 'font-medium text-muted' : 'font-medium'}>{row.email}</span>
+                ),
             },
             { title: 'Sent', key: 'sent', align: 'right', render: (_, row) => row.sent.toLocaleString() },
             {
@@ -130,10 +133,8 @@ export function WorkflowMetricsSummary({
                 key: 'issues',
                 tooltip: ISSUE_RATES_TOOLTIP,
                 render: (_, row) => {
-                    // A prevented bounce, a missing recipient, or a frequency-capped send is skipped
-                    // before the provider sees it, so none is part of `sent` and their rates read
-                    // against everything the step attempted to send.
-                    const attempted = row.sent + row.bouncePrevented + row.missingRecipient + row.frequencyCapped
+                    const attempted =
+                        row.sent + row.bouncePrevented + row.missingRecipient + row.frequencyCapped + row.sandboxBlocked
                     const classifiedBounces = row.bouncedHard + row.bouncedSoft + row.bouncedUnknown
                     const bounceIssues: { label: string; value: number; metric: EmailMetricName }[] = [
                         { label: 'hard bounced', value: row.bouncedHard, metric: 'email_bounced_hard' },
@@ -151,7 +152,13 @@ export function WorkflowMetricsSummary({
                             metric: 'email_bounced',
                         },
                     ]
-                    const issues = [
+                    const allIssues: {
+                        label: string
+                        value: number
+                        total: number
+                        type: 'danger' | 'warning'
+                        metric: EmailMetricName
+                    }[] = [
                         ...bounceIssues.map((bounce) => ({
                             ...bounce,
                             total: row.sent,
@@ -161,47 +168,58 @@ export function WorkflowMetricsSummary({
                             label: 'marked as spam',
                             value: row.markedAsSpam,
                             total: row.sent,
-                            type: 'danger' as const,
-                            metric: 'email_blocked' as EmailMetric,
+                            type: 'danger',
+                            metric: 'email_blocked',
                         },
                         {
                             label: 'bounce prevented',
                             value: row.bouncePrevented,
                             total: attempted,
-                            type: 'warning' as const,
-                            metric: 'email_bounce_prevented' as EmailMetric,
+                            type: 'warning',
+                            metric: 'email_bounce_prevented',
                         },
                         {
                             label: 'no email address',
                             value: row.missingRecipient,
                             total: attempted,
-                            type: 'warning' as const,
-                            metric: 'email_missing_recipient' as EmailMetric,
+                            type: 'warning',
+                            metric: 'email_missing_recipient',
                         },
                         {
                             label: 'frequency capped',
                             value: row.frequencyCapped,
                             total: attempted,
-                            type: 'warning' as const,
-                            metric: 'message_frequency_capped' as EmailMetric,
+                            type: 'warning',
+                            metric: 'message_frequency_capped',
                         },
-                    ].filter((issue) => issue.value > 0)
+                        {
+                            label: 'blocked by sandbox sender',
+                            value: row.sandboxBlocked,
+                            total: attempted,
+                            type: 'warning',
+                            metric: 'email_sandbox_blocked',
+                        },
+                    ]
+                    const issues = allIssues.filter((issue) => issue.value > 0)
                     if (issues.length === 0) {
                         return <span className="text-muted">—</span>
                     }
                     return (
                         <div className="flex flex-wrap gap-1">
-                            {issues.map((issue) => (
-                                <LemonTag
-                                    key={issue.label}
-                                    type={issue.type}
-                                    onClick={onMetricClick ? () => onMetricClick(issue.metric) : undefined}
-                                    forceClickable={!!onMetricClick}
-                                >
-                                    {issue.value.toLocaleString()} {issue.label}
-                                    {issue.total > 0 ? ` (${percentage(issue.value / issue.total, 1)})` : ''}
-                                </LemonTag>
-                            ))}
+                            {issues.map((issue) => {
+                                const canDrillDown = !!onMetricClick && !!EMAIL_METRIC_INVOCATION_FILTERS[issue.metric]
+                                return (
+                                    <LemonTag
+                                        key={issue.label}
+                                        type={issue.type}
+                                        onClick={canDrillDown ? () => onMetricClick(issue.metric) : undefined}
+                                        forceClickable={canDrillDown}
+                                    >
+                                        {issue.value.toLocaleString()} {issue.label}
+                                        {issue.total > 0 ? ` (${percentage(issue.value / issue.total, 1)})` : ''}
+                                    </LemonTag>
+                                )
+                            })}
                         </div>
                     )
                 },
@@ -212,7 +230,7 @@ export function WorkflowMetricsSummary({
                           title: '',
                           key: 'view',
                           align: 'right' as const,
-                          render: (_: unknown, row: EmailMetricRow) => viewMetricsColumn(row.id),
+                          render: (_: unknown, row: EmailMetricRow) => (row.removed ? null : viewMetricsColumn(row.id)),
                       },
                   ]
                 : []),
@@ -291,39 +309,14 @@ export function WorkflowMetricsSummary({
                             : isSent && hasPush
                               ? 'Total number of push notifications attempted to be sent by this workflow'
                               : metric.description
-                    const sentSeries = (previous?: boolean): AppMetricsTimeSeriesResponse | null => {
-                        if (hasEmail && hasPush) {
-                            // Split the combined "Messages sent" tile into Emails + Push lines. The headline
-                            // number stays their sum (the metric card totals across series); the sparkline
-                            // and its tooltip break the total down by channel.
-                            const emailSeries = getSingleTrendSeries('email_sent', previous)
-                            const pushSeries = getSingleTrendSeries('push_sent', previous)
-                            const source = emailSeries ?? pushSeries
-                            if (!source) {
-                                return null
-                            }
-                            return {
-                                ...source,
-                                series: [
-                                    { name: 'Emails sent', values: emailSeries?.series[0]?.values ?? [] },
-                                    { name: 'Push notifications sent', values: pushSeries?.series[0]?.values ?? [] },
-                                ],
-                            }
-                        }
-                        return withDisplayName(
-                            getSingleTrendSeries(hasPush ? 'push_sent' : 'email_sent', previous),
-                            name
-                        )
-                    }
-
                     const timeSeries = isSent
-                        ? sentSeries()
+                        ? getSentSummarySeries()
                         : summaryMetric === 'completed'
                           ? withDisplayName(getCompletedSingleTrendSeries('succeeded'), name)
                           : withDisplayName(getSingleTrendSeries(metricName), name)
 
                     const previousPeriodTimeSeries = isSent
-                        ? sentSeries(true)
+                        ? getSentSummarySeries(true)
                         : summaryMetric === 'completed'
                           ? withDisplayName(getCompletedSingleTrendSeries('succeeded', true), name)
                           : withDisplayName(getSingleTrendSeries(metricName, true), name)
@@ -352,7 +345,7 @@ export function WorkflowMetricsSummary({
                 {hasConversionGoal && (
                     <div className="flex flex-1 flex-col relative border rounded p-3 bg-surface-primary min-w-[16rem]">
                         <div className="flex flex-col h-full">
-                            <LemonLabel info="Share of started workflow runs that recorded a conversion (Converted ÷ Started) over the selected date range.">
+                            <LemonLabel info="Share of workflow runs started in the selected date range that have converted so far. The rate for recent runs keeps rising until their conversion window closes. A date range that starts before November 13, 2026 counts the conversions that happened in the range.">
                                 Conversion rate
                             </LemonLabel>
                             <div className="flex flex-1 items-center justify-center">
@@ -366,11 +359,6 @@ export function WorkflowMetricsSummary({
                                     </div>
                                 )}
                             </div>
-                            {!conversionStatsLoading && conversionStats.conversions > 0 && (
-                                <Link to={convertedUsersUrl} className="text-xs text-center">
-                                    View converted users
-                                </Link>
-                            )}
                         </div>
                     </div>
                 )}

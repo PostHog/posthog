@@ -987,6 +987,18 @@ export interface InboxOnboardingJobsApi {
 }
 
 /**
+ * * `app` - App
+ * * `agent` - Agent
+ */
+export type InboxOnboardingOriginEnumApi =
+    (typeof InboxOnboardingOriginEnumApi)[keyof typeof InboxOnboardingOriginEnumApi]
+
+export const InboxOnboardingOriginEnumApi = {
+    App: 'app',
+    Agent: 'agent',
+} as const
+
+/**
  * * `github_optional` - GitHub optional
  */
 export type InboxActivationModeEnumApi = (typeof InboxActivationModeEnumApi)[keyof typeof InboxActivationModeEnumApi]
@@ -1120,6 +1132,8 @@ export const InboxOnboardingSetupModeEnumApi = {
  * * `helpscout` - Help Scout
  * * `decagon` - Decagon
  * * `vitally` - Vitally
+ * * `intercom_tickets` - Intercom tickets
+ * * `pylon` - Pylon
  * * `usersnap` - Usersnap
  * * `typeform` - Typeform
  * * `qualtrics` - Qualtrics
@@ -1137,6 +1151,22 @@ export const InboxOnboardingSetupModeEnumApi = {
  * * `github_dependabot` - GitHub Dependabot
  * * `github_code_scanning` - GitHub code scanning
  * * `github_secret_scanning` - GitHub secret scanning
+ * * `beamer` - Beamer
+ * * `beamer_nps` - Beamer NPS
+ * * `chameleon` - Chameleon
+ * * `etsy` - Etsy
+ * * `featurebase_surveys` - Featurebase surveys
+ * * `g2` - G2
+ * * `gumroad` - Gumroad
+ * * `trustpilot_product_reviews` - Trustpilot product reviews
+ * * `uservoice_nps` - UserVoice NPS
+ * * `vitally_nps` - Vitally NPS
+ * * `woocommerce` - WooCommerce
+ * * `yotpo` - Yotpo
+ * * `airbrake` - Airbrake
+ * * `amazon_cloudwatch` - Amazon CloudWatch
+ * * `logicmonitor` - LogicMonitor
+ * * `mux` - Mux
  */
 export type SignalSourceProductEnumApi = (typeof SignalSourceProductEnumApi)[keyof typeof SignalSourceProductEnumApi]
 
@@ -1240,6 +1270,8 @@ export const SignalSourceProductEnumApi = {
     Helpscout: 'helpscout',
     Decagon: 'decagon',
     Vitally: 'vitally',
+    IntercomTickets: 'intercom_tickets',
+    Pylon: 'pylon',
     Usersnap: 'usersnap',
     Typeform: 'typeform',
     Qualtrics: 'qualtrics',
@@ -1257,6 +1289,22 @@ export const SignalSourceProductEnumApi = {
     GithubDependabot: 'github_dependabot',
     GithubCodeScanning: 'github_code_scanning',
     GithubSecretScanning: 'github_secret_scanning',
+    Beamer: 'beamer',
+    BeamerNps: 'beamer_nps',
+    Chameleon: 'chameleon',
+    Etsy: 'etsy',
+    FeaturebaseSurveys: 'featurebase_surveys',
+    G2: 'g2',
+    Gumroad: 'gumroad',
+    TrustpilotProductReviews: 'trustpilot_product_reviews',
+    UservoiceNps: 'uservoice_nps',
+    VitallyNps: 'vitally_nps',
+    Woocommerce: 'woocommerce',
+    Yotpo: 'yotpo',
+    Airbrake: 'airbrake',
+    AmazonCloudwatch: 'amazon_cloudwatch',
+    Logicmonitor: 'logicmonitor',
+    Mux: 'mux',
 } as const
 
 /**
@@ -1411,6 +1459,8 @@ export interface InboxOnboardingSourceApi {
      * * `helpscout` - Help Scout
      * * `decagon` - Decagon
      * * `vitally` - Vitally
+     * * `intercom_tickets` - Intercom tickets
+     * * `pylon` - Pylon
      * * `usersnap` - Usersnap
      * * `typeform` - Typeform
      * * `qualtrics` - Qualtrics
@@ -1427,7 +1477,23 @@ export interface InboxOnboardingSourceApi {
      * * `cursor` - Cursor
      * * `github_dependabot` - GitHub Dependabot
      * * `github_code_scanning` - GitHub code scanning
-     * * `github_secret_scanning` - GitHub secret scanning */
+     * * `github_secret_scanning` - GitHub secret scanning
+     * * `beamer` - Beamer
+     * * `beamer_nps` - Beamer NPS
+     * * `chameleon` - Chameleon
+     * * `etsy` - Etsy
+     * * `featurebase_surveys` - Featurebase surveys
+     * * `g2` - G2
+     * * `gumroad` - Gumroad
+     * * `trustpilot_product_reviews` - Trustpilot product reviews
+     * * `uservoice_nps` - UserVoice NPS
+     * * `vitally_nps` - Vitally NPS
+     * * `woocommerce` - WooCommerce
+     * * `yotpo` - Yotpo
+     * * `airbrake` - Airbrake
+     * * `amazon_cloudwatch` - Amazon CloudWatch
+     * * `logicmonitor` - LogicMonitor
+     * * `mux` - Mux */
     source_product: SignalSourceProductEnumApi
     /** Signal type selected during setup.
      *
@@ -1527,6 +1593,11 @@ export interface ScoutSuggestionItemApi {
 }
 
 export interface InboxOnboardingDraftApi {
+    /** Where setup started: the app or a link from an agent.
+     *
+     * * `app` - App
+     * * `agent` - Agent */
+    onboarding_origin?: InboxOnboardingOriginEnumApi
     /** Activate the GitHub-optional pilot. Requires project eligibility and leaves automatic implementation off.
      *
      * * `github_optional` - GitHub optional */
@@ -1592,6 +1663,14 @@ export interface InboxOnboardingStateApi {
      * @nullable
      */
     completed_at: string | null
+}
+
+export interface InboxOnboardingExposureApi {
+    /** Where setup started: the app or a link from an agent.
+     *
+     * * `app` - App
+     * * `agent` - Agent */
+    onboarding_origin?: InboxOnboardingOriginEnumApi
 }
 
 export interface PauseStateResponseApi {
@@ -4315,6 +4394,8 @@ export interface SignalReportLeaveReviewersApi {
  * * `helpscout` - helpscout
  * * `decagon` - decagon
  * * `vitally` - vitally
+ * * `intercom_tickets` - intercom_tickets
+ * * `pylon` - pylon
  * * `usersnap` - usersnap
  * * `typeform` - typeform
  * * `qualtrics` - qualtrics
@@ -4332,6 +4413,22 @@ export interface SignalReportLeaveReviewersApi {
  * * `github_dependabot` - github_dependabot
  * * `github_code_scanning` - github_code_scanning
  * * `github_secret_scanning` - github_secret_scanning
+ * * `beamer` - beamer
+ * * `beamer_nps` - beamer_nps
+ * * `chameleon` - chameleon
+ * * `etsy` - etsy
+ * * `featurebase_surveys` - featurebase_surveys
+ * * `g2` - g2
+ * * `gumroad` - gumroad
+ * * `trustpilot_product_reviews` - trustpilot_product_reviews
+ * * `uservoice_nps` - uservoice_nps
+ * * `vitally_nps` - vitally_nps
+ * * `woocommerce` - woocommerce
+ * * `yotpo` - yotpo
+ * * `airbrake` - airbrake
+ * * `amazon_cloudwatch` - amazon_cloudwatch
+ * * `logicmonitor` - logicmonitor
+ * * `mux` - mux
  */
 export type SignalSourceProductApi = (typeof SignalSourceProductApi)[keyof typeof SignalSourceProductApi]
 
@@ -4435,6 +4532,8 @@ export const SignalSourceProductApi = {
     Helpscout: 'helpscout',
     Decagon: 'decagon',
     Vitally: 'vitally',
+    IntercomTickets: 'intercom_tickets',
+    Pylon: 'pylon',
     Usersnap: 'usersnap',
     Typeform: 'typeform',
     Qualtrics: 'qualtrics',
@@ -4452,6 +4551,22 @@ export const SignalSourceProductApi = {
     GithubDependabot: 'github_dependabot',
     GithubCodeScanning: 'github_code_scanning',
     GithubSecretScanning: 'github_secret_scanning',
+    Beamer: 'beamer',
+    BeamerNps: 'beamer_nps',
+    Chameleon: 'chameleon',
+    Etsy: 'etsy',
+    FeaturebaseSurveys: 'featurebase_surveys',
+    G2: 'g2',
+    Gumroad: 'gumroad',
+    TrustpilotProductReviews: 'trustpilot_product_reviews',
+    UservoiceNps: 'uservoice_nps',
+    VitallyNps: 'vitally_nps',
+    Woocommerce: 'woocommerce',
+    Yotpo: 'yotpo',
+    Airbrake: 'airbrake',
+    AmazonCloudwatch: 'amazon_cloudwatch',
+    Logicmonitor: 'logicmonitor',
+    Mux: 'mux',
 } as const
 
 /**
@@ -5277,6 +5392,22 @@ export interface VitallyConversationSignalExtraApi {
     created_at: string | null
 }
 
+export interface IntercomTicketsTicketSignalExtraApi {
+    ticket_id: string | null
+    category: string | null
+    ticket_state_category: string | null
+    ticket_type_name: string | null
+    created_at: string | null
+}
+
+export interface PylonTicketSignalExtraApi {
+    number: string | null
+    state: string | null
+    type: string | null
+    link: string | null
+    created_at: string | null
+}
+
 export interface PagerdutyIncidentSignalExtraApi {
     status: string | null
     urgency: string | null
@@ -5473,6 +5604,15 @@ export interface AzureApplicationInsightsIssueSignalExtraApi {
     last_seen: string | null
 }
 
+export type AppsignalIssueSignalExtraApiKind =
+    | (typeof AppsignalIssueSignalExtraApiKind)[keyof typeof AppsignalIssueSignalExtraApiKind]
+    | null
+
+export const AppsignalIssueSignalExtraApiKind = {
+    PerformanceIncident: 'performance_incident',
+    AnomalyIncident: 'anomaly_incident',
+} as const
+
 export interface AppsignalIssueSignalExtraApi {
     state: string | null
     severity: string | null
@@ -5480,6 +5620,10 @@ export interface AppsignalIssueSignalExtraApi {
     occurrence_count: string | null
     created_at: string | null
     last_occurred_at: string | null
+    kind?: AppsignalIssueSignalExtraApiKind
+    mean_duration_ms?: string | null
+    alert_state?: string | null
+    metric_name?: string | null
 }
 
 export interface CursorIssueSignalExtraApi {
@@ -5579,6 +5723,85 @@ export interface OkendoReviewSignalExtraApi {
     date_created: string | null
 }
 
+export interface BeamerFeedbackSignalExtraApi {
+    status: string | null
+    category: string | null
+    votes_count: string | null
+    comments_count: string | null
+    date: string | null
+    permalink: string | null
+}
+
+export interface BeamerNpsFeedbackSignalExtraApi {
+    score: string | null
+    date: string | null
+}
+
+export interface ChameleonFeedbackSignalExtraApi {
+    button_text: string | null
+    survey_id: string | null
+    created_at: string | null
+}
+
+export interface FeaturebaseSurveysFeedbackSignalExtraApi {
+    survey_id: string | null
+    created_at: string | null
+}
+
+export interface UservoiceNpsFeedbackSignalExtraApi {
+    rating: string | null
+    created_at: string | null
+}
+
+export interface VitallyNpsFeedbackSignalExtraApi {
+    score: string | null
+    nps_type: string | null
+    created_at: string | null
+}
+
+export interface EtsyReviewSignalExtraApi {
+    rating: string | null
+    listing_id: string | null
+    language: string | null
+    created_timestamp: string | null
+}
+
+export interface G2ReviewSignalExtraApi {
+    star_rating: string | null
+    product_name: string | null
+    url: string | null
+    submitted_at: string | null
+}
+
+export interface GumroadReviewSignalExtraApi {
+    rating: string | null
+    product_id: string | null
+    created_at: string | null
+}
+
+export interface TrustpilotProductReviewsReviewSignalExtraApi {
+    stars: string | null
+    language: string | null
+    state: string | null
+    product_name: string | null
+    created_at: string | null
+}
+
+export interface WoocommerceReviewSignalExtraApi {
+    rating: string | null
+    status: string | null
+    verified: string | null
+    product_id: string | null
+    date_created_gmt: string | null
+}
+
+export interface YotpoReviewSignalExtraApi {
+    score: string | null
+    sku: string | null
+    deleted: string | null
+    created_at: string | null
+}
+
 export interface AwsSecurityHubScannerFindingSignalExtraApi {
     severity_label: string | null
     compliance_status: string | null
@@ -5650,6 +5873,62 @@ export interface GithubSecretScanningScannerFindingSignalExtraApi {
     html_url: string | null
     created_at: string | null
     repository: string | null
+}
+
+export type NewrelicIssueSignalExtraKindEnumApi =
+    (typeof NewrelicIssueSignalExtraKindEnumApi)[keyof typeof NewrelicIssueSignalExtraKindEnumApi]
+
+export const NewrelicIssueSignalExtraKindEnumApi = {
+    AlertIssue: 'alert_issue',
+    JavascriptError: 'javascript_error',
+    TransactionError: 'transaction_error',
+} as const
+
+export interface NewrelicIssueSignalExtraApi {
+    kind: NewrelicIssueSignalExtraKindEnumApi
+    issue_id?: string | null
+    priority?: string | null
+    activated_at?: string | null
+    app_name?: string | null
+    error_class?: string | null
+    sample_transaction?: string | null
+    occurrences?: string | null
+    first_seen?: string | null
+    last_seen?: string | null
+}
+
+export interface AmazonCloudwatchIncidentSignalExtraApi {
+    alarm_name: string | null
+    alarm_kind: string | null
+    transitions: string | null
+    first_seen: string | null
+    last_seen: string | null
+}
+
+export interface LogicmonitorIncidentSignalExtraApi {
+    severity: string | null
+    acked: string | null
+    monitor_object_name: string | null
+    datasource: string | null
+    instance_name: string | null
+    data_point_name: string | null
+    start_epoch: string | null
+}
+
+export interface AirbrakeIssueSignalExtraApi {
+    project_id: string | null
+    environment: string | null
+    notice_total_count: string | null
+    created_at: string | null
+    last_notice_at: string | null
+}
+
+export interface MuxIssueSignalExtraApi {
+    error_id: string | null
+    error_code: string | null
+    view_count: string | null
+    view_share: string | null
+    last_seen_at: string | null
 }
 
 export type SignalExtraApi =
@@ -5726,6 +6005,8 @@ export type SignalExtraApi =
     | HelpscoutConversationSignalExtraApi
     | DecagonConversationSignalExtraApi
     | VitallyConversationSignalExtraApi
+    | IntercomTicketsTicketSignalExtraApi
+    | PylonTicketSignalExtraApi
     | PagerdutyIncidentSignalExtraApi
     | OpsgenieAlertSignalExtraApi
     | IncidentIoIncidentSignalExtraApi
@@ -5765,6 +6046,18 @@ export type SignalExtraApi =
     | GainsightPxFeedbackSignalExtraApi
     | TrustpilotReviewSignalExtraApi
     | OkendoReviewSignalExtraApi
+    | BeamerFeedbackSignalExtraApi
+    | BeamerNpsFeedbackSignalExtraApi
+    | ChameleonFeedbackSignalExtraApi
+    | FeaturebaseSurveysFeedbackSignalExtraApi
+    | UservoiceNpsFeedbackSignalExtraApi
+    | VitallyNpsFeedbackSignalExtraApi
+    | EtsyReviewSignalExtraApi
+    | G2ReviewSignalExtraApi
+    | GumroadReviewSignalExtraApi
+    | TrustpilotProductReviewsReviewSignalExtraApi
+    | WoocommerceReviewSignalExtraApi
+    | YotpoReviewSignalExtraApi
     | AwsSecurityHubScannerFindingSignalExtraApi
     | AwsGuarddutyScannerFindingSignalExtraApi
     | AwsInspectorScannerFindingSignalExtraApi
@@ -5772,6 +6065,11 @@ export type SignalExtraApi =
     | GithubDependabotScannerFindingSignalExtraApi
     | GithubCodeScanningScannerFindingSignalExtraApi
     | GithubSecretScanningScannerFindingSignalExtraApi
+    | NewrelicIssueSignalExtraApi
+    | AmazonCloudwatchIncidentSignalExtraApi
+    | LogicmonitorIncidentSignalExtraApi
+    | AirbrakeIssueSignalExtraApi
+    | MuxIssueSignalExtraApi
 
 export interface SpecificityMetadataApi {
     /** Title of the PR the specificity gate evaluated. */
@@ -5917,6 +6215,8 @@ export interface SignalNodeApi {
      * * `helpscout` - helpscout
      * * `decagon` - decagon
      * * `vitally` - vitally
+     * * `intercom_tickets` - intercom_tickets
+     * * `pylon` - pylon
      * * `usersnap` - usersnap
      * * `typeform` - typeform
      * * `qualtrics` - qualtrics
@@ -5933,7 +6233,23 @@ export interface SignalNodeApi {
      * * `cursor` - cursor
      * * `github_dependabot` - github_dependabot
      * * `github_code_scanning` - github_code_scanning
-     * * `github_secret_scanning` - github_secret_scanning */
+     * * `github_secret_scanning` - github_secret_scanning
+     * * `beamer` - beamer
+     * * `beamer_nps` - beamer_nps
+     * * `chameleon` - chameleon
+     * * `etsy` - etsy
+     * * `featurebase_surveys` - featurebase_surveys
+     * * `g2` - g2
+     * * `gumroad` - gumroad
+     * * `trustpilot_product_reviews` - trustpilot_product_reviews
+     * * `uservoice_nps` - uservoice_nps
+     * * `vitally_nps` - vitally_nps
+     * * `woocommerce` - woocommerce
+     * * `yotpo` - yotpo
+     * * `airbrake` - airbrake
+     * * `amazon_cloudwatch` - amazon_cloudwatch
+     * * `logicmonitor` - logicmonitor
+     * * `mux` - mux */
     source_product: SignalSourceProductApi
     /** Signal type within the source product.
      *
@@ -9995,6 +10311,17 @@ export const ReportInvolvementEnumApi = {
 } as const
 
 /**
+ * * `inbox` - Inbox
+ * * `slack` - Slack
+ */
+export type DiscussionSourceEnumApi = (typeof DiscussionSourceEnumApi)[keyof typeof DiscussionSourceEnumApi]
+
+export const DiscussionSourceEnumApi = {
+    Inbox: 'inbox',
+    Slack: 'slack',
+} as const
+
+/**
  * One discussion a person opened on a report your scout emitted or edited.
  */
 export interface ScoutReportDiscussionApi {
@@ -10007,6 +10334,11 @@ export interface ScoutReportDiscussionApi {
      * * `authored` - Authored
      * * `edited` - Edited */
     involvement: ReportInvolvementEnumApi
+    /** `inbox` when the discussion started from Ask AI in the inbox, `slack` when it started from a reply in the report's Slack thread.
+     *
+     * * `inbox` - Inbox
+     * * `slack` - Slack */
+    source: DiscussionSourceEnumApi
     /** The discussion task. */
     task_id: string
     /** When the discussion started. */
@@ -10019,10 +10351,15 @@ export interface ScoutReportDiscussionApi {
      */
     status: string | null
     /**
-     * The latest run's summary of the conversation and its outcome. Null when no run has written one yet, or when the summary could have been written by someone who may not steer scouts on this project.
+     * The latest run's summary of the conversation and its outcome. Null when no run has written one yet, or when the summary could have been written by someone who may not steer scouts on this project. For a `slack` discussion, other people in the public thread can shape the summary, so it is returned when the person who started the discussion may steer scouts.
      * @nullable
      */
     task_summary: string | null
+    /**
+     * For a `slack` discussion, the message that started it, in the person's own words. Null when that person may not steer scouts on this project, or started a later Slack discussion on the same report. Always null for an `inbox` discussion, because a scout note carried its question.
+     * @nullable
+     */
+    question: string | null
 }
 
 /**
@@ -11570,9 +11907,9 @@ export interface SelfDrivingTrialStatusApi {
     new_work_paused: boolean
     /** Enabled scouts across this project's environments. */
     enabled_scouts: number
-    /** Maximum enabled scouts during the trial. */
+    /** Maximum enabled scouts allowed for the project. */
     scout_limit: number
-    /** On activation, all but the three oldest enabled scouts pause. */
+    /** Number of scouts paused when the trial starts. */
     scouts_to_pause: number
     /** What happens to new work after the trial.
      *

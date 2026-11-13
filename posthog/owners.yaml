@@ -9,7 +9,7 @@ rules:
           - '/csp_middleware.py'
           - '/test/test_csp_middleware.py'
       owners: team-security
-    - match: '/test/test_migration_1435_delete_user_interview_sharing_configurations.py'
+    - match: '/test/test_migration_1436_delete_user_interview_sharing_configurations.py'
       owners: team-security
     - match: '/data_freshness.py'
       owners: team-platform-features
@@ -73,6 +73,7 @@ rules:
           - '/scheduling/test/test_*.py'
           - '/slo/test/test_*.py'
           - '/test/repo_invariants/test_*.py'
+          - '/test/test_cascade_delete.py'
       owners: team-devex
     - match:
           - '/security/test/test_*.py'
@@ -86,6 +87,7 @@ rules:
       owners: team-ingestion
     - match:
           - '/session/test/test_*.py'
+          - '/test/test_breached_password_validator.py'
       owners: team-platform-features
     - match:
           - '/resource_limits/test/test_*.py'

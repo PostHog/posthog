@@ -20,7 +20,7 @@ from django.utils import timezone
 
 from rest_framework.exceptions import ValidationError
 
-from posthog.hogql.database.database import Database
+from posthog.hogql.database.database import Database, system_table_denials
 from posthog.hogql.database.schema.information_schema import references_denied_table
 
 from posthog.dataclasses import frozen
@@ -213,6 +213,8 @@ def _refine(metric: Metric, fields: dict) -> None:
 
 
 def _denied_tables(team: Team, user: User, user_access_control: UserAccessControl) -> set[str]:
+    if user_access_control.is_organization_admin:
+        return {f"system.{name}" for name in system_table_denials(team, user, user_access_control)}
     return Database.create_for(team=team, user=user, user_access_control=user_access_control)._denied_tables
 
 
@@ -731,6 +733,8 @@ def metrics_visible_to_user(
     if filters is not None and filters.definition_kind:
         metrics = metrics.filter(definition__kind=filters.definition_kind)
     if denied_tables is None:
+        if not metrics.exists():
+            return metrics.none()
         denied_tables = _denied_tables(team, user, user_access_control)
     if not denied_tables:
         return metrics

@@ -1,31 +1,31 @@
 import { useActions, useValues } from 'kea'
 
-import { IconPlusSmall } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonCard } from '@posthog/lemon-ui'
+import { LemonBanner, LemonCard } from '@posthog/lemon-ui'
 
 import { pluralize } from 'lib/utils/strings'
 import { PagePerformanceCard } from 'scenes/web-analytics/PagePerformanceCard'
 import { PagePerformanceCardHeader } from 'scenes/web-analytics/PagePerformanceCardHeader'
 
-import { ContentAutopilotBrandedSegmentControl } from './ContentAutopilotBrandedSegmentControl'
 import { ContentAutopilotCitedSitesTable } from './ContentAutopilotCitedSitesTable'
 import { ContentAutopilotEngineTable } from './ContentAutopilotEngineTable'
+import { contentAutopilotFiltersLogic } from './contentAutopilotFiltersLogic'
+import { ContentAutopilotFirstRunCard } from './ContentAutopilotFirstRunCard'
 import { ContentAutopilotKpiStat } from './ContentAutopilotKpiStat'
 import { contentAutopilotLogic } from './contentAutopilotLogic'
 import { ContentAutopilotOpenInsightButton } from './ContentAutopilotOpenInsightButton'
 import { ContentAutopilotPromptsDisabled } from './ContentAutopilotPromptsDisabled'
-import { contentAutopilotPromptsLogic } from './contentAutopilotPromptsLogic'
-import { OVERVIEW_DAYS, contentAutopilotPromptsOverviewLogic } from './contentAutopilotPromptsOverviewLogic'
+import { contentAutopilotPromptsOverviewLogic } from './contentAutopilotPromptsOverviewLogic'
 import { ContentAutopilotPromptsOverviewSkeleton } from './ContentAutopilotPromptsOverviewSkeleton'
 import { ContentAutopilotPromptsSearchTable } from './ContentAutopilotPromptsSearchTable'
 import { ContentAutopilotPromptsTopicTable } from './ContentAutopilotPromptsTopicTable'
-import { ContentAutopilotPromptSuggestButton } from './ContentAutopilotPromptSuggestButton'
+import { ContentAutopilotSetupCard } from './ContentAutopilotSetupCard'
+import { ContentAutopilotSetupJobCard } from './ContentAutopilotSetupJobCard'
+import { contentAutopilotSetupLogic } from './contentAutopilotSetupLogic'
 import { ContentAutopilotStatStrip } from './ContentAutopilotStatStrip'
-import { ContentAutopilotTopicQuadrant } from './ContentAutopilotTopicQuadrant'
 import { ContentAutopilotVisibilityChart } from './ContentAutopilotVisibilityChart'
 import { ContentAutopilotVisibilityDashboardButton } from './ContentAutopilotVisibilityDashboardButton'
 import { POSITION_DESCRIPTION } from './promptReport'
-import { brandedAnswersNote, segmentPrompts, sortEngines } from './utils'
+import { brandedAnswersNote, filtersHeading, segmentPrompts, sortEngines } from './utils'
 
 export const ContentAutopilotPromptsOverview = (): JSX.Element => {
     const {
@@ -36,7 +36,6 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
         hasChecks,
         chartMetric,
         visibilityChart,
-        topicQuadrantGroups,
         visibilityQuery,
         sourcesQuery,
     } = useValues(contentAutopilotPromptsOverviewLogic)
@@ -44,8 +43,8 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
         contentAutopilotPromptsOverviewLogic
     )
     const { setWorkspaceTab } = useActions(contentAutopilotLogic)
-    const { promptsTopic } = useValues(contentAutopilotPromptsLogic)
-    const { openAddPrompts } = useActions(contentAutopilotPromptsLogic)
+    const { topic } = useValues(contentAutopilotFiltersLogic)
+    const { job: setupJob, setupJobShown, setupContext } = useValues(contentAutopilotSetupLogic)
 
     if (overviewError === 'forbidden') {
         return <ContentAutopilotPromptsDisabled />
@@ -60,28 +59,30 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
             </LemonBanner>
         )
     }
+    // A setup job saves prompts partway through, so its progress stays up until the person dismisses it.
+    if (setupJob && setupJobShown) {
+        return <ContentAutopilotSetupJobCard job={setupJob} />
+    }
     if (!overview || !overviewKpis || !visibilityChart || !visibilityQuery || !sourcesQuery) {
         return <ContentAutopilotPromptsOverviewSkeleton />
     }
     const header = (
         <div className="flex flex-wrap items-start justify-between gap-2">
             <div className="min-w-0 flex-1 basis-80">
-                <h3 className="m-0 text-sm font-semibold">Last {OVERVIEW_DAYS} days, all engines</h3>
+                <h3 className="m-0 text-sm font-semibold">{filtersHeading(overview)}</h3>
                 <p className="m-0 text-xs text-secondary" data-attr="content-autopilot-prompts-overview-answers">
                     {brandedAnswersNote(overview.branded, overview.current.checks - overview.current.failed)}{' '}
                     {overview.current.failed
                         ? `${pluralize(overview.current.failed, 'check')} failed and ${overview.current.failed === 1 ? 'is' : 'are'} left out. `
                         : ''}
-                    Each number is compared with the {OVERVIEW_DAYS} days before.
+                    Each number is compared with the {overview.days} days before.
                 </p>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
-                <ContentAutopilotBrandedSegmentControl tab="overview" />
-                <ContentAutopilotVisibilityDashboardButton />
-            </div>
+            <ContentAutopilotVisibilityDashboardButton />
         </div>
     )
-    if (!hasChecks && overview.branded_answers + overview.non_branded_answers > 0) {
+    const narrowed = overview.engine !== null || overview.topic !== null
+    if (!hasChecks && (narrowed || overview.branded_answers + overview.non_branded_answers > 0)) {
         return (
             <section className="flex flex-col gap-4" data-attr="content-autopilot-prompts-overview">
                 {header}
@@ -91,43 +92,21 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
                     data-attr="content-autopilot-prompts-overview-segment-empty"
                 >
                     <h4 className="m-0">
-                        No answers to {segmentPrompts(overview.branded)} in the last {OVERVIEW_DAYS} days
+                        No answers to {segmentPrompts(overview.branded)} in the last {overview.days} days
+                        {narrowed ? ' that match these filters' : ''}
                     </h4>
-                    <p className="m-0 mt-1 text-muted">Choose another option above to see the other answers.</p>
+                    <p className="m-0 mt-1 text-muted">Choose other filters above to see the other answers.</p>
                 </LemonCard>
             </section>
         )
     }
     if (!hasChecks) {
-        return overview.prompts_tracked === 0 ? (
-            <LemonCard
-                hoverEffect={false}
-                className="p-6 text-center"
-                data-attr="content-autopilot-prompts-overview-no-prompts"
-            >
-                <h3 className="m-0">No prompts yet</h3>
-                <p className="m-0 mt-2 text-muted max-w-xl mx-auto">
-                    Add the questions your buyers ask AI assistants. PostHog can suggest them from your site, or you can
-                    write your own. PostHog checks them once a day and shows the results here.
-                </p>
-                <div className="mt-4 flex justify-center gap-2">
-                    <ContentAutopilotPromptSuggestButton type="primary" />
-                    <LemonButton
-                        type="secondary"
-                        icon={<IconPlusSmall />}
-                        onClick={openAddPrompts}
-                        data-attr="content-autopilot-prompts-overview-add"
-                    >
-                        Add my own
-                    </LemonButton>
-                </div>
-            </LemonCard>
-        ) : (
-            <LemonCard hoverEffect={false} className="p-4" data-attr="content-autopilot-prompts-overview-empty">
-                <h4 className="m-0">No checks yet</h4>
-                <p className="m-0 mt-1 text-muted">The daily run fills this in.</p>
-            </LemonCard>
-        )
+        const paused = setupContext?.paused_prompts ?? 0
+        if (overview.prompts_tracked > 0) {
+            return <ContentAutopilotFirstRunCard prompts={overview.prompts_tracked} />
+        }
+        // A configure-only setup saves its prompts paused, which the overview does not count.
+        return paused > 0 ? <ContentAutopilotFirstRunCard prompts={paused} paused /> : <ContentAutopilotSetupCard />
     }
 
     // The chart's legend order, so an engine sits in the same place in the chart and the table.
@@ -189,12 +168,28 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
                 <PagePerformanceCard className="min-w-0">
                     <PagePerformanceCardHeader
                         title="By engine"
-                        description={`Each engine's answers to your prompts over the last ${OVERVIEW_DAYS} days. Failed checks are left out.`}
+                        description={`Each engine's answers to your prompts over the last ${overview.days} days. Failed checks are left out.`}
                     />
                     <div className="overflow-x-auto" data-attr="content-autopilot-prompts-overview-engines">
                         <ContentAutopilotEngineTable engines={engines} />
                     </div>
                 </PagePerformanceCard>
+                <PagePerformanceCard className="min-w-0">
+                    <PagePerformanceCardHeader
+                        title="Mentions by topic"
+                        description="Pick a topic to see its prompts."
+                    />
+                    <div className="overflow-x-auto" data-attr="content-autopilot-prompts-overview-topics">
+                        <ContentAutopilotPromptsTopicTable
+                            rows={overview.topics}
+                            selectedTopic={topic}
+                            onSelect={selectOverviewTopic}
+                        />
+                    </div>
+                </PagePerformanceCard>
+            </div>
+
+            <div className="grid grid-cols-1 @3xl/prompts-overview:grid-cols-2 gap-4">
                 <PagePerformanceCard className="min-w-0">
                     <PagePerformanceCardHeader
                         title="Sites the engines cite most"
@@ -209,39 +204,20 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
                         <ContentAutopilotCitedSitesTable domains={overview.top_domains} />
                     </div>
                 </PagePerformanceCard>
-            </div>
-
-            <div className="grid grid-cols-1 @3xl/prompts-overview:grid-cols-2 gap-4">
-                {topicQuadrantGroups ? (
-                    <ContentAutopilotTopicQuadrant groups={topicQuadrantGroups} onSelectTopic={selectOverviewTopic} />
-                ) : null}
                 <PagePerformanceCard className="min-w-0">
                     <PagePerformanceCardHeader
-                        title="Mentions by topic"
-                        description="Pick a topic to see its prompts."
+                        title="What the engines searched for"
+                        description="The web searches the engines ran while answering your prompts. Expand one to see its prompts."
                     />
-                    <div className="overflow-x-auto" data-attr="content-autopilot-prompts-overview-topics">
-                        <ContentAutopilotPromptsTopicTable
-                            rows={overview.topics}
-                            selectedTopic={promptsTopic}
-                            onSelect={selectOverviewTopic}
+                    <div className="overflow-x-auto" data-attr="content-autopilot-prompts-overview-searches">
+                        <ContentAutopilotPromptsSearchTable
+                            rows={overview.top_searches}
+                            days={overview.days}
+                            onOpenPrompt={openOverviewSearchPrompt}
                         />
                     </div>
                 </PagePerformanceCard>
             </div>
-
-            <PagePerformanceCard className="min-w-0">
-                <PagePerformanceCardHeader
-                    title="What the engines searched for"
-                    description="The web searches the engines ran while answering your prompts. Expand one to see its prompts."
-                />
-                <div className="overflow-x-auto" data-attr="content-autopilot-prompts-overview-searches">
-                    <ContentAutopilotPromptsSearchTable
-                        rows={overview.top_searches}
-                        onOpenPrompt={openOverviewSearchPrompt}
-                    />
-                </div>
-            </PagePerformanceCard>
         </section>
     )
 }

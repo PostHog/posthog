@@ -2,9 +2,9 @@ import { cn } from '@posthog/quill'
 
 import { dayjs } from 'lib/dayjs'
 
-import { ReleaseRolloutChart } from './ReleaseRolloutChart'
+import { ReleaseRolloutBar } from './ReleaseRolloutBar'
 import { ReleaseTrackMarkers } from './ReleaseTrackMarkers'
-import { FLAG_LANE, Lane, Scale, laneHeight, sendLabel } from './releaseTracks'
+import { Lane, Scale, laneHeight, sendLabel } from './releaseTracks'
 import { ReleaseTrackSpan } from './ReleaseTrackSpan'
 
 export function ReleaseTrackLane({
@@ -24,16 +24,7 @@ export function ReleaseTrackLane({
             {lane.kind === 'flag' && !lane.steps.length ? (
                 <ReleaseTrackSpan span={lane.span} scale={scale} top={(height - 18) / 2} height={18} />
             ) : lane.kind === 'flag' ? (
-                <ReleaseRolloutChart
-                    color={color}
-                    steps={lane.steps}
-                    start={scale.start}
-                    days={scale.days}
-                    dayWidth={scale.day}
-                    height={FLAG_LANE}
-                    labelRoom={18}
-                    className="!absolute left-0 top-0"
-                />
+                <ReleaseRolloutBar steps={lane.steps} scale={scale} color={color} top={(height - 18) / 2} height={18} />
             ) : null}
             {lane.kind === 'flag' && (
                 <ReleaseTrackMarkers
@@ -44,7 +35,7 @@ export function ReleaseTrackLane({
                             )
                     )}
                     scale={scale}
-                    top={2}
+                    top={(height - 16) / 2}
                 />
             )}
             {lane.kind === 'flag' ? null : lane.kind === 'broadcast' ? (
@@ -53,7 +44,7 @@ export function ReleaseTrackLane({
                     scale={scale}
                     top={(height - 16) / 2}
                 />
-            ) : lane.span ? (
+            ) : 'span' in lane && lane.span ? (
                 <ReleaseTrackSpan span={lane.span} scale={scale} top={(height - 18) / 2} height={18} />
             ) : null}
         </div>

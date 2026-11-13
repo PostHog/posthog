@@ -34,7 +34,7 @@ from loginas.utils import is_impersonated_session
 from pydantic import ValidationError as PydanticValidationError
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import PermissionDenied, Throttled, ValidationError
+from rest_framework.exceptions import NotFound, PermissionDenied, Throttled, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -113,6 +113,7 @@ from products.replay_vision.backend.models.replay_scanner import (
     apply_experiment_targeting,
     config_experiment_scope,
 )
+from products.replay_vision.backend.models.vision_alert import VisionAlertConfiguration
 from products.replay_vision.backend.prompt_questions import question_fields_for_save, scanner_question
 from products.replay_vision.backend.queries import (
     ESTIMATE_STALE_AFTER,
@@ -195,7 +196,11 @@ from products.replay_vision.backend.search import parse_date_bound
 from products.replay_vision.backend.session_limits import MAX_SESSION_ID_LENGTH
 from products.replay_vision.backend.temporal.constants import VISION_SIGNALS_SOURCE_PRODUCT, VISION_SIGNALS_SOURCE_TYPE
 from products.replay_vision.backend.temporal.metrics import record_estimate_outcome, record_scanner_limit_reached
-from products.replay_vision.backend.temporal.read_meter_types import current_sweep_throttle_factor
+from products.replay_vision.backend.temporal.read_meter_types import (
+    current_sweep_throttle_factor,
+    scheduled_sweep_throttle_factor,
+)
+from products.replay_vision.backend.temporal.sweep_cadence import SweepCadenceInputs, sweep_interval
 from products.replay_vision.backend.watch_rank import (
     ISSUE_CATEGORIES,
     feed_window,
@@ -687,6 +692,14 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             "every N schedule intervals. Expensive filters raise it."
         ),
     )
+    sweep_interval_minutes = serializers.SerializerMethodField(
+        help_text=(
+            "How often, in minutes, the scheduled sweep checks this scanner for new recordings. Null when the "
+            "scanner is off or its sweep is paused because it cannot scan. Scanners that rarely find recordings, "
+            "or read a lot of data, are checked less often. Scanners created or edited in the last day, or with "
+            "an enabled alert, are checked as often as their read budget allows."
+        ),
+    )
     dashboard_id = serializers.SerializerMethodField(
         help_text=(
             "Dashboard created for this scanner with the create_dashboard action. Null when none was created "
@@ -757,6 +770,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             "limit_from_free_credits",
             "limit_reached",
             "sweep_throttle_factor",
+            "sweep_interval_minutes",
             "dashboard_id",
             "dashboard_suggested",
             "last_swept_at",
@@ -781,6 +795,7 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             "limit_from_free_credits",
             "limit_reached",
             "sweep_throttle_factor",
+            "sweep_interval_minutes",
             "dashboard_id",
             "dashboard_suggested",
             "last_swept_at",
@@ -867,6 +882,38 @@ class ReplayScannerSerializer(TaggedItemSerializerMixin, UserAccessControlSerial
             scanner.sweep_throttle_factor_override,
             datetime.now(UTC),
         )
+
+    @extend_schema_field(serializers.IntegerField(allow_null=True))
+    def get_sweep_interval_minutes(self, scanner: ReplayScanner) -> int | None:
+        if not scanner.enabled:
+            return None
+        interval = sweep_interval(
+            SweepCadenceInputs(
+                created_at=scanner.created_at,
+                updated_at=scanner.updated_at,
+                last_found_candidates_at=scanner.last_found_candidates_at,
+                sweep_paused_until=scanner.sweep_paused_until,
+                # The stored factor, not the live one, so the interval shown is the one the schedule runs at.
+                throttle_factor=scheduled_sweep_throttle_factor(
+                    scanner.sweep_throttle_factor, scanner.sweep_throttle_factor_override
+                ),
+                has_enabled_alert=scanner.id in self._page_alerting_scanner_ids(scanner),
+            ),
+            datetime.now(UTC),
+        )
+        return None if interval is None else int(interval.total_seconds() // 60)
+
+    def _page_alerting_scanner_ids(self, scanner: ReplayScanner) -> set[UUID]:
+        # Shared across the list's children, so a page costs one query rather than one per scanner.
+        alerting = self.context.get("_scanner_alerting_ids")
+        if alerting is None:
+            alerting = set(
+                VisionAlertConfiguration.objects.for_team(scanner.team_id)
+                .filter(scanner_id__in=self._page_scanner_ids(scanner), enabled=True)
+                .values_list("scanner_id", flat=True)
+            )
+            self.context["_scanner_alerting_ids"] = alerting
+        return alerting
 
     def _page_dashboard_state(self, scanner: ReplayScanner) -> tuple[dict[UUID, int], set[UUID]]:
         # Shared across the list's children, so a page costs two queries rather than two per scanner.
@@ -3088,6 +3135,13 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             request=self.request,
         )
 
+    def _impact_observations(self, scanner: ReplayScanner) -> QuerySet[ReplayObservation]:
+        # Same experiment gates as the observations endpoint: not-found for the scanner's current
+        # experiment, row-level for the experiments in each observation's snapshot.
+        if not can_read_targeted_experiment(self.user_access_control, self.team_id, scanner):
+            raise NotFound()
+        return accessible_observations(self.user_access_control, self.team_id, ReplayObservation.objects.all())
+
     @extend_schema(parameters=[ScannerImpactQuerySerializer], responses={200: ScannerImpactSerializer})
     @action(
         detail=True,
@@ -3102,6 +3156,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
             raise PermissionDenied("Reading scanner impact requires session_recording read access.")
         scanner = self.get_object()
+        observations = self._impact_observations(scanner)
         params = ScannerImpactQuerySerializer(data=request.query_params)
         params.is_valid(raise_exception=True)
         try:
@@ -3112,6 +3167,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                 tag=params.validated_data["tag"],
                 min_score=params.validated_data["min_score"],
                 max_score=params.validated_data["max_score"],
+                observations=observations,
             )
         except ValueError as exc:
             raise ValidationError(str(exc)) from exc
@@ -3171,6 +3227,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         if not self.user_access_control.check_access_level_for_resource("cohort", required_level="editor"):
             raise PermissionDenied("Saving an affected cohort requires cohort edit access.")
         scanner = self.get_object()
+        observations = self._impact_observations(scanner)
         body = AffectedCohortRequestSerializer(data=request.data)
         body.is_valid(raise_exception=True)
         window_days: int = body.validated_data["window_days"]
@@ -3183,6 +3240,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                 tag=body.validated_data["tag"],
                 min_score=body.validated_data["min_score"],
                 max_score=body.validated_data["max_score"],
+                observations=observations,
             )
         except ValueError as exc:
             raise ValidationError(str(exc)) from exc

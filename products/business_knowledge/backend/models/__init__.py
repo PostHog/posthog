@@ -21,6 +21,7 @@ from .knowledge_learning_run import KnowledgeLearningRun
 from .knowledge_library import KnowledgeLibrary
 from .knowledge_library_repository import KnowledgeLibraryRepository
 from .knowledge_library_source import KnowledgeLibrarySource
+from .knowledge_run_citation import KnowledgeRunCitation
 from .knowledge_source import KnowledgeSource
 from .knowledge_usage_record import KnowledgeUsageKey, KnowledgeUsageRecord
 from .playground_chat import PlaygroundChat
@@ -40,6 +41,7 @@ __all__ = [
     "KnowledgeLibrary",
     "KnowledgeLibraryRepository",
     "KnowledgeLibrarySource",
+    "KnowledgeRunCitation",
     "KnowledgeSource",
     "KnowledgeUsageKey",
     "KnowledgeUsageRecord",
