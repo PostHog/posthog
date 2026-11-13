@@ -22,6 +22,7 @@ from products.error_tracking.backend.temporal.lifecycle.issue_created.types impo
 )
 from products.error_tracking.backend.temporal.lifecycle.issue_reopened.types import IssueReopenedWorkflowInputs
 from products.error_tracking.backend.temporal.lifecycle.issue_reopened.workflow import run_issue_reopened_side_effects
+from products.error_tracking.backend.temporal.lifecycle.occurrence_activity import record_occurrence_fail_open
 from products.error_tracking.backend.temporal.lifecycle.policies import (
     ACTIVITY_RETRY_POLICY,
     ACTIVITY_START_TO_CLOSE_TIMEOUT,
@@ -31,6 +32,7 @@ from products.error_tracking.backend.temporal.lifecycle.policies import (
 )
 from products.error_tracking.backend.temporal.lifecycle.summary_activity import execute_summary_activity
 
+ISSUE_CREATED_OCCURRENCE_PATCH = "error-tracking-issue-created-occurrence"
 WORKFLOW_NAME = "error-tracking-issue-created"
 
 SEVERITY_INFERENCE_PATCH = "error-tracking-severity-inference-activity"
@@ -167,6 +169,13 @@ class ErrorTrackingIssueCreatedWorkflow(PostHogWorkflow):
         )
         # Patched, and awaited like the summary: nothing on the alert path reads tags.
         tags = asyncio.create_task(self._tag_issue(inputs)) if workflow.patched(ISSUE_TAGS_PATCH) else None
+        # Patched: executions in flight when this activity shipped replay the old sequence. It runs beside the
+        # side effects below, so a slow registry never delays the issue's own events.
+        occurrence = (
+            asyncio.create_task(record_occurrence_fail_open("record_issue_created_occurrence_activity", inputs))
+            if workflow.patched(ISSUE_CREATED_OCCURRENCE_PATCH)
+            else None
+        )
         try:
             await workflow.execute_activity(
                 "emit_issue_created_internal_event_activity",
@@ -187,6 +196,8 @@ class ErrorTrackingIssueCreatedWorkflow(PostHogWorkflow):
                 await summary
             if tags is not None:
                 await tags
+            if occurrence is not None:
+                await occurrence
         return IssueCreatedWorkflowResult(
             notified=True,
             embedding_skipped_reason=preparation.skipped_reason,

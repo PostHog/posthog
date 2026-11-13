@@ -55,6 +55,7 @@ _SOURCE_LABELS: Final[dict[SourceKind, str]] = {
     SourceKind.WAREHOUSE_DESTINATION: "Warehouse destination",
     SourceKind.METRICS: "Metric",
     SourceKind.TRACES: "Trace",
+    SourceKind.ERROR_TRACKING: "Error tracking",
 }
 
 # What a held row says, when cooldown or mute kept its announcement and only its incident moved.

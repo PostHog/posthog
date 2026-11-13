@@ -40,6 +40,7 @@ class SourceKind(StrEnum):
     WAREHOUSE_DESTINATION = "warehouse_destination"
     METRICS = "metrics"
     TRACES = "traces"
+    ERROR_TRACKING = "error_tracking"
 
 
 @frozen
@@ -1386,6 +1387,9 @@ class SourceConfigSpec:
     native_create: Callable[[int], bool] | None = None
     # For a kind with `native`: what `mirror` refuses for an alert with a source row.
     native_edit_guard: NativeEditGuard | None = None
+    # Why creating an alert of this kind may surprise its project, such as another stack that already
+    # posts the same thing. None when nothing would. A create still goes ahead.
+    create_warning: Callable[[int], str | None] | None = None
     # A PostHog feature flag a project needs, beside `platform-alerts`, to create alerts of this kind.
     # A new kind names its own flag, so it opens on its own schedule while the others stay generally
     # available.
