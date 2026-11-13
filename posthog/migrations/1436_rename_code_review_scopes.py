@@ -138,6 +138,25 @@ def _sync_access_levels(cursor, from_resource: str, to_resource: str) -> None:
     )
 
 
+def _drop_access_rows_without_counterpart(cursor, resource: str, counterpart: str) -> None:
+    """Delete `resource` rows whose `counterpart` row is gone.
+
+    Forwards gives every old row a copy, so an old row without one was deleted under the new name
+    after deploy, or written by an old pod during the deploy. The new-name state wins in both cases,
+    so rolling back never brings back a rule that new code had removed.
+    """
+    cursor.execute(
+        f"""
+        DELETE FROM ee_accesscontrol original
+        WHERE original.resource = '{resource}'
+            AND NOT EXISTS (
+                SELECT 1 FROM ee_accesscontrol duplicate
+                WHERE duplicate.resource = '{counterpart}' AND {SAME_TARGET}
+            )
+        """
+    )
+
+
 def forwards(apps, schema_editor):
     with schema_editor.connection.cursor() as cursor:
         for old, new in RENAMED_SCOPES.items():
@@ -155,6 +174,7 @@ def backwards(apps, schema_editor):
             _add_scope_next_to(cursor, present=new, added=old)
             _remove_scope(cursor, new)
         for old, new in RENAMED_RESOURCES.items():
+            _drop_access_rows_without_counterpart(cursor, resource=old, counterpart=new)
             _sync_access_levels(cursor, from_resource=new, to_resource=old)
             _copy_access_rows(cursor, from_resource=new, to_resource=old)
             cursor.execute(f"DELETE FROM ee_accesscontrol WHERE resource = '{new}'")
