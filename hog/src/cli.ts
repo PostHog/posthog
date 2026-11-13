@@ -393,6 +393,38 @@ function nestedMatches(tree: CommandTree, name: string, prefix = ''): string[] {
     })
 }
 
+// The command path from names in the tree only, so arguments never reach the feedback hint. A usage
+// error stops commander before the command runs, so `state.command` is unset for it.
+function namedCommand(tokens: Token[]): string | undefined {
+    let tree: CommandTree = COMMANDS
+    const names: string[] = []
+    for (const token of tokens) {
+        if (token.kind !== 'positional') {
+            continue
+        }
+        const entry = Object.entries(tree).find(
+            ([name, node]) => name === token.value || (node.kind === 'group' && node.aliases?.includes(token.value))
+        )
+        if (!entry) {
+            break
+        }
+        names.push(entry[0])
+        if (entry[1].kind !== 'group') {
+            break
+        }
+        tree = entry[1].commands
+    }
+    return names.length > 0 ? names.join(' ') : undefined
+}
+
+function feedbackCommand(path: string | undefined, failure: HogError): string | undefined {
+    if (path?.split(' ')[0] === 'feedback' || failure.code === 'cancelled') {
+        return undefined
+    }
+    const area = path === undefined ? '' : `--area "hog ${path}" `
+    return `hog feedback ${area}"<what happened>"`
+}
+
 // posthog-cli commands that hog groups under a new name, with the flags that changed.
 const RENAMED: Record<string, { to: string; hint: string }> = {
     sourcemap: {
@@ -554,10 +586,11 @@ export async function run(argv: readonly string[], runtime: Runtime): Promise<nu
     const isHelp = commandIndex !== undefined && argv[commandIndex] === 'help'
     const args = isHelp ? [...argv.slice(0, commandIndex), ...argv.slice(commandIndex + 1), '--help'] : [...argv]
 
+    const routeTokens = isHelp ? preParse(args).tokens : tokens
     let exitCode: number
     let failure: HogError | undefined
     try {
-        const legacy = findLegacy(isHelp ? preParse(args).tokens : tokens)
+        const legacy = findLegacy(routeTokens)
         if (legacy) {
             state.command = legacy.path
             throw notPorted(args, legacy)
@@ -570,7 +603,7 @@ export async function run(argv: readonly string[], runtime: Runtime): Promise<nu
             return 0
         }
         failure = toHogError(caught)
-        new Output(runtime, mode).error(failure)
+        new Output(runtime, mode).error(failure, feedbackCommand(state.command ?? namedCommand(routeTokens), failure))
         if (UNFINISHED_CODES.has(failure.exitCode) && failure.code !== 'not_ported') {
             captureFailure(telemetry, state.command, failure, caught)
         }

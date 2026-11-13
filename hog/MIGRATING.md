@@ -103,6 +103,7 @@ RELEASE_ID=$(hog error-tracking release -o text)
 ```
 
 Errors go to stderr, as JSON with a stable `code` in JSON mode.
+Each error also names the `hog feedback` command to report it, as a last line for a person and as `feedback` in the JSON. posthog-cli's errors don't.
 
 ## Exit codes
 

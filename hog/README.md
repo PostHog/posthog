@@ -77,13 +77,14 @@ Not planned:
 `hog` detects an agent from the env vars agents set for the commands they run, such as `CLAUDECODE`, `CODEX_SANDBOX`, `CURSOR_AGENT`, `GEMINI_CLI` and the generic `AI_AGENT`.
 `HOG_AGENT=1` forces agent mode, and `HOG_AGENT=0` turns detection off.
 
-| Caller                 | Default output                            | Errors                                                           |
-| ---------------------- | ----------------------------------------- | ---------------------------------------------------------------- |
-| A person at a terminal | Text, with color unless `NO_COLOR` is set | Text on stderr                                                   |
-| An agent               | JSON                                      | One JSON object on stderr: `{"error":{"code","message","hint"}}` |
-| A pipe or a script     | JSON                                      | Same as an agent                                                 |
+| Caller                 | Default output                            | Errors                                                                      |
+| ---------------------- | ----------------------------------------- | --------------------------------------------------------------------------- |
+| A person at a terminal | Text, with color unless `NO_COLOR` is set | Text on stderr                                                              |
+| An agent               | JSON                                      | One JSON object on stderr: `{"error":{"code","message","hint","feedback"}}` |
+| A pipe or a script     | JSON                                      | Same as an agent                                                            |
 
 `-o text` or `-o json` overrides the default, and `--raw` prints a command's full result as JSON.
+Every error ends with the `hog feedback` command to report it, with `--area` set to the command that failed. Agents get it as `feedback` in the error JSON. Errors from `hog feedback` itself and a cancelled prompt don't have it.
 
 The exit code says what happened, so a script or an agent can branch without reading stderr:
 
@@ -226,6 +227,7 @@ hog reads only the `HOG_` names. posthog-cli's `POSTHOG_CLI_` variables, `POSTHO
 - It sends the event `cli feedback submitted` to the project telemetry goes to, with the same `feedback_` properties as the MCP server's `agent-feedback` tool.
 - Feedback goes out with telemetry off too, because you asked hog to send it. Then it carries no PostHog user, organization or install ID.
 - `--dry-run` shows the summary and type without sending anything.
+- Every error hog prints ends with a `hog feedback` command for it, like `hog feedback --area "hog query run" "<what happened>"`.
 
 ## Telemetry
 
