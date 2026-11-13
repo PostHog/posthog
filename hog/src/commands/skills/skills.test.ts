@@ -3,6 +3,7 @@ import { join } from 'node:path'
 
 import type { CatalogSkill, SkillAssetStatus, SkillsLibrary, SkillsRelease } from '@posthog/mcp/src/cli/library-types'
 
+import { EXIT_FAILURE, EXIT_SUCCESS } from '@/core/errors'
 import type { Env } from '@/core/runtime'
 import { runHog, type FakeRuntimeOptions, type HogRun } from '@/testing'
 
@@ -106,7 +107,7 @@ describe('hog skills', () => {
 
         const result = await skills(['add', 'posthog:tracing-nodejs', ...flags], fake, env)
 
-        expect(result.exitCode).toBe(0)
+        expect(result.exitCode).toBe(EXIT_SUCCESS)
         expect(fake.calls).toEqual([{ id: 'tracing-nodejs', cwd: '/work', force: false, skillsDir: folder }])
         expect(result.json()).toEqual({
             root: '/work',
@@ -133,7 +134,7 @@ describe('hog skills', () => {
             {}
         )
 
-        expect(result.exitCode).toBe(0)
+        expect(result.exitCode).toBe(EXIT_SUCCESS)
         expect(fake.calls.map((call) => call.skillsDir)).toEqual(['.claude/skills', '.agents/skills'])
         expect(fake.releaseLoads).toBe(1)
         expect(result.json()).toMatchObject({
@@ -165,7 +166,7 @@ describe('hog skills', () => {
             { cwd: '/scratch', stdoutIsTTY: true }
         )
 
-        expect(result.exitCode).toBe(0)
+        expect(result.exitCode).toBe(EXIT_SUCCESS)
         expect(result.stdout.split('\n').slice(0, 5)).toEqual([
             ...top,
             '',
@@ -182,7 +183,7 @@ describe('hog skills', () => {
 
         const result = await skills(['add', 'tracing-nodejs', ...flags], fake, { CLAUDECODE: '1' })
 
-        expect(result.exitCode).toBe(0)
+        expect(result.exitCode).toBe(EXIT_SUCCESS)
         expect(fake.calls).toEqual([{ id: 'tracing-nodejs', cwd: '/work', force, skillsDir: '.claude/skills' }])
         expect(result.json()).toMatchObject({ skills: [{ name: 'tracing-nodejs', status }] })
     })
@@ -215,7 +216,7 @@ describe('hog skills', () => {
 
         const result = await skills(['add', 'tracing-nodejs', 'nope'], fake, { CLAUDECODE: '1' })
 
-        expect(result.exitCode).toBe(1)
+        expect(result.exitCode).toBe(EXIT_FAILURE)
         expect(result.error()).toMatchObject(error)
         expect(fake.calls).toEqual([])
     })
@@ -239,7 +240,7 @@ describe('hog skills', () => {
     test('hog skills alone says how to list, read and add skills', async () => {
         const result = await skills([], fakeSkills(), { NO_COLOR: '1' }, { ...REPOSITORY, stdoutIsTTY: true })
 
-        expect(result.exitCode).toBe(0)
+        expect(result.exitCode).toBe(EXIT_SUCCESS)
         expect(result.stderr).toBe('')
         expect(result.stdout).toContain('hog skills list')
         expect(result.stdout).toContain('hog skills add <skill...>')

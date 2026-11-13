@@ -369,5 +369,5 @@ export default defineCommand({
     },
 
     telemetry: ({ result }) => ({ status: result.status, provider: result.provider }),
-    exitCode: (result) => approvalExitCode(result),
+    exitCode: approvalExitCode,
 })

@@ -350,7 +350,7 @@ export function refuseInCi(ctx: Context, command: string, hint: string): void {
 
 export type PendingResult = Extract<ApprovalResult<never>, { status: 'pending' }>
 
-export function approvalExitCode(result: { status: string }): number {
+export function approvalExitCode<Result extends { status: string }>(result: Result): number {
     return result.status === 'pending' ? EXIT_NEEDS_PERSON : EXIT_SUCCESS
 }
 

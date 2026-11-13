@@ -80,5 +80,5 @@ export default defineCommand({
     },
 
     telemetry: ({ result }) => ({ step_up_status: result.status }),
-    exitCode: (result) => approvalExitCode(result),
+    exitCode: approvalExitCode,
 })

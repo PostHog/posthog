@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { styleText } from 'node:util'
 
+import { EXIT_FAILURE, EXIT_SUCCESS } from '@/core/errors'
 import { runHog, TEST_CREDENTIALS } from '@/testing'
 
 const ROWS = {
@@ -20,7 +21,7 @@ describe('hog query', () => {
             respond: () => ({ status: 200, body: { columns: 5, results: 'not rows' } }),
         })
 
-        expect(result.exitCode).toBe(1)
+        expect(result.exitCode).toBe(EXIT_FAILURE)
         expect(result.error()).toMatchObject({ code: 'unexpected_response' })
         expect(result.error().message).toContain('columns:')
         expect(result.error().message).toContain('results:')
@@ -46,7 +47,7 @@ describe('hog query', () => {
             stdoutIsTTY: tty,
             respond: () => ({ status: 200, body: ROWS }),
         })
-        expect(result.exitCode).toBe(0)
+        expect(result.exitCode).toBe(EXIT_SUCCESS)
         expect(result.stdout).toEndWith(expected)
         expect(result.requests).toEqual([
             {
@@ -139,7 +140,7 @@ describe('hog query', () => {
             stdin: 'select 2',
             respond: () => ({ status: 200, body: ROWS }),
         })
-        expect(result.exitCode).toBe(0)
+        expect(result.exitCode).toBe(EXIT_SUCCESS)
         expect(result.requests[0]?.body).toMatchObject({ query: { query: 'select 2' } })
     })
 
@@ -196,7 +197,7 @@ describe('hog query', () => {
             respond: () => ({ status, body }),
         })
 
-        expect(result.exitCode).toBe(1)
+        expect(result.exitCode).toBe(EXIT_FAILURE)
         expect(result.error()).toMatchObject(error)
     })
 
@@ -205,42 +206,42 @@ describe('hog query', () => {
             'a valid query exits 0',
             'select from',
             { isValid: true, errors: [], warnings: [], notices: [] },
-            0,
+            EXIT_SUCCESS,
             'Query is valid',
         ],
         [
             'a query with errors exits 1 and points at the error',
             'select from',
             { isValid: false, errors: [{ message: 'expected ), got Ident', start: 7, end: 11 }] },
-            1,
+            EXIT_FAILURE,
             '  1 | select from\n             ^^^^',
         ],
         [
             'offsets count code points, so an emoji earlier on does not shift the error',
             "select '😀',\nnope",
             { isValid: false, errors: [{ message: 'Unable to resolve field: nope', start: 12, end: 16 }] },
-            1,
+            EXIT_FAILURE,
             '  2 | nope\n      ^^^^',
         ],
         [
             'an error at the very start of a multiline query points at line 1',
             'nope\nselect 1',
             { isValid: false, errors: [{ message: 'Unable to resolve field: nope', start: 0, end: 4 }] },
-            1,
+            EXIT_FAILURE,
             '  --> line 1, column 1\n  1 | nope\n      ^^^^',
         ],
         [
             'a diagnostic without a location prints no source line',
             'select 1',
             { isValid: false, errors: [{ message: 'Query is too complex', start: null, end: null }] },
-            1,
+            EXIT_FAILURE,
             '✗ Query has 1 error, 0 warnings, 0 notices\nerror: Query is too complex\n',
         ],
         [
             'terminal escapes in the source and the message are printed escaped',
             'select \u001b]52;c;eA==\u0007',
             { isValid: false, errors: [{ message: 'bad \u001b[2J', start: 7, end: 8 }] },
-            1,
+            EXIT_FAILURE,
             'error: bad \\x1b[2J\n  --> line 1, column 8\n  1 | select \\x1b]52;c;eA==\\x07\n             ^^^^',
         ],
     ])('check: %s', async (_name, query, body, exitCode, expected) => {

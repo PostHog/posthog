@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 
+import { EXIT_FAILURE, EXIT_SUCCESS, EXIT_USAGE } from '@/core/errors'
 import { runHog, type HogRun } from '@/testing'
 
 const TELEMETRY = 'https://us.i.posthog.com/batch/'
@@ -29,7 +30,7 @@ describe('hog feedback', () => {
             { ...ON, env: AGENT, respond: () => ({ status: 200, body: {} }) }
         )
 
-        expect(result.exitCode).toBe(0)
+        expect(result.exitCode).toBe(EXIT_SUCCESS)
         expect(result.json()).toEqual({
             sent: true,
             dryRun: false,
@@ -63,7 +64,7 @@ describe('hog feedback', () => {
             respond: () => ({ status: 200, body: {} }),
         })
 
-        expect(result.exitCode).toBe(0)
+        expect(result.exitCode).toBe(EXIT_SUCCESS)
         const events = result.requests.filter((request) => request.url === TELEMETRY).flatMap((r: any) => r.body.batch)
         expect(events.map((event: any) => event.event)).toEqual(['cli feedback submitted'])
         expect(events[0].properties).not.toHaveProperty('install_id')
@@ -82,7 +83,7 @@ describe('hog feedback', () => {
             respond: () => ({ status: 200, body: {} }),
         })
 
-        expect(result.exitCode).toBe(0)
+        expect(result.exitCode).toBe(EXIT_SUCCESS)
         expect(result.json()).toMatchObject({ sent: true, identified: false })
         const events = result.requests.filter((request) => request.url === TELEMETRY).flatMap((r: any) => r.body.batch)
         const [feedback] = feedbackEvents(result)
@@ -121,7 +122,7 @@ describe('hog feedback', () => {
             respond: () => ({ status: 200, body: {} }),
         })
 
-        expect(result.exitCode).toBe(0)
+        expect(result.exitCode).toBe(EXIT_SUCCESS)
         expect(keychainReads).toBe(0)
     })
 
@@ -147,7 +148,7 @@ describe('hog feedback', () => {
                       : { status: 200, body: {} },
         })
 
-        expect(result.exitCode).toBe(0)
+        expect(result.exitCode).toBe(EXIT_SUCCESS)
         expect(result.json()).toMatchObject({ sent: true, identified: true })
         expect(feedbackEvents(result)[0]?.distinct_id).toBe('user-distinct-id')
     })
@@ -159,7 +160,7 @@ describe('hog feedback', () => {
             respond: () => ({ status: 503, body: {} }),
         })
 
-        expect(result.exitCode).toBe(1)
+        expect(result.exitCode).toBe(EXIT_FAILURE)
         expect(result.error().code).toBe('feedback_not_sent')
     })
 
@@ -169,7 +170,7 @@ describe('hog feedback', () => {
     ])('%s is a usage error and sends nothing', async (_name, argv, code) => {
         const result = await runHog(argv, { ...ON, env: AGENT, respond: () => ({ status: 200, body: {} }) })
 
-        expect(result.exitCode).toBe(2)
+        expect(result.exitCode).toBe(EXIT_USAGE)
         expect(result.error().code).toBe(code)
         expect(result.error().feedback).toBeUndefined()
         expect(feedbackEvents(result)).toEqual([])
@@ -183,7 +184,7 @@ describe('hog feedback', () => {
             respond: () => ({ status: 200, body: {} }),
         })
 
-        expect(result.exitCode).toBe(0)
+        expect(result.exitCode).toBe(EXIT_SUCCESS)
         expect(result.stdout).toContain('Sent your feedback to the PostHog team')
         expect(feedbackEvents(result)[0]?.properties.feedback_summary).toBe('The login page is clear')
     })
@@ -195,7 +196,7 @@ describe('hog feedback', () => {
             respond: () => ({ status: 200, body: {} }),
         })
 
-        expect(result.exitCode).toBe(0)
+        expect(result.exitCode).toBe(EXIT_SUCCESS)
         expect(result.json()).toMatchObject({ sent: false, dryRun: true })
         expect(feedbackEvents(result)).toEqual([])
     })
