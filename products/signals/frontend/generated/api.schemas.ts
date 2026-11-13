@@ -987,6 +987,18 @@ export interface InboxOnboardingJobsApi {
 }
 
 /**
+ * * `app` - App
+ * * `agent` - Agent
+ */
+export type InboxOnboardingOriginEnumApi =
+    (typeof InboxOnboardingOriginEnumApi)[keyof typeof InboxOnboardingOriginEnumApi]
+
+export const InboxOnboardingOriginEnumApi = {
+    App: 'app',
+    Agent: 'agent',
+} as const
+
+/**
  * * `github_optional` - GitHub optional
  */
 export type InboxActivationModeEnumApi = (typeof InboxActivationModeEnumApi)[keyof typeof InboxActivationModeEnumApi]
@@ -1151,17 +1163,10 @@ export const InboxOnboardingSetupModeEnumApi = {
  * * `vitally_nps` - Vitally NPS
  * * `woocommerce` - WooCommerce
  * * `yotpo` - Yotpo
- * * `sonarcloud` - SonarCloud
- * * `checkmarx` - Checkmarx
- * * `veracode` - Veracode
- * * `veracode_sca` - Veracode SCA
- * * `semgrep_sca` - Semgrep Supply Chain
- * * `gitguardian` - GitGuardian
- * * `infisical` - Infisical
- * * `aws_macie` - AWS Macie
- * * `sentinelone` - SentinelOne
- * * `jfrog_xray` - JFrog Xray
- * * `dynatrace_security` - Dynatrace Application Security
+ * * `airbrake` - Airbrake
+ * * `amazon_cloudwatch` - Amazon CloudWatch
+ * * `logicmonitor` - LogicMonitor
+ * * `mux` - Mux
  */
 export type SignalSourceProductEnumApi = (typeof SignalSourceProductEnumApi)[keyof typeof SignalSourceProductEnumApi]
 
@@ -1296,17 +1301,10 @@ export const SignalSourceProductEnumApi = {
     VitallyNps: 'vitally_nps',
     Woocommerce: 'woocommerce',
     Yotpo: 'yotpo',
-    Sonarcloud: 'sonarcloud',
-    Checkmarx: 'checkmarx',
-    Veracode: 'veracode',
-    VeracodeSca: 'veracode_sca',
-    SemgrepSca: 'semgrep_sca',
-    Gitguardian: 'gitguardian',
-    Infisical: 'infisical',
-    AwsMacie: 'aws_macie',
-    Sentinelone: 'sentinelone',
-    JfrogXray: 'jfrog_xray',
-    DynatraceSecurity: 'dynatrace_security',
+    Airbrake: 'airbrake',
+    AmazonCloudwatch: 'amazon_cloudwatch',
+    Logicmonitor: 'logicmonitor',
+    Mux: 'mux',
 } as const
 
 /**
@@ -1492,17 +1490,10 @@ export interface InboxOnboardingSourceApi {
      * * `vitally_nps` - Vitally NPS
      * * `woocommerce` - WooCommerce
      * * `yotpo` - Yotpo
-     * * `sonarcloud` - SonarCloud
-     * * `checkmarx` - Checkmarx
-     * * `veracode` - Veracode
-     * * `veracode_sca` - Veracode SCA
-     * * `semgrep_sca` - Semgrep Supply Chain
-     * * `gitguardian` - GitGuardian
-     * * `infisical` - Infisical
-     * * `aws_macie` - AWS Macie
-     * * `sentinelone` - SentinelOne
-     * * `jfrog_xray` - JFrog Xray
-     * * `dynatrace_security` - Dynatrace Application Security */
+     * * `airbrake` - Airbrake
+     * * `amazon_cloudwatch` - Amazon CloudWatch
+     * * `logicmonitor` - LogicMonitor
+     * * `mux` - Mux */
     source_product: SignalSourceProductEnumApi
     /** Signal type selected during setup.
      *
@@ -1602,6 +1593,11 @@ export interface ScoutSuggestionItemApi {
 }
 
 export interface InboxOnboardingDraftApi {
+    /** Where setup started: the app or a link from an agent.
+     *
+     * * `app` - App
+     * * `agent` - Agent */
+    onboarding_origin?: InboxOnboardingOriginEnumApi
     /** Activate the GitHub-optional pilot. Requires project eligibility and leaves automatic implementation off.
      *
      * * `github_optional` - GitHub optional */
@@ -1667,6 +1663,14 @@ export interface InboxOnboardingStateApi {
      * @nullable
      */
     completed_at: string | null
+}
+
+export interface InboxOnboardingExposureApi {
+    /** Where setup started: the app or a link from an agent.
+     *
+     * * `app` - App
+     * * `agent` - Agent */
+    onboarding_origin?: InboxOnboardingOriginEnumApi
 }
 
 export interface PauseStateResponseApi {
@@ -4421,17 +4425,10 @@ export interface SignalReportLeaveReviewersApi {
  * * `vitally_nps` - vitally_nps
  * * `woocommerce` - woocommerce
  * * `yotpo` - yotpo
- * * `sonarcloud` - sonarcloud
- * * `checkmarx` - checkmarx
- * * `veracode` - veracode
- * * `veracode_sca` - veracode_sca
- * * `semgrep_sca` - semgrep_sca
- * * `gitguardian` - gitguardian
- * * `infisical` - infisical
- * * `aws_macie` - aws_macie
- * * `sentinelone` - sentinelone
- * * `jfrog_xray` - jfrog_xray
- * * `dynatrace_security` - dynatrace_security
+ * * `airbrake` - airbrake
+ * * `amazon_cloudwatch` - amazon_cloudwatch
+ * * `logicmonitor` - logicmonitor
+ * * `mux` - mux
  */
 export type SignalSourceProductApi = (typeof SignalSourceProductApi)[keyof typeof SignalSourceProductApi]
 
@@ -4566,17 +4563,10 @@ export const SignalSourceProductApi = {
     VitallyNps: 'vitally_nps',
     Woocommerce: 'woocommerce',
     Yotpo: 'yotpo',
-    Sonarcloud: 'sonarcloud',
-    Checkmarx: 'checkmarx',
-    Veracode: 'veracode',
-    VeracodeSca: 'veracode_sca',
-    SemgrepSca: 'semgrep_sca',
-    Gitguardian: 'gitguardian',
-    Infisical: 'infisical',
-    AwsMacie: 'aws_macie',
-    Sentinelone: 'sentinelone',
-    JfrogXray: 'jfrog_xray',
-    DynatraceSecurity: 'dynatrace_security',
+    Airbrake: 'airbrake',
+    AmazonCloudwatch: 'amazon_cloudwatch',
+    Logicmonitor: 'logicmonitor',
+    Mux: 'mux',
 } as const
 
 /**
@@ -5614,6 +5604,15 @@ export interface AzureApplicationInsightsIssueSignalExtraApi {
     last_seen: string | null
 }
 
+export type AppsignalIssueSignalExtraApiKind =
+    | (typeof AppsignalIssueSignalExtraApiKind)[keyof typeof AppsignalIssueSignalExtraApiKind]
+    | null
+
+export const AppsignalIssueSignalExtraApiKind = {
+    PerformanceIncident: 'performance_incident',
+    AnomalyIncident: 'anomaly_incident',
+} as const
+
 export interface AppsignalIssueSignalExtraApi {
     state: string | null
     severity: string | null
@@ -5621,6 +5620,10 @@ export interface AppsignalIssueSignalExtraApi {
     occurrence_count: string | null
     created_at: string | null
     last_occurred_at: string | null
+    kind?: AppsignalIssueSignalExtraApiKind
+    mean_duration_ms?: string | null
+    alert_state?: string | null
+    metric_name?: string | null
 }
 
 export interface CursorIssueSignalExtraApi {
@@ -5630,106 +5633,6 @@ export interface CursorIssueSignalExtraApi {
     bugs_found: string | null
     publication_status: string | null
     timestamp: string | null
-}
-
-export interface SonarcloudScannerFindingSignalExtraApi {
-    severity: string | null
-    type: string | null
-    status: string | null
-    component: string | null
-    rule: string | null
-    creation_date: string | null
-}
-
-export interface CheckmarxScannerFindingSignalExtraApi {
-    result_type: string | null
-    finding_severity: string | null
-    finding_state: string | null
-    first_seen: string | null
-    scans: string | null
-}
-
-export interface VeracodeScannerFindingSignalExtraApi {
-    application_guid: string | null
-    scan_type: string | null
-    finding_severity: string | null
-    violates_policy: string | null
-    cwe_id: string | null
-    finding_category: string | null
-    finding_state: string | null
-    resolution_status: string | null
-    first_found_date: string | null
-}
-
-export interface VeracodeScaScannerFindingSignalExtraApi {
-    cve_name: string | null
-    component_filename: string | null
-    component_version: string | null
-    max_severity: string | null
-    affected_applications: string | null
-    first_seen: string | null
-}
-
-export interface SemgrepScaScannerFindingSignalExtraApi {
-    vulnerability_identifier: string | null
-    package_name: string | null
-    ecosystem: string | null
-    finding_severity: string | null
-    reachability_state: string | null
-    affected_findings: string | null
-    first_seen: string | null
-}
-
-export interface GitguardianScannerFindingSignalExtraApi {
-    severity: string | null
-    validity: string | null
-    status: string | null
-    occurrences_count: string | null
-    gitguardian_url: string | null
-    date: string | null
-}
-
-export interface InfisicalScannerFindingSignalExtraApi {
-    rule: string | null
-    resource_name: string | null
-    resource_type: string | null
-    data_source_type: string | null
-    severity: string | null
-    status: string | null
-    created_at: string | null
-}
-
-export interface AwsMacieScannerFindingSignalExtraApi {
-    type: string | null
-    category: string | null
-    severity_level: string | null
-    region: string | null
-    created_at: string | null
-}
-
-export interface SentineloneScannerFindingSignalExtraApi {
-    classification: string | null
-    confidence_level: string | null
-    analyst_verdict: string | null
-    incident_status: string | null
-    threat_mitigation_status: string | null
-    detection_type: string | null
-    created_at: string | null
-}
-
-export interface JfrogXrayScannerFindingSignalExtraApi {
-    issue_id: string | null
-    violation_severity: string | null
-    violation_type: string | null
-    violations: string | null
-    first_seen: string | null
-}
-
-export interface DynatraceSecurityScannerFindingSignalExtraApi {
-    display_id: string | null
-    vulnerability_type: string | null
-    status: string | null
-    first_seen_timestamp: string | null
 }
 
 export interface TriggerDevErrorSignalExtraApi {
@@ -5972,6 +5875,62 @@ export interface GithubSecretScanningScannerFindingSignalExtraApi {
     repository: string | null
 }
 
+export type NewrelicIssueSignalExtraKindEnumApi =
+    (typeof NewrelicIssueSignalExtraKindEnumApi)[keyof typeof NewrelicIssueSignalExtraKindEnumApi]
+
+export const NewrelicIssueSignalExtraKindEnumApi = {
+    AlertIssue: 'alert_issue',
+    JavascriptError: 'javascript_error',
+    TransactionError: 'transaction_error',
+} as const
+
+export interface NewrelicIssueSignalExtraApi {
+    kind: NewrelicIssueSignalExtraKindEnumApi
+    issue_id?: string | null
+    priority?: string | null
+    activated_at?: string | null
+    app_name?: string | null
+    error_class?: string | null
+    sample_transaction?: string | null
+    occurrences?: string | null
+    first_seen?: string | null
+    last_seen?: string | null
+}
+
+export interface AmazonCloudwatchIncidentSignalExtraApi {
+    alarm_name: string | null
+    alarm_kind: string | null
+    transitions: string | null
+    first_seen: string | null
+    last_seen: string | null
+}
+
+export interface LogicmonitorIncidentSignalExtraApi {
+    severity: string | null
+    acked: string | null
+    monitor_object_name: string | null
+    datasource: string | null
+    instance_name: string | null
+    data_point_name: string | null
+    start_epoch: string | null
+}
+
+export interface AirbrakeIssueSignalExtraApi {
+    project_id: string | null
+    environment: string | null
+    notice_total_count: string | null
+    created_at: string | null
+    last_notice_at: string | null
+}
+
+export interface MuxIssueSignalExtraApi {
+    error_id: string | null
+    error_code: string | null
+    view_count: string | null
+    view_share: string | null
+    last_seen_at: string | null
+}
+
 export type SignalExtraApi =
     | SessionProblemSignalExtraApi
     | LlmEvalSignalExtraApi
@@ -6075,17 +6034,6 @@ export type SignalExtraApi =
     | AzureApplicationInsightsIssueSignalExtraApi
     | AppsignalIssueSignalExtraApi
     | CursorIssueSignalExtraApi
-    | SonarcloudScannerFindingSignalExtraApi
-    | CheckmarxScannerFindingSignalExtraApi
-    | VeracodeScannerFindingSignalExtraApi
-    | VeracodeScaScannerFindingSignalExtraApi
-    | SemgrepScaScannerFindingSignalExtraApi
-    | GitguardianScannerFindingSignalExtraApi
-    | InfisicalScannerFindingSignalExtraApi
-    | AwsMacieScannerFindingSignalExtraApi
-    | SentineloneScannerFindingSignalExtraApi
-    | JfrogXrayScannerFindingSignalExtraApi
-    | DynatraceSecurityScannerFindingSignalExtraApi
     | TriggerDevErrorSignalExtraApi
     | ChecklyErrorGroupSignalExtraApi
     | RoarkIssueSignalExtraApi
@@ -6117,6 +6065,11 @@ export type SignalExtraApi =
     | GithubDependabotScannerFindingSignalExtraApi
     | GithubCodeScanningScannerFindingSignalExtraApi
     | GithubSecretScanningScannerFindingSignalExtraApi
+    | NewrelicIssueSignalExtraApi
+    | AmazonCloudwatchIncidentSignalExtraApi
+    | LogicmonitorIncidentSignalExtraApi
+    | AirbrakeIssueSignalExtraApi
+    | MuxIssueSignalExtraApi
 
 export interface SpecificityMetadataApi {
     /** Title of the PR the specificity gate evaluated. */
@@ -6293,17 +6246,10 @@ export interface SignalNodeApi {
      * * `vitally_nps` - vitally_nps
      * * `woocommerce` - woocommerce
      * * `yotpo` - yotpo
-     * * `sonarcloud` - sonarcloud
-     * * `checkmarx` - checkmarx
-     * * `veracode` - veracode
-     * * `veracode_sca` - veracode_sca
-     * * `semgrep_sca` - semgrep_sca
-     * * `gitguardian` - gitguardian
-     * * `infisical` - infisical
-     * * `aws_macie` - aws_macie
-     * * `sentinelone` - sentinelone
-     * * `jfrog_xray` - jfrog_xray
-     * * `dynatrace_security` - dynatrace_security */
+     * * `airbrake` - airbrake
+     * * `amazon_cloudwatch` - amazon_cloudwatch
+     * * `logicmonitor` - logicmonitor
+     * * `mux` - mux */
     source_product: SignalSourceProductApi
     /** Signal type within the source product.
      *

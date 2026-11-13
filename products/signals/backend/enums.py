@@ -243,18 +243,11 @@ class SignalSourceProduct(StrEnum):
     VITALLY_NPS = "vitally_nps"
     WOOCOMMERCE = "woocommerce"
     YOTPO = "yotpo"
-    # Tier-2 code, secret and cloud security scanners
-    SONARCLOUD = "sonarcloud"
-    CHECKMARX = "checkmarx"
-    VERACODE = "veracode"
-    VERACODE_SCA = "veracode_sca"
-    SEMGREP_SCA = "semgrep_sca"
-    GITGUARDIAN = "gitguardian"
-    INFISICAL = "infisical"
-    AWS_MACIE = "aws_macie"
-    SENTINELONE = "sentinelone"
-    JFROG_XRAY = "jfrog_xray"
-    DYNATRACE_SECURITY = "dynatrace_security"
+    # Monitoring alerts and error tracking
+    AIRBRAKE = "airbrake"
+    AMAZON_CLOUDWATCH = "amazon_cloudwatch"
+    LOGICMONITOR = "logicmonitor"
+    MUX = "mux"
 
 
 class SignalSourceType(StrEnum):
@@ -426,17 +419,10 @@ SIGNAL_SOURCE_PRODUCT_LABELS: dict[SignalSourceProduct, str] = {
     SignalSourceProduct.VITALLY_NPS: "Vitally NPS",
     SignalSourceProduct.WOOCOMMERCE: "WooCommerce",
     SignalSourceProduct.YOTPO: "Yotpo",
-    SignalSourceProduct.SONARCLOUD: "SonarCloud",
-    SignalSourceProduct.CHECKMARX: "Checkmarx",
-    SignalSourceProduct.VERACODE: "Veracode",
-    SignalSourceProduct.VERACODE_SCA: "Veracode SCA",
-    SignalSourceProduct.SEMGREP_SCA: "Semgrep Supply Chain",
-    SignalSourceProduct.GITGUARDIAN: "GitGuardian",
-    SignalSourceProduct.INFISICAL: "Infisical",
-    SignalSourceProduct.AWS_MACIE: "AWS Macie",
-    SignalSourceProduct.SENTINELONE: "SentinelOne",
-    SignalSourceProduct.JFROG_XRAY: "JFrog Xray",
-    SignalSourceProduct.DYNATRACE_SECURITY: "Dynatrace Application Security",
+    SignalSourceProduct.AIRBRAKE: "Airbrake",
+    SignalSourceProduct.AMAZON_CLOUDWATCH: "Amazon CloudWatch",
+    SignalSourceProduct.LOGICMONITOR: "LogicMonitor",
+    SignalSourceProduct.MUX: "Mux",
 }
 
 

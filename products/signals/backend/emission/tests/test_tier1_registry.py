@@ -145,18 +145,16 @@ TIER1_SOURCES = [
     (ExternalDataSourceType.GITHUB, "dependabot_alerts", "github_dependabot", "scanner_finding"),
     (ExternalDataSourceType.GITHUB, "code_scanning_alerts", "github_code_scanning", "scanner_finding"),
     (ExternalDataSourceType.GITHUB, "secret_scanning_alerts", "github_secret_scanning", "scanner_finding"),
-    # Tier-2 code, secret and cloud security scanners
-    (ExternalDataSourceType.SONARCLOUD, "issues", "sonarcloud", "scanner_finding"),
-    (ExternalDataSourceType.CHECKMARX, "scan_results", "checkmarx", "scanner_finding"),
-    (ExternalDataSourceType.VERACODE, "findings", "veracode", "scanner_finding"),
-    (ExternalDataSourceType.VERACODE, "sca_findings", "veracode_sca", "scanner_finding"),
-    (ExternalDataSourceType.SEMGREP, "sca_findings", "semgrep_sca", "scanner_finding"),
-    (ExternalDataSourceType.GITGUARDIAN, "secret_incidents", "gitguardian", "scanner_finding"),
-    (ExternalDataSourceType.INFISICAL, "secret_scanning_findings", "infisical", "scanner_finding"),
-    (ExternalDataSourceType.AWSMACIE, "findings", "aws_macie", "scanner_finding"),
-    (ExternalDataSourceType.SENTINELONE, "threats", "sentinelone", "scanner_finding"),
-    (ExternalDataSourceType.JFROGARTIFACTORY, "xray_violations", "jfrog_xray", "scanner_finding"),
-    (ExternalDataSourceType.DYNATRACE, "security_problems", "dynatrace_security", "scanner_finding"),
+    # Monitoring alerts and error tracking
+    (ExternalDataSourceType.NEWRELIC, "alert_issues", "newrelic", "issue"),
+    (ExternalDataSourceType.NEWRELIC, "javascript_errors", "newrelic", "issue"),
+    (ExternalDataSourceType.NEWRELIC, "transaction_errors", "newrelic", "issue"),
+    (ExternalDataSourceType.APPSIGNAL, "performance_incidents", "appsignal", "issue"),
+    (ExternalDataSourceType.APPSIGNAL, "anomaly_incidents", "appsignal", "issue"),
+    (ExternalDataSourceType.AMAZONCLOUDWATCH, "alarm_history", "amazon_cloudwatch", "incident"),
+    (ExternalDataSourceType.LOGICMONITOR, "alerts", "logicmonitor", "incident"),
+    (ExternalDataSourceType.AIRBRAKE, "groups", "airbrake", "issue"),
+    (ExternalDataSourceType.MUX, "errors", "mux", "issue"),
 ]
 
 IDS = [product for _, _, product, _ in TIER1_SOURCES]
@@ -192,6 +190,10 @@ def _mock_record(fields: tuple[str, ...], product: str = "") -> dict:
             record[name] = '[{"id": "a", "type": "text", "text": "some text"}]'
         elif name == "messages":
             record[name] = '[{"role": "USER", "text": "hello", "body": "hello"}]'
+        elif name == "action_names":
+            record[name] = '["UsersController#show"]'
+        elif name == "trigger":
+            record[name] = '{"name": "High error rate", "metricName": "transaction_exception_rate"}'
         elif name == "bugs_found":
             record[name] = 2
         elif name == "dry_run":
