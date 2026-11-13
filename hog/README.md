@@ -448,7 +448,7 @@ A release takes two merges, the changeset and then the release pull request, and
 - Every release is the latest, prereleases included. A rerun of an older version never moves `hog/latest/manifest.json`, npm's `latest` tag or the formula back, and a manifest the workflow can't read stops the release instead.
 - Changesets that merge while a release pull request waits start the next release when it merges.
 - To retire a broken release, set `minimumVersion` in `release/minimum-version.json`. The next release carries it in its manifest.
-- Don't run `sampo publish` or push `hog/v*` tags by hand. The one exception comes before the first release: the approval check starts at the tag of the version in `hog/package.json`, so a maintainer tags the commit where the first release's check starts as `hog/v0.1.0-alpha.0`.
+- Don't run `sampo publish` or push `hog/v*` tags by hand. The one exception comes before the first release: the approval check starts at the tag of the version in `hog/package.json`, so a maintainer tags the commit where the first release's check starts as `hog/v0.1.0-alpha.0`. The check runs as that tag has it, so the tag must be on a commit with `hog/release/check-approvers.sh`.
 
 ```bash
 bun release/compile.ts --version 0.1.0-alpha.9 --target darwin-arm64   # a release build for this machine
