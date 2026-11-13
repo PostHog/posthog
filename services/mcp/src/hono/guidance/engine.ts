@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 
+import type { ResultNotice } from '@/lib/result-notices'
 import { resolveScopePreset } from '@/lib/scope-preset'
 
 import type { RedisLike } from '../cache/RedisCache'
@@ -29,6 +30,7 @@ export interface GuidanceCall {
     args: Record<string, unknown> | undefined
     isError: boolean
     resultEmpty?: boolean | undefined
+    resultNotices?: readonly ResultNotice[] | undefined
 }
 
 export type GuidanceOutcome = 'shown' | 'flag_off' | 'suppressed' | 'no_consent'
@@ -72,6 +74,12 @@ export function triggerMatches(rule: GuidanceRule, call: GuidanceCall): boolean 
         return false
     }
     if (trigger.resultEmpty !== undefined && trigger.resultEmpty !== (call.resultEmpty === true)) {
+        return false
+    }
+    if (
+        trigger.noticeSource !== undefined &&
+        !call.resultNotices?.some((notice) => notice.source === trigger.noticeSource)
+    ) {
         return false
     }
     if (trigger.excludeArgs?.some((path) => isSet(readArgPath(call.args, path)))) {
@@ -192,16 +200,18 @@ export class GuidanceEngine {
             const scopes = countingScopes(state)
             let winner: GuidanceNotice | undefined
             for (const rule of rules) {
-                const result = await this.touchRule(rule, scopes, call, winner === undefined, productState)
+                const ruleCall = await this.withUnseenNotices(rule, scopes, call)
+                const result = await this.touchRule(rule, scopes, ruleCall, winner === undefined, productState)
                 if (result === RuleResult.Fired) {
                     const outcome = firedOutcome(rule, state)
                     winner = {
                         ruleId: rule.id,
                         outcome,
                         ...(outcome === 'shown'
-                            ? { text: typeof rule.text === 'string' ? rule.text : rule.text(call) }
+                            ? { text: typeof rule.text === 'string' ? rule.text : rule.text(ruleCall) }
                             : {}),
                     }
+                    await this.markNoticesSeen(rule, scopes, ruleCall)
                 } else if (result === RuleResult.Suppressed && !winner) {
                     winner = { ruleId: rule.id, outcome: 'suppressed' }
                 }
@@ -215,6 +225,35 @@ export class GuidanceEngine {
             console.warn('[Guidance] evaluation failed:', error instanceof Error ? error.message : String(error))
             return undefined
         }
+    }
+
+    // A notice the session already received does not count as a match, so the same suggestion
+    // never repeats while a different one from the same source still can.
+    private async withUnseenNotices(
+        rule: GuidanceRule,
+        scopes: CountingScopes,
+        call: GuidanceCall
+    ): Promise<GuidanceCall> {
+        const source = rule.trigger.noticeSource
+        if (source === undefined || !call.resultNotices?.length) {
+            return call
+        }
+        const candidates = call.resultNotices.filter((notice) => notice.source === source)
+        const seen = await Promise.all(
+            candidates.map((notice) => this.redis.get(seenNoticeKey(scopes.primary, rule, notice)))
+        )
+        return { ...call, resultNotices: candidates.filter((_notice, index) => seen[index] === null) }
+    }
+
+    private async markNoticesSeen(rule: GuidanceRule, scopes: CountingScopes, call: GuidanceCall): Promise<void> {
+        if (rule.trigger.noticeSource === undefined) {
+            return
+        }
+        await Promise.all(
+            (call.resultNotices ?? []).map((notice) =>
+                this.redis.set(seenNoticeKey(scopes.primary, rule, notice), '1', 'EX', scopes.ttl)
+            )
+        )
     }
 
     private async touchRule(
@@ -305,6 +344,10 @@ function countingScopes(state: ResolvedState): CountingScopes {
 // The braces are a cluster hash tag, so the script can touch a rule's three keys together.
 function scopeKey(distinctId: string, handle: string | undefined): string {
     return `mcp:guidance:{${hashKey(`${distinctId}|${handle ?? ''}`)}}`
+}
+
+function seenNoticeKey(scope: string, rule: GuidanceRule, notice: ResultNotice): string {
+    return `${scope}:${rule.id}:seen:${hashKey(notice.key)}`
 }
 
 function firedOutcome(rule: GuidanceRule, state: ResolvedState): GuidanceOutcome {

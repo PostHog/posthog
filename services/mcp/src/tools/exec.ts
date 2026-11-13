@@ -20,6 +20,7 @@ import { findIgnoredInputKeys, withIgnoredInputKeys } from '@/lib/ignored-input-
 import { isChatGptAppConnection } from '@/lib/oauth-constants'
 import type { RequestProperties } from '@/lib/request-properties'
 import { formatResponse } from '@/lib/response'
+import { type ResultNotice, takeResultNotices } from '@/lib/result-notices'
 import { API_KEY_CACHE_TTL_MS } from '@/lib/StateManager'
 import { LearnLookupError } from '@/skills/skill-catalog'
 import { APP_DATA_META_KEY } from '@/ui-apps/types'
@@ -186,6 +187,7 @@ export interface ExecInnerCallProperties {
     /** Which kind of skill lookup missed, when the dispatcher rewrote a 404. */
     skill_lookup_miss_kind?: SkillLookupMissKind
     result_empty?: boolean
+    result_notices?: ResultNotice[]
 }
 
 export type ExecInnerCallTracker = (toolName: string, properties: ExecInnerCallProperties) => void
@@ -2248,11 +2250,11 @@ export function createExecTool(
 
                     const startedAt = Date.now()
                     let result: unknown
+                    let resultNotices: ResultNotice[] = []
                     try {
-                        result = withIgnoredInputKeys(
-                            markNoncanonicalMetricRun(tool.name, await tool.handler(context, input)),
-                            ignoredKeys
-                        )
+                        const taken = takeResultNotices(await tool.handler(context, input))
+                        resultNotices = taken.notices
+                        result = withIgnoredInputKeys(markNoncanonicalMetricRun(tool.name, taken.result), ignoredKeys)
                     } catch (err) {
                         // PostHogValidationError is the API's 400 validation_error body.
                         const apiError = findRecoverableApiError(err)
@@ -2283,7 +2285,10 @@ export function createExecTool(
                     }
                     const durationMs = Date.now() - startedAt
                     // The text path below builds no payload, so emptiness is reported from here.
-                    const resultShape = isEmptyToolResult(result, tool.name) ? { result_empty: true } : {}
+                    const resultShape = {
+                        ...(isEmptyToolResult(result, tool.name) ? { result_empty: true } : {}),
+                        ...(resultNotices.length > 0 ? { result_notices: resultNotices } : {}),
+                    }
                     const formattedOverride =
                         result !== null && typeof result === 'object'
                             ? (result as Record<string, unknown>)[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]

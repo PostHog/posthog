@@ -32,6 +32,7 @@ import { findIgnoredInputKeys, withIgnoredInputKeys } from '@/lib/ignored-input-
 import { challengeStepUpBeforeRun } from '@/lib/missing-scope'
 import { getPostHogClient } from '@/lib/posthog'
 import { sanitizeErrorToken } from '@/lib/posthog/analytics'
+import { type ResultNotice, takeResultNotices } from '@/lib/result-notices'
 import { hasSqlFilters, isPrivateScoutTrialTool } from '@/lib/tool-privacy'
 import type { UiAppKey } from '@/resources/ui-apps.generated'
 import {
@@ -103,6 +104,7 @@ interface ExecMetricState {
     /** Which kind of skill lookup missed, when the dispatcher rewrote a 404. */
     skillLookupMissKind: SkillLookupMissKind | undefined
     resultEmpty: boolean
+    resultNotices: ResultNotice[]
 }
 
 /**
@@ -500,10 +502,10 @@ export class ToolExecutor {
 
             // Computed before the handler runs, so a failure here cannot follow a write that succeeded.
             const ignoredKeys = findIgnoredInputKeys(toolArgs, validation.data, tool.schema)
-            const handlerResult = withIgnoredInputKeys(
-                markNoncanonicalMetricRun(tool.name, await tool.handler(state.context, validation.data)),
-                ignoredKeys
+            const { result: rawResult, notices: resultNotices } = takeResultNotices(
+                await tool.handler(state.context, validation.data)
             )
+            const handlerResult = withIgnoredInputKeys(markNoncanonicalMetricRun(tool.name, rawResult), ignoredKeys)
 
             if (isContextSwitch) {
                 void state.reqCtx.trackContextSwitchEvent(tool.name, state.context, previousContext)
@@ -515,6 +517,7 @@ export class ToolExecutor {
                 args: validation.data,
                 isError: false,
                 resultEmpty: isEmptyToolResult(handlerResult, tool.name),
+                resultNotices,
             })
             stop({ status: 'success' })
             const duration = Date.now() - startMs
@@ -676,6 +679,7 @@ export class ToolExecutor {
             innerFailure: undefined,
             skillLookupMissKind: undefined,
             resultEmpty: false,
+            resultNotices: [],
         }
         const resolved = this.resolveExecTool(state, execMetrics, analyticsMeta)
 
@@ -776,6 +780,7 @@ export class ToolExecutor {
                 args: execMetrics.innerToolName ? parseExecCallInnerArgs(validation.data.command) : validation.data,
                 isError: innerFailure !== undefined,
                 resultEmpty: execMetrics.resultEmpty,
+                resultNotices: execMetrics.resultNotices,
             })
             const duration = Date.now() - startMs
             const guided = attachGuidanceNotice(response, guidance, {
@@ -917,6 +922,7 @@ export class ToolExecutor {
             }
             execMetrics.skillLookupMissKind = properties.skill_lookup_miss_kind
             execMetrics.resultEmpty = properties.result_empty === true
+            execMetrics.resultNotices = properties.result_notices ?? []
             const status = properties.success ? 'success' : properties.validation_error ? 'validation_error' : 'error'
             toolCallsTotal.inc({ tool: toolName, status })
             // Mirror the native path: schema rejections never start a handler, so

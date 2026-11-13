@@ -206,6 +206,48 @@ describe('ToolExecutor guidance notices', () => {
         expect(result.content[0]?.text).toContain('The result is empty.')
     })
 
+    it.each(['direct', 'exec'])('moves result notices out of the result and into guidance in %s mode', async (mode) => {
+        const notice = { source: 'test-source', key: 'n1', text: 'Consider this.' }
+        const sql = makeTool('execute-sql', () => ({ results: [[1]], agent_notices: [notice] }))
+        vi.spyOn(catalog, 'getToolByName').mockImplementation((name) =>
+            name === sql.name
+                ? { build: () => sql, meta: undefined, rawInputSchema: undefined, definition: undefined }
+                : undefined
+        )
+        const noticeRule: GuidanceRule = {
+            id: 'result-notice-rule',
+            flag: 'mcp-guidance-result-notice',
+            trigger: { noticeSource: notice.source, outcome: 'success', presets: ['user'] },
+            threshold: 1,
+            maxPerSession: 1,
+            suppressIfCalled: [],
+            requiresTool: [sql.name],
+            text: (call) => call.resultNotices?.map((n) => n.text).join('\n') ?? '',
+        }
+        const executor = new ToolExecutor(
+            catalog,
+            new InstructionsBuilder(''),
+            undefined,
+            new GuidanceEngine(makeGuidanceRedis(), [noticeRule])
+        )
+        const state = makeToolExecutorState([sql], {
+            useSingleExec: mode === 'exec',
+            suppressAnalytics: false,
+            toolFeatureFlags: { [noticeRule.flag]: true },
+        })
+
+        const result = (await executor.handleToolCall(
+            mode === 'exec'
+                ? { name: 'exec', arguments: { command: `call ${sql.name} {"query":"select 1"}` } }
+                : { name: sql.name, arguments: { query: 'select 1' } },
+            state
+        )) as SqlResult & { structuredContent?: unknown }
+
+        const serialized = JSON.stringify(result)
+        expect(serialized).not.toContain('agent_notices')
+        expect(result.content.filter((block) => block.text === 'Consider this.')).toHaveLength(1)
+    })
+
     it.each([
         ['query-error-tracking-issue', 'direct', false, false],
         ['query-error-tracking-issue', 'exec', false, false],

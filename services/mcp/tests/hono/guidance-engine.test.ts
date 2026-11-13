@@ -392,6 +392,30 @@ describe('GuidanceEngine', () => {
         expect(shown?.text).toBe('Used execute-sql.')
     })
 
+    it('shows each result notice once per session while new notices from the source still show', async () => {
+        const noticeRule: GuidanceRule = {
+            ...rule,
+            trigger: { noticeSource: 'warehouse', outcome: 'success', presets: ['user'] },
+            threshold: 1,
+            maxPerSession: 5,
+            text: (call) => (call.resultNotices ?? []).map((notice) => notice.text).join(' | '),
+        }
+        const withNotices = (...keys: string[]): GuidanceCall => ({
+            ...otherQuery,
+            resultNotices: [
+                ...keys.map((key) => ({ source: 'warehouse', key, text: `note ${key}` })),
+                { source: 'elsewhere', key: 'x', text: 'not mine' },
+            ],
+        })
+        const engine = new GuidanceEngine(makeGuidanceRedis(), [noticeRule])
+        const state = makeState({ toolFeatureFlags: { [noticeRule.flag]: true } })
+        const texts = []
+        for (const call of [withNotices('a'), withNotices('a'), withNotices('a', 'b'), otherQuery]) {
+            texts.push((await engine.evaluate(state, call))?.text)
+        }
+        expect(texts).toEqual(['note a', undefined, 'note b', undefined])
+    })
+
     it('shows nothing and logs when Redis fails', async () => {
         const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
         const engine = new GuidanceEngine(makeGuidanceRedis(true), [{ ...rule, threshold: 1 }])
