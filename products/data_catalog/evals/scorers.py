@@ -78,6 +78,8 @@ _TABLE_REF_RE = re.compile(rf"\b(?:from|join)\s+({_TABLE_NAME})")
 _COMMA_TABLE_RE = re.compile(
     rf"(?:\s+(?:as\s+)?(?!(?:where|prewhere|group|order|limit|having|settings|union|join|left|right|inner|full|cross|any|array|on|using)\b)\w+)?\s*,\s*({_TABLE_NAME})"
 )
+# A CTE name read later in the query is not a table, so the system-table check drops it.
+_CTE_NAME_RE = re.compile(r"(?:\bwith|,)\s*(\w+)\s+as\s*\(")
 _INFO_SYNTHETIC_PREFIX = "__info__:"
 # Matches the PostHog MCP namespace across regional server names —
 # ``mcp__posthog__``, ``mcp__posthog_us__``, ``mcp__posthog_eu__``, etc.
@@ -137,7 +139,8 @@ def _table_refs(code: str) -> list[str]:
 
 def _reads_only_system_tables(call: ToolCall) -> bool:
     code = _STRING_LITERAL_RE.sub("''", _query_text(call))
-    tables = [ref.replace("`", "") for ref in _table_refs(code)]
+    cte_names = set(_CTE_NAME_RE.findall(code))
+    tables = [table for table in (ref.replace("`", "") for ref in _table_refs(code)) if table not in cte_names]
     return bool(tables) and all(table.startswith("system.") for table in tables)
 
 

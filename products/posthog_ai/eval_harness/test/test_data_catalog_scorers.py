@@ -770,6 +770,8 @@ def test_metric_found_requires_a_successful_call_on_the_metric(
         ("comma_join_events", "SELECT count() FROM system.group_type_mappings AS g, events", 0.0),
         ("comma_join_system", "SELECT g.group_type FROM system.group_type_mappings g, system.cohorts c", 1.0),
         ("system_limit_offset", "SELECT group_type FROM system.group_type_mappings LIMIT 10, 20", 1.0),
+        ("cte_over_system", "WITH m AS (SELECT * FROM system.group_type_mappings) SELECT * FROM m", 1.0),
+        ("cte_over_events", "WITH e AS (SELECT * FROM events), m AS (SELECT 1) SELECT count() FROM e, m", 0.0),
     ]
 )
 def test_no_data_sql_run_ignores_system_table_lookups(_name: str, query: str, expected_score: float) -> None:
