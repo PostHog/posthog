@@ -27,7 +27,10 @@ export type MetricsParityScenario = {
     description: string
     /** The clock does not move inside a batch. */
     batch_now_ms: number[]
-    /** The limiter settings, complete, because their defaults depend on the environment. */
+    /**
+     * Every setting whose default depends on the environment, or that selects a step.
+     * The Rust replay refuses a key it does not know.
+     */
     config: Record<string, string | number | boolean>
     teams: { id: number; api_token: string }[]
     quota_limited_tokens: string[]

@@ -1,4 +1,4 @@
-//! Kept 1:1 with `nodejs/src/ingestion/pipelines/metrics` by the shared parity corpus. `PORTING.md` lists what differs.
+//! A port of `nodejs/src/ingestion/pipelines/metrics`. The shared parity corpus checks the ported steps, and `PORTING.md` lists what is not ported and what differs.
 
 pub mod pipeline;
 

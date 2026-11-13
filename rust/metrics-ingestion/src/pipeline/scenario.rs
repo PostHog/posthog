@@ -14,7 +14,7 @@ use logs_ingestion::pipeline::{
 };
 use logs_ingestion::rate_limiter::{Clock, KeyRoot, TokenBucketRedis};
 
-use super::config::MetricsLimiterConfig;
+use super::config::{MetricsLimiterConfig, AGGREGATION_TEAMS_KEY};
 use super::consumer::{MetricsPipelineConsumer, MetricsPipelineConsumerDeps};
 
 fn get<'a>(v: &'a JsValue, key: &str) -> Option<&'a JsValue> {
@@ -318,6 +318,20 @@ pub fn scenario_parts(
         Some(JsValue::Object(o)) => o.clone(),
         _ => JsObject::new(),
     };
+    // A key that this replay ignored would let Node take a path that Rust does not have, with matching outputs for the wrong reason.
+    for (key, value) in config.iter() {
+        let key = key.to_utf8_lossy();
+        match key.as_ref() {
+            AGGREGATION_TEAMS_KEY => assert!(
+                matches!(value, JsValue::String(teams) if teams.to_utf8_lossy().trim().is_empty()),
+                "{AGGREGATION_TEAMS_KEY} must be empty: metric aggregation is not ported"
+            ),
+            key => assert!(
+                key.starts_with("METRICS_LIMITER_"),
+                "scenario config key {key} is not ported"
+            ),
+        }
+    }
     ScenarioParts {
         config: MetricsLimiterConfig::from_node_config(&config),
         deps,

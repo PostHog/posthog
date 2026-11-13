@@ -1,5 +1,8 @@
 use logs_ingestion::js::JsObject;
-use logs_ingestion::service::node_env::{get_number, get_string};
+use logs_ingestion::service::node_env::{get_bool, get_number, get_string};
+
+/// Node's aggregation step is not ported. Primary mode and the scenario replay refuse a value that enables it.
+pub const AGGREGATION_TEAMS_KEY: &str = "METRICS_AGGREGATION_ENABLED_TEAMS";
 
 /// The `METRICS_LIMITER_*` keys of `MetricsIngestionConsumerConfig`.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -11,6 +14,8 @@ pub struct MetricsLimiterConfig {
     pub ttl_seconds: f64,
     pub team_bucket_size_kb: String,
     pub team_refill_rate_kb_per_second: String,
+    /// When Redis fails, allow every message instead of failing the batch.
+    pub fail_open: bool,
 }
 
 impl MetricsLimiterConfig {
@@ -26,6 +31,7 @@ impl MetricsLimiterConfig {
                 c,
                 "METRICS_LIMITER_TEAM_REFILL_RATE_KB_PER_SECOND",
             ),
+            fail_open: get_bool(c, "METRICS_LIMITER_FAIL_OPEN"),
         }
     }
 }

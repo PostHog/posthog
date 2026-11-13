@@ -12,6 +12,10 @@ const LIMITER_OFF = {
     METRICS_LIMITER_TTL_SECONDS: 86400,
     METRICS_LIMITER_TEAM_BUCKET_SIZE_KB: '',
     METRICS_LIMITER_TEAM_REFILL_RATE_KB_PER_SECOND: '',
+    METRICS_LIMITER_FAIL_OPEN: false,
+    // Rust has no aggregation step, and its replay refuses a scenario that enables one.
+    // Port the step before a scenario sets this.
+    METRICS_AGGREGATION_ENABLED_TEAMS: '',
 }
 
 function iso(offsetMs: number): string {

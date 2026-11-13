@@ -2,7 +2,7 @@
 name = "metrics-ingestion"
 version = "0.1.0"
 edition = "2021"
-description = "Rust port of the Node metrics ingestion consumer (nodejs/src/ingestion/pipelines/metrics), kept 1:1 with it by the shared parity corpus"
+description = "Rust port of the Node metrics ingestion consumer (nodejs/src/ingestion/pipelines/metrics), checked against it by the shared parity corpus"
 
 [lib]
 path = "src/lib.rs"

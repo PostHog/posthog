@@ -3,6 +3,7 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 
 use logs_ingestion::js::{date_parse, number_to_string};
 use logs_ingestion::property_filter::coerce::{js_math_round, js_parse_int, js_trim};
@@ -13,6 +14,12 @@ use super::config::MetricsLimiterConfig;
 use super::types::MetricsIngestionMessage;
 
 pub const LIMITER_NAME: &str = "metrics-rate-limiter";
+/// `METRICS_LIMITER_FAIL_OPEN_REDIS_TIMEOUT_MS`. With fail-open, a Redis call that never answers must not stall the batch.
+const FAIL_OPEN_REDIS_TIMEOUT: Duration = Duration::from_secs(2);
+
+fn count_redis_error() {
+    metrics::counter!("metrics_rate_limiter_redis_errors_total").increment(1);
+}
 
 #[derive(Debug, Clone, PartialEq)]
 enum TeamList {
@@ -130,8 +137,12 @@ impl MetricsRateLimiter {
         }
     }
 
-    /// `rateLimitMany`: tokens before each team's deduction. A failed pipeline is an error, so the batch replays.
-    async fn tokens_before(&self, team_costs: &[(i64, f64, f64)]) -> anyhow::Result<Vec<f64>> {
+    /// `rateLimitMany`: tokens before each team's deduction. `None` is a team without a limit, which only fail-open gives.
+    /// Without fail-open, a failed pipeline is an error, so the batch replays.
+    async fn tokens_before(
+        &self,
+        team_costs: &[(i64, f64, f64)],
+    ) -> anyhow::Result<Vec<Option<f64>>> {
         if team_costs.is_empty() {
             return Ok(Vec::new());
         }
@@ -152,23 +163,41 @@ impl MetricsRateLimiter {
                 }
             })
             .collect();
-        let replies = match self.redis.eval_pipeline(token_bucket_v2(), &calls).await {
+        let pipeline = self.redis.eval_pipeline(token_bucket_v2(), &calls);
+        let result = if self.config.fail_open {
+            tokio::time::timeout(FAIL_OPEN_REDIS_TIMEOUT, pipeline)
+                .await
+                .unwrap_or_else(|_| Err("Metrics rate limiter Redis call timed out".to_string()))
+        } else {
+            pipeline.await
+        };
+        let replies = match result {
             Ok(replies) => replies,
             Err(error) => {
                 tracing::error!(%error, "Redis call metrics-rate-limiter failed");
+                if self.config.fail_open {
+                    count_redis_error();
+                    return Ok(vec![None; calls.len()]);
+                }
                 return Err(anyhow::Error::new(RateLimitFailed));
             }
         };
-        Ok((0..calls.len())
-            .map(|i| {
-                replies
-                    .get(i)
-                    .and_then(|reply| reply.as_ref().ok())
-                    .and_then(|reply| reply.first())
-                    .map(|n| ioredis_integer(*n))
-                    .unwrap_or(self.config.bucket_size_kb)
+        let tokens: Vec<Option<f64>> = (0..calls.len())
+            .map(|i| match replies.get(i) {
+                Some(Err(_)) | None if self.config.fail_open => None,
+                reply => Some(
+                    reply
+                        .and_then(|reply| reply.as_ref().ok())
+                        .and_then(|reply| reply.first())
+                        .map(|n| ioredis_integer(*n))
+                        .unwrap_or(self.config.bucket_size_kb),
+                ),
             })
-            .collect())
+            .collect();
+        if tokens.contains(&None) {
+            count_redis_error();
+        }
+        Ok(tokens)
     }
 
     /// `filterMessages`, as one `dropped` flag per message in input order.
@@ -216,7 +245,7 @@ impl MetricsRateLimiter {
         let available: HashMap<i64, f64> = requests
             .iter()
             .zip(before)
-            .map(|((team, _, _), tokens)| (*team, tokens))
+            .filter_map(|((team, _, _), tokens)| Some((*team, tokens?)))
             .collect();
 
         let mut used: HashMap<i64, f64> = HashMap::new();
@@ -236,5 +265,97 @@ impl MetricsRateLimiter {
                 }
             })
             .collect())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use async_trait::async_trait;
+    use ingestion_framework::{Headers, KafkaMessage};
+    use logs_ingestion::rate_limiter::{LuaScript, ScriptReply};
+
+    use super::super::types::MetricsSizes;
+    use super::*;
+
+    enum Redis {
+        Fails,
+        NeverAnswers,
+        Replies(Vec<ScriptReply>),
+    }
+
+    #[async_trait]
+    impl TokenBucketRedis for Redis {
+        async fn eval_pipeline(
+            &self,
+            _script: &LuaScript,
+            _calls: &[ScriptCall],
+        ) -> Result<Vec<ScriptReply>, String> {
+            match self {
+                Redis::Fails => Err("Connection is closed".to_string()),
+                Redis::NeverAnswers => std::future::pending().await,
+                Redis::Replies(replies) => Ok(replies.clone()),
+            }
+        }
+    }
+
+    fn message(team_id: i64) -> MetricsIngestionMessage {
+        MetricsIngestionMessage {
+            message: Arc::new(KafkaMessage {
+                topic: "metrics_ingestion".to_string(),
+                partition: 0,
+                offset: 0,
+                key: None,
+                value: None,
+                headers: Vec::new(),
+                timestamp: None,
+            }),
+            kafka_headers: Headers::new(),
+            token: format!("token-{team_id}"),
+            team_id,
+            sizes: MetricsSizes {
+                bytes_uncompressed: 1000,
+                ..Default::default()
+            },
+        }
+    }
+
+    async fn dropped(fail_open: bool, redis: Redis) -> anyhow::Result<Vec<bool>> {
+        let limiter = MetricsRateLimiter::new(
+            MetricsLimiterConfig {
+                enabled_teams: "*".to_string(),
+                // A failed command without fail-open falls back to this size, which drops the message.
+                bucket_size_kb: 0.0,
+                refill_rate_kb_per_second: 1000.0,
+                ttl_seconds: 86400.0,
+                fail_open,
+                ..Default::default()
+            },
+            Arc::new(redis),
+            KeyRoot::Test,
+            Arc::new(|| 0.0),
+        );
+        let messages = [message(1), message(2)];
+        limiter.dropped(&messages.iter().collect::<Vec<_>>()).await
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn fail_open_allows_the_messages_that_redis_gave_no_answer_for() {
+        assert_eq!(dropped(true, Redis::Fails).await.unwrap(), [false, false]);
+        assert_eq!(
+            dropped(true, Redis::NeverAnswers).await.unwrap(),
+            [false, false]
+        );
+        // Team 1's command failed, so team 1 has no limit. Team 2's bucket is empty.
+        let replies = vec![Err("Connection is closed".to_string()), Ok(vec![0, 0])];
+        assert_eq!(
+            dropped(true, Redis::Replies(replies)).await.unwrap(),
+            [false, true]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_redis_failure_fails_the_batch_without_fail_open() {
+        let error = dropped(false, Redis::Fails).await.unwrap_err();
+        assert!(error.downcast_ref::<RateLimitFailed>().is_some());
     }
 }

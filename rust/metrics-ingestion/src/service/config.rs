@@ -14,7 +14,7 @@ use logs_ingestion::service::node_env::{
     posthog_database_defaults, posthog_database_url, rdkafka_from_env, Env, NodeEnv,
 };
 
-use crate::pipeline::{MetricsLimiterConfig, METRICS_OUTPUT};
+use crate::pipeline::{MetricsLimiterConfig, AGGREGATION_TEAMS_KEY, METRICS_OUTPUT};
 
 pub const WARPSTREAM_METRICS_PRODUCER: &str = "WARPSTREAM_METRICS_PRODUCER";
 pub const NODE_GROUP_ID: &str = "ingestion-metrics";
@@ -26,7 +26,6 @@ const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(60);
 pub struct ServiceConfig {
     pub mode: RunMode,
     pub node_env: NodeEnv,
-    pub node: JsObject,
     pub limiter: MetricsLimiterConfig,
     pub group_id: String,
     pub input_topic: String,
@@ -52,6 +51,10 @@ pub enum ConfigError {
     ServerMode(String),
     #[error("{SHADOW_MODE_KEY} must be true or false, got {0:?}")]
     ShadowMode(String),
+    #[error(
+        "{AGGREGATION_TEAMS_KEY} is not empty, but metric aggregation is not ported, so primary mode refuses it"
+    )]
+    AggregationNotPorted,
     #[error("{0}")]
     Invalid(String),
 }
@@ -101,6 +104,8 @@ fn node_defaults(env: &Env) -> Vec<(String, JsValue)> {
         ("METRICS_LIMITER_TTL_SECONDS", n(86400.0)),
         ("METRICS_LIMITER_TEAM_BUCKET_SIZE_KB", s("")),
         ("METRICS_LIMITER_TEAM_REFILL_RATE_KB_PER_SECOND", s("")),
+        ("METRICS_LIMITER_FAIL_OPEN", b(false)),
+        (AGGREGATION_TEAMS_KEY, s(if prod { "" } else { "*" })),
         ("REDIS_URL", s("redis://127.0.0.1")),
         (
             "METRICS_INGESTION_OUTPUT_APP_METRICS_TOPIC",
@@ -200,6 +205,10 @@ impl ServiceConfig {
             .map(|(k, v)| (k.as_str(), v.clone()))
             .collect();
         let node = override_with_env(&defaults, env);
+        // Node merges points for these teams before the produce. A primary without that step would write every point unmerged.
+        if mode == RunMode::Primary && !get_string(&node, AGGREGATION_TEAMS_KEY).trim().is_empty() {
+            return Err(ConfigError::AggregationNotPorted);
+        }
         let route = |output: &'static str, topic_key: &str, producer_key: &str| OutputRoute {
             output,
             topic: get_string(&node, topic_key),
@@ -357,7 +366,6 @@ impl ServiceConfig {
             },
             http_port: positive(&node, "HTTP_SERVER_PORT")? as u16,
             shutdown_timeout: SHUTDOWN_TIMEOUT,
-            node,
         })
     }
 
@@ -429,12 +437,14 @@ mod tests {
             ("DATABASE_URL", "postgres://x"),
             ("METRICS_REDIS_HOST", "metrics-redis"),
             ("METRICS_LIMITER_BUCKET_SIZE_KB", "2.5"),
+            ("METRICS_LIMITER_FAIL_OPEN", "true"),
         ]))
         .unwrap();
         assert_eq!(c.group_id, NODE_GROUP_ID);
         assert_eq!(c.route("metrics").unwrap().topic, "clickhouse_metrics");
         assert_eq!(c.limiter.bucket_size_kb, 2.5);
         assert_eq!(c.limiter.enabled_teams, "");
+        assert!(c.limiter.fail_open);
         assert!(c.metrics_redis.tls);
         assert_eq!(c.database_writer_url.as_deref(), Some("postgres://x"));
         assert_eq!(
@@ -451,6 +461,16 @@ mod tests {
         assert_eq!(
             from_options.database_writer_url.as_deref(),
             Some("postgres://postgres:@pg:5432/posthog")
+        );
+        assert_eq!(
+            ServiceConfig::from_env(&env(&[
+                ("PLUGIN_SERVER_MODE", "ingestion-metrics"),
+                (SHADOW_MODE_KEY, "false"),
+                ("DATABASE_URL", "postgres://x"),
+                (AGGREGATION_TEAMS_KEY, "*"),
+            ]))
+            .unwrap_err(),
+            ConfigError::AggregationNotPorted
         );
         assert_eq!(
             ServiceConfig::from_env(&env(&[("PLUGIN_SERVER_MODE", "ingestion-logs")])).unwrap_err(),

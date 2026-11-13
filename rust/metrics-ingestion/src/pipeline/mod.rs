@@ -7,6 +7,6 @@ pub mod steps;
 pub mod types;
 pub mod usage;
 
-pub use config::MetricsLimiterConfig;
+pub use config::{MetricsLimiterConfig, AGGREGATION_TEAMS_KEY};
 pub use consumer::{BackgroundTask, MetricsPipelineConsumer, MetricsPipelineConsumerDeps};
 pub use types::METRICS_OUTPUT;
