@@ -6,7 +6,7 @@ import { stringify } from 'yaml'
 
 import { Aws, AwsError } from './aws'
 import { PROFILE } from './fixtures'
-import { ATTEMPT_TIMEOUT_MS, PoolerHost, READY_TIMEOUT_MS, main, select1 } from './host-pooler'
+import { PoolerHost, READY_TIMEOUT_MS, main, select1 } from './host-pooler'
 
 const RUN_ID = '00000000-0000-4000-8000-000000000001'
 const ENDPOINT = 'scn.cluster.example.com'
@@ -20,7 +20,6 @@ const ECR_REGISTRY = '000000000000.dkr.ecr.us-east-1.amazonaws.com'
 const ECR_IMAGE = `${ECR_REGISTRY}/pgbouncer@${DIGEST}`
 const AUTHENTICATION_OK = Buffer.from([0x52, 0, 0, 0, 8, 0, 0, 0, 0])
 const READY_FOR_QUERY = Buffer.from([0x5a, 0, 0, 0, 5, 0x49])
-const TERMINATE = 0x58
 
 type Ini = Record<string, Record<string, string>>
 
@@ -286,17 +285,14 @@ describe('select1', () => {
     it('gives up on a pooler that accepts the client but never answers the query', async () => {
         const stalled = createServer((socket) => {
             socket.once('data', () => socket.write(Buffer.concat([AUTHENTICATION_OK, READY_FOR_QUERY])))
-            socket.on('data', (message) => message[0] === TERMINATE && socket.end())
         })
         await new Promise<void>((resolve) => stalled.listen(0, '127.0.0.1', resolve))
         const { port } = stalled.address() as AddressInfo
-        const started = Date.now()
 
         try {
             await expect(
                 select1({ port, user: 'posthog', password: 'posthog', database: 'test_posthog' })
-            ).rejects.toThrow()
-            expect(Date.now() - started).toBeLessThan(ATTEMPT_TIMEOUT_MS + 2_000)
+            ).rejects.toThrow('Query read timeout')
         } finally {
             stalled.close()
         }

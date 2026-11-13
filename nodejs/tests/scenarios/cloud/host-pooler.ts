@@ -11,7 +11,7 @@ import { Pooler, loadCloudProfile } from './profile'
 
 export const READY_TIMEOUT_MS = 2 * 60_000
 const RETRY_MS = 1_000
-export const ATTEMPT_TIMEOUT_MS = 5_000
+const PHASE_TIMEOUT_MS = 5_000
 const LOG_LINES = 50
 const FIRST_PORT = 6432
 const DATABASE = 'cyclotron_node'
@@ -181,8 +181,8 @@ export async function select1({ port, user, password, database }: Target): Promi
         user,
         password,
         database,
-        connectionTimeoutMillis: ATTEMPT_TIMEOUT_MS,
-        query_timeout: ATTEMPT_TIMEOUT_MS,
+        connectionTimeoutMillis: PHASE_TIMEOUT_MS,
+        query_timeout: PHASE_TIMEOUT_MS,
     })
     await client.connect()
     try {
