@@ -4,6 +4,11 @@ from parameterized import parameterized
 
 from products.conversations.backend.ai.human_outcome import classify_human_outcome
 
+_LONG_DRAFT = (
+    "Open Project settings and go to Session replay. Add your domain to the authorized list, "
+    "then reload the page and check the network tab for the recorder script. "
+) * 70
+
 
 class TestClassifyHumanOutcome(SimpleTestCase):
     def test_identical_reply_is_used(self):
@@ -29,15 +34,14 @@ class TestClassifyHumanOutcome(SimpleTestCase):
         reply = f"Hey Sam! {body} I looked at your project and the sampling rate is fine. Cheers, Alex"
         assert classify_human_outcome(draft, reply) == "edited"
 
-    def test_long_draft_kept_only_in_part_is_not_used(self):
-        paragraph = (
-            "Open Project settings and go to Session replay. Add your domain to the authorized list, "
-            "then reload the page and check the network tab for the recorder script. "
-        )
-        draft = paragraph * 70
-        sent_head = draft[:4000]
-        assert len(draft) > 2 * len(sent_head)
-        assert classify_human_outcome(draft, sent_head) == "edited"
+    @parameterized.expand(
+        [
+            ("kept_only_in_part", _LONG_DRAFT[:4000], "edited"),
+            ("sent_with_a_new_greeting", f"Hey Sam! {_LONG_DRAFT} Cheers, Alex", "used"),
+        ]
+    )
+    def test_long_draft_is_scored_over_its_whole_text(self, _name, reply, expected):
+        assert classify_human_outcome(_LONG_DRAFT, reply) == expected
 
     @parameterized.expand(
         [

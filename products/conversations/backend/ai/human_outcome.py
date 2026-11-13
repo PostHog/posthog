@@ -6,11 +6,12 @@ A metric on `ai_triage.human_outcome`, not a learning input.
 from __future__ import annotations
 
 import re
-from difflib import SequenceMatcher
 from typing import Literal
 
 from django.db import models, transaction
 from django.db.models import Q, QuerySet
+
+from rapidfuzz.distance import Indel
 
 from posthog.models.comment import Comment
 
@@ -28,9 +29,6 @@ class AiDraftHumanOutcome(models.TextChoices):
 USED_RATIO = 0.85
 EDITED_RATIO = 0.4
 
-
-# Matching is quadratic, so only this many tokens of each text are matched.
-MAX_COMPARED_TOKENS = 800
 
 # Chinese, Japanese, Thai and Korean write without spaces between words, so a run of word
 # characters is a whole sentence. One token per character there keeps a small edit from
@@ -55,15 +53,10 @@ def classify_human_outcome(ai_draft: str, human_reply: str) -> HumanOutcome:
     # the ticket row lock short on the common path, where the human wrote their own reply.
     if 2 * min(len(draft_tokens), len(reply_tokens)) / total_tokens < EDITED_RATIO:
         return "ignored"
-    # Tokens, not characters: matching characters cost about 700 ms for a 4000-character reply.
-    # autojunk is off because it drops common words, which scored a re-greeted draft near zero.
-    matcher = SequenceMatcher(
-        None, draft_tokens[:MAX_COMPARED_TOKENS], reply_tokens[:MAX_COMPARED_TOKENS], autojunk=False
-    )
-    matched = sum(block.size for block in matcher.get_matching_blocks())
-    # Dividing by the full token counts leaves everything past the cap unmatched, so a long draft
-    # the human kept only a part of cannot score as fully used.
-    ratio = 2 * matched / total_tokens
+    # rapidfuzz matches both whole token lists in bit-parallel C, fast enough to run under the ticket
+    # row lock without a cap, so text kept anywhere in a long draft counts. Matching characters instead
+    # would score unrelated replies as edited, because two texts in one language share many letters in order.
+    ratio = Indel.normalized_similarity(draft_tokens, reply_tokens)
     if ratio >= USED_RATIO:
         return "used"
     if ratio >= EDITED_RATIO:
