@@ -563,6 +563,15 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         context = HogQLContext(team_id=self.team.pk, database=database)
         assert "posthog.events_with_flag_calls" not in database.serialize(context, include_hidden_posthog_tables=True)
 
+    def test_serialize_database_skips_hidden_tables(self):
+        database = Database.create_for(team=self.team, user=self.user)
+        context = HogQLContext(team_id=self.team.pk, database=database)
+        serialized = database.serialize(context, include_hidden_posthog_tables=True)
+
+        for hidden_table in ("cohort_membership", "posthog.error_tracking_recent_issue_state"):
+            assert hidden_table not in serialized
+            assert database.get_table(hidden_table.split(".")) is not None
+
     def test_serialize_database_without_fields_matches_full_metadata(self):
         credential = DataWarehouseCredential.objects.create(access_key="blah", access_secret="blah", team=self.team)
         warehouse_table = DataWarehouseTable.objects.create(

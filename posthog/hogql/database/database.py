@@ -70,8 +70,7 @@ from posthog.hogql.database.schema.ai_events import AiEventsTable
 from posthog.hogql.database.schema.app_metrics2 import AppMetrics2Table
 from posthog.hogql.database.schema.billing_usage_records import BillingUsageRecordsTable
 from posthog.hogql.database.schema.channel_type import create_initial_channel_type, create_initial_domain_type
-from posthog.hogql.database.schema.cohort_membership import CohortMembershipTable
-from posthog.hogql.database.schema.cohort_people import CohortPeople, RawCohortPeople
+from posthog.hogql.database.schema.cohort_people import CohortMembership, CohortPeople, RawCohortPeople
 from posthog.hogql.database.schema.document_embeddings import (
     HOGQL_MODEL_TABLES,
     DocumentEmbeddingsTable,
@@ -392,7 +391,8 @@ ROOT_TABLES__DO_NOT_ADD_ANY_MORE: dict[str, TableNode] = {
     "session_replay_events": TableNode(name="session_replay_events", table=SessionReplayEventsTable()),
     "cohort_people": TableNode(name="cohort_people", table=CohortPeople()),
     "static_cohort_people": TableNode(name="static_cohort_people", table=StaticCohortPeople()),
-    "cohort_membership": TableNode(name="cohort_membership", table=CohortMembershipTable()),
+    # Kept only so saved queries still resolve; new queries should use `cohort_people`.
+    "cohort_membership": TableNode(name="cohort_membership", table=CohortMembership(), hidden=True),
     "precalculated_events": TableNode(name="precalculated_events", table=PrecalculatedEventsTable()),
     "precalculated_person_properties": TableNode(
         name="precalculated_person_properties", table=PrecalculatedPersonPropertiesTable()
@@ -1629,13 +1629,9 @@ class Database(BaseModel):
             if self._is_direct_query()
             else self.get_posthog_table_names(include_hidden=include_hidden_posthog_tables)
         )
-        posthog_node = self.tables.children.get("posthog")
-        # A hidden table stays readable by name, but the schema leaves it out.
-        hidden_table_names = {
-            f"posthog.{name}" for name, node in (posthog_node.children.items() if posthog_node else ()) if node.hidden
-        }
         for table_name in posthog_table_names:
-            if (include_only and table_name not in include_only) or table_name in hidden_table_names:
+            # A hidden table stays readable by name, but the schema leaves it out.
+            if (include_only and table_name not in include_only) or self.get_table_node(table_name).hidden:
                 continue
 
             fields_dict: dict[str, DatabaseSchemaField] = {}
