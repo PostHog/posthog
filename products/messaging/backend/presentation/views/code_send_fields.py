@@ -40,7 +40,10 @@ BLOCKED_ATTACHMENT_EXTENSIONS = frozenset(
 _MIME_TYPE = r"[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}/[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}"
 _TOKEN = r"[!#$%&'*+.0-9A-Z^_`a-z{|}~-]+"
 _QUOTED_STRING = r'"(?:[ !#-\[\]-~]|\\[ -~])*"'
-MIME_TYPE_WITH_PARAMETERS = re.compile(rf"{_MIME_TYPE}(?: *; *{_TOKEN}=(?:{_TOKEN}|{_QUOTED_STRING}))*")
+_PARAMETER = rf" *; *({_TOKEN}) *= *(?:{_TOKEN}|{_QUOTED_STRING})"
+MIME_TYPE_WITH_PARAMETERS = re.compile(rf"{_MIME_TYPE}(?:{_PARAMETER})*")
+MIME_PARAMETER = re.compile(_PARAMETER)
+FILE_NAME_PARAMETERS = frozenset({"name", "filename"})
 CONTROL_CHARACTERS = re.compile(r"[\x00-\x1f\x7f]")
 
 ADDRESS_FIELDS = ("cc", "bcc")
@@ -154,7 +157,8 @@ class EmailAttachmentSerializer(serializers.Serializer):
         required=False,
         max_length=SES_ATTACHMENT_HEADER_MAX_LENGTH,
         help_text="MIME type of the file, such as `application/pdf`, with any parameters, such as "
-        "`text/calendar; charset=utf-8; method=REQUEST`. Without it, the type follows from the file name.",
+        "`text/calendar; charset=utf-8; method=REQUEST`. Without it, the type follows from the file name. A `name` "
+        "parameter is refused, because the file name comes from `filename`.",
     )
     content_id = serializers.CharField(
         required=False,
@@ -186,7 +190,10 @@ class EmailAttachmentSerializer(serializers.Serializer):
         return filename
 
     def validate_content_type(self, content_type: str) -> str:
-        if not MIME_TYPE_WITH_PARAMETERS.fullmatch(content_type):
+        if not MIME_TYPE_WITH_PARAMETERS.fullmatch(content_type) or any(
+            parameter.group(1).lower().split("*")[0] in FILE_NAME_PARAMETERS
+            for parameter in MIME_PARAMETER.finditer(content_type)
+        ):
             raise serializers.ValidationError(
                 "Enter a MIME type, such as `application/pdf` or `text/calendar; method=REQUEST`.",
                 code="not_mime_type",
@@ -289,7 +296,8 @@ _REASONS_BY_CODE = {
     ),
     "not_mime_type": Reason(
         why="The MIME type goes into the email's headers, so it must be a type and a subtype, optionally followed "
-        "by `; name=value` parameters, with no line breaks.",
+        "by `; key=value` parameters, with no line breaks. The file name comes from `filename`, so a `name` or "
+        "`filename` parameter is refused.",
         fix="Send a type such as `application/pdf` or `text/calendar; method=REQUEST`, or leave `content_type` out.",
     ),
     "unsafe_content_id": Reason(

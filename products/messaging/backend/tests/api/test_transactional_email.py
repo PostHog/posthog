@@ -1025,26 +1025,49 @@ class TestTransactionalEmail(APIBaseTest):
             (
                 "a_header_too_long",
                 {"attachments": [{"sha256": CSV, "filename": "logo.png", "content_id": "x" * 79}]},
+                "invalid_request",
                 "attachments__0__content_id",
                 "Shorten `content_id` to 78 characters",
             ),
-            ("too_many_copies", {"bcc": [f"user{i}@example.com" for i in range(11)]}, "bcc", "at most 10 addresses"),
+            (
+                "too_many_copies",
+                {"bcc": [f"user{i}@example.com" for i in range(11)]},
+                "invalid_request",
+                "bcc",
+                "at most 10 addresses",
+            ),
             (
                 "an_attachment_that_is_not_an_object",
                 {"attachments": ["logo.png"]},
+                "invalid_request",
                 "attachments__0",
                 "`{sha256, filename}`",
             ),
+            (
+                "a_content_type_with_a_line_break",
+                {
+                    "attachments": [
+                        {
+                            "sha256": CSV,
+                            "filename": "invite.ics",
+                            "content_type": "text/calendar; method=REQUEST\r\nBcc: jane@example.com",
+                        }
+                    ]
+                },
+                "not_mime_type",
+                "attachments__0__content_type",
+                "leave `content_type` out",
+            ),
         ]
     )
-    def test_a_refused_extra_field_names_its_remedy(self, mock_post, _flag, _capture, _name, fields, attr, fix):
+    def test_a_refused_extra_field_names_its_remedy(self, mock_post, _flag, _capture, _name, fields, code, attr, fix):
         with FakeCdpApi().serving(mock_post) as cdp:
             response = self._psak_client(["hog_flow:write"]).post(
                 self.send_email_url, self._code_send(**fields), format="json"
             )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert (response.json()["code"], response.json()["attr"]) == ("invalid_request", attr)
+        assert (response.json()["code"], response.json()["attr"]) == (code, attr)
         assert fix in response.json()["fix"]
         assert cdp.emails() == []
 
