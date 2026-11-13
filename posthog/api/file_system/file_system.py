@@ -1166,10 +1166,11 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
 
         def fetch(page: PageRequest) -> Page[FileSystem]:
-            count = queryset.count()
-            if page.offset >= count:
-                return Page(results=[], count=count)
-            return Page(results=self._typed_page_by_views(queryset, views, page, descending=descending), count=count)
+            # Counting every file of the type is too slow on a large project, so read one row past the page.
+            # The count is exact on the last page, and elsewhere it is large enough to give a `next` link.
+            probe = PageRequest(limit=page.limit + 1, offset=page.offset)
+            rows = self._typed_page_by_views(queryset, views, probe, descending=descending)
+            return Page(results=rows[: page.limit], count=page.offset + len(rows))
 
         response = facade_page_response(self, fetch)
         response.data["users"] = self._created_by_users(response.data["results"])
