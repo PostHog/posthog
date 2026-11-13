@@ -98,7 +98,7 @@ Use Xcode 27.1 or newer with an iPhone Duo runtime. Capture matching native befo
 
 ### Repeatable screenshot comparisons
 
-Use `.argent/flows/screenshot-capture.yaml` to capture Inbox, Report, Handoff, Chat with the keyboard,
+Use `.argent/flows/screenshot-capture.yaml` to capture Home, Inbox, Report, Handoff, Chat with the keyboard,
 and Views from repository demo data. It launches the production app identity on either platform:
 `com.posthog.code.mobile` on iOS and `com.posthog.mobile` on Android. It leaves Views open.
 `.argent/flows/screenshot-landscape.yaml` continues from there on iOS and captures the same surfaces after rotation.
@@ -213,6 +213,16 @@ record the provider substitutions and do not claim live data or replay playback 
 Capture every distinct screen on the open Duo, then repeat affected screens in portrait and on the closed cover.
 Keep matching ordinary-phone screenshots for each changed screen. Record unreachable states as missing coverage.
 After returning from chat, rotate a report and check that its footer stays attached to the content with one compose action.
+
+### Live states in the demo
+
+The demo's Live shows web traffic. To capture Live's App only, Quiet or Not set up state (see [LIVE.md](LIVE.md#no-web-traffic)), start a development bundle with `EXPO_PUBLIC_DEMO_LIVE_STATE` set to `app_only`, `quiet` or `not_set_up`, for example:
+
+```sh
+EXPO_PUBLIC_DEMO_MODE=1 EXPO_PUBLIC_DEMO_LIVE_STATE=quiet pnpm web --clear
+```
+
+Release builds ignore it. Open Views once before Live, so Meanwhile can show the pins' numbers from the cache.
 
 ## Chat navigation and header
 
@@ -333,7 +343,7 @@ Also perform real push delivery checks on physical Android and iOS devices befor
 The flow needs no account, because every build shows **Try the demo** on the sign-in screen.
 The flow:
 
-1. taps **Try the demo** on the sign-in screen,
+1. taps **Try the demo** on the sign-in screen, lands on Home (Live) and opens Inbox from the bottom bar,
 2. opens "Report load time", opens and closes the hand-off sheet,
 3. resolves the report as fixed outside PostHog and checks that its inbox row is gone,
 4. opens "3,721 errors", taps **Needs your answer**, picks an answer in the decision sheet, then taps Undo, reopens the question and closes its sheet,
@@ -364,7 +374,7 @@ Prepare the development build:
 2. Open the developer menu (Device, Shake in the Simulator menu, or ⌃⌘Z) and turn off:
    - **Tools button**. The floating gear covers the inbox More button.
    - **Fast refresh**. When files change, its "Refreshing..." banner covers the Back and Close buttons.
-3. Demo mode must be off. If the app opens on the inbox, open Settings and tap **Exit demo**.
+3. Demo mode must be off. If the app opens on Home or another tab, open Settings and tap **Exit demo**.
 
 Then run the flow from `products/mobile`, because Argent looks for `.argent/flows` in the current directory:
 

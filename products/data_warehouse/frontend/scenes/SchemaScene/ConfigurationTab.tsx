@@ -35,6 +35,7 @@ import {
     RowFilter,
 } from '~/types'
 
+import { supportsDirectQuery } from 'products/data_warehouse/frontend/shared/components/forms/schemaGroupingUtils'
 import {
     SyncMethodForm,
     SyncMethodFormHandle,
@@ -114,9 +115,10 @@ export function ConfigurationTab({
     syncHistoryUrl,
 }: ConfigurationTabProps): JSX.Element {
     const logic = schemaSceneLogic({ sourceId, schemaId: schema.id })
-    const { isProjectTime, refreshingSchemas, resyncingSchema, supportsRowFilters } = useValues(logic)
+    const { isProjectTime, refreshingSchemas, resyncingSchema, supportsRowFilters, savingLiveQuery } = useValues(logic)
     const {
         setIsProjectTime,
+        setLiveQueryEnabled,
         updateSchema,
         reloadSchema,
         resyncSchema,
@@ -139,6 +141,13 @@ export function ConfigurationTab({
             return (
                 <DetailsSection
                     schema={schema}
+                    servesLiveQueries={
+                        source?.access_method !== 'direct' &&
+                        !!source?.direct_query_enabled &&
+                        supportsDirectQuery(source.source_type)
+                    }
+                    setLiveQueryEnabled={setLiveQueryEnabled}
+                    savingLiveQuery={savingLiveQuery}
                     reloadSchema={reloadSchema}
                     cancelSchema={cancelSchema}
                     updateSchema={updateSchema}
@@ -210,6 +219,9 @@ interface FileUploadDetails {
 
 function DetailsSection({
     schema,
+    servesLiveQueries,
+    setLiveQueryEnabled,
+    savingLiveQuery,
     reloadSchema,
     cancelSchema,
     updateSchema,
@@ -218,6 +230,9 @@ function DetailsSection({
     fileUpload,
 }: {
     schema: ExternalDataSourceSchema
+    servesLiveQueries: boolean
+    setLiveQueryEnabled: (enabled: boolean) => void
+    savingLiveQuery: boolean
     reloadSchema: (schema: ExternalDataSourceSchema) => void
     cancelSchema: (schema: ExternalDataSourceSchema) => void
     updateSchema: (schema: ExternalDataSourceSchema) => void
@@ -227,6 +242,7 @@ function DetailsSection({
     fileUpload?: FileUploadDetails
 }): JSX.Element {
     const syncedTableName = schema.table?.hogql_name ?? schema.table?.name
+    const liveQueryOn = !schema.live_query_unavailable_reason && (schema.should_sync || !!schema.live_query_enabled)
 
     return (
         <div>
@@ -309,6 +325,29 @@ function DetailsSection({
                                         updateSchema({ ...schema, should_sync: active })
                                     }
                                 }}
+                            />
+                        </SchemaEditorAction>
+                    </div>
+                )}
+                {servesLiveQueries && (
+                    <div className="flex items-start justify-between gap-4">
+                        <div className="flex flex-col">
+                            <span>Live query</span>
+                            <span className="text-xs text-muted max-w-md">
+                                Query this table straight from your database without syncing it.
+                            </span>
+                        </div>
+                        <SchemaEditorAction schema={schema}>
+                            <LemonSwitch
+                                checked={liveQueryOn}
+                                label={liveQueryOn ? 'On' : 'Off'}
+                                disabledReason={
+                                    schema.live_query_unavailable_reason ??
+                                    (schema.should_sync ? 'Synced tables can always be queried live' : undefined)
+                                }
+                                loading={savingLiveQuery}
+                                onChange={setLiveQueryEnabled}
+                                data-attr="schema-live-query-switch"
                             />
                         </SchemaEditorAction>
                     </div>
@@ -437,8 +476,8 @@ function SyncMethodSection({ sourceId, schema }: { sourceId: string; schema: Ext
     // syncMethodModalLogic, which connects sourceManagementLogic and would mount + poll the full
     // sources list (the heavy `external_data_sources` fetch this page is meant to avoid).
     const logic = schemaSceneLogic({ sourceId, schemaId: schema.id })
-    const { schemaIncrementalFields, schemaIncrementalFieldsLoading } = useValues(logic)
-    const { loadSchemaIncrementalFields, loadSchema } = useActions(logic)
+    const { schemaIncrementalFields, schemaIncrementalFieldsLoading, sourceSupportsCdc } = useValues(logic)
+    const { loadSchemaIncrementalFields, loadSchema, loadSourceConfig } = useActions(logic)
 
     const formRef = useRef<SyncMethodFormHandle>(null)
     const [saveDisabledReason, setSaveDisabledReason] = useState<string | undefined>()
@@ -454,6 +493,7 @@ function SyncMethodSection({ sourceId, schema }: { sourceId: string; schema: Ext
     // user's in-progress radio/field selections.
     useEffect(() => {
         loadSchemaIncrementalFields(schema.id)
+        loadSourceConfig()
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [schema.id])
 
@@ -659,6 +699,8 @@ function SyncMethodSection({ sourceId, schema }: { sourceId: string; schema: Ext
                                 schemaIncrementalFields.primary_key_detection_supported ?? false
                             }
                             primaryKeyLocked={!!schema.table && !!schema.primary_key_columns?.length}
+                            sourceSupportsCdc={sourceSupportsCdc}
+                            sourceConfigurationUrl={urls.dataWarehouseSource(`managed-${sourceId}`, 'configuration')}
                             onClose={() => {}}
                             onSave={persistSyncMethod}
                         />

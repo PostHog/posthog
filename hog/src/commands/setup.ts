@@ -1,5 +1,6 @@
 import { z } from 'zod'
 
+import { SIGN_UP_NOTE } from '@/core/approval'
 import { defineCommand, type OptionSpec } from '@/core/command'
 import { EXIT_USAGE, HogError } from '@/core/errors'
 import { escapeControls, type Output } from '@/core/output'
@@ -44,6 +45,13 @@ const OPTIONS = {
         description: 'You checked your changes against the install rules and fixed any that break one',
     },
 } as const satisfies Record<string, OptionSpec>
+
+const AGENT_LEADING_KEYS = ['step', 'status', 'code', 'next', 'done'] as const
+
+function agentResult(result: SetupResult): unknown {
+    const { skills } = result.context
+    return skills ? { ...result, context: { ...result.context, skills: skills.map((skill) => skill.id) } } : result
+}
 
 function joinBlocks(blocks: readonly (readonly string[])[]): string[] {
     return blocks.filter((lines) => lines.length > 0).flatMap((lines, index) => (index === 0 ? lines : ['', ...lines]))
@@ -92,7 +100,7 @@ function nextLines(out: Output, next: NextAction): [string, ...string[]] {
             return [`Run ${setupNext} to answer this question at the terminal.`, `  ${escapeControls(next.ask)}`]
         case 'wait':
             return [
-                `Open this link and approve the code ${out.style(escapeControls(next.code ?? ''), 'bold')}. If you don't have an account, sign up on the same page. Then run ${setupNext}.`,
+                `Open this link and approve the code ${out.style(escapeControls(next.code ?? ''), 'bold')}. ${SIGN_UP_NOTE} Then run ${setupNext}.`,
                 `  ${escapeControls(next.url)}`,
             ]
         case 'read':
@@ -202,7 +210,7 @@ export default defineCommand({
     },
 
     agent({ result, out }) {
-        out.json(result)
+        out.json(agentResult(result), { first: AGENT_LEADING_KEYS })
     },
 
     telemetry: ({ args, result }) => ({

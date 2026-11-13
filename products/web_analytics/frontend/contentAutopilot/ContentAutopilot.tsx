@@ -16,19 +16,11 @@ import { ContentAutopilotPromptsOverview } from './ContentAutopilotPromptsOvervi
 import { ContentAutopilotPromptSuggestModal } from './ContentAutopilotPromptSuggestModal'
 import { ContentAutopilotProposalDetail } from './ContentAutopilotProposalDetail'
 import { ContentAutopilotRankings } from './ContentAutopilotRankings'
+import { ContentAutopilotSettings } from './ContentAutopilotSettings'
 import { ContentAutopilotSetup } from './ContentAutopilotSetup'
 import { ContentAutopilotSiteGate } from './ContentAutopilotSiteGate'
 
-export interface ContentAutopilotBotsTab {
-    active: boolean
-    open: () => void
-    close: () => void
-    content: JSX.Element
-}
-
-type AiVisibilityTab = ContentAutopilotWorkspaceTab | 'bots'
-
-export const ContentAutopilot = ({ bots }: { bots?: ContentAutopilotBotsTab }): JSX.Element => {
+export const ContentAutopilot = (): JSX.Element => {
     // Mounted here, so a prompt's own URL opens it whatever tab was last open.
     const { promptId } = useValues(contentAutopilotPromptDetailLogic)
     const {
@@ -72,16 +64,6 @@ export const ContentAutopilot = ({ bots }: { bots?: ContentAutopilotBotsTab }): 
             secondaryButton: { children: 'Keep drafting' },
         })
     }
-    const selectTab = (tab: AiVisibilityTab): void => {
-        if (tab === 'bots') {
-            bots?.open()
-            return
-        }
-        if (bots?.active) {
-            bots.close()
-        }
-        setWorkspaceTab(tab)
-    }
 
     return (
         <div className="flex flex-col gap-4">
@@ -111,9 +93,9 @@ export const ContentAutopilot = ({ bots }: { bots?: ContentAutopilotBotsTab }): 
                             type="secondary"
                             icon={<IconGear />}
                             active={workspaceTab === 'settings'}
-                            onClick={() => selectTab('settings')}
-                            tooltip="Site settings"
-                            aria-label="Site settings"
+                            onClick={() => setWorkspaceTab('settings')}
+                            tooltip="Settings"
+                            aria-label="Settings"
                             data-attr="content-autopilot-settings"
                         />
                     </div>
@@ -141,17 +123,17 @@ export const ContentAutopilot = ({ bots }: { bots?: ContentAutopilotBotsTab }): 
                     ) : workspaceTab === 'settings' && profile ? (
                         <div className="flex flex-col gap-4" data-attr="content-autopilot-settings-page">
                             <ContentAutopilotPageHeader
-                                title="Site settings"
+                                title="Settings"
                                 backLabel="Overview"
                                 backDataAttr="content-autopilot-settings-back"
                                 onBack={() => setWorkspaceTab('overview')}
                             />
-                            <ContentAutopilotSetup />
+                            <ContentAutopilotSettings />
                         </div>
                     ) : (
-                        <LemonTabs<AiVisibilityTab>
-                            activeKey={bots?.active ? 'bots' : visibleTab}
-                            onChange={selectTab}
+                        <LemonTabs<ContentAutopilotWorkspaceTab>
+                            activeKey={visibleTab}
+                            onChange={setWorkspaceTab}
                             data-attr="content-autopilot-workspace-tabs"
                             rightSlot={
                                 activeRun && draftingEnabled ? (
@@ -188,7 +170,6 @@ export const ContentAutopilot = ({ bots }: { bots?: ContentAutopilotBotsTab }): 
                                     label: 'Keywords',
                                     content: <ContentAutopilotKeywords />,
                                 },
-                                bots ? { key: 'bots', label: 'Bots', content: bots.content } : null,
                                 draftingEnabled
                                     ? {
                                           key: 'opportunities',

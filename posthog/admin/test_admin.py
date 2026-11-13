@@ -28,7 +28,6 @@ from products.cdp.backend.models.plugin import Plugin, PluginConfig
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 from products.dashboards.backend.models.dashboard_tile import Text
-from products.experiments.backend.models.experiment import Experiment, ExperimentSavedMetric
 from products.product_analytics.backend.facade.models import Insight
 from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
@@ -230,8 +229,6 @@ class TestProductAdminRegistration:
             Text,
             DataWarehouseTable,
             ExternalDataSchema,
-            Experiment,
-            ExperimentSavedMetric,
             Insight,
             ProductTour,
             Survey,

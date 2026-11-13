@@ -1066,7 +1066,7 @@ describe('metricsViewerLogic', () => {
             formula: 'a / b',
             dateRange: { date_from: '-6h' },
             interval: 'minute_5',
-            display: { type: 'stat', reduce: 'mean' },
+            display: { type: 'stat', reduce: 'mean', statSparkline: false },
         }
 
         // The editor writes this node back to the insight; if it differs from the saved

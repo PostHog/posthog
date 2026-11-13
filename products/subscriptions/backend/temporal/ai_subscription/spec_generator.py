@@ -2,7 +2,9 @@ import re
 import uuid
 import atexit
 import threading
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta, tzinfo
 from typing import Optional, Union
@@ -138,6 +140,7 @@ AI_SUBSCRIPTION_AI_PRODUCT = "subscriptions"
 
 _regional_analytics_clients: dict[str, posthoganalytics.Client] = {}
 _regional_analytics_clients_lock = threading.Lock()
+_report_run_session_id: ContextVar[Optional[str]] = ContextVar("ai_subscription_report_run_session_id", default=None)
 
 
 def _ai_subscription_analytics_client() -> Optional[posthoganalytics.Client]:
@@ -161,6 +164,18 @@ def _ai_subscription_analytics_client() -> Optional[posthoganalytics.Client]:
     return client
 
 
+@contextmanager
+def ai_subscription_llm_trace() -> Iterator[None]:
+    # Every LLM call made inside this block shares one $ai_session_id, so LLM analytics groups one report
+    # run (event selection, planning, query fixes and synthesis). Each call keeps its own trace ID: AI credit
+    # billing joins generations to $ai_trace rows by trace ID, and each call emits its own $ai_trace.
+    token = _report_run_session_id.set(str(uuid.uuid4()))
+    try:
+        yield
+    finally:
+        _report_run_session_id.reset(token)
+
+
 def ai_subscription_llm_tracing(
     *, team: Team, user: User, stage: str, trace_correlation_id: Optional[Union[int, str]]
 ) -> tuple[dict[str, Union[str, int]], RunnableConfig]:
@@ -171,6 +186,8 @@ def ai_subscription_llm_tracing(
     }
     if trace_correlation_id is not None:
         properties["subscription_id"] = trace_correlation_id
+    if (session_id := _report_run_session_id.get()) is not None:
+        properties["$ai_session_id"] = session_id
     client = _ai_subscription_analytics_client()
     if client is None:
         return properties, {}

@@ -1,3 +1,5 @@
+from datetime import timedelta
+from functools import partial
 from uuid import UUID
 
 from django.db import transaction
@@ -8,12 +10,19 @@ from posthog.models.user import User
 
 from products.error_tracking.backend.logic.issue_tags.gate import issue_tags_enabled
 from products.error_tracking.backend.logic.issue_tags.registry import get_issue_tag_definition
+from products.error_tracking.backend.logic.issue_tags.sync import sync_issue_tag_to_clickhouse
 from products.error_tracking.backend.logic.issue_tags.taggers.base import TagAnswer
 from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingIssueTag
 
 
 def set_issue_tag(
-    team_id: int, issue_id: UUID | str, key: str, answer: TagAnswer, source: ErrorTrackingIssueTag.Source
+    team_id: int,
+    issue_id: UUID | str,
+    key: str,
+    answer: TagAnswer,
+    source: ErrorTrackingIssueTag.Source,
+    *,
+    was_impersonated: bool = False,
 ) -> bool:
     """Store the answer unless issue tags are off for the team, or a higher-ranked source answered the tag already.
 
@@ -41,24 +50,44 @@ def set_issue_tag(
             issue=issue, key=key, defaults={"team": issue.team, **fields}
         )
         before: dict[str, object] | None = None
+        updated_at = tag.updated_at
         if not created:
             if tag.source in sources_above:
                 return False
             before = {"key": key, "value": tag.value, "source": tag.source}
-            tags.filter(pk=tag.pk).update(**fields, updated_at=timezone.now())
+            # Pods do not share one clock, so a later write can read an earlier time. Each write to the
+            # locked row moves updated_at forward, which keeps the ClickHouse versions of a tag in commit order.
+            updated_at = max(timezone.now(), tag.updated_at + timedelta(microseconds=1))
+            tags.filter(pk=tag.pk).update(**fields, updated_at=updated_at)
         if before != after:
-            _log_tag_change(issue, answer.set_by, before, after)
+            _log_tag_change(issue, answer.set_by, was_impersonated, before, after)
+        transaction.on_commit(
+            partial(
+                sync_issue_tag_to_clickhouse,
+                team_id=issue.team_id,
+                issue_id=issue.id,
+                key=key,
+                value=answer.value,
+                updated_at=updated_at,
+            ),
+            # The tag is already stored when this runs, so a failed produce must not fail the caller.
+            robust=True,
+        )
     return True
 
 
 def _log_tag_change(
-    issue: ErrorTrackingIssue, user: User | None, before: dict[str, object] | None, after: dict[str, object]
+    issue: ErrorTrackingIssue,
+    user: User | None,
+    was_impersonated: bool,
+    before: dict[str, object] | None,
+    after: dict[str, object],
 ) -> None:
     log_activity(
         organization_id=issue.team.organization_id,
         team_id=issue.team_id,
         user=user,
-        was_impersonated=False,
+        was_impersonated=was_impersonated,
         item_id=str(issue.id),
         scope="ErrorTrackingIssue",
         activity="updated",

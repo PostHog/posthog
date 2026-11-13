@@ -95,6 +95,8 @@ jobs:
                         - 'posthog/security/crosslang/**'
                         # The rust mirror of the AI event limits has a parity test against the shared json.
                         - 'products/ai_observability/shared/crosslang/**'
+                        # cohort-seeder mirrors the flag_evaluations TTL and has a parity test against the shared json.
+                        - 'posthog/models/flag_evaluations/crosslang/**'
                         # Hypercache contract: Python serializer changes may break Rust deserialization
                         - 'posthog/api/feature_flag.py'
                         - 'posthog/models/feature_flag/flags_cache.py'

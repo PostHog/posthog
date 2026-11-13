@@ -1,4 +1,3 @@
-import uuid
 import asyncio
 import contextlib
 import dataclasses
@@ -69,6 +68,7 @@ from products.subscriptions.backend.temporal.ai_subscription.spec_generator impo
     WINDOW_START_PLACEHOLDER,
     ReportWindow,
     StoredPlanInvalidError,
+    ai_subscription_llm_trace,
     ai_subscription_llm_tracing,
     build_enriched_prompt,
     build_frozen_prompt,
@@ -290,16 +290,19 @@ async def generate_ai_report(
 
     initial_query_plan_status = get_ai_query_plan_status(ai_query_plan)
 
-    with slo_operation(
-        spec=SloSpec(
-            distinct_id=str(user.distinct_id),
-            area=SloArea.ANALYTIC_PLATFORM,
-            operation=SloOperation.AI_SUBSCRIPTION_PROMPT_GENERATION,
-            team_id=team.id,
-            resource_id=str(trace_correlation_id) if trace_correlation_id is not None else None,
-        ),
-        properties={"window_start": window.start_literal, "window_end": window.end_literal},
-    ) as slo:
+    with (
+        ai_subscription_llm_trace(),
+        slo_operation(
+            spec=SloSpec(
+                distinct_id=str(user.distinct_id),
+                area=SloArea.ANALYTIC_PLATFORM,
+                operation=SloOperation.AI_SUBSCRIPTION_PROMPT_GENERATION,
+                team_id=team.id,
+                resource_id=str(trace_correlation_id) if trace_correlation_id is not None else None,
+            ),
+            properties={"window_start": window.start_literal, "window_end": window.end_literal},
+        ) as slo,
+    ):
         try:
             # A stored plan that no longer validates self-heals by re-planning live.
             if ai_query_plan is not None:
@@ -561,10 +564,10 @@ async def _synthesize(
     trace_correlation_id: Optional[Union[int, str]],
     source_urls: tuple[str, ...] = (),
 ) -> str:
-    posthog_properties, llm_config = ai_subscription_llm_tracing(
+    # The privacy-mode flag check can make a blocking HTTP request.
+    posthog_properties, llm_config = await database_sync_to_async(ai_subscription_llm_tracing, thread_sensitive=False)(
         team=team, user=user, stage="synthesis", trace_correlation_id=trace_correlation_id
     )
-    posthog_properties["trace_id"] = str(uuid.uuid4())
 
     report_schema = to_strict_json_schema(ReportDocument)
     allowed_urls: list[str] = []
@@ -604,6 +607,7 @@ section headings for related findings, and subsection headings only for a meanin
 Headings are topic labels, not sentences or findings. Put every result, value, date, and explanation
 in a finding under its heading. Each finding becomes one bullet. Do not put heading or bullet
 markers inside finding text. Use visuals for tables, code, or other Markdown blocks when useful.
+Put a whole table in one visual: header, separator, and every row, with one newline between rows.
 Leave unused lists empty. Do not add empty sections or repeat findings to create hierarchy.
 Use custom_layout only when the user explicitly requests a fixed template; otherwise leave it empty.
 """
@@ -825,7 +829,8 @@ async def _arequest_hogql_fix(
     user: User,
     trace_correlation_id: Optional[Union[int, str]],
 ) -> Optional[str]:
-    posthog_properties, llm_config = ai_subscription_llm_tracing(
+    # The privacy-mode flag check can make a blocking HTTP request.
+    posthog_properties, llm_config = await database_sync_to_async(ai_subscription_llm_tracing, thread_sensitive=False)(
         team=team, user=user, stage="query_fix", trace_correlation_id=trace_correlation_id
     )
 

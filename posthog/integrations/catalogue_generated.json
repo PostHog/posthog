@@ -209,13 +209,13 @@
                     ["client_id", "{client_id}"],
                     [
                         "scope",
-                        "app_mentions:read,assistant:write,canvases:write,channels:history,channels:manage,channels:read,chat:write,chat:write.customize,commands,files:read,files:write,groups:history,groups:read,im:history,links:read,links:write,mpim:history,mpim:read,reactions:read,reactions:write,team:read,users:read,users:read.email"
+                        "app_mentions:read,assistant:write,canvases:read,canvases:write,channels:history,channels:join,channels:manage,channels:read,chat:write,chat:write.customize,commands,files:read,files:write,groups:history,groups:read,im:history,links:read,links:write,mpim:history,mpim:read,reactions:read,reactions:write,team:read,users:read,users:read.email"
                     ],
                     ["redirect_uri", "{redirect_uri}"],
                     ["response_type", "code"],
                     ["state", "{state}"]
                 ],
-                "scope": "app_mentions:read,assistant:write,canvases:write,channels:history,channels:manage,channels:read,chat:write,chat:write.customize,commands,files:read,files:write,groups:history,groups:read,im:history,links:read,links:write,mpim:history,mpim:read,reactions:read,reactions:write,team:read,users:read,users:read.email",
+                "scope": "app_mentions:read,assistant:write,canvases:read,canvases:write,channels:history,channels:join,channels:manage,channels:read,chat:write,chat:write.customize,commands,files:read,files:write,groups:history,groups:read,im:history,links:read,links:write,mpim:history,mpim:read,reactions:read,reactions:write,team:read,users:read,users:read.email",
                 "pkce": false,
                 "opaque_state": false,
                 "client_id_key": "SLACK_APP_CLIENT_ID",
@@ -228,13 +228,13 @@
                         ["client_id", "{client_id}"],
                         [
                             "scope",
-                            "app_mentions:read,assistant:write,canvases:write,channels:history,channels:manage,channels:read,chat:write,chat:write.customize,commands,files:read,files:write,groups:history,groups:read,im:history,links:read,links:write,mpim:history,mpim:read,reactions:read,reactions:write,team:read,users:read,users:read.email,canvases:read,channels:join"
+                            "app_mentions:read,assistant:write,canvases:read,canvases:write,channels:history,channels:join,channels:manage,channels:read,chat:write,chat:write.customize,commands,files:read,files:write,groups:history,groups:read,im:history,links:read,links:write,mpim:history,mpim:read,reactions:read,reactions:write,team:read,users:read,users:read.email"
                         ],
                         ["redirect_uri", "{redirect_uri}"],
                         ["response_type", "code"],
                         ["state", "{state}"]
                     ],
-                    "scope": "app_mentions:read,assistant:write,canvases:write,channels:history,channels:manage,channels:read,chat:write,chat:write.customize,commands,files:read,files:write,groups:history,groups:read,im:history,links:read,links:write,mpim:history,mpim:read,reactions:read,reactions:write,team:read,users:read,users:read.email,canvases:read,channels:join",
+                    "scope": "app_mentions:read,assistant:write,canvases:read,canvases:write,channels:history,channels:join,channels:manage,channels:read,chat:write,chat:write.customize,commands,files:read,files:write,groups:history,groups:read,im:history,links:read,links:write,mpim:history,mpim:read,reactions:read,reactions:write,team:read,users:read,users:read.email",
                     "pkce": false,
                     "opaque_state": false,
                     "client_id_key": "SLACK_APP_CLIENT_ID",
