@@ -5078,11 +5078,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 router.actions.replace(pathname, { ...searchParams, tab: getTileGroupSectionKey(openTab) }, hashParams)
             }
             actions.stageLayouts({ sm: layout })
-            posthog.capture('dashboard tile group reordered', {
-                dashboard_id: props.id,
-                direction,
-                group_display: values.tileGroupDisplay,
-            })
         },
         moveTileToSection: async ({ tileId, sectionKey, cell, method }) => {
             const capture = ({ sourceGroupKey, groupKey }: TileMove): void => {
@@ -6467,7 +6462,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
             // The API replaces every group on write, so send the others back unchanged.
             const groups = values.dashboard?.customization?.groups ?? {}
             actions.setTileGroups({ ...groups, [groupKey]: { ...groups[groupKey], title: title.trim() } })
-            posthog.capture('dashboard tile group renamed', { dashboard_id: props.id, has_title: !!title.trim() })
         },
         addTileGroup: ({ title }) => {
             // Each write sends every group, so a write that starts before the last one saves would drop its change.
@@ -6506,7 +6500,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
             // Undo steps from before the delete can hold tiles in this group, so undo leaves them ungrouped.
             cache.removedTileGroupKeys = new Set([...(cache.removedTileGroupKeys ?? []), groupKey])
             actions.setTileGroups(groups)
-            posthog.capture('dashboard tile group deleted', { dashboard_id: props.id })
         },
         refreshTileGroup: async ({ groupKey }) => {
             const { waitingTileRefresh: waiting, refreshStatus, widgetRefreshStatus } = values
