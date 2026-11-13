@@ -238,6 +238,12 @@ describe('broadcast previews', () => {
         click('broadcast-open-test-email')
 
         expect(await screen.findByText("Variables use Ada's values, matching the preview.")).toBeInTheDocument()
+
+        act(() => {
+            fireEvent.click(document.querySelector('[aria-label="close"]') as HTMLElement)
+        })
+
+        await waitFor(() => expect(document.querySelector('[data-attr="broadcast-send-test-email"]')).toBeNull())
     })
 
     it('sends a test email to a valid address only, then vouches for it on the review step', async () => {
