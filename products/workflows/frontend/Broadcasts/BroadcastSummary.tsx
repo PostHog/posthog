@@ -2,7 +2,7 @@ import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { IconChevronDown, IconLetter } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonDialog, LemonDivider, LemonInput } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDialog, LemonDivider, LemonInput, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -24,10 +24,11 @@ import { BroadcastAudienceCohorts } from './audience/BroadcastAudienceCohorts'
 import { broadcastAudienceCohortsLogic } from './audience/broadcastAudienceCohortsLogic'
 import { BroadcastEmailPreview } from './BroadcastEmailPreview'
 import { manageDisabledReason, sendErrorActions, summaryActions } from './broadcastLifecycle'
-import { BroadcastPerformance } from './BroadcastPerformance'
+import { BroadcastPerformance, BroadcastRunAudience } from './BroadcastPerformance'
 import { broadcastPerformanceLogic } from './broadcastPerformanceLogic'
 import { BroadcastPushPerformance } from './BroadcastPushPerformance'
 import { BroadcastPushPreview } from './BroadcastPushPreview'
+import { canStillBeSending } from './broadcastRunAudience'
 import { BroadcastSceneHeader } from './BroadcastSceneHeader'
 import { broadcastSentLogic } from './broadcastSentLogic'
 import { type BroadcastChannel, type BroadcastRunStatus, getRunStatus } from './broadcastsLogic'
@@ -54,11 +55,20 @@ function RunRecipients({
     runFinished: boolean
     channel: BroadcastChannel
 }): JSX.Element {
-    const { sendCounts } = useValues(broadcastPerformanceLogic({ runId, runStartedAt: runCreatedAt, channel }))
+    const { sendCounts, audience } = useValues(
+        broadcastPerformanceLogic({ runId, runStartedAt: runCreatedAt, channel })
+    )
     return (
         <div className="bg-surface-secondary border-t px-4 py-3 w-0 min-w-full flex flex-col gap-3">
+            {channel === 'email' ? (
+                <BroadcastRunAudience runId={runId} runStartedAt={runCreatedAt} channel={channel} />
+            ) : null}
             <BindLogic logic={broadcastSentLogic} props={{ id: workflowId || 'new', parentRunId: runId, runCreatedAt }}>
-                <RunRecipientsTable workflowId={workflowId} runFinished={runFinished} sent={sendCounts?.sent ?? null} />
+                <RunRecipientsTable
+                    workflowId={workflowId}
+                    runFinished={runFinished && !audience?.stillSending}
+                    sent={sendCounts?.sent ?? null}
+                />
             </BindLogic>
         </div>
     )
@@ -151,9 +161,11 @@ function RunRecipientsTable({
                         ? "Couldn't load recipients"
                         : sendsLoading && recipientCount === 0
                           ? 'Loading recipients'
-                          : `${humanFriendlyNumber(recipientCount)}${hasMoreRecipients ? '+' : ''} ${
-                                recipientCount === 1 ? 'recipient' : 'recipients'
-                            }${recipientSearch ? ' matching' : ''}`}
+                          : recipientSearch
+                            ? `${humanFriendlyNumber(recipientCount)}${hasMoreRecipients ? '+' : ''} ${
+                                  recipientCount === 1 ? 'recipient' : 'recipients'
+                              } matching`
+                            : `${humanFriendlyNumber(recipientCount)}${hasMoreRecipients ? '+' : ''} sent`}
                 </span>
                 <LemonDivider vertical />
                 <LemonInput
@@ -263,6 +275,41 @@ function RunsTable({
     )
 }
 
+/** A completed run only queued its audience, so people can still be waiting to be sent to. */
+function RunStatusTag({
+    job,
+    channel,
+    isLatest,
+}: {
+    job: HogFlowBatchJobApi
+    channel: BroadcastChannel
+    isLatest: boolean
+}): JSX.Element {
+    const status = getRunStatus(job.status)
+    // Older runs skip their metrics queries, but the latest one can still be pacing its sends.
+    return status === 'sent' && channel === 'email' && (isLatest || canStillBeSending(job.created_at)) ? (
+        <SentBroadcastStatusTag job={job} />
+    ) : (
+        <BroadcastStatusTag status={status} />
+    )
+}
+
+function SentBroadcastStatusTag({ job }: { job: HogFlowBatchJobApi }): JSX.Element {
+    const logic = broadcastPerformanceLogic({ runId: job.id, runStartedAt: job.created_at, channel: 'email' })
+    const { audience, totalsFailed } = useValues(logic)
+    const { loadTotals } = useActions(logic)
+    if (totalsFailed) {
+        return (
+            <Tooltip title="Couldn't load who this run reached. Click to try again.">
+                <LemonTag type="muted" onClick={() => loadTotals()} forceClickable>
+                    Status unknown
+                </LemonTag>
+            </Tooltip>
+        )
+    }
+    return <BroadcastStatusTag status={audience?.stillSending ? 'sending' : 'sent'} />
+}
+
 const LATEST_RUN_LABEL: Record<BroadcastRunStatus, string> = {
     sent: 'Sent',
     partially_failed: 'Partly sent',
@@ -275,6 +322,20 @@ function LatestRunLabel({ job }: { job: HogFlowBatchJobApi }): JSX.Element {
     return (
         <span>
             <span>{LATEST_RUN_LABEL[getRunStatus(job.status)]}</span> <TZLabel time={job.created_at} />
+        </span>
+    )
+}
+
+function CompletedEmailRunLabel({ job }: { job: HogFlowBatchJobApi }): JSX.Element {
+    const { audience, totalsFailed } = useValues(
+        broadcastPerformanceLogic({ runId: job.id, runStartedAt: job.created_at, channel: 'email' })
+    )
+    return (
+        <span>
+            <span>
+                {totalsFailed ? 'Started' : audience?.stillSending ? LATEST_RUN_LABEL.sending : LATEST_RUN_LABEL.sent}
+            </span>{' '}
+            <TZLabel time={job.created_at} />
         </span>
     )
 }
@@ -342,7 +403,7 @@ export function BroadcastSummary(): JSX.Element {
         {
             title: 'Status',
             key: 'status',
-            render: (_, job) => <BroadcastStatusTag status={getRunStatus(job.status)} />,
+            render: (_, job) => <RunStatusTag job={job} channel={channel} isLatest={job.id === latestBatchJobId} />,
         },
         {
             title: 'Started by',
@@ -391,7 +452,16 @@ export function BroadcastSummary(): JSX.Element {
 
     return (
         <SceneContent className="@container min-h-full w-full shrink-0" data-attr="broadcast-summary">
-            <BroadcastSceneHeader nameSuffix={<BroadcastStatusTag status={summaryStatus} />} actions={actionsMenu} />
+            <BroadcastSceneHeader
+                nameSuffix={
+                    summaryStatus === 'sent' && latestBatchJob && channel === 'email' ? (
+                        <SentBroadcastStatusTag job={latestBatchJob} />
+                    ) : (
+                        <BroadcastStatusTag status={summaryStatus} />
+                    )
+                }
+                actions={actionsMenu}
+            />
             <div className="mx-auto w-full max-w-6xl space-y-4">
                 {broadcastPath(broadcastId) === 'composer' ? <ComposerDraftFeedback /> : null}
                 {broadcast?.status === 'draft' && accessReason ? (
@@ -467,6 +537,8 @@ export function BroadcastSummary(): JSX.Element {
                                                         </span>
                                                     ) : null}
                                                 </div>
+                                            ) : latestBatchJob?.status === 'completed' && channel === 'email' ? (
+                                                <CompletedEmailRunLabel job={latestBatchJob} />
                                             ) : latestBatchJob ? (
                                                 <LatestRunLabel job={latestBatchJob} />
                                             ) : (
@@ -499,15 +571,22 @@ export function BroadcastSummary(): JSX.Element {
                                                 content={`${push.title}\n${push.body}`}
                                             />
                                         ) : latestBatchJob ? (
-                                            <BroadcastPerformance
-                                                runId={latestBatchJob.id}
-                                                runStartedAt={latestBatchJob.created_at}
-                                                hasGoal={goalEnabled}
-                                                channel={channel}
-                                                fixAction={fixAction}
-                                                resendAction={resendAction}
-                                                content={`${email.subject}\n${email.preheader ?? ''}\n${email.html}`}
-                                            />
+                                            <>
+                                                <BroadcastRunAudience
+                                                    runId={latestBatchJob.id}
+                                                    runStartedAt={latestBatchJob.created_at}
+                                                    channel={channel}
+                                                />
+                                                <BroadcastPerformance
+                                                    runId={latestBatchJob.id}
+                                                    runStartedAt={latestBatchJob.created_at}
+                                                    hasGoal={goalEnabled}
+                                                    channel={channel}
+                                                    fixAction={fixAction}
+                                                    resendAction={resendAction}
+                                                    content={`${email.subject}\n${email.preheader ?? ''}\n${email.html}`}
+                                                />
+                                            </>
                                         ) : (
                                             <span className="text-muted">
                                                 Numbers show up here once the first send goes out.

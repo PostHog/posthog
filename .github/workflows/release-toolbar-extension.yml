@@ -179,6 +179,17 @@ jobs:
                   message: Release approved. Preparing the toolbar extension version bump.
                   emoji_reaction: white_check_mark
 
+            - name: Notify Slack - Superseded
+              if: steps.recheck-changesets.outputs.has-changesets == 'false' && needs.notify-approval-needed.outputs.slack_ts != ''
+              continue-on-error: true
+              uses: posthog/.github/.github/actions/slack-thread-reply@03565438486849ac0d19543de36c248a27d32a2f
+              with:
+                  slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
+                  slack_channel_id: ${{ vars.SLACK_APPROVALS_CLIENT_LIBRARIES_CHANNEL_ID }}
+                  thread_ts: ${{ needs.notify-approval-needed.outputs.slack_ts }}
+                  message: Superseded by a newer release. Nothing left to release from this run.
+                  emoji_reaction: fast_forward
+
             - name: Install Rust
               if: steps.recheck-changesets.outputs.has-changesets == 'true'
               uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
@@ -308,6 +319,7 @@ jobs:
                   NEW_VERSION: ${{ steps.prepare-release.outputs.new-version }}
                   RELEASE_COMMIT: ${{ steps.commit-release.outputs.commit-hash }}
                   REPOSITORY: ${{ github.repository }}
+                  SLACK_TS: ${{ needs.notify-approval-needed.outputs.slack_ts }}
               run: |
                   body_file="$RUNNER_TEMP/release-pr.md"
                   cat > "$body_file" <<EOF
@@ -343,6 +355,11 @@ jobs:
 
                   This pull request contains deterministic release output from committed changesets.
                   EOF
+
+                  # The run that publishes this release reads the marker to reply in the approval thread.
+                  if [ -n "$SLACK_TS" ]; then
+                      printf '\n<!-- slack-thread-ts: %s -->\n' "$SLACK_TS" >> "$body_file"
+                  fi
 
                   release_owner=${REPOSITORY%%/*}
                   existing_prs=$(gh api --paginate "repos/$REPOSITORY/pulls?state=open&base=master&head=$release_owner:$RELEASE_BRANCH" --jq '.[].number')
@@ -434,6 +451,7 @@ jobs:
         outputs:
             new-version: ${{ steps.release-metadata.outputs.new-version }}
             release-commit: ${{ steps.release-metadata.outputs.release-commit }}
+            slack_ts: ${{ steps.release-metadata.outputs.slack_ts }}
         steps:
             - name: Validate manual release branch
               if: github.event_name == 'workflow_dispatch'
@@ -530,6 +548,14 @@ jobs:
 
                   echo "new-version=$new_version" >> "$GITHUB_OUTPUT"
                   echo "release-commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+                  # The run that prepared this release stored its approval thread in the pull request body.
+                  # A missing or malformed marker only skips the Slack reply.
+                  slack_ts=$(printf '%s' "$pr_data" | jq -r '
+                      [(.body // "") | split("\n")[] | rtrimstr("\r")
+                          | capture("^<!-- slack-thread-ts: (?<ts>[0-9]+\\.[0-9]+) -->$").ts]
+                      | if length == 1 then .[0] else empty end' || true)
+                  echo "slack_ts=$slack_ts" >> "$GITHUB_OUTPUT"
 
     # Builds without write or OIDC permissions, so dependency code never holds the publishing credentials.
     build:
@@ -760,3 +786,20 @@ jobs:
                       --title "Toolbar extension v$NEW_VERSION" \
                       --notes "$notes" \
                       --latest=false
+
+    # A separate job, so the Slack action never runs beside the publishing credentials.
+    notify-published:
+        name: Notify Slack - Release Published
+        needs: [identify-release, publish]
+        if: needs.publish.result == 'success' && needs.identify-release.outputs.slack_ts != ''
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        steps:
+            - name: Notify Slack - Release Published
+              uses: posthog/.github/.github/actions/slack-thread-reply@03565438486849ac0d19543de36c248a27d32a2f
+              with:
+                  slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
+                  slack_channel_id: ${{ vars.SLACK_APPROVALS_CLIENT_LIBRARIES_CHANNEL_ID }}
+                  thread_ts: ${{ needs.identify-release.outputs.slack_ts }}
+                  message: Toolbar extension v${{ needs.identify-release.outputs.new-version }} submitted to the Chrome Web Store for review.
+                  emoji_reaction: rocket

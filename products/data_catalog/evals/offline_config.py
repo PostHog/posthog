@@ -16,6 +16,42 @@ _SCORERS: dict[str, OfflineScorer] = {
     "metric_create_called": OfflineScorer(kind="boolean", version=UUID("01a15a28-47d2-7eea-ba8a-55266556d782")),
     "metric_description_concise": OfflineScorer(kind="boolean", version=UUID("01a15a28-5017-75a6-b5e5-5ddfe270c02a")),
     "metric_description_quality": OfflineScorer(kind="boolean", version=UUID("01a15a28-5aa6-746d-8d30-bc84b857f15a")),
+    "metric_search_confident_when_present": OfflineScorer(
+        kind="numeric", version=UUID("01a1c580-b96c-7143-a8db-1ac2f93451e0")
+    ),
+    "metric_search_correct_no_match": OfflineScorer(
+        kind="numeric", version=UUID("01a1c580-b96c-7143-a8db-1ac0dca93e1b")
+    ),
+    "metric_search_recall": OfflineScorer(kind="numeric", version=UUID("01a1ca48-da5c-70f3-969c-e49b3290bdf6")),
+    "metric_search_recall_acronym": OfflineScorer(kind="numeric", version=UUID("01a1ca48-da5c-70f3-969c-e49c1c34d843")),
+    "metric_search_recall_description_words": OfflineScorer(
+        kind="numeric", version=UUID("01a1ca48-da5c-70f3-969c-e49d56d09779")
+    ),
+    "metric_search_recall_display_name_words": OfflineScorer(
+        kind="numeric", version=UUID("01a1ca48-da5c-70f3-969c-e49e3584a340")
+    ),
+    "metric_search_recall_exact_name": OfflineScorer(
+        kind="numeric", version=UUID("01a1ca48-da5c-70f3-969c-e49fdc7f9da9")
+    ),
+    "metric_search_recall_near_sibling": OfflineScorer(
+        kind="numeric", version=UUID("01a1ca48-da5c-70f3-969c-e4a0f54c2cf1")
+    ),
+    "metric_search_recall_paraphrased_question": OfflineScorer(
+        kind="numeric", version=UUID("01a1ca48-da5c-70f3-969c-e4a1f652b5f4")
+    ),
+    "metric_search_recall_related_word": OfflineScorer(
+        kind="numeric", version=UUID("01a1ca48-da5c-70f3-969c-e4a2baa6052e")
+    ),
+    "metric_search_recall_several_phrasings": OfflineScorer(
+        kind="numeric", version=UUID("01a1ca48-da5c-70f3-969c-e4a38ba110b1")
+    ),
+    "metric_search_recall_typo": OfflineScorer(kind="numeric", version=UUID("01a1ca48-da5c-70f3-969c-e4a4508c53e2")),
+    "metric_search_recall_word_form": OfflineScorer(
+        kind="numeric", version=UUID("01a1ca48-da5c-70f3-969c-e4a5c45226c1")
+    ),
+    "metric_search_sibling_ranked_above": OfflineScorer(
+        kind="numeric", version=UUID("01a1c580-b96c-7143-a8db-1ac189ee595d")
+    ),
     "metrics_catalog_before_answer": OfflineScorer(
         kind="boolean", version=UUID("01a15a27-e92c-792a-ab48-24162ed407e9")
     ),

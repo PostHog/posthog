@@ -4,6 +4,8 @@ import { z } from 'zod'
 import type { BatchResolverResumeOutcome } from '~/cdp/services/hogflows/batch-resolver-resume'
 import { StepResume, StepResumeOutcome } from '~/cdp/services/hogflows/step-resume.service'
 
+import type { JobRow } from './job-codec'
+
 export type CyclotronV2JobStatus = 'available' | 'running' | 'completed' | 'failed' | 'canceled'
 
 // SMALLINT ceiling. Dequeue bumps the counter while claiming a batch, so one saturated row aborts the claim for every job in it.
@@ -42,6 +44,13 @@ export const CyclotronV2JobInitSchema = z.object({
 })
 
 export type CyclotronV2JobInit = z.infer<typeof CyclotronV2JobInitSchema>
+
+export type CyclotronV2IdempotentJobInit = {
+    job: CyclotronV2JobInit & { id: string }
+    fingerprint: string
+}
+
+export type CyclotronV2IdempotentOutcome = 'created' | 'replayed' | 'mismatch'
 
 export const CyclotronV2RescheduleOptionsSchema = z.object({
     scheduledAt: z.date().optional(),
@@ -179,6 +188,15 @@ export type CyclotronV2CancelJobsResult = {
     done: boolean
 }
 
+export type CyclotronV2CancelUnclaimedResult =
+    | { outcome: 'canceled'; job: JobRow }
+    | { outcome: 'already_canceled'; job: JobRow | null }
+    | { outcome: 'claimed' | 'not_found' }
+
+export type CyclotronV2RescheduleUnclaimedResult =
+    | { outcome: 'rescheduled'; job: JobRow; rescheduledAt: Date }
+    | { outcome: 'canceled' | 'claimed' | 'not_found' }
+
 /**
  * Producer-side surface of `CyclotronV2Manager`. Lets API entrypoints depend
  * on the interface (testable, mockable) without pulling the full manager
@@ -199,6 +217,8 @@ export interface CyclotronV2JobProducer {
     countInFlightJobs(teamId: number, functionId: string): Promise<CyclotronV2InFlightCounts>
     rescheduleParkedJobs(options: CyclotronV2RescheduleParkedOptions): Promise<CyclotronV2RescheduleParkedResult>
     cancelJobs(options: CyclotronV2CancelJobsOptions): Promise<CyclotronV2CancelJobsResult>
+    cancelUnclaimed(teamId: number, id: string): Promise<CyclotronV2CancelUnclaimedResult>
+    rescheduleUnclaimed(teamId: number, id: string, scheduled: Date): Promise<CyclotronV2RescheduleUnclaimedResult>
     resumeParkedSteps(teamId: number, resumes: StepResume[]): Promise<Map<string, StepResumeOutcome>>
     resumeParkedBatchResolver(options: {
         teamId: number
@@ -226,6 +246,7 @@ export type CyclotronV2WorkerConfig = {
     releaseWriteHeartbeatLimitMs?: number
     includeEmptyBatches?: boolean
     boundedPolls?: boolean
+    boundedFairDequeue?: boolean
 }
 
 export type CyclotronV2JanitorConfig = {

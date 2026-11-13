@@ -893,17 +893,23 @@ export class RerunPaginatorService {
             // with "No recipient identifier found". Dropping it makes the
             // action re-enter fresh, so inputs re-render against the current
             // config, which is what a rerun intends anyway.
-            // The cohort lookup counters are dropped too. A run that aborted after its last
-            // lookup attempt would otherwise restart with no retries left, and the leftover
-            // cohortLookupFailed flag would turn an unrelated error on that step into an abort.
+            // Drop the cohort lookup and render timeout state too, so the rerun gets fresh retries and a
+            // stale cohortLookupFailed flag can't turn an unrelated error on that step into an abort.
             const {
                 hogFunctionState: _stripped,
                 awaitingResume: _awaitingResume,
                 resumeResult: _resumeResult,
                 cohortLookupAttempts: _cohortLookupAttempts,
                 cohortLookupFailed: _cohortLookupFailed,
-                ...restoredCurrentAction
+                renderTimeoutAttempts: _renderTimeoutAttempts,
+                sandboxEmail,
+                sandboxEmailRetries: _sandboxEmailRetries,
+                ...resumableCurrentAction
             } = persistedState.currentAction ?? {}
+            const restoredCurrentAction =
+                sandboxEmail?.outcome === 'accepted'
+                    ? { ...resumableCurrentAction, sandboxEmail }
+                    : resumableCurrentAction
 
             invocation.id = row.invocation_id
             invocation.parentRunId = row.parent_run_id || null
@@ -929,6 +935,7 @@ export class RerunPaginatorService {
                 // Later message steps check these before the per-worker preferences cache, which can predate them.
                 messageOptOuts: persistedState.messageOptOuts,
                 send: persistedState.send,
+                senderKind: persistedState.senderKind,
                 // Sticky rerun counter — mirror the hog function path so the
                 // lifecycle row producer can derive `attempts` / `is_retry`
                 // for flows too, and the `max_attempts` guard actually trips.

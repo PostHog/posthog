@@ -42,6 +42,7 @@ export function AiTaskInstructionsCompare({ actionId }: { actionId: string }): J
                     size="small"
                     type="secondary"
                     icon={<IconClock />}
+                    className="ViewOnlyArea__reading-control"
                     // Compared with live, unchanged instructions only say "No differences", so open on a past version.
                     onClick={() => setOpen(true, currentPrompt === livePrompt ? originalWorkflow.version : null)}
                     data-attr="workflow-ai-task-compare-open"
@@ -68,13 +69,20 @@ export function AiTaskInstructionsCompare({ actionId }: { actionId: string }): J
                     onChange={selectVersion}
                     loading={revisionsResponseLoading && !revisionsResponse}
                     aria-label="Version to compare with"
+                    className="ViewOnlyArea__reading-control"
+                    menu={{ className: 'ViewOnlyArea__reading-control' }}
                     options={[
                         { value: null, label: `Live version (v${originalWorkflow.version})` },
                         ...pastVersionOptions,
                     ]}
                     data-attr="workflow-ai-task-compare-version"
                 />
-                <LemonButton size="small" type="tertiary" className="ml-auto" onClick={() => setOpen(false)}>
+                <LemonButton
+                    size="small"
+                    type="tertiary"
+                    className="ViewOnlyArea__reading-control ml-auto"
+                    onClick={() => setOpen(false)}
+                >
                     Close
                 </LemonButton>
             </div>
@@ -91,7 +99,12 @@ export function AiTaskInstructionsCompare({ actionId }: { actionId: string }): J
             {revisionsLoadFailed && (
                 <div className="flex flex-wrap items-center gap-2">
                     <span className="text-sm text-danger">Couldn't load past versions.</span>
-                    <LemonButton size="xsmall" type="secondary" onClick={() => loadRevisions()}>
+                    <LemonButton
+                        size="xsmall"
+                        type="secondary"
+                        className="ViewOnlyArea__reading-control"
+                        onClick={() => loadRevisions()}
+                    >
                         Try again
                     </LemonButton>
                 </div>
@@ -101,7 +114,12 @@ export function AiTaskInstructionsCompare({ actionId }: { actionId: string }): J
                 {selectedVersion !== null && revisionLoadFailed ? (
                     <div className="flex flex-wrap items-center gap-2">
                         <span className="text-sm text-danger">{`Couldn't load ${versionName}.`}</span>
-                        <LemonButton size="xsmall" type="secondary" onClick={() => loadRevision(selectedVersion)}>
+                        <LemonButton
+                            size="xsmall"
+                            type="secondary"
+                            className="ViewOnlyArea__reading-control"
+                            onClick={() => loadRevision(selectedVersion)}
+                        >
                             Try again
                         </LemonButton>
                     </div>

@@ -15,6 +15,8 @@ import type {
     AttachmentUploadsResponseApi,
     BulkAddOptOutsRequestApi,
     BulkAddOptOutsResultApi,
+    BulkAddSuppressionsRequestApi,
+    BulkAddSuppressionsResultApi,
     BulkRemoveSuppressionsRequestApi,
     BulkRemoveSuppressionsResponseApi,
     CodeEmailApi,
@@ -27,6 +29,7 @@ import type {
     MessagePreferencesApi,
     MessageSuppressionApi,
     MessageTemplateApi,
+    MessageTemplatePlacementApi,
     MessagingCategoriesListParams,
     MessagingPreferencesExportOptOutsCsvRetrieveParams,
     MessagingPreferencesOptOutsRetrieveParams,
@@ -807,6 +810,27 @@ export const messagingSuppressionsAddSuppressionCreate = async (
     })
 }
 
+export const getMessagingSuppressionsBulkAddSuppressionsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/messaging_suppressions/bulk_add_suppressions/`
+}
+
+/**
+ * Suppress every address in the list. Addresses that already have an entry are skipped, so repeating a call is safe.
+ * @summary Add multiple email addresses to the suppression list
+ */
+export const messagingSuppressionsBulkAddSuppressionsCreate = async (
+    projectId: string,
+    bulkAddSuppressionsRequestApi: BulkAddSuppressionsRequestApi,
+    options?: RequestInit
+): Promise<BulkAddSuppressionsResultApi> => {
+    return apiMutator<BulkAddSuppressionsResultApi>(getMessagingSuppressionsBulkAddSuppressionsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(bulkAddSuppressionsRequestApi),
+    })
+}
+
 export const getMessagingSuppressionsBulkRemoveSuppressionsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/messaging_suppressions/bulk_remove_suppressions/`
 }
@@ -1039,6 +1063,24 @@ export const messagingTemplatesMakeTransactionalCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(makeTransactionalApi),
+    })
+}
+
+export const getMessagingTemplatesPlacementRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/messaging_templates/${id}/placement/`
+}
+
+/**
+ * Read where the template sits in the project tree, so an undo of its delete can put it back.
+ */
+export const messagingTemplatesPlacementRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<MessageTemplatePlacementApi> => {
+    return apiMutator<MessageTemplatePlacementApi>(getMessagingTemplatesPlacementRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
     })
 }
 

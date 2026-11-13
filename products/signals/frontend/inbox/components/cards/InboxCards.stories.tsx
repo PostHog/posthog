@@ -675,7 +675,7 @@ export const ReportCardPersonalized: Story = {
     },
 }
 
-/** The narrowest scene the inbox holds, where the reason wraps to its two-line limit. */
+/** The narrowest scene the inbox holds, where the reason wraps to its two-line limit and shows in full on hover. */
 export const ReportCardPersonalizedNarrow: Story = {
     render: () => (
         <div className="bg-primary min-h-screen w-[390px] px-3 py-6">
@@ -686,6 +686,9 @@ export const ReportCardPersonalizedNarrow: Story = {
             </div>
         </div>
     ),
+    play: async ({ canvas }) => {
+        await userEvent.hover(await canvas.findByText(/^You looked at funnel insights/))
+    },
 }
 
 // Under the Action sort, so the ranking pill sits in the meta row: the user's claim, their agent's
