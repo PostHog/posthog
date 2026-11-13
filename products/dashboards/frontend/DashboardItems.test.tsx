@@ -876,24 +876,18 @@ describe('DashboardItems', () => {
         })
 
         it.each([
-            { layout: 'bands', overrides: {}, blocked: 'Move up', item: 'Move down' },
-            { layout: 'tabs', overrides: { activeTileGroupTab: 'plans' }, blocked: 'Move left', item: 'Move right' },
-        ])('moves a group from the group menu in $layout', async ({ overrides, blocked, item }) => {
+            { layout: 'bands', overrides: {} },
+            { layout: 'tabs', overrides: { activeTileGroupTab: 'plans' } },
+        ])('moves a group from its move buttons in $layout', ({ overrides }) => {
             showBands({ ...overrides, tileGroupMoveDirections: { plans: { canMoveUp: false, canMoveDown: true } } })
-            const bandValues = mockedUseValues.getMockImplementation()!
-            mockedUseValues.mockImplementation((logic) =>
-                logic === dashboardsModel ? { dashboardsLoading: false } : bandValues(logic)
-            )
-            const defaultActions = mockedUseActions.getMockImplementation()!
-            mockedUseActions.mockImplementation((logic) =>
-                logic === dashboardsModel ? { loadDashboardsIfNeeded: jest.fn() } : defaultActions(logic)
-            )
 
-            const { container, findByText, unmount } = render(<DashboardItems />)
-            fireEvent.click(container.querySelector('[data-attr="dashboard-tile-group-menu"]')!)
-            fireEvent.click(await findByText(blocked))
-            fireEvent.click(await findByText(item))
+            const { container, unmount } = render(<DashboardItems />)
+            const moveUp = container.querySelector<HTMLButtonElement>('[data-attr="dashboard-tile-group-move-up"]')!
+            const moveDown = container.querySelector<HTMLButtonElement>('[data-attr="dashboard-tile-group-move-down"]')!
+            fireEvent.click(moveUp)
+            fireEvent.click(moveDown)
 
+            expect(moveUp).toHaveAttribute('aria-disabled', 'true')
             expect(mockMoveTileGroup.mock.calls).toEqual([['plans', 'down']])
             unmount()
         })

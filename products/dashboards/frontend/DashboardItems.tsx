@@ -37,7 +37,7 @@ import { biDashboardCrossFilterLogic } from 'products/business_intelligence/fron
 import { DashboardGridBackground } from 'products/dashboards/frontend/components/DashboardGridBackground'
 import { DashboardInsightTile } from 'products/dashboards/frontend/components/DashboardInsightTile'
 import { DashboardTextItem } from 'products/dashboards/frontend/components/DashboardTextItem/DashboardTextItem'
-import type { TileGroupMoveActions } from 'products/dashboards/frontend/components/DashboardTileGroup/DashboardTileGroupMenuOverlay'
+import type { TileGroupMoveActions } from 'products/dashboards/frontend/components/DashboardTileGroup/DashboardTileGroupMoveButtons'
 import { DashboardTileGroupTabs } from 'products/dashboards/frontend/components/DashboardTileGroup/DashboardTileGroupTabs'
 import { DashboardTileSectionBand } from 'products/dashboards/frontend/components/DashboardTileSectionBand'
 import { TileGroupTakeOutDropZone } from 'products/dashboards/frontend/components/TileGroupTakeOutDropZone'

@@ -12,6 +12,7 @@ import type { DashboardTileGroupApi } from '../../generated/api.schemas'
 import { DashboardTileGroupContextMenu } from './DashboardTileGroupContextMenu'
 import { DashboardTileGroupMenu } from './DashboardTileGroupMenu'
 import { type DashboardTileGroupMenuActions, hasTileGroupMenuActions } from './DashboardTileGroupMenuOverlay'
+import { DashboardTileGroupMoveButtons, type TileGroupMoveActions } from './DashboardTileGroupMoveButtons'
 import { DashboardTileGroupTitleInput } from './DashboardTileGroupTitleInput'
 import { TileGroupColorDot } from './TileGroupColorDot'
 
@@ -25,7 +26,7 @@ interface DashboardTileGroupProps {
     onRename?: (title: string) => void
     renaming?: boolean
     onRenamingChange?: (renaming: boolean) => void
-    moveActions?: DashboardTileGroupMenuActions['moveActions']
+    moveActions?: TileGroupMoveActions
     onRemove?: () => void
     copyToDestinations?: DashboardWidgetPlacementDestination[]
     onCopyToDashboard?: (dashboardId: number, dashboardName: string) => void
@@ -57,7 +58,6 @@ export function DashboardTileGroup({
         groupDisplay: 'sections',
         addTileOptions,
         onStartRename: onRename && onRenamingChange ? () => onRenamingChange(true) : undefined,
-        moveActions,
         onRemove,
         groupHasTiles: tileCount > 0,
         onChangeGroupDisplay,
@@ -68,7 +68,7 @@ export function DashboardTileGroup({
 
     return (
         <section className="DashboardTileGroup" data-attr="dashboard-tile-group">
-            <div className="flex min-w-0 items-center gap-2 pb-2">
+            <div className="group/tile-group-header flex min-w-0 items-center gap-2 pb-2">
                 <DashboardTileGroupContextMenu className="flex min-w-0" {...menuActions}>
                     <LemonButton
                         size="small"
@@ -107,6 +107,14 @@ export function DashboardTileGroup({
                 </DashboardTileGroupContextMenu>
                 {group.title && collapsed && <span className="shrink-0 text-secondary text-xs">{tileCountLabel}</span>}
                 <div className="min-w-4 flex-1 border-t border-primary" />
+                {moveActions && (
+                    <DashboardTileGroupMoveButtons
+                        groupDisplay="sections"
+                        moveActions={moveActions}
+                        groupHasTiles={tileCount > 0}
+                        className="opacity-0 transition-opacity focus-within:opacity-100 group-hover/tile-group-header:opacity-100 motion-reduce:transition-none"
+                    />
+                )}
                 {hasTileGroupMenuActions(menuActions) && <DashboardTileGroupMenu {...menuActions} />}
             </div>
             {!collapsed && tileCount === 0 && (

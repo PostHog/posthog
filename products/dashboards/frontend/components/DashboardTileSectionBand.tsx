@@ -8,6 +8,7 @@ import type { TileGroupDisplay } from '~/types'
 import type { DashboardSection } from '../dashboardTileSections'
 import { DashboardTileGroup } from './DashboardTileGroup/DashboardTileGroup'
 import type { DashboardTileGroupMenuActions } from './DashboardTileGroup/DashboardTileGroupMenuOverlay'
+import type { TileGroupMoveActions } from './DashboardTileGroup/DashboardTileGroupMoveButtons'
 
 interface DashboardTileSectionBandProps {
     section: DashboardSection
@@ -18,7 +19,7 @@ interface DashboardTileSectionBandProps {
     onRenameTileGroup?: (groupKey: string, title: string) => void
     renamingTileGroupKey?: string | null
     onRenamingTileGroupKeyChange?: (groupKey: string | null) => void
-    getTileGroupMoveActions?: (groupKey: string) => DashboardTileGroupMenuActions['moveActions']
+    getTileGroupMoveActions?: (groupKey: string) => TileGroupMoveActions | undefined
     onRemoveTileGroup?: (groupKey: string) => void
     copyToDestinations?: DashboardWidgetPlacementDestination[]
     onCopyGroupToDashboard?: (groupKey: string, dashboardId: number, dashboardName: string) => void
