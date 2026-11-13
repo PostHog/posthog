@@ -19,8 +19,8 @@ tools:
         list: true
         title: List notifications
         description: >
-            List notifications for the connected user. Returns unread notifications by default. Set read to true to
-            list notifications that the user has already handled.
+            List notifications for the connected user. Returns unread notifications by default. Set read to true to list
+            notifications that the user has already handled.
         param_overrides:
             read:
                 default: false
@@ -36,6 +36,6 @@ tools:
             idempotent: true
         title: Mark notifications as read
         description: >
-            Mark notifications as read after you handle them. Notifications that do not belong to the connected user
-            are ignored.
+            Mark notifications as read after you handle them. Notifications that do not belong to the connected user are
+            ignored.
         feature_flag: real-time-notifications
