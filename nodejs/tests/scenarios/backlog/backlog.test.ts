@@ -1,5 +1,5 @@
 import { execFile } from 'child_process'
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'fs'
 import os from 'os'
 import path from 'path'
 import { stringify } from 'yaml'
@@ -8,6 +8,7 @@ import { deflateSync } from 'zlib'
 import { defaultConfig } from '~/common/config/config'
 import { parseJSON } from '~/common/utils/json-parse'
 
+import { holdRunLock } from '../environment/processes'
 import { RESIDENT_TEAMS_FROM, scratchSchema, withPostgres } from '../environment/stack'
 import { main } from '../main'
 import { EXIT_CODE } from '../runner/status'
@@ -127,6 +128,29 @@ describe('seed-backlog', () => {
         expect(await query('SELECT queue_name, count(*)::int AS rows FROM cyclotron_jobs GROUP BY queue_name')).toEqual(
             [{ queue_name: 'email', rows: 30 }]
         )
+    })
+
+    it('refuses to seed while a scenario runner holds its state dir, leaving the residents and the manifest alone', async () => {
+        await seed()
+        const manifest = readFileSync(manifestPath(), 'utf8')
+        const release = await holdRunLock(realpathSync(path.join(cacheHome, 'posthog-scenarios')))
+        try {
+            expect(await seed({ ...BACKLOG, jobs: { email: 30 } })).toBe(EXIT_CODE.invalid)
+        } finally {
+            await release()
+        }
+
+        expect(stderr.mock.calls.join('')).toContain(`Scenario runner ${process.pid} is already running from`)
+        expect({
+            rows: await query('SELECT queue_name, count(*)::int AS rows FROM cyclotron_jobs GROUP BY 1 ORDER BY 1'),
+            manifest: readFileSync(manifestPath(), 'utf8'),
+        }).toEqual({
+            rows: [
+                { queue_name: 'email', rows: 100 },
+                { queue_name: 'hogflow', rows: 200 },
+            ],
+            manifest,
+        })
     })
 
     it.each([
