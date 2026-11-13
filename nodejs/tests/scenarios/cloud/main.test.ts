@@ -21,11 +21,29 @@ const PROFILE = {
     name: 'test-eu',
     account: '000000000000',
     region: 'us-east-1',
-    baseline: { schedulerRole: 'arn:aws:iam::000000000000:role/test-scheduler', evidenceBucket: 'test-evidence' },
+    availabilityZone: 'us-east-1a',
+    baseline: {
+        schedulerRole: 'arn:aws:iam::000000000000:role/test-scheduler',
+        stackServiceRole: 'arn:aws:iam::000000000000:role/test-stacks',
+        monitoringRole: 'arn:aws:iam::000000000000:role/test-monitoring',
+        evidenceBucket: 'test-evidence',
+        dbSubnetGroup: 'test-db-subnets',
+        databaseSecurityGroup: 'sg-0000000000000000a',
+        clusterParameterGroup: 'test-cluster-parameters',
+        instanceParameterGroup: 'test-instance-parameters',
+        hostSubnet: 'subnet-0000000000000000a',
+        hostSecurityGroup: 'sg-0000000000000000b',
+        hostInstanceProfile: 'test-host',
+    },
     engineVersion: '16.4',
     writerClass: 'db.r8g.2xlarge',
     readerAcu: { min: 1, max: 32 },
-    host: { class: 'm7i.8xlarge', ebsGb: 100 },
+    host: {
+        class: 'm7i.8xlarge',
+        ebsGb: 100,
+        imageParameter: '/test/ubuntu/ami-id',
+        bootstrapDeadline: '30m',
+    },
     runnerProfile: 'runner.yaml',
     admission: {
         teardownAllowance: '60m',
@@ -65,6 +83,8 @@ describe('cloud controller', () => {
     let cloud: FakeCloud
     let out: string[]
     let err: string[]
+    let interrupt: (() => void) | undefined
+    let onSleep: (() => Promise<void> | void) | undefined
 
     const profilePath = (): string => path.join(dir, 'profile.yaml')
 
@@ -102,6 +122,16 @@ describe('cloud controller', () => {
             aws: cloud,
             origin: { head: () => COMMIT, published: (commit) => Promise.resolve(published && commit === COMMIT) },
             now: () => now,
+            sleep: async (ms) => {
+                now = new Date(now.getTime() + ms)
+                await onSleep?.()
+            },
+            onInterrupt: (handler) => {
+                interrupt = handler
+                return () => {
+                    interrupt = undefined
+                }
+            },
             env: { HOME: dir, ...env },
             print: (line) => out.push(line),
             warn: (line) => err.push(line),
@@ -131,6 +161,8 @@ describe('cloud controller', () => {
         now = T
         out = []
         err = []
+        interrupt = undefined
+        onSleep = undefined
     })
 
     afterEach(() => rmSync(dir, { recursive: true, force: true }))
@@ -590,5 +622,202 @@ describe('cloud controller', () => {
 
         expect(released(expired)).toBe(1)
         expect(schedulesFor(expired)).toEqual([])
+    })
+
+    it.each([
+        ['', undefined],
+        [', retrying a resource read that fails during teardown', 'describe-db-instances'],
+    ])(
+        'creates the run stack only after its schedules, adds the reader, and leaves nothing billing%s',
+        async (_, failing) => {
+            const { controller } = prepare()
+            if (failing) {
+                cloud.failOnCall(failing, 1)
+            }
+            let schedulesAtCreate = 0
+            cloud.beforeCall('create-stack', () => {
+                schedulesAtCreate = cloud.schedules.size
+            })
+
+            await expect(main(['run', profilePath()], controller)).resolves.toBe(0)
+
+            const runId = leasedRunId()
+            expect(schedulesAtCreate).toBe(2)
+            expect(cloud.resources.map(({ type, id }) => `${type} ${id}`)).toContain(
+                `AWS::RDS::DBInstance scn-${runId}-reader`
+            )
+            expect(cloud.billable()).toEqual([])
+            expect(cloud.schedules.size).toBe(0)
+            expect(parseJSON(cloud.objects.get(`runs/${runId}/receipt.json`)!)).toMatchObject({ runId, clean: true })
+        }
+    )
+
+    it.each([
+        ['create-stack', 'fails', 1],
+        ['create-stack', 'loses its response', 1],
+        ['describe-stacks', 'fails', 2],
+        ['update-stack', 'fails', 1],
+        ['describe-stacks', 'fails', 4],
+    ])('tears everything down when %s %s (call %d)', async (operation, how, nth) => {
+        const { controller } = prepare()
+        if (how === 'fails') {
+            cloud.failOnCall(operation, nth)
+        } else {
+            cloud.loseResponseOf(operation, nth)
+        }
+
+        await expect(main(['run', profilePath()], controller)).resolves.toBe(2)
+
+        expect(cloud.billable()).toEqual([])
+        expect(cloud.schedules.size).toBe(0)
+        expect(released(leasedRunId())).toBe(1)
+    })
+
+    it.each<[string, Partial<FakeCloudOptions>, string]>([
+        ['the host writes its failed marker', { host: 'failed' }, 'host/bootstrap.log'],
+        ['the host misses its bootstrap deadline', { host: 'silent' }, 'not ready within 30m'],
+        ['the stack rolls back its creation', { rollsBack: 'create' }, 'not CREATE_COMPLETE'],
+        ['the stack rolls back the reader', { rollsBack: 'update' }, 'not UPDATE_COMPLETE'],
+    ])('makes the run invalid and tears down when %s', async (_, options, reason) => {
+        const { controller } = prepare({ cloud: options })
+
+        await expect(main(['run', profilePath()], controller)).resolves.toBe(2)
+
+        expect(err.join('\n')).toContain(reason)
+        expect(cloud.billable()).toEqual([])
+        expect(cloud.schedules.size).toBe(0)
+    })
+
+    it('tears down at once when interrupted while it waits for the host', async () => {
+        const { controller } = prepare({ cloud: { host: 'silent' } })
+        let interruptedAt: number | undefined
+        let deletedAt: number | undefined
+        onSleep = () => {
+            const created = [...cloud.stacks.values()].some(({ status }) => status === 'CREATE_COMPLETE')
+            if (created && interruptedAt === undefined) {
+                interruptedAt = now.getTime()
+                interrupt?.()
+            }
+        }
+        cloud.beforeCall('delete-stack', () => {
+            deletedAt ??= now.getTime()
+        })
+
+        await expect(main(['run', profilePath()], controller)).resolves.toBe(2)
+
+        expect(deletedAt! - interruptedAt!).toBeLessThan(60_000)
+        expect(cloud.billable()).toEqual([])
+        expect(cloud.schedules.size).toBe(0)
+    })
+
+    it.each([
+        ['the stack', 'get-schedule', 'too soon to create the stack'],
+        ['the reader', 'update-stack', 'too soon to add the reader'],
+    ])('creates nothing more once the lease is too close to expiry to create %s', async (_, operation, reason) => {
+        const { controller } = prepare()
+        let jumped = false
+        const jump = (): void => {
+            if (!jumped && cloud.schedules.size === 2) {
+                jumped = true
+                now = new Date(now.getTime() + 5.5 * HOUR_MS)
+            }
+        }
+        if (operation === 'update-stack') {
+            cloud.beforeCall('list-objects-v2', () => cloud.stacks.size > 0 && jump())
+        } else {
+            cloud.beforeCall(operation, jump)
+        }
+
+        await expect(main(['run', profilePath()], controller)).resolves.toBe(2)
+
+        expect(err.join('\n')).toContain(reason)
+        expect(cloud.resources.map(({ id }) => id).filter((id) => id.endsWith('-reader'))).toEqual([])
+        expect(cloud.billable()).toEqual([])
+    })
+
+    it.each([
+        ['the stack will not delete', { deleteFailures: 2 }, undefined],
+        ['deleting the stack fails', {}, 'delete-stack'],
+    ])('keeps the schedules and exits non-zero when %s, then cleanup finishes it', async (_, options, failing) => {
+        const { controller } = prepare({ cloud: options })
+        if (failing) {
+            cloud.failOnCall(failing, 1)
+        }
+
+        await expect(main(['run', profilePath()], controller)).resolves.toBe(2)
+
+        const runId = leasedRunId()
+        expect(cloud.billable()).not.toEqual([])
+        expect(cloud.schedules.size).toBe(2)
+        expect(err.join('\n')).toContain(`cleanup <cloud profile> ${runId}`)
+        expect(parseJSON(cloud.objects.get(`runs/${runId}/receipt.json`)!)).toMatchObject({ clean: false })
+
+        await expect(main(['cleanup', profilePath(), runId], controller)).resolves.toBe(0)
+
+        expect(cloud.billable()).toEqual([])
+        expect(cloud.schedules.size).toBe(0)
+    })
+
+    it('keeps the schedules and names the cleanup when it cannot list what the run created', async () => {
+        const { controller } = prepare()
+        cloud.failOnCall('get-resources', 2)
+
+        await expect(main(['run', profilePath()], controller)).resolves.toBe(2)
+
+        const runId = leasedRunId()
+        expect(cloud.schedules.size).toBe(2)
+        expect(err.join('\n')).toContain(`cleanup <cloud profile> ${runId}`)
+
+        await expect(main(['cleanup', profilePath(), runId], controller)).resolves.toBe(0)
+
+        expect(cloud.billable()).toEqual([])
+        expect(cloud.schedules.size).toBe(0)
+    })
+
+    it.each(['AWS::EC2::Volume', 'AWS::SecretsManager::Secret'])(
+        'keeps the schedules and names a %s that outlives the stack',
+        async (type) => {
+            const { controller } = prepare({ cloud: { outlives: [type] } })
+
+            await expect(main(['run', profilePath()], controller)).resolves.toBe(2)
+
+            const left = cloud.billable().filter((resource) => resource.startsWith(type))
+            expect(left).toHaveLength(1)
+            expect(err.join('\n')).toContain(`- ${left[0]}`)
+            expect(cloud.schedules.size).toBe(2)
+        }
+    )
+
+    it('changes nothing on a second cleanup of a torn-down run', async () => {
+        const { controller } = prepare()
+        await main(['run', profilePath()], controller)
+        const runId = leasedRunId()
+        const resources = structuredClone(cloud.resources)
+
+        await expect(main(['cleanup', profilePath(), runId], controller)).resolves.toBe(0)
+
+        expect(cloud.resources).toEqual(resources)
+        expect(cloud.stacks.size).toBe(0)
+        expect(cloud.schedules.size).toBe(0)
+    })
+
+    it('deletes the stack by schedule when the controller dies after creating it', async () => {
+        const { controller } = prepare({ cloud: { host: 'silent' } })
+        let waitingForHost!: () => void
+        const died = new Promise<void>((resolve) => (waitingForHost = resolve))
+        onSleep = () => {
+            waitingForHost()
+            return new Promise(() => undefined)
+        }
+        void main(['run', profilePath()], controller)
+        await died
+        const runId = leasedRunId()
+        expect(cloud.billable()).not.toEqual([])
+
+        now = new Date(T.getTime() + 6 * HOUR_MS + 60_000)
+        cloud.tick()
+
+        expect(cloud.deleteStackRequests).toEqual([{ stackName: `scn-${runId}`, at: '2026-03-02T16:00:00.000Z' }])
+        expect(cloud.billable()).toEqual([])
     })
 })

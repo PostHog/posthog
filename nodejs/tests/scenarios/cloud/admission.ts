@@ -15,6 +15,8 @@ export type Controller = {
     aws: Aws
     origin: Origin
     now(): Date
+    sleep(ms: number): Promise<void>
+    onInterrupt(handler: () => void): () => void
     env: NodeJS.ProcessEnv
     print(line: string): void
     warn(line: string): void
@@ -189,6 +191,9 @@ function probesOf({ baseline }: CloudProfile, now: Date): [string, string[]][] {
                 String(now.getTime()),
             ],
         ],
+        ['rds:DescribeDBClusters', ['rds', 'describe-db-clusters', '--db-cluster-identifier', PROBE_ID]],
+        ['ec2:DescribeInstances', ['ec2', 'describe-instances', '--max-items', '1']],
+        ['secretsmanager:DescribeSecret', ['secretsmanager', 'describe-secret', '--secret-id', PROBE_ID]],
         [
             'tag:GetResources',
             [

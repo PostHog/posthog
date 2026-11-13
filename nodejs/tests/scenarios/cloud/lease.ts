@@ -36,12 +36,12 @@ const stackNameOf = (runId: string): string => `scn-${runId}`
 
 const schedulesOf = (runId: string): string[] => [`${stackNameOf(runId)}-expiry`, `${stackNameOf(runId)}-expiry-retry`]
 
-const keyOf = (runId: string, name: string): string => `runs/${runId}/${name}`
+export const keyOf = (runId: string, name: string): string => `runs/${runId}/${name}`
 
 const scratchDir = (): ReturnType<typeof mkdtempDisposableSync> =>
     mkdtempDisposableSync(path.join(os.tmpdir(), 'scenario-cloud-'))
 
-function bucketOf(aws: Aws, bucket: string) {
+export function evidenceOf(aws: Aws, bucket: string) {
     return {
         name: bucket,
         put: async (key: string, body: string | Buffer): Promise<unknown> => {
@@ -143,7 +143,7 @@ export async function lease(
         schedules: schedulesOf(runId),
         inputs: Object.fromEntries(inputs.map(({ file, sha256 }) => [file, sha256])),
     }
-    const bucket = bucketOf(controller.aws, profile.baseline.evidenceBucket)
+    const bucket = evidenceOf(controller.aws, profile.baseline.evidenceBucket)
     try {
         const body = JSON.stringify(manifest, null, 2)
         await bucket.put(keyOf(runId, 'manifest.json'), body)
@@ -167,7 +167,7 @@ export async function lease(
 
 async function removePartialLease(
     { aws }: Controller,
-    bucket: ReturnType<typeof bucketOf>,
+    bucket: ReturnType<typeof evidenceOf>,
     manifest: Manifest
 ): Promise<string[]> {
     const remaining: string[] = []
@@ -192,7 +192,7 @@ async function removePartialLease(
 
 export async function release(controller: Controller, evidenceBucket: string, manifest: Manifest): Promise<void> {
     await deleteSchedules(controller, manifest)
-    await bucketOf(controller.aws, evidenceBucket).put(
+    await evidenceOf(controller.aws, evidenceBucket).put(
         keyOf(manifest.runId, 'teardown.json'),
         JSON.stringify({ releasedAt: controller.now().toISOString() })
     )
@@ -202,7 +202,7 @@ export async function release(controller: Controller, evidenceBucket: string, ma
 export async function manifestOf(controller: Controller, evidenceBucket: string, runId: string): Promise<Manifest> {
     let stored: unknown
     try {
-        stored = parseJSON(await bucketOf(controller.aws, evidenceBucket).get(keyOf(runId, 'manifest.json')))
+        stored = parseJSON(await evidenceOf(controller.aws, evidenceBucket).get(keyOf(runId, 'manifest.json')))
     } catch (error) {
         if (error instanceof AwsError && error.code === 'NoSuchKey') {
             throw new LeaseError(`Run ${runId} has no manifest in ${evidenceBucket}.`)
@@ -223,22 +223,10 @@ export async function manifestOf(controller: Controller, evidenceBucket: string,
     return parsed.data as unknown as Manifest
 }
 
-export async function sweepExpired(controller: Controller, evidenceBucket: string): Promise<string[]> {
-    const keys = new Set(await bucketOf(controller.aws, evidenceBucket).keys('runs/'))
-    const unreleased = [...keys]
+export async function unreleasedRuns(controller: Controller, evidenceBucket: string): Promise<string[]> {
+    const keys = new Set(await evidenceOf(controller.aws, evidenceBucket).keys('runs/'))
+    return [...keys]
         .filter((key) => key.endsWith('/manifest.json') && key.split('/').length === 3)
         .map((key) => key.split('/')[1])
         .filter((runId) => !keys.has(keyOf(runId, 'teardown.json')))
-    const problems: string[] = []
-    for (const runId of unreleased) {
-        try {
-            const manifest = await manifestOf(controller, evidenceBucket, runId)
-            if (Date.parse(manifest.expiresAt) <= controller.now().getTime()) {
-                await release(controller, evidenceBucket, manifest)
-            }
-        } catch (error) {
-            problems.push(`Could not release expired run ${runId}: ${(error as Error).message}`)
-        }
-    }
-    return problems
 }

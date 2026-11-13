@@ -1,10 +1,34 @@
+import { randomUUID } from 'crypto'
 import { readFileSync, writeFileSync } from 'fs'
+import { parse } from 'yaml'
 
 import { parseJSON } from '~/common/utils/json-parse'
 
 import { Aws, AwsError } from './aws'
 
 type Schedule = { expression: string; target: { Arn: string; RoleArn: string; Input: string } }
+
+type Resource = {
+    logicalId: string
+    type: string
+    id: string
+    arn: string
+    state: string
+    runTag?: string
+    clusterResourceId?: string
+    secretArn?: string
+}
+
+type Stack = {
+    name: string
+    token: string
+    status: string
+    parameters: Record<string, string>
+    template: { Resources: Record<string, { Type: string; Condition?: string; Properties: Record<string, unknown> }> }
+    resources: Resource[]
+}
+
+const DELETED_STATES = new Set(['gone', 'terminated', 'deleted'])
 
 export type FakeCloudOptions = {
     now: () => Date
@@ -16,6 +40,10 @@ export type FakeCloudOptions = {
     sourceProfile?: string
     orderable?: string[]
     denied?: string[]
+    host?: 'ready' | 'failed' | 'silent'
+    deleteFailures?: number
+    rollsBack?: 'create' | 'update'
+    outlives?: string[]
 }
 
 const ACTION_OF: Record<string, string> = {
@@ -34,7 +62,9 @@ function flagsOf(args: string[]): { flags: Map<string, string>; positionals: str
     const flags = new Map<string, string>()
     const positionals: string[] = []
     for (let i = 0; i < args.length; i++) {
-        if (args[i].startsWith('--')) {
+        if (args[i].startsWith('--') && (args[i + 1] ?? '--').startsWith('--')) {
+            flags.set(args[i].slice(2), '')
+        } else if (args[i].startsWith('--')) {
             flags.set(args[i].slice(2), args[i + 1])
             i++
         } else {
@@ -68,8 +98,13 @@ export class FakeCloud implements Aws {
     ssoSession: string | undefined
     readonly orderable: string[]
     readonly denied: Set<string>
+    readonly stacks = new Map<string, Stack>()
+    readonly resources: Resource[] = []
+    private deleteFailures: number
     private readonly failures = new Map<string, number>()
+    private readonly lostResponses = new Map<string, number>()
     private readonly calls = new Map<string, number>()
+    private readonly hooks = new Map<string, () => void>()
 
     constructor(private readonly options: FakeCloudOptions) {
         this.account = options.account ?? '000000000000'
@@ -79,10 +114,23 @@ export class FakeCloud implements Aws {
         this.ssoSession = options.ssoSession
         this.orderable = options.orderable ?? ['db.r8g.2xlarge', 'db.serverless']
         this.denied = new Set(options.denied ?? [])
+        this.deleteFailures = options.deleteFailures ?? 0
     }
 
     failOnCall(operation: string, nth: number = 1): void {
         this.failures.set(operation, (this.calls.get(operation) ?? 0) + nth)
+    }
+
+    loseResponseOf(operation: string, nth: number = 1): void {
+        this.lostResponses.set(operation, (this.calls.get(operation) ?? 0) + nth)
+    }
+
+    beforeCall(operation: string, hook: () => void): void {
+        this.hooks.set(operation, hook)
+    }
+
+    billable(): string[] {
+        return this.resources.filter(({ state }) => !DELETED_STATES.has(state)).map(({ type, id }) => `${type} ${id}`)
     }
 
     call(args: string[]): Promise<unknown> {
@@ -96,7 +144,7 @@ export class FakeCloud implements Aws {
         })
     }
 
-    private fireDueSchedules(): void {
+    tick(): void {
         const now = this.options.now().getTime()
         for (const [name, schedule] of this.schedules) {
             if (atOf(schedule.expression) <= now) {
@@ -105,17 +153,20 @@ export class FakeCloud implements Aws {
                     stackName: StackName,
                     at: new Date(atOf(schedule.expression)).toISOString(),
                 })
+                this.requestStackDeletion(StackName)
+                this.settleStack(StackName)
                 this.schedules.delete(name)
             }
         }
     }
 
     private handle(args: string[]): unknown {
-        this.fireDueSchedules()
+        this.tick()
         const [service, operation, ...rest] = args
         const { flags, positionals } = flagsOf(rest)
         const count = (this.calls.get(operation) ?? 0) + 1
         this.calls.set(operation, count)
+        this.hooks.get(operation)?.()
         if (this.failures.get(operation) === count) {
             throw serviceError(operation, 'InternalFailure', 'injected by the fake cloud')
         }
@@ -123,7 +174,149 @@ export class FakeCloud implements Aws {
         if (this.denied.has(action)) {
             throw serviceError(operation, 'AccessDeniedException', `User is not authorized to perform: ${action}`)
         }
-        return this.answer(service, operation, flags, positionals)
+        const answer = this.answer(service, operation, flags, positionals)
+        if (this.lostResponses.get(operation) === count) {
+            throw new AwsError([service, operation], 255, 'Connection was closed before we received a valid response')
+        }
+        return answer
+    }
+
+    private parametersOf(flags: Map<string, string>): Record<string, string> {
+        const listed = parseJSON(flags.get('parameters')!) as { ParameterKey: string; ParameterValue: string }[]
+        return Object.fromEntries(listed.map(({ ParameterKey, ParameterValue }) => [ParameterKey, ParameterValue]))
+    }
+
+    private provision(stack: Stack): void {
+        const sub = (value: unknown): string =>
+            String(value).replace(/\$\{(\w+)\}/g, (_, name: string) => stack.parameters[name])
+        const id = stack.parameters.RunId
+        for (const [logicalId, { Type, Condition, Properties }] of Object.entries(stack.template.Resources)) {
+            const wanted = Condition === undefined || stack.parameters[Condition] === 'true'
+            if (!wanted || stack.resources.some((resource) => resource.logicalId === logicalId)) {
+                continue
+            }
+            const identifier = (property: string): string =>
+                sub((Properties[property] as { 'Fn::Sub': string })['Fn::Sub'])
+            const created: Resource[] = []
+            if (Type === 'AWS::RDS::DBCluster') {
+                const clusterId = identifier('DBClusterIdentifier')
+                const secret: Resource = {
+                    logicalId: `${logicalId}Secret`,
+                    type: 'AWS::SecretsManager::Secret',
+                    id: `arn:aws:secretsmanager:us-east-1:${this.account}:secret:rds!cluster-${randomUUID()}`,
+                    arn: '',
+                    state: 'active',
+                }
+                secret.arn = secret.id
+                created.push(
+                    {
+                        logicalId,
+                        type: Type,
+                        id: clusterId,
+                        arn: `arn:aws:rds:us-east-1:${this.account}:cluster:${clusterId}`,
+                        state: 'available',
+                        runTag: id,
+                        clusterResourceId: `cluster-${randomUUID()}`,
+                        secretArn: secret.arn,
+                    },
+                    secret
+                )
+            } else if (Type === 'AWS::RDS::DBInstance') {
+                const instanceId = identifier('DBInstanceIdentifier')
+                created.push({
+                    logicalId,
+                    type: Type,
+                    id: instanceId,
+                    arn: `arn:aws:rds:us-east-1:${this.account}:db:${instanceId}`,
+                    state: 'available',
+                    runTag: id,
+                })
+            } else if (Type === 'AWS::EC2::Instance') {
+                const instanceId = `i-${randomUUID().replace(/-/g, '').slice(0, 17)}`
+                const volumeId = `vol-${randomUUID().replace(/-/g, '').slice(0, 17)}`
+                created.push(
+                    {
+                        logicalId,
+                        type: Type,
+                        id: instanceId,
+                        arn: `arn:aws:ec2:us-east-1:${this.account}:instance/${instanceId}`,
+                        state: 'running',
+                        runTag: id,
+                    },
+                    {
+                        logicalId: `${logicalId}Volume`,
+                        type: 'AWS::EC2::Volume',
+                        id: volumeId,
+                        arn: `arn:aws:ec2:us-east-1:${this.account}:volume/${volumeId}`,
+                        state: 'in-use',
+                        runTag: id,
+                    }
+                )
+                const marker = { ready: 'host/ready', failed: 'host/failed', silent: undefined }[
+                    this.options.host ?? 'ready'
+                ]
+                if (marker && this.options.rollsBack !== 'create') {
+                    this.objects.set(`runs/${id}/${marker}`, '{}')
+                }
+            } else {
+                throw new Error(`the fake cloud does not model ${Type}`)
+            }
+            stack.resources.push(...created)
+            this.resources.push(...created)
+        }
+    }
+
+    private requestStackDeletion(name: string): void {
+        const stack = this.stacks.get(name)
+        if (stack && !stack.status.startsWith('DELETE_COMPLETE')) {
+            stack.status = 'DELETE_IN_PROGRESS'
+        }
+    }
+
+    private settleStack(name: string): void {
+        const stack = this.stacks.get(name)
+        if (!stack) {
+            return
+        }
+        if (stack.status === 'CREATE_IN_PROGRESS' && this.options.rollsBack === 'create') {
+            this.removeResources(stack, () => true)
+            this.stacks.delete(name)
+        } else if (stack.status === 'CREATE_IN_PROGRESS') {
+            stack.status = 'CREATE_COMPLETE'
+        } else if (stack.status === 'UPDATE_IN_PROGRESS' && this.options.rollsBack === 'update') {
+            this.removeResources(stack, ({ logicalId }) => logicalId === 'Reader')
+            stack.status = 'UPDATE_ROLLBACK_COMPLETE'
+        } else if (stack.status === 'UPDATE_IN_PROGRESS') {
+            stack.status = 'UPDATE_COMPLETE'
+        } else if (stack.status === 'DELETE_IN_PROGRESS' && this.deleteFailures > 0) {
+            this.deleteFailures--
+            stack.status = 'DELETE_FAILED'
+        } else if (stack.status === 'DELETE_IN_PROGRESS') {
+            this.removeResources(stack, ({ type }) => !(this.options.outlives ?? []).includes(type))
+            this.stacks.delete(name)
+        }
+    }
+
+    private removeResources(stack: Stack, removed: (resource: Resource) => boolean): void {
+        for (const resource of stack.resources.filter(removed)) {
+            resource.state = resource.type === 'AWS::EC2::Instance' ? 'terminated' : 'gone'
+        }
+    }
+
+    private liveResource(type: string, id: string, operation: string, code: string): Resource {
+        const resource = this.resources.find((candidate) => candidate.type === type && candidate.id === id)
+        if (!resource || resource.state === 'gone') {
+            throw serviceError(operation, code, `${id} not found`)
+        }
+        return resource
+    }
+
+    private stackOf(operation: string, name: string): Stack {
+        const stack = this.stacks.get(name)
+        if (!stack) {
+            throw serviceError(operation, 'ValidationError', `Stack with id ${name} does not exist`)
+        }
+        return stack
     }
 
     private configured(key: string, profile: string | undefined): string {
@@ -172,20 +365,140 @@ export class FakeCloud implements Aws {
                             DBInstanceClass: instanceClass,
                         })),
                 }
-            case 'cloudformation describe-stacks':
-                throw serviceError(
+            case 'cloudformation describe-stacks': {
+                const stack = this.stackOf(operation, flags.get('stack-name')!)
+                const status = stack.status
+                this.settleStack(stack.name)
+                return { Stacks: [{ StackName: stack.name, StackStatus: status }] }
+            }
+            case 'cloudformation create-stack': {
+                const name = flags.get('stack-name')!
+                const existing = this.stacks.get(name)
+                if (existing) {
+                    if (existing.token !== flags.get('client-request-token')) {
+                        throw serviceError(operation, 'AlreadyExistsException', `Stack [${name}] already exists`)
+                    }
+                    return { StackId: name }
+                }
+                if (flags.get('on-failure') !== 'DELETE' || !flags.get('role-arn')) {
+                    throw new Error('the fake cloud models only stacks that delete on failure under a service role')
+                }
+                const template = parse(readFileSync(flags.get('template-body')!.replace(/^file:\/\//, ''), 'utf8'))
+                this.stacks.set(name, {
+                    name,
+                    token: flags.get('client-request-token')!,
+                    status: 'CREATE_IN_PROGRESS',
+                    parameters: this.parametersOf(flags),
+                    template,
+                    resources: [],
+                })
+                this.provision(this.stacks.get(name)!)
+                return { StackId: name }
+            }
+            case 'cloudformation update-stack': {
+                const stack = this.stackOf(operation, flags.get('stack-name')!)
+                stack.parameters = this.parametersOf(flags)
+                stack.status = 'UPDATE_IN_PROGRESS'
+                this.provision(stack)
+                return { StackId: stack.name }
+            }
+            case 'cloudformation delete-stack':
+                this.requestStackDeletion(flags.get('stack-name')!)
+                return null
+            case 'cloudformation describe-stack-resources':
+                return {
+                    StackResources: this.stackOf(operation, flags.get('stack-name')!)
+                        .resources.filter(
+                            ({ logicalId }) => !logicalId.endsWith('Volume') && !logicalId.endsWith('Secret')
+                        )
+                        .map(({ logicalId, type, id }) => ({
+                            LogicalResourceId: logicalId,
+                            ResourceType: type,
+                            PhysicalResourceId: id,
+                        })),
+                }
+            case 'rds describe-db-clusters': {
+                const cluster = this.liveResource(
+                    'AWS::RDS::DBCluster',
+                    flags.get('db-cluster-identifier')!,
                     operation,
-                    'ValidationError',
-                    `Stack with id ${flags.get('stack-name')} does not exist`
+                    'DBClusterNotFoundFault'
                 )
+                return {
+                    DBClusters: [
+                        {
+                            Status: cluster.state,
+                            DbClusterResourceId: cluster.clusterResourceId,
+                            MasterUserSecret: { SecretArn: cluster.secretArn },
+                        },
+                    ],
+                }
+            }
+            case 'rds describe-db-instances':
+                return {
+                    DBInstances: [
+                        {
+                            DBInstanceStatus: this.liveResource(
+                                'AWS::RDS::DBInstance',
+                                flags.get('db-instance-identifier')!,
+                                operation,
+                                'DBInstanceNotFound'
+                            ).state,
+                        },
+                    ],
+                }
+            case 'rds describe-db-cluster-snapshots':
+                return { DBClusterSnapshots: [] }
+            case 'rds describe-db-cluster-automated-backups':
+                throw serviceError(operation, 'DBClusterAutomatedBackupNotFoundFault', 'no retained backups')
+            case 'ec2 describe-instances': {
+                if (!flags.has('instance-ids')) {
+                    return { Reservations: [] }
+                }
+                const instance = this.liveResource(
+                    'AWS::EC2::Instance',
+                    flags.get('instance-ids')!,
+                    operation,
+                    'InvalidInstanceID.NotFound'
+                )
+                return { Reservations: [{ Instances: [{ State: { Name: instance.state } }] }] }
+            }
+            case 'ec2 describe-volumes':
+                return {
+                    Volumes: [
+                        {
+                            State: this.liveResource(
+                                'AWS::EC2::Volume',
+                                flags.get('volume-ids')!,
+                                operation,
+                                'InvalidVolume.NotFound'
+                            ).state,
+                        },
+                    ],
+                }
+            case 'secretsmanager describe-secret': {
+                const secret = this.resources.find(({ id }) => id === flags.get('secret-id'))
+                if (!secret) {
+                    throw serviceError(operation, 'ResourceNotFoundException', 'Secrets Manager cannot find the secret')
+                }
+                return secret.state === 'gone'
+                    ? { ARN: secret.id, DeletedDate: '2026-03-02T00:00:00Z' }
+                    : { ARN: secret.id }
+            }
             case 'ssm get-command-invocation':
                 throw serviceError(operation, 'InvocationDoesNotExist', 'no such invocation')
             case 'cloudwatch get-metric-data':
                 return { MetricDataResults: [] }
             case 'logs filter-log-events':
                 return { events: [] }
-            case 'resourcegroupstaggingapi get-resources':
-                return { ResourceTagMappingList: [] }
+            case 'resourcegroupstaggingapi get-resources': {
+                const runId = /Values=(.+)$/.exec(flags.get('tag-filters') ?? '')?.[1]
+                return {
+                    ResourceTagMappingList: this.resources
+                        .filter((resource) => resource.runTag === runId)
+                        .map(({ arn }) => ({ ResourceARN: arn })),
+                }
+            }
             case 's3api put-object':
                 this.objects.set(flags.get('key')!, readFileSync(flags.get('body')!, 'utf8'))
                 return { ETag: '"etag"' }
