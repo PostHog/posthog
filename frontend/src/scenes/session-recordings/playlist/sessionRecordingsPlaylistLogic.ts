@@ -291,9 +291,6 @@ export const getEffectiveRecordingFilters = (
     featureFlags: FeatureFlagsSet
 ): RecordingUniversalFilters => {
     let effective = filters
-    if (featureFlags[FEATURE_FLAGS.REPLAY_RECOMMENDED_RECORDINGS_FILTER_EXPERIMENT] !== 'test') {
-        effective = { ...effective, recommended_only: false }
-    }
     if (!featureFlags[FEATURE_FLAGS.REPLAY_EVENT_MATCH_SCOPE] && effective.event_match_scope !== undefined) {
         effective = { ...effective, event_match_scope: undefined }
     }
@@ -402,10 +399,6 @@ export function isValidRecordingFilters(filters: Partial<RecordingUniversalFilte
     }
 
     if ('filter_test_accounts' in filters && typeof filters.filter_test_accounts !== 'boolean') {
-        return false
-    }
-
-    if ('recommended_only' in filters && typeof filters.recommended_only !== 'boolean') {
         return false
     }
 
@@ -552,8 +545,6 @@ function sortRecordings(
     const orderKey: RecordingOrder = order === 'duration' ? 'recording_duration' : order
 
     return recordings.sort((a, b) => {
-        // `surfacing_score` is ordered server-side and isn't carried on the recording object, so any
-        // key not present resolves to undefined here and the pair is treated as incomparable (order preserved).
         const orderA = (a as Record<string, any>)[orderKey]
         const orderB = (b as Record<string, any>)[orderKey]
         const incomparable = orderA === undefined || orderB === undefined
@@ -713,8 +704,6 @@ export interface sessionRecordingsPlaylistLogicValues {
     addToCollectionSearch: string
     allowEventPropertyExpansion: boolean
     allowHogQLFilters: boolean
-    canFilterByRelevance: boolean
-    canSortByRelevance: boolean
     collectionsForBulkAdd: SavedSessionRecordingPlaylistsResult
     collectionsForBulkAddLoading: boolean
     defaultFilters: RecordingUniversalFilters
@@ -937,7 +926,6 @@ export interface sessionRecordingsPlaylistLogicActions {
                 | 'recording_duration'
                 | 'recording_ttl'
                 | 'start_time'
-                | 'surfacing_score'
                 | undefined
             order_direction: RecordingOrderDirection | undefined
             results: SessionRecordingType[]
@@ -963,7 +951,6 @@ export interface sessionRecordingsPlaylistLogicActions {
                 | 'recording_duration'
                 | 'recording_ttl'
                 | 'start_time'
-                | 'surfacing_score'
                 | undefined
             order_direction: RecordingOrderDirection | undefined
             results: SessionRecordingType[]
@@ -1089,9 +1076,7 @@ export interface sessionRecordingsPlaylistLogicMeta {
             selectedRecordingId: string | null,
             filters: RecordingUniversalFilters
         ) => SessionRecordingType[]
-        canSortByRelevance: (featureFlags: FeatureFlagsSet, arg: any) => boolean
-        canFilterByRelevance: (featureFlags: FeatureFlagsSet, arg: any) => boolean
-        listSort: (filters: RecordingUniversalFilters, arg: any) => RecordingSort
+        listSort: (filters: RecordingUniversalFilters) => RecordingSort
         visiblePinnedRecordings: (
             pinnedRecordings: SessionRecordingType[],
             deletedRecordingIds: Set<string>,
@@ -1740,15 +1725,6 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
 
         return {
             setFeatureFlags: () => {
-                if (values.filters.recommended_only) {
-                    if (values.featureFlags[FEATURE_FLAGS.REPLAY_RECOMMENDED_RECORDINGS_FILTER_EXPERIMENT] === 'test') {
-                        actions.loadSessionRecordings()
-                    } else {
-                        // The flag decides this one, so it is not a viewer edit.
-                        actions.setFilters({ recommended_only: false }, false)
-                    }
-                    return
-                }
                 if (values.filters.event_match_scope === 'recording') {
                     actions.loadSessionRecordings()
                 }
@@ -2519,25 +2495,9 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             },
         ],
 
-        // pinnedRecordings is a lazyLoader so we can't add filtering there directly
-        canSortByRelevance: [
-            (s) => [s.featureFlags, (_, props) => props.onlyPinned],
-            (featureFlags: FeatureFlagsSet, onlyPinned?: boolean): boolean =>
-                !!featureFlags[FEATURE_FLAGS.REPLAY_PLAYLIST_SURFACING_SCORE] && !onlyPinned,
-        ],
-
-        canFilterByRelevance: [
-            (s) => [s.featureFlags, (_, props) => props.onlyPinned],
-            (featureFlags: FeatureFlagsSet, onlyPinned?: boolean): boolean =>
-                featureFlags[FEATURE_FLAGS.REPLAY_RECOMMENDED_RECORDINGS_FILTER_EXPERIMENT] === 'test' && !onlyPinned,
-        ],
-
         listSort: [
-            (s) => [s.filters, (_, props) => props.onlyPinned],
-            (filters: RecordingUniversalFilters, onlyPinned?: boolean): RecordingSort => {
-                if (onlyPinned && filters.order === 'surfacing_score') {
-                    return { order: DEFAULT_RECORDING_FILTERS_ORDER_BY, order_direction: 'DESC' }
-                }
+            (s) => [s.filters],
+            (filters: RecordingUniversalFilters): RecordingSort => {
                 return {
                     order: filters.order || DEFAULT_RECORDING_FILTERS_ORDER_BY,
                     order_direction: filters.order_direction || 'DESC',
@@ -2748,15 +2708,6 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         if (!isValidRecordingFilters(values.filters)) {
             actions.resetFilters()
             return
-        }
-
-        if (
-            values.receivedFeatureFlags &&
-            values.filters.recommended_only &&
-            values.featureFlags[FEATURE_FLAGS.REPLAY_RECOMMENDED_RECORDINGS_FILTER_EXPERIMENT] !== 'test'
-        ) {
-            // The flag decides this one, so it is not a viewer edit.
-            actions.setFilters({ recommended_only: false }, false)
         }
 
         // If updateSearchParams is enabled and URL has filters different from current state,

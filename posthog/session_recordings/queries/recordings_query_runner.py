@@ -11,7 +11,6 @@ from posthog.schema import (
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
-from posthog.session_recordings.utils import gate_replay_relevance
 
 if TYPE_CHECKING:
     from posthog.models.user import User
@@ -20,11 +19,6 @@ if TYPE_CHECKING:
 class RecordingsQueryRunner(AnalyticsQueryRunner[RecordingsQueryResponse]):
     query: RecordingsQuery
     cached_response: CachedRecordingsQueryResponse
-
-    def get_cache_key(self) -> str:
-        # Gate before cache lookup so control users cannot read a filtered result cached by test users.
-        gate_replay_relevance(self.query, self.user)
-        return super().get_cache_key()
 
     def validate_query_runner_access(self, user: "User") -> bool:
         # The generic query endpoint serves cached responses without rebuilding the query, so
@@ -39,8 +33,6 @@ class RecordingsQueryRunner(AnalyticsQueryRunner[RecordingsQueryResponse]):
         return validate_experiment_exposure_access(self.team, user, self.query.experiment_exposure.experiment_id)
 
     def _listing(self) -> SessionRecordingListFromQuery:
-        # Direct calculation and explain paths can bypass the cache-key gate.
-        gate_replay_relevance(self.query, self.user)
         return SessionRecordingListFromQuery(
             team=self.team,
             query=self.query,

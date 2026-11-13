@@ -1,6 +1,6 @@
 import { RecordingUniversalFilters } from '~/types'
 
-import { getRecommendedFilterChange, getSortChangedEvent } from './SessionRecordingsPlaylistSettings'
+import { getSortChangedEvent } from './SessionRecordingsPlaylistSettings'
 
 type Sort = Parameters<typeof getSortChangedEvent>[1]
 
@@ -38,22 +38,11 @@ describe('getSortChangedEvent', () => {
             },
         ],
         [
-            'a user switches away from relevance',
-            filters('surfacing_score', 'DESC'),
-            { order: 'start_time', order_direction: 'DESC' },
-            {
-                sort_key: 'start_time',
-                sort_direction: 'DESC',
-                previous_sort_key: 'surfacing_score',
-                previous_sort_direction: 'DESC',
-            },
-        ],
-        [
             'filters carry no explicit sort yet',
             filters(undefined, undefined),
-            { order: 'surfacing_score', order_direction: 'DESC' },
+            { order: 'activity_score', order_direction: 'DESC' },
             {
-                sort_key: 'surfacing_score',
+                sort_key: 'activity_score',
                 sort_direction: 'DESC',
                 previous_sort_key: 'start_time',
                 previous_sort_direction: 'DESC',
@@ -63,11 +52,5 @@ describe('getSortChangedEvent', () => {
 
     it.each(cases)('captures previous and new sort when %s', (_name, currentFilters, sort, expected) => {
         expect(getSortChangedEvent(currentFilters, sort)).toEqual(expected)
-    })
-})
-
-describe('getRecommendedFilterChange', () => {
-    it.each([true, false])('only changes the relevance filter when set to %s', (enabled) => {
-        expect(getRecommendedFilterChange(enabled)).toEqual({ recommended_only: enabled })
     })
 })
