@@ -354,7 +354,9 @@ tools:
             List values for a specific log attribute key. Use to discover what values exist before building filters.
             Defaults to attribute_type "log" (log-level attributes). To get values for resource-level attributes (e.g.
             service.name, k8s.pod.name), you MUST explicitly pass attribute_type: "resource". Accepts optional
-            serviceNames, dateRange, and filterGroup to narrow which logs are scanned.
+            serviceNames, dateRange, and filterGroup to narrow which logs are scanned. Pass the dateRange of the window
+            you are investigating, because the default is the last hour. To match part of a value, pass it in `value`.
+            The tool ignores other keys, such as `search`.
         hooks: logs/redactCredentialsHooks
         response:
             include:
@@ -381,6 +383,19 @@ tools:
             include:
                 - results
                 - count
+    logs-context:
+        operation: logs_context_create
+        enabled: true
+        scopes:
+            - logs:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Logs around a log line, trace or run
+        description_file: ./prompts/logs-context.md
+        hooks: logs/redactCredentialsHooks
+        feature_flag: logs-agent-tools
     logs-count:
         operation: logs_count_create
         enabled: true
@@ -553,7 +568,10 @@ tools:
         title: Query logs
         description_file: ./prompts/query-logs.md
         system_prompt_hint: Log filtering by severity/service/attribute
+        exclude_params:
+            - trigger
         hooks: logs/redactCredentialsHooks
         response:
             include:
                 - results
+                - columns

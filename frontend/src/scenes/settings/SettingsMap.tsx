@@ -20,6 +20,7 @@ import { FeaturePreviews, FeaturePreviewsComingSoon } from 'lib/components/Featu
 import { FEATURE_SUPPORT } from 'lib/components/SupportedPlatforms/featureSupport'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { PersonalPosthogConnections } from 'lib/integrations/PosthogConnect'
+import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { DefaultMinimumDetectableEffect } from 'scenes/experiments/DefaultMinimumDetectableEffect'
 import { GitHub, GitLab, Linear, Slack } from 'scenes/integrations/definitions'
 import { AgentPersonalInstructionsSettings } from 'scenes/settings/environment/AgentPersonalInstructionsSettings'
@@ -59,10 +60,10 @@ import { GithubReposSetting } from 'products/business_knowledge/frontend/scenes/
 import { LearnFromSupportSetting } from 'products/business_knowledge/frontend/scenes/settings/LearnFromSupportSetting'
 import { AISection } from 'products/conversations/frontend/scenes/settings/AISection'
 import { GeneralSection } from 'products/conversations/frontend/scenes/settings/GeneralSection'
+import { ImportsSection } from 'products/conversations/frontend/scenes/settings/ImportsSection'
 import { LearnFromSupportSection } from 'products/conversations/frontend/scenes/settings/LearnFromSupportSection'
 import { MacrosSection } from 'products/conversations/frontend/scenes/settings/MacrosSection'
 import { NotificationsSection } from 'products/conversations/frontend/scenes/settings/NotificationsSection'
-import { ZendeskImportSection } from 'products/conversations/frontend/scenes/settings/ZendeskImportSection'
 import { CustomerAnalyticsNotifications } from 'products/customer_analytics/frontend/components/TaskDigest/CustomerAnalyticsNotifications'
 import { AccountTrackRules } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/account/AccountTrackRules'
 import { CustomerAnalyticsAccountConfig } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/account/CustomerAnalyticsAccountConfig'
@@ -107,6 +108,7 @@ import { CloudImagesSettings } from './environment/CloudImagesSettings'
 import { CSPReportingSettings } from './environment/CSPReportingSettings'
 import { DataAttributes } from './environment/DataAttributes'
 import { DataColorThemes } from './environment/DataColorThemes'
+import { DataDeletionRequests } from './environment/DataDeletion/DataDeletionRequests'
 import { DefaultCupedEnabled } from './environment/DefaultCupedEnabled'
 import { DefaultCupedLookbackDays } from './environment/DefaultCupedLookbackDays'
 import { DefaultExperimentConfidenceLevel } from './environment/DefaultExperimentConfidenceLevel'
@@ -512,7 +514,7 @@ export const SETTINGS_MAP: SettingSection[] = [
         id: 'environment-ai-subscriptions',
         title: 'Bring your own subscription',
         group: 'AI',
-        flag: ['POSTHOG_CODE_CODEX_OWN_SUBSCRIPTION_CLOUD', 'TODAY_RAIL_NAV'],
+        flag: ['PHAI_SANDBOX_MODE', 'POSTHOG_CODE_CODEX_OWN_SUBSCRIPTION_CLOUD', 'TODAY_RAIL_NAV'],
         keywords: ['subscriptions', 'byos', 'plan & usage'],
         settings: [
             {
@@ -536,7 +538,7 @@ export const SETTINGS_MAP: SettingSection[] = [
         id: 'environment-ai-subscriptions',
         title: 'Subscriptions',
         group: 'AI',
-        flag: ['POSTHOG_CODE_CODEX_OWN_SUBSCRIPTION_CLOUD', '!TODAY_RAIL_NAV'],
+        flag: ['PHAI_SANDBOX_MODE', 'POSTHOG_CODE_CODEX_OWN_SUBSCRIPTION_CLOUD', '!TODAY_RAIL_NAV'],
         settings: [
             {
                 id: 'ai-subscription-codex',
@@ -1701,9 +1703,9 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'conversations-imports',
                 title: 'Imports',
                 description: 'Import historical support data from external tools into Support.',
-                component: <ZendeskImportSection />,
+                component: <ImportsSection />,
                 allowForTeam: (t) => !!t?.conversations_enabled,
-                keywords: ['import', 'zendesk', 'migrate', 'ticket', 'support', 'conversation'],
+                keywords: ['import', 'zendesk', 'intercom', 'pylon', 'migrate', 'ticket', 'support', 'conversation'],
             },
             {
                 id: 'conversations-macros',
@@ -2290,6 +2292,18 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description: 'Move this project to a different organization.',
                 component: <ProjectMove />,
                 keywords: ['transfer', 'move', 'organization'],
+            },
+            {
+                id: 'data-deletion-requests',
+                title: 'Deletion requests',
+                description:
+                    'Delete events that a SQL query selects. PostHog reviews each request before any events are deleted.',
+                component: <DataDeletionRequests />,
+                flag: 'SELF_SERVICE_DATA_DELETION',
+                // A setting has no accessControl field, so hide it here. Without this, a member without
+                // data_deletion access sees the list load and fail with a 403.
+                allowForTeam: () => userHasAccess(AccessControlResourceType.DataDeletion, AccessControlLevel.Editor),
+                keywords: ['delete', 'remove', 'erase', 'gdpr', 'events'],
             },
             {
                 id: 'environment-delete',

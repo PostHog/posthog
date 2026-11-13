@@ -1,4 +1,4 @@
-import { CardFault, ProviderEdge, TruthPage, startProviderEdge } from '.'
+import { CardFault, ProviderEdge, TruthHead, TruthPage, startProviderEdge } from '.'
 import { Destination, SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2'
 import { createHash } from 'crypto'
 import http from 'http'
@@ -6,6 +6,8 @@ import http from 'http'
 import { EmailTrackingCodeSigner } from '~/cdp/services/messaging/helpers/tracking-code'
 import { parseJSON } from '~/common/utils/json-parse'
 import { internalFetch } from '~/common/utils/request'
+
+import { ruleOf } from './faults'
 
 const TRACKING_KEYS = 'scenario-tracking-key'
 const ALICE = 'run-1-1@www.example.com'
@@ -303,7 +305,32 @@ describe('provider edge', () => {
         expect((await truth()).records.map((record) => record.seq)).toEqual([1, 2, 3])
     })
 
-    it.each<[string, string, TruthPage]>([
+    it.each<[string, { sendAt: number; releaseAt?: number }, boolean]>([
+        ['observes a held fault from a send in the last moment of its window', { sendAt: 9_999 }, true],
+        ['does not observe a held fault from a send after its window', { sendAt: 10_001 }, false],
+        ['observes a held fault from a send just before the drive released it', { sendAt: 5, releaseAt: 6 }, true],
+    ])('%s', async (_story, { sendAt, releaseAt }, observedFault) => {
+        const start = Date.now()
+        const clock = jest.spyOn(Date, 'now').mockReturnValue(start)
+        const released = new AbortController()
+        try {
+            const held = edge.hold(ruleOf({ name: 'ses.reject', params: { type: 'rejected' }, dose: { count: 1 } }))
+            const observed = held.observed(released.signal)
+            clock.mockReturnValue(start + sendAt)
+            const answer = await send(ALICE)
+            if (releaseAt !== undefined) {
+                clock.mockReturnValue(start + releaseAt)
+                released.abort()
+            }
+            clock.mockReturnValue(start + 10_001)
+
+            expect({ answer, observed: await observed }).toEqual({ answer: 'MessageRejected', observed: observedFault })
+        } finally {
+            clock.mockRestore()
+        }
+    })
+
+    it.each<[string, string, TruthPage | TruthHead]>([
         [
             'after a sequence number up to the limit',
             '?after=1&limit=1',
@@ -315,6 +342,7 @@ describe('provider edge', () => {
             '?after=1&limit=0',
             { records: [expect.objectContaining({ seq: 2 }), expect.objectContaining({ seq: 3 })], next: 3 },
         ],
+        ['as only its head', '/head', { head: 3 }],
     ])('pages the truth %s', async (_name, query, page) => {
         await sendEach([ALICE, BOB, ALICE])
 
@@ -325,6 +353,11 @@ describe('provider edge', () => {
         ['a fault no card can name', { name: 'ses.status', params: { status: 500 }, dose: { count: 1 } }, 'name'],
         ['a fault without a dose', { name: 'ses.reject', params: { type: 'rejected' } }, 'dose'],
         ['a share above one', { name: 'ses.reject', params: { type: 'rejected' }, dose: { share: 2 } }, 'dose'],
+        [
+            'a destination status that is not a final answer',
+            { name: 'dest.status', params: { code: 100 }, dose: { count: 1 } },
+            'params.code',
+        ],
     ])('refuses %s and names the field', async (_name, fault, field) => {
         const { status, json } = await call<{ problems: string[] }>('POST', '/_faults', fault)
 

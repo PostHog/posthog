@@ -1479,7 +1479,9 @@ class TestResolver(BaseTest):
             name="person_properties", nullable=False
         )
 
-        node = self._select("SELECT event, person.id, person.properties, person.created_at FROM events")
+        node = self._select(
+            "SELECT event, person.id, person.properties, person.created_at, poe.id, poe.created_at FROM events"
+        )
         node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
 
         # all columns resolve to a type in the end
@@ -1504,6 +1506,24 @@ class TestResolver(BaseTest):
             nullable=False,
             description="When the person was first seen by PostHog.",
         )
+        for person_index, poe_index in ((1, 4), (3, 5)):
+            assert cast(ast.FieldType, node.select[poe_index].type).resolve_database_field(self.context) == cast(
+                ast.FieldType, node.select[person_index].type
+            ).resolve_database_field(self.context)
+
+        with self.assertRaises(QueryError):
+            resolve_types(self._select("SELECT event.`..`.uuid FROM events"), self.context, dialect="clickhouse")
+
+    @parameterized.expand(
+        [
+            ("direct_virtual", "SELECT poe.`..` FROM events"),
+            ("qualified_virtual", "SELECT events.poe.`..` FROM events"),
+            ("traverser", "SELECT person.`..` FROM events"),
+        ]
+    )
+    def test_field_traverser_trailing_double_dot(self, _name, query):
+        with self.assertRaisesRegex(QueryError, "Expected a field after '\\.\\.'"):
+            resolve_types(self._select(query), self.context, dialect="clickhouse")
 
     def test_visit_hogqlx_tag(self):
         node = self._select("select event from <HogQLQuery query='select event from events' />")

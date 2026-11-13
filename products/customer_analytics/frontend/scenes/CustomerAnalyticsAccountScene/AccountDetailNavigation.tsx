@@ -4,7 +4,6 @@ import type { ReactNode } from 'react'
 import { IconPencil } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonSkeleton, LemonTabs } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -43,17 +42,14 @@ export function AccountDetailNavigation({
     const logic = accountViewsLogic({ projectId })
     const { views, accountDetailTabs, config, configError, viewsError, viewsLoading } = useValues(logic)
     const { openEditEditor, openConfigure, loadViews } = useActions(logic)
-    const accountViewsEnabled = !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNT_VIEWS]
-    const tabs = listAccountTabs(featureFlags, accountViewsEnabled ? views : [])
-    const requestedTabIdFromRoute = requestedTab ? getAccountTabIdFromRoute(requestedTab) : undefined
-    const requestedTabId =
-        requestedTabIdFromRoute?.startsWith('view:') && !accountViewsEnabled ? undefined : requestedTabIdFromRoute
-    const activeTabId = getActiveAccountTabId(tabs, accountDetailTabs, requestedTabId, user?.id, accountViewsEnabled)
+    const tabs = listAccountTabs(featureFlags, views)
+    const requestedTabId = requestedTab ? getAccountTabIdFromRoute(requestedTab) : undefined
+    const activeTabId = getActiveAccountTabId(tabs, accountDetailTabs, requestedTabId, user?.id)
     const activeTab = tabs.find((tab) => tab.id === activeTabId)
-    const loadingView = activeTabId.startsWith('view:') && !activeTab && viewsLoading && accountViewsEnabled
-    const viewLoadError = activeTabId.startsWith('view:') && !activeTab && !!viewsError && accountViewsEnabled
+    const loadingView = activeTabId.startsWith('view:') && !activeTab && viewsLoading
+    const viewLoadError = activeTabId.startsWith('view:') && !activeTab && !!viewsError
     const missingView = activeTabId.startsWith('view:') && !activeTab && !loadingView && !viewLoadError
-    const visibleTabs = listVisibleAccountTabs(tabs, accountDetailTabs, activeTabId, user?.id, accountViewsEnabled)
+    const visibleTabs = listVisibleAccountTabs(tabs, accountDetailTabs, activeTabId, user?.id)
     const tabDefinitions = loadingView
         ? [
               ...visibleTabs,
@@ -93,7 +89,7 @@ export function AccountDetailNavigation({
 
     return (
         <div className="min-w-0">
-            {viewsError && accountViewsEnabled ? (
+            {viewsError ? (
                 <LemonBanner type="error" action={{ children: 'Try again', onClick: loadViews }} className="mb-2">
                     Couldn't load account views. System tabs are still available.
                 </LemonBanner>
@@ -124,9 +120,7 @@ export function AccountDetailNavigation({
                         accountId,
                         externalId,
                         loadingViewId: loadingView ? activeTabId : undefined,
-                        openConfigure: accountViewsEnabled
-                            ? () => openConfigure(config && !configError ? accountDetailTabs : null)
-                            : undefined,
+                        openConfigure: () => openConfigure(config && !configError ? accountDetailTabs : null),
                     })}
                 </div>
             ) : null}
@@ -140,7 +134,7 @@ interface RenderTabContentProps {
     accountId: string
     externalId: string
     loadingViewId?: string
-    openConfigure?: () => void
+    openConfigure: () => void
 }
 
 function renderTabContent({
@@ -170,10 +164,7 @@ function renderTabContent({
         )
     }
     return (
-        <LemonBanner
-            type="warning"
-            action={openConfigure ? { children: 'Open tab settings', onClick: openConfigure } : undefined}
-        >
+        <LemonBanner type="warning" action={{ children: 'Open tab settings', onClick: openConfigure }}>
             This view was deleted or you no longer have access to it. Choose another tab.
         </LemonBanner>
     )

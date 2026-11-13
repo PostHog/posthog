@@ -19,6 +19,7 @@ from products.alerts.backend.logic.destination_configs import (
     build_alert_destination_config,
     clip_hog_function_name,
     destination_filter,
+    url_hostname,
 )
 from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationConfig,
@@ -27,6 +28,7 @@ from products.alerts_platform.backend.facade.contracts import (
     EventKindSpec,
     IncidentAction,
 )
+from products.cdp.backend.facade.models import HogFunctionTemplate
 from products.cdp.backend.internal_events import LEGACY_INSIGHT_ALERT_EVENT
 
 SLACK_TEMPLATE_ID: Final = DESTINATION_SPECS[DestinationType.SLACK].template_id
@@ -230,6 +232,64 @@ def build_insight_alert_slack_config(
             },
         },
     )
+
+
+# The messages the alert UI's `insight-alert-firing` sub-templates send, so a destination added through
+# the API posts what one added in the UI did.
+_DISCORD_CONTENT: Final = (
+    "**Alert '{event.properties.alert_name}' firing** for insight '{event.properties.insight_name}'\n"
+    "{event.properties.breaches}\n"
+    "{project.url}/insights/{event.properties.insight_id}/alerts?alert_id={event.properties.alert_id}"
+)
+_TEAMS_TEXT: Final = (
+    "**Alert '{event.properties.alert_name}' firing** for insight '{event.properties.insight_name}'\n\n"
+    "{event.properties.breaches}\n\n"
+    "[View alert]({project.url}/insights/{event.properties.insight_id}/alerts?alert_id={event.properties.alert_id})"
+)
+_WEBHOOK_BODY: Final = {
+    "alert_name": "{event.properties.alert_name}",
+    "insight_name": "{event.properties.insight_name}",
+    "breaches": "{event.properties.breaches}",
+    "insight_url": "{project.url}/insights/{event.properties.insight_id}",
+    "alert_url": "{project.url}/insights/{event.properties.insight_id}/alerts?alert_id={event.properties.alert_id}",
+}
+
+
+def build_insight_alert_url_config(
+    *, alert_id: str, alert_name: str | None, data: AlertDestinationData
+) -> AlertDestinationConfig:
+    """A Discord, Microsoft Teams or webhook destination that hears the alert's firings."""
+    destination_type = data["type"]
+    url = data["webhook_url"]
+    inputs: dict[str, Any]
+    if destination_type == DestinationType.DISCORD:
+        label, inputs = "Discord", {"content": {"value": _DISCORD_CONTENT}, "webhookUrl": {"value": url}}
+    elif destination_type == DestinationType.TEAMS:
+        label, inputs = "Microsoft Teams", {"text": {"value": _TEAMS_TEXT}, "webhookUrl": {"value": url}}
+    else:
+        label = f"Webhook {url_hostname(url)}"
+        inputs = {"url": {"value": url}, "body": {"value": _WEBHOOK_BODY}}
+    spec = DESTINATION_SPECS[destination_type]
+    return AlertDestinationConfig(
+        payload={
+            "type": "internal_destination",
+            "enabled": True,
+            "filters": destination_filter(alert_id, LEGACY_INSIGHT_ALERT_EVENT),
+            "name": clip_hog_function_name(f"{alert_name or 'Alert'}: {label}"),
+            "template_id": spec.template_id,
+            "inputs_schema": _with_secret_inputs(spec.template_id, spec.address_input_keys),
+            "inputs": inputs,
+        },
+    )
+
+
+def _with_secret_inputs(template_id: str, keys: frozenset[str]) -> list[dict[str, Any]]:
+    """The template's inputs with the URL marked secret, so the HogFunction stores it encrypted and the
+    HogFunction API masks it. The URL's path is the channel's credential."""
+    template = (
+        HogFunctionTemplate.objects.filter(template_id=template_id).values_list("inputs_schema", flat=True).first()
+    )
+    return [{**schema, "secret": True} if schema.get("key") in keys else schema for schema in (template or [])]
 
 
 _ALERT_URL: Final = "{project.url}/insights/{event.properties.insight_id}/alerts?alert_id={event.properties.alert_id}"

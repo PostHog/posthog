@@ -17,8 +17,11 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.cdp.backend.templates.hog_function_template import sync_template_to_db
 from products.workflows.backend.facade.sandbox_email import SANDBOX_SENDER_ADOPTION_FLAG, provision_sandbox_sender
 from products.workflows.backend.models import SandboxSenderOrganizationBlock
+from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
+from products.workflows.backend.tests.api.test_sandbox_email_steps import _email_function_template
 from products.workflows.backend.tests.fakes.ses_endpoint import FakeSesEndpoint
 
 
@@ -181,6 +184,19 @@ class TestWorkflowEmailSandboxAccessControl(APIBaseTest):
         self.organization.save()
         AccessControl.objects.create(team=self.team, resource="hog_flow", resource_id=None, access_level="none")
 
+    def _editor_of_one_flow(self, actions: list[dict[str, Any]]) -> HogFlow:
+        member = self._member_with("viewer")
+        flow = HogFlow.objects.create(team=self.team, name="Flow", status="draft", actions=actions)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="hog_flow",
+            resource_id=str(flow.id),
+            access_level="editor",
+            organization_member=OrganizationMembership.objects.get(user=member, organization=self.organization),
+        )
+        self.client.force_login(member)
+        return flow
+
     def _member_with(self, access_level: str) -> User:
         user = User.objects.create_and_join(self.organization, f"{access_level}@example.com", "testtest")
         AccessControl.objects.create(
@@ -201,3 +217,79 @@ class TestWorkflowEmailSandboxAccessControl(APIBaseTest):
             responses = [self.client.get(f"{base}/status/"), self.client.post(f"{base}/provision/")]
 
         assert [response.status_code for response in responses] == [expected, expected]
+
+    def test_an_editor_of_one_workflow_cannot_set_up_the_sandbox_sender_from_it(self) -> None:
+        sender = Integration.objects.create(
+            team=self.team,
+            kind="email",
+            integration_id="mail.example.com",
+            config={"domain": "mail.example.com", "provider": "ses", "verified": True},
+        )
+        step = _own_email_step({"integrationId": sender.id})
+        flow = self._editor_of_one_flow([_TRIGGER, step])
+
+        with _flag(True):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_flows/{flow.id}/actions/welcome/email",
+                {"sender": "sandbox"},
+                content_type="application/json",
+            )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        assert _sandbox_rows(self.team.id) == []
+        assert HogFlow.objects.get(id=flow.id).actions == [_TRIGGER, step]
+
+    def test_an_editor_of_one_workflow_keeps_new_email_steps_off_the_sandbox_sender(self) -> None:
+        sync_template_to_db(_email_function_template())
+        flow = self._editor_of_one_flow([_TRIGGER])
+        step = _own_email_step({"integrationId": None})
+
+        with _flag(True):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_flows/{flow.id}/graph",
+                {
+                    "operations": [
+                        {
+                            "op": "add_action",
+                            "action": step,
+                            "edges": [{"from": "trigger_node", "to": "welcome", "type": "continue"}],
+                        }
+                    ]
+                },
+                content_type="application/json",
+                HTTP_X_POSTHOG_CLIENT="mcp",
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert _sandbox_rows(self.team.id) == []
+        assert [action["type"] for action in HogFlow.objects.get(id=flow.id).actions] == ["trigger", "function_email"]
+
+
+_TRIGGER = {
+    "id": "trigger_node",
+    "name": "trigger",
+    "type": "trigger",
+    "config": {"type": "event", "filters": {"events": [{"id": "$pageview", "type": "events", "order": 0}]}},
+}
+
+
+def _own_email_step(sender: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": "welcome",
+        "name": "Email",
+        "type": "function_email",
+        "config": {
+            "template_id": "template-email",
+            "inputs": {
+                "email": {
+                    "templating": "liquid",
+                    "value": {
+                        "to": {"email": "{{ person.properties.email }}"},
+                        "from": sender,
+                        "subject": "Hello",
+                        "text": "Hello",
+                    },
+                }
+            },
+        },
+    }
