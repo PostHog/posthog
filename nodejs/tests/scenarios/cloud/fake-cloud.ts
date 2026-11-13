@@ -17,6 +17,7 @@ type Resource = {
     runTag?: string
     clusterResourceId?: string
     secretArn?: string
+    rdsClusterArn?: string
     image?: string
 }
 
@@ -252,6 +253,7 @@ export class FakeCloud implements Aws {
                     state: 'active',
                 }
                 secret.arn = secret.id
+                secret.rdsClusterArn = `arn:aws:rds:us-east-1:${this.account}:cluster:${clusterId}`
                 created.push(
                     {
                         logicalId,
@@ -518,6 +520,9 @@ export class FakeCloud implements Aws {
             case 'rds describe-db-cluster-snapshots':
                 return { DBClusterSnapshots: [] }
             case 'rds describe-db-cluster-automated-backups':
+                if (flags.has('filters')) {
+                    return { DBClusterAutomatedBackups: [] }
+                }
                 throw serviceError(operation, 'DBClusterAutomatedBackupNotFoundFault', 'no retained backups')
             case 'ec2 describe-instances': {
                 if (!flags.has('instance-ids')) {
@@ -544,6 +549,20 @@ export class FakeCloud implements Aws {
                         },
                     ],
                 }
+            case 'secretsmanager list-secrets': {
+                const filters = [flags.get('filters'), ...positionals]
+                return {
+                    SecretList: this.resources
+                        .filter(
+                            ({ type, state, rdsClusterArn }) =>
+                                type === 'AWS::SecretsManager::Secret' &&
+                                state !== 'gone' &&
+                                filters.includes('Key=tag-key,Values=aws:rds:primaryDBClusterArn') &&
+                                filters.includes(`Key=tag-value,Values=${rdsClusterArn}`)
+                        )
+                        .map(({ id }) => ({ ARN: id })),
+                }
+            }
             case 'secretsmanager describe-secret': {
                 const secret = this.resources.find(({ id }) => id === flags.get('secret-id'))
                 if (!secret) {

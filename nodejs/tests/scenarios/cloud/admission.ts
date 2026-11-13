@@ -203,6 +203,11 @@ function probesOf({ baseline, host }: CloudProfile, now: Date): [string, string[
         ],
         ['ec2:DescribeInstances', ['ec2', 'describe-instances', '--max-items', '1']],
         ['secretsmanager:DescribeSecret', ['secretsmanager', 'describe-secret', '--secret-id', PROBE_ID]],
+        ['secretsmanager:ListSecrets', ['secretsmanager', 'list-secrets', '--max-results', '1']],
+        [
+            'rds:DescribeDBClusterAutomatedBackups',
+            ['rds', 'describe-db-cluster-automated-backups', '--db-cluster-identifier', PROBE_ID],
+        ],
         [
             'tag:GetResources',
             [

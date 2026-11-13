@@ -23,6 +23,7 @@ export type Receipt = {
 const GONE = 'gone'
 const DELETE_ATTEMPTS = 2
 const CLUSTER = 'AWS::RDS::DBCluster'
+const RDS_CLUSTER_TAG = 'aws:rds:primaryDBClusterArn'
 const STACK = 'AWS::CloudFormation::Stack'
 const UNKNOWN = 'unknown'
 
@@ -141,6 +142,7 @@ async function listInto(
 
 async function discover(
     { aws }: Controller,
+    { region, account }: CloudProfile,
     manifest: Manifest,
     inventory: Inventory
 ): Promise<{ failures: string[]; tagged: Set<string> }> {
@@ -169,7 +171,9 @@ async function discover(
         return ResourceTagMappingList.map(({ ResourceARN }) => resourceOfArn(ResourceARN))
     })
     for (const { id } of [...inventory.values()].filter(({ type }) => type === CLUSTER)) {
-        await list(`the secret and backups of cluster ${id}`, () => clusterCopiesOf(aws, id))
+        await list(`the secret and backups of cluster ${id}`, () =>
+            clusterCopiesOf(aws, `arn:aws:rds:${region}:${account}:cluster:${id}`, id)
+        )
         await list(`the snapshots of cluster ${id}`, () => snapshotsOf(aws, id))
     }
     return { failures, tagged: new Set(tagged.map(keyOfResource)) }
@@ -183,21 +187,26 @@ async function receiptsOf(evidence: ReturnType<typeof evidenceOf>, manifest: Man
     return receipts
 }
 
-async function clusterCopiesOf(aws: Aws, clusterId: string): Promise<Resource[]> {
-    const cluster = await orGone(
-        aws.call(['rds', 'describe-db-clusters', '--db-cluster-identifier', clusterId]),
-        ({ DBClusters }) => DBClusters[0] as { MasterUserSecret?: { SecretArn?: string }; DbClusterResourceId: string },
-        'DBClusterNotFoundFault'
-    )
-    if (cluster === GONE) {
-        return []
-    }
-    const { MasterUserSecret, DbClusterResourceId } = cluster
+async function clusterCopiesOf(aws: Aws, clusterArn: string, clusterId: string): Promise<Resource[]> {
+    const { SecretList } = (await aws.call([
+        'secretsmanager',
+        'list-secrets',
+        '--filters',
+        `Key=tag-key,Values=${RDS_CLUSTER_TAG}`,
+        `Key=tag-value,Values=${clusterArn}`,
+    ])) as { SecretList: { ARN: string }[] }
+    const { DBClusterAutomatedBackups } = (await aws.call([
+        'rds',
+        'describe-db-cluster-automated-backups',
+        '--filters',
+        `Name=db-cluster-id,Values=${clusterId}`,
+    ])) as { DBClusterAutomatedBackups: { DbClusterResourceId: string }[] }
     return [
-        ...(MasterUserSecret?.SecretArn
-            ? [{ type: 'AWS::SecretsManager::Secret', id: MasterUserSecret.SecretArn }]
-            : []),
-        { type: 'AWS::RDS::DBClusterAutomatedBackup', id: DbClusterResourceId },
+        ...SecretList.map(({ ARN }) => ({ type: 'AWS::SecretsManager::Secret', id: ARN })),
+        ...DBClusterAutomatedBackups.map(({ DbClusterResourceId }) => ({
+            type: 'AWS::RDS::DBClusterAutomatedBackup',
+            id: DbClusterResourceId,
+        })),
     ]
 }
 
@@ -243,13 +252,14 @@ async function deleteStack(controller: Controller, profile: CloudProfile, manife
 
 async function receiptOf(
     controller: Controller,
+    profile: CloudProfile,
     manifest: Manifest,
     inventory: Inventory,
     lost: string[],
     until: number
 ): Promise<Receipt> {
     for (;;) {
-        const { failures, tagged } = await discover(controller, manifest, inventory)
+        const { failures, tagged } = await discover(controller, profile, manifest, inventory)
         const resources: Receipt['resources'] = []
         for (const resource of inventory.values()) {
             const state =
@@ -284,19 +294,23 @@ export async function teardown(controller: Controller, profile: CloudProfile, ma
     try {
         const until = controller.now().getTime() + durationMs(profile.admission.teardownAllowance)
         const evidence = evidenceOf(controller.aws, profile.baseline.evidenceBucket)
-        const stack = { type: STACK, id: manifest.stackName }
-        const inventory: Inventory = new Map([[keyOfResource(stack), stack]])
+        const inventory: Inventory = new Map(
+            [
+                { type: STACK, id: manifest.stackName },
+                { type: CLUSTER, id: `scn-${manifest.runId}` },
+            ].map((resource) => [keyOfResource(resource), resource])
+        )
         const lost: string[] = []
         await listInto(inventory, lost, 'the earlier receipts', async () =>
             (await receiptsOf(evidence, manifest)).flatMap(({ resources }) =>
                 resources.map(({ type, id }) => ({ type, id }))
             )
         )
-        lost.push(...(await discover(controller, manifest, inventory)).failures)
+        lost.push(...(await discover(controller, profile, manifest, inventory)).failures)
         await deleteStack(controller, profile, manifest, until).catch((error: Error) =>
             controller.warn(`Could not delete stack ${manifest.stackName}: ${error.message}`)
         )
-        receipt = await receiptOf(controller, manifest, inventory, lost, until)
+        receipt = await receiptOf(controller, profile, manifest, inventory, lost, until)
         await evidence.put(
             keyOf(manifest.runId, `receipts/${receipt.checkedAt}-${randomUUID()}.json`),
             JSON.stringify(receipt, null, 2)

@@ -879,6 +879,25 @@ describe('cloud controller', () => {
     })
 
     it.each([
+        ['could not look it up', ['describe-db-clusters', 'list-secrets']],
+        ['could list nothing', ['describe-stack-resources', 'get-resources', 'describe-db-clusters', 'list-secrets']],
+    ])('names a secret that outlives the stack in a later cleanup, when the run %s', async (_, failing) => {
+        const { controller } = prepare({ cloud: { outlives: ['AWS::SecretsManager::Secret'] } })
+        failing.forEach((operation) => cloud.failWhen(operation, () => true))
+
+        await expect(main(['run', profilePath()], controller)).resolves.toBe(2)
+        expect(err.join('\n')).toContain('could not list the secret and backups of cluster')
+
+        cloud.heal()
+        err.length = 0
+        await expect(main(['cleanup', profilePath(), leasedRunId()], controller)).resolves.toBe(2)
+
+        const [secret] = cloud.billable().filter((resource) => resource.startsWith('AWS::SecretsManager::Secret'))
+        expect(err.join('\n')).toContain(`- ${secret}`)
+        expect(cloud.schedules.size).toBe(2)
+    })
+
+    it.each([
         ['its receipt', false],
         ['no receipt', true],
     ])('refuses a new run while an expired run with %s still holds resources', async (_, forgetReceipt) => {
