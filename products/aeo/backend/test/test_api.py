@@ -322,6 +322,7 @@ class TestAEOPromptAPI(APIBaseTest):
         [
             ("no_filter", "", 6, None),
             ("one_topic", "&topic=same topic", 5, ("topic", "same topic")),
+            ("one_topic_in_other_case", "&topic=Same Topic", 5, ("topic", "same topic")),
             ("no_topic", "&topic=", 1, ("topic", "")),
             ("active", "&active=true", 5, ("active", True)),
             ("inactive", "&active=false", 1, ("active", False)),
@@ -346,7 +347,7 @@ class TestAEOPromptAPI(APIBaseTest):
             assert {row[field] for row in first["results"] + second["results"]} == {value}
 
     def test_topics_lists_each_topic_with_its_prompt_count(self) -> None:
-        prompts = [{"prompt": "a?", "topic": "Replay"}, {"prompt": "b?", "topic": "Replay"}, {"prompt": "c?"}]
+        prompts = [{"prompt": "a?", "topic": "Replay"}, {"prompt": "b?", "topic": "replay"}, {"prompt": "c?"}]
         self.client.post(f"{self.url}bulk_import/", {"prompts": prompts}, format="json")
 
         response = self.client.get(f"{self.url}topics/")
@@ -756,7 +757,7 @@ class TestAEOPromptAPI(APIBaseTest):
         ids = self._import_prompts(
             [
                 {"prompt": "funnels?", "topic": "Analytics"},
-                {"prompt": "retention?", "topic": "Analytics"},
+                {"prompt": "retention?", "topic": "analytics"},
                 {"prompt": "replay?", "topic": ""},
                 {"prompt": "flags?", "topic": "Flags"},
                 {"prompt": "surveys?", "topic": "Surveys"},

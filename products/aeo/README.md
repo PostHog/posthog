@@ -100,7 +100,7 @@ People get it weekly through a regular dashboard subscription, in Slack or email
 
 A prompt keeps its id, so its checks, stats and detail view stay in one place. Its text lives in numbered versions (`posthog_aeo_prompt_version`), and `current_version` points at the one the runner sends. Version rows never change.
 
-- `PATCH {"active": false}` turns a prompt off, and `PATCH {"topic": "..."}` changes its topic in place. Past checks keep the topic they ran with.
+- `PATCH {"active": false}` turns a prompt off, and `PATCH {"topic": "..."}` changes its topic in place. Past checks keep the topic they ran with. Topics that differ only in letter case are one topic in the overview, `GET topics/`, the `?topic=` filter and the dashboard.
 - `PATCH {"prompt": "...", "version_description": "..."}` adds the next version and makes it current. A change of case or whitespace only adds no version. The edit fails with 409 when another prompt in the set, archived ones included, already has the text.
 - `PATCH {"current_version": 1}` makes an existing version current again, for example to roll back a reword. It fails with 400 when the version does not exist.
 - `DELETE` or `PATCH {"archived": true}` archives a prompt: it is turned off, never runs, and keeps its versions and checks. `PATCH {"archived": false}` restores it, and it stays off unless the same request sends `"active": true`. An archived prompt accepts no other change until it is restored.
