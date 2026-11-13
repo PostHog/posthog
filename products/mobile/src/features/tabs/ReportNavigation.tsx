@@ -1,7 +1,7 @@
 import { useRouter } from 'expo-router'
 import type { ReactElement } from 'react'
 
-import { useInboxHasUnread } from '@/features/inbox/useInboxHasUnread'
+import { useInboxHasUnread } from '@/features/inbox/useInboxUnread'
 import { useMobileProductFlags } from '@/lib/featureFlags'
 import { BottomBar } from './BottomBar'
 import { openNavTarget } from './navPinRoutes'

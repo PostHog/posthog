@@ -15,7 +15,7 @@ import { snoozeKey } from '../snooze/snoozeEntries'
 import { useSnoozeStore } from '../snooze/snoozeStore'
 
 import { useInboxItems, useMarkReadOnOpen, useSetReportRead } from './hooks'
-import { useInboxHasUnread } from './useInboxHasUnread'
+import { useInboxHasUnread } from './useInboxUnread'
 
 jest.mock('@react-native-async-storage/async-storage', () =>
     require('@react-native-async-storage/async-storage/jest/async-storage-mock')

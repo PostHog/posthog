@@ -1,7 +1,7 @@
 import { useRouter } from 'expo-router'
 import type { ReactElement } from 'react'
 import type { ChatSheetEntry } from '@/features/chat/chatSheetEvents'
-import { useInboxHasUnread } from '@/features/inbox/useInboxHasUnread'
+import { useInboxHasUnread } from '@/features/inbox/useInboxUnread'
 import { useMobileProductFlags } from '@/lib/featureFlags'
 import { BottomBar } from './BottomBar'
 import { useNavPins } from './navPinStore'

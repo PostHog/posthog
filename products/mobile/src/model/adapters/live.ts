@@ -1,15 +1,19 @@
 import type { HogQLResponseApi, LivePathsResponseApi, LiveStatsApi } from '@/api/live'
 import { isRecord } from '@/lib/records'
-import type {
-    LiveActivity,
-    LiveBreakdown,
-    LiveBreakdownKind,
-    LiveBreakdownRow,
-    LiveEventKind,
-    LiveEventRow,
-    LiveMinute,
-    LiveRankedRow,
-    LiveWorld,
+import {
+    type LiveActivity,
+    type LiveBreakdown,
+    type LiveBreakdownKind,
+    type LiveBreakdownRow,
+    type LiveEventKind,
+    type LiveEventRow,
+    type LiveMinute,
+    type LivePathsMode,
+    type LiveProjectState,
+    type LiveRankedRow,
+    type LiveSnapshot,
+    type LiveWorld,
+    UNKNOWN_BREAKDOWN,
 } from '@/model/live'
 
 import { countryFlag, countryName } from './webAnalyticsBreakdowns'
@@ -234,4 +238,63 @@ export function liveUsersOnlineFromQuery(response: unknown): number | null {
     }
     const value = numberOf(first)
     return value >= 0 ? Math.round(value) : null
+}
+
+/** Screens when the window has visitors and no pageviews, as a project with only app events has. */
+export function livePathsMode(activity: LiveActivity | null): LivePathsMode {
+    return activity !== null && activity.pageviews === 0 && activity.minutes.some((minute) => minute.users > 0)
+        ? 'screens'
+        : 'pages'
+}
+
+/**
+ * What the project sends, from the project read and the last snapshot. The window is quiet only when every part has
+ * answered with nothing, so a read that is still missing parts keeps the usual cards. App only needs screens, listed or
+ * in the events, because a web project can send server-side events and no pageviews for a while.
+ */
+export function liveProjectState(
+    snapshot: LiveSnapshot,
+    project: { ingestedEvent: boolean | null } | null
+): LiveProjectState {
+    if (project?.ingestedEvent === false) {
+        return 'not_set_up'
+    }
+    const { activity, events, topPages } = snapshot
+    if (!activity) {
+        return 'web'
+    }
+    const visitors = activity.minutes.some((minute) => minute.users > 0)
+    const quiet =
+        !visitors &&
+        events?.length === 0 &&
+        topPages?.length === 0 &&
+        snapshot.topReferrers?.length === 0 &&
+        [snapshot.devices, snapshot.browsers, snapshot.countries].every((breakdown) => breakdown?.total === 0)
+    if (quiet) {
+        return 'quiet'
+    }
+    const listsScreens = snapshot.topPagesMode === 'screens' && (topPages?.length ?? 0) > 0
+    const sawScreen = events?.some((event) => event.kind === 'screen') ?? false
+    return activity.pageviews === 0 && (listsScreens || sawScreen) ? 'app_only' : 'web'
+}
+
+function onlyUnknown(breakdown: LiveBreakdown | null): boolean {
+    return breakdown?.rows.length === 1 && breakdown.rows[0]?.key === UNKNOWN_BREAKDOWN
+}
+
+/**
+ * The breakdown card's segments. Devices or Browsers drop out when their only row is "Unknown", as for app events,
+ * which carry no browser. With both gone and no countries, the card has nothing to show.
+ */
+export function liveBreakdownKinds(
+    snapshot: Pick<LiveSnapshot, 'devices' | 'browsers' | 'countries'>
+): LiveBreakdownKind[] {
+    const kinds: LiveBreakdownKind[] = []
+    if (!onlyUnknown(snapshot.devices)) {
+        kinds.push('devices')
+    }
+    if (!onlyUnknown(snapshot.browsers)) {
+        kinds.push('browsers')
+    }
+    return kinds.length === 0 && snapshot.countries?.rows.length === 0 ? [] : [...kinds, 'countries']
 }

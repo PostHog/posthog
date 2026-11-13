@@ -23,6 +23,8 @@ Live needs `query:read`, so it reuses the Views access check (`useFeatureAccess(
 | `src/features/live/hooks.ts`                | `useLiveFeed`: the data source (demo or project), both pollers, users online fallback, error events. `useLiveUsersOnline`: the Live chip's count |
 | `src/features/live/LiveScreen.tsx`          | `LiveScreen({ from, chrome })` and its body, title, status line and paused banner                                                                |
 | `src/features/live/LiveMapCard.tsx`         | The "Where visitors are" card                                                                                                                    |
+| `src/features/live/LiveNoTraffic.tsx`       | The Quiet and Not set up cards, then Meanwhile                                                                                                   |
+| `src/features/live/LiveMeanwhile.tsx`       | Meanwhile: two pinned views and the Inbox row, with `LiveMeanwhileRow`; `useLiveMeanwhile` reads them from the cache                             |
 | `src/features/live/LiveCountriesScreen.tsx` | Visitors by country (`app/views/live-countries.tsx`)                                                                                             |
 | `src/features/live/LiveCountryList.tsx`     | The country list of Visitors by country                                                                                                          |
 | `src/features/live/liveWorldStore.ts`       | Live's countries and Pause state, written by the map card as it opens Visitors by country                                                        |
@@ -35,16 +37,17 @@ Live needs `query:read`, so it reuses the Views access check (`useFeatureAccess(
 Each read sends these jobs through `POST query/` with `refresh: blocking` and no status polls, two at a time.
 The HogQL text follows `loadQueryData` in `frontend/src/scenes/web-analytics/LiveMetricsDashboard/liveWebAnalyticsMetricsLogic.tsx`, in its unfiltered form: the window goes in `values` (`dateFrom`, `dateTo`), not in `{filters}`.
 
-| Job              | Query                                                                     | Card                           |
-| ---------------- | ------------------------------------------------------------------------- | ------------------------------ |
-| `usersPageviews` | Visitor, new visitor and pageview counts per minute                       | Stats, Active users per minute |
-| `paths`          | `TrendsQuery`, `$pageview` by `$pathname`, minute interval, top 10        | Top pages                      |
-| `referrer`       | Pageviews per referring domain per minute, `$direct` when empty           | Top referrers                  |
-| `device`         | Unique device counts by `$device_type` across the window                  | Devices                        |
-| `browser`        | Unique device counts by `$browser` across the window                      | Browsers                       |
-| `geo`            | Unique visitor counts by `$geoip_country_code` across the window          | Countries, the map             |
-| `recentEvents`   | The newest 50 events                                                      | Live events                    |
-| `usersOnline`    | `uniq(distinct_id)` over the last minute, only when the stats read is off | Users online                   |
+| Job              | Query                                                                        | Card                             |
+| ---------------- | ---------------------------------------------------------------------------- | -------------------------------- |
+| `usersPageviews` | Visitor, new visitor and pageview counts per minute                          | Stats, Active users per minute   |
+| `paths`          | `TrendsQuery`, `$pageview` by `$pathname`, minute interval, top 10           | Top pages                        |
+| `screens`        | The `$screen` form of `paths`: `$screen` by `$screen_name`, no path cleaning | Top screens, in place of `paths` |
+| `referrer`       | Pageviews per referring domain per minute, `$direct` when empty              | Top referrers                    |
+| `device`         | Unique device counts by `$device_type` across the window                     | Devices                          |
+| `browser`        | Unique device counts by `$browser` across the window                         | Browsers                         |
+| `geo`            | Unique visitor counts by `$geoip_country_code` across the window             | Countries, the map               |
+| `recentEvents`   | The newest 50 events                                                         | Live events                      |
+| `usersOnline`    | `uniq(distinct_id)` over the last minute, only when the stats read is off    | Users online                     |
 
 The window starts at the first of the 30 minutes on screen and ends one minute after now to allow for clock skew.
 The activity chart and breakdown queries stop at the end of the current minute so totals cover the displayed buckets.
@@ -53,11 +56,12 @@ These jobs return counts to the app.
 The events query selects `toUnixTimestamp64Milli(timestamp)` instead of the web's `toString(timestamp)`, which is wall-clock time in the project's time zone with no offset.
 The `usersPageviews` query leaves out the web's bot column, because Live has no bot cards.
 `paths` sets `breakdown_path_cleaning` when the project has path cleaning rules, as the web does.
+A read sends `paths` or `screens`, never both. That job runs after the others and takes its form from this read's activity (see [No web traffic](#no-web-traffic)).
 The map adds no read: the `geo` answer gives both the Countries breakdown (top six and "Other") and `LiveSnapshot.world`, every country with visitors, which the map and Visitors by country draw.
 
 Two more reads, outside the query budget:
 
-- `GET api/projects/{id}/` once per project and session, for `live_events_token` and `path_cleaning_filters`. The server sends the token only when the grant covers `query:read`.
+- `GET api/projects/{id}/` once per project and session, for `live_events_token`, `path_cleaning_filters` and `ingested_event`. The server sends the token only when the grant covers `query:read`. While `ingested_event` is false, Live reads it again (see [No web traffic](#no-web-traffic)).
 - `GET {live host}/stats` with `Authorization: Bearer <live_events_token>`, every 10 seconds, on US Cloud (`live.us.posthog.com`) and EU Cloud (`live.eu.posthog.com`). It is a plain `fetch` with an 8-second timeout. It answers `users_on_product`.
 
 Users online comes from the HogQL `usersOnline` job instead when the host is not Cloud, the project has no token, or two stats reads in a row fail. It then changes every 30 seconds.
@@ -101,11 +105,40 @@ Many pulls to refresh in a row can still empty the minute bucket. Reads then fai
 3. Stats (`live-stats`): Users online, Unique visitors and Pageviews, with the web's tooltips in a toast when a label is tapped. A changed number counts to its new value in 300 ms and flashes blue.
 4. Where visitors are (`live-map`): "18 countries · last 30 minutes", a world map, and "🇺🇸 United States leads with 15 visitors". Land is `segmentEmpty`; a country with visitors is blue by its share of the leading country's visitors, with the web's 30% floor toward the land color. The whole card opens Visitors by country; a tap on a country with visitors opens it with that country selected.
 5. Active users per minute (`live-activity`): 30 stacked bars, new visitors (green) under returning visitors (blue), as the web draws them. A visitor is new in the first minute of the window that shows them. The line under the chart names the scrubbed minute, or the current one: "21:14 · 18 visitors · 9 pageviews". The last bar is in progress.
-6. Top pages and Top referrers (`live-top-pages`, `live-top-referrers`): ten rows with views and their share of the window's pageviews. A row that changes rank slides to its place with a ↑ or ↓ badge that fades after 4 seconds. "Direct / None" is in italics.
-7. Breakdown (`live-breakdown`): Devices, Browsers or Countries, with the total and a share bar per row. Browsers and countries show their top six and an "Other" row. Countries show a flag and a name from the web analytics helper (`countryName`), which uses `Intl.DisplayNames` where the runtime has it and a short list otherwise; codes neither names stay codes. Rows do not open anything, because the web's visitor drill-down is behind a flag.
+6. Top pages and Top referrers (`live-top-pages`, `live-top-referrers`): ten rows with views and their share of the window's pageviews. A row that changes rank slides to its place with a ↑ or ↓ badge that fades after 4 seconds. "Direct / None" is in italics. App only shows Top screens (`live-top-screens`, column "Screen") in place of Top pages, with shares of the listed screen views, and no Top referrers.
+7. Breakdown (`live-breakdown`): Devices, Browsers or Countries, with the total and a share bar per row. Devices or Browsers is not offered when its only row is "Unknown", as for app events. With neither and no countries, the card is hidden. Browsers and countries show their top six and an "Other" row. Countries show a flag and a name from the web analytics helper (`countryName`), which uses `Intl.DisplayNames` where the runtime has it and a short list otherwise; codes neither names stay codes. Rows do not open anything, because the web's visitor drill-down is behind a flag.
 8. Live events (`live-events`): the newest 50, newest first. Events that arrive after the first read slide in with a short highlight. A tap opens the event sheet (`live-event-sheet`): Person with Copy, URL or Screen, Session with "Watch recording", and "View person on web". Watch recording opens the app's session screen when the session replay flag is on, and the web player otherwise.
 
-Loading shows the skeleton (`live-loading`). Empty cards say "No activity in the last 30 minutes", "No pageviews recorded in the last 30 minutes", "No referrer data in the last 30 minutes", "No device data", "No browser data", "No country data" or "Waiting for events…". A card whose job has not answered yet says "Couldn't load this yet. Live tries again every 30 seconds."
+Loading shows the skeleton (`live-loading`). Empty cards say "No activity in the last 30 minutes", "No pageviews recorded in the last 30 minutes", "No screen views recorded in the last 30 minutes", "No referrer data in the last 30 minutes", "No device data", "No browser data", "No country data" or "Waiting for events…". A card whose job has not answered yet says "Couldn't load this yet. Live tries again every 30 seconds."
+
+## No web traffic
+
+The state comes from the project read and the last snapshot (`liveProjectState` in `src/model/adapters/live.ts`):
+
+| State        | When                                                                                                                      | Screen                                                                                                     |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `not_set_up` | The project read says `ingested_event: false`                                                                             | Status "Not receiving events yet", gray dot, no Pause. The setup card (`live-not-set-up`), then Meanwhile  |
+| `quiet`      | Every job answered and the window is empty: no visitor in any minute, no events, empty top lists, every breakdown total 0 | Status "Live · waiting for activity", gray dot, Pause stays. The Quiet card (`live-quiet`), then Meanwhile |
+| `app_only`   | No pageviews, and screens: a Top screens list with rows, or a `$screen` event among the newest events                     | The usual cards: Pageviews 0, Top screens, no Top referrers, no Browsers segment                           |
+| `web`        | Anything else, such as server-side events without pageviews or screens, and while parts of the snapshot are missing       | The usual cards. Server-side events alone show an empty Top pages                                          |
+
+A project read that fails counts as unknown, so Live shows what the snapshot says and retries the project read every minute while the screen is visible, as well as on focus and return to the foreground.
+`ingested_event` turns true for anything the project ingests, also logs, traces and metrics. Such a project shows Quiet or its cards, not the setup card.
+
+**Top screens.** The top list job runs last in a read. It asks `screens` instead of `paths` when this read's activity has visitors and no pageviews (`livePathsMode`), or the last read's activity when this read's activity job failed. So an app project lists screens from its first read, and no read sends both forms.
+`LiveSnapshot.topPagesMode` says which form `topPages` holds, and rank badges compare rows of one form only.
+The table labels follow that retained form even when activity changes, until a query for the new form succeeds.
+
+**Quiet.** The Quiet card says "Quiet right now" and "No events in the last 30 minutes. Live keeps checking." The stats, map, chart and list cards are hidden. Polling goes on as usual, so the cards come back with the first event. The 10-second stats read waits while Quiet, because users online are not on screen, and the next 30-second read ends Quiet.
+
+**Not set up.** The setup card says "Install PostHog to see live activity" and "This project has not sent an event yet. Add the web snippet or an SDK and Live fills in within a minute."
+"Open setup guide" opens `{host}/project/{id}/onboarding` on the web, where the person picks the web snippet or an SDK. It is disabled with "Not in the demo" in demo mode, and with "Not available over http" when the host is not https. "Open Views" switches to the Views tab.
+Live runs no jobs and no stats reads in this state. While the screen is seen, it reads the project again every minute, and on each focus and each return to the foreground, at most once a minute (`PROJECT_RECHECK_MS` in `hooks.ts`). These reads are outside the query budget. A pull reads it at once. When `ingested_event` turns true, the normal poller starts. When a later project read fails, Live keeps the last answer.
+
+**Meanwhile** (`live-meanwhile`): the "Meanwhile" eyebrow and a card with up to two pinned views, in Views order, then "Inbox".
+A pin row shows its icon, name and type (or tile name), and, when Views last read a value for it, the number, change pill and a sparkline (`usePinGlance`, shared with the Views list). A tap opens the view (`from=live_meanwhile`).
+The Inbox row says "N unread", or "Nothing unread", from the inbox list the app last loaded (`useInboxUnreadCount`), or "Inbox" alone before that, and switches to the Inbox tab.
+Meanwhile sends no data reads: pin values, automatic pin displays and the unread count come from the cache. When the pin list was never read in the session, it reads the pin list once (`usePins`, without the re-read on reconnect). With no pins, the card has the Inbox row only.
 
 ## Visitors by country
 
@@ -140,6 +173,9 @@ The map draws the viewBox from x 90 to 2670 and y 16 to 1172, without the empty 
 | `mobile_live_map_opened`         | `from`: `card` (the card) or `map_country` (a country on the card's map)                                                                                                         |
 | `mobile_live_country_selected`   | `source`: `map` or `row`, on Visitors by country                                                                                                                                 |
 | `mobile_live_country_cleared`    | Clear on Visitors by country                                                                                                                                                     |
+| `mobile_live_state_shown`        | `state`: `app_only`, `quiet` or `not_set_up`, once per focus for each state                                                                                                      |
+| `mobile_live_setup_opened`       | Open setup guide on Not set up                                                                                                                                                   |
+| `mobile_live_meanwhile_opened`   | `target`: `view` or `inbox`                                                                                                                                                      |
 
 The chart also sends the shared `mobile_chart_*` events with the `view` context.
 
@@ -150,6 +186,7 @@ Visitors come and go, page weights drift so ranks swap now and then, and an even
 Events are written up to the moment of each read, so nothing moves while paused, and the next read catches up.
 One simulator lives for the app session, so reopening Live continues the same traffic.
 Users online comes from the HogQL count in demo mode. Watch recording and View person on web are not available in the demo.
+The store demo always shows web traffic. In a development build, `EXPO_PUBLIC_DEMO_LIVE_STATE=app_only`, `quiet` or `not_set_up` shows that state instead (`liveDemoState`): app events with screen names and no browser, no events, or a project read that says `ingested_event: false`. See [TESTING.md](TESTING.md).
 
 ## Not in v1
 

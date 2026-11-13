@@ -1,10 +1,12 @@
-import type { LiveRankedRow } from '@/model/live'
+import { EMPTY_LIVE_SNAPSHOT, type LiveRankedRow, type LiveSnapshot } from '@/model/live'
 
 import {
     liveActivity,
     liveBreakdown,
+    liveBreakdownKinds,
     liveEvents,
     livePathCounts,
+    liveProjectState,
     liveRankedRows,
     liveReferrerCounts,
     liveUsersOnlineFromQuery,
@@ -21,6 +23,28 @@ function minute(time: string): string {
 function ranked(keys: string[]): LiveRankedRow[] {
     return keys.map((key) => ({ key, label: key, views: 1, percent: 0, rankDelta: null, direct: false }))
 }
+
+function counted(...entries: [string, number][]): unknown {
+    return { results: [[entries]] }
+}
+
+/** A window where every job answered with nothing. */
+const QUIET: LiveSnapshot = {
+    ...EMPTY_LIVE_SNAPSHOT,
+    activity: liveActivity({ results: [] }, NOW),
+    topPages: [],
+    topPagesMode: 'pages',
+    topReferrers: [],
+    devices: liveBreakdown(counted(), 'devices'),
+    browsers: liveBreakdown(counted(), 'browsers'),
+    countries: liveBreakdown(counted(), 'countries'),
+    events: [],
+}
+function eventRows(event: string): unknown {
+    return { results: [['e1', event, 'person-1', NOW, null, event === '$screen' ? 'Home' : null, null, null]] }
+}
+const APP_ACTIVITY = liveActivity({ results: [[Date.parse(minute('21:14')), 3, 3, 0]] }, NOW)
+const WEB_ACTIVITY = liveActivity({ results: [[Date.parse(minute('21:14')), 3, 3, 5]] }, NOW)
 
 describe('live adapters', () => {
     test('minute buckets split new and returning visitors and count only the 30 minutes on screen', () => {
@@ -165,6 +189,65 @@ describe('live adapters', () => {
             ['e1', 'Pageview', 'pageview', '/pricing', 1000],
         ])
         expect(events[2]).toMatchObject({ url: 'https://hedgebox.net/pricing', sessionId: 'session-1' })
+    })
+
+    test.each([
+        ['a project that never ingested an event', QUIET, false, 'not_set_up'],
+        ['a window where every job answered with nothing', QUIET, true, 'quiet'],
+        ['an empty window with a part still unanswered', { ...QUIET, events: null }, true, 'web'],
+        [
+            'server events without pageviews or screens',
+            { ...QUIET, activity: APP_ACTIVITY, topPagesMode: 'screens', events: liveEvents(eventRows('$identify')) },
+            true,
+            'web',
+        ],
+        [
+            'screen events, before a screens list',
+            { ...QUIET, activity: APP_ACTIVITY, events: liveEvents(eventRows('$screen')) },
+            true,
+            'app_only',
+        ],
+        [
+            'events without pageviews, listing screens',
+            { ...QUIET, activity: APP_ACTIVITY, topPages: ranked(['Home']), topPagesMode: 'screens' },
+            true,
+            'app_only',
+        ],
+        [
+            'pageviews',
+            { ...QUIET, activity: WEB_ACTIVITY, topPages: ranked(['/']), topPagesMode: 'pages' },
+            null,
+            'web',
+        ],
+    ] as const)('project state: %s', (_, snapshot, ingestedEvent, expected) => {
+        expect(liveProjectState(snapshot, { ingestedEvent })).toBe(expected)
+    })
+
+    test.each([
+        [
+            'web traffic',
+            counted(['Mobile', 2]),
+            counted(['Chrome', 2]),
+            counted(['US', 2]),
+            ['devices', 'browsers', 'countries'],
+        ],
+        ['app events', counted(['Mobile', 2]), counted(['Unknown', 2]), counted(['US', 2]), ['devices', 'countries']],
+        [
+            'no device or browser, with countries',
+            counted(['Unknown', 2]),
+            counted(['Unknown', 2]),
+            counted(['US', 2]),
+            ['countries'],
+        ],
+        ['no device, browser or country', counted(['Unknown', 2]), counted(['Unknown', 2]), counted(), []],
+    ])('breakdown segments: %s', (_, devices, browsers, countries, expected) => {
+        expect(
+            liveBreakdownKinds({
+                devices: liveBreakdown(devices, 'devices'),
+                browsers: liveBreakdown(browsers, 'browsers'),
+                countries: liveBreakdown(countries, 'countries'),
+            })
+        ).toEqual(expected)
     })
 
     test.each([

@@ -1,7 +1,7 @@
 import { useSegments } from 'expo-router'
 import { NativeTabs } from 'expo-router/native-tabs'
 import { type ReactElement, useRef } from 'react'
-import { useInboxHasUnread } from '@/features/inbox/useInboxHasUnread'
+import { useInboxHasUnread } from '@/features/inbox/useInboxUnread'
 import { trackLiveOpened } from '@/features/live/analytics'
 import { useViewsOpenedEvent } from '@/features/views/list/useViewsOpenedEvent'
 import { track } from '@/lib/analytics'

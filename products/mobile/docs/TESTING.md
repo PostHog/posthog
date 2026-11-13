@@ -214,6 +214,16 @@ Capture every distinct screen on the open Duo, then repeat affected screens in p
 Keep matching ordinary-phone screenshots for each changed screen. Record unreachable states as missing coverage.
 After returning from chat, rotate a report and check that its footer stays attached to the content with one compose action.
 
+### Live states in the demo
+
+The demo's Live shows web traffic. To capture Live's App only, Quiet or Not set up state (see [LIVE.md](LIVE.md#no-web-traffic)), start a development bundle with `EXPO_PUBLIC_DEMO_LIVE_STATE` set to `app_only`, `quiet` or `not_set_up`, for example:
+
+```sh
+EXPO_PUBLIC_DEMO_MODE=1 EXPO_PUBLIC_DEMO_LIVE_STATE=quiet pnpm web --clear
+```
+
+Release builds ignore it. Open Views once before Live, so Meanwhile can show the pins' numbers from the cache.
+
 ## Chat navigation and header
 
 In a new chat, fail a send with a multi-line error while the keyboard is open. Check that the full notice and Dismiss button stay above the composer without overlapping suggestions.

@@ -32,7 +32,7 @@ Browse already opens the product pages the app has, and the phone never deletes 
 Web analytics has no pin button for the same reason.
 `shortcutInputFor()` writes the exact `path`, `type`, `ref` and `href` the web writes, so the server dedupes the row.
 Rows for one view (a sibling environment, a rename) collapse into one pin, and unpin deletes all of them.
-The Views list owns the pin list reads: on first paint unless read under a minute ago, on focus when 5 minutes old, and immediately on pull. Pin buttons and error states on view screens read the cached list, so opening a view sends no pin list request.
+The Views list owns the pin list reads: on first paint unless read under a minute ago, on focus when 5 minutes old, and immediately on pull. Pin buttons and error states on view screens read the cached list, so opening a view sends no pin list request. Live's Meanwhile list reads it once when no screen has read it in the session (see [LIVE.md](LIVE.md#no-web-traffic)).
 
 Order and display mode stay on the phone, per project, in the `views-pin-prefs:v2` store (AsyncStorage).
 The app never writes the server's `order`: `reorder` is closed to OAuth, and a PATCH would move a sibling-environment pin into this environment.
@@ -114,6 +114,7 @@ A pin shows in one of three modes, chosen on this phone:
 | Number | The value, a neutral change pill, the tile name, a 14-bucket sparkline, saved range and freshness                                 | Fits visible content | Yes        |
 | Chart  | A compact `MetricChart`, series legend, saved range and freshness; a value and change pill when one number represents the insight | Fits visible content | Yes        |
 
+`usePinGlance.ts` derives what a pin shows at a glance (value, change, sparkline, second line) for Number and Chart pins and for Live's Meanwhile list.
 Row mode has a fixed height. Number and Chart pins size to their visible content, and Chart pins keep a fixed plot height while the canvas replaces its sparkline placeholder.
 Number cards fit their content and only include the comparison and date row when either is present.
 Both modes omit empty footer lines and the footer itself when neither the saved range nor freshness is available.
@@ -172,7 +173,7 @@ Their Browse rows send `mobile_browse_list_opened` (`section`: `dashboards` or `
 | Full-screen chart  | `/views/chart/{short_id}[?key={cache key}]`                                                           |
 | Browse lists       | `/views/browse/dashboards`, `/views/browse/insights`                                                  |
 
-`from` is the `ViewEntry` (`pinned`, `recent`, `browse`, `search`, `dashboard`, `widget`, or `web_analytics` for the Live chip) for `mobile_view_opened`; `mode` is the pin's display mode.
+`from` is the `ViewEntry` (`pinned`, `recent`, `browse`, `search`, `dashboard`, `widget`, `web_analytics` for the Live chip, or `live_meanwhile` for a pin on Live's Meanwhile list) for `mobile_view_opened`; `mode` is the pin's display mode.
 A pinned tab opens with `from: tab`, which never travels in a route.
 `mobile_view_opened` also sends `chrome`: `tab` for the pinned Web analytics tab, `stack` for every pushed view.
 The tab routes are reached only through the bar, the start page and `openNavTarget`; deep links open the pushed screens.
