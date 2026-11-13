@@ -1696,3 +1696,5 @@ class TestLogsQueryExecutedEvent(APIBaseTest):
             {"scope": properties["scope"], "has_filter_group": properties["has_filter_group"]},
             {"scope": scope, "has_filter_group": False},
         )
+        self.assertIsInstance(properties["duration_ms"], int)
+        self.assertGreaterEqual(properties["duration_ms"], 0)
