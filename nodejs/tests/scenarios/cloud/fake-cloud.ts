@@ -127,6 +127,7 @@ export class FakeCloud implements Aws {
     private readonly lostResponses = new Map<string, number>()
     private readonly calls = new Map<string, number>()
     private readonly hooks = new Map<string, () => void>()
+    private hidesClusters: () => boolean = () => false
 
     constructor(private readonly options: FakeCloudOptions) {
         this.account = options.account ?? '000000000000'
@@ -152,6 +153,10 @@ export class FakeCloud implements Aws {
     heal(): void {
         this.failures.clear()
         this.conditions.clear()
+    }
+
+    hideClustersWhile(applies: () => boolean): void {
+        this.hidesClusters = applies
     }
 
     loseResponseOf(operation: string, nth: number = 1): void {
@@ -522,6 +527,9 @@ export class FakeCloud implements Aws {
                         })),
                 }
             case 'rds describe-db-clusters': {
+                if (this.hidesClusters()) {
+                    throw serviceError(operation, 'DBClusterNotFoundFault', 'The cluster is not visible yet')
+                }
                 const cluster = this.liveResource(
                     'AWS::RDS::DBCluster',
                     flags.get('db-cluster-identifier')!,

@@ -727,9 +727,11 @@ describe('cloud controller', () => {
     ])('creates nothing more when interrupted %s', async (_, operation) => {
         const { controller } = prepare()
         let createdBefore: number | undefined
+        let interruptedAt: number | undefined
         cloud.beforeCall(operation, () => {
             if (interrupt && createdBefore === undefined) {
                 createdBefore = cloud.resources.length
+                interruptedAt = now.getTime()
                 interrupt()
             }
         })
@@ -738,6 +740,7 @@ describe('cloud controller', () => {
 
         expect(cloud.resources).toHaveLength(createdBefore!)
         expect(cloud.billable()).toEqual([])
+        expect(now.getTime() - interruptedAt!).toBeLessThan(HOUR_MS / 6)
     })
 
     it.each<[string, (interruptAt: (status: string) => () => void) => void]>([
@@ -872,6 +875,21 @@ describe('cloud controller', () => {
             'AWS::SecretsManager::Secret',
             ', even when the run stops while the stack is created',
             (fake) => {
+                onSleep = () => {
+                    if (fake.resources.length > 0) {
+                        interrupt?.()
+                    }
+                }
+            },
+            () => undefined,
+        ],
+        [
+            'AWS::SecretsManager::Secret',
+            ', even when the run stops before its cluster is visible',
+            (fake) => {
+                fake.hideClustersWhile(
+                    () => ![...fake.stacks.values()].some(({ status }) => status.startsWith('DELETE'))
+                )
                 onSleep = () => {
                     if (fake.resources.length > 0) {
                         interrupt?.()
