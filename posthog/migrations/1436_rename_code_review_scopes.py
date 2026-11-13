@@ -147,16 +147,18 @@ def _sync_access_levels(cursor, from_resource: str, to_resource: str) -> None:
 
 
 def _drop_access_rows_without_counterpart(cursor, resource: str, counterpart: str) -> None:
-    """Delete `resource` rows whose `counterpart` row is gone.
+    """Delete `resource` grant rows whose `counterpart` row is gone, and keep restricting rows.
 
-    Forwards gives every old row a copy, so an old row without one was deleted under the new name
-    after deploy, or written by an old pod during the deploy. The new-name state wins in both cases,
-    so rolling back never brings back a rule that new code had removed.
+    Forwards gives every old row a copy, so an old row without one was either deleted under the new
+    name after deploy or written by an old pod during the deploy, and the two look the same. Dropping
+    only `editor` and `manager` rows, and keeping `none` and `viewer` ones (below the `editor`
+    default), means a rollback can narrow access but never widen it.
     """
     cursor.execute(
         f"""
         DELETE FROM ee_accesscontrol original
         WHERE original.resource = '{resource}'
+            AND original.access_level NOT IN ('none', 'viewer')
             AND NOT EXISTS (
                 SELECT 1 FROM ee_accesscontrol duplicate
                 WHERE duplicate.resource = '{counterpart}' AND {SAME_TARGET}
