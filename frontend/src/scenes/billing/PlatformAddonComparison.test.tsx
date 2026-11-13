@@ -1,7 +1,8 @@
 /* oxlint-disable react-hooks/rules-of-hooks -- useMocks is a test helper, not a React hook */
 import '@testing-library/jest-dom'
 
-import { cleanup, render } from '@testing-library/react'
+import { cleanup, render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 import { expectLogic } from 'kea-test-utils'
 
@@ -48,5 +49,39 @@ describe('PlatformAddonComparison', () => {
 
         expect(scrollIntoView).toHaveBeenCalledTimes(1)
         expect(scrollIntoView.mock.contexts[0]).toBe(card)
+    })
+
+    it.each([
+        ['boost', '3 years of events retention'],
+        ['scale', '5 years of events retention'],
+        ['enterprise', '7 years of events retention'],
+    ])('shows the events retention on the %s plan card', (type, label) => {
+        const platform = billingLogic.values.billing?.products.find(
+            (p) => p.type === 'platform_and_support'
+        ) as BillingProductV2Type
+        const { container } = render(
+            <Provider>
+                <PlatformAddonComparison product={platform} />
+            </Provider>
+        )
+
+        expect(container.querySelector(`[data-attr="billing-product-addon-${type}"]`)).toHaveTextContent(label)
+    })
+
+    it('tells a customer whose current plan keeps events longer that the longer window applies', async () => {
+        const platform = billingLogic.values.billing?.products.find(
+            (p) => p.type === 'platform_and_support'
+        ) as BillingProductV2Type
+        const { container } = render(
+            <Provider>
+                <PlatformAddonComparison product={platform} />
+            </Provider>
+        )
+
+        await userEvent.hover(
+            container.querySelector('[data-attr="billing-product-addon-boost-events-retention"]') as Element
+        )
+
+        expect(await screen.findByText(/Your current plan has 7 years of events retention/)).toBeInTheDocument()
     })
 })
