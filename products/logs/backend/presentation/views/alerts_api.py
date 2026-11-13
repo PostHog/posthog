@@ -1737,17 +1737,16 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # One read of the copies decides which side lists each alert, so an alert handed over or back
         # between two reads is listed once. A copy holds its row's creator and `created_at`.
         owned = owned_copy_alert_keys(self.team_id)
-        owned_ids = {alert_id for _, alert_id in owned}
+        owned_ids = {key.legacy_configuration_id for key in owned}
         if created_by is not None:
-            owned = tuple(
-                key for key in owned_copy_alert_keys(self.team_id, created_by_uuid=created_by) if key[1] in owned_ids
-            )
+            creator_id = User.objects.filter(uuid=created_by).values_list("id", flat=True).first()
+            owned = tuple(key for key in owned if creator_id is not None and key.created_by_id == creator_id)
         logs_owned = rows.exclude(id__in=owned_ids)
         if created_by is not None:
             logs_owned = logs_owned.filter(created_by__uuid=created_by)
         keys: list[tuple[datetime, UUID, bool]] = [
             *((created_at, alert_id, False) for created_at, alert_id in logs_owned.values_list("created_at", "id")),
-            *((created_at, alert_id, False) for created_at, alert_id in owned),
+            *((key.created_at, key.legacy_configuration_id, False) for key in owned),
             *(
                 (created_at, alert_id, True)
                 for created_at, alert_id in native_alert_keys(self.team_id, created_by_uuid=created_by)
