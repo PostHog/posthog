@@ -254,6 +254,40 @@ def schedule_warming_for_teams_task():
             ).apply_async(eta=start_at)
 
 
+def _report_warming_error(insight: Insight, dashboard_id: Optional[int], e: Exception) -> None:
+    # A revoked creator's access error is a known limitation - report it as an event
+    # rather than surfacing it in error tracking.
+    if isinstance(e, (TableAccessDeniedError, UserNotOrganizationMemberError)) and creator_access_revoked(
+        insight.created_by, insight.team
+    ):
+        report_creator_access_revoked(
+            user=insight.created_by,
+            team=insight.team,
+            source="cache_warming",
+            error=e,
+            properties={"insight_id": insight.pk, "dashboard_id": dashboard_id},
+        )
+    elif isinstance(e, ExposedHogQLError):
+        # The query itself is wrong, and only its author can correct it. Report it as an
+        # event so it stays with the team instead of becoming an issue in our error tracking.
+        with ph_scoped_capture() as capture_ph_event:
+            capture_ph_event(
+                distinct_id=str(insight.team.uuid),
+                event="cache warming - insight query error",
+                properties={
+                    "insight_id": insight.pk,
+                    "insight_short_id": insight.short_id,
+                    "dashboard_id": dashboard_id,
+                    "team_id": insight.team_id,
+                    "organization_id": str(insight.team.organization_id),
+                    "error_code": e.code_name,
+                    "error": str(e),
+                },
+            )
+    else:
+        capture_exception(e)
+
+
 def _record_unhandled_warming_failure(backoff: WarmingTaskFailureCache, error: Exception, team_id: int) -> None:
     # The query breaker owns these failures, including replays that did not execute.
     if getattr(error, "served_from_query_failure_cache", False) or classify_failure(error, team_id):
@@ -365,34 +399,4 @@ def warm_insight_cache_task(insight_id: int, dashboard_id: Optional[int]):
             if not warmed:
                 _record_unhandled_warming_failure(backoff, e, insight.team_id)
                 NOT_WARMED_INSIGHTS_COUNTER.labels(reason="error").inc()
-            # A revoked creator's access error is a known limitation - report it as an event
-            # rather than surfacing it in error tracking.
-            if isinstance(e, (TableAccessDeniedError, UserNotOrganizationMemberError)) and creator_access_revoked(
-                insight.created_by, insight.team
-            ):
-                report_creator_access_revoked(
-                    user=insight.created_by,
-                    team=insight.team,
-                    source="cache_warming",
-                    error=e,
-                    properties={"insight_id": insight.pk, "dashboard_id": dashboard_id},
-                )
-            elif isinstance(e, ExposedHogQLError):
-                # The query itself is wrong, and only its author can correct it. Report it as an
-                # event so it stays with the team instead of becoming an issue in our error tracking.
-                with ph_scoped_capture() as capture_ph_event:
-                    capture_ph_event(
-                        distinct_id=str(insight.team.uuid),
-                        event="cache warming - insight query error",
-                        properties={
-                            "insight_id": insight.pk,
-                            "insight_short_id": insight.short_id,
-                            "dashboard_id": dashboard_id,
-                            "team_id": insight.team_id,
-                            "organization_id": str(insight.team.organization_id),
-                            "error_code": e.code_name,
-                            "error": str(e),
-                        },
-                    )
-            else:
-                capture_exception(e)
+            _report_warming_error(insight, dashboard_id, e)
