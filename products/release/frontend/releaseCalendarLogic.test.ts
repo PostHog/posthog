@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { initKeaTests } from '~/test/init'
 
@@ -19,6 +20,19 @@ describe('releaseCalendarLogic', () => {
     beforeEach(() => {
         initKeaTests()
         mockedRetrieve.mockReset()
+    })
+
+    it('counts a row expansion but not the collapse that follows', async () => {
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation()
+        const logic = releaseCalendarLogic()
+        logic.mount()
+
+        logic.actions.toggleExpanded('release-1')
+        logic.actions.toggleExpanded('release-1')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(capture.mock.calls).toEqual([['release row expanded', { release_id: 'release-1' }]])
+        capture.mockRestore()
     })
 
     it('retries a flag whose history failed to load', async () => {

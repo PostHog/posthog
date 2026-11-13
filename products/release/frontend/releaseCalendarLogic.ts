@@ -1,4 +1,5 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers } from 'kea'
+import posthog from 'posthog-js'
 
 import { dayjs } from 'lib/dayjs'
 
@@ -116,6 +117,11 @@ export const releaseCalendarLogic = kea<releaseCalendarLogicType>([
             }
         }
         return {
+            toggleExpanded: ({ id }) => {
+                if (values.expanded[id]) {
+                    posthog.capture('release row expanded', { release_id: id })
+                }
+            },
             refreshFlagActivity: ({ flagIds }) => {
                 const requested = flagIds.filter((flagId) => cache.requested?.has(flagId))
                 for (const flagId of requested) {

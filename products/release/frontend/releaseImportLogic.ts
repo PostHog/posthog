@@ -1,4 +1,5 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import posthog from 'posthog-js'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
@@ -86,8 +87,10 @@ export const releaseImportLogic = kea<releaseImportLogicType>([
         runAutoImport: async () => {
             const projectId = String(values.currentProjectId)
             actions.setAutoImportState('running')
+            posthog.capture('release import started')
             try {
                 const { created_count } = await releasesImportAllCreate(projectId)
+                posthog.capture('release import finished', { created_count })
                 if (cache.disposables.isDisposed) {
                     return
                 }
@@ -98,6 +101,7 @@ export const releaseImportLogic = kea<releaseImportLogicType>([
                 }
                 actions.reload(true)
             } catch {
+                posthog.capture('release import failed')
                 if (cache.disposables.isDisposed) {
                     return
                 }

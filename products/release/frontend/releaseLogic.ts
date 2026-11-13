@@ -1,6 +1,7 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -897,6 +898,7 @@ export const releaseLogic = kea<releaseLogicType>([
         linkFlag: ({ id, flagId }) => {
             const release = values.releases.find((item) => item.id === id)
             if (release && !release.feature_flag_ids.includes(flagId)) {
+                posthog.capture('release item linked', { release_id: id, kind: 'flag' })
                 actions.updateRelease(
                     id,
                     { feature_flag_ids: [...release.feature_flag_ids, flagId] },
@@ -907,6 +909,7 @@ export const releaseLogic = kea<releaseLogicType>([
         unlinkFlag: ({ id, flagId }) => {
             const release = values.releases.find((item) => item.id === id)
             if (release) {
+                posthog.capture('release item unlinked', { release_id: id, kind: 'flag' })
                 actions.updateRelease(id, {
                     feature_flag_ids: release.feature_flag_ids.filter((item) => item !== flagId),
                 })
@@ -915,6 +918,7 @@ export const releaseLogic = kea<releaseLogicType>([
         linkBroadcast: ({ id, broadcastId }) => {
             const release = values.releases.find((item) => item.id === id)
             if (release && !release.broadcast_ids.includes(broadcastId)) {
+                posthog.capture('release item linked', { release_id: id, kind: 'broadcast' })
                 actions.updateRelease(
                     id,
                     { broadcast_ids: [...release.broadcast_ids, broadcastId] },
@@ -956,6 +960,7 @@ export const releaseLogic = kea<releaseLogicType>([
             const room = Math.max(MAX_LINKED_BROADCASTS - release.broadcast_ids.length, 0)
             const missing = started.filter((flowId) => !release.broadcast_ids.includes(flowId)).slice(0, room)
             if (missing.length) {
+                posthog.capture('release broadcasts auto linked', { release_id: id, count: missing.length })
                 actions.updateRelease(
                     id,
                     { broadcast_ids: [...release.broadcast_ids, ...missing] },
@@ -968,6 +973,7 @@ export const releaseLogic = kea<releaseLogicType>([
         unlinkBroadcast: ({ id, broadcastId }) => {
             const release = values.releases.find((item) => item.id === id)
             if (release) {
+                posthog.capture('release item unlinked', { release_id: id, kind: 'broadcast' })
                 actions.updateRelease(id, {
                     broadcast_ids: release.broadcast_ids.filter((item) => item !== broadcastId),
                 })
@@ -990,15 +996,27 @@ export const releaseLogic = kea<releaseLogicType>([
             actions.loadScheduledChanges()
             actions.loadBroadcastSends()
         },
+        openSchedule: () => {
+            posthog.capture('release schedule dialog opened')
+        },
         closeSchedule: () => {
             actions.loadScheduledChanges()
             actions.loadFlags()
         },
     })),
     urlToAction(({ actions }) => ({
-        [urls.releases()]: () => actions.reload(),
-        [urls.releaseList()]: () => actions.reload(),
-        [urls.release(':id')]: () => actions.reload(),
+        [urls.releases()]: () => {
+            posthog.capture('release calendar opened')
+            actions.reload()
+        },
+        [urls.releaseList()]: () => {
+            posthog.capture('release list opened')
+            actions.reload()
+        },
+        [urls.release(':id')]: ({ id }) => {
+            posthog.capture('release page opened', { release_id: id })
+            actions.reload()
+        },
     })),
     afterMount(({ actions }) => {
         actions.reload()

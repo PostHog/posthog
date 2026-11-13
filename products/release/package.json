@@ -15,6 +15,7 @@
         "kea": "catalog:",
         "kea-loaders": "catalog:",
         "kea-router": "catalog:",
+        "posthog-js": "catalog:",
         "react": "^18.3.1"
     }
 }
