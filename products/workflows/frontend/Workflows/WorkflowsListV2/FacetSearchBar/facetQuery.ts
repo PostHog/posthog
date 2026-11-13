@@ -17,7 +17,10 @@ export interface FacetDefinition<TItem> {
     pinnedValues?: string[]
     /** Display form of a stored value: `active` → `Active`, a user uuid → a name. */
     formatValue?: (value: string) => string
-    /** A typed value that matches no loaded value is still worth a pill, such as a person's name. */
+    /**
+     * A typed value that matches no loaded or pinned value is still worth a pill, such as a person's name.
+     * Without it, such a value stays in the input as search text.
+     */
     freeTextValues?: boolean
     /** Shown instead of the usual reason when no item has a value yet, such as while the values load. */
     emptyLabel?: string
@@ -77,7 +80,10 @@ export function tokenValue(quoted: string | undefined, bare: string | undefined)
     return quoted !== undefined ? quoted.replace(/\\(.)/g, '$1') : (bare ?? '')
 }
 
-/** Reads `facet:value`, `-facet:value` and `facet:"quoted value"`. Unknown facets, empty values and repeats are dropped. */
+/**
+ * Reads `facet:value`, `-facet:value` and `facet:"quoted value"`. Unknown facets, empty values and repeats are dropped.
+ * A value no item has is kept, because a link can name a value whose items have not loaded yet.
+ */
 export function parseFacetQuery<TItem>(query: string, facets: FacetDefinition<TItem>[]): FacetFilter[] {
     const filters: FacetFilter[] = []
     const seen = new Set<string>()

@@ -299,6 +299,32 @@ describe('facetSearchBarLogic', () => {
     })
 
     it.each([
+        ['a value no item has', 'status:zzz ', [], 'status:zzz'],
+        ['a negated value no item has', '-status:zzz ', [], '-status:zzz'],
+        ['a pinned value no item has', 'owner:me ', [{ facet: 'owner', value: 'me', negated: false }], ''],
+        ['a free text value no item has', 'sends:zzz ', [{ facet: 'sends', value: 'zzz', negated: false }], ''],
+    ])('pills a typed token only when its facet takes the value: %s', (_, typed, filters, text) => {
+        const owner: FacetDefinition<Item> = {
+            key: 'owner',
+            label: 'Owner',
+            description: 'Who made it',
+            pinnedValues: ['me'],
+            getValues: () => [],
+        }
+        logic = facetSearchBarLogic({
+            id: 'test',
+            facets: [...FACETS, owner],
+            items: ITEMS,
+            value: { filters: [], text: '' },
+            onChange,
+            matchesText,
+        })
+        logic.mount()
+        logic.actions.setInput(typed)
+        expect(onChange).toHaveBeenLastCalledWith({ filters, text })
+    })
+
+    it.each([
         [
             'picked from the suggestions',
             { filters: [], text: '' },

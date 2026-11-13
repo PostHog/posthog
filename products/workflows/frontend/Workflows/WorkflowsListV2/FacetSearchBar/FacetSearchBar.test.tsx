@@ -23,7 +23,13 @@ const FACETS: FacetDefinition<Item>[] = [
         getValues: (item) => [item.status],
         formatValue: (value) => value[0].toUpperCase() + value.slice(1),
     },
-    { key: 'sends', label: 'Sends', description: 'Email subject', getValues: (item) => item.subjects },
+    {
+        key: 'sends',
+        label: 'Sends',
+        description: 'Email subject',
+        freeTextValues: true,
+        getValues: (item) => item.subjects,
+    },
 ]
 
 const ITEMS: Item[] = [
