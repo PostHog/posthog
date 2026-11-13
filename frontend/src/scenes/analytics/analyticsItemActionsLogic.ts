@@ -1,4 +1,5 @@
 import { MakeLogicType, actions, kea, listeners, path, reducers } from 'kea'
+import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { toast } from '@posthog/quill'
@@ -6,6 +7,7 @@ import { toast } from '@posthog/quill'
 import api from 'lib/api'
 import { insightsApi } from 'scenes/insights/utils/api'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import { InsightShortId } from '~/types'
 
@@ -107,19 +109,22 @@ export const analyticsItemActionsLogic = kea<analyticsItemActionsLogicType>([
                 return
             }
             actions.duplicateStarted(key)
+            let copyUrl: string
             try {
                 if (item.type === 'dashboard') {
-                    await dashboardsCreate(String(teamLogic.values.currentTeamId), {
+                    const copy = await dashboardsCreate(String(teamLogic.values.currentTeamId), {
                         use_dashboard: Number(item.id),
                         name: `${item.name} (Copy)`,
                     })
+                    copyUrl = urls.dashboard(copy.id)
                 } else {
                     // The basic read leaves out the cached results, which the copy does not keep anyway.
                     const insight = await insightsApi.getByShortId(item.id as InsightShortId, true)
                     if (!insight) {
                         throw new Error('missing insight')
                     }
-                    await insightsApi.duplicate(insight)
+                    const copy = await insightsApi.duplicate(insight)
+                    copyUrl = urls.insightView(copy.short_id)
                 }
             } catch {
                 actions.duplicateFinished(key)
@@ -127,7 +132,18 @@ export const analyticsItemActionsLogic = kea<analyticsItemActionsLogicType>([
                 return
             }
             actions.duplicateFinished(key)
-            toast.success({ title: `Duplicated "${item.name}"` })
+            // The list's default sort puts a never-viewed copy last, so the message links straight to it.
+            toast.success({
+                title: `Duplicated "${item.name}"`,
+                action: {
+                    label: 'Open',
+                    onClick: () => {
+                        // pinned: analytics event name and properties. Renaming them breaks dashboards.
+                        posthog.capture('analytics item duplicate opened', { type: item.type })
+                        router.actions.push(copyUrl)
+                    },
+                },
+            })
             // pinned: analytics event name and properties. Renaming them breaks dashboards.
             posthog.capture('analytics item duplicated', { type: item.type })
             actions.itemChanged()
