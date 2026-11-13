@@ -144,6 +144,33 @@ const errorTrackingBypassRulesUpdate = (): ToolBase<
     },
 })
 
+const ErrorTrackingExternalIssuesSearchSchema = () => {
+    const ErrorTrackingExternalReferencesSearchIssuesRetrieveQueryParams =
+        orvalSchemas.ErrorTrackingExternalReferencesSearchIssuesRetrieveQueryParams()
+    return ErrorTrackingExternalReferencesSearchIssuesRetrieveQueryParams
+}
+
+const errorTrackingExternalIssuesSearch = (): ToolBase<
+    ReturnType<typeof ErrorTrackingExternalIssuesSearchSchema>,
+    Schemas.ErrorTrackingExternalIssueSearchResult
+> => ({
+    name: 'error-tracking-external-issues-search',
+    schema: ErrorTrackingExternalIssuesSearchSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ErrorTrackingExternalIssuesSearchSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ErrorTrackingExternalIssueSearchResult>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/error_tracking/external_references/search_issues/`,
+            query: {
+                integration_id: params.integration_id,
+                repository: params.repository,
+                search: params.search,
+            },
+        })
+        return result
+    },
+})
+
 const ErrorTrackingExternalReferencesCreateSchema = () => {
     const ErrorTrackingExternalReferencesCreateBody = orvalSchemas.ErrorTrackingExternalReferencesCreateBody()
     return ErrorTrackingExternalReferencesCreateBody
@@ -173,6 +200,42 @@ const errorTrackingExternalReferencesCreate = (): ToolBase<
         const result = await context.api.request<Schemas.ErrorTrackingExternalReferenceResult>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/error_tracking/external_references/`,
+            body,
+        })
+        return result
+    },
+})
+
+const ErrorTrackingExternalReferencesLinkSchema = () => {
+    const ErrorTrackingExternalReferencesLinkIssueCreateBody =
+        orvalSchemas.ErrorTrackingExternalReferencesLinkIssueCreateBody()
+    return ErrorTrackingExternalReferencesLinkIssueCreateBody
+}
+
+const errorTrackingExternalReferencesLink = (): ToolBase<
+    ReturnType<typeof ErrorTrackingExternalReferencesLinkSchema>,
+    Schemas.ErrorTrackingExternalReferenceResult
+> => ({
+    name: 'error-tracking-external-references-link',
+    schema: ErrorTrackingExternalReferencesLinkSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof ErrorTrackingExternalReferencesLinkSchema>>
+    ) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.integration_id !== undefined) {
+            body['integration_id'] = params.integration_id
+        }
+        if (params.issue !== undefined) {
+            body['issue'] = params.issue
+        }
+        if (params.external_context !== undefined) {
+            body['external_context'] = params.external_context
+        }
+        const result = await context.api.request<Schemas.ErrorTrackingExternalReferenceResult>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/error_tracking/external_references/link_issue/`,
             body,
         })
         return result
@@ -973,7 +1036,9 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'error-tracking-bypass-rules-create': errorTrackingBypassRulesCreate,
     'error-tracking-bypass-rules-list': errorTrackingBypassRulesList,
     'error-tracking-bypass-rules-update': errorTrackingBypassRulesUpdate,
+    'error-tracking-external-issues-search': errorTrackingExternalIssuesSearch,
     'error-tracking-external-references-create': errorTrackingExternalReferencesCreate,
+    'error-tracking-external-references-link': errorTrackingExternalReferencesLink,
     'error-tracking-grouping-rules-create': errorTrackingGroupingRulesCreate,
     'error-tracking-grouping-rules-list': errorTrackingGroupingRulesList,
     'error-tracking-grouping-rules-update': errorTrackingGroupingRulesUpdate,

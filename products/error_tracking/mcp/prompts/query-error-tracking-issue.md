@@ -20,10 +20,13 @@ Defaults are intentionally useful: last 7 days, test accounts filtered out, aggr
   - `not_generated`: no summary exists for this issue. Do not call this tool again to wait for one. Answer from the facts in the response.
   - `unavailable`: `summary_reason` says why. When the user asks for a summary, tell them the reason in plain words: they may not read the data the summary is written from (`restricted`), summaries are off for the project (`disabled`), or AI data processing is not approved for the organization (`ai_not_approved`).
 - `first_release`: the release on the issue's first event, in the same shape as `latest_release`. It does not depend on `dateRange`. When the user asks which release caused the issue, compare it with `latest_release`. It is absent when the first event has no release metadata.
+- `external_issues`: the work linked to this issue in GitHub, GitLab, Linear, or Jira, oldest first. Each entry has the provider `integration`, `external_id`, `title` and `external_url`. A GitHub `external_url` with `/pull/` is a pull request. An empty list means nothing is linked. Read it before you create or link an issue, so that you do not add a duplicate. It is absent when the lookup failed.
 - `trend`: occurrences in the second half of `dateRange` against the first half. Read `direction` (`new`, `increasing`, `decreasing` or `stable`) and do not do the arithmetic again. `increasing` and `decreasing` mean a change of at least 25%. `new` means the issue was first seen in the second half. With small counts, check `current_occurrences` and `previous_occurrences` before you call a change significant. `trend` is absent when the issue has no occurrences in `dateRange`.
 
 # Next steps
 
 Use `query-error-tracking-issue-events` with the same `issueId` only when the user needs a concrete event, a stack trace, code variables, OpenTelemetry trace IDs, or the handled flag. Do not fetch many events to count browsers, URLs, or versions; use `includeBreakdown` instead.
+
+When the user asks to track the issue in an external tool, use `error-tracking-external-references-link` to link an issue or GitHub pull request that already exists, or `error-tracking-external-references-create` to create a new issue.
 
 When `sample_session_ids` is not empty and the user asks what happened before the error, call `query-session-recordings-list` with `session_ids`.

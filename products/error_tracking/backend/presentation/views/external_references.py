@@ -109,7 +109,8 @@ class ErrorTrackingExternalReferenceLinkSerializer(serializers.Serializer):
         help_text=(
             "Identifier and optional title of the existing external issue to link, as returned by the search-issues endpoint. "
             "Required keys depend on the integration kind: github -> {repository, number}; gitlab -> {issue_id}; "
-            "linear -> {id}; jira -> {key}."
+            "linear -> {id}; jira -> {key}. For GitHub, add resource_type 'pull_request' to link a pull request "
+            "instead of an issue."
         ),
     )
 
@@ -124,7 +125,7 @@ class ErrorTrackingExternalIssueSearchQuerySerializer(serializers.Serializer):
         default="",
         help_text=(
             "Text to match against existing issue titles or identifiers in the provider. GitHub matches titles "
-            "as an exact phrase. Leave blank for recent issues."
+            "as an exact phrase and returns issues only, not pull requests. Leave blank for recent issues."
         ),
     )
     repository = serializers.CharField(
