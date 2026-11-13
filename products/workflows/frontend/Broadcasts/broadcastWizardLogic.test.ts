@@ -1054,6 +1054,42 @@ describe('broadcastWizardLogic', () => {
         }
     )
 
+    it('drops the rejection of an audience size check that a newer check replaced', async () => {
+        await expectLogic(logic).toFinishAllListeners().clearHistory()
+        let releaseFirst = (): void => {}
+        const firstHeld = new Promise<void>((resolve) => {
+            releaseFirst = resolve
+        })
+        let calls = 0
+        useMocks({
+            post: {
+                '/api/projects/:team_id/hog_flows/user_blast_radius/': async () => {
+                    if (calls++ === 0) {
+                        await firstHeld
+                        return [
+                            400,
+                            {
+                                type: 'validation_error',
+                                code: 'invalid_input',
+                                detail: 'An audience filter is incomplete.',
+                            },
+                        ]
+                    }
+                    return [500, { detail: 'Simulated outage' }]
+                },
+            },
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.loadBlastRadius()
+            logic.actions.loadBlastRadius()
+        }).toDispatchActions(['loadBlastRadiusFailure'])
+        releaseFirst()
+
+        await expectLogic(logic).toFinishAllListeners().toMatchValues({ blastRadius: null, blastRadiusError: null })
+        toast.dismiss()
+    })
+
     const dynamicCohort = { id: 42, name: 'Upgraded', is_static: false, is_calculating: true }
     it.each([
         [

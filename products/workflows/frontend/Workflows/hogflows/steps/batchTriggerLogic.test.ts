@@ -250,5 +250,51 @@ describe('batchTriggerLogic', () => {
                 captureException.mockRestore()
             }
         })
+
+        it('keeps the newer failure when an older check is rejected after it', async () => {
+            let respond: () => Promise<[number, Record<string, unknown>]> = async () => [200, { affected: 1, total: 2 }]
+            useMocks({ post: { '/api/projects/:team_id/hog_flows/user_blast_radius/': () => respond() } })
+            initKeaTests()
+            const logic = batchTriggerLogic({
+                id: 'test-overlapping-checks',
+                filters: { properties: [{ key: 'plan', type: 'person', operator: 'exact', value: ['pro'] }] as any },
+            })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadBlastRadiusSuccess']).toFinishAllListeners()
+
+            let releaseFirst = (): void => {}
+            const firstHeld = new Promise<void>((resolve) => {
+                releaseFirst = resolve
+            })
+            let calls = 0
+            respond = async () => {
+                if (calls++ === 0) {
+                    await firstHeld
+                    return [
+                        400,
+                        {
+                            type: 'validation_error',
+                            code: 'invalid_input',
+                            detail: 'An audience filter is incomplete.',
+                        },
+                    ]
+                }
+                return [500, { detail: 'Simulated outage' }]
+            }
+            try {
+                await expectLogic(logic, () => {
+                    logic.actions.loadBlastRadius()
+                    logic.actions.loadBlastRadius()
+                }).toDispatchActions(['loadBlastRadiusFailure'])
+                releaseFirst()
+
+                await expectLogic(logic)
+                    .toFinishAllListeners()
+                    .toMatchValues({ blastRadius: null, blastRadiusError: 'Simulated outage' })
+            } finally {
+                logic.unmount()
+                toast.dismiss()
+            }
+        })
     })
 })

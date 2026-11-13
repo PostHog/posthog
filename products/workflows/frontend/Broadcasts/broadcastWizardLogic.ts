@@ -557,7 +557,9 @@ export interface broadcastWizardLogicActions {
         batchJobs: HogFlowBatchJobApi[]
         payload?: any
     }
-    loadBlastRadius: () => any
+    loadBlastRadius: () => {
+        value: true
+    }
     loadBlastRadiusFailure: (
         error: string,
         errorObject?: any
@@ -567,10 +569,14 @@ export interface broadcastWizardLogicActions {
     }
     loadBlastRadiusSuccess: (
         blastRadius: BlastRadiusApi | null,
-        payload?: any
+        payload?: {
+            value: true
+        }
     ) => {
         blastRadius: BlastRadiusApi | null
-        payload?: any
+        payload?: {
+            value: true
+        }
     }
     loadBroadcast: () => any
     loadBroadcastFailure: (
@@ -914,6 +920,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         saveName: true,
         setAudienceProperties: (properties: AnyPropertyFilter[]) => ({ properties }),
         setAudienceCohortLaunchErrors: (errors: AudienceCohortLaunchError[]) => ({ errors }),
+        loadBlastRadius: true,
         setBlastRadiusError: (error: string | null) => ({ error }),
         rejectLinkAudience: true,
         sendToEveryoneAfterRejectedLink: true,
@@ -985,7 +992,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         blastRadius: [
             null as BlastRadiusApi | null,
             {
-                loadBlastRadius: async () => {
+                loadBlastRadius: async (_, breakpoint) => {
                     if (!values.currentProjectId) {
                         return null
                     }
@@ -998,6 +1005,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                         if (!isRejectedAudience(error)) {
                             throw error
                         }
+                        breakpoint()
                         actions.setBlastRadiusError(error.detail)
                         return null
                     }

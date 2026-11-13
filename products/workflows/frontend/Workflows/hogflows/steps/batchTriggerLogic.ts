@@ -215,13 +215,14 @@ export const batchTriggerLogic = kea<batchTriggerLogicType>([
         blastRadius: [
             null as BlastRadiusApi | null,
             {
-                loadBlastRadius: async () => {
+                loadBlastRadius: async (_, breakpoint) => {
                     try {
                         return await requestBlastRadius(values.currentProjectId, props)
                     } catch (error) {
                         if (!isRejectedAudience(error)) {
                             throw error
                         }
+                        breakpoint()
                         actions.setBlastRadiusError(error.detail)
                         return null
                     }
