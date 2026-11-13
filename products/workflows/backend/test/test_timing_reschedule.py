@@ -94,12 +94,9 @@ class TestTimingRescheduleDiff(SimpleTestCase):
         ]
     )
     def test_delay_until_edits(self, _name, config_change, expect_sweep):
-        before = {
-            "id": "delay_1",
-            "type": "delay",
-            "config": {"delay_until": {"expression": "person.properties.trial_ends_at"}, "max_delay_duration": "30d"},
-        }
-        after = {**before, "config": {**before["config"], **config_change}}
+        config: dict = {"delay_until": {"expression": "person.properties.trial_ends_at"}, "max_delay_duration": "30d"}
+        before = {"id": "delay_1", "type": "delay", "config": config}
+        after = {**before, "config": {**config, **config_change}}
         assert get_timing_reschedule_action_ids([before], [after]) == (["delay_1"] if expect_sweep else [])
 
     @parameterized.expand(
