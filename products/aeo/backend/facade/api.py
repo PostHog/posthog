@@ -342,10 +342,14 @@ def list_prompt_set_citations(
     elif domain is not None:
         domain = domain.strip().lower()
         checks = checks.filter(
+            # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql -- constant SQL, the domain is a bound parameter
             RawSQL(_CITES_DOMAIN_SQL, [domain, len(domain) + 1, f".{domain}"], output_field=BooleanField())
         )
     elif search is not None:
-        checks = checks.filter(RawSQL(_RAN_SEARCH_SQL, [_normalize_search(search)], output_field=BooleanField()))
+        checks = checks.filter(
+            # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql -- constant SQL, the search is a bound parameter
+            RawSQL(_RAN_SEARCH_SQL, [_normalize_search(search)], output_field=BooleanField())
+        )
     if engine is not None:
         checks = checks.filter(engine=engine)
 
