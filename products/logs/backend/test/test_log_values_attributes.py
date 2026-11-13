@@ -228,6 +228,30 @@ class TestLogValuesAttributesTimezones(ClickhouseTestMixin, APIBaseTest):
         counts = [r["count"] for r in results]
         self.assertEqual(counts, sorted(counts, reverse=True), "Values should be ordered by count descending")
 
+    @parameterized.expand(
+        [
+            ("aligned_window", "2025-12-16T09:30:00Z", "2025-12-16T09:40:00Z", {"aws-efs-csi-driver": 1}),
+            (
+                "unaligned_window_inside_bucket",
+                "2025-12-16T09:32:00Z",
+                "2025-12-16T09:35:00Z",
+                {"aws-efs-csi-driver": 1},
+            ),
+            ("values_only_in_next_bucket", "2025-12-16T09:25:00Z", "2025-12-16T09:29:00Z", {}),
+        ]
+    )
+    def test_log_values_query_short_window_excludes_next_bucket(self, _name, date_from, date_to, expected):
+        response = self.client.get(
+            f"/api/projects/{self.team.pk}/logs/values",
+            {
+                "dateRange": json.dumps({"date_from": date_from, "date_to": date_to}),
+                "key": "service.name",
+                "attribute_type": "resource",
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual({r["name"]: r["count"] for r in response.json()["results"]}, expected)
+
     def test_log_attributes_search_values_off_by_default(self):
         """Searching with `search_values` unset should match attribute keys only."""
 
