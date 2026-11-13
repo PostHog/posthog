@@ -11430,7 +11430,8 @@ export namespace Schemas {
         | "open_feature_flag"
         | "edit_exposure_criteria"
         | "adjust_distribution"
-        | "use_first_seen_variant";
+        | "use_first_seen_variant"
+        | "move_start_date";
     export type ExperimentExposureHealthFindingCode =
         | "zero_exposures"
         | "srm"
