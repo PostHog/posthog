@@ -248,6 +248,7 @@ class ExperimentHealthFindingCode(LabeledStrEnum):
     ZERO_EXPOSURES = "zero_exposures"
     TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES = "test_account_filter_removes_exposures"
     UNSERVED_VARIANT_EXPOSURES = "unserved_variant_exposures"
+    BILLING_LIMIT = "billing_limit"
     FORCED_VARIANT_RELEASE_CONDITION = "forced_variant_release_condition"
     FLAG_VARIANTS_MISMATCH = "flag_variants_mismatch"
     SPLIT_CHANGED_MID_RUN = "split_changed_mid_run"
@@ -354,6 +355,7 @@ class ExperimentHealthCheckKey(LabeledStrEnum):
     UNSERVED_VARIANT_EXPOSURES = "unserved_variant_exposures"
     BIAS_RISK_MULTIPLE_EXCLUDED = "bias_risk_multiple_excluded"
     MULTIPLE_VARIANTS_SHARE = "multiple_variants_share"
+    BILLING_LIMIT = "billing_limit"
 
 
 @frozen
@@ -451,6 +453,15 @@ class ExperimentHealthValueKey(LabeledStrEnum):
     DAILY_CALCULATION_ENDS_AT = (
         "daily_calculation_ends_at",
         "When the daily calculation stops covering the experiment, a fixed number of days after its start date",
+    )
+    BILLING_LIMIT_REACHED = (
+        "billing_limit_reached",
+        "Whether the organization reached its billing limit for product analytics, so that PostHog drops the "
+        "project's product analytics events",
+    )
+    BILLING_LIMIT_ENDS_AT = (
+        "billing_limit_ends_at",
+        "When PostHog stops dropping the project's product analytics events, unless the limit lifts earlier",
     )
     METRIC_NAME = "metric_name", "The name of a metric"
     METRIC_ROLE = "metric_role", "Whether a metric is primary or secondary"

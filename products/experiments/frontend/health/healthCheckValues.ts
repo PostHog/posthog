@@ -182,6 +182,14 @@ function flagReading(values: HealthCheckValues | undefined): HealthReading | nul
     return reading('Feature flag', text)
 }
 
+function billingLimitReading(values: HealthCheckValues | undefined): HealthReading | null {
+    const reached = values?.billing_limit_reached
+    return reading(
+        'Product analytics billing limit',
+        typeof reached === 'boolean' ? (reached ? 'Reached' : 'Not reached') : null
+    )
+}
+
 /** What a check read, in the order the panel lists it. The p-value shows with the rule that judges it instead. */
 export function healthCheckReadings(values: HealthCheckValues | undefined, units: string): HealthReading[] {
     const handling = values?.multiple_variant_handling
@@ -245,6 +253,8 @@ export function healthCheckReadings(values: HealthCheckValues | undefined, units
         receivedReading(values),
         numberReading('Running for', values, 'since_start_hours', formatHours),
         dailyCalculationReading(values),
+        billingLimitReading(values),
+        timeReading('Limited until', values, 'billing_limit_ends_at', true),
         reading('Metric', typeof values?.metric_name === 'string' ? values.metric_name : null),
         sampleReading(values, units),
         numberReading('Release conditions that force a variant', values, 'forced_condition_count', formatCount),

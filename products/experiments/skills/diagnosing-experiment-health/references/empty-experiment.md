@@ -43,6 +43,7 @@ The queries this file refers to are in `diagnostic-snapshot.md`, with their rule
 - B10 — "Variant always undefined / false"
 - B11 — `$feature/<key>` is missing on metric events
 - B12 — An exposure criteria filter that cannot match
+- B13 — The product analytics billing limit is reached
 - If none of the above: the code path may not be running
 
 ## Quick triage decision tree
@@ -53,6 +54,7 @@ For exposures without conversions, go to B2, B8 and B11, then to D11 in `numbers
 
 Check directly, in this order, and ask only what the tools cannot answer:
 
+0. **Does the health answer carry a `billing_limit` finding?** Then PostHog drops the project's events → B13 first.
 1. **How long ago was the experiment launched?** `start_date` from `experiment-get`.
    Null means it is a draft. Minutes or a few hours → B0 first.
 2. **Has the code that calls the flag been deployed and is traffic flowing through it?**
@@ -405,6 +407,34 @@ Filter on what the exposure event carries.
 To restrict the experiment to a group of people, use the flag's release conditions.
 An edit of the exposure criteria recomputes the whole run (E5 in `mid-run-changes.md`).
 
+## B13 — The product analytics billing limit is reached [HIGH]
+
+**Behavior.** While the organization is over its billing limit or free tier limit for product analytics, PostHog drops the product analytics events the project sends.
+That covers `$feature_flag_called`, `$experiment_exposure`, custom exposure events and metric events.
+Exceptions, survey events and LLM analytics events have limits of their own.
+PostHog doesn't keep the events it drops, so they can't be counted later.
+
+**Evidence.**
+
+- The `billing_limit` finding, from `experiment-results-get` or `experiment-health-get`.
+  Its check reads `billing_limit_reached`, and `billing_limit_ends_at` while the limit holds: capture drops events until then, unless the organization raises its limit or subscribes first.
+- The check reads the limit in force now, and only for a running experiment.
+  The limit stores no start time.
+  In an experiment that counted exposures before, `exposures.timeseries` shows the day: every variant stops growing on it.
+- While the limit holds, the `zero_exposures` finding steps aside, because every cause it names would blame the setup.
+  A flag call recorded during the run means the limit started later, so `zero_exposures` still reports those calls.
+
+**Reading.** Every variant loses events alike, so the comparison isn't biased.
+The run gains no exposures and no metric data until the limit lifts.
+
+**Recommendation.** Raise the limit or subscribe on the billing page, or wait until the limit lifts.
+Consider running longer to make up for the days without data.
+Don't diagnose the SDK or the exposure criteria while the finding holds.
+
+<!-- Source for maintainers (may rot): billing_limit in products/experiments/backend/health/checks/billing_limit.py;
+team_limited_until in ee/billing/quota_limiting.py; the capture limiter in rust/common/limiters/src/redis.rs. Verify
+before citing. -->
+
 ## If none of the above: the code path may not be running
 
 Two sub-cases:
@@ -426,6 +456,8 @@ status from Step 1:
 - `exposure_frozen` — someone froze exposure. The plateau is the intended behavior: enrollment is closed, metrics still flow (E16 in `mid-run-changes.md`).
 - `paused` — the flag is off.
 - `stopped` — the results end at the end date.
+
+A `billing_limit` finding explains the plateau by itself (B13).
 
 Then check where the project keeps its flag calls: `project-get` returns `flag_evaluations_mode`.
 At 2, `$feature_flag_called` no longer arrives in `events` for the projects that setting covers.

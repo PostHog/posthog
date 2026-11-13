@@ -1,11 +1,12 @@
 from collections.abc import Mapping, Sequence
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import TypedDict
 
 from products.experiments.backend.facade.contracts import ExperimentHealthFlagChangeKind
 from products.experiments.backend.health.bucketing_changes import GroupTypeNames
 from products.experiments.backend.health.context import (
     ChangeWindow,
+    EventsBillingLimit,
     ExposureEvents,
     FlagChange,
     FlagHistory,
@@ -14,6 +15,8 @@ from products.experiments.backend.health.context import (
     HealthContext,
 )
 from products.feature_flags.backend.facade.edits import ConditionsChange, ReleaseCondition
+
+BILLING_LIMITED = EventsBillingLimit(ends_at=datetime(2026, 12, 1, tzinfo=UTC))
 
 # Tests set what their check reads with `dataclasses.replace`, so a new field of the context changes only this file.
 RUNNING_CONTEXT = HealthContext(
@@ -33,7 +36,7 @@ RUNNING_CONTEXT = HealthContext(
     flag_last_called_at=None,
     other_experiments_on_flag=(),
     team_has_active_flag=None,
-    events_billing_limited=None,
+    events_billing_limit=None,
     baseline_variant_key=None,
     primary_metric_count=1,
     secondary_metric_count=0,
