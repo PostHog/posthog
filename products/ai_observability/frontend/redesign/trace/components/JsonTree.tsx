@@ -16,7 +16,6 @@ export interface JsonTreeProps {
 }
 
 export function JsonTree({ src, highlightQuery = null }: JsonTreeProps): JSX.Element {
-    // A collapsed node is not in the page, so the trace search cannot mark a match inside it.
     const showsQuery = useMemo(
         () => !!highlightQuery && searchableText(src).toLowerCase().includes(highlightQuery.toLowerCase()),
         [src, highlightQuery]
@@ -24,7 +23,7 @@ export function JsonTree({ src, highlightQuery = null }: JsonTreeProps): JSX.Ele
 
     // Strings keep their line breaks and wrap between words, where the viewer's inline style splits words.
     return (
-        <ShowMore highlightQuery={highlightQuery} compact>
+        <ShowMore highlightQuery={highlightQuery} nested>
             <div className="min-w-0 [&_.string-value]:whitespace-pre-wrap [&_.string-value]:![word-break:normal]">
                 <JSONViewer
                     key={showsQuery ? 'open' : 'collapsed'}

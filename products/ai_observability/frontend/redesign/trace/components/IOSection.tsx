@@ -18,7 +18,6 @@ export interface IOSectionProps {
 
 export function IOSection({ title, value: capturedValue, highlightQuery = null }: IOSectionProps): JSX.Element {
     const [format, setFormat] = useState<IOFormat>('pretty')
-    // A side captured as a JSON string then shows the same way as a side captured as an object.
     const value = useMemo(
         () => getJsonContainerForDisplay(capturedValue, { allowEmptyContainers: false }) ?? capturedValue,
         [capturedValue]

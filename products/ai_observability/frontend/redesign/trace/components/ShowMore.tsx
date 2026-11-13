@@ -11,8 +11,7 @@ export interface ShowMoreProps {
     children: ReactNode
     /** Content whose text shows this query is never cut, so the search highlights in it stay visible. */
     highlightQuery?: string | null
-    /** Cuts at half the usual height, for a block that sits inside a section with its own cut. */
-    compact?: boolean
+    nested?: boolean
     className?: string
 }
 
@@ -36,13 +35,13 @@ function useIsTallerThanWindow(content: HTMLElement | null, windowShare: number)
 }
 
 /** Cuts content taller than the window to half the window's height, with a "Show more" that shows the rest. */
-export function ShowMore({ children, highlightQuery = null, compact = false, className }: ShowMoreProps): JSX.Element {
+export function ShowMore({ children, highlightQuery = null, nested = false, className }: ShowMoreProps): JSX.Element {
     const containerRef = useRef<HTMLDivElement>(null)
     const [content, setContent] = useState<HTMLDivElement | null>(null)
     const [isExpanded, setIsExpanded] = useState(false)
     const scrollAfterCollapse = useRef(false)
     const contentId = useId()
-    const isTall = useIsTallerThanWindow(content, compact ? 0.5 : 1)
+    const isTall = useIsTallerThanWindow(content, nested ? 0.5 : 1)
     const isForcedOpen = useShowsQuery(content, highlightQuery)
     const isCut = isTall && !isExpanded && !isForcedOpen
 
@@ -83,7 +82,7 @@ export function ShowMore({ children, highlightQuery = null, compact = false, cla
                 className={cn(
                     isCut &&
                         'overflow-clip [mask-image:linear-gradient(to_bottom,black_calc(100%_-_4rem),transparent)]',
-                    isCut && (compact ? 'max-h-[25vh]' : 'max-h-[50vh]')
+                    isCut && (nested ? 'max-h-[25vh]' : 'max-h-[50vh]')
                 )}
                 // Keyboard focus can reach a link in the cut part, so the content opens to show it.
                 onFocus={isCut ? () => setIsExpanded(true) : undefined}

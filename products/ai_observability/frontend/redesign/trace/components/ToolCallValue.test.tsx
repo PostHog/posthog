@@ -40,7 +40,7 @@ describe('ToolCallValue', () => {
     ])('%s', async (_name, value, highlightQuery, expected) => {
         const { container } = render(<ToolCallValue value={value} highlightQuery={highlightQuery} />)
 
-        // The tree for the 200,000-item value takes about half a second to render, more on a busy runner.
+        // The 200,000-item value renders as a large tree, which can outlast the default timeout on a busy runner.
         await waitFor(
             () =>
                 expect({
