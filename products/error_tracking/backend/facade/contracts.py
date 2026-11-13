@@ -178,8 +178,7 @@ class ErrorTrackingIssueTag:
     key: str
     label: str
     description: str
-    value: bool | None
-    # The tagger that wrote the answer. Postgres stores it, the ClickHouse copy of the answers does not.
+    # The tagger that applied the tag. Postgres stores it, the ClickHouse copy of the tags does not.
     source: str | None = None
 
 

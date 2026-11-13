@@ -209,14 +209,22 @@ class TestErrorTracking(APIBaseTest):
         assert response.json().get("id") == str(issue.id)
 
     @parameterized.expand(
-        [("issue_tags_off", set()), ("issue_tags_on", {ISSUE_TAGS_FLAG, BLOCKS_CHECKOUT.enabled_flag})]
+        [
+            ("issue_tags_off", set()),
+            ("issue_tags_on", {ISSUE_TAGS_FLAG, BLOCKS_CHECKOUT.enabled_flag, NEEDS_LOGIN.enabled_flag}),
+        ]
     )
     @time_machine.travel("2025-01-01", tick=False)
     def test_issue_fetch(self, _name: str, enabled_flags: set[str]):
         issue = self.create_issue(["fingerprint"])
-        for key, value in ((BLOCKS_CHECKOUT.key, True), (NEEDS_LOGIN.key, False)):
+        # A person removed `needs_login`, and `retired_tag` has no definition.
+        for key, value, source in (
+            (BLOCKS_CHECKOUT.key, True, "jev"),
+            (NEEDS_LOGIN.key, False, "manual"),
+            ("retired_tag", True, "jev"),
+        ):
             ErrorTrackingIssueTag.objects.for_team(self.team.id).create(
-                team=self.team, issue=issue, key=key, value=value, source="jev", question_version=1
+                team=self.team, issue=issue, key=key, value=value, source=source, question_version=1
             )
 
         with (
@@ -245,7 +253,6 @@ class TestErrorTracking(APIBaseTest):
                     "key": BLOCKS_CHECKOUT.key,
                     "label": BLOCKS_CHECKOUT.label,
                     "description": BLOCKS_CHECKOUT.description,
-                    "value": True,
                     "source": "jev",
                 }
             ]

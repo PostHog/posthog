@@ -4655,14 +4655,11 @@ export interface ErrorTrackingPendingFingerprintIssueStateUpdate {
     version: integer
 }
 
-/** @title ErrorTrackingIssueTagFilterValue */
-export type ErrorTrackingIssueTagFilterValue = 'yes' | 'no' | 'unknown'
-
 export interface ErrorTrackingIssueTagFilter {
     /** Key of the tag definition. */
     key: string
-    /** The answer to match. `unknown` matches issues where the tagger was unsure or never answered. */
-    value: ErrorTrackingIssueTagFilterValue
+    /** True matches the issues the tag is applied to. False matches every other issue. */
+    applied: boolean
 }
 
 export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse> {
@@ -4679,7 +4676,7 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     status?: ErrorTrackingQueryStatus
     /** Filter by issue severity. */
     severity?: ErrorTrackingQueryIssueSeverity | null
-    /** Filter by the answer to one issue tag. Ignored when issue tags or this tag are off for the project. */
+    /** Filter by whether one issue tag is applied. Ignored when issue tags or this tag are off for the project. */
     issueTag?: ErrorTrackingIssueTagFilter | null
     assignee?: ErrorTrackingIssueAssignee | null
     filterGroup?: PropertyGroupFilter
@@ -4891,10 +4888,8 @@ export interface ErrorTrackingIssueTag {
     label: string
     /** What the tag means, for a tooltip. */
     description: string
-    /** The answer: true for yes, false for no, null when the tagger was unsure. */
-    value: boolean | null
-    /** The tagger that wrote the answer: `jev` for AI, `manual` for a person. Issue detail sets it, list results do not. */
-    source?: string
+    /** The tagger that applied the tag: `jev` for AI, `manual` for a person. Issue detail sets it, list results send null. */
+    source?: string | null
 }
 
 export interface ErrorTrackingRelationalIssue {
@@ -4908,7 +4903,7 @@ export interface ErrorTrackingRelationalIssue {
     first_seen: string
     external_issues?: ErrorTrackingExternalReference[]
     cohort?: ErrorTrackingIssueCohort
-    /** The issue's answers to its enabled tags, on issue list results and issue detail. Null or absent when the project has no enabled tag. */
+    /** The enabled tags that are applied to the issue, on issue list results and issue detail. Null or absent when the project has no enabled tag. */
     tags?: ErrorTrackingIssueTag[]
 }
 

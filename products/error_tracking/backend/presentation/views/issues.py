@@ -75,11 +75,8 @@ class ErrorTrackingIssueTagDefinitionSerializer(serializers.Serializer):
 
 
 class ErrorTrackingIssueTagReadSerializer(ErrorTrackingIssueTagDefinitionSerializer):
-    value = serializers.BooleanField(
-        allow_null=True, help_text="The answer: true for yes, false for no, null when the tagger was unsure."
-    )
     source = serializers.CharField(  # type: ignore[assignment]  # shadows DRF Field.source
-        help_text="The tagger that wrote the answer: `jev` for AI, `manual` for a person."
+        help_text="The tagger that applied the tag: `jev` for AI, `manual` for a person."
     )
 
 
@@ -109,7 +106,7 @@ class ErrorTrackingIssueReadSerializer(serializers.Serializer):
         many=True,
         required=False,
         help_text=(
-            "The issue's answers to its enabled tags. Only issue detail returns it, "
+            "The enabled tags that are applied to the issue. Only issue detail returns it, "
             "and only while the project has an enabled tag."
         ),
     )

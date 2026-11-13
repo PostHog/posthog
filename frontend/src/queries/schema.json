@@ -25250,7 +25250,7 @@
                     "$ref": "#/definitions/ErrorTrackingIssueStatus"
                 },
                 "tags": {
-                    "description": "The issue's answers to its enabled tags, on issue list results and issue detail. Null or absent when the project has no enabled tag.",
+                    "description": "The enabled tags that are applied to the issue, on issue list results and issue detail. Null or absent when the project has no enabled tag.",
                     "items": {
                         "$ref": "#/definitions/ErrorTrackingIssueTag"
                     },
@@ -25541,7 +25541,7 @@
                     "$ref": "#/definitions/ErrorTrackingIssueStatus"
                 },
                 "tags": {
-                    "description": "The issue's answers to its enabled tags, on issue list results and issue detail. Null or absent when the project has no enabled tag.",
+                    "description": "The enabled tags that are applied to the issue, on issue list results and issue detail. Null or absent when the project has no enabled tag.",
                     "items": {
                         "$ref": "#/definitions/ErrorTrackingIssueTag"
                     },
@@ -26008,36 +26008,27 @@
                     "type": "string"
                 },
                 "source": {
-                    "description": "The tagger that wrote the answer: `jev` for AI, `manual` for a person. Issue detail sets it, list results do not.",
-                    "type": "string"
-                },
-                "value": {
-                    "description": "The answer: true for yes, false for no, null when the tagger was unsure.",
-                    "type": ["boolean", "null"]
+                    "description": "The tagger that applied the tag: `jev` for AI, `manual` for a person. Issue detail sets it, list results send null.",
+                    "type": ["string", "null"]
                 }
             },
-            "required": ["key", "label", "description", "value"],
+            "required": ["key", "label", "description"],
             "type": "object"
         },
         "ErrorTrackingIssueTagFilter": {
             "additionalProperties": false,
             "properties": {
+                "applied": {
+                    "description": "True matches the issues the tag is applied to. False matches every other issue.",
+                    "type": "boolean"
+                },
                 "key": {
                     "description": "Key of the tag definition.",
                     "type": "string"
-                },
-                "value": {
-                    "$ref": "#/definitions/ErrorTrackingIssueTagFilterValue",
-                    "description": "The answer to match. `unknown` matches issues where the tagger was unsure or never answered."
                 }
             },
-            "required": ["key", "value"],
+            "required": ["key", "applied"],
             "type": "object"
-        },
-        "ErrorTrackingIssueTagFilterValue": {
-            "enum": ["yes", "no", "unknown"],
-            "title": "ErrorTrackingIssueTagFilterValue",
-            "type": "string"
         },
         "ErrorTrackingOrderBy": {
             "enum": ["last_seen", "first_seen", "occurrences", "users", "sessions", "severity"],
@@ -26156,7 +26147,7 @@
                             "type": "null"
                         }
                     ],
-                    "description": "Filter by the answer to one issue tag. Ignored when issue tags or this tag are off for the project."
+                    "description": "Filter by whether one issue tag is applied. Ignored when issue tags or this tag are off for the project."
                 },
                 "kind": {
                     "const": "ErrorTrackingQuery",
@@ -26400,7 +26391,7 @@
                     "$ref": "#/definitions/ErrorTrackingIssueStatus"
                 },
                 "tags": {
-                    "description": "The issue's answers to its enabled tags, on issue list results and issue detail. Null or absent when the project has no enabled tag.",
+                    "description": "The enabled tags that are applied to the issue, on issue list results and issue detail. Null or absent when the project has no enabled tag.",
                     "items": {
                         "$ref": "#/definitions/ErrorTrackingIssueTag"
                     },
