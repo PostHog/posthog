@@ -20,7 +20,8 @@ const EXCEPTION_PROPERTIES = {
 }
 
 const FOUND_RECENT_ISSUE: MockResponse = [200, { results: [[RECENT_ISSUE_ID, RECENT_FINGERPRINT]] }]
-const FOUND_EXCEPTION: MockResponse = [200, { results: [[JSON.stringify(EXCEPTION_PROPERTIES), EXCEPTION_TIMESTAMP]] }]
+const FOUND_EXCEPTION = 'found'
+const LOOKUP_FAILED = 'failed'
 const QUERY_FAILED: MockResponse = [500, { detail: 'boom' }]
 
 const exampleGlobals = { event: { properties: {} } } as unknown as CyclotronJobInvocationGlobals
@@ -30,7 +31,7 @@ function useErrorTrackingApiMocks({
     exceptionByFingerprint,
 }: {
     recentIssues: MockResponse
-    exceptionByFingerprint: Record<string, MockResponse>
+    exceptionByFingerprint: Record<string, typeof FOUND_EXCEPTION | typeof LOOKUP_FAILED>
 }): void {
     useMocks({
         get: {
@@ -54,13 +55,22 @@ function useErrorTrackingApiMocks({
         },
         post: {
             '/api/environments/:team_id/query/:kind/': async ({ request }) => {
-                const body = (await request.json()) as { query: { query: string; tags?: { name?: string } } }
-                const query = body.query.query
-                if (body.query.tags?.name === 'hog_function_error_tracking_sample_issues') {
+                const { query } = (await request.json()) as { query: Record<string, any> }
+                if (query.kind === 'HogQLQuery') {
                     return recentIssues
                 }
-                const fingerprint = Object.keys(exceptionByFingerprint).find((key) => query.includes(key))
-                return fingerprint ? exceptionByFingerprint[fingerprint] : [200, { results: [] }]
+                const filter = JSON.stringify(query.properties ?? query.where)
+                const fingerprint = Object.keys(exceptionByFingerprint).find((key) => filter.includes(key))
+                if (!fingerprint) {
+                    return [200, { results: [] }]
+                }
+                if (exceptionByFingerprint[fingerprint] === LOOKUP_FAILED) {
+                    return QUERY_FAILED
+                }
+                const uuid = `uuid-${fingerprint}`
+                return query.select.includes('*')
+                    ? [200, { results: [[{ uuid, properties: EXCEPTION_PROPERTIES, timestamp: EXCEPTION_TIMESTAMP }]] }]
+                    : [200, { results: [[uuid, EXCEPTION_TIMESTAMP]] }]
             },
         },
     })
@@ -94,7 +104,7 @@ describe('SAMPLE_GLOBALS_CONTEXTS error-tracking', () => {
         ],
         [
             'issue fields only when the exception lookup fails',
-            { recentIssues: FOUND_RECENT_ISSUE, exceptionByFingerprint: { [RECENT_FINGERPRINT]: QUERY_FAILED } },
+            { recentIssues: FOUND_RECENT_ISSUE, exceptionByFingerprint: { [RECENT_FINGERPRINT]: LOOKUP_FAILED } },
             RECENT_ISSUE_ID,
             issueFields(RECENT_FINGERPRINT),
         ],

@@ -1,11 +1,12 @@
 import api, { ApiConfig } from 'lib/api'
 import { hogql } from 'lib/utils/hogql'
 
-import { ProductKey } from '~/queries/schema/schema-general'
+import { NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import {
     CyclotronJobFiltersType,
     CyclotronJobInvocationGlobals,
     HogFunctionConfigurationContextId,
+    PropertyFilterType,
     PropertyOperator,
 } from '~/types'
 
@@ -13,6 +14,8 @@ import {
     errorTrackingFingerprintsList,
     errorTrackingIssuesRetrieve,
 } from 'products/error_tracking/frontend/generated/api'
+
+import { performWideEventsQueryInTwoPhases } from '../sampleEventsQuery'
 
 export type SampleGlobalsLoader = (
     exampleGlobals: CyclotronJobInvocationGlobals,
@@ -59,19 +62,20 @@ async function loadLatestExceptionEvent(
     fingerprint: string
 ): Promise<{ properties: Record<string, any>; timestamp: string } | null> {
     try {
-        const response = await api.queryHogQL<[string, string][]>(
-            hogql`SELECT properties, timestamp FROM events
-                WHERE event = '$exception' AND properties.$exception_fingerprint = ${fingerprint}
-                AND timestamp > now() - INTERVAL 30 DAY
-                ORDER BY timestamp DESC LIMIT 1`,
-            { productKey: ProductKey.ERROR_TRACKING, name: 'hog_function_error_tracking_sample_event' }
-        )
-        const row = response.results[0]
-        if (!row) {
-            return null
-        }
-        const [properties, timestamp] = row
-        return { properties: JSON.parse(properties), timestamp }
+        const response = await performWideEventsQueryInTwoPhases({
+            kind: NodeKind.EventsQuery,
+            event: '$exception',
+            select: ['*'],
+            properties: [
+                { type: PropertyFilterType.HogQL, key: hogql`properties.$exception_fingerprint = ${fingerprint}` },
+            ],
+            after: '-30d',
+            orderBy: ['timestamp DESC'],
+            limit: 1,
+            tags: { productKey: ProductKey.ERROR_TRACKING, name: 'hog_function_error_tracking_sample_event' },
+        })
+        const event = response.results[0]?.[0]
+        return event ? { properties: event.properties, timestamp: event.timestamp } : null
     } catch {
         return null
     }
