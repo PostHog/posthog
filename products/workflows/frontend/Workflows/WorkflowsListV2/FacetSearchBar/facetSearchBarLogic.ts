@@ -316,7 +316,11 @@ function valueSuggestions(
             rest: draft.rest,
         })
     }
-    return rows.length ? rows : [noValuesRow(draft, value, facet, counts.length, firstChosenLabel)]
+    if (rows.length) {
+        return rows
+    }
+    const anyItemHasValue = countValuesIn(EVERY_ITEM)(facet.key).length > 0
+    return [noValuesRow(draft, value, facet, anyItemHasValue, firstChosenLabel)]
 }
 
 function matchesPartial(partial: string, label: string, value: string): boolean {
@@ -327,11 +331,11 @@ function noValuesRow(
     draft: FacetDraft,
     value: FacetSearchValue,
     facet: FacetDefinition<unknown>,
-    valueCount: number,
+    anyItemHasValue: boolean,
     firstChosenLabel: string | null
 ): FacetSuggestion {
     const label =
-        valueCount === 0 && facet.emptyLabel
+        !anyItemHasValue && facet.emptyLabel
             ? facet.emptyLabel
             : firstChosenLabel !== null
               ? `${firstChosenLabel} is already a filter`

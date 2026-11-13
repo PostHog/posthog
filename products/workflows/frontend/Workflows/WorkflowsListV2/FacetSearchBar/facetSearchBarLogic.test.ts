@@ -49,6 +49,13 @@ const FACETS: FacetDefinition<Item>[] = [
         getValues: () => [],
         emptyLabel: 'Health shows once run metrics load',
     },
+    {
+        key: 'team',
+        label: 'Team',
+        description: 'Known once teams load',
+        getValues: (item) => (item.name === 'Promo' ? ['growth'] : []),
+        emptyLabel: 'Team shows once teams load',
+    },
 ]
 
 const ITEMS: Item[] = [
@@ -193,6 +200,13 @@ describe('facetSearchBarLogic', () => {
             'one is already a filter',
         ],
         ['a facet whose values have not loaded', [], 'health:', 'Health shows once run metrics load'],
+        ['a loaded facet the search rules out', [], 'wel team:', 'No values to pick with your search'],
+        [
+            'a loaded facet other pills rule out',
+            [{ facet: 'status', value: 'draft', negated: false }],
+            'team:',
+            'No values to pick with your other filters',
+        ],
     ])('says why no values are left for %s', (_, filters, input, label) => {
         mountWith({ filters, text: '' })
         logic.actions.setInput(input)
