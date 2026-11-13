@@ -149,15 +149,19 @@ export class Telemetry {
             distinct_id: sender.distinctId,
             properties: { ...sender.properties, ...properties },
         }))
-        // CI sends inline because a finished job can kill a detached worker before it sends, and
-        // --debug sends inline to print the result.
-        if (
-            !debug &&
-            !isRunningInCI(this.runtime.env) &&
-            (await this.runtime.sendTelemetryInBackground?.(this.body(batch))) === true
-        ) {
-            return
+        // Attempt to send telemetry in the background, except if:
+        //   1. we're in debug mode, where we need to print the result
+        //   2. we're in CI where we can just take a bit longer to avoid the job being killed
+        //
+        // If attempting to send it in the background fails then let's just send it inline
+        if (!debug && !isRunningInCI(this.runtime.env)) {
+            const backgroundJobCreated = await this.runtime.sendTelemetryInBackground?.(this.body(batch))
+
+            if (backgroundJobCreated) {
+                return
+            }
         }
+
         await this.post(batch, debug)
     }
 

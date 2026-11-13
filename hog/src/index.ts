@@ -4,10 +4,14 @@ import { runTelemetryWorker, TELEMETRY_WORKER_ARG } from '@/core/telemetry-worke
 
 import { run } from './cli'
 
-// A promise chain rather than top-level await, which `bun build --bytecode` does not support.
+// The binary runs in one of two ways. A person or agent runs hog commands, which the else branch
+// handles. At the end of a run, hog also starts itself as `hog telemetry-worker` to send that run's
+// telemetry in the background (see `sendTelemetryInBackground` in core/runtime.ts). That worker
+// skips the command parser, so it loads no config, needs no credentials and sends no event of its own.
 if (process.argv[2] === TELEMETRY_WORKER_ARG) {
     void runTelemetryWorker()
 } else {
+    // A promise chain rather than top-level await, which `bun build --bytecode` does not support.
     void run(process.argv.slice(2), processRuntime()).then((code) => {
         process.exitCode = code
         if (hasPendingSecretCalls()) {
