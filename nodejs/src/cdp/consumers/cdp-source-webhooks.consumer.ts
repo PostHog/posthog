@@ -13,7 +13,7 @@ import { createHogFlowInvocation } from '../services/hogflows/hogflow-executor.s
 import { HOG_FLOW_QUOTA_LIMITED_MESSAGE } from '../services/hogflows/hogflow-quota-limiting'
 import { actionIdForLogging } from '../services/hogflows/hogflow-utils'
 import { IdempotencyKeys } from '../services/hogflows/idempotency-keys'
-import { JobQueue } from '../services/job-queue/job-queue.interface'
+import { IdempotentJobQueue, JobQueue } from '../services/job-queue/job-queue.interface'
 import { HogWatcherFunctionState, HogWatcherState, sameWatcherState } from '../services/monitoring/hog-watcher.service'
 import {
     CyclotronJobInvocationHogFunction,
@@ -121,14 +121,14 @@ export function isUnexpectedWebhookError(error: unknown): boolean {
 export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConfig> {
     protected name = 'CdpSourceWebhooksConsumer'
     private hogQueue: JobQueue
-    private hogflowQueue: JobQueue
+    private hogflowQueue: IdempotentJobQueue
     private runIntake: RunIntake
     private promiseScheduler: PromiseScheduler
 
     constructor(
         config: PluginsServerConfig,
         deps: CdpConsumerBaseDeps,
-        jobQueues: { hogQueue: JobQueue; hogflowQueue: JobQueue },
+        jobQueues: { hogQueue: JobQueue; hogflowQueue: IdempotentJobQueue },
         private idempotencyKeys: IdempotencyKeys = new IdempotencyKeys(null, 'workflow-webhook')
     ) {
         super(config, deps)
@@ -436,6 +436,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
                         hogFlow.team_id,
                         scopedIdempotencyKey,
                         hogFlow.id,
+                        invocationId,
                         invocationId
                     )
                 }
