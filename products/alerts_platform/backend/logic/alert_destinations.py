@@ -20,6 +20,7 @@ from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationGroup,
     AlertDestinationValidationError,
     AlertEventKind,
+    DeletedSourceDestinations,
     DestinationType,
     NewAlertDestination,
     SourceDestination,
@@ -343,7 +344,7 @@ def record_source_destination(
         configuration_id=configuration_id,
         destinations=(
             NewAlertDestination(
-                data=data, event_kinds=tuple(event_kinds), legacy_hog_function_ids=tuple(hog_function_ids)
+                data=_own_fields(data), event_kinds=tuple(event_kinds), legacy_hog_function_ids=tuple(hog_function_ids)
             ),
         ),
         hog_function_groups=hog_function_groups,
@@ -392,22 +393,58 @@ def list_source_destinations(
 
 def delete_source_destination_rows(
     *, team_id: int, public_id: UUID, destination_ids: Collection[UUID], hog_function_ids: Collection[UUID]
-) -> frozenset[UUID]:
-    """Deletes the alert's rows named by id or that copy any of `hog_function_ids`, and returns the
-    HogFunctions those rows copied, which the source deletes too."""
+) -> DeletedSourceDestinations:
+    """Deletes the alert's rows named by id or that copy any of `hog_function_ids`. The HogFunctions it
+    returns are only those copied by rows named by id: a delete by HogFunction ids keeps to the group it
+    names, and a row that copies a group since split into two takes no other."""
     if not destination_ids and not hog_function_ids:
-        return frozenset()
+        return DeletedSourceDestinations(row_types={}, copied_hog_function_ids=frozenset())
     rows = AlertDestination.objects.for_team(team_id).filter(
         models.Q(id__in=list(destination_ids)) | models.Q(legacy_hog_function_ids__overlap=list(hog_function_ids)),
         configuration__in=_configurations_by_public_id(team_id, public_id),
     )
-    copied = frozenset(
-        hog_function_id
-        for copies in rows.values_list("legacy_hog_function_ids", flat=True)
-        for hog_function_id in copies
-    )
+    named = set(destination_ids)
+    found = list(rows.values_list("id", "type", "legacy_hog_function_ids"))
     rows.delete()
-    return copied
+    return DeletedSourceDestinations(
+        row_types={row_id: row_type for row_id, row_type, _ in found},
+        copied_hog_function_ids=frozenset(
+            hog_function_id for row_id, _, copies in found if row_id in named for hog_function_id in copies
+        ),
+    )
+
+
+def delete_rows_copying(*, team_id: int, hog_function_ids: Collection[UUID]) -> int:
+    """Deletes every row that copies one of these HogFunctions, for HogFunctions deleted outside the alert's
+    own routes. Without it the row would stop being skipped and keep sending to the deleted destination."""
+    if not hog_function_ids:
+        return 0
+    deleted, _ = (
+        AlertDestination.objects.for_team(team_id)
+        .filter(legacy_hog_function_ids__overlap=list(hog_function_ids))
+        .delete()
+    )
+    return deleted
+
+
+# The fields each type sends with. A field of another type, such as a PagerDuty default on a Slack
+# request, would be stored and then shown unredacted, because redaction reads the type's own fields.
+_FIELDS_BY_TYPE: Final[dict[DestinationType, tuple[str, ...]]] = {
+    DestinationType.SLACK: ("slack_workspace_id", "slack_channel_id", "slack_channel_name"),
+    DestinationType.WEBHOOK: ("webhook_url", "webhook_headers"),
+    DestinationType.TEAMS: ("webhook_url",),
+    DestinationType.DISCORD: ("webhook_url",),
+    DestinationType.PAGERDUTY: ("pagerduty_routing_key", "pagerduty_severity", "pagerduty_region"),
+}
+
+
+def _own_fields(data: AlertDestinationData) -> AlertDestinationData:
+    fields = _FIELDS_BY_TYPE.get(DestinationType(data["type"]))
+    if fields is None:
+        return data
+    own = cast(AlertDestinationData, {key: value for key, value in data.items() if key in fields})
+    own["type"] = data["type"]
+    return own
 
 
 def _configurations_by_public_id(team_id: int, public_id: UUID) -> models.QuerySet[PlatformAlertConfiguration]:
@@ -479,7 +516,8 @@ def _redact_url(value: str) -> str:
     """Keep only the parts a person needs to tell two destinations apart. The path,
     query and userinfo carry the channel secret for every webhook-style provider."""
     try:
-        parsed = urlsplit(value)
+        # The sender's URL parser reads a backslash as a slash, so a path hidden behind one is still a path.
+        parsed = urlsplit(value.replace("\\", "/"))
         scheme, hostname, port = parsed.scheme, parsed.hostname, parsed.port
     except ValueError:
         return "<redacted>"

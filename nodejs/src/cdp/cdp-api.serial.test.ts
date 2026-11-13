@@ -20,6 +20,7 @@ import { HogFlow } from '~/cdp/schema/hogflow'
 import { PosthogJwtAudience } from '~/cdp/utils/jwt-utils'
 import { ScopedServiceJwt } from '~/cdp/utils/scoped-service-jwt'
 import { setupExpressApp } from '~/common/api/router'
+import { KAFKA_EMAIL_STATUS } from '~/common/config/kafka-topics'
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { APP_METRICS_OUTPUT } from '~/common/outputs'
 import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
@@ -2617,8 +2618,6 @@ describe('CDP API', () => {
             mockQueueInvocations = jest.fn().mockResolvedValue(undefined)
             api['hogflowQueue'] = { queueInvocations: mockQueueInvocations } as any
             hogFlow = await insertHogFlow(transactionalFlow('api', 'active'))
-            // The fixtures send to example.com, which publishes a null MX. Without this every send is refused.
-            jest.spyOn(api['emailValidationService'], 'getRecipientSkipReason').mockResolvedValue(null)
         })
 
         afterEach(() => {
@@ -2723,6 +2722,7 @@ describe('CDP API', () => {
             const addresslessSend = { ...codeSend, from: { integrationId: codeSend.from.integrationId } }
 
             beforeEach(() => {
+                mockProducerObserver.resetKafkaProducer()
                 keyed = { ...body, idempotency_key: `key-${new UUIDT().toString()}` }
             })
 
@@ -2736,25 +2736,45 @@ describe('CDP API', () => {
                     { ...body, send: { ...codeSend, from: { ...codeSend.from, integrationId: otherSenderId } } },
                 ],
                 [
-                    'a code send from a sender without an address',
+                    'a code send without a from address after it resolved to another sender',
                     'transactional_email/send',
                     { ...body, send: addresslessSend },
-                    { ...body, send: addresslessSend },
+                    { ...body, send: { ...addresslessSend, from: { integrationId: otherSenderId } } },
                 ],
             ] as const)(
                 'returns the first send for a retry of %s and queues nothing new',
                 async (_desc, route, first, retry) => {
-                    const sent = await sendKeyedOn(route, first)
-                    const replayed = await sendKeyedOn(route, retry)
+                    const queue = new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub)
+                    const cyclotron = new Pool({ connectionString: hub.CYCLOTRON_NODE_DATABASE_URL })
+                    await queue.startAsProducer()
+                    api['hogflowQueue'] = queue
+                    try {
+                        const sent = await sendKeyedOn(route, first)
+                        const replayed = await sendKeyedOn(route, retry)
 
-                    expect(sent.status).toEqual(202)
-                    expect(sent.body).toMatchObject({ replayed: false })
-                    expect(replayed.status).toEqual(202)
-                    expect(replayed.body).toEqual({ ...sent.body, replayed: true })
-                    expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
-                    expect(emailStatusRows()).toEqual([
-                        expect.objectContaining({ message_id: sent.body.invocation_id, status: 'queued' }),
-                    ])
+                        expect(sent.status).toEqual(202)
+                        expect(sent.body).toMatchObject({ replayed: false })
+                        expect(replayed.status).toEqual(202)
+                        expect(replayed.body).toEqual({ ...sent.body, replayed: true })
+                        const { rows } = await cyclotron.query('SELECT id FROM cyclotron_jobs WHERE function_id = $1', [
+                            hogFlow.id,
+                        ])
+                        expect(rows.map((row) => row.id)).toEqual([sent.body.invocation_id])
+                        await waitForExpect(() =>
+                            expect(
+                                mockProducerObserver
+                                    .getProducedKafkaMessagesForTopic(KAFKA_EMAIL_STATUS)
+                                    .filter(({ key }) => key === sent.body.invocation_id)
+                            ).toEqual([
+                                expect.objectContaining({
+                                    value: expect.objectContaining({ status: 'queued' }),
+                                }),
+                            ])
+                        )
+                    } finally {
+                        await queue.stopProducer()
+                        await cyclotron.end()
+                    }
                 }
             )
 
@@ -2780,14 +2800,6 @@ describe('CDP API', () => {
                     [
                         'transactional_email/send',
                         { ...body, send: { ...codeSend, from: { ...codeSend.from, email: 'alerts@example.com' } } },
-                    ],
-                ],
-                [
-                    'another sender without an address',
-                    ['transactional_email/send', { ...body, send: addresslessSend }],
-                    [
-                        'transactional_email/send',
-                        { ...body, send: { ...addresslessSend, from: { integrationId: otherSenderId } } },
                     ],
                 ],
                 [
@@ -4379,7 +4391,18 @@ describe('CDP API', () => {
                     total: 1,
                 })
                 expect(mockQueueInvocations).not.toHaveBeenCalled()
-                expect(emailStatusRows()).toEqual([])
+                const refusedSend = {
+                    team_id: team.id,
+                    message_id: expect.any(String),
+                    recipient: 'user@example.com',
+                    function_id: hogFlow.id,
+                }
+                expect(emailStatusRows()).toEqual([
+                    expect.objectContaining({ ...refusedSend, status: 'queued', reason: '' }),
+                    expect.objectContaining({ ...refusedSend, status: 'failed', reason: code }),
+                ])
+                const [queuedRow, failedRow] = emailStatusRows()
+                expect(failedRow.message_id).toEqual(queuedRow.message_id)
 
                 const retry = await sendOn(route, hogFlow.id, headers, keyed)
 
@@ -4882,6 +4905,38 @@ describe('CDP API', () => {
                     }
                 }
             )
+
+            it('replays a retry of a moved code send without a from address after it resolved to another sender', async () => {
+                const keys = api['transactionalEmailIdempotencyKeys']
+                const valkey = keys['valkey']!
+                const scope = `scope-${new UUIDT().toString()}`
+                api['transactionalEmailIdempotencyKeys'] = new IdempotencyKeys(valkey, scope)
+                const addresslessSend = { ...codeSend, from: { integrationId: codeSend.from.integrationId } }
+                const keyed = (send: Record<string, unknown>) => ({ ...body, send, idempotency_key: `key-${scope}` })
+                try {
+                    const first = await sendAccepted(hogFlow.id, keyed(addresslessSend))
+                    expect(first.status).toEqual(202)
+                    const moved = await manage('reschedule', first.body.invocation_id, { scheduled_at: inDays(29.9) })
+                    expect(moved.status).toEqual(200)
+                    await valkey.useClient({ name: 'test-store-clock' }, async (client) => {
+                        for (const stored of await client.keys(`*${scope}*`)) {
+                            const storedKey = stored.slice(client.options.keyPrefix?.length ?? 0)
+                            await client.pexpire(storedKey, (await client.pttl(storedKey)) - (DAY_MS + HOUR_MS))
+                        }
+                    })
+
+                    const retry = await sendAccepted(
+                        hogFlow.id,
+                        keyed({ ...addresslessSend, from: { integrationId: codeSend.from.integrationId + 3 } })
+                    )
+
+                    expect(retry.status).toEqual(202)
+                    expect(retry.body).toEqual({ ...first.body, replayed: true })
+                    expect(await idsAnEmailWorkerClaims()).toEqual([])
+                } finally {
+                    api['transactionalEmailIdempotencyKeys'] = keys
+                }
+            })
 
             it.each([
                 ['the key store is down', 'failed'],

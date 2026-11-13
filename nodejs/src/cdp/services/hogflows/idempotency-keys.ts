@@ -116,7 +116,13 @@ const sortKeys = (value: unknown): unknown => {
 export type IdempotencyReservation =
     | { status: 'reserved' }
     // The key already queued a run for the same request.
-    | { status: 'replayed'; invocationId: string; scheduledAt?: string; replayFields?: ReplayFields }
+    | {
+          status: 'replayed'
+          invocationId: string
+          senderKind?: SenderKind
+          scheduledAt?: string
+          replayFields?: ReplayFields
+      }
     // The first request with the key has not finished queueing yet.
     | { status: 'in_flight' }
     // The key was used for a different request.
@@ -125,13 +131,31 @@ export type IdempotencyReservation =
 
 export type ReplayFields = Record<string, number>
 
+export type SenderKind = 'email_sandbox'
+
+export type FingerprintWithPreviousShape = { current: string; previousShape: string }
+
+type Fingerprint = string | FingerprintWithPreviousShape
+
 type StoredKey = {
     fingerprint: string
+    currentFingerprint?: string
     invocationId: string
     queued: boolean
+    senderKind?: SenderKind
     scheduledAt?: string
     replayFields?: ReplayFields
 }
+
+export const storedFingerprint = (fingerprint: Fingerprint): Pick<StoredKey, 'fingerprint' | 'currentFingerprint'> =>
+    typeof fingerprint === 'string'
+        ? { fingerprint }
+        : { fingerprint: fingerprint.previousShape, currentFingerprint: fingerprint.current }
+
+const sameRequest = (stored: StoredKey, fingerprint: Fingerprint): boolean =>
+    typeof fingerprint === 'string'
+        ? stored.fingerprint === fingerprint
+        : stored.fingerprint === fingerprint.previousShape || stored.currentFingerprint === fingerprint.current
 
 type PendingCompletion = { redisKey: string; value: StoredKey; expiresAt: number }
 
@@ -164,7 +188,7 @@ export class IdempotencyKeys {
     async reserve(
         teamId: number,
         key: string,
-        fingerprint: string,
+        fingerprint: Fingerprint,
         invocationId: string
     ): Promise<IdempotencyReservation> {
         const reservation = await this.reserveInStore(teamId, key, fingerprint, invocationId)
@@ -175,14 +199,14 @@ export class IdempotencyKeys {
     private async reserveInStore(
         teamId: number,
         key: string,
-        fingerprint: string,
+        fingerprint: Fingerprint,
         invocationId: string
     ): Promise<IdempotencyReservation> {
         const valkey = this.valkey
         if (!valkey) {
             return { status: 'unavailable' }
         }
-        const value: StoredKey = { fingerprint, invocationId, queued: false }
+        const value: StoredKey = { ...storedFingerprint(fingerprint), invocationId, queued: false }
         let existing: string | null
         try {
             // SET ... NX GET sets the key when absent and returns the existing value when present.
@@ -207,7 +231,7 @@ export class IdempotencyKeys {
             return { status: 'reserved' }
         }
         const stored = parseJSON(existing) as StoredKey
-        if (stored.fingerprint !== fingerprint) {
+        if (!sameRequest(stored, fingerprint)) {
             return { status: 'conflict' }
         }
         if (!stored.queued) {
@@ -217,26 +241,29 @@ export class IdempotencyKeys {
             status: 'replayed',
             invocationId: stored.invocationId,
             scheduledAt: stored.scheduledAt,
-            ...(stored.replayFields && { replayFields: stored.replayFields }),
+            ...(stored.senderKind ? { senderKind: stored.senderKind } : {}),
+            ...(stored.replayFields ? { replayFields: stored.replayFields } : {}),
         }
     }
 
     async markQueued(
         teamId: number,
         key: string,
-        fingerprint: string,
+        fingerprint: Fingerprint,
         invocationId: string,
         replayFields?: ReplayFields,
         scheduledAt?: string,
-        latestDueAt?: Date
+        latestDueAt?: Date,
+        senderKind?: SenderKind
     ): Promise<void> {
         const dueAt = latestDueAt?.getTime() ?? (scheduledAt ? Date.parse(scheduledAt) : 0)
         const completion: PendingCompletion = {
             redisKey: this.redisKey(teamId, key),
             value: {
-                fingerprint,
+                ...storedFingerprint(fingerprint),
                 invocationId,
                 queued: true,
+                ...(senderKind ? { senderKind } : {}),
                 ...(replayFields && { replayFields }),
                 ...(scheduledAt && { scheduledAt }),
             },
@@ -344,7 +371,7 @@ export class IdempotencyKeys {
     async replayUntilDayAfter(
         teamId: number,
         invocationId: string,
-        { hash, fingerprint, scheduledAt, replayFields }: QueuedIdempotencyKey,
+        { hash, fingerprint, currentFingerprint, senderKind, scheduledAt, replayFields }: QueuedIdempotencyKey,
         latestDueAt: Date
     ): Promise<boolean> {
         const expiresAt = latestDueAt.getTime() + QUEUED_TTL_SECONDS * 1000
@@ -362,8 +389,10 @@ export class IdempotencyKeys {
                     redisKey: this.redisKeyOf(teamId, hash),
                     value: {
                         fingerprint,
+                        ...(currentFingerprint && { currentFingerprint }),
                         invocationId,
                         queued: true,
+                        ...(senderKind ? { senderKind } : {}),
                         ...(replayFields && { replayFields }),
                         ...(scheduledAt && { scheduledAt }),
                     },

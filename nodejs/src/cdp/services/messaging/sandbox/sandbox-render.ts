@@ -5,7 +5,7 @@ import { PostgresRouter } from '~/common/utils/db/postgres'
 import { CyclotronJobInvocationHogFlow, HogFunctionInvocationGlobals, HogFunctionType } from '../../../types'
 import { HogInputsService } from '../../hog-inputs.service'
 import { ActionHandlerOptions } from '../../hogflows/actions/action.interface'
-import { SandboxEmailAction } from '../../hogflows/actions/email_sandbox'
+import { SandboxEmailAction, SandboxSenderAction } from '../../hogflows/actions/email_sandbox'
 import { actionIdForLogging } from '../../hogflows/hogflow-utils'
 import { AUTHORIZATION_TIMEOUT_MS, readSandboxAuthorization } from './sandbox-authorization'
 import { SandboxRenderedEmail, SandboxRenderedEmailSchema } from './sandbox-message'
@@ -62,7 +62,16 @@ export async function renderSandboxEmail(
     return parsed.data
 }
 
-export function logRenderFailure({ action, result }: ActionHandlerOptions<SandboxEmailAction>, error: unknown): void {
+export function acceptedSandboxEmail(invocation: CyclotronJobInvocationHogFlow): SandboxRenderedEmail {
+    const content = invocation.state.send?.content
+    const recipient = invocation.state.event?.properties?.to
+    if (!content || typeof recipient !== 'string') {
+        throw new SandboxRenderError('The email sent from code has no recipient or content')
+    }
+    return { to: { email: recipient }, subject: content.subject, html: content.html, text: content.text }
+}
+
+export function logRenderFailure({ action, result }: ActionHandlerOptions<SandboxSenderAction>, error: unknown): void {
     result.logs.push({
         level: 'error',
         timestamp: DateTime.now(),
