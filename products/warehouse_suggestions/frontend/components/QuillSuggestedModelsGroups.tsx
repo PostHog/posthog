@@ -9,6 +9,7 @@ import { SuggestedModelsGroupsProps } from './SuggestedModelsGroups'
 const ROW_FOR_KIND: Record<string, (props: CertificationSuggestionRowProps) => JSX.Element | null> = {
     materialize: QuillMaterializeSuggestionRow,
     unmaterialize: QuillUnmaterializeSuggestionRow,
+    certify: QuillCertificationSuggestionRow,
     deprecate: QuillCertificationSuggestionRow,
 }
 
