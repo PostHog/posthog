@@ -19,11 +19,14 @@ from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Feature, get_team_query_tags, tag_queries
 from posthog.errors import CH_TRANSIENT_ERRORS
 from posthog.event_usage import EventSource
+from posthog.exceptions import ClickHouseAtCapacity, ClickHouseClusterMemoryLimitExceeded
 from posthog.exceptions_capture import capture_exception
+from posthog.hogql_queries.query_failure_handling import classify_failure
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team
 from posthog.ph_client import ph_scoped_capture
 from posthog.query_cache import clean_up_stale_insights, days_read_at_this_time, get_stale_insights
+from posthog.query_cache.failures import WarmingTaskFailureCache
 from posthog.query_creator_access import creator_access_revoked, report_creator_access_revoked
 from posthog.scheduling.jitter import deterministic_offset
 from posthog.schema_migrations.upgrade_manager import upgrade_insight
@@ -50,6 +53,11 @@ PRIORITY_INSIGHTS_COUNTER = Counter(
     "Number of priority insights warmed",
     ["team_id", "dashboard", "is_cached"],
 )
+NOT_WARMED_INSIGHTS_COUNTER = Counter(
+    "posthog_cache_warming_not_warmed_insights",
+    "Insights that a warming task did not warm, by reason",
+    ["reason"],
+)
 
 LAST_VIEWED_THRESHOLD = timedelta(days=7)
 SHARED_INSIGHTS_LAST_VIEWED_THRESHOLD = timedelta(days=3)
@@ -65,9 +73,10 @@ WARMING_START_WINDOW = timedelta(minutes=10)
 # so a chain has expired before the next hourly dispatch starts the same team again.
 WARMING_CHAIN_LIFETIME = timedelta(minutes=50)
 
-# ClickHouse capacity/concurrency errors that should retry with backoff rather than fail the task.
-# ClickHouseAtCapacity is included via CH_TRANSIENT_ERRORS (it's what codes 202/439 surface as).
-RETRIABLE_WARMING_ERRORS = (*CH_TRANSIENT_ERRORS, ConcurrencyLimitExceeded)
+# ClickHouse had no room for the query. A retry seconds later meets the same load, so these wait
+# for the next hourly run. ClickHouseAtCapacity is what codes 202/439 surface as.
+WARMING_CAPACITY_ERRORS = (ClickHouseAtCapacity, ClickHouseClusterMemoryLimitExceeded, ConcurrencyLimitExceeded)
+RETRIABLE_WARMING_ERRORS = tuple(error for error in CH_TRANSIENT_ERRORS if error not in WARMING_CAPACITY_ERRORS)
 
 
 def _flag_enabled_for_team(flag: str, *, team_id: int, organization_id: object, uuid: object) -> bool:
@@ -245,6 +254,48 @@ def schedule_warming_for_teams_task():
             ).apply_async(eta=start_at)
 
 
+def _report_warming_error(insight: Insight, dashboard_id: Optional[int], e: Exception) -> None:
+    # A revoked creator's access error is a known limitation - report it as an event
+    # rather than surfacing it in error tracking.
+    if isinstance(e, (TableAccessDeniedError, UserNotOrganizationMemberError)) and creator_access_revoked(
+        insight.created_by, insight.team
+    ):
+        report_creator_access_revoked(
+            user=insight.created_by,
+            team=insight.team,
+            source="cache_warming",
+            error=e,
+            properties={"insight_id": insight.pk, "dashboard_id": dashboard_id},
+        )
+    elif isinstance(e, ExposedHogQLError):
+        # The query itself is wrong, and only its author can correct it. Report it as an
+        # event so it stays with the team instead of becoming an issue in our error tracking.
+        with ph_scoped_capture() as capture_ph_event:
+            capture_ph_event(
+                distinct_id=str(insight.team.uuid),
+                event="cache warming - insight query error",
+                properties={
+                    "insight_id": insight.pk,
+                    "insight_short_id": insight.short_id,
+                    "dashboard_id": dashboard_id,
+                    "team_id": insight.team_id,
+                    "organization_id": str(insight.team.organization_id),
+                    "error_code": e.code_name,
+                    "error": str(e),
+                },
+            )
+    else:
+        capture_exception(e)
+
+
+def _record_unhandled_warming_failure(backoff: WarmingTaskFailureCache, error: Exception, team_id: int) -> None:
+    # The query breaker owns these failures, including replays that did not execute.
+    if getattr(error, "served_from_query_failure_cache", False) or classify_failure(error, team_id):
+        backoff.clear()
+    else:
+        backoff.record_failure("warming", "")
+
+
 @shared_task(
     queue=CeleryQueue.ANALYTICS_LIMITED.value,  # Important! Prevents Clickhouse from being overwhelmed
     ignore_result=True,
@@ -266,6 +317,12 @@ def warm_insight_cache_task(insight_id: int, dashboard_id: Optional[int]):
         logger.info(f"Warming insight cache skipped, insight has no query: {insight_id}")
         return
 
+    backoff = WarmingTaskFailureCache(team_id=insight.team_id, insight_id=insight.pk, dashboard_id=dashboard_id)
+    if backoff.get_open() is not None:
+        NOT_WARMED_INSIGHTS_COUNTER.labels(reason="failure_backoff").inc()
+        logger.info("cache_warming_skipped_failure_backoff", insight_id=insight.pk, dashboard_id=dashboard_id)
+        return
+
     dashboard = None
 
     tag_queries(
@@ -281,6 +338,7 @@ def warm_insight_cache_task(insight_id: int, dashboard_id: Optional[int]):
     with upgrade_insight(insight):
         logger.info(f"Warming insight cache: {insight.pk} for team {insight.team_id} and dashboard {dashboard_id}")
 
+        warmed = False
         try:
             tile_filters_override = (
                 dashboards_api.tile_filters_overrides(dashboard_id=dashboard.id, insight_id=insight.pk)
@@ -308,6 +366,8 @@ def warm_insight_cache_task(insight_id: int, dashboard_id: Optional[int]):
             )
 
             is_cached = results.is_cached
+            warmed = True
+            backoff.clear()
 
             PRIORITY_INSIGHTS_COUNTER.labels(
                 team_id=insight.team_id,
@@ -329,37 +389,14 @@ def warm_insight_cache_task(insight_id: int, dashboard_id: Optional[int]):
                     },
                 )
 
+        except WARMING_CAPACITY_ERRORS:
+            backoff.record_failure("warming", "")
+            NOT_WARMED_INSIGHTS_COUNTER.labels(reason="at_capacity").inc()
+            logger.info("cache_warming_clickhouse_at_capacity", insight_id=insight.pk, dashboard_id=dashboard_id)
         except RETRIABLE_WARMING_ERRORS:
             raise
         except Exception as e:
-            # A revoked creator's access error is a known limitation - report it as an event
-            # rather than surfacing it in error tracking.
-            if isinstance(e, (TableAccessDeniedError, UserNotOrganizationMemberError)) and creator_access_revoked(
-                insight.created_by, insight.team
-            ):
-                report_creator_access_revoked(
-                    user=insight.created_by,
-                    team=insight.team,
-                    source="cache_warming",
-                    error=e,
-                    properties={"insight_id": insight.pk, "dashboard_id": dashboard_id},
-                )
-            elif isinstance(e, ExposedHogQLError):
-                # The query itself is wrong, and only its author can correct it. Report it as an
-                # event so it stays with the team instead of becoming an issue in our error tracking.
-                with ph_scoped_capture() as capture_ph_event:
-                    capture_ph_event(
-                        distinct_id=str(insight.team.uuid),
-                        event="cache warming - insight query error",
-                        properties={
-                            "insight_id": insight.pk,
-                            "insight_short_id": insight.short_id,
-                            "dashboard_id": dashboard_id,
-                            "team_id": insight.team_id,
-                            "organization_id": str(insight.team.organization_id),
-                            "error_code": e.code_name,
-                            "error": str(e),
-                        },
-                    )
-            else:
-                capture_exception(e)
+            if not warmed:
+                _record_unhandled_warming_failure(backoff, e, insight.team_id)
+                NOT_WARMED_INSIGHTS_COUNTER.labels(reason="error").inc()
+            _report_warming_error(insight, dashboard_id, e)

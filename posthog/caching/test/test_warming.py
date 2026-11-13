@@ -1,9 +1,12 @@
 from datetime import UTC, datetime, timedelta
 
+import pytest
 import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from celery.exceptions import Retry
+from clickhouse_driver.errors import NetworkError
 from parameterized import parameterized
 
 from posthog.hogql.errors import QueryError
@@ -16,7 +19,7 @@ from posthog.caching.warming import (
     warm_insight_cache_task,
 )
 from posthog.constants import AvailableFeature
-from posthog.exceptions import ClickHouseAtCapacity
+from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 from posthog.models import User
 from posthog.query_cache.freshness_index import update_target_age
 from posthog.query_cache.read_history import record_read
@@ -272,17 +275,91 @@ class TestWarmInsightCacheTask(APIBaseTest):
         assert response.json()["is_cached"] is True
         assert response.json()["result"] == [[5]]
 
+    @parameterized.expand(
+        [
+            ("capacity_error_waits_for_the_next_run", ClickHouseAtCapacity(), False),
+            ("connection_error_is_retried", NetworkError("connection refused"), True),
+        ]
+    )
+    def test_only_errors_that_clear_within_seconds_are_retried(self, _name, error, retried):
+        insight = Insight.objects.create(team=self.team, query={"kind": "TrendsQuery", "series": []})
+
+        with (
+            patch("posthog.caching.warming.capture_exception") as mock_capture_exception,
+            patch("posthog.caching.warming.calculate_for_query_based_insight", side_effect=error),
+        ):
+            if retried:
+                with pytest.raises((NetworkError, Retry)):
+                    warm_insight_cache_task(insight.pk, None)
+            else:
+                warm_insight_cache_task(insight.pk, None)
+
+        mock_capture_exception.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("capacity", ClickHouseAtCapacity()),
+            ("invalid_query", QueryError("no timestamp binding")),
+        ]
+    )
     @patch("posthog.caching.warming.capture_exception")
-    @patch("posthog.caching.warming.calculate_for_query_based_insight", side_effect=ClickHouseAtCapacity())
-    def test_capacity_errors_propagate_for_retry_instead_of_being_captured(
-        self, mock_calculate, mock_capture_exception
+    @patch("posthog.caching.warming.calculate_for_query_based_insight")
+    def test_an_insight_that_keeps_failing_waits_longer_between_warms(
+        self, _name, error, mock_calculate, mock_capture_exception
+    ):
+        insight = Insight.objects.create(team=self.team, query={"kind": "TrendsQuery", "series": []})
+        succeeded = MagicMock(is_cached=False)
+
+        def warm_after(elapsed: timedelta, outcome: object) -> int:
+            mock_calculate.reset_mock()
+            mock_calculate.side_effect = [outcome]
+            traveller.shift(elapsed)
+            warm_insight_cache_task(insight.pk, None)
+            return mock_calculate.call_count
+
+        with time_machine.travel(datetime(2025, 1, 1, tzinfo=UTC), tick=False) as traveller:
+            assert warm_after(timedelta(0), error) == 1
+            assert warm_after(timedelta(hours=1), error) == 1
+            assert warm_after(timedelta(hours=1), succeeded) == 0
+            assert warm_after(timedelta(hours=1, minutes=1), error) == 1
+            assert warm_after(timedelta(hours=3), succeeded) == 0
+            assert warm_after(timedelta(hours=1, minutes=1), succeeded) == 1
+            assert warm_after(timedelta(hours=1), error) == 1
+            assert warm_after(timedelta(hours=1), succeeded) == 1
+
+    @parameterized.expand(
+        [
+            ("executed_timeout", ClickHouseQueryTimeOut(), False),
+            ("replayed_memory_limit", ClickHouseQueryMemoryLimitExceeded(), True),
+        ]
+    )
+    @patch("posthog.caching.warming.capture_exception")
+    @patch("posthog.caching.warming.calculate_for_query_based_insight")
+    def test_query_breaker_failures_do_not_add_a_task_cooldown(
+        self, _name, error, replayed, mock_calculate, mock_capture_exception
+    ):
+        insight = Insight.objects.create(team=self.team, query={"kind": "TrendsQuery", "series": []})
+        error.served_from_query_failure_cache = replayed
+        mock_calculate.side_effect = [ClickHouseAtCapacity(), error, error, MagicMock(is_cached=False)]
+
+        with time_machine.travel(datetime(2026, 1, 1, tzinfo=UTC), tick=False):
+            for _ in range(4):
+                warm_insight_cache_task(insight.pk, None)
+
+        assert mock_calculate.call_count == 4
+
+    @patch("posthog.caching.warming.capture_exception")
+    @patch("posthog.caching.warming.ph_scoped_capture", side_effect=RuntimeError("event capture is down"))
+    @patch("posthog.caching.warming.calculate_for_query_based_insight", return_value=MagicMock(is_cached=False))
+    def test_an_error_after_a_successful_warm_does_not_count_as_a_failed_warm(
+        self, mock_calculate, mock_ph_scoped_capture, mock_capture_exception
     ):
         insight = Insight.objects.create(team=self.team, query={"kind": "TrendsQuery", "series": []})
 
-        with self.assertRaises(ClickHouseAtCapacity):
+        for _ in range(3):
             warm_insight_cache_task(insight.pk, None)
 
-        mock_capture_exception.assert_not_called()
+        assert mock_calculate.call_count == 3
 
     @patch("posthog.caching.warming.capture_exception")
     @patch("posthog.query_creator_access.ph_scoped_capture")
