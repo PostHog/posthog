@@ -7,7 +7,6 @@ import {
     LemonCard,
     LemonSegmentedButton,
     LemonSelect,
-    LemonSkeleton,
     LemonSwitch,
     LemonTable,
     LemonTag,
@@ -78,6 +77,8 @@ const PromptSearchesLine = ({ prompt }: { prompt: AEOPromptApi }): JSX.Element |
         </Tooltip>
     )
 }
+
+const LOADING_ROWS = 6
 
 export const ContentAutopilotPrompts = (): JSX.Element => {
     const {
@@ -212,11 +213,8 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
                 </LemonBanner>
             ) : null}
 
-            {prompts === null ? (
-                promptsError ? null : (
-                    <LemonSkeleton className="h-40 w-full" />
-                )
-            ) : count === 0 &&
+            {prompts === null && promptsError ? null : prompts !== null &&
+              count === 0 &&
               promptsTopic === null &&
               promptsBranded === null &&
               !showArchived &&
@@ -234,9 +232,11 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
                 </LemonCard>
             ) : (
                 <LemonTable
-                    dataSource={prompts.results}
+                    dataSource={prompts?.results ?? []}
                     rowKey="id"
-                    loading={promptsLoading}
+                    // Before the first page arrives, placeholder rows hold the table's shape.
+                    loading={promptsLoading || prompts === null}
+                    loadingSkeletonRows={LOADING_ROWS}
                     emptyState={
                         needsImprovement
                             ? 'No prompts need improvement. A prompt shows here when an AI assistant answered it in the last 30 days without citing your site.'
