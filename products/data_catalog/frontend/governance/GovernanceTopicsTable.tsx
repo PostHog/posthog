@@ -20,9 +20,7 @@ import { usageLogic } from '../usageLogic'
 import { GovernanceColumnHeader } from './GovernanceColumnHeader'
 import { GovernanceSectionFailed } from './GovernanceSectionFailed'
 import { GovernanceTableEmpty } from './GovernanceTableEmpty'
-
-// The topics and sources tables share a row, so they page alike and keep one height.
-const PAGE_SIZE = 5
+import { TOP_TABLE_PAGE_SIZE } from './governanceTopTables'
 
 // The judge step writes the adjusted runs, which tell the topics which sessions adapted a metric they read.
 const AGENT_COUNTS_MISSING =
@@ -72,7 +70,7 @@ const COLUMNS: DataTableProps<TopicClusterApi, unknown>['columns'] = [
 export function GovernanceTopicsTable(): JSX.Element {
     const { topics, topicSessionsSummary, failureReasons } = useValues(usageLogic)
     return (
-        <section className="flex min-w-0 flex-col gap-2" data-attr="data-catalog-usage-topics">
+        <section className="flex min-w-0 flex-col gap-2" data-attr="data-catalog-governance-topics">
             <div className="flex min-h-6 items-center gap-1">
                 <Heading size="sm" render={<h3 className="m-0" />}>
                     Top agent topics
@@ -101,7 +99,7 @@ export function GovernanceTopicsTable(): JSX.Element {
                         columns={COLUMNS}
                         data={topics}
                         getRowId={(topic) => topic.title}
-                        pageSize={PAGE_SIZE}
+                        pageSize={TOP_TABLE_PAGE_SIZE}
                         size="sm"
                         fullWidth
                         empty={

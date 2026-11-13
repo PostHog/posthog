@@ -23,9 +23,8 @@ import { SourceRow, agentSurfaceLabel } from '../usageRows'
 import { GovernanceColumnHeader } from './GovernanceColumnHeader'
 import { GovernanceSectionFailed } from './GovernanceSectionFailed'
 import { GovernanceTableEmpty } from './GovernanceTableEmpty'
+import { TOP_TABLE_PAGE_SIZE } from './governanceTopTables'
 
-// The topics and sources tables share a row, so they page alike and keep one height.
-const PAGE_SIZE = 5
 const SKELETON_ROWS = 4
 
 function UsageCell({ row }: { row: SourceRow }): JSX.Element {
@@ -101,7 +100,7 @@ function SourcesContent(): JSX.Element {
             columns={COLUMNS}
             data={sourceRows}
             getRowId={(row) => row.key}
-            pageSize={PAGE_SIZE}
+            pageSize={TOP_TABLE_PAGE_SIZE}
             size="sm"
             fullWidth
             empty={
@@ -116,7 +115,7 @@ function SourcesContent(): JSX.Element {
 export function GovernanceSourcesTable(): JSX.Element {
     const { failureReasons } = useValues(usageLogic)
     return (
-        <section className="flex min-w-0 flex-col gap-2" data-attr="data-catalog-usage-sources">
+        <section className="flex min-w-0 flex-col gap-2" data-attr="data-catalog-governance-sources">
             <div className="flex min-h-6 items-center">
                 <Heading size="sm" render={<h3 className="m-0" />}>
                     Top used sources

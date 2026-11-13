@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import { useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 
 import { IconChevronRight } from '@posthog/icons'
 import {
@@ -21,7 +21,7 @@ import { urls } from 'scenes/urls'
 import { newMetricUrl } from '../common'
 import { QuillMetricCodeBlock } from '../components/QuillMetricCodeBlock'
 import type { DataCatalogMetricApi } from '../generated/api.schemas'
-import { ProposedRow, proposedRowPrefill } from '../proposedRows'
+import { ProposedRow, complexityLabel, proposedRowPrefill } from '../proposedRows'
 import { usageLogic } from '../usageLogic'
 import { GovernanceColumnHeader } from './GovernanceColumnHeader'
 import { GovernanceSectionFailed } from './GovernanceSectionFailed'
@@ -29,7 +29,6 @@ import { GovernanceTableEmpty } from './GovernanceTableEmpty'
 import { QuillProposedMetricSources } from './QuillProposedMetricSources'
 
 const PAGE_SIZE = 10
-const COMPLEXITY_LABELS: Record<number, string> = { 0: 'Unknown', 1: 'Low', 2: 'Medium', 3: 'High' }
 
 function DerivedFrom({ metric }: { metric: DataCatalogMetricApi | undefined }): JSX.Element {
     if (!metric) {
@@ -47,7 +46,7 @@ function DerivedFrom({ metric }: { metric: DataCatalogMetricApi | undefined }): 
                 size="inline"
                 nativeButton={false}
                 render={<LinkPrimitive to={urls.dataCatalogMetric(metric.name)} />}
-                data-attr="data-catalog-usage-derived-from-link"
+                data-attr="data-catalog-governance-derived-from-link"
             >
                 {metric.display_name || metric.name}
             </Button>
@@ -65,7 +64,7 @@ function ProposedMetricName({ row, expanded }: { row: ProposedRow; expanded: boo
                 nativeButton={false}
                 render={<LinkPrimitive to={newMetricUrl(proposedRowPrefill(row))} />}
                 className={row.name ? 'font-semibold' : 'font-mono'}
-                data-attr="data-catalog-usage-proposed-metric-link"
+                data-attr="data-catalog-governance-proposed-metric-link"
             >
                 <span className={row.name ? 'truncate' : 'line-clamp-2 text-start whitespace-normal'}>
                     {row.name ?? row.measure}
@@ -84,7 +83,8 @@ function ProposedMetricName({ row, expanded }: { row: ProposedRow; expanded: boo
             {row.outcome === 'slice' && <DerivedFrom metric={metricsById[row.matchedMetricId ?? '']} />}
             {expanded && (
                 // Zero width keeps the SQL out of the column's natural width, so a long query wraps inside the cell.
-                <div className="mt-2 flex w-0 min-w-full flex-col gap-2">
+                // The ignore attribute lets a person select text in the SQL without collapsing the row.
+                <div className="mt-2 flex w-0 min-w-full flex-col gap-2" data-row-click-ignore>
                     {row.measures > 1 && <Text size="xs">This proposal merges {row.measures} recurring measures.</Text>}
                     <QuillMetricCodeBlock code={row.sql} language={Language.SQL} wrap />
                 </div>
@@ -139,7 +139,7 @@ function proposedColumns(expandedKeys: Set<string>): DataTableProps<ProposedRow,
                 />
             ),
             sortDescFirst: true,
-            cell: ({ row }) => COMPLEXITY_LABELS[row.original.complexity] ?? COMPLEXITY_LABELS[0],
+            cell: ({ row }) => complexityLabel(row.original.complexity),
         },
         {
             accessorKey: 'people',
@@ -177,11 +177,18 @@ function proposedColumns(expandedKeys: Set<string>): DataTableProps<ProposedRow,
     ]
 }
 
+const NO_PROPOSALS = (
+    <GovernanceTableEmpty>
+        No measure needs a metric yet. One appears here once several people compute the same measure.
+    </GovernanceTableEmpty>
+)
+
 export function GovernanceProposedTable(): JSX.Element {
     const { proposedRows, failureReasons } = useValues(usageLogic)
     const [expandedKeys, setExpandedKeys] = useState<Set<string>>(() => new Set())
 
-    const toggle = (row: ProposedRow): void => {
+    const columns = useMemo(() => proposedColumns(expandedKeys), [expandedKeys])
+    const toggle = useCallback((row: ProposedRow): void => {
         setExpandedKeys((current) => {
             const next = new Set(current)
             if (next.has(row.key)) {
@@ -191,10 +198,10 @@ export function GovernanceProposedTable(): JSX.Element {
             }
             return next
         })
-    }
+    }, [])
 
     return (
-        <section className="flex min-w-0 flex-col gap-2" data-attr="data-catalog-usage-proposed">
+        <section className="flex min-w-0 flex-col gap-2" data-attr="data-catalog-governance-proposed">
             <Heading size="sm" render={<h3 className="m-0" />}>
                 Proposed metrics
             </Heading>
@@ -202,19 +209,14 @@ export function GovernanceProposedTable(): JSX.Element {
                 <GovernanceSectionFailed reason={failureReasons.uncovered} />
             ) : (
                 <DataTable
-                    columns={proposedColumns(expandedKeys)}
+                    columns={columns}
                     data={proposedRows}
                     getRowId={(row) => row.key}
                     pageSize={PAGE_SIZE}
                     size="sm"
                     fullWidth
                     onRowClick={toggle}
-                    empty={
-                        <GovernanceTableEmpty>
-                            No measure needs a metric yet. One appears here once several people compute the same
-                            measure.
-                        </GovernanceTableEmpty>
-                    }
+                    empty={NO_PROPOSALS}
                 />
             )}
         </section>

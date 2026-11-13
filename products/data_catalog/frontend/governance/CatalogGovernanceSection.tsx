@@ -34,7 +34,7 @@ function RecomputeButton(): JSX.Element {
             onClick={recompute}
             loading={recomputedLoading}
             disabledReason={recomputeDisabledReason}
-            data-attr="data-catalog-usage-recompute"
+            data-attr="data-catalog-governance-recompute"
         >
             Run a new scan
         </Button>
