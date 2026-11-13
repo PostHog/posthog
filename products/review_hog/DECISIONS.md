@@ -205,8 +205,8 @@ Entries below this one keep the old names as history.
 
 - **API paths:** `review_hog/<x>` became `code_review/<x>`. Stamphog's `repo_configs`, `review_runs`, `pull_requests` and `routing_runs` became `code_review/approvals/{repositories,runs,pull_requests,reviewer_routing}`. The digest endpoints and their MCP tools are gone while the digest is paused; the digest backend stays.
 - **MCP tools:** `review-hog-reviews-*` became `code-review-reviews-*`, and `stamphog-*` became `code-review-approvals-*`. Both products share the `PostHog Review` category and the `code_review` feature key.
-- **Scopes and access control:** `review_hog` became `code_review`, and `stamphog` became `code_review_approval`, for API scopes and for the access-control resource. `posthog/migrations/1436_rename_code_review_scopes.py` rewrites stored keys, OAuth rows and access-control rows.
-- **OAuth:** shipped desktop builds still request the old scope names, so `posthog/scopes.py::RENAMED_OAUTH_SCOPE_OBJECTS` translates them at `/authorize` and device authorization. Remove it once those builds age out.
+- **Scopes and access control:** `review_hog` became `code_review`, and `stamphog` became `code_review_approval`, for API scopes and for the access-control resource. `posthog/migrations/1436_rename_code_review_scopes.py` adds the new names next to the old ones in stored keys, OAuth rows and access-control rows; a follow-up migration drops the old ones after deploy.
+- **OAuth:** shipped desktop builds still request the old scope names, so `posthog/scopes.py::RENAMED_OAUTH_SCOPE_OBJECTS` translates them at `/authorize`, device authorization and refresh. Remove it once those builds age out.
 - **Kept:** the GitHub app and its `stamphog` label, `/stamp`, `.stamphog/` policy files, the webhook path, the `/stamphog/install/callback` route, internal code names, feature flag keys, analytics events, and stored enum values such as `stamphog_approved` and `reviewhog_clean`.
 
 ### 🧪 BUILT 2026-11-10 — devex lens: a Standard session routed by `owners.yaml` (flag off, pilot failed three bars)
