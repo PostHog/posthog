@@ -771,6 +771,7 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
                 has_more: hasMore,
                 mode: values.mode,
                 scope: values.scope,
+                filters_active: values.filtersActive,
             })
             cache.visitStartedAt = undefined
         }
@@ -824,13 +825,19 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
             },
             loadList: () => {
                 cache.visitStartedAt = performance.now()
-                cache.visitCached = values.mode === 'feed' ? values.currentFeed.initialized : !!values.folderContents
                 if (values.mode === 'feed') {
+                    cache.visitCached = values.currentFeed.initialized
                     actions.refreshFeed(values.feedQuery)
                     syncShownQuery()
-                } else {
-                    actions.loadFolderContents()
+                    return
                 }
+                // Only this folder's last rows show at once. Another folder's rows show nothing until the read lands.
+                const shown = values.folderContents?.folder === values.filters.folder ? values.folderContents : null
+                cache.visitCached = !!shown
+                if (shown) {
+                    reportListLoaded(shown.entries.length, shown.hasMore)
+                }
+                actions.loadFolderContents()
             },
             loadMore: () => {
                 if (!values.hasMore) {

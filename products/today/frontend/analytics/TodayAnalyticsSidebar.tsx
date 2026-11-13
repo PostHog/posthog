@@ -76,6 +76,7 @@ export function TodayAnalyticsSidebar(): JSX.Element {
                           />
                       ),
                       dataAttr: 'analytics-sidebar-starred-space',
+                      eventProperties: { object_type: 'folder' },
                       wrap: (row) => <SidebarRowEnter pinKey={pinned.key}>{row}</SidebarRowEnter>,
                   }
                 : {
@@ -96,6 +97,7 @@ export function TodayAnalyticsSidebar(): JSX.Element {
                           />
                       ),
                       dataAttr: 'analytics-sidebar-pinned',
+                      eventProperties: { object_type: pinned.item.type },
                       wrap: (row) => <SidebarRowEnter pinKey={pinned.key}>{row}</SidebarRowEnter>,
                   }
         ),
@@ -112,6 +114,7 @@ export function TodayAnalyticsSidebar(): JSX.Element {
                 />
             ),
             dataAttr: 'analytics-sidebar-recent',
+            eventProperties: { object_type: item.type },
         })),
         by_posthog: fromPostHog.map((product) => {
             const productPath = product.href.split(/[?#]/)[0]
@@ -126,6 +129,7 @@ export function TodayAnalyticsSidebar(): JSX.Element {
                 to: product.href,
                 active: path === productPath || path.startsWith(`${productPath}/`),
                 dataAttr: 'analytics-sidebar-by-posthog',
+                eventProperties: { product: product.key },
                 wrap: preview?.description
                     ? (row) => <TodayPreviewTrigger payload={preview}>{row}</TodayPreviewTrigger>
                     : undefined,

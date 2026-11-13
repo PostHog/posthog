@@ -4,7 +4,7 @@ import { IconPin, IconPinFilled } from '@posthog/icons'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { scenePinTarget } from 'scenes/analytics/analyticsPinnedLogic'
+import { analyticsPinnedLogic, scenePinTarget } from 'scenes/analytics/analyticsPinnedLogic'
 
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { SceneMenuBarItem } from '~/layout/scenes/components/SceneMenuBar'
@@ -15,6 +15,8 @@ import { sceneFileLogic } from './sceneFileLogic'
 /** The Today layout drops the File menu's project tree items, so the pin for an analytics item lives in Edit. */
 export function SceneMenuBarPinItem({ dataAttrKey }: { dataAttrKey: string }): JSX.Element | null {
     useMountedLogic(sceneFileLogic)
+    // Reports the pin once it saves.
+    useMountedLogic(analyticsPinnedLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { projectTreeRefEntry } = useValues(projectTreeDataLogic)
     const { pinnedShortcutIds, shortcutDataLoading } = useValues(sidebarPinsLogic)

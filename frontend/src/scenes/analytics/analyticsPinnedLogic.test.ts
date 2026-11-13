@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { sidebarPinsLogic } from '~/layout/today/sidebar/sidebarPinsLogic'
@@ -9,9 +10,11 @@ import { analyticsPinnedLogic } from './analyticsPinnedLogic'
 
 describe('analyticsPinnedLogic', () => {
     let requests: string[]
+    let capture: jest.SpyInstance
 
     beforeEach(() => {
         requests = []
+        capture = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
         useMocks({
             get: {
                 '/api/projects/:team_id/file_system_shortcut/': {
@@ -46,6 +49,10 @@ describe('analyticsPinnedLogic', () => {
         initKeaTests()
     })
 
+    afterEach(() => {
+        capture.mockRestore()
+    })
+
     it('keeps only analytics items and collections, and unpins an item whatever subtype it was pinned as', async () => {
         const logic = analyticsPinnedLogic()
         logic.mount()
@@ -60,9 +67,16 @@ describe('analyticsPinnedLogic', () => {
         await expectLogic(logic, () =>
             sidebarPinsLogic.actions.togglePinned({ type: 'insight', ref: 'abc123', name: 'Signups' })
         ).toDispatchActions(projectTreeDataLogic, ['deleteShortcutSuccess'])
-        expect(requests).toEqual(['delete sc-insight'])
-        expect(logic.values.pinnedAnalytics.map((pinned) => pinned.key)).toEqual(['folder:Growth', 'dashboard:7'])
+        await expectLogic(logic, () =>
+            sidebarPinsLogic.actions.togglePinned({ type: 'folder', ref: 'Growth', name: 'Growth' })
+        ).toDispatchActions(projectTreeDataLogic, ['deleteShortcutSuccess'])
+        expect(requests).toEqual(['delete sc-insight', 'delete sc-growth'])
+        expect(logic.values.pinnedAnalytics.map((pinned) => pinned.key)).toEqual(['dashboard:7'])
         expect(sidebarPinsLogic.values.recentlyPinnedKey).toBeNull()
+        expect(capture.mock.calls.filter(([name]) => name.startsWith('analytics '))).toEqual([
+            ['analytics item pinned', { pinned: false, object_type: 'insight' }],
+            ['analytics collection pinned', { pinned: false, pinned_count: 0 }],
+        ])
     })
 
     it('marks a new pin for the sidebar to slide in, under the key its sidebar row carries', async () => {
@@ -79,12 +93,27 @@ describe('analyticsPinnedLogic', () => {
             })
         ).toDispatchActions(projectTreeDataLogic, ['addShortcutItemSuccess'])
         expect(requests).toEqual(['create notebook:nb1'])
+        expect(capture).toHaveBeenCalledWith('analytics item pinned', { pinned: true, object_type: 'notebook' })
         const added = logic.values.pinnedAnalytics.at(-1)
         expect(added?.key).toBe('notebook:nb1')
         expect(sidebarPinsLogic.values.recentlyPinnedKey).toBe(added?.key)
 
         sidebarPinsLogic.actions.clearRecentlyPinned()
         expect(sidebarPinsLogic.values.recentlyPinnedKey).toBeNull()
+    })
+
+    it('reports a pin made from a menu that closes before the pin saves', async () => {
+        // The app keeps the project tree mounted, unlike the menu.
+        projectTreeDataLogic.mount()
+        const unmountMenu = analyticsPinnedLogic.mount()
+        await expectLogic(projectTreeDataLogic).toDispatchActions(['loadShortcutsSuccess'])
+
+        await expectLogic(projectTreeDataLogic, () => {
+            sidebarPinsLogic.actions.togglePinned({ type: 'dashboard', ref: '7', name: 'KPIs' })
+            unmountMenu()
+        }).toDispatchActions(['deleteShortcutSuccess'])
+        expect(capture).toHaveBeenCalledWith('analytics item pinned', { pinned: false, object_type: 'dashboard' })
+        expect(analyticsPinnedLogic.isMounted()).toBe(false)
     })
 
     it('moves a pin among the other pins and leaves the shortcuts that are not analytics in place', async () => {

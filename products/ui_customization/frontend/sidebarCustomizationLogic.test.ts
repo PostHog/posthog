@@ -1,6 +1,7 @@
 import { act, cleanup, renderHook } from '@testing-library/react'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { toast } from '@posthog/quill'
 
@@ -86,6 +87,7 @@ describe('sidebarCustomizationLogic', () => {
     })
     afterEach(() => {
         cleanup()
+        jest.useRealTimers()
         jest.restoreAllMocks()
     })
 
@@ -493,5 +495,36 @@ describe('sidebarCustomizationLogic', () => {
         await expectLogic(sidebarCustomizationLogic(props)).toFinishAllListeners()
 
         expect(props.configuration.retrieve).toHaveBeenCalledTimes(reads)
+    })
+
+    it('reports the search the person stops on, without its text, counted when it settles, and nothing once cleared', async () => {
+        const logic = await mounted(configuration())
+        jest.useFakeTimers()
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
+        const searches = (): unknown[][] => capture.mock.calls.filter(([name]) => name === 'sidebar search used')
+
+        // Rows that finish loading while the person types change the count, so it is read when the search settles.
+        let resultCount = 4
+        logic.actions.searchTyped(1, () => 4)
+        logic.actions.searchTyped(2, () => resultCount)
+        resultCount = 0
+        await jest.advanceTimersByTimeAsync(800)
+        expect(searches()).toEqual([
+            [
+                'sidebar search used',
+                {
+                    sidebar: 'analytics_sidebar',
+                    query_length: 2,
+                    result_count: 0,
+                    zero_results: true,
+                    customized: true,
+                },
+            ],
+        ])
+
+        logic.actions.searchTyped(3, () => 1)
+        logic.actions.searchTyped(0, () => 9)
+        await jest.advanceTimersByTimeAsync(800)
+        expect(searches()).toHaveLength(1)
     })
 })
