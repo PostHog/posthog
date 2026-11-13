@@ -122,6 +122,7 @@ from products.tasks.backend.facade.profiles import (
 )
 from products.tasks.backend.feature_flags import (
     get_model_access_error,
+    gitlab_tasks_enabled,
     own_subscription_cloud_enabled as own_subscription_cloud_enabled,
     pi_cloud_runtime_enabled,
     run_stream_presence_gated,
@@ -129,6 +130,7 @@ from products.tasks.backend.feature_flags import (
 from products.tasks.backend.github_repository_access import (
     inaccessible_repositories_via_integration as _inaccessible_repositories_via_integration,
 )
+from products.tasks.backend.gitlab_repository_access import gitlab_repository_error
 from products.tasks.backend.logic.log_slice import (
     LogPart,
     LogPartSummary,
@@ -140,6 +142,7 @@ from products.tasks.backend.logic.log_slice import (
     summary_to_json,
 )
 from products.tasks.backend.logic.model_access import InvalidModelAccess, resolve_model_access
+from products.tasks.backend.logic.services.agent_command import send_set_config_option
 from products.tasks.backend.logic.services.gateway_model_pin import GATEWAY_PRODUCT_STATE_KEY, pinned_run_allows_model
 from products.tasks.backend.logic.services.gateway_usage import refresh_task_run_cost
 from products.tasks.backend.logic.services.image_builder import (
@@ -151,6 +154,7 @@ from products.tasks.backend.logic.services.network_policy import (
     MAX_SANDBOX_ALLOWED_DOMAINS,
     normalize_requested_domains,
 )
+from products.tasks.backend.logic.services.run_actor import get_actor_distinct_id
 from products.tasks.backend.logic.services.sandbox import get_sandbox_class_for_sandbox_id, is_public_sandbox_repo
 from products.tasks.backend.logic.services.sandbox_config import MAX_SANDBOX_TTL_SECONDS
 from products.tasks.backend.logic.services.space_setup import (
@@ -232,13 +236,26 @@ from products.tasks.backend.run_options import (
     run_options_record as run_options_record,
     validate_run_options as validate_run_options,
 )
+from products.tasks.backend.task_done import (
+    TaskDoneError as TaskDoneError,
+    check_wake as check_wake,
+    check_wake_by_task_id as check_wake_by_task_id,
+    close_task as close_task,
+    wake_refusal,
+    warm_done_mode,
+)
 from products.tasks.backend.task_profiles import (
     PUBLIC_RUN_OPTIONS as PUBLIC_RUN_OPTIONS,
     SPACE_SETUP,
     USER,
     WIZARD,
 )
-from products.tasks.backend.task_run_sync import collect_status_mismatches, sync_task_pr_urls
+from products.tasks.backend.task_run_sync import (
+    collect_status_mismatches,
+    repair_status_mismatches,
+    sync_task_pr_urls,
+    sync_task_status,
+)
 from products.tasks.backend.task_sources import apply_task_source, idempotency_key_q, source_q
 from products.tasks.backend.visibility import (
     PRODUCT_PRIVATE_ORIGIN_PRODUCTS,
@@ -270,6 +287,8 @@ TaskRunEnvironment = TaskRun.Environment
 TaskOriginProduct = Task.OriginProduct
 TASK_SERVER_ONLY_ORIGIN_PRODUCTS = Task.SERVER_ONLY_ORIGIN_PRODUCTS
 TaskRuntime = Task.Runtime
+TaskStatus = Task.Status
+TaskStatusReason = Task.StatusReason
 SandboxNetworkAccessLevel = SandboxEnvironment.NetworkAccessLevel
 SandboxSnapshotStatus = SandboxSnapshot.Status
 
@@ -297,6 +316,12 @@ __all__ = [
     "TASK_SERVER_ONLY_ORIGIN_PRODUCTS",
     "TaskOriginProduct",
     "TaskRuntime",
+    "TaskStatus",
+    "TaskDoneError",
+    "check_wake",
+    "check_wake_by_task_id",
+    "close_task",
+    "TaskStatusReason",
     "TaskRunEnvironment",
     "TaskRunStatus",
     "ActiveSessionCapRefused",
@@ -417,6 +442,8 @@ __all__ = [
     "list_tasks",
     "list_workflow_last_runs",
     "pi_cloud_runtime_enabled",
+    "gitlab_repository_error",
+    "gitlab_tasks_enabled",
     "prepare_task_run_artifact_uploads",
     "prepare_task_staged_artifacts",
     "presign_task_run_artifact",
@@ -852,17 +879,16 @@ def get_task_for_slack_unfurl(task_id: str | UUID, team_id: int, user_id: int) -
     task = (
         _visible_task_qs(team_id, user_id)
         .filter(id=task_id, internal=False)
-        .only("id", "title", "created_by_id")
+        .only("id", "title", "created_by_id", "status", "status_reason")
         .first()
     )
     if task is None:
         return None
-    latest_run = task.runs.order_by("-created_at").only("status").first()
     return contracts.TaskSlackUnfurlDTO(
         id=task.id,
         title=task.title,
         created_by_id=task.created_by_id,
-        latest_run_status=latest_run.get_status_display() if latest_run else None,
+        status=task.status_label,
     )
 
 
@@ -1052,6 +1078,14 @@ def has_slack_thread_reference(
     )
 
 
+def _readable_status_detail(task: Task, latest_run: TaskRun | None, may_read_latest_context: bool) -> str | None:
+    if latest_run is None or not may_read_latest_context:
+        return None
+    if task.status_reason != Task.StatusReason.UNEXPECTED_FAILURE:
+        return task.status_detail
+    return latest_run.error_message if latest_run.status == TaskRun.Status.FAILED else None
+
+
 def _task_detail_to_dto(
     task: Task,
     *,
@@ -1123,6 +1157,7 @@ def _task_detail_to_dto(
         repositories=task.repositories or ([task.repository] if task.repository else []),
         github_integration=task.github_integration_id,
         github_user_integration=task.github_user_integration_id,
+        repository_integration=task.repository_integration_id,
         signal_report=task.signal_report_source_id,
         json_schema=task.json_schema,
         internal=task.internal,
@@ -1136,6 +1171,9 @@ def _task_detail_to_dto(
         created_by=_user_basic_info(task.created_by if task.created_by_id else None),
         latest_run_id=latest_run_id,
         channel=task.channel_id,
+        status=task.status,
+        status_reason=task.status_reason,
+        status_detail=_readable_status_detail(task, resolved_latest_run, may_read_latest_context),
         slack_thread_references=_task_slack_thread_references(task),
         origin_key=None if task.is_scout_experiment else task.stored_idempotency_key,
         client_provenance=task.client_provenance,
@@ -2084,6 +2122,15 @@ def collect_task_status_mismatches() -> list[contracts.TaskStatusMismatchRow]:
     ]
 
 
+def repair_task_status_mismatches() -> list[contracts.TaskStatusMismatchRow]:
+    return [
+        contracts.TaskStatusMismatchRow(
+            stored_status=row.stored_status or "none", derived_status=row.derived_status, count=row.count
+        )
+        for row in repair_status_mismatches()
+    ]
+
+
 # --- Writes ---
 
 
@@ -2093,8 +2140,14 @@ def mark_slack_task_manual_billing(*, team_id: int, task_id: str) -> None:
         TaskRun.update_state_atomic(run_id, updates={"billing_product": "posthog_ai"})
 
 
-def link_slack_task_to_report(*, team_id: int, task_id: str, report_id: str, user_id: int) -> None:
-    """Link only a saved Slack task; a repeated activity must not add another discussion entry."""
+def link_slack_task_to_report(
+    *, team_id: int, task_id: str, report_id: str, user_id: int, question: str | None = None
+) -> None:
+    """Link only a saved Slack task; a repeated activity must not add another discussion entry.
+
+    `question` is the verified Slack user's own message, recorded for the report's scout. Pass it only
+    for a thread in a public Slack channel.
+    """
     from products.signals.backend.facade.api import record_slack_report_discussion
 
     with transaction.atomic():
@@ -2103,7 +2156,9 @@ def link_slack_task_to_report(*, team_id: int, task_id: str, report_id: str, use
         )
         if task.signal_report_source_id is not None:
             return
-        record_slack_report_discussion(team_id=team_id, report_id=report_id, task_id=task_id, user_id=user_id)
+        record_slack_report_discussion(
+            team_id=team_id, report_id=report_id, task_id=task_id, user_id=user_id, question=question
+        )
         task.signal_report_id = UUID(report_id)
         task.source_kind = SourceKind.SIGNAL_REPORT.value
         task.source_id = str(task.signal_report_id)
@@ -2575,9 +2630,8 @@ def fail_task_run(run_id: str | UUID, error: str, error_type: str | None = None)
     run = TaskRun.objects.filter(
         pk=run_id, status=TaskRun.Status.QUEUED
     ).first()  # nosemgrep: celery-task-team-scope-audit
-    if run is None:
+    if run is None or not run.mark_failed(error, error_type=error_type, expected_status=TaskRun.Status.QUEUED):
         return False
-    run.mark_failed(error, error_type=error_type)
     run.task.soft_delete_if_unclaimed_prewarm(run)
     return True
 
@@ -2609,8 +2663,9 @@ def complete_idle_local_task_run(run_id: str | UUID) -> bool:
     if not claimed:
         return False
     run = TaskRun.objects.filter(pk=run_id).first()  # nosemgrep: celery-task-team-scope-audit
-    if run is not None:
-        run.mark_completed(notify=False, analytics_properties={"finalized_by": "stale_local_queued_sweep"})
+    if run is not None and run.mark_completed(
+        notify=False, analytics_properties={"finalized_by": "stale_local_queued_sweep"}
+    ):
         _observe_claimed_terminal(run, error_type=None)
     return True
 
@@ -2630,8 +2685,7 @@ def claim_and_fail_stale_run(run_id: str | UUID, error: str, error_type: str | N
     if not claimed:
         return False
     run = TaskRun.objects.filter(pk=run_id).first()  # nosemgrep: celery-task-team-scope-audit
-    if run is not None:
-        run.mark_failed(error, error_type=error_type)
+    if run is not None and run.mark_failed(error, error_type=error_type):
         _observe_claimed_terminal(run, error_type=error_type)
         resume_workflow_step_for_run(run)
     return True
@@ -3191,6 +3245,9 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "prewarmed",
         "await_user_message",
         "warm_activation_started",
+        "warm_activation_message_id",
+        "warm_activation_submission_id",
+        "warm_permission_mode_failed",
         "warm_activated",
         TASK_RUN_SUMMARY_STATE_KEY,
         PRIOR_RUN_SUMMARY_STATE_KEY,
@@ -6147,6 +6204,7 @@ def signal_task_run_user_message(
         return None
     if not plan_owner_consented:
         ensure_subscription_owner(run.state, actor_user_id)
+    check_wake(run.task, source="follow_up")
     if run.is_terminal or (run.state or {}).get("cancel_requested_at"):
         if not run.is_terminal:
             raise RuntimeError("Task run is still stopping. Try again shortly.")
@@ -6163,6 +6221,22 @@ def signal_task_run_user_message(
 
     if reason := get_compute_quota_denial_reason(run.task):
         raise ComputeBillingLimitError({"team_id": team_id, "task_id": str(task_id), "run_id": str(run_id)}, reason)
+    claimed_warm_run = False
+    if (run.state or {}).get("await_user_message"):
+        message_id = message_id or str(uuid4())
+        with transaction.atomic():
+            claimed = TaskRun.objects.select_for_update().get(id=run.id, team_id=team_id)
+            state = claimed.state or {}
+            if state.get("await_user_message"):
+                if (
+                    state.get("cancel_requested_at")
+                    or state.get("warm_permission_mode_failed")
+                    or (state.get("warm_activation_started") and state.get("warm_activation_message_id") != message_id)
+                ):
+                    return False
+                claimed_warm_run = not state.get("warm_activation_started", False)
+                claimed.state = {**state, "warm_activation_started": True, "warm_activation_message_id": message_id}
+                claimed.save(update_fields=["state", "updated_at"])
     accepted_at = django_timezone.now()
     try:
         context_values = {"actor_slack_user_id": actor_slack_user_id, "person_message": person_message}
@@ -6179,6 +6253,15 @@ def signal_task_run_user_message(
         )
     except RPCError as e:
         if e.status == RPCStatusCode.NOT_FOUND:
+            if claimed_warm_run:
+                with transaction.atomic():
+                    claimed = TaskRun.objects.select_for_update().get(id=run.id, team_id=team_id)
+                    state = claimed.state or {}
+                    if state.get("await_user_message") and state.get("warm_activation_message_id") == message_id:
+                        state.pop("warm_activation_started", None)
+                        state.pop("warm_activation_message_id", None)
+                        claimed.state = state
+                        claimed.save(update_fields=["state", "updated_at"])
             if not run.is_terminal and (run.state or {}).get("await_user_message"):
                 raise
             logger.warning("Follow-up signal target workflow gone for task run %s", run.id)
@@ -6623,6 +6706,17 @@ def _resolve_cloud_pr_authorship_mode(
         user_github_integration_is_usable,
     )
 
+    # GitLab runs commit as the connection's token, so they never resolve a GitHub identity.
+    if task.repository_integration_id is not None:
+        if github_user_token:
+            return None, contracts.TaskRunValidationError(
+                kind="validation_error",
+                code="github_token_not_allowed",
+                detail="GitLab tasks don't use a GitHub token. Start the run without github_user_token.",
+                attr="github_user_token",
+            )
+        return PrAuthorshipMode.BOT, None
+
     if not Task._github_resolution_allowed(
         task.origin_product, has_repository=bool(task.repositories or task.repository)
     ):
@@ -6862,6 +6956,12 @@ def bootstrap_task_run(
                 kind="validation_error", code="invalid_input", detail=str(error), attr="origin_product"
             )
         )
+    except TaskDoneError as error:
+        return contracts.TaskRunCreateResult(
+            error=contracts.TaskRunValidationError(
+                kind="validation_error", code="task_done", detail=str(error), attr="status"
+            )
+        )
     except TaskOwnershipChangedError:
         return None
 
@@ -6961,7 +7061,7 @@ def start_task_run(
     """Apply run-scoped attachments and trigger the cloud workflow for a startable run.
 
     Caller must have already verified startability and applied the usage gate. Returns
-    ``(outcome, task_id)``: ``"not_found"``, ``"missing_artifacts:<csv>"``, or ``"started"``
+    ``(outcome, task_id)``: ``"not_found"``, ``"missing_artifacts:<csv>"``, ``"task_done"``, or ``"started"``
     (``task_id`` set). Rolls back any pending-state writes on failure (re-raising), mirroring
     the original view.
     """
@@ -6991,6 +7091,7 @@ def start_task_run(
             state_updates["pending_user_artifact_ids"] = pending_user_artifact_ids
 
     previous_state = dict(run.state or {})
+    warm_done_mode(task)
     try:
         with transaction.atomic():
             task = Task.objects.select_for_update().get(id=task_id, team_id=team_id)
@@ -7001,6 +7102,8 @@ def start_task_run(
             )
             if not run.matches_task_ownership(task):
                 return "ownership_changed", None
+            if wake_refusal(task, source="start_run") is not None:
+                return "task_done", None
             if state_updates:
                 TaskRun.update_state_atomic(run.id, updates=state_updates)
                 run.refresh_from_db()
@@ -7034,7 +7137,7 @@ def resume_task_run_in_cloud(
 
     Returns ``(outcome, run_dto, debug_use_modal)``. ``outcome`` is one of: ``"not_found"``,
     ``"already_active"`` (400), ``"not_cloud"`` (400), ``"ownership_changed"`` (400), ``"invalid_origin"`` (400),
-    ``"auth_error:<detail>"``
+    ``"task_done"`` (409), ``"auth_error:<detail>"``
     (400, GitHub auth), ``"workflow_failed"`` (502), or ``"resumed"`` (run_dto set).
     Mirrors ``TaskRunViewSet.resume_in_cloud``.
     """
@@ -7075,6 +7178,7 @@ def resume_task_run_in_cloud(
         },
     )
 
+    warm_done_mode(run.task)
     with transaction.atomic():
         task = Task.objects.select_for_update().get(id=task_id, team_id=team_id)
         run = (
@@ -7089,6 +7193,8 @@ def resume_task_run_in_cloud(
 
         if task.origin_product not in Task.OriginProduct.values:
             return "invalid_origin", None, None
+        if wake_refusal(task, source="cloud_resume") is not None:
+            return "task_done", None, None
 
         is_cloud_active = run.status in (
             TaskRun.Status.QUEUED,
@@ -7272,6 +7378,33 @@ def get_pull_request_titles(team_id: int, user_id: int, task_ids: list[UUID]) ->
     )
 
     return pull_request_titles(team_id, user_id, task_ids)
+
+
+def get_task_repository_state(
+    task_id: str | UUID, team_id: int, user_id: int | None
+) -> contracts.TaskRepositoryState | None:
+    task = (
+        _visible_task_qs(team_id, user_id)
+        .filter(id=task_id)
+        .values_list(
+            "repository",
+            "repositories",
+            "github_integration_id",
+            "github_user_integration_id",
+            "repository_integration_id",
+        )
+        .first()
+    )
+    if task is None:
+        return None
+    repository, repositories, github_integration, github_user_integration, repository_integration = task
+    return contracts.TaskRepositoryState(
+        repository=repository,
+        repositories=repositories or ([repository] if repository else []),
+        github_integration=github_integration,
+        github_user_integration=github_user_integration,
+        repository_integration=repository_integration,
+    )
 
 
 def get_task_detail(
@@ -7643,6 +7776,10 @@ def _list_tasks_queryset(
     if status_filter:
         latest_run_status = latest_run.values("status")[:1]
         qs = qs.annotate(_latest_run_status=Subquery(latest_run_status)).filter(_latest_run_status=status_filter)
+
+    task_status = filters.get("task_status")
+    if task_status:
+        qs = qs.filter(status=task_status)
 
     # PR/CI state filters read the snapshot the PR webhook and the CI follow-up
     # loop persist onto a run's output. KeyTextTransform, so the comparison is
@@ -8060,6 +8197,8 @@ def get_task_summaries(
                 updated_at=task.updated_at,
                 origin_product=task.origin_product,
                 latest_run=latest,
+                status=task.status,
+                status_reason=task.status_reason,
             )
         )
     return summaries, count
@@ -8261,6 +8400,14 @@ def create_task(
     warm_sandbox_environment_id = validated_data.pop("sandbox_environment_id", None)
     warm_custom_image_id = validated_data.pop("custom_image_id", None)
     warm_initial_permission_mode = validated_data.pop("initial_permission_mode", None)
+    warm_run_id = validated_data.pop("warm_run_id", None)
+    warm_submission_id = validated_data.pop("warm_submission_id", None)
+    warm_submission_id = str(warm_submission_id) if warm_submission_id else None
+    if warm_run_id is not None and validated_data["origin_product"] not in (
+        Task.OriginProduct.USER_CREATED,
+        Task.OriginProduct.POSTHOG_AI,
+    ):
+        raise ValidationError({"warm_run_id": "Only supported for user-created and PostHog AI tasks."})
     pending_user_message = (validated_data.pop("pending_user_message", None) or "").strip() or None
     pending_user_artifact_ids = validated_data.pop("pending_user_artifact_ids", None) or []
     warm_auto_publish = validated_data.pop("auto_publish", None)
@@ -8294,7 +8441,12 @@ def create_task(
     if user_id is not None:
         validated_data["created_by"] = User.objects.get(id=user_id)
 
-    if validated_data.get("repository") and not validated_data.get("github_integration"):
+    uses_repository_integration = validated_data.get("repository_integration_id") is not None
+    if (
+        validated_data.get("repository")
+        and not validated_data.get("github_integration")
+        and not uses_repository_integration
+    ):
         default_integration = IntegrationManager.github.oauth.find(team.id)
         if default_integration:
             validated_data["github_integration"] = default_integration
@@ -8314,7 +8466,8 @@ def create_task(
     # requests that must agree on the origin — when they disagree the lookup misses and we cold-create,
     # which costs latency but can never hand over a Run booted under another product's budget or
     # PR-authorship rules.
-    if warm_branch_provided and user_id is not None and not reuses_no_warm_run:
+    # Warm runs are provisioned for GitHub repositories, and a GitLab project path can match a GitHub name.
+    if warm_branch_provided and user_id is not None and not reuses_no_warm_run and not uses_repository_integration:
         # Post-defaults comparison: warm runs are provisioned with the default triple
         # filled in, so the requested selection must be resolved the same way to match.
         warm_selection = _with_ai_run_defaults(
@@ -8348,6 +8501,9 @@ def create_task(
                 sandbox_environment_id=warm_sandbox_environment_id,
                 custom_image_id=warm_custom_image_id,
                 initial_permission_mode=warm_initial_permission_mode,
+                warm_run_id=warm_run_id,
+                warm_submission_id=warm_submission_id,
+                retry_token=warm_retry_token,
                 signal_report_id=str(signal_report.id) if report_discussion and signal_report is not None else None,
                 task_runtime=validated_data.get("runtime"),
                 json_schema=validated_data.get("json_schema"),
@@ -8449,7 +8605,25 @@ def create_task(
                     auto_publish=warm_auto_publish,
                     reasoning_effort=warm_reasoning_effort,
                     retry_token=warm_retry_token,
+                    initial_permission_mode=warm_initial_permission_mode if warm_run_id else None,
+                    submission_id=warm_submission_id,
                 )
+            except WarmRunClaimedByOtherSubmission:
+                pass
+            except WarmPermissionModeUnavailable:
+                from products.tasks.backend.facade.cancellation import cancel_task_run
+
+                cancel_task_run(warm_run.id, warm_task.id, team_id, only_if_awaiting_first_message=True)
+                with transaction.atomic():
+                    unused_task = Task.objects.select_for_update().get(id=warm_task.id, team_id=team_id)
+                    unused_run = TaskRun.objects.select_for_update().get(id=warm_run.id, team_id=team_id)
+                    unused_state = unused_run.state or {}
+                    if (
+                        unused_state.get("await_user_message")
+                        and unused_state.get("warm_permission_mode_failed")
+                        and not unused_state.get("warm_activation_started")
+                    ):
+                        unused_task.soft_delete()
             except Exception:
                 if report_reservation is not None:
                     from products.signals.backend.facade.report_tasks import (  # noqa: PLC0415 — cross-product write kept off the api import path
@@ -8458,7 +8632,8 @@ def create_task(
 
                     delete_report_task_artefact(team_id=warm_task.team_id, artefact_id=report_reservation)
                 raise
-            return _task_detail_to_dto(_task_detail_queryset().get(pk=warm_task.pk))
+            else:
+                return _task_detail_to_dto(_task_detail_queryset().get(pk=warm_task.pk))
 
     if warm_retry_token is not None:
         raise WarmRunActivationUnavailable("target_unavailable")
@@ -8520,7 +8695,11 @@ def create_task(
         and signal_report is not None
         and validated_data.get("origin_product") == Task.OriginProduct.SIGNAL_REPORT
     )
-    if (validated_data.get("repository") or entitled_report_task) and not validated_data.get("github_integration"):
+    if (
+        (validated_data.get("repository") or entitled_report_task)
+        and not validated_data.get("github_integration")
+        and not uses_repository_integration
+    ):
         if signal_report is not None:
             integration_id = _report_task_github_integration_id(team, code_access_allowed=True)
             default_integration = (
@@ -8535,6 +8714,7 @@ def create_task(
         validated_data.get("repository")
         and validated_data.get("origin_product", Task.OriginProduct.USER_CREATED) == Task.OriginProduct.USER_CREATED
         and not validated_data.get("github_user_integration")
+        and not uses_repository_integration
     ):
         task_stub = Task(
             team=team,
@@ -8575,7 +8755,10 @@ def create_task(
         enforce_self_driving_free_trial(team, report_id=signal_report_id)
     if refuse_without_repository and signal_report is not None:
         _capture_report_task_refused_without_repository(team=team, report_id=str(signal_report.id))
-        raise ValidationError({"repository": REPORT_IMPLEMENTATION_REPOSITORY_UNRESOLVED})
+        raise ValidationError(
+            {"repository": REPORT_IMPLEMENTATION_REPOSITORY_UNRESOLVED},
+            code="report_implementation_repository_unresolved",
+        )
 
     if signal_report is not None and signal_report_task_relationship in (None, "implementation"):
         from products.signals.backend.facade.github_optional import (  # noqa: PLC0415 - keeps the signals model graph out of tasks facade initialization
@@ -8583,22 +8766,22 @@ def create_task(
             pilot_repository_integration_id,
         )
 
-        if github_optional_pilot_enabled(team_id):
-            integration_id = (
-                pilot_repository_integration_id(team_id, validated_data["repository"])
-                if validated_data.get("repository")
-                else None
+        integration_id = (
+            pilot_repository_integration_id(team_id, validated_data["repository"])
+            if validated_data.get("repository")
+            else None
+        )
+        repository_integration = (
+            _team_github_integration_or_none(team_id, integration_id) if integration_id is not None else None
+        )
+        if repository_integration is not None:
+            validated_data["github_integration"] = repository_integration
+        elif github_optional_pilot_enabled(team_id):
+            raise ValidationError(
+                {
+                    "repository": "Connect or repair GitHub access to the selected repository before creating a pull request."
+                }
             )
-            pilot_integration = (
-                _team_github_integration_or_none(team_id, integration_id) if integration_id is not None else None
-            )
-            if pilot_integration is None:
-                raise ValidationError(
-                    {
-                        "repository": "Connect or repair GitHub access to the selected repository before creating a pull request."
-                    }
-                )
-            validated_data["github_integration"] = pilot_integration
 
     if signal_report_id and signal_report_task_relationship in (None, "implementation"):
         if repository := validated_data.get("repository"):
@@ -8686,7 +8869,12 @@ def set_task_title(task_id: str | UUID, team_id: int, title: str) -> bool:
 
 
 def update_task(
-    task_id: str | UUID, team_id: int, user_id: int | None, *, validated_data: dict
+    task_id: str | UUID,
+    team_id: int,
+    user_id: int | None,
+    *,
+    validated_data: dict,
+    expected_repository_state: tuple | None = None,
 ) -> contracts.TaskDetailDTO | None:
     """Update a task, mirroring ``TaskSerializer.update``. ``None`` if not found/controllable."""
     validated_data = dict(validated_data)
@@ -8702,6 +8890,27 @@ def update_task(
             return None
         if not _task_drive_allowed(task, user_id):
             return None
+        if (
+            expected_repository_state is not None
+            and not validated_data.keys().isdisjoint(
+                {
+                    "repository",
+                    "repositories",
+                    "repository_integration_id",
+                    "github_integration",
+                    "github_user_integration",
+                }
+            )
+            and expected_repository_state
+            != (
+                task.repository,
+                task.repositories or ([task.repository] if task.repository else []),
+                task.github_integration_id,
+                task.github_user_integration_id,
+                task.repository_integration_id,
+            )
+        ):
+            raise ValidationError("Repository configuration changed. Try again.")
         previous_repositories = list(task.repositories or [])
         previous_integration_id = task.github_integration_id
 
@@ -8717,6 +8926,7 @@ def update_task(
             validated_data.pop("repositories", None)
             validated_data.pop("github_integration", None)
             validated_data.pop("github_user_integration", None)
+            validated_data.pop("repository_integration_id", None)
         if "repositories" in validated_data:
             repositories = validated_data["repositories"]
             validated_data["repository"] = repositories[0] if repositories else None
@@ -9144,6 +9354,11 @@ def _with_ai_run_defaults(
     return updated
 
 
+def _warm_run_claimed_by_other_submission(run: TaskRun, submission_id: str | None) -> bool:
+    claimed_submission = (run.state or {}).get("warm_activation_submission_id")
+    return bool(submission_id and claimed_submission and claimed_submission != submission_id)
+
+
 def _find_idling_warm_run(
     team_id: int,
     user_id: int | None,
@@ -9160,6 +9375,9 @@ def _find_idling_warm_run(
     sandbox_environment_id: str | UUID | None = None,
     custom_image_id: str | UUID | None = None,
     initial_permission_mode: str | None = None,
+    warm_run_id: str | UUID | None = None,
+    warm_submission_id: str | None = None,
+    retry_token: str | None = None,
     signal_report_id: str | UUID | None = None,
     task_runtime: str | None = None,
     json_schema: dict[str, Any] | None = None,
@@ -9187,6 +9405,29 @@ def _find_idling_warm_run(
     """
     if user_id is None:
         return None
+    retry_run_id = None
+    if retry_token is not None:
+        try:
+            token_run_id, _, _ = signing.TimestampSigner(salt="warm-run-activation").unsign_object(
+                retry_token, max_age=60
+            )
+            retry_run_id = UUID(token_run_id)
+        except (signing.BadSignature, ValueError, TypeError) as error:
+            raise WarmRunActivationUnavailable("invalid_retry") from error
+        if warm_run_id is not None and str(warm_run_id) != str(retry_run_id):
+            raise WarmRunActivationUnavailable("target_unavailable")
+    elif warm_run_id is not None:
+        claimed = TaskRun.objects.filter(
+            id=warm_run_id,
+            team_id=team_id,
+            task__created_by_id=user_id,
+            task__origin_product=origin_product,
+            state__warm_activation_started=True,
+        ).first()
+        if claimed is not None:
+            if _warm_run_claimed_by_other_submission(claimed, warm_submission_id):
+                return None
+            raise WarmRunActivationUnavailable("target_unavailable")
     normalized_repositories = [repo.lower() for repo in (repositories or ([repository] if repository else []))]
     from products.tasks.backend.temporal.oauth import dispatched_run_scopes
 
@@ -9195,6 +9436,7 @@ def _find_idling_warm_run(
     candidates = (
         TaskRun.objects.filter(  # nosemgrep: idor-lookup-without-team — team_id filter applied via the task FK below
             report_filter,
+            **({"id": warm_run_id or retry_run_id} if warm_run_id or retry_run_id else {}),
             task__team_id=team_id,
             task__created_by_id=user_id,
             task__origin_product=origin_product,
@@ -9219,7 +9461,9 @@ def _find_idling_warm_run(
         state = run.state or {}
         if dispatched_run_scopes(run.task, state) != posthog_mcp_scopes:
             continue
-        if state.get("cancel_requested_at"):
+        if state.get("cancel_requested_at") or state.get("warm_permission_mode_failed"):
+            continue
+        if state.get("warm_activation_started") and retry_token is None:
             continue
         have_repositories = [
             repo.lower() for repo in (run.task.repositories or ([run.task.repository] if run.task.repository else []))
@@ -9242,7 +9486,11 @@ def _find_idling_warm_run(
         # mode (warm_task_sandbox writes one unconditionally), while callers that never send one — the
         # Code app — must keep reusing their warms. Folding this into the tuple above would compare None
         # against "default" and break every one of those reuses.
-        if initial_permission_mode is not None and state.get("initial_permission_mode") != initial_permission_mode:
+        if (
+            not warm_run_id
+            and initial_permission_mode is not None
+            and state.get("initial_permission_mode") != initial_permission_mode
+        ):
             continue
         return run
     return None
@@ -9363,8 +9611,51 @@ def _warm_retry_message_id(token: str | None, run: TaskRun) -> str | None:
     return str(message_id)
 
 
+class WarmPermissionModeUnavailable(Exception):
+    pass
+
+
+class WarmRunClaimedByOtherSubmission(Exception):
+    pass
+
+
+def _apply_warm_permission_mode(run: TaskRun, mode: str) -> None:
+    try:
+        actor = run.task.created_by
+        if actor is None:
+            raise WarmPermissionModeUnavailable()
+        auth_token = create_sandbox_connection_token(run.id, actor.id, get_actor_distinct_id(actor))
+        response = send_set_config_option(run, "mode", mode, auth_token=auth_token)
+        result = response.data.get("result") if response.data else None
+        options = result.get("configOptions") if isinstance(result, dict) else None
+        acknowledged = (
+            response.success
+            and isinstance(options, list)
+            and any(
+                isinstance(option, dict) and option.get("id") == "mode" and option.get("currentValue") == mode
+                for option in options
+            )
+        )
+        if not acknowledged:
+            raise WarmPermissionModeUnavailable()
+        TaskRun.update_state_atomic(run.id, updates={"initial_permission_mode": mode})
+    except Exception as error:
+        TaskRun.update_state_atomic(
+            run.id,
+            updates={"warm_permission_mode_failed": True},
+            remove_keys=["warm_activation_started", "warm_activation_message_id"],
+        )
+        raise WarmPermissionModeUnavailable() from error
+
+
 def _deliver_warm_run_message(
-    run: TaskRun, *, message: str | None, artifact_ids: list[str], message_id: str | None = None
+    run: TaskRun,
+    *,
+    message: str | None,
+    artifact_ids: list[str],
+    message_id: str | None = None,
+    initial_permission_mode: str | None = None,
+    submission_id: str | None = None,
 ) -> None:
     from temporalio.service import RPCError, RPCStatusCode
 
@@ -9383,15 +9674,31 @@ def _deliver_warm_run_message(
     try:
         with transaction.atomic():
             current_run = eligible_runs.select_for_update(of=("self",)).first()
+            claimed_run = current_run or TaskRun.objects.filter(id=run.id, team_id=run.team_id).first()
+            if claimed_run is not None and _warm_run_claimed_by_other_submission(claimed_run, submission_id):
+                raise WarmRunClaimedByOtherSubmission()
             if (
                 current_run is None
                 or current_run.workflow_id != workflow_id
                 or (current_run.state or {}).get("cancel_requested_at")
+                or (current_run.state or {}).get("warm_permission_mode_failed")
+                or (
+                    (current_run.state or {}).get("warm_activation_started")
+                    and (not frontend_retry or current_run.state.get("warm_activation_message_id") != message_id)
+                )
             ):
                 raise WarmRunActivationUnavailable("target_unavailable")
             # Claim before signaling so a different composer's release cannot cancel delivery in flight.
             current_run.state["warm_activation_started"] = True
+            current_run.state["warm_activation_message_id"] = message_id
+            if submission_id is not None:
+                current_run.state["warm_activation_submission_id"] = submission_id
             current_run.save(update_fields=["state", "updated_at"])
+        if (
+            initial_permission_mode is not None
+            and current_run.state.get("initial_permission_mode") != initial_permission_mode
+        ):
+            _apply_warm_permission_mode(current_run, initial_permission_mode)
         try:
             delivered = signal_task_run_user_message(
                 run.id,
@@ -9468,6 +9775,8 @@ def _activate_warm_run(
     auto_publish: bool | None = None,
     reasoning_effort: str | None = None,
     retry_token: str | None = None,
+    initial_permission_mode: str | None = None,
+    submission_id: str | None = None,
 ) -> None:
     """Activate an idling warm Run: set the draft Task's visible description from raw task text,
     forward the first message to the already-running agent, and drop the ``await_user_message`` marker
@@ -9497,7 +9806,12 @@ def _activate_warm_run(
         remove_keys=["reasoning_effort"] if reasoning_effort is None else None,
     )
     _deliver_warm_run_message(
-        run, message=message, artifact_ids=artifact_ids, message_id=_warm_retry_message_id(retry_token, run)
+        run,
+        message=message,
+        artifact_ids=artifact_ids,
+        message_id=_warm_retry_message_id(retry_token, run),
+        initial_permission_mode=initial_permission_mode,
+        submission_id=submission_id,
     )
     # Only count activations of Runs that actually carry the prewarmed marker, so the activation
     # numerator stays consistent with the workflow_start{prewarmed="true"} denominator — otherwise
@@ -9924,7 +10238,14 @@ def warm_task_resume_sandbox(
             expected_resume_from_run_id=previous_run.id,
             required_existing_state=stable_selection,
         )
-    except (PermissionDenied, QuotaLimitExceeded, Throttled, WarmSourceChanged, TaskOwnershipChangedError):
+    except (
+        PermissionDenied,
+        QuotaLimitExceeded,
+        Throttled,
+        WarmSourceChanged,
+        TaskOwnershipChangedError,
+        TaskDoneError,
+    ):
         # TaskOwnershipChangedError guards a handoff that lands after the check above but before the
         # locked create_run, keeping this best-effort endpoint from returning a server error.
         return None
@@ -10244,6 +10565,12 @@ def run_task(
                     # A previous activation attempt may have moved these out of staging before delivery failed.
                     _, warm_missing_artifact_ids = get_task_run_artifacts_by_id(warm_run, warm_missing_artifact_ids)
                 if not warm_missing_artifact_ids:
+                    if (done_error := wake_refusal(task, source="warm_activation")) is not None:
+                        return contracts.TaskRunResult(
+                            error=contracts.TaskValidationError(
+                                kind="validation_error", code="task_done", detail=str(done_error), attr="status"
+                            )
+                        )
                     if warm_staged_artifacts:
                         _attach_staged_artifacts_to_run(
                             warm_run,
@@ -10562,6 +10889,7 @@ def run_task(
     )
     if trial_admission is None and not pipeline_rerun and task.uses_self_driving_billing(mode):
         enforce_self_driving_pr_quota(task.team, report_id=report_id_for_slot_check, stage="task_run")
+    warm_done_mode(task)
     try:
         with transaction.atomic():
             if only_if_no_runs:
@@ -10592,6 +10920,12 @@ def run_task(
                 kind="validation_error", code="invalid_input", detail=str(error), attr="origin_product"
             )
         )
+    except TaskDoneError as error:
+        return contracts.TaskRunResult(
+            error=contracts.TaskValidationError(
+                kind="validation_error", code="task_done", detail=str(error), attr="status"
+            )
+        )
     except TaskOwnershipChangedError:
         return None
     if is_pi_task and resume_from_run_id:
@@ -10619,6 +10953,8 @@ def run_task(
         cache_github_user_token(str(task_run.id), github_user_token)
 
     if scheduled_at is not None:
+        sync_task_status(task.id)
+        task.refresh_from_db(fields=["status", "status_reason", "status_detail"])
         return contracts.TaskRunResult(
             task=_task_detail_to_dto(task, latest_run=task_run, include_latest_run_log_url=False),
             run_id=task_run.id,
@@ -12550,9 +12886,12 @@ def forward_thread_message(
         author = message.author
         author_name = (author.get_full_name() or author.email) if author else "A teammate"
         content = f"[Thread comment from {author_name}] {message.content}"
-        signal_result = signal_task_run_user_message(
-            run.id, task.id, team_id, content=content, artifact_ids=[], actor_user_id=user_id
-        )
+        try:
+            signal_result = signal_task_run_user_message(
+                run.id, task.id, team_id, content=content, artifact_ids=[], actor_user_id=user_id
+            )
+        except TaskDoneError:
+            return "no_run", None
         if not signal_result:
             return "signal_failed", None
 
@@ -12968,7 +13307,7 @@ def request_canvas_fix(task_id: str | UUID, team_id: int, *, prompt: str, acting
     transaction and dispatches its processing workflow on commit with
     ``skip_user_check``.
     Returns ``signaled`` / ``new_run`` / ``already_queued`` / ``not_found`` /
-    ``forbidden`` / ``quota_exhausted`` / ``organization_deactivated``.
+    ``forbidden`` / ``quota_exhausted`` / ``organization_deactivated`` / ``task_done``.
     """
     from products.signals.backend.facade.self_driving import (
         self_driving_quota_gate,  # noqa: PLC0415 -- resolve the gate before locking the task
@@ -12986,6 +13325,7 @@ def request_canvas_fix(task_id: str | UUID, team_id: int, *, prompt: str, acting
         return "not_found"
     if acting_user_id is None or admission_task.created_by_id != acting_user_id:
         return "forbidden"
+    warm_done_mode(admission_task)
     trial_admission = prepare_task_trial(
         team=admission_task.team,
         origin=admission_task.origin_product,
@@ -13014,6 +13354,8 @@ def request_canvas_fix(task_id: str | UUID, team_id: int, *, prompt: str, acting
             return "forbidden"
         if reason := get_compute_quota_denial_reason(task):
             return _canvas_fix_denial_outcome(reason)
+        if wake_refusal(task, source="canvas_fix") is not None:
+            return "task_done"
         run = task.latest_run
         if run is not None and not run.is_terminal:
             try:

@@ -37,4 +37,6 @@ export interface IntegrationSource {
      * `team_id` on each record.
      */
     load(references: IntegrationReference[]): Promise<Record<IntegrationReference, IntegrationSourceRecord>>
+
+    loadFromPrimary?(references: IntegrationReference[]): Promise<Record<IntegrationReference, IntegrationSourceRecord>>
 }

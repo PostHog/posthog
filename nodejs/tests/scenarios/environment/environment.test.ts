@@ -50,6 +50,7 @@ const SELF = 100
 const REPO = '/work/posthog'
 const NODEJS = `${REPO}/nodejs`
 const STATE_DIR = '/home/dev/.cache/posthog-scenarios'
+const EDGE = { url: 'http://127.0.0.1:4566', caCertPath: `${STATE_DIR}/edge-ca/ca.pem` }
 const MARKED_ENV = ['PATH=/usr/bin', `SCENARIO_RUNNER=${STATE_DIR}`]
 const PLAIN_ENV = ['PATH=/usr/bin']
 const OTHER_CHECKOUT = '/work/posthog-other/nodejs'
@@ -340,8 +341,13 @@ describe('scenario environment', () => {
     })
 
     describe('roleSpecs', () => {
-        const base = { PATH: '/usr/bin', AWS_PROFILE: 'prod-admin', HTTP_SERVER_PORT: '6738' }
-        const specs = roleSpecs(base, 'http://127.0.0.1:4566', secretsOf({}), STATE_DIR)
+        const base = {
+            PATH: '/usr/bin',
+            AWS_PROFILE: 'prod-admin',
+            HTTP_SERVER_PORT: '6738',
+            EXTERNAL_REQUEST_PROXY_TEAMS: '2',
+        }
+        const specs = roleSpecs(base, EDGE, secretsOf({}), STATE_DIR)
 
         it('gives every role its own port, cdp-api the one Django calls', () => {
             const ports = Object.fromEntries(specs.map((spec) => [spec.role, spec.env.HTTP_SERVER_PORT]))
@@ -351,24 +357,33 @@ describe('scenario environment', () => {
             expect(ports['cdp-api']).toBe('6738')
         })
 
-        it.each(CdpRole.options)('runs %s as itself in dev, marked, against the edge, without AWS_PROFILE', (role) => {
-            const { env } = specs.find((spec) => spec.role === role)!
+        it.each(CdpRole.options)(
+            'runs %s as itself in dev, marked, against the edge and its proxy for every team, without AWS_PROFILE',
+            (role) => {
+                const { env } = specs.find((spec) => spec.role === role)!
 
-            expect(env).not.toHaveProperty('AWS_PROFILE')
-            expect(env).toMatchObject({
-                PATH: '/usr/bin',
-                NODE_ENV: 'dev',
-                PLUGIN_SERVER_MODE: role,
-                SES_ENDPOINT: 'http://127.0.0.1:4566',
-                SCENARIO_RUNNER: STATE_DIR,
-            })
-        })
+                expect(env).not.toHaveProperty('AWS_PROFILE')
+                expect(env).not.toHaveProperty('EXTERNAL_REQUEST_PROXY_TEAMS')
+                expect(env).toMatchObject({
+                    PATH: '/usr/bin',
+                    NODE_ENV: 'dev',
+                    PLUGIN_SERVER_MODE: role,
+                    SES_ENDPOINT: EDGE.url,
+                    HTTPS_PROXY: EDGE.url,
+                    NODE_EXTRA_CA_CERTS: EDGE.caCertPath,
+                    SCENARIO_RUNNER: STATE_DIR,
+                })
+            }
+        )
 
         it('lets profile settings override the role environment but not how the runner wires a role', () => {
             const settings = {
                 SES_REGION: 'eu-west-1',
                 CDP_WATCHER_HOG_COST_TIMING_UPPER_MS: '900',
                 SES_ENDPOINT: 'http://elsewhere',
+                HTTPS_PROXY: 'http://elsewhere',
+                NODE_EXTRA_CA_CERTS: '/elsewhere/ca.pem',
+                EXTERNAL_REQUEST_PROXY_TEAMS: '*:0.5',
                 PERSONHOG_ADDR: '127.0.0.1:1',
                 SES_RATE_LIMITER_VALKEY_HOST: 'elsewhere',
                 SES_RATE_LIMITER_VALKEY_PORT: '6379',
@@ -380,13 +395,16 @@ describe('scenario environment', () => {
                 SCENARIO_RUNNER: '0',
                 KAFKA_CONSUMER_GROUP_ID: 'scenario-events',
             }
-            const [spec] = roleSpecs(base, 'http://127.0.0.1:4566', secretsOf({}), STATE_DIR, settings)
+            const [spec] = roleSpecs(base, EDGE, secretsOf({}), STATE_DIR, settings)
 
             expect(spec.env).not.toHaveProperty('KAFKA_CONSUMER_GROUP_ID')
+            expect(spec.env).not.toHaveProperty('EXTERNAL_REQUEST_PROXY_TEAMS')
             expect(spec.env).toMatchObject({
                 SES_REGION: 'eu-west-1',
                 CDP_WATCHER_HOG_COST_TIMING_UPPER_MS: '900',
-                SES_ENDPOINT: 'http://127.0.0.1:4566',
+                SES_ENDPOINT: EDGE.url,
+                HTTPS_PROXY: EDGE.url,
+                NODE_EXTRA_CA_CERTS: EDGE.caCertPath,
                 PERSONHOG_ADDR: '127.0.0.1:50052',
                 SES_RATE_LIMITER_VALKEY_HOST: '127.0.0.1',
                 SES_RATE_LIMITER_VALKEY_PORT: '6390',
@@ -400,7 +418,12 @@ describe('scenario environment', () => {
         })
 
         it('drops an inherited consumer group id, so the events role joins the group a reset moves', () => {
-            const specs = roleSpecs({ KAFKA_CONSUMER_GROUP_ID: 'dev-group' }, 'http://edge', secretsOf({}), STATE_DIR)
+            const specs = roleSpecs(
+                { KAFKA_CONSUMER_GROUP_ID: 'dev-group' },
+                { url: 'http://edge' },
+                secretsOf({}),
+                STATE_DIR
+            )
 
             expect(specs.filter(({ env }) => 'KAFKA_CONSUMER_GROUP_ID' in env)).toEqual([])
         })
@@ -408,7 +431,7 @@ describe('scenario environment', () => {
         it("shares the runner's secrets with the roles", () => {
             const [spec] = roleSpecs(
                 {},
-                'http://edge',
+                { url: 'http://edge' },
                 secretsOf({ ENCRYPTION_SALT_KEYS: 'run-key', WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET: 'run-jwt' }),
                 STATE_DIR
             )
@@ -472,7 +495,9 @@ describe('scenario environment', () => {
             [{ group: 'scenario-events', topics: ['scenario_events_json'] }],
         ],
     ])('moves %s', (_name, env, settings, groups) => {
-        expect(consumerGroupsOf(roleSpecs(env, 'http://edge', secretsOf({}), STATE_DIR, settings))).toEqual(groups)
+        expect(consumerGroupsOf(roleSpecs(env, { url: 'http://edge' }, secretsOf({}), STATE_DIR, settings))).toEqual(
+            groups
+        )
     })
 
     it.each<[string, string, string[]]>([
@@ -713,7 +738,7 @@ describe('scenario environment', () => {
 
         it('kills the whole group of a marked role and leaves an unmarked sibling running', async () => {
             const stateDir = path.join(os.tmpdir(), `scenario-leftovers-${process.pid}`)
-            const [roleEnv] = roleSpecs(process.env, 'http://127.0.0.1:4566', secretsOf({}), stateDir)
+            const [roleEnv] = roleSpecs(process.env, EDGE, secretsOf({}), stateDir)
             const { SCENARIO_RUNNER: _marker, ...plainEnv } = process.env
             const marked = await launch(roleEnv.env)
             const unmarked = await launch(plainEnv)
@@ -780,7 +805,7 @@ describe('scenario environment', () => {
         afterAll(() => rmSync(tempRoot, { recursive: true, force: true }))
 
         it('stops a running role without recording its exit or starting it again', async () => {
-            const [spec] = roleSpecs(process.env, 'http://127.0.0.1:4566', secretsOf({}), STATE_DIR)
+            const [spec] = roleSpecs(process.env, EDGE, secretsOf({}), STATE_DIR)
             await supervisor.start([{ ...spec, env: { ...spec.env, SCENARIO_TEST_TAG: tag } }])
             expect(tagged()).toHaveLength(1)
 
@@ -799,7 +824,7 @@ describe('scenario environment', () => {
                 graceMs: 1000,
                 restartBackoffMs: 20,
             })
-            const [spec] = roleSpecs(process.env, 'http://127.0.0.1:4566', secretsOf({}), STATE_DIR)
+            const [spec] = roleSpecs(process.env, EDGE, secretsOf({}), STATE_DIR)
             try {
                 await missing.start([spec])
 
@@ -820,7 +845,7 @@ describe('scenario environment', () => {
                 graceMs: 1000,
                 restartBackoffMs: 50,
             })
-            const [spec] = roleSpecs(process.env, 'http://127.0.0.1:4566', secretsOf({}), STATE_DIR)
+            const [spec] = roleSpecs(process.env, EDGE, secretsOf({}), STATE_DIR)
             try {
                 await exiting.start([spec])
                 rmdirSync(cwd)
@@ -1025,7 +1050,7 @@ describe('scenario environment', () => {
             )
         const eventsGroup = (): { group: string; topic: string } => {
             const [{ group, topics }] = consumerGroupsOf(
-                roleSpecs(process.env, 'http://edge', secretsOf({}), STATE_DIR)
+                roleSpecs(process.env, { url: 'http://edge' }, secretsOf({}), STATE_DIR)
             )
             return { group, topic: topics[0] }
         }

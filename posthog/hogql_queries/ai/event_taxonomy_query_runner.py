@@ -21,6 +21,7 @@ from posthog.models.event.new_events_schema import use_new_events_schema
 from products.actions.backend.facade.api import get_action
 
 DEFAULT_LIMIT = 500
+SAMPLED_EVENTS = 100
 
 
 class EventTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[EventTaxonomyQueryResponse]):
@@ -222,6 +223,9 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[EventTax
                 },
             )
         else:
+            # ClickHouse evaluates the properties document for every row that passes WHERE, before it sorts and
+            # applies LIMIT. The native events table builds that document from separate columns, which is expensive
+            # for each row. The lower bound on the timestamp excludes the events that are older than the sample.
             query = parse_select(
                 """
                         SELECT
@@ -235,9 +239,18 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[EventTax
                                 timestamp
                             FROM
                                 events
-                            WHERE {subquery_filter}
+                            WHERE {subquery_filter} AND timestamp >= (
+                                SELECT min(timestamp)
+                                FROM (
+                                    SELECT timestamp
+                                    FROM events
+                                    WHERE {subquery_filter}
+                                    ORDER BY timestamp desc
+                                    LIMIT {sampled_events}
+                                )
+                            )
                             ORDER BY timestamp desc
-                            LIMIT 100
+                            LIMIT {sampled_events}
                         )
                         ARRAY JOIN kv.1 AS key, kv.2 AS value
                         WHERE {omit_filter} AND value IS NOT NULL AND value != ''
@@ -246,6 +259,7 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[EventTax
                 placeholders={
                     "properties_doc": self._properties_document_expr(),
                     "subquery_filter": self._get_subquery_filter(),
+                    "sampled_events": ast.Constant(value=SAMPLED_EVENTS),
                     "omit_filter": self._get_omit_filter(),
                 },
             )

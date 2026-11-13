@@ -576,3 +576,46 @@ class TestUpdateHogFunctionCode(BaseTest):
         function.refresh_from_db()
         assert "sha256Hex(trim(toString(inputs.externalId)))" in function.hog
         compile_hog_for_check(function.hog, "destination")
+
+    def test_microsoft_ads_capi_normalization_migration(self) -> None:
+        identifier_checks = (
+            "if (not empty(inputs.email)) {\n"
+            "    userData.em := sha256Hex(lower(trim(inputs.email)))\n"
+            "}\n"
+            "if (not empty(inputs.phone)) {\n"
+            "    userData.ph := sha256Hex(lower(trim(inputs.phone)))\n"
+            "}\n"
+        )
+        send = "let conversion := {'userData': userData}\nlet res := fetch(inputs.url, {'method': 'POST', 'body': {\n        'data': [conversion]\n    }})\n"
+        stale_hog = "let userData := {}\n" + identifier_checks + send
+        edited_hog = "let userData := {'em': sha256Hex(inputs.email)}\n" + send.replace("[conversion]", "[userData]")
+        with patch("products.cdp.backend.models.hog_functions.hog_function.reload_hog_functions_on_workers"):
+            stale, edited = (
+                HogFunction.objects.create(
+                    team=self.team,
+                    name="Microsoft Ads Function",
+                    type="destination",
+                    template_id="template-microsoft-ads",
+                    hog=hog,
+                    enabled=True,
+                )
+                for hog in (stale_hog, edited_hog)
+            )
+
+        with patch(
+            "posthog.management.commands.update_hog_function_code.compile_hog",
+            return_value="compiled_bytecode",
+        ):
+            for expected in ("Updated: 1", "Updated: 0"):
+                out = StringIO()
+                call_command("update_hog_function_code", replace_key="microsoft-ads-capi-normalization", stdout=out)
+                self.assertIn(expected, out.getvalue())
+
+        stale.refresh_from_db()
+        edited.refresh_from_db()
+        assert "userData.em := em" in stale.hog
+        assert "userData.ph := ph" in stale.hog
+        assert "sha256Hex(lower(trim(inputs.phone)))" not in stale.hog
+        assert "'dataProvider': 'posthog'" in stale.hog
+        assert edited.hog == edited_hog
+        compile_hog_for_check(stale.hog, "destination")

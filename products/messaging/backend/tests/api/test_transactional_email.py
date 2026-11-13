@@ -346,6 +346,67 @@ class TestTransactionalEmail(APIBaseTest):
             assert body["transactional_hog_flow_id"] == str(template.transactional_hog_flow_id)
             assert ("content" in body, "draft_content" in body) == (returns_content, returns_content)
 
+    @parameterized.expand(
+        [
+            (
+                "integration_header",
+                "send_email",
+                {},
+                {"X-PostHog-Integration": "django-anymail/13.1"},
+                202,
+                "django-anymail",
+            ),
+            ("user_agent", "send_email", {}, {"User-Agent": "PostHog-Node/5.9.1 (node v22)"}, 202, "posthog-node"),
+            (
+                "header_over_user_agent",
+                "send_email",
+                {},
+                {"X-PostHog-Integration": "nodemailer/5.9.1", "User-Agent": "posthog-node/5.9.1"},
+                202,
+                "nodemailer",
+            ),
+            ("neither", "send_email", {}, {}, 202, "unknown"),
+            (
+                "malformed_header",
+                "send_email",
+                {},
+                {"X-PostHog-Integration": "Laravel 1.4", "User-Agent": "posthog-laravel/1.4.0"},
+                202,
+                "posthog-laravel",
+            ),
+            (
+                "template_route",
+                "template",
+                {},
+                {"X-PostHog-Integration": "symfony-mailer/7.3.0"},
+                202,
+                "symfony-mailer",
+            ),
+            (
+                "refused_send",
+                "send_email",
+                {"to": "not-an-address"},
+                {"X-PostHog-Integration": "django-anymail/13.1"},
+                400,
+                "django-anymail",
+            ),
+        ]
+    )
+    def test_records_the_client_that_made_the_send(
+        self, mock_post, _flag, capture, _name, route, extra_body, headers, expected_status, expected_client
+    ):
+        pipeline, analytics = FakeCdpApi(), FakeAnalytics()
+        mock_post.side_effect, capture.side_effect = pipeline.post, analytics.capture
+
+        response = self._send(
+            self._psak_client(["transactional_email:write"]), route, {**self.body, **extra_body}, headers=headers
+        )
+
+        assert response.status_code == expected_status, response.json()
+        assert [event["client"] for event in analytics.properties_of("transactional email api send")] == [
+            expected_client
+        ]
+
     def test_a_personal_api_key_with_the_send_scope_cannot_change_the_template(self, mock_post, _flag, _capture):
         self._cdp_accepts(mock_post)
         client = APIClient()
@@ -739,6 +800,28 @@ class TestTransactionalEmail(APIBaseTest):
                     ],
                 },
             ),
+            (
+                "calendar_invite_with_mime_parameters",
+                {
+                    "attachments": [
+                        {
+                            "sha256": NOTES,
+                            "filename": "invite.ics",
+                            "content_type": "text/calendar; charset=utf-8; method=REQUEST",
+                        }
+                    ]
+                },
+                {
+                    **WELCOME_DELIVERED,
+                    "attachments": [
+                        {
+                            "sha256": NOTES,
+                            "filename": "invite.ics",
+                            "content_type": "text/calendar; charset=utf-8; method=REQUEST",
+                        }
+                    ],
+                },
+            ),
         ]
     )
     def test_a_code_send_carries_what_the_caller_set(self, mock_post, _flag, _capture, _name, fields, delivered):
@@ -1004,26 +1087,49 @@ class TestTransactionalEmail(APIBaseTest):
             (
                 "a_header_too_long",
                 {"attachments": [{"sha256": CSV, "filename": "logo.png", "content_id": "x" * 79}]},
+                "invalid_request",
                 "attachments__0__content_id",
                 "Shorten `content_id` to 78 characters",
             ),
-            ("too_many_copies", {"bcc": [f"user{i}@example.com" for i in range(11)]}, "bcc", "at most 10 addresses"),
+            (
+                "too_many_copies",
+                {"bcc": [f"user{i}@example.com" for i in range(11)]},
+                "invalid_request",
+                "bcc",
+                "at most 10 addresses",
+            ),
             (
                 "an_attachment_that_is_not_an_object",
                 {"attachments": ["logo.png"]},
+                "invalid_request",
                 "attachments__0",
                 "`{sha256, filename}`",
             ),
+            (
+                "a_content_type_with_a_line_break",
+                {
+                    "attachments": [
+                        {
+                            "sha256": CSV,
+                            "filename": "invite.ics",
+                            "content_type": "text/calendar; method=REQUEST\r\nBcc: jane@example.com",
+                        }
+                    ]
+                },
+                "not_mime_type",
+                "attachments__0__content_type",
+                "leave `content_type` out",
+            ),
         ]
     )
-    def test_a_refused_extra_field_names_its_remedy(self, mock_post, _flag, _capture, _name, fields, attr, fix):
+    def test_a_refused_extra_field_names_its_remedy(self, mock_post, _flag, _capture, _name, fields, code, attr, fix):
         with FakeCdpApi().serving(mock_post) as cdp:
             response = self._psak_client(["hog_flow:write"]).post(
                 self.send_email_url, self._code_send(**fields), format="json"
             )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert (response.json()["code"], response.json()["attr"]) == ("invalid_request", attr)
+        assert (response.json()["code"], response.json()["attr"]) == (code, attr)
         assert fix in response.json()["fix"]
         assert cdp.emails() == []
 
