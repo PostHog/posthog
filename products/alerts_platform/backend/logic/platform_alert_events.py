@@ -372,9 +372,10 @@ def read_announcement(
 
     A recorded evaluation with nothing to announce comes back `EMPTY` at once. One with no row at
     all is read again after each delay in `_ANNOUNCEMENT_RETRY_DELAYS_SECONDS`, and comes back
-    `MISSING` if it is still not there: at most 3s inside the 10s activity, enough for a lagging
-    replica or asynchronous Distributed insert, though no retry brings back a failed insert. The
-    reads use no consistency setting: without `insert_quorum` on the write, none would help.
+    `MISSING` if it is still not there. The waits total 3s, which `DELIVERY_START_TO_CLOSE` budgets
+    for. That is enough for a lagging replica or an asynchronous Distributed insert, though no
+    retry brings back a failed insert. The reads use no consistency setting: without
+    `insert_quorum` on the write, none would help.
     """
     for delay in (0, *_ANNOUNCEMENT_RETRY_DELAYS_SECONDS):
         if delay:
