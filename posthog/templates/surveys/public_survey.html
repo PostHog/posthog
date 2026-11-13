@@ -5,10 +5,9 @@
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         {% comment %}
-        The stylesheet is inlined and no icons are linked: this page runs in a sandboxed null origin
-        and is served through reverse-proxy domains. Firefox's tracker list blocks posthog.com assets,
-        and proxy domains route /static/* to the SDK asset CDN, which has neither the stylesheet nor
-        the icons.
+        Inline CSS and no icons: Firefox Strict tracking protection blocks posthog.com assets on this
+        sandboxed null-origin page, and proxy hosts route /static/* to the SDK asset CDN, which 404s
+        the stylesheet and icons.
         {% endcomment %}
         <style>{% include "surveys/hosted-survey.css" %}</style>
         <meta name="apple-mobile-web-app-title" content="{{ name }}">

@@ -408,8 +408,6 @@ class TestExternalSurveys(APIBaseTest):
         assert error_page.status_code == 400
         page_content = page.content.decode()
         error_content = error_page.content.decode()
-        # Firefox's tracker list blocks posthog.com assets on the null-origin page, and proxy
-        # domains 404 /static/* (it routes to the SDK asset CDN), so the page carries its own CSS.
         assert ".PostHogHostedSurvey {" in page_content
         for content in (page_content, error_content):
             assert not re.search(r'(?:href|src)="[^"]*/static/', content)
