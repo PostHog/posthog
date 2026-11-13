@@ -130,6 +130,17 @@ def _print_untouched(
     return print_prepared_ast(prepared_query, context=context, dialect="clickhouse", settings=settings, stack=[])
 
 
+def _describe_ast_settings(settings: HogQLGlobalSettings) -> dict[str, str]:
+    return {
+        name: str(value)
+        for name, value in {
+            "max_ast_elements": settings.max_ast_elements,
+            "max_expanded_ast_elements": settings.max_expanded_ast_elements,
+        }.items()
+        if value is not None
+    }
+
+
 @frozen
 class _DescribedColumn:
     name: str
@@ -163,8 +174,9 @@ def _plan_prompt_jev(
 async def _describe_columns(
     printed: str,
     query_parameters: dict[str, typing.Any],
-    query_settings: dict[str, str] | None,
+    query_settings: dict[str, str],
     external_tables: list[ClickHouseExternalTable],
+    retry_with_untouched_query: bool,
 ) -> list[_DescribedColumn]:
     """A select list is ordered and may repeat a name, so the probe returns a list, not a mapping.
     `_reject_duplicate_output_columns` is what turns a repeat into a readable error."""
@@ -179,7 +191,7 @@ async def _describe_columns(
             ) as ch_response:
                 table_describe_response = await ch_response.content.read()
     except ClickHouseError as error:
-        if error.code != 8 or query_settings is None:
+        if error.code != 8 or not retry_with_untouched_query:
             raise
         raise ClickHouseQueryPlanningError(str(error), query=error.query, query_id=error.query_id) from error
     columns: list[_DescribedColumn] = []
@@ -644,6 +656,7 @@ async def hogql_table(
 
     settings = HogQLGlobalSettings()
     settings.max_execution_time = HOGQL_INCREASED_MAX_EXECUTION_TIME
+    describe_ast_settings = _describe_ast_settings(settings)
     kill_switch_level = await database_sync_to_async_pool(resolve_kill_switch_level)(team.pk)
     if kill_switch_level in KILL_SWITCH_MAX_THREADS:
         settings.max_threads = KILL_SWITCH_MAX_THREADS[kill_switch_level]
@@ -723,7 +736,11 @@ async def hogql_table(
 
     try:
         described_columns = await _describe_columns(
-            printed, context.values, DESCRIBE_QUERY_SETTINGS, list(context.external_tables.values())
+            printed,
+            context.values,
+            {**DESCRIBE_QUERY_SETTINGS, **describe_ast_settings},
+            list(context.external_tables.values()),
+            retry_with_untouched_query=True,
         )
     except ClickHouseQueryPlanningError as error:
         # ClickHouse cannot plan some shapes once GLOBAL is gone, such as an IN subquery inside an
@@ -733,7 +750,11 @@ async def hogql_table(
         )
         untouched = await database_sync_to_async_pool(_print_untouched)(prepared_hogql_query, context, settings)
         described_columns = await _describe_columns(
-            untouched, context.values, None, list(context.external_tables.values())
+            untouched,
+            context.values,
+            describe_ast_settings,
+            list(context.external_tables.values()),
+            retry_with_untouched_query=False,
         )
 
     _reject_duplicate_output_columns(described_columns)
