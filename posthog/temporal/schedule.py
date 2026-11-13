@@ -64,10 +64,6 @@ from posthog.temporal.salesforce_enrichment.workflow import SalesforceEnrichment
 from posthog.temporal.session_replay.delete_recordings.types import PurgeDeletedMetadataInput
 from posthog.temporal.session_replay.enforce_max_replay_retention.types import EnforceMaxReplayRetentionInput
 from posthog.temporal.session_replay.replay_count_metrics.types import ReplayCountMetricsInput
-from posthog.temporal.session_replay.surfacing_score_export_sweep.schedule import (
-    create_surfacing_score_export_sweep_schedule,
-)
-from posthog.temporal.session_replay.surfacing_scoring_sweep.schedule import create_surfacing_scoring_sweep_schedule
 from posthog.temporal.sync_events_retention.types import SyncEventsRetentionInput
 from posthog.temporal.usage_report.types import RunUsageReportsInputs
 from posthog.temporal.warehouse_sources_queue_partition_management.schedule import (
@@ -186,6 +182,17 @@ async def cleanup_retired_replay_vision_schedules(client: Client):
     retired_schedule_ids = [
         "replay-vision-search-suggestions-refresher-schedule",
         "replay-vision-jev-watch-rank-schedule",
+    ]
+    for schedule_id in retired_schedule_ids:
+        if await a_schedule_exists(client, schedule_id):
+            await a_delete_schedule(client, schedule_id)
+
+
+async def cleanup_retired_session_replay_schedules(client: Client):
+    """Delete session replay schedules whose workflows are gone. Any in-flight run ends on its own execution timeout."""
+    retired_schedule_ids = [
+        "surfacing-scoring-sweep-batch",
+        "surfacing-score-export-sweep",
     ]
     for schedule_id in retired_schedule_ids:
         if await a_schedule_exists(client, schedule_id):
@@ -972,10 +979,9 @@ schedules = [
     create_count_trigger_schedule,
     create_evaluation_sampler_schedule,
     create_evaluation_clustering_schedule,
-    create_surfacing_score_export_sweep_schedule,
-    create_surfacing_scoring_sweep_schedule,
     create_ducklake_compaction_schedule,
     create_purge_deleted_recording_metadata_schedule,
+    cleanup_retired_session_replay_schedules,
     create_experiment_regular_metrics_schedules,
     create_experiment_saved_metrics_schedules,
     create_experiment_precompute_canary_schedule,
