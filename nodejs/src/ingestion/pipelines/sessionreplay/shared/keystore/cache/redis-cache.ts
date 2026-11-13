@@ -35,15 +35,15 @@ export class RedisCachedKeyStore implements KeyStore {
         await this.delegate.start()
     }
 
-    // Best effort: the delegate holds every key and deletion, so a failed read (e.g. a command timeout) costs only a
-    // lookup. Returns 'unavailable' so the caller skips the fill write against a Redis that just failed.
+    // Best effort: the delegate is the source of truth, so a failed read (e.g. a command timeout) costs only a lookup.
+    // Returns 'unavailable' so the caller skips the fill write against a Redis that just failed.
     private async getCached(sessionId: string, teamId: number): Promise<SessionKey | null | 'unavailable'> {
         const startTime = performance.now()
+        let cached: string | null
         try {
             const client = await this.redisPool.acquire()
             try {
-                const cached = await client.get(this.cacheKey(sessionId, teamId))
-                return cached ? deserializeSessionKey(cached) : null
+                cached = await client.get(this.cacheKey(sessionId, teamId))
             } finally {
                 await this.redisPool.release(client)
             }
@@ -54,6 +54,7 @@ export class RedisCachedKeyStore implements KeyStore {
         } finally {
             SessionBatchMetrics.observeKeystoreRedisLatency((performance.now() - startTime) / 1000)
         }
+        return cached ? deserializeSessionKey(cached) : null
     }
 
     // Best effort: the caller already has the key, so a failed write (e.g. READONLY after a failover) must not fail the request.
