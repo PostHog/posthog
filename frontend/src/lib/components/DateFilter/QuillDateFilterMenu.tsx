@@ -17,6 +17,7 @@ import {
     DropdownMenuTrigger,
     Popover,
     PopoverContent,
+    ScrollArea,
     SelectTriggerIcon,
 } from '@posthog/quill'
 
@@ -207,7 +208,11 @@ export const QuillDateFilterMenu = forwardRef<HTMLButtonElement, QuillDateFilter
                 <DropdownMenuContent>
                     <DropdownMenuList>
                         <DropdownMenuRadioGroup value={selectedValue}>
-                            <div className="max-h-80 overflow-y-auto scroll-mask-y-4 scroll-py-4">
+                            <ScrollArea
+                                hideScrollbars
+                                scrollShadows={false}
+                                viewportClassName="max-h-80 scroll-mask-y-4 scroll-py-4"
+                            >
                                 {visibleOptions.map(({ key: optionKey, values }) => (
                                     <DropdownMenuRadioItem
                                         key={optionKey}
@@ -270,7 +275,7 @@ export const QuillDateFilterMenu = forwardRef<HTMLButtonElement, QuillDateFilter
                                         />
                                     </div>
                                 </div>
-                            </div>
+                            </ScrollArea>
                             <DropdownMenuSeparator />
                             <DropdownMenuRadioItem value={DATE_TO_NOW_VALUE} onClick={openDateToNow}>
                                 From custom date until now…
