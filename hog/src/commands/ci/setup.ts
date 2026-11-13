@@ -8,14 +8,7 @@ import {
 } from '@/ci/provider-settings'
 import type { WorkloadConditions } from '@/ci/providers/registry'
 import { detectRepositoryProvider, providerByKey, readRepository } from '@/ci/repository'
-import {
-    approvalExitCode,
-    clearPending,
-    printPending,
-    resumeApproval,
-    runApproval,
-    type ApprovalResult,
-} from '@/core/approval'
+import { clearPending, printPending, resumeApproval, runApproval, type ApprovalResult } from '@/core/approval'
 import { defineCommand } from '@/core/command'
 import { EXIT_USAGE, HogError } from '@/core/errors'
 import { escapeControls, type Output } from '@/core/output'
@@ -369,5 +362,4 @@ export default defineCommand({
     },
 
     telemetry: ({ result }) => ({ status: result.status, provider: result.provider }),
-    exitCode: approvalExitCode,
 })

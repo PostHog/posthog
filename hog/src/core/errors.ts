@@ -7,6 +7,33 @@ export const EXIT_PENDING = 4
 // Ctrl-C. Shells report 130 for a process that SIGINT stopped, so hog uses the same code.
 export const EXIT_CANCELLED = 130
 
+// The error codes that mean a person has to act wherever hog throws them. Every other code exits
+// with EXIT_FAILURE unless the throw site passes another exit code.
+const EXIT_CODE_BY_ERROR: Readonly<Record<string, number>> = {
+    not_authenticated: EXIT_NEEDS_PERSON,
+    session_expired: EXIT_NEEDS_PERSON,
+    step_up_required: EXIT_NEEDS_PERSON,
+    step_up_unavailable: EXIT_NEEDS_PERSON,
+    step_up_other_project: EXIT_NEEDS_PERSON,
+    scopes_not_granted: EXIT_NEEDS_PERSON,
+    region_required: EXIT_NEEDS_PERSON,
+    login_needs_a_person: EXIT_NEEDS_PERSON,
+    not_in_ci: EXIT_NEEDS_PERSON,
+    keychain_access_denied: EXIT_NEEDS_PERSON,
+    keychain_access_timeout: EXIT_NEEDS_PERSON,
+    workload_no_matching_policy: EXIT_NEEDS_PERSON,
+    workload_policy_request_pending: EXIT_NEEDS_PERSON,
+}
+
+export function exitCodeFor(code: string): number {
+    return Object.hasOwn(EXIT_CODE_BY_ERROR, code) ? EXIT_CODE_BY_ERROR[code]! : EXIT_FAILURE
+}
+
+export interface ErrorPatch {
+    message?: string
+    hint?: string
+}
+
 // A failure hog reports to the caller. `code` is stable and machine-readable, so agents and
 // scripts can branch on it; `message` and `hint` are for people. Agents also get `details`.
 // `serverDetail` is PostHog's own reason for refusing a request. It stays out of `message`, because
@@ -16,7 +43,7 @@ export class HogError extends Error {
         readonly code: string,
         message: string,
         readonly hint?: string,
-        readonly exitCode = EXIT_FAILURE,
+        readonly exitCode: number = exitCodeFor(code),
         readonly details?: Readonly<Record<string, unknown>>,
         readonly serverDetail?: string
     ) {
@@ -25,11 +52,22 @@ export class HogError extends Error {
     }
 
     withHint(hint: string): HogError {
-        return new HogError(this.code, this.message, hint, this.exitCode, this.details, this.serverDetail)
+        return this.copy({ hint })
     }
 
     withMessage(message: string): HogError {
-        return new HogError(this.code, message, this.hint, this.exitCode, this.details, this.serverDetail)
+        return this.copy({ message })
+    }
+
+    protected copy(patch: ErrorPatch): HogError {
+        return new HogError(
+            this.code,
+            patch.message ?? this.message,
+            patch.hint ?? this.hint,
+            this.exitCode,
+            this.details,
+            this.serverDetail
+        )
     }
 }
 

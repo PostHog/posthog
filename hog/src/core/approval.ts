@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { ApiError } from '@/posthog/api'
 
 import type { Context } from './context'
-import { EXIT_NEEDS_PERSON, EXIT_SUCCESS, HogError } from './errors'
+import { EXIT_NEEDS_PERSON, HogError } from './errors'
 import { parseJsonOrUndefined } from './json'
 import { escapeControls, type Output } from './output'
 import { hogFile } from './paths'
@@ -342,17 +342,12 @@ export function refuseInCi(ctx: Context, command: string, hint: string): void {
         throw new HogError(
             'login_needs_a_person',
             `${command} needs someone to approve it in a browser, so it can't run in CI.`,
-            hint,
-            EXIT_NEEDS_PERSON
+            hint
         )
     }
 }
 
 export type PendingResult = Extract<ApprovalResult<never>, { status: 'pending' }>
-
-export function approvalExitCode<Result extends { status: string }>(result: Result): number {
-    return result.status === 'pending' ? EXIT_NEEDS_PERSON : EXIT_SUCCESS
-}
 
 // Starts a command that waits for a person. At a terminal it shows the link, opens the browser when it
 // can, and waits; Ctrl-C keeps the pending item for `--wait`. Agents and scripts get the link and the

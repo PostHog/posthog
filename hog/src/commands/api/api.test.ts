@@ -11,7 +11,7 @@ import type {
 } from '@posthog/mcp/src/cli/library-types'
 
 import * as providers from '@/ci/providers/registry'
-import { EXIT_FAILURE, EXIT_SUCCESS, EXIT_USAGE } from '@/core/errors'
+import { EXIT_FAILURE, EXIT_NEEDS_PERSON, EXIT_SUCCESS, EXIT_USAGE } from '@/core/errors'
 import { FAKE_WORKLOAD_PROVIDER, readJson, runHog, TEST_CREDENTIALS, type HogRun } from '@/testing'
 
 mock.module('@/ci/providers/registry', () => ({ ...providers, WORKLOAD_PROVIDERS: [FAKE_WORKLOAD_PROVIDER] }))
@@ -209,6 +209,7 @@ describe('hog api', () => {
             env: TEST_CREDENTIALS,
             apiTools: library,
         })
+        expect(result.exitCode).toBe(EXIT_NEEDS_PERSON)
         expect(result.error()).toMatchObject({
             code: 'missing_scopes',
             message: `Your credentials need ${scopes} to call insight-create.`,

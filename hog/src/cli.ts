@@ -44,6 +44,19 @@ ${EXIT_CODES.map(({ code, meaning }) => `  ${code}  ${meaning}`).join('\n')}
 // their codes, because the command never ran as written.
 const UNFINISHED_CODES: ReadonlySet<number> = new Set([EXIT_FAILURE, EXIT_NEEDS_PERSON, EXIT_PENDING])
 
+// A result that waits says so in `status`, so every such command exits the same way.
+const EXIT_CODE_BY_STATUS: Readonly<Record<string, number>> = {
+    pending: EXIT_NEEDS_PERSON,
+    running: EXIT_PENDING,
+}
+
+function resultExitCode(result: unknown): number {
+    const status = typeof result === 'object' && result !== null && 'status' in result ? result.status : undefined
+    return typeof status === 'string' && Object.hasOwn(EXIT_CODE_BY_STATUS, status)
+        ? EXIT_CODE_BY_STATUS[status]!
+        : EXIT_SUCCESS
+}
+
 const LEGACY_HELP_GROUP = 'Not ported yet (each one prints the posthog-cli command to run):'
 
 function toOption(name: string, spec: OptionSpec): Option {
@@ -241,8 +254,7 @@ function createProgram(runtime: Runtime, mode: Mode, state: RunState, telemetry:
                 throw new HogError(
                     'not_in_ci',
                     `\`hog ${path}\` ${node.refusesCI.reason}, so it does not run in CI.`,
-                    node.refusesCI.hint,
-                    EXIT_NEEDS_PERSON
+                    node.refusesCI.hint
                 )
             }
             let result: unknown
@@ -258,7 +270,7 @@ function createProgram(runtime: Runtime, mode: Mode, state: RunState, telemetry:
             } else if (result !== undefined) {
                 out.json(globals.raw && node.raw ? node.raw(result) : result)
             }
-            state.exitCode = node.exitCode?.(result) ?? EXIT_SUCCESS
+            state.exitCode = node.exitCode?.(result) ?? resultExitCode(result)
             state.properties = {
                 dry_run: options.dryRun === true,
                 ...node.telemetry?.({ result, args, options } as never),

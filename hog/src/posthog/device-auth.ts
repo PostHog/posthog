@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
 import { PendingApprovalSchema, type PollOutcome } from '@/core/approval'
-import { EXIT_NEEDS_PERSON, HogError } from '@/core/errors'
+import { HogError } from '@/core/errors'
 import { escapeControls } from '@/core/output'
 import type { Runtime } from '@/core/runtime'
 import { parseOrThrow } from '@/core/schema'
@@ -219,8 +219,7 @@ async function refuseWithoutRequiredScopes(
     throw new HogError(
         'scopes_not_granted',
         `The approval didn't include ${missing.join(', ')}, so hog kept your current login.`,
-        `Run \`${stepUpCommand(missing, login.host)}\` and keep these scopes when you approve it.`,
-        EXIT_NEEDS_PERSON
+        `Run \`${stepUpCommand(missing, login.host)}\` and keep these scopes when you approve it.`
     )
 }
 
