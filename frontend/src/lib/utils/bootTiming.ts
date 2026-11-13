@@ -57,7 +57,6 @@ function getChunkBuild(): ChunkBuild {
     if (window.POSTHOG_STABLE_CHUNKS_FALLBACK) {
         return 'fallback'
     }
-    // Only the stable chunk build renders an import map (see posthog/stable_chunks.py).
     return document.querySelector('script[type="importmap"]') ? 'stable' : 'hashed'
 }
 
@@ -77,7 +76,6 @@ async function sendBootTiming(): Promise<void> {
     const distinctId = posthog.get_distinct_id()
     // hashCodeForString returns 0 for an empty string, which would put every such page load in the sample.
     const chunkBuild = getChunkBuild()
-    // Fallback page loads are rare, and the share of them that boot is only measurable with all of them.
     const sampleRate = chunkBuild === 'fallback' ? 1 : SAMPLE_RATE
     if (!distinctId?.trim() || hashCodeForString(distinctId) % 100 >= sampleRate * 100) {
         return

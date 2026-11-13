@@ -142,7 +142,6 @@ describe('bootTiming', () => {
     it.each([
         { distinctId: IN_SAMPLE_ID, fellBack: false, sent: { sample_rate: 0.05, chunk_build: 'hashed' } },
         { distinctId: OUT_OF_SAMPLE_ID, fellBack: false, sent: null },
-        // Every fallback page load reports, so the share of fallbacks that boot is measurable.
         { distinctId: OUT_OF_SAMPLE_ID, fellBack: true, sent: { sample_rate: 1, chunk_build: 'fallback' } },
         // An empty ID hashes to bucket 0, so without a guard every such page load would land in the sample.
         { distinctId: '', fellBack: false, sent: null },
