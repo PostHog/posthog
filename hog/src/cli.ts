@@ -31,6 +31,7 @@ import { canStepUp, stepUpCommand, workloadScopesHint } from '@/posthog/scope-ch
 import { VERSION } from '@/version'
 
 const ROOT_HELP = `
+Agents: run \`hog instructions\` first. It shows how to use hog, for the version installed.
 hog prints JSON when an agent such as Claude Code or Codex runs it, or when stdout is not a terminal.
 Run \`hog auth login\` to log in, and \`hog commands -o json\` to list every command, its arguments and its options.
 HOG_DRY_RUN=1 turns on --dry-run for every command that has one, and fails the commands that would change something without it.`

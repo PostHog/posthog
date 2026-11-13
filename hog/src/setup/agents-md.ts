@@ -96,6 +96,8 @@ export function finalBlock(options: {
         '',
         ...lines,
         '- Anything else: `hog skills search <keywords>`',
+        '',
+        'Run `hog instructions` for how to use hog itself.',
     ].join('\n')
 }
 

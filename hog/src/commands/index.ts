@@ -8,6 +8,7 @@ import config from './config'
 import endpoints from './endpoints'
 import errorTracking from './error-tracking'
 import feedback from './feedback'
+import instructions from './instructions'
 import { LEGACY_COMMANDS } from './legacy'
 import mcp from './mcp'
 import query from './query'
@@ -17,6 +18,7 @@ import skills from './skills'
 
 export const COMMANDS: CommandTree = {
     setup,
+    instructions,
     auth,
     ci,
     query,

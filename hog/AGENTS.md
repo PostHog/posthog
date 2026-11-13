@@ -13,6 +13,7 @@
 | `src/error-tracking/` | Symbol upload: discovery, artifact types under `kinds/`, the container and content hash, releases, git, the upload protocol, and `run.ts`, the inject and upload steps the commands share |
 | `src/setup/`          | `hog setup`: the steps, the state file each folder keeps in `~/.posthog/setup/`, the AGENTS.md note and the product table                                                                 |
 | `src/endpoints/`      | The endpoint YAML files, how they compare with PostHog, and the push and pull plans                                                                                                       |
+| `src/instructions/`   | The Markdown pages `hog instructions` prints, bundled into the binary, and the list of topics                                                                                             |
 | `test/parity/`        | Goldens recorded from posthog-cli and the tests that hold hog to them. Read its README before changing anything that reaches an upload                                                    |
 | `src/cli.ts`          | Turns the command tree into a commander program, runs it, and maps errors to exit codes                                                                                                   |
 | `src/testing.ts`      | `runHog` and a fake runtime, so tests run the real CLI without a process or a network                                                                                                     |

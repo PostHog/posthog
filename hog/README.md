@@ -42,6 +42,7 @@ The commands `posthog-cli` keeps under `exp` (`query`, `endpoints`, `logs`, `tas
 | `hog schema pull`                         | Generates a typed SDK (TypeScript, Go or Python) from your event definitions, and records it in `posthog.json`.                   |
 | `hog schema status`                       | Checks each generated SDK against PostHog. Exits with code 1 when one is missing or out of date.                                  |
 | `hog config check`, `hog config schema`   | Check `posthog.json` against its schema, or print the schema.                                                                     |
+| `hog instructions [topic]`                | Shows coding agents how to use hog, for the version installed. `--list` lists the topics.                                         |
 | `hog commands`                            | Lists every command, its arguments, options and scopes.                                                                           |
 | `hog feedback [message]`                  | Sends feedback about hog or PostHog to the PostHog team. `-` reads it from stdin. See [Feedback](#feedback).                      |
 | Everything else                           | Not ported yet. Exits with code 1 and prints the `posthog-cli` command to run instead, with the same arguments.                   |
