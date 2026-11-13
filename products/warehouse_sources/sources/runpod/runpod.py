@@ -17,6 +17,7 @@ from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponenti
 
 from products.warehouse_sources.sources.runpod.settings import (
     BILLING_BUCKET_SIZE,
+    INVENTORY_PAGE_SIZE,
     RUNPOD_BASE_URL,
     RUNPOD_ENDPOINTS,
     RunPodEndpointConfig,
@@ -90,9 +91,9 @@ def _build_url(path: str, params: dict[str, Any]) -> str:
     wait=wait_exponential_jitter(initial=1, max=30),
     reraise=True,
 )
-def _fetch_list(
+def _fetch_json(
     session: requests.Session, url: str, headers: dict[str, str], logger: FilteringBoundLogger
-) -> list[dict[str, Any]]:
+) -> dict[str, Any]:
     response = session.get(url, headers=headers, timeout=60)
 
     if response.status_code == 429 or response.status_code >= 500:
@@ -103,16 +104,23 @@ def _fetch_list(
         response.raise_for_status()
 
     data = response.json()
-    if data is None:
-        return []
-    if not isinstance(data, list):
-        raise ValueError(f"RunPod API returned an unexpected non-list response for url={url}")
+    if not isinstance(data, dict):
+        raise ValueError(f"RunPod API returned an unexpected non-object response for url={url}")
     return data
+
+
+def _rows_from(data: dict[str, Any], key: str, url: str) -> list[dict[str, Any]]:
+    rows = data.get(key)
+    if rows is None:
+        return []
+    if not isinstance(rows, list):
+        raise ValueError(f"RunPod API returned a non-list `{key}` for url={url}")
+    return rows
 
 
 def validate_credentials(api_key: str) -> bool:
     # A single cheap probe against the pods list confirms the API key is genuine.
-    url = _build_url("/pods", {})
+    url = _build_url("/pods", {"limit": 1})
     try:
         response = make_tracked_session().get(url, headers=_get_headers(api_key), timeout=10)
     except Exception:
@@ -134,34 +142,38 @@ def _row_id(*parts: Any) -> str:
     return hashlib.sha256(joined.encode()).hexdigest()
 
 
+def _billing_row_id(record: dict[str, Any]) -> str:
+    # The parts and their order match the ids that v1 syncs wrote (time, podId, endpointId,
+    # gpuTypeId), so a bucket that v1 already wrote merges in place instead of being duplicated.
+    # v2 has no GPU type grouping, so that part is always None.
+    parts = [record.get("time"), record.get("podId"), record.get("serverlessId"), None]
+    # v1 network volume billing was one account-wide record per bucket; v2 is one per volume.
+    if record.get("networkVolumeId") is not None:
+        parts.append(record["networkVolumeId"])
+    return _row_id(*parts)
+
+
 def _normalize_billing_record(record: dict[str, Any]) -> dict[str, Any]:
     normalized = dict(record)
-    if "time" not in normalized and "startDate" in normalized:
-        # RunPod's network volume billing has been observed returning the bucket start under
-        # `startDate` rather than the `time` field documented for every other billing endpoint,
-        # so alias it here to keep the schema's declared "time" incremental field valid.
-        normalized["time"] = normalized.pop("startDate")
+    if "time" not in normalized and "startTime" in normalized:
+        # v2 gives the bucket start as `startTime`. Keep it under `time`, the column that v1 rows
+        # use and that the schema declares as the incremental field and the partition key.
+        normalized["time"] = normalized.pop("startTime")
     return {
         **normalized,
         # Set last so a record that happens to carry its own "id" key can never override the
         # synthesized surrogate id merge relies on for dedup.
-        "id": _row_id(
-            normalized.get("time"), normalized.get("podId"), normalized.get("endpointId"), normalized.get("gpuTypeId")
-        ),
+        "id": _billing_row_id(normalized),
     }
 
 
-def _billing_params(
-    config: RunPodEndpointConfig, window_start: datetime, window_end: Optional[datetime]
-) -> dict[str, Any]:
+def _billing_params(window_start: datetime, window_end: Optional[datetime]) -> dict[str, Any]:
     params: dict[str, Any] = {
         "bucketSize": BILLING_BUCKET_SIZE,
         "startTime": _format_rfc3339(window_start),
     }
     if window_end is not None:
         params["endTime"] = _format_rfc3339(window_end)
-    if config.group_by:
-        params["grouping"] = config.group_by
     return params
 
 
@@ -206,8 +218,8 @@ def _iter_billing_rows(
         # The final window runs to "now": omit endTime so the open bucket is included.
         window_end = proposed_end if proposed_end < now else None
 
-        url = _build_url(config.path, _billing_params(config, window_start, window_end))
-        records = _fetch_list(session, url, headers, logger)
+        url = _build_url(config.path, _billing_params(window_start, window_end))
+        records = _rows_from(_fetch_json(session, url, headers, logger), config.response_key, url)
 
         # Response ordering is undocumented; each window arrives whole, so sort client-side to keep
         # the ascending guarantee sort_mode="asc" promises the pipeline.
@@ -245,12 +257,20 @@ def _iter_inventory_rows(
     logger: FilteringBoundLogger,
     config: RunPodEndpointConfig,
 ) -> Iterator[list[dict[str, Any]]]:
-    # Inventory endpoints are unpaginated — the whole account snapshot arrives in one response.
-    items = _fetch_list(session, _build_url(config.path, {}), headers, logger)
-    if config.sensitive_keys:
-        items = [_strip_sensitive_keys(item, config.sensitive_keys) for item in items]
-    if items:
-        yield items
+    cursor: Optional[str] = None
+    while True:
+        url = _build_url(config.path, {"limit": INVENTORY_PAGE_SIZE, "cursor": cursor})
+        data = _fetch_json(session, url, headers, logger)
+        items = _rows_from(data, config.response_key, url)
+        if config.sensitive_keys:
+            items = [_strip_sensitive_keys(item, config.sensitive_keys) for item in items]
+        if items:
+            yield items
+
+        pagination = data.get("pagination") or {}
+        cursor = pagination.get("nextCursor")
+        if not pagination.get("hasNextPage") or not cursor:
+            break
 
 
 def get_rows(
