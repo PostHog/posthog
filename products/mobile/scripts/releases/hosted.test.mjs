@@ -168,7 +168,10 @@ function fixture(t) {
 test('real CLI publishes readable notes and receipts, promotes an OTA from a legacy receipt and deduplicates reruns', (t) => {
     const f = fixture(t)
     f.addRequest('native-140', 'native', null)
-    let outcome = f.invoke(['publish'])
+    let outcome = f.invoke(['publish', '--defer-finalization'])
+    assert.equal(outcome.status, 0, outcome.stderr)
+    assert.equal(f.state().pointer, null)
+    outcome = f.invoke(['finalize'])
     assert.equal(outcome.status, 0, outcome.stderr)
     let state = f.state()
     assert.deepEqual(state.submissions, ['1'.repeat(36), '2'.repeat(36)])
@@ -224,6 +227,50 @@ test('real CLI publishes readable notes and receipts, promotes an OTA from a leg
     outcome = f.invoke(['publish'])
     assert.equal(outcome.status, 0, outcome.stderr)
     assert.equal(f.state().commands.filter(({ tool }) => tool === 'eas').length, effectsBefore)
+})
+
+test('production finalization retries with a fresh token without repeating store submissions', (t) => {
+    const f = fixture(t)
+    f.addRequest('native-140', 'native', null)
+    let outcome = f.invoke(['publish', '--defer-finalization'])
+    assert.equal(outcome.status, 0, outcome.stderr)
+    outcome = f.invoke(['finalize'])
+    assert.equal(outcome.status, 0, outcome.stderr)
+    const previousPointer = f.state().pointer
+
+    mkdirSync(join(f.root, '.github/workflows'), { recursive: true })
+    writeFileSync(join(f.root, '.github/workflows/example.yml'), 'name: Example\non: workflow_dispatch\n')
+    f.addRequest('native-150', 'native', 'native-140', '1.5.0')
+    const options = {
+        MOBILE_FAKE_VERSION: '1.5.0',
+        MOBILE_FAKE_REQUIRE_WORKFLOWS_WRITE: '1',
+        GH_TOKEN: 'example-github-token',
+    }
+    outcome = f.invoke(['publish', '--defer-finalization'], options)
+    assert.equal(outcome.status, 0, outcome.stderr)
+    const published = f.state()
+    assert.equal(JSON.parse(published.releases['mobile-release/native-150'].assets[0].content).state, 'complete')
+    assert.equal(published.pointer, previousPointer)
+
+    outcome = f.invoke(['finalize'], options)
+    assert.notEqual(outcome.status, 0)
+    assert.match(outcome.stderr, /HTTP 403/)
+    assert.equal(f.state().pointer, previousPointer)
+    assert.equal(f.invoke(['publish', '--defer-finalization'], options).status, 0)
+    for (let attempt = 0; attempt < 2; attempt++) {
+        outcome = f.invoke(['finalize'], { ...options, GH_TOKEN: 'example-releaser-token' })
+        assert.equal(outcome.status, 0, outcome.stderr)
+    }
+    const finalized = f.state()
+    assert.notEqual(finalized.pointer, previousPointer)
+    assert.equal(JSON.parse(finalized.tags[finalized.pointer].message).id, 'native-150')
+    assert.equal(finalized.tags[finalized.pointer].object.sha, f.head())
+    assert.deepEqual(finalized.submissions, published.submissions)
+    assert.deepEqual(
+        finalized.commands.filter(({ tool }) => tool === 'eas'),
+        published.commands.filter(({ tool }) => tool === 'eas')
+    )
+    assert.equal(finalized.expoReads, published.expoReads)
 })
 
 test('environment reads retry transient failures and fail closed without repeating publication', async (t) => {
@@ -301,6 +348,11 @@ test('receipt finalization failures retain the staged claim and never advance pr
             assert.match(retry.stderr, /already claimed/)
             assert.equal(f.state().commands.filter(({ tool }) => tool === 'eas').length, effectsBefore)
             assert.equal(f.state().pointer, null)
+            const finalize = f.invoke(['finalize'])
+            assert.notEqual(finalize.status, 0)
+            assert.match(finalize.stderr, /Finalization requires a published, completed receipt/)
+            assert.equal(f.state().pointer, null)
+            assert.equal(f.state().commands.filter(({ tool }) => tool === 'eas').length, effectsBefore)
         })
     }
 })
@@ -439,6 +491,7 @@ test('signing configuration and a matching private key are required before a rel
     assert.match(unsigned.stderr, /pinned OTA signing certificate/)
     assert.deepEqual(f.state().releases, {})
     assert.equal(f.invoke(['publish']).status, 0)
+    assert.equal(f.invoke(['finalize']).status, 0)
     f.addRequest('chart-fix', 'ota', 'native-140')
     const mismatchedKey = join(f.temporary, 'mismatched-key.pem')
     writeFileSync(

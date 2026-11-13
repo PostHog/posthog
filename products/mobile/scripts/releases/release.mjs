@@ -431,7 +431,7 @@ function deploymentStatus(id, state) {
     api(`deployments/${id}/statuses`, { state, log_url: process.env.MOBILE_RELEASE_RUN_URL, auto_inactive: false })
 }
 
-async function publish() {
+function hostedRequest() {
     assertHosted()
     checkRequests()
     const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8'))
@@ -439,7 +439,33 @@ async function publish() {
     if (!requestPath) {
         throw new Error('The triggering push did not add a release request')
     }
-    const request = readRequest(join(repoRoot, requestPath))
+    return readRequest(join(repoRoot, requestPath))
+}
+
+function finalize() {
+    const request = hostedRequest()
+    const existing = releaseReceipt(request.id)
+    if (
+        !existing ||
+        existing.release.draft ||
+        existing.receipt.state !== 'complete' ||
+        existing.receipt.commit !== process.env.GITHUB_SHA ||
+        !isDeepStrictEqual(existing.receipt.request, request)
+    ) {
+        throw new Error('Finalization requires a published, completed receipt for the exact request and source commit')
+    }
+    const current = productionState()
+    if (!current || current.request.id === request.previousRelease || current.request.id === request.id) {
+        advancePointer(existing.receipt)
+    }
+    appendFileSync(
+        process.env.GITHUB_STEP_SUMMARY,
+        `Published mobile ${request.kind} request **${request.id}** from \`${existing.receipt.commit}\`. [Receipt](https://github.com/${repo}/releases/tag/${releaseTag(request.id)})\n`
+    )
+}
+
+async function publish(deferFinalization = false) {
+    const request = hostedRequest()
     const commit = process.env.GITHUB_SHA
     const existing = releaseReceipt(request.id)
     if (
@@ -447,9 +473,11 @@ async function publish() {
         existing.receipt.commit === commit &&
         JSON.stringify(existing.receipt.request) === JSON.stringify(request)
     ) {
-        const current = productionState()
-        if (!current || current.request.id === request.previousRelease || current.request.id === request.id) {
-            advancePointer(existing.receipt)
+        if (!deferFinalization) {
+            const current = productionState()
+            if (!current || current.request.id === request.previousRelease || current.request.id === request.id) {
+                advancePointer(existing.receipt)
+            }
         }
         saveReceipt(existing.receipt)
         console.log('Release already completed; no EAS publication repeated')
@@ -657,14 +685,18 @@ async function publish() {
                     },
                     'PATCH'
                 )
-                advancePointer(receipt)
+                if (!deferFinalization) {
+                    advancePointer(receipt)
+                }
                 return receipt
             },
         })
-        appendFileSync(
-            process.env.GITHUB_STEP_SUMMARY,
-            `Published mobile ${request.kind} request **${request.id}** from \`${commit}\`. [Receipt](https://github.com/${repo}/releases/tag/${releaseTag(request.id)})\n`
-        )
+        if (!deferFinalization) {
+            appendFileSync(
+                process.env.GITHUB_STEP_SUMMARY,
+                `Published mobile ${request.kind} request **${request.id}** from \`${commit}\`. [Receipt](https://github.com/${repo}/releases/tag/${releaseTag(request.id)})\n`
+            )
+        }
     } catch (error) {
         if (deployment && !receipt.staged) {
             deploymentStatus(deployment.id, 'failure')
@@ -683,6 +715,7 @@ async function main() {
             initial: { type: 'boolean' },
             base: { type: 'string' },
             head: { type: 'string' },
+            'defer-finalization': { type: 'boolean' },
         },
     })
     const [command, kind] = positionals
@@ -715,7 +748,9 @@ async function main() {
         const { expoRequire } = expoConfig()
         console.log(JSON.stringify(await nativeFingerprints(expoRequire), null, 2))
     } else if (command === 'publish') {
-        await publish()
+        await publish(values['defer-finalization'])
+    } else if (command === 'finalize') {
+        finalize()
     } else {
         throw new Error(
             'Use release:request, release:check, release:fingerprint or release:test. Publishing is hosted by Mobile Release'

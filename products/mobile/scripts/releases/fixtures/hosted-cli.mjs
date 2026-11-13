@@ -173,6 +173,14 @@ if (tool === 'eas') {
         state.tags[sha] = { message: data.message, object: { sha: data.object } }
         done({ sha })
     } else if (path.startsWith('git/refs')) {
+        if (
+            process.env.MOBILE_FAKE_REQUIRE_WORKFLOWS_WRITE === '1' &&
+            process.env.GH_TOKEN !== 'example-releaser-token'
+        ) {
+            done()
+            console.error('Resource not accessible by integration (HTTP 403)')
+            process.exit(1)
+        }
         state.pointer = data.sha
         done({})
     } else {
