@@ -1,0 +1,193 @@
+import { randomUUID } from 'crypto'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
+import os from 'os'
+import path from 'path'
+
+import { parseJSON } from '~/common/utils/json-parse'
+
+import { Admitted, Controller } from './admission'
+import { Aws, AwsError } from './aws'
+import { LoadedCloudProfile, TTL_HOURS } from './profile'
+
+export type Manifest = {
+    runId: string
+    owner: string
+    account: string
+    region: string
+    commit: string
+    createdAt: string
+    expiresAt: string
+    stackName: string
+    schedules: string[]
+    inputs: Record<string, string>
+}
+
+const HOUR_MS = 60 * 60 * 1000
+const DELETE_STACK = 'arn:aws:scheduler:::aws-sdk:cloudformation:deleteStack'
+
+export class LeaseError extends Error {}
+
+const keyOf = (runId: string, name: string): string => `runs/${runId}/${name}`
+
+function bucketOf(aws: Aws, bucket: string) {
+    const withScratch = async <T>(use: (file: string) => Promise<T>): Promise<T> => {
+        const dir = mkdtempSync(path.join(os.tmpdir(), 'scenario-cloud-'))
+        try {
+            return await use(path.join(dir, 'object'))
+        } finally {
+            rmSync(dir, { recursive: true, force: true })
+        }
+    }
+    const upload = (key: string, file: string): Promise<unknown> =>
+        aws.call(['s3api', 'put-object', '--bucket', bucket, '--key', key, '--body', file])
+    return {
+        upload,
+        put: (key: string, body: string): Promise<unknown> =>
+            withScratch((file) => {
+                writeFileSync(file, body)
+                return upload(key, file)
+            }),
+        get: (key: string): Promise<string> =>
+            withScratch(async (file) => {
+                await aws.call(['s3api', 'get-object', '--bucket', bucket, '--key', key, file])
+                return readFileSync(file, 'utf8')
+            }),
+        delete: (key: string): Promise<unknown> =>
+            aws.call(['s3api', 'delete-object', '--bucket', bucket, '--key', key]),
+        keys: async (prefix: string): Promise<string[]> => {
+            const listed = (await aws.call(['s3api', 'list-objects-v2', '--bucket', bucket, '--prefix', prefix])) as {
+                Contents?: { Key: string }[]
+            } | null
+            return (listed?.Contents ?? []).map(({ Key }) => Key)
+        },
+    }
+}
+
+const expressionOf = (at: Date): string => `at(${at.toISOString().slice(0, 19)})`
+
+const inputOf = (stackName: string): string => JSON.stringify({ StackName: stackName })
+
+async function ignoringNotFound(request: Promise<unknown>): Promise<void> {
+    try {
+        await request
+    } catch (error) {
+        if (!(error instanceof AwsError && error.code === 'ResourceNotFoundException')) {
+            throw error
+        }
+    }
+}
+
+async function deleteSchedules({ aws }: Controller, manifest: Manifest): Promise<void> {
+    for (const name of manifest.schedules) {
+        await ignoringNotFound(aws.call(['scheduler', 'delete-schedule', '--name', name]))
+    }
+}
+
+async function register(controller: Controller, schedulerRole: string, manifest: Manifest): Promise<void> {
+    const expiresAt = Date.parse(manifest.expiresAt)
+    const schedules = manifest.schedules.map((name, i) => ({
+        name,
+        expression: expressionOf(new Date(expiresAt + i * HOUR_MS)),
+    }))
+    const target = { Arn: DELETE_STACK, RoleArn: schedulerRole, Input: inputOf(manifest.stackName) }
+    for (const { name, expression } of schedules) {
+        await controller.aws.call([
+            'scheduler',
+            'create-schedule',
+            '--name',
+            name,
+            '--schedule-expression',
+            expression,
+            '--schedule-expression-timezone',
+            'UTC',
+            '--flexible-time-window',
+            'Mode=OFF',
+            '--action-after-completion',
+            'DELETE',
+            '--target',
+            JSON.stringify(target),
+        ])
+    }
+    for (const { name, expression } of schedules) {
+        const read = (await controller.aws.call(['scheduler', 'get-schedule', '--name', name])) as {
+            ScheduleExpression: string
+            Target: { Input: string }
+        }
+        if (read.ScheduleExpression !== expression || read.Target.Input !== target.Input) {
+            throw new LeaseError(`Schedule ${name} reads back as ${read.ScheduleExpression} for ${read.Target.Input}.`)
+        }
+    }
+}
+
+export async function lease(
+    controller: Controller,
+    { profile, inputs }: LoadedCloudProfile,
+    { owner, commit }: Admitted
+): Promise<Manifest> {
+    const runId = randomUUID()
+    const createdAt = controller.now()
+    const stackName = `scn-${runId}`
+    const manifest: Manifest = {
+        runId,
+        owner,
+        account: profile.account,
+        region: profile.region,
+        commit,
+        createdAt: createdAt.toISOString(),
+        expiresAt: new Date(createdAt.getTime() + TTL_HOURS * HOUR_MS).toISOString(),
+        stackName,
+        schedules: [`${stackName}-expiry`, `${stackName}-expiry-retry`],
+        inputs: Object.fromEntries(inputs.map(({ file, sha256 }) => [file, sha256])),
+    }
+    const bucket = bucketOf(controller.aws, profile.baseline.evidenceBucket)
+    try {
+        const body = JSON.stringify(manifest, null, 2)
+        await bucket.put(keyOf(runId, 'manifest.json'), body)
+        await bucket.put(keyOf(runId, 'input/manifest.json'), body)
+        for (const input of inputs) {
+            await bucket.upload(keyOf(runId, `input/${input.file}`), input.path)
+        }
+        await register(controller, profile.baseline.schedulerRole, manifest)
+        return manifest
+    } catch (error) {
+        await deleteSchedules(controller, manifest)
+        for (const key of await bucket.keys(keyOf(runId, ''))) {
+            await bucket.delete(key)
+        }
+        throw new LeaseError(`Could not lease run ${runId}, so nothing was created: ${(error as Error).message}`)
+    }
+}
+
+export async function release(controller: Controller, evidenceBucket: string, manifest: Manifest): Promise<void> {
+    await deleteSchedules(controller, manifest)
+    await bucketOf(controller.aws, evidenceBucket).put(
+        keyOf(manifest.runId, 'teardown.json'),
+        JSON.stringify({ releasedAt: controller.now().toISOString() })
+    )
+    controller.print(`Released run ${manifest.runId}.`)
+}
+
+export async function manifestOf(controller: Controller, evidenceBucket: string, runId: string): Promise<Manifest> {
+    try {
+        return parseJSON(await bucketOf(controller.aws, evidenceBucket).get(keyOf(runId, 'manifest.json'))) as Manifest
+    } catch (error) {
+        if (error instanceof AwsError && error.code === 'NoSuchKey') {
+            throw new LeaseError(`Run ${runId} has no manifest in ${evidenceBucket}.`)
+        }
+        throw error
+    }
+}
+
+export async function sweepExpired(controller: Controller, evidenceBucket: string): Promise<void> {
+    const keys = new Set(await bucketOf(controller.aws, evidenceBucket).keys('runs/'))
+    const unreleased = [...keys]
+        .filter((key) => key.endsWith('/manifest.json') && key.split('/').length === 3)
+        .map((key) => key.split('/')[1])
+        .filter((runId) => !keys.has(keyOf(runId, 'teardown.json')))
+    for (const runId of unreleased) {
+        const manifest = await manifestOf(controller, evidenceBucket, runId)
+        if (Date.parse(manifest.expiresAt) <= controller.now().getTime()) {
+            await release(controller, evidenceBucket, manifest)
+        }
+    }
+}
