@@ -36,8 +36,14 @@ describe('tracePageLogic', () => {
 
     it.each([
         ['event', '?event=gen-1', { requestedStepId: 'gen-1', openingMode: null }],
-        ['tab=summary', '?tab=summary', { requestedStepId: null, openingMode: 'summary' }],
-        ['another tab', '?tab=conversation', { requestedStepId: null, openingMode: null }],
+        ['tab=summary', '?tab=summary', { requestedStepId: null, openingMode: 'summary', detailTab: 'messages' }],
+        [
+            'tab=evals with no event',
+            '?tab=evals',
+            { requestedStepId: 'trace-1', openingMode: null, detailTab: 'evals' },
+        ],
+        ['tab=evals with an event', '?tab=evals&event=gen-1', { requestedStepId: 'gen-1', detailTab: 'evals' }],
+        ['another tab', '?tab=conversation', { requestedStepId: null, openingMode: null, detailTab: 'messages' }],
         ['search', '?search=refund', { seedQuery: 'refund' }],
         ['a numeric search keeps its text', '?search=1.50', { seedQuery: '1.50' }],
     ])('reads %s from the URL', (_name, search, expected) => {
@@ -88,8 +94,20 @@ describe('tracePageLogic', () => {
         expect(host.values).toMatchObject({ mode: 'spans', detailTab: 'messages' })
     })
 
+    it('opens another trace on tab=evals, and keeps the tab the person picks when a step writes the URL', () => {
+        open('')
+        open('?tab=evals', 'trace-2')
+        expect(host.values.detailTab).toBe('evals')
+
+        host.actions.setDetailTab('raw')
+        host.actions.requestStep('gen-2', 'trace-2')
+
+        expect(router.values.searchParams).toMatchObject({ tab: 'evals', event: 'gen-2' })
+        expect(host.values.detailTab).toBe('raw')
+    })
+
     it.each([
-        ['a requested step', (): void => host.actions.requestStep('gen-2'), { event: 'gen-2' }],
+        ['a requested step', (): void => host.actions.requestStep('gen-2', 'trace-1'), { event: 'gen-2' }],
         ['a published query', (): void => host.actions.publishQuery('x'), { search: 'x' }],
     ])('writes %s to the URL and keeps the other params and the hash', (_name, write, expected) => {
         open('?back_to=generations')
@@ -104,14 +122,14 @@ describe('tracePageLogic', () => {
     it.each(['1.50', '2e3'])('keeps the raw search %s when a step is written', (query) => {
         open(`?search=${query}`)
 
-        host.actions.requestStep('gen-2')
+        host.actions.requestStep('gen-2', 'trace-1')
 
         expect(new URLSearchParams(router.values.location.search).get('search')).toBe(query)
         expect(host.values.seedQuery).toBe(query)
     })
 
     it.each([
-        ['a step the URL already omits', '', (): void => host.actions.requestStep(null)],
+        ['a step the URL already omits', '', (): void => host.actions.requestStep(null, 'trace-1')],
         ['a query the URL already holds', '?search=1.50', (): void => host.actions.publishQuery('1.50')],
     ])('does not write the URL for %s', (_name, search, write) => {
         open(search)

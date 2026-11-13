@@ -1,0 +1,40 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "title": "Anomaly detection scout record",
+    "description": "One record for each candidate anomaly the scout judged. Subject is `insight:<short_id>:<bucket date>`.",
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["mode", "source", "verdict", "artifact_kind", "interesting", "report_id", "reason"],
+    "properties": {
+        "mode": {
+            "enum": ["scored", "legacy"],
+            "description": "`scored` when the candidate came from `$anomaly_score` events, `legacy` when the scout scored the insight itself."
+        },
+        "source": {
+            "enum": ["precheck", "search", "watchlist"],
+            "description": "Where the candidate came from: a `<precheck_result>` row, an `anomaly-search` row, or the legacy watchlist."
+        },
+        "verdict": {
+            "enum": ["real", "artifact", "expected", "below_bar"],
+            "description": "`real`: a change in the metric. `artifact`: the detector or the data, not the metric. `expected`: a known launch, migration or seasonal move. `below_bar`: real, but too small to report."
+        },
+        "artifact_kind": {
+            "enum": ["zero_drop", "units", "data_gap", "seasonality", "launch", "insight_definition", "other", null],
+            "description": "Why the candidate is not a change in the metric. Null when the verdict is not `artifact` or `expected`."
+        },
+        "interesting": {
+            "type": "boolean",
+            "description": "True when a person would want to know, whether or not you filed a report."
+        },
+        "report_id": {
+            "type": ["string", "null"],
+            "maxLength": 64,
+            "description": "The inbox report you authored or edited for this candidate. Null when you filed nothing."
+        },
+        "reason": {
+            "type": "string",
+            "maxLength": 500,
+            "description": "One or two sentences on the verdict. No person names, emails or URLs."
+        }
+    }
+}

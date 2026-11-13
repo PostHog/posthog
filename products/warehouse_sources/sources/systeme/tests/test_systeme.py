@@ -125,6 +125,35 @@ def test_campaign_steps_fan_out_and_resume(
     )
 
 
+@pytest.mark.parametrize("curriculum_has_more,raised", [(False, False), (True, True)])
+def test_course_modules_with_lectures_fan_out(curriculum_has_more: bool, raised: bool) -> None:
+    curriculum_20 = {"courseId": 20, "courseType": "classic_course", "modules": [{"id": 7, "lectures": []}]}
+    curriculum_10 = {"courseId": 10, "courseType": "light_course", "modules": []}
+    result = driver().run(
+        "course_modules_with_lectures",
+        route(
+            {
+                "/api/school/courses": [ScriptedResponse(json={"items": [{"id": 20}, {"id": 10}], "hasMore": False})],
+                "/api/school/courses/20/modules-with-lectures": [
+                    ScriptedResponse(json={"items": [curriculum_20], "hasMore": curriculum_has_more})
+                ],
+                "/api/school/courses/10/modules-with-lectures": [
+                    ScriptedResponse(json={"items": [curriculum_10], "hasMore": False})
+                ],
+            }
+        ),
+    )
+    curriculum_requests = [request for request in result.requests if request.path.endswith("/modules-with-lectures")]
+    assert [dict(request.query) for request in curriculum_requests] == [{"limit": ("100",)}] * len(curriculum_requests)
+    if raised:
+        assert isinstance(result.raised, ValueError)
+        assert "invalid record ID" in str(result.raised)
+        assert len(curriculum_requests) == 1
+    else:
+        assert result.raised is None
+        assert result.rows == [curriculum_20, curriculum_10]
+
+
 @pytest.mark.parametrize(
     "body,message",
     [
@@ -158,6 +187,7 @@ def test_invalid_or_repeated_cursor_fails(body: dict[str, Any], message: str) ->
         ("digital_products", "payment/digital-products"),
         ("physical_products", "payment/physical-products"),
         ("campaign_steps", "mailing/campaigns"),
+        ("course_modules_with_lectures", "school/courses"),
     ],
 )
 def test_validate_credentials_status_and_probe(

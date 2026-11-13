@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, patch
 from posthog.models import Team
 
 from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
+from products.data_modeling.backend.facade.tasks import refresh_downstream_view_columns
 from products.data_warehouse.backend.logic.data_load.create_table import create_table_from_saved_query
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
@@ -116,6 +117,7 @@ async def test_materialization_replaces_table_metadata_in_one_snapshot(team: Tea
             new_callable=AsyncMock,
             return_value=20.0,
         ),
+        patch.object(refresh_downstream_view_columns, "delay") as refresh_delay,
     ):
         await create_table_from_saved_query(str(job.id), str(saved_query.id), team.pk, "replacement-folder")
 
@@ -134,3 +136,4 @@ async def test_materialization_replaces_table_metadata_in_one_snapshot(team: Tea
     assert table.row_count == 20
     assert table.size_in_s3_mib == 20.0
     assert table.created_via == DataWarehouseTable.CreatedVia.MATERIALIZED_VIEW
+    refresh_delay.assert_called_once_with(team.pk, str(saved_query.id), None)

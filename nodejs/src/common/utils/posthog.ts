@@ -46,10 +46,11 @@ export function captureTeamEvent(
     team: Team,
     event: string,
     properties: Record<string, any> = {},
-    distinctId: string | null = null
+    distinctId: string | null = null,
+    client: PostHog | null = posthog
 ): void {
-    if (posthog) {
-        posthog.capture({
+    if (client) {
+        client.capture({
             distinctId: distinctId ?? team.uuid,
             event,
             properties: {

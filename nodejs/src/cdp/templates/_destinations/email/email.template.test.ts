@@ -47,6 +47,7 @@ describe('email template', () => {
               },
               "html": "",
               "subject": "PostHog Notification",
+              "template": {},
               "text": "",
               "to": {
                 "email": "example@posthog.com",

@@ -18,7 +18,9 @@ function addon(): typeof import('@posthog/ai-research-v4-native') {
             typeof loaded.isUrlHistoryValue !== 'function' ||
             typeof loaded.parseV4UrlRef !== 'function' ||
             typeof loaded.sealFetchedImage !== 'function' ||
-            typeof loaded.imageUrlHash !== 'function'
+            typeof loaded.imageUrlHash !== 'function' ||
+            typeof loaded.publicFontRefOf !== 'function' ||
+            typeof loaded.publicUrlHash !== 'function'
         ) {
             throw new Error('the ai-research-v4-native addon is missing a shared rule: rebuild index.node')
         }
@@ -51,8 +53,9 @@ function runsSharedRules(): boolean {
         return (
             addon().urlJob(1, undefined, 0) === 'drop' &&
             addon().isUrlHistoryValue('probe', entry) &&
-            addon().parseV4UrlRef(PROBE_REF)?.teamId === 1 &&
-            addon().imageUrlHash(key, 'https://example.com/probe.png').length === 22
+            addon().parseV4UrlRef(PROBE_REF)?.hash === 'AAAAAAAAAAAAAAAAAAAAAA' &&
+            addon().imageUrlHash(key, 'https://example.com/probe.png').length === 22 &&
+            addon().publicUrlHash('https://example.com/probe.png').length === 22
         )
     } catch {
         return false
@@ -94,8 +97,14 @@ export function isUrlHistoryValue(key: string, value: string): boolean {
     return addon().isUrlHistoryValue(key, value)
 }
 
-export function parseV4UrlRef(reference: string): { teamId: number; keyMonth: string; hash: string } | null {
+export type { V4UrlAsset, V4UrlRef } from '@posthog/ai-research-v4-native'
+
+export function parseV4UrlRef(reference: string): import('@posthog/ai-research-v4-native').V4UrlRef | null {
     return addon().parseV4UrlRef(reference)
+}
+
+export function urlAssetOf(originalRef: string): import('@posthog/ai-research-v4-native').V4UrlAsset {
+    return originalRef.startsWith('fonturl:') ? 'font' : 'image'
 }
 
 export function sealFetchedImage(teamMonthKey: Buffer, reference: string, image: Buffer): Promise<Buffer> {
@@ -104,4 +113,12 @@ export function sealFetchedImage(teamMonthKey: Buffer, reference: string, image:
 
 export function imageUrlHash(teamMonthKey: Buffer, url: string): string {
     return addon().imageUrlHash(teamMonthKey, url)
+}
+
+export function publicFontRefOf(fetchUrl: string): string | null {
+    return addon().publicFontRefOf(fetchUrl)
+}
+
+export function publicUrlHash(url: string): string {
+    return addon().publicUrlHash(url)
 }

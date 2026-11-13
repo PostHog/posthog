@@ -24,6 +24,7 @@ from products.signals.backend.ranking.sweep import InboxRankingScoringWorkflow, 
 from products.signals.backend.temporal.agentic.report import run_agentic_report_activity
 from products.signals.backend.temporal.agentic.scout_coordinator import (
     SignalsScoutCoordinatorWorkflow,
+    drain_pending_workflow_triggers_activity,
     fetch_enabled_signals_scout_runs_activity,
     run_due_signal_report_checks_activity,
     stamp_dispatched_signals_scout_runs_activity,
@@ -95,12 +96,22 @@ from products.signals.backend.temporal.grouping import (
     match_signal_to_report_activity,
     verify_match_specificity_activity,
 )
-from products.signals.backend.temporal.grouping_v2 import TeamSignalGroupingV2Workflow, read_signals_from_s3_activity
+from products.signals.backend.temporal.grouping_v2 import (
+    TeamSignalGroupingV2Workflow,
+    check_signals_ai_consent_activity,
+    discard_signal_batches_activity,
+    read_signals_from_s3_activity,
+)
 from products.signals.backend.temporal.inbox_notification import (
     SignalReportInboxNotificationWorkflow,
     get_inbox_notification_state_activity,
     send_report_github_comments_activity,
     send_report_inbox_notifications_activity,
+)
+from products.signals.backend.temporal.monitoring_assessment import (
+    MonitoringAssessmentWorkflow,
+    exhaust_monitoring_assessment_activity,
+    poll_monitoring_assessment_activity,
 )
 from products.signals.backend.temporal.reingestion import (
     SignalReportReingestionWorkflow,
@@ -149,6 +160,7 @@ from products.signals.backend.temporal.summary import (
 )
 
 WORKFLOWS = [
+    MonitoringAssessmentWorkflow,
     UpdateSignalSpendWorkflow,
     GenerateScoutRubricsWorkflow,
     BackfillErrorTrackingWorkflow,
@@ -173,6 +185,10 @@ WORKFLOWS = [
 ]
 
 ACTIVITIES = [
+    check_signals_ai_consent_activity,
+    discard_signal_batches_activity,
+    poll_monitoring_assessment_activity,
+    exhaust_monitoring_assessment_activity,
     update_signal_spend_activity,
     confirm_signal_spend_activity,
     load_scout_trial_evaluation_activity,
@@ -193,6 +209,7 @@ ACTIVITIES = [
     fetch_error_tracking_issues_activity,
     fetch_enabled_signals_scout_runs_activity,
     stamp_dispatched_signals_scout_runs_activity,
+    drain_pending_workflow_triggers_activity,
     run_due_signal_report_checks_activity,
     assign_and_emit_signal_activity,
     complete_signal_grouping_activity,

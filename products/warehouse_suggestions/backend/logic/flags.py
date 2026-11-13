@@ -10,7 +10,7 @@ if TYPE_CHECKING:
 WAREHOUSE_SUGGESTIONS_FEATURE_FLAG = "warehouse-suggestions"
 
 
-def is_warehouse_suggestions_enabled(team: "Team") -> bool:
+def is_warehouse_suggestions_enabled(team: "Team", *, only_evaluate_locally: bool = False) -> bool:
     if settings.DEBUG or settings.E2E_TESTING:
         return True
     return (
@@ -19,6 +19,7 @@ def is_warehouse_suggestions_enabled(team: "Team") -> bool:
             str(team.organization_id),
             groups={"organization": str(team.organization_id)},
             group_properties={"organization": {"id": str(team.organization_id)}},
+            only_evaluate_locally=only_evaluate_locally,
             send_feature_flag_events=False,
         )
         is True

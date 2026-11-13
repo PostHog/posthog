@@ -6,6 +6,7 @@ from uuid import UUID, uuid4
 import pytest
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -19,6 +20,8 @@ from products.alerts_platform.backend.facade.api import (
     get_configuration,
     give_back_ownership,
     record_outcomes,
+    reset_broken,
+    runtime_by_public_id,
     slot_of,
     take_ownership,
     upsert_configuration,
@@ -89,6 +92,36 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
                 next_check_at=self.cutoff - timedelta(minutes=1),
             )
         self.slot = (self.cutoff - timedelta(minutes=1)).isoformat()
+
+    def test_an_alert_is_read_by_its_public_id_whether_or_not_it_has_a_source_row(self) -> None:
+        legacy_id = uuid4()
+        with team_scope(self.team.id):
+            PlatformAlertConfiguration.objects.filter(id=self.configuration.id).update(
+                legacy_configuration_id=legacy_id,
+                owner=PlatformAlertOwner.PLATFORM,
+                check_status=PlatformAlertConfiguration.CheckStatus.BROKEN,
+                consecutive_failures=3,
+            )
+            native = PlatformAlertConfiguration.objects.create(
+                team=self.team,
+                name="Web errors",
+                source_kind=PlatformAlertConfiguration.SourceKind.LOGS,
+                source_config={},
+                check_interval_minutes=10,
+                owner=PlatformAlertOwner.PLATFORM,
+                check_status=PlatformAlertConfiguration.CheckStatus.BROKEN,
+                consecutive_failures=5,
+            )
+
+        # The copy's own id is not a public id, so it finds nothing.
+        runtime = runtime_by_public_id(team_id=self.team.id, public_ids=[legacy_id, native.id, self.configuration.id])
+        cleared = [
+            reset_broken(team_id=self.team.id, public_id=public_id, at=self.cutoff)
+            for public_id in (legacy_id, native.id)
+        ]
+
+        assert {public_id: r.consecutive_failures for public_id, r in runtime.items()} == {legacy_id: 3, native.id: 5}
+        assert cleared == [3, 5]
 
     def _record(
         self, *, at: datetime | None = None, groups: tuple[GroupOutcome, ...] | None = None, **overrides
@@ -405,6 +438,60 @@ class TestPlatformAlertLifecycle(ClickhouseTestMixin, APIBaseTest):
         with team_scope(self.team.id):
             self.configuration.refresh_from_db()
         assert self.configuration.next_check_at == after_first
+
+    def test_record_outcomes_records_completion_lag_for_every_source(self) -> None:
+        configurations = [self.configuration]
+        with team_scope(self.team.id):
+            for source_kind, due_minutes_ago in ((SourceKind.INSIGHT, 3), (SourceKind.METRICS, 5)):
+                configurations.append(
+                    PlatformAlertConfiguration.objects.create(
+                        team=self.team,
+                        name=source_kind.value,
+                        source_kind=source_kind.value,
+                        source_config={},
+                        check_interval_minutes=10,
+                        next_check_at=self.cutoff - timedelta(minutes=due_minutes_ago),
+                    )
+                )
+        outcomes = [
+            PlatformAlertOutcome(
+                configuration_id=configuration.id,
+                evaluation_key=f"window:{self.cutoff.isoformat()}",
+                consecutive_failures=0,
+                groups=(_group(""),),
+            )
+            for configuration in configurations
+        ]
+        completed_at = self.cutoff + timedelta(seconds=20)
+
+        with patch("products.alerts_platform.backend.logic.platform_lifecycle.record_check_completion_lag") as lag:
+            # The write happens at the cutoff and commits 20 seconds later; the lag runs to the commit.
+            with time_machine.travel(self.cutoff, tick=False), self.captureOnCommitCallbacks() as callbacks:
+                first = record_outcomes(self.team.id, outcomes, self.cutoff)
+            with time_machine.travel(completed_at, tick=False):
+                for callback in callbacks:
+                    callback()
+            recorded = sorted(call.args for call in lag.call_args_list)
+            lag.reset_mock()
+            with time_machine.travel(completed_at, tick=False), self.captureOnCommitCallbacks(execute=True):
+                replayed = record_outcomes(self.team.id, outcomes, self.cutoff)
+
+        assert (first, replayed) == (3, 0)
+        assert recorded == [("insight", 200_000), ("logs", 80_000), ("metrics", 320_000)]
+        assert lag.call_count == 0
+
+    def test_a_rolled_back_record_measures_no_completion_lag(self) -> None:
+        with (
+            patch("products.alerts_platform.backend.logic.platform_lifecycle.record_check_completion_lag") as lag,
+            patch(
+                "products.alerts_platform.backend.logic.platform_lifecycle.delivery_holds.hold_for",
+                side_effect=RuntimeError("boom"),
+            ),
+            pytest.raises(RuntimeError),
+        ):
+            self._record()
+
+        assert lag.call_count == 0
 
     def test_a_recorded_check_lands_in_history_with_what_it_measured(self) -> None:
         self._record(

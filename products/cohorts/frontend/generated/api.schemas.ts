@@ -356,6 +356,18 @@ export interface CohortHistoryBuildApi {
     updated_at: string | null
 }
 
+/**
+ * * `history_over_limit` - History over limit
+ * * `too_large_to_build` - Too large to build
+ */
+export type CohortRealtimeUnavailableReasonEnumApi =
+    (typeof CohortRealtimeUnavailableReasonEnumApi)[keyof typeof CohortRealtimeUnavailableReasonEnumApi]
+
+export const CohortRealtimeUnavailableReasonEnumApi = {
+    HistoryOverLimit: 'history_over_limit',
+    TooLargeToBuild: 'too_large_to_build',
+} as const
+
 export interface CohortRealtimeReadinessApi {
     /** Whether feature flags can target this cohort now. `ready`: they can, and they see membership changes within about a minute. `building` / `rebuilding`: PostHog is preparing the cohort from past events, and flags cannot target it yet. `needs_attention`: the cohort qualifies but nothing is preparing it. `daily`: its criteria are not supported in realtime, so its membership only comes from the once-a-day calculation. `person_properties`: it matches on person properties, which flags read directly, so they can always target it. `static`: it is a fixed list of people.
      *
@@ -374,6 +386,16 @@ export interface CohortRealtimeReadinessApi {
     ready_at: string | null
     /** The build preparing the cohort. Null unless the state is `building` or `rebuilding`. */
     build: CohortHistoryBuildApi | null
+    /** Why feature flags can't target the cohort. `history_over_limit`, on a `daily` cohort: its criteria look back further than `history_limit_days`. `too_large_to_build`, on a `needs_attention` cohort: the events in its criteria happen too often for PostHog to prepare it automatically. Null in every other case, including a `daily` cohort that other criteria keep off realtime.
+     *
+     * * `history_over_limit` - History over limit
+     * * `too_large_to_build` - Too large to build */
+    reason: CohortRealtimeUnavailableReasonEnumApi | null
+    /**
+     * The most days realtime cohort criteria can look back. Null unless the reason is `history_over_limit`.
+     * @nullable
+     */
+    history_limit_days: number | null
 }
 
 export type SearchMatchTypeEnumApi = (typeof SearchMatchTypeEnumApi)[keyof typeof SearchMatchTypeEnumApi]
@@ -693,12 +715,26 @@ export interface CohortCalculationHistoryResponseApi {
     previous: string | null
 }
 
+export interface SerializedMatchedRecordingEventApi {
+    /** UUID of the matched event. */
+    uuid: string
+    /** When the matched event happened. */
+    timestamp: string
+    /** ID of the browser window the event was captured in. */
+    window_id: string
+}
+
+export interface SerializedMatchedRecordingApi {
+    /** ID of the session recording. */
+    session_id: string
+    /** Events of the recording that matched the query. */
+    events: SerializedMatchedRecordingEventApi[]
+}
+
 /**
  * The actor's properties.
  */
 export type SerializedPersonActorApiProperties = { [key: string]: unknown }
-
-export type SerializedPersonActorApiMatchedRecordingsItem = { [key: string]: unknown }
 
 export interface SerializedPersonActorApi {
     /** The person's UUID, or the group's key. */
@@ -711,7 +747,7 @@ export interface SerializedPersonActorApi {
      */
     created_at: string | null
     /** Recordings that matched the query. Empty unless the endpoint asks for them. */
-    matched_recordings: SerializedPersonActorApiMatchedRecordingsItem[]
+    matched_recordings: SerializedMatchedRecordingApi[]
     /**
      * The actor's value at the data point it was queried for. Null unless the query computes one.
      * @nullable
@@ -730,11 +766,8 @@ export interface SerializedPersonActorApi {
      * @nullable
      */
     last_seen_at: string | null
-    /**
-     * Whether the person has been identified.
-     * @nullable
-     */
-    is_identified: boolean | null
+    /** Whether the person has been identified. */
+    is_identified: boolean
 }
 
 export interface CohortPersonsResponseApi {

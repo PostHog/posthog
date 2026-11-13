@@ -1,4 +1,4 @@
-import { BuiltLogic, LogicWrapper, useValues } from 'kea'
+import { BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
 import { LemonBanner, SpinnerOverlay } from '@posthog/lemon-ui'
@@ -18,9 +18,9 @@ import { switchMetricsQueryLanguage } from '../components/metricsQueryLanguageSw
 import { isBuilderCompatibleQuery } from '../components/metricsViewerLogic'
 import { MetricsPanel } from '../panels/MetricsPanel'
 import { metricsQueryText, queryLanguage } from '../queryLanguages/convert'
+import { metricsDataNodeKey } from './dataNodeKey'
 import { seriesFromMetricsResponse } from './metricsResponseSeries'
 
-let uniqueNode = 0
 let uniqueEditor = 0
 
 interface MetricsQueryNodeProps {
@@ -48,7 +48,11 @@ export function MetricsQueryNode(props: MetricsQueryNodeProps): JSX.Element | nu
     const languagesEnabled = useFeatureFlag('METRICS_QUERY_LANGUAGES')
     // A language switch replaces the query, so the editor remounts to seed its logic from the new one.
     const [editorKey, setEditorKey] = useState(() => `MetricsQueryEditor.${uniqueEditor++}`)
-    const [dataKey] = useState(() => `MetricsQueryNode.${uniqueNode++}`)
+    const dataQuery = useMemo(() => {
+        const { display: _display, ...rest } = props.query
+        return rest
+    }, [props.query])
+    const dataKey = metricsDataNodeKey('MetricsQueryNode', dataQuery, props.context.insightProps)
     const language = queryLanguage(props.query)
 
     // A new insight starts with no clauses, which the backend rejects, so there is nothing to run yet.
@@ -129,6 +133,7 @@ function MetricsQueryResults({ dataKey: key, ...props }: MetricsQueryNodeProps &
     useAttachedLogic(logic, props.attachTo)
 
     const { response, responseLoading, responseError } = useValues(logic)
+    const { loadData } = useActions(logic)
     const series = seriesFromMetricsResponse(response)
     const hasPoints = series.some((s) => s.points.length > 0)
     // A formula query returns only the formula result (metricName is null on it),
@@ -150,7 +155,15 @@ function MetricsQueryResults({ dataKey: key, ...props }: MetricsQueryNodeProps &
         >
             {responseError && !responseLoading ? (
                 <div className="flex-1 flex items-center p-4 min-w-0">
-                    <LemonBanner type="error" className="w-full">
+                    <LemonBanner
+                        type="error"
+                        className="w-full"
+                        action={{
+                            children: 'Try again',
+                            onClick: () => loadData('force_blocking'),
+                            'data-attr': 'metrics-query-retry',
+                        }}
+                    >
                         {responseError}
                     </LemonBanner>
                 </div>

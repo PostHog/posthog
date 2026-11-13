@@ -23,8 +23,10 @@ from posthog.schema import (
     MetricsQueryFilter,
     MetricsQueryGroupBy,
     MetricsYAxisSettings,
+    QueryStatus,
 )
 
+from posthog.clickhouse.client.execute_async import QueryStatusManager
 from posthog.constants import AvailableFeature
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import User
@@ -233,6 +235,24 @@ class TestMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert update_response.status_code == 200, update_response.json()
         assert update_response.json()["query"] == response.json()["query"]
 
+        with_values = {**query, "variables": {"job": {"values": ["api"]}}}
+        rejected_create = self.client.post(
+            f"/api/projects/{self.team.pk}/insights/",
+            {"name": "queue depth", "saved": True, "query": with_values},
+            format="json",
+            headers=client_headers,
+        )
+        rejected_update = self.client.patch(
+            f"/api/projects/{self.team.pk}/insights/{response.json()['id']}/",
+            {"query": with_values},
+            format="json",
+            headers=client_headers,
+        )
+
+        for rejected in (rejected_create, rejected_update):
+            assert rejected.status_code == 400, rejected.json()
+            assert "can't store variable values" in str(rejected.json())
+
     def test_validate_query_runner_access_granted(self) -> None:
         query = MetricsQuery(clauses=[MetricsQueryClause(name="a", metricName="queue_depth", aggregation="sum")])
 
@@ -276,11 +296,18 @@ class TestMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            (["query:read"], 403),
-            (["query:read", "metrics:read"], 200),
+            (["query:read"], "queue_depth", 403),
+            (["query:read", "metrics:read"], "queue_depth", 200),
+            # A derived metric reads spans or logs, so the token also needs that source's scope.
+            (["query:read", "metrics:read"], "posthog.derived.spans.requests", 403),
+            (["query:read", "metrics:read", "tracing:read"], "posthog.derived.spans.requests", 200),
+            (["query:read", "metrics:read"], "posthog.derived.logs.records", 403),
+            (["query:read", "metrics:read", "logs:read"], "posthog.derived.logs.records", 200),
         ]
     )
-    def test_query_endpoint_scope_parity_for_api_keys(self, scopes: list[str], expected_status: int) -> None:
+    def test_query_endpoint_scope_parity_for_api_keys(
+        self, scopes: list[str], metric_name: str, expected_status: int
+    ) -> None:
         value = generate_random_token_personal()
         PersonalAPIKey.objects.create(label="test", user=self.user, secure_value=hash_key_value(value), scopes=scopes)
 
@@ -289,13 +316,55 @@ class TestMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             {
                 "query": {
                     "kind": "MetricsQuery",
-                    "clauses": [{"name": "a", "metricName": "queue_depth", "aggregation": "sum"}],
+                    "clauses": [{"name": "a", "metricName": metric_name, "aggregation": "sum"}],
                 }
             },
             HTTP_AUTHORIZATION=f"Bearer {value}",
         )
 
         assert response.status_code == expected_status, response.json()
+
+    @parameterized.expand(
+        [
+            ("token_without_tracing_scope", ["query:read", "metrics:read"], True, 403),
+            ("token_with_tracing_scope", ["query:read", "metrics:read", "tracing:read"], True, 200),
+            ("user_without_tracing_access", None, False, 403),
+        ]
+    )
+    def test_async_derived_results_need_access_to_the_source(
+        self, _name: str, scopes: list[str] | None, has_source_access: bool, expected_status: int
+    ) -> None:
+        query = MetricsQuery(
+            clauses=[MetricsQueryClause(name="a", metricName="posthog.derived.spans.requests", aggregation="sum")]
+        )
+        query_id = "derived-async-query"
+        QueryStatusManager(query_id, self.team.pk).store_query_status(
+            QueryStatus(
+                id=query_id,
+                team_id=self.team.pk,
+                complete=True,
+                labels=self._runner(query).query_status_labels(),
+                results=["derived result"],
+            )
+        )
+        headers = {}
+        if scopes is not None:
+            value = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                label="test", user=self.user, secure_value=hash_key_value(value), scopes=scopes
+            )
+            headers["Authorization"] = f"Bearer {value}"
+        if not has_source_access:
+            AccessControl.objects.create(team=self.team, resource="tracing", access_level="none")
+            self.organization.available_product_features = [
+                {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+            ]
+            self.organization.save()
+
+        response = self.client.get(f"/api/projects/{self.team.pk}/query/{query_id}/", headers=headers)
+
+        assert response.status_code == expected_status, response.content
+        assert ("derived result" in response.content.decode()) == (expected_status == 200)
 
     def test_dashboard_date_filters_override_query_date_range(self) -> None:
         query = MetricsQuery(

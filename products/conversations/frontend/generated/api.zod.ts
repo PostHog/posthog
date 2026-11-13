@@ -9,6 +9,28 @@
  */
 import * as zod from 'zod'
 
+export const conversationsIntercomImportsCreateBodyRegionDefault = `us`
+export const conversationsIntercomImportsCreateBodyAccessTokenMax = 500
+
+export const ConversationsIntercomImportsCreateBody = /* @__PURE__ */ zod.object({
+    region: zod
+        .enum(['us', 'eu', 'au'])
+        .default(conversationsIntercomImportsCreateBodyRegionDefault)
+        .describe(
+            'Region where the Intercom workspace is hosted: us, eu, or au.\n\n\* `us` - United States\n\* `eu` - Europe\n\* `au` - Australia'
+        ),
+    access_token: zod
+        .string()
+        .max(conversationsIntercomImportsCreateBodyAccessTokenMax)
+        .describe('Intercom access token with permission to read conversations and contacts.'),
+    default_email_channel_id: zod
+        .uuid()
+        .nullish()
+        .describe(
+            'Optional support email channel to attach imported tickets to, so agents can reply by email. Omit or null to import tickets without an email channel.'
+        ),
+})
+
 export const conversationsMacrosCreateBodyNameMax = 200
 
 export const conversationsMacrosCreateBodyShortcutMax = 50
@@ -127,7 +149,12 @@ export const ConversationsTicketsUpdateBody = /* @__PURE__ */ zod
             .datetime({ offset: true })
             .nullish()
             .describe('Time to reopen the ticket. Pass null to reopen it now.'),
-        tags: zod.array(zod.string()).optional().describe('Tag names to set on the ticket.'),
+        tags: zod
+            .array(zod.string())
+            .optional()
+            .describe(
+                "Tag names to set on the ticket. The list replaces the ticket's current tags. A request can add up to 100 new tags."
+            ),
     })
     .describe('Fields accepted when updating a ticket.')
 
@@ -178,7 +205,12 @@ export const ConversationsTicketsPartialUpdateBody = /* @__PURE__ */ zod
             .datetime({ offset: true })
             .nullish()
             .describe('Time to reopen the ticket. Pass null to reopen it now.'),
-        tags: zod.array(zod.string()).optional().describe('Tag names to set on the ticket.'),
+        tags: zod
+            .array(zod.string())
+            .optional()
+            .describe(
+                "Tag names to set on the ticket. The list replaces the ticket's current tags. A request can add up to 100 new tags."
+            ),
     })
     .describe('Fields accepted when updating a ticket.')
 
@@ -226,6 +258,16 @@ export const ConversationsTicketsAiHumanOutcomeCreateBody = /* @__PURE__ */ zod
             ),
     })
     .describe('Payload for recording whether a human adopted an AI draft.')
+
+/**
+ * Upload a file to put in a reply to this ticket.
+ *
+ * Images are validated and shown inline. Other files are stored as they are and
+ * served as a download. Widget tickets do not accept file attachments yet.
+ */
+export const ConversationsTicketsAttachmentsCreateBody = /* @__PURE__ */ zod.object({
+    file: zod.instanceof(File).describe('File to attach. Must be under 20 MiB.'),
+})
 
 /**
  * Add a private note to a ticket.

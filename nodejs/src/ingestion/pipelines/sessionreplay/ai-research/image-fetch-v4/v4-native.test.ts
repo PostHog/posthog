@@ -1,4 +1,13 @@
-import { isPublicHost, parseV4UrlRef, politenessKey, tryCanonicalizeUrl } from '@posthog/ai-research-v4-native'
+import {
+    isPublicHost,
+    parseV4UrlRef,
+    politenessKey,
+    publicFontRefOf,
+    tryCanonicalizeUrl,
+} from '@posthog/ai-research-v4-native'
+
+import vector from '~/ingestion/pipelines/sessionreplay/ai-research/v4-keys/encryption-vector-v4.json'
+import { parseImageRef } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/content-ref'
 
 /**
  * The crate owns the rule and tests it. This file tests only that the fetch lane reaches that
@@ -48,14 +57,39 @@ describe('the v4 url policy addon', () => {
         })
     })
 
-    it('parses only an image URL reference whose team id a number holds exactly', () => {
+    describe('parseV4UrlRef', () => {
         const hash = 'a'.repeat(22)
-        expect(parseV4UrlRef(`imageurl:v4:7:2026-10:${hash}`)).toEqual({ teamId: 7, keyMonth: '2026-10', hash })
-        expect(parseV4UrlRef(`image:v4:7:2026-10:${hash}`)).toBeNull()
-        expect(parseV4UrlRef(`imageurl:v4:9007199254740993:2026-10:${hash}`)).toBeNull()
+
+        it.each([
+            ['imageurl', 'image'],
+            ['fonturl', 'font'],
+        ])('parses a month-scoped v4 %s ref that no v2 or v3 reader takes', (prefix, asset) => {
+            const ref = `${prefix}:v4:7:2026-10:${hash}`
+            expect(parseV4UrlRef(ref)).toEqual({ scope: 'team', asset, teamId: 7, keyMonth: '2026-10', hash })
+            expect(parseImageRef(ref)).toBeNull()
+        })
+
+        it('names a public font file by the same reference as the recorder, and no other URL', () => {
+            const ref = publicFontRefOf(vector.publicFontUrl.url)
+            expect(ref).toBe(vector.publicFontUrl.ref)
+            expect(parseV4UrlRef(ref!)).toEqual({ scope: 'public', asset: 'font', hash: ref!.split(':').pop() })
+            expect(parseImageRef(ref!)).toBeNull()
+            expect(vector.publicFontUrl.teamUrls.map(publicFontRefOf)).toEqual(
+                vector.publicFontUrl.teamUrls.map(() => null)
+            )
+        })
+
+        it.each([
+            ['a content ref', `image:v4:7:2026-10:${hash}`],
+            ['a team id that a number cannot hold exactly', `imageurl:v4:9007199254740993:2026-10:${hash}`],
+            ['a bundled font marker, which names no URL', 'fonturl:v4:bundled:open-sans'],
+            ['a public image ref, which the recorder never writes', `imageurl:v4:public:${hash}`],
+        ])('refuses %s', (_name, ref) => {
+            expect(parseV4UrlRef(ref)).toBeNull()
+        })
     })
 
-    it.each(['urlJob', 'isUrlHistoryValue', 'parseV4UrlRef', 'sealFetchedImage', 'imageUrlHash'])(
+    it.each(['urlJob', 'isUrlHistoryValue', 'parseV4UrlRef', 'sealFetchedImage', 'imageUrlHash', 'publicUrlHash'])(
         'stops the fetch pod at startup when index.node has no %s',
         (missing) => {
             const nativePath = require.resolve('@posthog/ai-research-v4-native/index.node')

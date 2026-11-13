@@ -1,6 +1,6 @@
 import type { ReactElement } from 'react'
 import { Text, View } from 'react-native'
-
+import type { PostHogStatus } from '@/features/status/usePostHogStatus'
 import { BlurEdge } from '@/ui/BlurEdge'
 import { FadeEdge } from '@/ui/FadeEdge'
 import { AnimatedLogomark } from '@/ui/icons/AnimatedLogomark'
@@ -11,6 +11,7 @@ import { Pressable44 } from '@/ui/Pressable44'
 import { RefreshHint } from '@/ui/RefreshHint'
 import { createStyles, useColors } from '@/ui/theme'
 import { layout, radii, type } from '@/ui/tokens'
+import { useAppLayout } from '@/ui/useAppLayout'
 import { topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
 import type { TabHeaderSlot, TabKey } from './tabHeaderStore'
@@ -34,30 +35,42 @@ const SOLID_WITH_STATUS = STATUS_BOTTOM / (STATUS_BOTTOM + HEADER_FADE)
 
 const FILTER_DOT = 8
 
+// Home keeps the screen's own name as its title.
 const TITLES: Record<TabKey, string> = {
+    live: 'Live',
     inbox: 'Inbox',
     chats: 'Chats',
     views: 'Views',
     errors: 'Errors',
     replay: 'Sessions',
+    web_analytics: 'Web analytics',
 }
 
 interface TabsHeaderProps {
     tab: TabKey
     /** Null until the tab's screen publishes its header state. */
     slot: TabHeaderSlot | null
+    status: PostHogStatus
     onMore: () => void
+    nativeRail?: boolean
 }
 
 /**
- * The header of the Inbox, Chats and Views tabs and the pinned lists. The tabs layout draws it once, so the logo, the title and the controls
+ * The header of the Home, Inbox, Chats and Views tabs and the pinned lists. The tabs layout draws it once, so the logo, the title and the controls
  * keep their place and their state across a tab switch. The status line is absolutely positioned, so it never moves
  * the title row, and the refresh hint takes its place while it shows, so every tab's content starts at the same offset.
  */
-export function TabsHeader({ tab, slot, onMore }: TabsHeaderProps): ReactElement {
+export function TabsHeader({
+    tab,
+    slot,
+    status: { summary: statusUpdate, indicatorColor },
+    onMore,
+    nativeRail = false,
+}: TabsHeaderProps): ReactElement {
     const colors = useColors()
     const styles = useStyles()
     const insets = useScreenInsets()
+    const { paired, inboxExtent, paneAxis } = useAppLayout()
     const editing = slot?.editing ?? null
     const status = slot?.status ?? null
     const hint = editing ? null : (slot?.hint ?? null)
@@ -71,6 +84,7 @@ export function TabsHeader({ tab, slot, onMore }: TabsHeaderProps): ReactElement
                 {
                     paddingTop: topOffset(insets, HEADER_TOP),
                     paddingBottom: withStatus ? STATUS_PADDING : HEADER_FADE,
+                    maxWidth: tab === 'inbox' && paired && paneAxis === 'row' ? inboxExtent : undefined,
                 },
             ]}
         >
@@ -99,7 +113,7 @@ export function TabsHeader({ tab, slot, onMore }: TabsHeaderProps): ReactElement
                     </Text>
                 ) : null}
             </View>
-            {editing ? (
+            {nativeRail ? null : editing ? (
                 <Pressable44
                     onPress={editing.onDone}
                     accessibilityLabel="Done"
@@ -129,11 +143,19 @@ export function TabsHeader({ tab, slot, onMore }: TabsHeaderProps): ReactElement
                     <Pressable44
                         onPress={onMore}
                         accessibilityLabel="More"
+                        accessibilityValue={
+                            statusUpdate ? { text: `PostHog status update: ${statusUpdate}` } : undefined
+                        }
                         pressedBackground={colors.background}
                         style={styles.button}
                         testID="tabs-more"
                     >
-                        <MoreIcon size={22} />
+                        <View>
+                            <MoreIcon size={22} />
+                            {statusUpdate && indicatorColor ? (
+                                <View style={[styles.filterDot, { backgroundColor: colors[indicatorColor] }]} />
+                            ) : null}
+                        </View>
                     </Pressable44>
                 </PillControl>
             )}

@@ -2,19 +2,27 @@
 
 The brand names are the registrable names of the target domains (`example` for
 `docs.example.co.uk`), so the same list drives the SQL mention filter, the brand
-regex the sentiment scorer uses, and the names the frontend builds its HogQL
-mention filter from.
+regex the sentiment scorer uses, the names the frontend builds its HogQL
+mention filter from, and the split between branded and non-branded prompts.
 """
 
 from __future__ import annotations
 
 import re
+from typing import Literal
 
 from django.db.models import Q
 
 import tldextract
 
+from products.aeo.backend.facade.contracts import BrandedSegment
+
 _DOMAIN_PARTS = tldextract.TLDExtract(suffix_list_urls=())
+
+PromptField = Literal["prompt_text", "prompt"]
+
+# `AEOCitationCheck` stores the prompt as `prompt_text`, `AEOPrompt` as `prompt`.
+_BRANDED_LOOKUPS: dict[PromptField, str] = {"prompt_text": "prompt_text__iregex", "prompt": "prompt__iregex"}
 
 
 def brand_names(target_domains: list[str]) -> tuple[str, ...]:
@@ -45,3 +53,26 @@ def mention_filter(target_domains: list[str]) -> Q:
     if regex := brand_regex(target_domains):
         mention |= Q(answer_text__iregex=regex)
     return mention
+
+
+def branded_filter(target_domains: list[str], *, field: PromptField = "prompt_text") -> Q:
+    """Rows whose prompt names the brand. Matches nothing without a brand, so every prompt reads as non-branded."""
+    if regex := brand_regex(target_domains):
+        return Q(**{_BRANDED_LOOKUPS[field]: regex})
+    return Q(pk__in=[])
+
+
+def segment_filter(segment: BrandedSegment, target_domains: list[str], *, field: PromptField = "prompt_text") -> Q:
+    if segment == BrandedSegment.ALL:
+        return Q()
+    branded = branded_filter(target_domains, field=field)
+    return branded if segment == BrandedSegment.BRANDED else ~branded
+
+
+# `segment_filter` for raw SQL over `posthog_aeo_citation_check AS check_row`, with the parameters
+# from `segment_sql_params`. A null regex (no brand) never matches, so no check reads as branded.
+SEGMENT_SQL = "(%s = 'all' OR coalesce(check_row.prompt_text ~* %s, false) = (%s = 'branded'))"
+
+
+def segment_sql_params(segment: BrandedSegment, target_domains: list[str]) -> list[str | None]:
+    return [segment.value, brand_regex(target_domains), segment.value]

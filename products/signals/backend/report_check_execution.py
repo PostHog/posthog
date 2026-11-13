@@ -77,6 +77,7 @@ from products.signals.backend.report_lifecycle import (
 )
 from products.signals.backend.report_metric_refresh import MetricQueryBudgetExhausted, measure_metric
 from products.signals.backend.report_metrics import validate_live_metric_query
+from products.signals.backend.report_monitoring_assessment import dispatch_monitoring_assessments
 from products.signals.backend.report_monitoring_attempts import check_definition_version, current_monitoring_attempt
 from products.signals.backend.report_monitoring_outcomes import aggregate_due_monitoring_attempts
 
@@ -87,6 +88,8 @@ logger = structlog.get_logger(__name__)
 MAX_CHECK_RUNS_PER_TICK = 50
 MAX_CHECK_RUNS_PER_TEAM_PER_TICK = 10
 CHECK_RUN_TIME_BUDGET_SECONDS = 120.0
+RESERVED_INTERIM_CHECK_RUNS_PER_TICK = 5
+INTERIM_CHECK_TIME_BUDGET_SECONDS = 40.0
 # Rows swept per tick when their horizon passed without a run. Bounded so a backlog costs one
 # bounded UPDATE rather than a table-wide one.
 MAX_CHECK_EXPIRIES_PER_TICK = 500
@@ -832,6 +835,7 @@ def collect_due_checks(
     *,
     limit: int = MAX_CHECK_RUNS_PER_TICK,
     disabled_monitoring_organization_ids: frozenset[UUID] | None = None,
+    kind: str | None = None,
 ) -> list[SignalReportCheck]:
     """The checks to run this tick, most overdue first and capped per team.
 
@@ -840,9 +844,13 @@ def collect_due_checks(
     sweep would otherwise let a row measure after the horizon it was supposed to retire at.
     """
 
+    if limit <= 0:
+        return []
     eligible_checks = SignalReportCheck.all_teams.filter(
         status=SignalReportCheck.Status.ACTIVE, next_run_at__lte=now, expires_at__gt=now
     )
+    if kind is not None:
+        eligible_checks = eligible_checks.filter(kind=kind)
     if disabled_monitoring_organization_ids is None:
         disabled_monitoring_organization_ids = check_monitoring_disabled_organizations(
             eligible_checks, include_resolved=True
@@ -938,7 +946,19 @@ def run_due_report_checks(*, now: datetime | None = None, limit: int = MAX_CHECK
     _arm_monitoring_checks(now, disabled_monitoring_organization_ids=disabled_organizations)
     park_checks_on_unresolved_reports(now, disabled_monitoring_organization_ids=disabled_organizations)
     deadline = time.monotonic() + CHECK_RUN_TIME_BUDGET_SECONDS
-    aggregate_due_monitoring_attempts(deadline=deadline, limit=limit)
+    interim_checks = collect_due_checks(
+        now,
+        limit=limit,
+        disabled_monitoring_organization_ids=disabled_organizations,
+        kind=SignalReportCheck.Kind.METRIC_THRESHOLD,
+    )
+    final_limit = max(0, limit - min(len(interim_checks), RESERVED_INTERIM_CHECK_RUNS_PER_TICK))
+    # Final verification runs first, but cannot spend the interim lane's slots or query allowance.
+    final_deadline = (
+        deadline - min(INTERIM_CHECK_TIME_BUDGET_SECONDS, CHECK_RUN_TIME_BUDGET_SECONDS) if interim_checks else deadline
+    )
+    aggregate_due_monitoring_attempts(deadline=final_deadline, limit=final_limit)
+    dispatch_monitoring_assessments(deadline=final_deadline, limit=final_limit)
     counts: dict[str, int] = {
         "observed": 0,
         "passed": 0,
@@ -949,7 +969,7 @@ def run_due_report_checks(*, now: datetime | None = None, limit: int = MAX_CHECK
         "deferred": 0,
         "cancelled": 0,
     }
-    final = run_due_final_metrics(now=now, deadline=deadline, limit=limit)
+    final = run_due_final_metrics(now=now, deadline=final_deadline, limit=final_limit)
     counts.update(
         passed=final.passed,
         failed=final.failed,
@@ -957,30 +977,14 @@ def run_due_report_checks(*, now: datetime | None = None, limit: int = MAX_CHECK
         errored=final.errored,
         deferred=final.deferred,
     )
-    remaining = max(0, limit - sum(counts.values()))
-    # Reserve both slots and time for interim measurements, including when agents only defer.
-    agent_limit = max(1, remaining // 2) if remaining else 0
-    agent_started = time.monotonic()
-    agent_deadline = agent_started + max(0, deadline - agent_started) / 2
-    agents = run_due_final_agents(now=now, deadline=agent_deadline, limit=agent_limit)
+    remaining = max(0, final_limit - sum(counts.values()))
+    agents = run_due_final_agents(now=now, deadline=final_deadline, limit=remaining)
     counts["dispatched"] += agents.dispatched
     counts["deferred"] += agents.deferred
     remaining = max(0, limit - sum(counts.values()))
-    for check in collect_due_checks(now, limit=remaining, disabled_monitoring_organization_ids=disabled_organizations):
+    for check in interim_checks[:remaining]:
         if time.monotonic() >= deadline:
             break
-        if check.kind == SignalReportCheck.Kind.AGENT:
-            from products.signals.backend.report_check_agent import (
-                run_agent_check,  # noqa: PLC0415 - keeps the Temporal graph off route loading
-            )
-
-            try:
-                counts[run_agent_check(check, now=now)] += 1
-            except Exception:
-                logger.exception(
-                    "signals.report_check.agent_step_failed", check_id=str(check.id), team_id=check.team_id
-                )
-            continue
         try:
             observation = measure_monitoring_check(check, now=now, deadline=deadline)
             counts["observed"] += int(record_monitoring_observation(check, observation))
@@ -990,4 +994,21 @@ def run_due_report_checks(*, now: datetime | None = None, limit: int = MAX_CHECK
             logger.exception(
                 "signals.report_check.monitoring_step_failed", check_id=str(check.id), team_id=check.team_id
             )
+    remaining = max(0, limit - sum(counts.values()))
+    for check in collect_due_checks(
+        now,
+        limit=remaining,
+        disabled_monitoring_organization_ids=disabled_organizations,
+        kind=SignalReportCheck.Kind.AGENT,
+    ):
+        if time.monotonic() >= deadline:
+            break
+        from products.signals.backend.report_check_agent import (
+            run_agent_check,  # noqa: PLC0415 - keeps the Temporal graph off route loading
+        )
+
+        try:
+            counts[run_agent_check(check, now=now)] += 1
+        except Exception:
+            logger.exception("signals.report_check.agent_step_failed", check_id=str(check.id), team_id=check.team_id)
     return CheckRunSummary(expired=expired, **counts)

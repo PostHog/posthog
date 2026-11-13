@@ -5,6 +5,7 @@ pub mod compression;
 pub mod envelope;
 pub mod fetch_history;
 pub mod fetched_image;
+pub mod fonts;
 pub mod gate;
 pub mod inspect;
 #[cfg(feature = "store")]
@@ -15,3 +16,4 @@ pub mod scan;
 pub mod seal;
 pub mod session;
 pub mod url_policy;
+pub mod v4_image_refs;

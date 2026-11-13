@@ -3,7 +3,7 @@ import { useValues } from 'kea'
 import { HEATMAP_LOADING_DEBOUNCE_MS, heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
 import { useDebouncedValue } from 'lib/hooks/useDebouncedValue'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { inStorybook } from 'lib/utils/dom'
 
 export function HeatmapLoadingInfo({
     context,
@@ -15,7 +15,7 @@ export function HeatmapLoadingInfo({
     const { rawHeatmapLoading } = useValues(heatmapDataLogic({ context, exportToken }))
     const loading = useDebouncedValue(rawHeatmapLoading, HEATMAP_LOADING_DEBOUNCE_MS)
 
-    if (!loading || context === 'toolbar' || exportToken || inStorybook() || inStorybookTestRunner()) {
+    if (!loading || context === 'toolbar' || exportToken || inStorybook()) {
         return null
     }
 

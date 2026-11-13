@@ -1,5 +1,6 @@
 import type { BudgetFamily } from '@/api/budget'
 import type { ScopedFeature } from '@/api/scopeErrors'
+import type { NavChrome } from '@/features/tabs/navPinStore'
 import { track } from '@/lib/analytics'
 import type { PinDisplayMode, ViewEntry, ViewKind } from '@/model/views'
 
@@ -21,12 +22,14 @@ export function trackViewsOpened(props: { pinnedCount: number; fromCache: boolea
 export function trackViewOpened(props: {
     viewType: ViewKind
     from: ViewEntry
+    chrome: NavChrome
     displayMode: PinDisplayMode | null
     dataAgeSeconds: number | null
 }): void {
     track('mobile_view_opened', {
         view_type: props.viewType,
         from: props.from,
+        chrome: props.chrome,
         display_mode: props.displayMode,
         data_age_s: props.dataAgeSeconds,
     })
@@ -188,7 +191,7 @@ export function trackViewsReauthShown(props: {
 
 export type BrowseSection = 'dashboards' | 'insights'
 
-export type BrowseListEntry = BrowseSection | 'errors' | 'replay'
+export type BrowseListEntry = BrowseSection | 'errors' | 'replay' | 'live'
 
 export function trackBrowseListOpened(props: { section: BrowseListEntry; from: 'browse' | 'search' }): void {
     track('mobile_browse_list_opened', { section: props.section, from: props.from })

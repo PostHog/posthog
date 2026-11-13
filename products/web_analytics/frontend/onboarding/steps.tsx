@@ -7,7 +7,6 @@ import { WebAnalyticsSDKInstructions } from 'scenes/onboarding/sdks/web-analytic
 import { INSTALL_DEDUP_KEYS, type ProductOnboardingProvider } from 'scenes/onboarding/types'
 import { OnboardingWebAnalyticsAuthorizedDomainsStep } from 'scenes/onboarding/web-analytics/OnboardingWebAnalyticsAuthorizedDomainsStep'
 import { OnboardingWebAnalyticsPathCleaningStep } from 'scenes/onboarding/web-analytics/OnboardingWebAnalyticsPathCleaningStep'
-import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 import { OnboardingStepKey, type TeamPublicType, type TeamType } from '~/types'
@@ -126,5 +125,4 @@ export const webAnalyticsOnboarding: ProductOnboardingProvider = {
             },
         ]
     },
-    completeRedirectUrl: () => urls.webAnalytics(),
 }

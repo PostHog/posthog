@@ -4,7 +4,6 @@ import { BindLogic } from 'kea'
 import { router } from 'kea-router'
 
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
-import { DashboardFilterBar } from 'scenes/dashboard/DashboardFilters'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { encodeURLFilters, encodeURLVariables } from 'scenes/dashboard/dashboardUtils'
 
@@ -12,6 +11,8 @@ import { mswDecorator } from '~/mocks/browser'
 import { variableDataLogic } from '~/queries/nodes/DataVisualization/Components/Variables/variableDataLogic'
 import { NodeKind, type DashboardFilter } from '~/queries/schema/schema-general'
 import { AccessControlLevel, DashboardType, PropertyFilterType, PropertyOperator, InsightModel } from '~/types'
+
+import { DashboardFilterBar } from './DashboardFilters'
 
 type FilterBarState = 'saved' | 'unsaved'
 type DashboardFilterKind = 'date' | 'properties' | 'breakdown' | 'interval' | 'testAccounts'
@@ -120,7 +121,7 @@ function dashboardFilters(filterKinds: DashboardChangeKind[]): DashboardFilter {
 function applyUnsavedFilters(logic: ReturnType<typeof dashboardLogic.build>, filterKinds: DashboardChangeKind[]): void {
     const filters = dashboardFilters(filterKinds)
 
-    logic.actions.setDashboardEditing({ filters: true, layout: false }, DashboardEventSource.DashboardFilters)
+    logic.actions.setDashboardEditing(true, DashboardEventSource.DashboardFilters)
     if (filters.date_from) {
         logic.actions.setDates(filters.date_from, null)
     }

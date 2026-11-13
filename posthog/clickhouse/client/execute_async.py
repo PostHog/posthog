@@ -239,7 +239,7 @@ def execute_process_query(
 
     user: Optional[User] = None
     if user_id:
-        user = User.objects.only("email", "is_staff").get(pk=user_id)
+        user = User.objects.only("email", "is_staff", "distinct_id").get(pk=user_id)
         is_staff_user = user.is_staff
     elif sharing_configuration_id:
         # A shared-link viewer has no user row, so the identity has to be rebuilt from the share it
@@ -286,6 +286,7 @@ def execute_process_query(
             user=user,
             is_query_service=is_query_service,
             analytics_props=analytics_props,
+            query_status=query_status,
         )
         if isinstance(results, BaseModel):
             results = results.model_dump(by_alias=True)

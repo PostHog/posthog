@@ -1,11 +1,16 @@
 import { dayjs } from 'lib/dayjs'
+import { percentage } from 'lib/utils/numbers'
 
 import type {
     AEOPromptDailyEngineStatsApi,
     AEOPromptStatsApi,
 } from 'products/web_analytics/frontend/generated/api.schemas'
 
-export type PromptVisibilityMetric = 'cited' | 'mentioned'
+import { isNoSearchEngine } from './utils'
+
+export type PromptVisibilityMetric = 'cited' | 'mentioned' | 'position'
+/** The metrics a single answer can only pass or fail, so the prompt page can count yes and no answers. */
+export type PromptOutcomeMetric = Exclude<PromptVisibilityMetric, 'position'>
 
 export interface PromptRateKpi {
     /** Pooled rate over the window: all answers that qualify over all answers. */
@@ -17,11 +22,32 @@ export interface PromptRateKpi {
     delta: number | null
 }
 
+/** The change shown next to a KPI value, already worded for the card. */
+export interface KpiDelta {
+    label: string
+    direction: 'up' | 'down' | 'flat'
+    tooltip: string
+}
+
+export interface KpiCardContent {
+    value: string
+    note: string
+    delta: KpiDelta | null
+}
+
+export interface PromptPositionKpi {
+    /** Mean rank of your first link among the sources, over the cited answers in the window. Lower is better. */
+    average: number | null
+    latest: number | null
+    latestDate: string | null
+}
+
 export interface PromptReportKpis {
     answers: number
     days: number
     visibility: PromptRateKpi
     citation: PromptRateKpi
+    position: PromptPositionKpi
 }
 
 export interface PromptConsensusCell {
@@ -92,15 +118,100 @@ const rateKpi = (
     }
 }
 
-/** Window-wide visibility and citation rates, with the latest day and how far it sits from the average. */
+/** `delta` is in rate units (0.12 is 12 percentage points), shown as whole points. */
+export const pointsDelta = (delta: number, tooltip: string): KpiDelta => {
+    const points = Math.round(delta * 100)
+    return {
+        label: points === 0 ? 'No change' : `${points > 0 ? '+' : ''}${points} pts`,
+        direction: points === 0 ? 'flat' : points > 0 ? 'up' : 'down',
+        tooltip,
+    }
+}
+
+export const POSITION_DESCRIPTION =
+    'Where your site sits among the sources of an answer that cites it. #1 is the first source listed. Lower is better.'
+
+export const positionLabel = (position: number): string => `#${Math.round(position * 10) / 10}`
+
+/** A rank is better when it is lower, so a drop in the number reads as a gain. */
+export const positionDelta = (change: number, tooltip: string): KpiDelta => {
+    const rounded = Math.round(change * 10) / 10
+    return {
+        label: rounded === 0 ? 'No change' : `${Math.abs(rounded)} ${rounded < 0 ? 'better' : 'worse'}`,
+        direction: rounded === 0 ? 'flat' : rounded < 0 ? 'up' : 'down',
+        tooltip,
+    }
+}
+
+/** Mean of per-row averages, weighted by the cited answers each one covers. */
+export const pooledPosition = (rows: { cited: number; avg_position?: number | null }[]): number | null => {
+    let cited = 0
+    let total = 0
+    for (const row of rows) {
+        if (row.avg_position !== null && row.avg_position !== undefined && row.cited > 0) {
+            cited += row.cited
+            total += row.avg_position * row.cited
+        }
+    }
+    return cited > 0 ? total / cited : null
+}
+
+const positionKpi = (
+    dates: string[],
+    byDate: Map<string, AEOPromptDailyEngineStatsApi[]>,
+    all: AEOPromptDailyEngineStatsApi[]
+): PromptPositionKpi => {
+    const latestDate = [...dates].reverse().find((date) => pooledPosition(byDate.get(date) ?? []) !== null) ?? null
+    return {
+        average: pooledPosition(all),
+        latest: latestDate ? pooledPosition(byDate.get(latestDate) ?? []) : null,
+        latestDate,
+    }
+}
+
+export const positionKpiCard = (kpi: PromptPositionKpi): KpiCardContent => ({
+    value: kpi.average === null ? 'Not cited' : positionLabel(kpi.average),
+    note:
+        kpi.average === null
+            ? 'No cited answers in the last 30 days'
+            : kpi.latest === null || !kpi.latestDate
+              ? 'Average over the last 30 days'
+              : `Average over the last 30 days. On ${dayjs(kpi.latestDate).format('MMM D')}: ${positionLabel(kpi.latest)}`,
+    delta:
+        kpi.average === null || kpi.latest === null
+            ? null
+            : positionDelta(kpi.latest - kpi.average, 'The latest day against the 30-day average. Lower is better'),
+})
+
+export const countDelta = (change: number, tooltip: string): KpiDelta => ({
+    label: change === 0 ? 'No change' : `${change > 0 ? '+' : ''}${change}`,
+    direction: change === 0 ? 'flat' : change > 0 ? 'up' : 'down',
+    tooltip,
+})
+
+export const rateKpiCard = (kpi: PromptRateKpi): KpiCardContent => ({
+    value: kpi.average === null ? 'No answers' : percentage(kpi.average, 0),
+    note:
+        kpi.latest === null || !kpi.latestDate
+            ? 'Average over the last 30 days'
+            : `Average over the last 30 days. On ${dayjs(kpi.latestDate).format('MMM D')}: ${percentage(kpi.latest, 0)}`,
+    delta:
+        kpi.delta === null
+            ? null
+            : pointsDelta(kpi.delta, 'The latest day against the 30-day average, in percentage points'),
+})
+
+/** Window-wide visibility and citation rates, with the latest day and how far it sits from the average.
+ *  They read web-search answers only, as the overview does: a no-search engine never cites, so it keeps its own row. */
 export const promptReportKpis = (stats: AEOPromptStatsApi): PromptReportKpis => {
     const dates = statsWindowDates(stats)
+    const daily = stats.daily.filter((row) => !isNoSearchEngine(row.engine))
     const byDate = new Map<string, AEOPromptDailyEngineStatsApi[]>()
-    for (const row of stats.daily) {
+    for (const row of daily) {
         byDate.set(row.date, [...(byDate.get(row.date) ?? []), row])
     }
     const days = dates.map((date) => ({ date, ...sumDaily(byDate.get(date) ?? []) }))
-    const totals = sumDaily(stats.daily)
+    const totals = sumDaily(daily)
     return {
         answers: totals.checks - totals.failed,
         days: dates.length,
@@ -112,6 +223,7 @@ export const promptReportKpis = (stats: AEOPromptStatsApi): PromptReportKpis => 
             days.map((day) => ({ ...day, count: day.cited })),
             { ...totals, count: totals.cited }
         ),
+        position: positionKpi(dates, byDate, daily),
     }
 }
 

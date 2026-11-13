@@ -26,8 +26,10 @@ from posthog.clickhouse.query_tagging import Feature, tags_context
 from posthog.errors import error_code_from_type
 from posthog.event_usage import get_event_source
 from posthog.exceptions_capture import exception_context
+from posthog.hogql_queries.warehouse_suggestion_notes import credential_access
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.permissions import get_authenticator_scopes
 from posthog.renderers import SafeJSONRenderer
 
 from ee.hogai.mcp_tool import MCPToolResult, mcp_tool_registry
@@ -178,7 +180,14 @@ class MCPToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 # Lower layers may capture the exception before it reaches this handler.
                 with (
                     exception_context(error_id=error_id),
-                    tags_context(feature=Feature.MCP, team_id=self.team.pk, org_id=self.team.organization_id),
+                    tags_context(
+                        feature=Feature.MCP,
+                        team_id=self.team.pk,
+                        org_id=self.team.organization_id,
+                        warehouse_suggestion_access=credential_access(
+                            get_authenticator_scopes(request.successful_authenticator)
+                        ),
+                    ),
                 ):
                     return await tool.execute(validated_args)
 

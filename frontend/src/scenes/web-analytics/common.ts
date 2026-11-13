@@ -123,11 +123,11 @@ export enum ProductTab {
     BOT_ANALYTICS = 'bots',
     PAGE_PERFORMANCE = 'page-performance',
     AGENTS = 'agents',
-    CONTENT_AUTOPILOT = 'content-autopilot',
+    CONTENT_AUTOPILOT = 'ai-visibility',
 }
 
+// One flag gates the whole AI visibility page: prompt tracking and content autopilot.
 export const isContentAutopilotEnabled = (featureFlags: FeatureFlagsSet): boolean =>
-    !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PAGE_PERFORMANCE] &&
     !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT]
 
 export type DeviceType = 'Desktop' | 'Mobile'

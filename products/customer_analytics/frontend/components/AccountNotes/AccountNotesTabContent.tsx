@@ -5,7 +5,7 @@ import { useState } from 'react'
 import { IconChevronDown, IconX } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonDropdown, LemonInput, LemonSkeleton, ProfilePicture } from '@posthog/lemon-ui'
 
-import { MemberSelectMultiple } from 'lib/components/MemberSelectMultiple'
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { atColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { Link } from 'lib/lemon-ui/Link'
@@ -16,7 +16,10 @@ import { urls } from 'scenes/urls'
 import type { AccountNoteApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import { AccountsEvents } from '../Accounts/constants'
-import { accountNotesLogic } from './accountNotesLogic'
+import { accountNotesLogic, sortingToOrdering } from './accountNotesLogic'
+import { AccountNotesViewSelector } from './AccountNotesViewSelector'
+import { NotesCreatedByFilter } from './NotesCreatedByFilter'
+import { NotesTagsFilter } from './NotesTagsFilter'
 
 export function AccountNotesTabContent(): JSX.Element {
     const {
@@ -28,19 +31,37 @@ export function AccountNotesTabContent(): JSX.Element {
         createdByCurrentUser,
         assignedToCurrentUser,
         accountFilter,
+        tagsFilter,
+        sorting,
         pagination,
+        pendingNoteTags,
     } = useValues(accountNotesLogic)
-    const { setSearch, setCreatedByFilter, setCreatedByCurrentUser, setAssignedToCurrentUser, reportFilterChange } =
-        useActions(accountNotesLogic)
+    const {
+        setSearch,
+        setCreatedByFilter,
+        setCreatedByCurrentUser,
+        setAssignedToCurrentUser,
+        setTagsFilter,
+        setOrdering,
+        reportFilterChange,
+        updateNoteTags,
+    } = useActions(accountNotesLogic)
     const { selectNotebook } = useActions(notebookPanelLogic)
 
-    const hasFilters = !!search || createdByFilter.length > 0 || assignedToCurrentUser || accountFilter !== null
+    const hasFilters =
+        !!search ||
+        createdByFilter.length > 0 ||
+        assignedToCurrentUser ||
+        accountFilter !== null ||
+        tagsFilter.length > 0
 
     const columns: LemonTableColumns<AccountNoteApi> = [
         {
             title: 'Title',
+            key: 'title',
             dataIndex: 'title',
             width: '100%',
+            sorter: true,
             render: function Render(_, note) {
                 // Plain click opens the note in the side panel (keeping the list mounted);
                 // the href stays so cmd/ctrl-click opens the full notebook page in a new tab.
@@ -64,7 +85,9 @@ export function AccountNotesTabContent(): JSX.Element {
         },
         {
             title: 'Account',
+            key: 'account_name',
             dataIndex: 'account_name',
+            sorter: true,
             render: function Render(_, note) {
                 return (
                     <Link
@@ -81,12 +104,31 @@ export function AccountNotesTabContent(): JSX.Element {
             },
         },
         {
+            title: 'Tags',
+            key: 'tags',
+            render: function Render(_, note) {
+                const tags = [...note.tags]
+                // The title column takes 100% of the width, so the cell holds its own minimum to keep tags on one line.
+                return (
+                    <div className="min-w-60">
+                        <ObjectTags
+                            tags={tags}
+                            onChange={(newTags) => updateNoteTags(note, newTags)}
+                            saving={!!pendingNoteTags[note.short_id]}
+                            data-attr="account-note-tags"
+                        />
+                    </div>
+                )
+            },
+        },
+        {
             title: 'Created by',
             key: 'created_by',
+            sorter: true,
             render: function Render(_, note) {
                 const user = note.created_by
                 if (!user) {
-                    return <span className="text-muted">—</span>
+                    return <span className="text-muted">Unknown</span>
                 }
                 return (
                     <div className="flex items-center gap-2">
@@ -99,14 +141,22 @@ export function AccountNotesTabContent(): JSX.Element {
                 )
             },
         },
-        atColumn<AccountNoteApi>('created_at', 'Created') as LemonTableColumn<
-            AccountNoteApi,
-            keyof AccountNoteApi | undefined
-        >,
-        atColumn<AccountNoteApi>('last_modified_at', 'Last modified') as LemonTableColumn<
-            AccountNoteApi,
-            keyof AccountNoteApi | undefined
-        >,
+        {
+            ...(atColumn<AccountNoteApi>('created_at', 'Created') as LemonTableColumn<
+                AccountNoteApi,
+                keyof AccountNoteApi | undefined
+            >),
+            key: 'created_at',
+            sorter: true,
+        },
+        {
+            ...(atColumn<AccountNoteApi>('last_modified_at', 'Last modified') as LemonTableColumn<
+                AccountNoteApi,
+                keyof AccountNoteApi | undefined
+            >),
+            key: 'last_modified_at',
+            sorter: true,
+        },
     ]
 
     return (
@@ -121,8 +171,17 @@ export function AccountNotesTabContent(): JSX.Element {
                     className="min-w-64"
                     data-attr="account-notes-search"
                 />
+                <AccountNotesViewSelector />
                 <AccountPicker />
-                <CreatedByPicker
+                <NotesTagsFilter
+                    value={tagsFilter}
+                    onChange={(tags) => {
+                        setTagsFilter(tags)
+                        reportFilterChange('tag')
+                    }}
+                    data-attr="account-notes-tags-filter"
+                />
+                <NotesCreatedByFilter
                     value={createdByFilter}
                     onChange={(userIds) => {
                         setCreatedByFilter(userIds)
@@ -136,7 +195,7 @@ export function AccountNotesTabContent(): JSX.Element {
                         reportFilterChange('my_notes')
                     }}
                     label="My notes"
-                    info="Shortcut for Created by: you — notes you created"
+                    info="Shortcut for Created by: you. Notes you created"
                     data-attr="account-notes-my-notes-filter"
                 />
                 <LemonCheckbox
@@ -162,50 +221,14 @@ export function AccountNotesTabContent(): JSX.Element {
                     columns={columns}
                     loading={accountNotesResponseLoading}
                     pagination={pagination}
+                    sorting={sorting}
+                    onSort={(newSorting) => setOrdering(sortingToOrdering(newSorting))}
                     emptyState={
                         hasFilters
                             ? 'No notes matching your filters'
                             : "No account notes yet. Create notes from an account's Notes tab."
                     }
                     nouns={['note', 'notes']}
-                />
-            )}
-        </div>
-    )
-}
-
-function CreatedByPicker({ value, onChange }: { value: number[]; onChange: (userIds: number[]) => void }): JSX.Element {
-    const buttonLabel =
-        value.length === 0
-            ? 'Created by anyone'
-            : value.length === 1
-              ? 'Created by 1 person'
-              : `Created by ${value.length} people`
-    return (
-        <div className="flex gap-1 items-center" data-attr="account-notes-created-by-filter">
-            <LemonDropdown
-                closeOnClickInside={false}
-                overlay={
-                    <div className="p-2 min-w-64">
-                        <MemberSelectMultiple
-                            idKey="id"
-                            value={value}
-                            onChange={(users) => onChange(users.map((user) => user.id))}
-                        />
-                    </div>
-                }
-            >
-                <LemonButton type="secondary" size="small" sideIcon={<IconChevronDown />}>
-                    {buttonLabel}
-                </LemonButton>
-            </LemonDropdown>
-            {value.length > 0 && (
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    icon={<IconX />}
-                    onClick={() => onChange([])}
-                    tooltip="Clear created-by filter"
                 />
             )}
         </div>

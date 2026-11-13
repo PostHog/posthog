@@ -1,16 +1,29 @@
+from collections.abc import Iterable
+from typing import Any
+
 from products.warehouse_sources.sources.groq.settings import GROQ_ENDPOINTS, GroqEndpointConfig
 from products.warehouse_sources.sources.sdk import (
     BasePaginator,
     JSONResponseCursorPaginator,
     RESTAPIConfig,
+    ResumableSourceManager,
     SinglePagePaginator,
     SourceResponse,
+    frozen,
     make_tracked_session,
     rest_api_resource,
     validate_via_probe,
 )
 
 GROQ_BASE_URL = "https://api.groq.com/openai/v1"
+
+
+@frozen
+class GroqResumeConfig:
+    # The `paging.next_cursor` of the last page handed on. Only `batches` paginates.
+    cursor: str | None = None
+    # The last page is handed on, so a resume reads nothing again.
+    completed: bool = False
 
 
 def _get_headers(api_key: str) -> dict[str, str]:
@@ -34,6 +47,7 @@ def groq_source(
     endpoint: str,
     team_id: int,
     job_id: str,
+    resumable_source_manager: ResumableSourceManager[GroqResumeConfig],
 ) -> SourceResponse:
     config: GroqEndpointConfig = GROQ_ENDPOINTS[endpoint]
 
@@ -63,11 +77,31 @@ def groq_source(
         ],
     }
 
-    resource = rest_api_resource(rest_config, team_id, job_id, None)
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+
+    def save_checkpoint(state: dict[str, Any] | None) -> None:
+        if state and state.get("cursor"):
+            resumable_source_manager.save_state(GroqResumeConfig(cursor=str(state["cursor"])))
+        elif state is None:
+            resumable_source_manager.save_state(GroqResumeConfig(completed=True))
+
+    resource = rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        None,
+        resume_hook=save_checkpoint,
+        initial_paginator_state={"cursor": resume.cursor} if resume is not None and resume.cursor else None,
+    )
+    completed = resume is not None and resume.completed
+
+    def items() -> Iterable[Any]:
+        return [] if completed else resource
 
     return SourceResponse(
         name=endpoint,
-        items=lambda: resource,
+        on_complete=resumable_source_manager.clear_state,
+        items=items,
         primary_keys=config.primary_keys,
         partition_count=1,
         partition_size=1,

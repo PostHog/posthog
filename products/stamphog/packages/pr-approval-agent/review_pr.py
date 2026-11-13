@@ -35,6 +35,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from attestations import ReviewedHead, lifted_files, pending_attestations, pending_check_names
 from familiarity import AuthorFamiliarity, compute_familiarity, familiarity_evidence
 from gates import (
     DENY_EXEMPT_AUTHOR_TEAMS,
@@ -71,9 +72,8 @@ from github import (
     provenance_evidence,
     write_pr_diff,
 )
-from manifest_risk import manifest_script_changes
-from migration_risk import migration_check_pending, safe_migration_files
-from policy import EffectivePolicy, ScopeBudget, _sanitize_untrusted, repo_root, resolve
+from manifest_risk import manifest_script_changes, manifest_script_changes_from_contents
+from policy import Attestation, EffectivePolicy, ScopeBudget, _sanitize_untrusted, repo_root, resolve
 from verdict_rule import facts_summary
 from version import STAMPHOG_VERSION
 
@@ -244,6 +244,9 @@ class Pipeline:
         # git tree. The manifest scripts scan reads file text from git, so it is skipped there. That
         # can only miss a deny, never add one, and the sandbox review runs the scan again.
         self.checkout = checkout
+        # Manifest texts at the merge base and the head, keyed by path, which the server's gate check
+        # reads from GitHub so that it can run the scripts scan without a checkout.
+        self.manifest_contents: dict[str, dict[str, str]] | None = None
         # Every GitHub team the author is on, set by the hosted runtime because the sandbox holds no
         # token. None means a local run, which asks GitHub per team instead.
         self.author_team_slugs: set[str] | None = None
@@ -273,8 +276,8 @@ class Pipeline:
 
         gate_verdict = self._classify_and_gate()
 
-        if self._only_pending_migration_check():
-            return self._refuse_pending_migration_check()
+        if pending := self._only_pending_attestations():
+            return self._refuse_pending_attestations(pending)
 
         if self.dry_run:
             self.final_verdict = "DRY-RUN"
@@ -290,8 +293,8 @@ class Pipeline:
                 return wait_verdict
             if self._wait_refetched_pr:
                 gate_verdict = self._classify_and_gate()
-                if self._only_pending_migration_check():
-                    return self._refuse_pending_migration_check()
+                if pending := self._only_pending_attestations():
+                    return self._refuse_pending_attestations(pending)
 
         try:
             self._maybe_compute_familiarity()
@@ -307,19 +310,30 @@ class Pipeline:
         self._run_gates()
         return self._gate_verdict()
 
-    def _only_pending_migration_check(self) -> bool:
-        """True when the only thing blocking approval is a pending Migration risk check.
+    def pending_lifting_attestations(self) -> list[Attestation]:
+        """The attestations still running whose lifts cover every deny category, or nothing.
+
+        Empty when no category is denied, when a denied category has no pending check that may lift
+        it, or when no check is pending. The deny-list verdict stands in each case.
+        """
+        deny = set(self.classification.get("deny_categories", []))
+        if not deny:
+            return []
+        pending = pending_attestations(POLICY.attestations, self.pr.check_runs, self.pr.file_paths)
+        if not pending or not deny <= set().union(*(set(a.lifts) for a in pending)):
+            return []
+        return pending
+
+    def _only_pending_attestations(self) -> list[Attestation]:
+        """The pending attestations when they are the only thing blocking approval.
 
         Lets us emit a specific deny reason ("wait for the check, re-label")
-        instead of the generic deny-list one. Other denies (auth, crypto) or
-        gate failures (size, prerequisites) won't clear when the analyzer
-        finishes, so we shouldn't promise a re-label will help.
+        instead of the generic deny-list one. Other gate failures (size, prerequisites)
+        won't clear when the check finishes, so we shouldn't promise a re-label will help.
         """
-        if self.classification.get("deny_categories", []) != ["migrations"]:
-            return False
         if any(not r.passed and r.gate != "deny-list" for r in self.gate_results):
-            return False
-        return migration_check_pending(self.pr.check_runs, self.pr.file_paths)
+            return []
+        return self.pending_lifting_attestations()
 
     def _refuse_bot_author(self) -> str:
         """Hard gate: stamphog never reviews bot-authored PRs.
@@ -391,20 +405,21 @@ class Pipeline:
         self._capture_review_completed("SKIPPED", "WAIT")
         return self.final_verdict
 
-    def _refuse_pending_migration_check(self) -> str:
+    def _refuse_pending_attestations(self, pending: list[Attestation]) -> str:
+        checks = pending_check_names(pending)
         self.final_verdict = "REFUSED"
         self.reviewer_output = {
             "verdict": "REFUSE",
             "reasoning": (
-                "The `Migration risk` check has not completed for this commit. "
+                f"The {checks} check has not completed for this commit. "
                 "Wait for it to finish (visible in the PR's Checks tab), then "
                 "re-apply the `stamphog` label to retry."
             ),
             "risk": "unknown",
             "issues": [],
         }
-        print(f"\n{_warn('REFUSED')} — Migration risk check pending; re-label after it completes")
-        self._capture_review_completed("DENIED", "PENDING-MIGRATION-CHECK")
+        print(f"\n{_warn('REFUSED')} — {checks} check pending; re-label after it completes")
+        self._capture_review_completed("DENIED", "PENDING-ATTESTATION")
         return self.final_verdict
 
     def _gate_verdict(self) -> str:
@@ -437,20 +452,26 @@ class Pipeline:
         top_dirs = file_info["top_dirs"]
         breadth = scope_breadth(top_dirs)
         cc = parse_conventional_commit(pr.title)
-        safe_migrations = safe_migration_files(pr.check_runs, file_paths)
-        deny = detect_deny_categories(pr.deny_paths, ignored_files=safe_migrations)
+        reviewed = ReviewedHead(pr_number=pr.number, head_sha=pr.head_sha, merge_base_sha=pr.merge_base_sha)
+        lifted = lifted_files(POLICY.attestations, pr.check_runs, file_paths, reviewed)
+        deny = detect_deny_categories(pr.deny_paths, lifted)
         exception_lifted = bool(POLICY.deny_exceptions) and (
-            detect_deny_categories(pr.deny_paths, ignored_files=safe_migrations, apply_exceptions=False) != deny
+            detect_deny_categories(pr.deny_paths, lifted, apply_exceptions=False) != deny
         )
         dep_manifests = dependency_manifests_without_lockfile(file_paths)
         # Deterministic first line for the manifest scripts risk: an edit to
         # scripts/lifecycle/build keys hard-denies rather than resting solely
         # on the reviewer prompt's REFUSE instruction.
-        risky_manifests = (
-            manifest_script_changes(dep_manifests, pr.base_sha, pr.head_sha, REPO_ROOT, pr.merge_base_sha)
-            if dep_manifests and self.checkout
-            else []
-        )
+        if not dep_manifests:
+            risky_manifests = []
+        elif self.checkout:
+            risky_manifests = manifest_script_changes(
+                dep_manifests, pr.base_sha, pr.head_sha, REPO_ROOT, pr.merge_base_sha
+            )
+        elif self.manifest_contents is not None:
+            risky_manifests = manifest_script_changes_from_contents(dep_manifests, self.manifest_contents)
+        else:
+            risky_manifests = []
         if risky_manifests and "deps_toolchain" not in deny:
             deny = sorted([*deny, "deps_toolchain"])
         denied_before_exemptions = len(deny)
@@ -516,7 +537,7 @@ class Pipeline:
             "categories": categories,
             "deny_categories": deny,
             "title_scrutiny_flags": title_flags,
-            "safe_migration_files": sorted(safe_migrations),
+            "lifted_files": {category: sorted(files) for category, files in sorted(lifted.items())},
             "allow_listed_only": allow_only,
             "is_test_only": is_test,
             "has_dep_changes": has_dependency_changes(file_paths),
@@ -1155,7 +1176,7 @@ class Pipeline:
                 "commit_type": self.classification.get("commit_type"),
                 "deny_categories": self.classification.get("deny_categories", []),
                 "title_scrutiny_flags": self.classification.get("title_scrutiny_flags", []),
-                "safe_migration_files": self.classification.get("safe_migration_files", []),
+                "lifted_files": self.classification.get("lifted_files", {}),
                 "ownership": self.classification.get("ownership", {}),
                 "familiarity": familiarity_evidence(self.familiarity),
                 # Audit trail: records that this review ran with the gates relaxed (see __init__).

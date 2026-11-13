@@ -2,10 +2,10 @@ import { useActions, useValues } from 'kea'
 
 import { LemonBanner } from '@posthog/lemon-ui'
 
-import { EmailIntegrationsList } from 'lib/integrations/EmailIntegrationsList'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 
 import { ChannelSetupModal } from '../../Channels/ChannelSetupModal'
+import { EmailIntegrationsList } from '../../Channels/EmailIntegrationsList'
 import { workflowsOnboardingWizardLogic } from './workflowsOnboardingWizardLogic'
 
 export function WizardDomainStep(): JSX.Element {

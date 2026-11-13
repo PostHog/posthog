@@ -43,6 +43,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.incremental import (
     FILE_ROW_NUMBER_COLUMN,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.locations import R2_HOST
 
 StorageService = Literal["s3", "gcs", "r2", "azure"]
 
@@ -52,7 +53,6 @@ _S3_ENDPOINT = re.compile(r"(?:(?:dualstack|fips)\.)?(?P<region>[a-z]{2}(?:-[a-z
 _S3_EXTERNAL_ENDPOINT = "external-1"
 _S3_EXTERNAL_REGION = "us-east-1"
 _GCS_HOST = "storage.googleapis.com"
-_R2_HOST = re.compile(r"(?P<account>[0-9a-f]{32})\.r2\.cloudflarestorage\.com")
 _AZURE_HOST = re.compile(r"(?P<account>[a-z0-9]{3,24})\.blob\.core\.windows\.net")
 
 # ClickHouse formats a self-managed table can have, and the source format that reads the same files.
@@ -87,10 +87,14 @@ class SelfManagedLocation:
     region: str | None = None
     # The Cloudflare account ID for R2, or the storage account name for Azure.
     account: str | None = None
+    # The R2 jurisdiction, such as eu, when the URL names one.
+    jurisdiction: str | None = None
 
     @property
     def group_key(self) -> str:
-        return "/".join((self.service, self.account or self.region or "", self.bucket))
+        # Migration markers store this key, so a location without a jurisdiction keeps its old key.
+        account = f"{self.account}.{self.jurisdiction}" if self.account and self.jurisdiction else self.account
+        return "/".join((self.service, account or self.region or "", self.bucket))
 
 
 @frozen
@@ -139,9 +143,11 @@ def parse_self_managed_url(url: str) -> SelfManagedLocation:
         location = SelfManagedLocation(service="gcs", bucket=bucket, key=key)
     elif host.endswith(f".{_GCS_HOST}"):
         location = SelfManagedLocation(service="gcs", bucket=host[: -len(_GCS_HOST) - 1], key=path)
-    elif (r2 := _R2_HOST.fullmatch(host)) is not None:
+    elif (r2 := R2_HOST.fullmatch(host)) is not None:
         bucket, _, key = path.partition("/")
-        location = SelfManagedLocation(service="r2", bucket=bucket, key=key, account=r2.group("account"))
+        location = SelfManagedLocation(
+            service="r2", bucket=bucket, key=key, account=r2.group("account"), jurisdiction=r2.group("jurisdiction")
+        )
     elif (azure := _AZURE_HOST.fullmatch(host)) is not None:
         container, _, key = path.partition("/")
         location = SelfManagedLocation(service="azure", bucket=container, key=key, account=azure.group("account"))

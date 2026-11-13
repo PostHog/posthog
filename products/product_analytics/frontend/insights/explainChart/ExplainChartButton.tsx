@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconSparkles } from '@posthog/icons'
 import { Button } from '@posthog/quill'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 
@@ -12,11 +12,19 @@ import type { InsightLogicProps } from '~/types'
 import { explainChartLogic } from './explainChartLogic'
 
 export function ExplainChartButton({ insightProps }: { insightProps: InsightLogicProps }): JSX.Element | null {
-    const { explainAvailable, storyShown, investigating, consentRequested } = useValues(explainChartLogic(insightProps))
+    const {
+        storyAvailable,
+        explainAvailable,
+        story,
+        storyVisible,
+        investigating,
+        consentRequested,
+        explainDisabledReason,
+    } = useValues(explainChartLogic(insightProps))
     const { explainClicked, approveConsent, dismissConsent } = useActions(explainChartLogic(insightProps))
-    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const quillSurface = useQuillSurface()
 
-    if (!explainAvailable) {
+    if (!explainAvailable && !(storyAvailable && story)) {
         return null
     }
     const label = investigating ? 'Investigating…' : 'Explain this chart'
@@ -27,12 +35,13 @@ export function ExplainChartButton({ insightProps }: { insightProps: InsightLogi
             onApprove={approveConsent}
             onDismiss={dismissConsent}
         >
-            {todayRailNav ? (
+            {quillSurface ? (
                 <span data-quill>
                     <Button
                         variant="outline"
                         size="sm"
-                        aria-expanded={storyShown}
+                        aria-expanded={storyVisible}
+                        disabledReason={explainDisabledReason}
                         loading={investigating}
                         onClick={explainClicked}
                         data-attr="explain-chart-toggle"
@@ -46,7 +55,8 @@ export function ExplainChartButton({ insightProps }: { insightProps: InsightLogi
                     size="xsmall"
                     type="secondary"
                     icon={<IconSparkles />}
-                    active={storyShown}
+                    active={storyVisible}
+                    disabledReason={explainDisabledReason}
                     loading={investigating}
                     onClick={explainClicked}
                     data-attr="explain-chart-toggle"

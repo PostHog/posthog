@@ -7,7 +7,7 @@ import { StepImportNotesBadge } from '../../../import/StepImportNotesBadge'
 import { canMoveStep } from '../../hogFlowEditorLogic'
 import type { HogFlow, HogFlowAction } from '../../types'
 import { tileCanvasLogic } from './tileCanvasLogic'
-import { hasStepMenu } from './tileCanvasModel'
+import { MOVING_STEP_ATTR, STEP_DRAG_DATA_TYPE } from './tileCanvasModel'
 import { TileCaption } from './TileCaption'
 import { TileFace } from './TileFace'
 import { HOVER_CARD_CLOSE_MS, TileHoverCard } from './TileHoverCard'
@@ -17,6 +17,10 @@ import { useRaisedNode } from './useRaisedNode'
 import { useTileStep } from './useTileStep'
 
 const HOVER_OPEN_DELAY_MS = 260
+
+function movingStepAttrs(isMoving: boolean): Record<string, string> {
+    return isMoving ? { [MOVING_STEP_ATTR]: '' } : {}
+}
 
 export function TileStepNode({
     action,
@@ -35,14 +39,14 @@ export function TileStepNode({
 }): JSX.Element {
     const ref = useRef<HTMLDivElement>(null)
     const tile = useTileStep(action, workflow)
-    const { movingNodeId } = useValues(tileCanvasLogic)
+    const { movingNodeId, isViewOnly, stepHasMenu } = useValues(tileCanvasLogic)
     const hover = useHoverIntent(
         interactive && !selected && !menuOpen && !movingNodeId,
         HOVER_OPEN_DELAY_MS,
         HOVER_CARD_CLOSE_MS
     )
     const { openStepMenu, startDraggingStep, endDraggingStep } = useActions(tileCanvasLogic)
-    const draggable = interactive && canMoveStep(workflow, action.id)
+    const draggable = interactive && !isViewOnly && canMoveStep(workflow, action.id)
     useRaisedNode(ref, hover.mounted)
     const face = (
         <div
@@ -71,20 +75,20 @@ export function TileStepNode({
             onMouseMove={hover.onMouseMove}
             onMouseLeave={hover.onMouseLeave}
             data-attr={interactive ? 'workflow-tile-step' : undefined}
+            {...movingStepAttrs(movingNodeId === action.id)}
             draggable={draggable}
             onDragStart={
                 draggable
                     ? (event) => {
                           event.dataTransfer.effectAllowed = 'move'
-                          // Firefox starts a drag only when it carries data.
-                          event.dataTransfer.setData('text/plain', action.id)
+                          event.dataTransfer.setData(STEP_DRAG_DATA_TYPE, action.id)
                           startDraggingStep(action.id)
                       }
                     : undefined
             }
-            onDragEnd={draggable ? endDraggingStep : undefined}
+            onDragEnd={draggable ? (event) => endDraggingStep(event.dataTransfer.dropEffect) : undefined}
             onContextMenu={
-                interactive && hasStepMenu(action)
+                interactive && stepHasMenu(action)
                     ? (event) => {
                           event.preventDefault()
                           openStepMenu(action.id)

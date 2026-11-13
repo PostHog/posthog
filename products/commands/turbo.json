@@ -6,7 +6,9 @@
                 "backend/facade/**",
                 "backend/webhook_consumers.py",
                 "backend/tasks/**",
-                "backend/migrations/**"
+                "backend/receivers.py",
+                "backend/migrations/**",
+                "backend/apps.py"
             ],
             "outputs": [],
             "cache": true

@@ -6,6 +6,7 @@ from django.core.cache import cache
 
 from posthog.api.integration import IntegrationViewSet
 from posthog.models.integration import EmailIntegration, Integration
+from posthog.models.integration.model import integration_model
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 
@@ -65,23 +66,26 @@ class TestEmailIntegrationCrossTenantStaleVerification(BaseTest):
     @patch("products.workflows.backend.providers.SESProvider.create_email_domain")
     def test_destroy_email_integration_deletes_ses_identity(self, mock_create_email_domain, mock_delete_identity):
         mock_create_email_domain.return_value = {"status": "success"}
-        integration = EmailIntegration.create_native_integration(
-            {"email": "owner@partner.com", "name": "Owner"},
-            team_id=self.team.id,
-            organization_id=str(self.organization.id),
-            created_by=self.user,
+        integration = integration_model(
+            EmailIntegration.create_native_integration(
+                {"email": "owner@partner.com", "name": "Owner"},
+                team_id=self.team.id,
+                organization_id=str(self.organization.id),
+                created_by=self.user,
+            )
         )
 
         with self.captureOnCommitCallbacks(execute=True):
             IntegrationViewSet().perform_destroy(integration)
 
         mock_delete_identity.assert_called_once_with("partner.com")
-        assert not Integration.objects.filter(pk=integration.pk).exists()
+        assert not Integration.objects.filter(pk=integration.id).exists()
 
     @patch("products.workflows.backend.providers.SESProvider.delete_identity")
     @patch("products.workflows.backend.providers.SESProvider.create_email_domain")
+    @patch("products.workflows.backend.providers.SESProvider.get_mail_from_subdomain", return_value=None)
     def test_destroy_email_integration_skips_ses_delete_when_sibling_exists(
-        self, mock_create_email_domain, mock_delete_identity
+        self, _mock_get_mail_from, mock_create_email_domain, mock_delete_identity
     ):
         mock_create_email_domain.return_value = {"status": "success"}
         sibling_team = Team.objects.create(organization=self.organization, name="sibling team")
@@ -91,11 +95,13 @@ class TestEmailIntegrationCrossTenantStaleVerification(BaseTest):
             organization_id=str(self.organization.id),
             created_by=self.user,
         )
-        integration = EmailIntegration.create_native_integration(
-            {"email": "owner@partner.com", "name": "Owner"},
-            team_id=self.team.id,
-            organization_id=str(self.organization.id),
-            created_by=self.user,
+        integration = integration_model(
+            EmailIntegration.create_native_integration(
+                {"email": "owner@partner.com", "name": "Owner"},
+                team_id=self.team.id,
+                organization_id=str(self.organization.id),
+                created_by=self.user,
+            )
         )
 
         with self.captureOnCommitCallbacks(execute=True):
@@ -133,22 +139,26 @@ class TestEmailIntegrationCrossTenantStaleVerification(BaseTest):
         org_b = Organization.objects.create(name="org b")
         team_b = Team.objects.create(organization=org_b, name="team b")
 
-        integration_a = EmailIntegration.create_native_integration(
-            {"email": "owner@partner.com", "name": "Owner A"},
-            team_id=team_a.id,
-            organization_id=str(org_a.id),
-            created_by=self.user,
+        integration_a = integration_model(
+            EmailIntegration.create_native_integration(
+                {"email": "owner@partner.com", "name": "Owner A"},
+                team_id=team_a.id,
+                organization_id=str(org_a.id),
+                created_by=self.user,
+            )
         )
         with patch("products.workflows.backend.providers.SESProvider.delete_identity") as mock_delete:
             with self.captureOnCommitCallbacks(execute=True):
                 IntegrationViewSet().perform_destroy(integration_a)
             mock_delete.assert_called_once_with("partner.com")
 
-        integration_b = EmailIntegration.create_native_integration(
-            {"email": "attacker@partner.com", "name": "Attacker B"},
-            team_id=team_b.id,
-            organization_id=str(org_b.id),
-            created_by=self.user,
+        integration_b = integration_model(
+            EmailIntegration.create_native_integration(
+                {"email": "attacker@partner.com", "name": "Attacker B"},
+                team_id=team_b.id,
+                organization_id=str(org_b.id),
+                created_by=self.user,
+            )
         )
 
         provider = self._build_ses_provider(tenants_for_domain={"partner.com": []})

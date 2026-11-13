@@ -59,6 +59,20 @@ def _extract_items(body: Any, data_key: Optional[str]) -> list[dict[str, Any]]:
     return []
 
 
+def _extract_count_rows(body: Any) -> list[dict[str, Any]]:
+    """Turn the `[timestamp, count]` pairs of a count report into rows, oldest bucket first."""
+    result = body.get("result") if isinstance(body, dict) else None
+    rows: list[dict[str, Any]] = []
+    for pair in result if isinstance(result, list) else []:
+        if not isinstance(pair, list) or len(pair) < 2:
+            continue
+        timestamp = _to_int(pair[0])
+        if timestamp is None:
+            continue
+        rows.append({"timestamp": timestamp, "count": _to_int(pair[1])})
+    return sorted(rows, key=lambda row: row["timestamp"])
+
+
 def _build_url(path: str, params: dict[str, Any]) -> str:
     if not params:
         return f"{ROLLBAR_BASE_URL}{path}"
@@ -117,6 +131,12 @@ def get_rows(
             response.raise_for_status()
 
         return response.json()
+
+    if config.pagination == "time_series":
+        rows = _extract_count_rows(fetch(_build_url(config.path, config.params)))
+        if rows:
+            yield rows
+        return
 
     resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
 

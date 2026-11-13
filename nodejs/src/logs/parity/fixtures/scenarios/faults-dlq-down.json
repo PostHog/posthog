@@ -1,0 +1,538 @@
+{
+ "scenario": {
+  "name": "faults-dlq-down",
+  "description": "A failed DLQ write after a failed produce fails the batch.",
+  "consumer": "logs",
+  "batch_now_ms": [
+   1736944633250,
+   1736944633250
+  ],
+  "config": {
+   "LOGS_INGESTION_CONSUMER_GROUP_ID": "ingestion-logs",
+   "LOGS_INGESTION_CONSUMER_CONSUME_TOPIC": "logs_ingestion_test",
+   "LOGS_INGESTION_CONSUMER_OVERFLOW_TOPIC": "logs_ingestion_overflow_test",
+   "LOGS_INGESTION_CONSUMER_DLQ_TOPIC": "logs_ingestion_dlq_test",
+   "LOGS_INGESTION_CONSUMER_CLICKHOUSE_TOPIC": "clickhouse_logs_test",
+   "LOGS_REDIS_HOST": "127.0.0.1",
+   "LOGS_REDIS_PORT": 6379,
+   "LOGS_REDIS_PASSWORD": "",
+   "LOGS_REDIS_TLS": false,
+   "LOGS_LIMITER_ENABLED_TEAMS": "*",
+   "LOGS_LIMITER_DISABLED_FOR_TEAMS": "",
+   "LOGS_LIMITER_BUCKET_SIZE_KB": 10000,
+   "LOGS_LIMITER_REFILL_RATE_KB_PER_SECOND": 1000,
+   "LOGS_LIMITER_TTL_SECONDS": 86400,
+   "LOGS_LIMITER_TEAM_BUCKET_SIZE_KB": "",
+   "LOGS_LIMITER_TEAM_REFILL_RATE_KB_PER_SECOND": "",
+   "LOGS_SAMPLING_ENABLED_TEAMS": "",
+   "LOGS_SAMPLING_KILLSWITCH": false,
+   "LOGS_METRICS_RULES_ENABLED_TEAMS": "",
+   "LOGS_METRICS_RULES_KILLSWITCH": false,
+   "LOGS_METRICS_RULES_EXPORT_URL": "",
+   "LOGS_DEFAULT_METRIC_RULES_ENABLED_TEAMS": "",
+   "LOGS_RETENTION_ENABLED_TEAMS": "",
+   "LOGS_BACKFILL_ENABLED_TEAMS": "",
+   "LOGS_RETENTION_KILLSWITCH": false,
+   "LOGS_INTERNAL_INGESTION_ENABLED_TEAMS": "",
+   "LOGS_INTERNAL_INGESTION_SIGNING_KEYS": "",
+   "LOGS_INTERNAL_PRODUCER_URL": "",
+   "LOGS_INTERNAL_PRODUCER_TEAMS": "",
+   "LOGS_INTERNAL_PRODUCER_MAX_IN_FLIGHT": 20,
+   "LOGS_INTERNAL_PRODUCER_MAX_BUFFERED_BYTES": 67108864,
+   "LOGS_INTERNAL_PRODUCER_RETRY_TIMEOUT_MS": 60000,
+   "LOGS_PATTERN_MASKING_ENABLED_TEAMS": "",
+   "LOGS_JSON_ATTRIBUTE_PARSING_ENABLED_TEAMS": "",
+   "LOGS_JSON_ATTRIBUTE_EXTRACTION_ENABLED_TEAMS": "",
+   "LOGS_BILLING_PRORATE_ENABLED": false,
+   "LOGS_TRANSFORMATIONS_ENABLED_TEAMS": "",
+   "LOGS_TRANSFORMATIONS_KILLSWITCH": false,
+   "LOGS_TRANSFORMATIONS_HOG_TIMEOUT_MS": 10,
+   "LOGS_TRANSFORMATIONS_MESSAGE_BUDGET_MS": 100,
+   "LOGS_TRANSFORMATIONS_BATCH_BUDGET_MS": 2000,
+   "LOGS_TRANSFORMATIONS_MAX_ERROR_LOGS_PER_FUNCTION": 3,
+   "REDIS_URL": "",
+   "REDIS_POOL_MIN_SIZE": 1,
+   "REDIS_POOL_MAX_SIZE": 3,
+   "TRACES_INGESTION_CONSUMER_GROUP_ID": "ingestion-traces",
+   "TRACES_INGESTION_CONSUMER_CONSUME_TOPIC": "ingestion-traces_test",
+   "TRACES_INGESTION_CONSUMER_OVERFLOW_TOPIC": "ingestion-traces-overflow_test",
+   "TRACES_INGESTION_CONSUMER_DLQ_TOPIC": "ingestion-traces-dlq_test",
+   "TRACES_INGESTION_CONSUMER_CLICKHOUSE_TOPIC": "clickhouse_traces_test",
+   "TRACES_REDIS_HOST": "127.0.0.1",
+   "TRACES_REDIS_PORT": 6379,
+   "TRACES_REDIS_PASSWORD": "",
+   "TRACES_REDIS_TLS": false,
+   "TRACES_LIMITER_ENABLED_TEAMS": "*",
+   "TRACES_LIMITER_DISABLED_FOR_TEAMS": "",
+   "TRACES_LIMITER_BUCKET_SIZE_KB": 10000,
+   "TRACES_LIMITER_REFILL_RATE_KB_PER_SECOND": 1000,
+   "TRACES_LIMITER_TTL_SECONDS": 86400,
+   "TRACES_LIMITER_TEAM_BUCKET_SIZE_KB": "",
+   "TRACES_LIMITER_TEAM_REFILL_RATE_KB_PER_SECOND": "",
+   "TRACES_METRICS_RULES_ENABLED_TEAMS": "",
+   "TRACES_METRICS_RULES_KILLSWITCH": false,
+   "TRACES_METRICS_RULES_EXPORT_URL": "",
+   "TRACES_DEFAULT_METRIC_RULES_ENABLED_TEAMS": "",
+   "TRACES_RETENTION_ENABLED_TEAMS": "",
+   "TRACES_RETENTION_KILLSWITCH": false
+  },
+  "teams": [
+   {
+    "id": 101,
+    "api_token": "phc_parity_plain",
+    "logs_settings": null
+   },
+   {
+    "id": 102,
+    "api_token": "phc_parity_json",
+    "logs_settings": {
+     "json_parse_logs": true
+    }
+   },
+   {
+    "id": 103,
+    "api_token": "phc_parity_pii",
+    "logs_settings": {
+     "pii_scrub_logs": true
+    }
+   },
+   {
+    "id": 104,
+    "api_token": "phc_parity_both",
+    "logs_settings": {
+     "json_parse_logs": true,
+     "pii_scrub_logs": true,
+     "retention_days": 30
+    }
+   },
+   {
+    "id": 105,
+    "api_token": "phc_parity_attr",
+    "logs_settings": {
+     "json_parse_logs": true,
+     "json_parse_logs_attribute_key": "payload",
+     "retention_days": 90
+    }
+   },
+   {
+    "id": 106,
+    "api_token": "phc_parity_ret7",
+    "logs_settings": {
+     "retention_days": 7
+    }
+   }
+  ],
+  "quota_limited_tokens": [],
+  "sampling_rules": {},
+  "retention_rules": {},
+  "metric_rules": {},
+  "pattern_message_keys": {},
+  "traces_retention_days": {},
+  "team_lookup_faults": {},
+  "team_by_id_faults": {},
+  "team_by_id_missing": [],
+  "metric_rules_faults": {},
+  "metric_emit_faults": [],
+  "pattern_keys_faults": {},
+  "omit_deps": [],
+  "produce_faults": [
+   {
+    "output": "logs",
+    "team_id": "102",
+    "times": 1,
+    "error": {
+     "name": "MessageSizeTooLarge",
+     "message": "too big",
+     "dependency_unavailable": false
+    }
+   },
+   {
+    "output": "logs_dlq",
+    "times": 10,
+    "error": {
+     "name": "KafkaError",
+     "message": "dlq down",
+     "dependency_unavailable": false
+    }
+   }
+  ],
+  "batches": [
+   [
+    {
+     "topic": "logs_ingestion",
+     "partition": 1,
+     "offset": 4,
+     "timestamp": 1736944632250,
+     "key": null,
+     "headers": [
+      [
+       "token",
+       "phc_parity_plain"
+      ],
+      [
+       "bytes_uncompressed",
+       "9963"
+      ],
+      [
+       "bytes_uncompressed_records",
+       "6642"
+      ],
+      [
+       "bytes_compressed",
+       "3321"
+      ],
+      [
+       "record_count",
+       "2"
+      ],
+      [
+       "created_at",
+       "2025-01-15T12:36:53.989Z"
+      ]
+     ],
+     "value_b64": "T2JqAQQWYXZyby5zY2hlbWGALHsibmFtZSI6IkxvZ1JlY29yZCIsInR5cGUiOiJyZWNvcmQiLCJmaWVsZHMiOlt7Im5hbWUiOiJ1dWlkIiwidHlwZSI6WyJudWxsIiwic3RyaW5nIl0sImRvYyI6IlVuaXF1ZSBpZGVudGlmaWVyIGZvciB0aGUgbG9nIHJlY29yZC4ifSx7Im5hbWUiOiJ0cmFjZV9pZCIsInR5cGUiOlsibnVsbCIsImJ5dGVzIl0sImRvYyI6IklkZW50aWZpZXIgZm9yIHRoZSB0cmFjZSB0aGlzIGxvZyBpcyBhIHBhcnQgb2YuIn0seyJuYW1lIjoic3Bhbl9pZCIsInR5cGUiOlsibnVsbCIsImJ5dGVzIl0sImRvYyI6IklkZW50aWZpZXIgZm9yIHRoZSBzcGFuIHdpdGhpbiB0aGUgdHJhY2UuIn0seyJuYW1lIjoidHJhY2VfZmxhZ3MiLCJ0eXBlIjpbIm51bGwiLCJpbnQiXSwiZG9jIjoiRmxhZ3MgYXNzb2NpYXRlZCB3aXRoIHRoZSB0cmFjZS4ifSx7Im5hbWUiOiJ0aW1lc3RhbXAiLCJ0eXBlIjpbIm51bGwiLCJsb25nIl0sImRvYyI6IlRoZSBwcmltYXJ5IHRpbWVzdGFtcCBvZiB0aGUgZXZlbnQsIGluIG1pY3Jvc2Vjb25kcyBzaW5jZSBlcG9jaC4ifSx7Im5hbWUiOiJvYnNlcnZlZF90aW1lc3RhbXAiLCJ0eXBlIjpbIm51bGwiLCJsb25nIl0sImRvYyI6IlRoZSB0aW1lc3RhbXAgd2hlbiB0aGUgZXZlbnQgd2FzIG9ic2VydmVkIG9yIGluZ2VzdGVkLCBpbiBtaWNyb3NlY29uZHMgc2luY2UgZXBvY2guIn0seyJuYW1lIjoiYm9keSIsInR5cGUiOlsibnVsbCIsInN0cmluZyJdLCJkb2MiOiJUaGUgbWFpbiBjb250ZW50IG9yIG1lc3NhZ2Ugb2YgdGhlIGxvZy4ifSx7Im5hbWUiOiJzZXZlcml0eV90ZXh0IiwidHlwZSI6WyJudWxsIiwic3RyaW5nIl0sImRvYyI6Ikh1bWFuLXJlYWRhYmxlIHNldmVyaXR5IGxldmVsIChlLmcuLCAnSU5GTycsICdFUlJPUicpLiJ9LHsibmFtZSI6InNldmVyaXR5X251bWJlciIsInR5cGUiOlsibnVsbCIsImludCJdLCJkb2MiOiJOdW1lcmljIHJlcHJlc2VudGF0aW9uIG9mIHRoZSBzZXZlcml0eSBsZXZlbC4ifSx7Im5hbWUiOiJzZXJ2aWNlX25hbWUiLCJ0eXBlIjpbIm51bGwiLCJzdHJpbmciXSwiZG9jIjoiVGhlIG5hbWUgb2YgdGhlIHNlcnZpY2UgdGhhdCBnZW5lcmF0ZWQgdGhlIGV2ZW50LiJ9LHsibmFtZSI6InJlc291cmNlX2F0dHJpYnV0ZXMiLCJ0eXBlIjpbIm51bGwiLHsidHlwZSI6Im1hcCIsInZhbHVlcyI6InN0cmluZyJ9XSwiZG9jIjoiQXR0cmlidXRlcyBkZXNjcmliaW5nIHRoZSByZXNvdXJjZSB0aGF0IHByb2R1Y2VkIHRoZSBsb2cgKGUuZy4sIGhvc3QsIHJlZ2lvbikuIn0seyJuYW1lIjoiaW5zdHJ1bWVudGF0aW9uX3Njb3BlIiwidHlwZSI6WyJudWxsIiwic3RyaW5nIl0sImRvYyI6IlRoZSBuYW1lIG9mIHRoZSBsaWJyYXJ5IG9yIGZyYW1ld29yayB0aGF0IGNhcHR1cmVkIHRoZSBsb2cuIn0seyJuYW1lIjoiZXZlbnRfbmFtZSIsInR5cGUiOlsibnVsbCIsInN0cmluZyJdLCJkb2MiOiJUaGUgbmFtZSBvZiBhIHNwZWNpZmljIGV2ZW50IHRoYXQgb2NjdXJyZWQuIn0seyJuYW1lIjoiYXR0cmlidXRlcyIsInR5cGUiOlsibnVsbCIseyJ0eXBlIjoibWFwIiwidmFsdWVzIjoic3RyaW5nIn1dLCJkb2MiOiJBIG1hcCBvZiBjdXN0b20gc3RyaW5nLXZhbHVlZCBhdHRyaWJ1dGVzIGFzc29jaWF0ZWQgd2l0aCB0aGUgbG9nLiJ9LHsibmFtZSI6ImJ5dGVzX3VuY29tcHJlc3NlZCIsInR5cGUiOlsibnVsbCIsImxvbmciXSwiZG9jIjoiTG9naWNhbCBjb250ZW50IHNpemUgb2YgdGhlIHJvdyAoc3VtIG9mIGJ5dGUgbGVuZ3RocyBvZiBzdHJpbmcvbWFwIGZpZWxkcykuIFVzZWQgYnkgZHJvcC1ydWxlIGFjY291bnRpbmc7IGRvZXMgbm90IGluY2x1ZGUgZml4ZWQtd2lkdGggbnVtZXJpYyBvciB0aW1lc3RhbXAgZmllbGRzLiJ9LHsibmFtZSI6InJldGVudGlvbl9kYXlzIiwidHlwZSI6WyJudWxsIiwiaW50Il0sImRlZmF1bHQiOm51bGwsImRvYyI6IlBlci1yb3cgcmV0ZW50aW9uIGluIGRheXMsIHN0YW1wZWQgYnkgdGhlIE5vZGUgY29uc3VtZXIgZnJvbSB0ZWFtIHJldGVudGlvbiBydWxlcy4gTnVsbCB3aGVuIHVuc2V0IOKAlCBDbGlja0hvdXNlIHRoZW4gZmFsbHMgYmFjayB0byB0aGUgYmF0Y2ggYHJldGVudGlvbi1kYXlzYCBoZWFkZXIuIGNhcHR1cmUtbG9ncyBhbHdheXMgd3JpdGVzIG51bGw7IGl0IGRvZXMgbm90IGV2YWx1YXRlIHRlYW0gcnVsZXMuIn0seyJuYW1lIjoicGF0dGVybiIsInR5cGUiOlsibnVsbCIsInN0cmluZyJdLCJkZWZhdWx0IjpudWxsLCJkb2MiOiJNYXNrZWQgbG9nIGJvZHksIHN0YW1wZWQgYnkgdGhlIE5vZGUgY29uc3VtZXIuIElkZW50aWZpZXJzIGFyZSByZXBsYWNlZCB3aXRoIHBsYWNlaG9sZGVycywgc28gdHdvIGxpbmVzIGRpZmZlcmluZyBvbmx5IGJ5IGEgcmVxdWVzdCBpZCBzaGFyZSBvbmUgcGF0dGVybi4gY2FwdHVyZS1sb2dzIGFsd2F5cyB3cml0ZXMgbnVsbDsgaXQgZG9lcyBub3QgbWFzay4ifSx7Im5hbWUiOiJwYXR0ZXJuX3ZlcnNpb24iLCJ0eXBlIjpbIm51bGwiLCJpbnQiXSwiZGVmYXVsdCI6bnVsbCwiZG9jIjoiTWFza2luZyBydWxlIHNldCB0aGF0IHByb2R1Y2VkIGBwYXR0ZXJuYC4gQSBydWxlIGNoYW5nZSByZS1tYXNrcyBldmVyeSBsaW5lLCBzbyB0aGUgZGV0ZWN0b3IgY29tcGFyZXMgd2l0aGluIGEgdmVyc2lvbiBhbmQgdHJlYXRzIGEgY2hhbmdlIGFzIGEgY29sZCBzdGFydC4gTnVsbCByZWFkcyBhcyB2ZXJzaW9uIDAgaW4gQ2xpY2tIb3VzZSwgbWFya2luZyBhIHJvdyB3cml0dGVuIGJlZm9yZSBtYXNraW5nLiBjYXB0dXJlLWxvZ3MgYWx3YXlzIHdyaXRlcyBudWxsLiJ9XSwiZG9jIjoiU2NoZW1hIGZvciBhIHN0cnVjdHVyZWQgbG9nIG9yIHRyYWNlIGV2ZW50LiJ9FGF2cm8uY29kZWMSenN0YW5kYXJkAIpsx15xVXvral8BmIxTTkgE2gYotS/9YHoBHQ0AVplfQyCR0wEIp8l2hjIcAo+5gRDoTmwb8gs1ZVsASo38KO8rRXY/LjWSS3JY5z70B9SWHvKsvtGWntwGJg6A85dgI8mtZGVSAEsAUAAuO/S0qZHqo+xtm6OuKXd3BZ2RBAguESvKDmmeJnmk4AxLDIsdMjSU4AxLjIkcIGBwMPOrQQDFhgICVJjAvFw4MUJECxrC7n51Kne/Knf3yh9wM/jx05pBTz3hsMNI8rZ+ug9+Haus2g6QVQu7DgpIe16lNz+aFP5HS+G+A5nY8yoZ3nAJhQUNGGy4dIlAl/2ZHKipaB34KNtm+KYCT5vkIKui+yNo7xUN0PCz94rgCnd/9Ntf+rbCqhng167ZqdmZ4Q+uIKppWkLYiPGCmSWUuDgHF9uBwzQgZB5cfNBB4mXFhAgtJDemEI7vvSnvPQAw+HXJgkXFCrIxjpuNUY1hsrHsNZAWohp3u8ZIbbJ9ym8b65pQ2Lom0Z0WbhwGTqkUZdOmOpt1W5m2ZdPanTRJdva3CwwAuBGECPRI2Dm1KGz6LGD9q81bebH3wyjfkgvskkloBtyKbMdecVV762pfAZiMU05I"
+    },
+    {
+     "topic": "logs_ingestion",
+     "partition": 1,
+     "offset": 5,
+     "timestamp": 1736944632250,
+     "key": null,
+     "headers": [
+      [
+       "token",
+       "phc_parity_json"
+      ],
+      [
+       "bytes_uncompressed",
+       "9546"
+      ],
+      [
+       "bytes_uncompressed_records",
+       "6364"
+      ],
+      [
+       "bytes_compressed",
+       "3182"
+      ],
+      [
+       "record_count",
+       "2"
+      ],
+      [
+       "created_at",
+       "2025-01-15T12:36:54.128Z"
+      ]
+     ],
+     "value_b64": "T2JqAQQWYXZyby5zY2hlbWGALHsibmFtZSI6IkxvZ1JlY29yZCIsInR5cGUiOiJyZWNvcmQiLCJmaWVsZHMiOlt7Im5hbWUiOiJ1dWlkIiwidHlwZSI6WyJudWxsIiwic3RyaW5nIl0sImRvYyI6IlVuaXF1ZSBpZGVudGlmaWVyIGZvciB0aGUgbG9nIHJlY29yZC4ifSx7Im5hbWUiOiJ0cmFjZV9pZCIsInR5cGUiOlsibnVsbCIsImJ5dGVzIl0sImRvYyI6IklkZW50aWZpZXIgZm9yIHRoZSB0cmFjZSB0aGlzIGxvZyBpcyBhIHBhcnQgb2YuIn0seyJuYW1lIjoic3Bhbl9pZCIsInR5cGUiOlsibnVsbCIsImJ5dGVzIl0sImRvYyI6IklkZW50aWZpZXIgZm9yIHRoZSBzcGFuIHdpdGhpbiB0aGUgdHJhY2UuIn0seyJuYW1lIjoidHJhY2VfZmxhZ3MiLCJ0eXBlIjpbIm51bGwiLCJpbnQiXSwiZG9jIjoiRmxhZ3MgYXNzb2NpYXRlZCB3aXRoIHRoZSB0cmFjZS4ifSx7Im5hbWUiOiJ0aW1lc3RhbXAiLCJ0eXBlIjpbIm51bGwiLCJsb25nIl0sImRvYyI6IlRoZSBwcmltYXJ5IHRpbWVzdGFtcCBvZiB0aGUgZXZlbnQsIGluIG1pY3Jvc2Vjb25kcyBzaW5jZSBlcG9jaC4ifSx7Im5hbWUiOiJvYnNlcnZlZF90aW1lc3RhbXAiLCJ0eXBlIjpbIm51bGwiLCJsb25nIl0sImRvYyI6IlRoZSB0aW1lc3RhbXAgd2hlbiB0aGUgZXZlbnQgd2FzIG9ic2VydmVkIG9yIGluZ2VzdGVkLCBpbiBtaWNyb3NlY29uZHMgc2luY2UgZXBvY2guIn0seyJuYW1lIjoiYm9keSIsInR5cGUiOlsibnVsbCIsInN0cmluZyJdLCJkb2MiOiJUaGUgbWFpbiBjb250ZW50IG9yIG1lc3NhZ2Ugb2YgdGhlIGxvZy4ifSx7Im5hbWUiOiJzZXZlcml0eV90ZXh0IiwidHlwZSI6WyJudWxsIiwic3RyaW5nIl0sImRvYyI6Ikh1bWFuLXJlYWRhYmxlIHNldmVyaXR5IGxldmVsIChlLmcuLCAnSU5GTycsICdFUlJPUicpLiJ9LHsibmFtZSI6InNldmVyaXR5X251bWJlciIsInR5cGUiOlsibnVsbCIsImludCJdLCJkb2MiOiJOdW1lcmljIHJlcHJlc2VudGF0aW9uIG9mIHRoZSBzZXZlcml0eSBsZXZlbC4ifSx7Im5hbWUiOiJzZXJ2aWNlX25hbWUiLCJ0eXBlIjpbIm51bGwiLCJzdHJpbmciXSwiZG9jIjoiVGhlIG5hbWUgb2YgdGhlIHNlcnZpY2UgdGhhdCBnZW5lcmF0ZWQgdGhlIGV2ZW50LiJ9LHsibmFtZSI6InJlc291cmNlX2F0dHJpYnV0ZXMiLCJ0eXBlIjpbIm51bGwiLHsidHlwZSI6Im1hcCIsInZhbHVlcyI6InN0cmluZyJ9XSwiZG9jIjoiQXR0cmlidXRlcyBkZXNjcmliaW5nIHRoZSByZXNvdXJjZSB0aGF0IHByb2R1Y2VkIHRoZSBsb2cgKGUuZy4sIGhvc3QsIHJlZ2lvbikuIn0seyJuYW1lIjoiaW5zdHJ1bWVudGF0aW9uX3Njb3BlIiwidHlwZSI6WyJudWxsIiwic3RyaW5nIl0sImRvYyI6IlRoZSBuYW1lIG9mIHRoZSBsaWJyYXJ5IG9yIGZyYW1ld29yayB0aGF0IGNhcHR1cmVkIHRoZSBsb2cuIn0seyJuYW1lIjoiZXZlbnRfbmFtZSIsInR5cGUiOlsibnVsbCIsInN0cmluZyJdLCJkb2MiOiJUaGUgbmFtZSBvZiBhIHNwZWNpZmljIGV2ZW50IHRoYXQgb2NjdXJyZWQuIn0seyJuYW1lIjoiYXR0cmlidXRlcyIsInR5cGUiOlsibnVsbCIseyJ0eXBlIjoibWFwIiwidmFsdWVzIjoic3RyaW5nIn1dLCJkb2MiOiJBIG1hcCBvZiBjdXN0b20gc3RyaW5nLXZhbHVlZCBhdHRyaWJ1dGVzIGFzc29jaWF0ZWQgd2l0aCB0aGUgbG9nLiJ9LHsibmFtZSI6ImJ5dGVzX3VuY29tcHJlc3NlZCIsInR5cGUiOlsibnVsbCIsImxvbmciXSwiZG9jIjoiTG9naWNhbCBjb250ZW50IHNpemUgb2YgdGhlIHJvdyAoc3VtIG9mIGJ5dGUgbGVuZ3RocyBvZiBzdHJpbmcvbWFwIGZpZWxkcykuIFVzZWQgYnkgZHJvcC1ydWxlIGFjY291bnRpbmc7IGRvZXMgbm90IGluY2x1ZGUgZml4ZWQtd2lkdGggbnVtZXJpYyBvciB0aW1lc3RhbXAgZmllbGRzLiJ9LHsibmFtZSI6InJldGVudGlvbl9kYXlzIiwidHlwZSI6WyJudWxsIiwiaW50Il0sImRlZmF1bHQiOm51bGwsImRvYyI6IlBlci1yb3cgcmV0ZW50aW9uIGluIGRheXMsIHN0YW1wZWQgYnkgdGhlIE5vZGUgY29uc3VtZXIgZnJvbSB0ZWFtIHJldGVudGlvbiBydWxlcy4gTnVsbCB3aGVuIHVuc2V0IOKAlCBDbGlja0hvdXNlIHRoZW4gZmFsbHMgYmFjayB0byB0aGUgYmF0Y2ggYHJldGVudGlvbi1kYXlzYCBoZWFkZXIuIGNhcHR1cmUtbG9ncyBhbHdheXMgd3JpdGVzIG51bGw7IGl0IGRvZXMgbm90IGV2YWx1YXRlIHRlYW0gcnVsZXMuIn0seyJuYW1lIjoicGF0dGVybiIsInR5cGUiOlsibnVsbCIsInN0cmluZyJdLCJkZWZhdWx0IjpudWxsLCJkb2MiOiJNYXNrZWQgbG9nIGJvZHksIHN0YW1wZWQgYnkgdGhlIE5vZGUgY29uc3VtZXIuIElkZW50aWZpZXJzIGFyZSByZXBsYWNlZCB3aXRoIHBsYWNlaG9sZGVycywgc28gdHdvIGxpbmVzIGRpZmZlcmluZyBvbmx5IGJ5IGEgcmVxdWVzdCBpZCBzaGFyZSBvbmUgcGF0dGVybi4gY2FwdHVyZS1sb2dzIGFsd2F5cyB3cml0ZXMgbnVsbDsgaXQgZG9lcyBub3QgbWFzay4ifSx7Im5hbWUiOiJwYXR0ZXJuX3ZlcnNpb24iLCJ0eXBlIjpbIm51bGwiLCJpbnQiXSwiZGVmYXVsdCI6bnVsbCwiZG9jIjoiTWFza2luZyBydWxlIHNldCB0aGF0IHByb2R1Y2VkIGBwYXR0ZXJuYC4gQSBydWxlIGNoYW5nZSByZS1tYXNrcyBldmVyeSBsaW5lLCBzbyB0aGUgZGV0ZWN0b3IgY29tcGFyZXMgd2l0aGluIGEgdmVyc2lvbiBhbmQgdHJlYXRzIGEgY2hhbmdlIGFzIGEgY29sZCBzdGFydC4gTnVsbCByZWFkcyBhcyB2ZXJzaW9uIDAgaW4gQ2xpY2tIb3VzZSwgbWFya2luZyBhIHJvdyB3cml0dGVuIGJlZm9yZSBtYXNraW5nLiBjYXB0dXJlLWxvZ3MgYWx3YXlzIHdyaXRlcyBudWxsLiJ9XSwiZG9jIjoiU2NoZW1hIGZvciBhIHN0cnVjdHVyZWQgbG9nIG9yIHRyYWNlIGV2ZW50LiJ9FGF2cm8uY29kZWMSenN0YW5kYXJkAAyIxD1vRqCvZNQtq5WF7F0ExAQotS/9YO0TxQgAks88OkCN0wEOQSUbLBbtr6BRilANgDfV+esOSdTvzSqWhwD0Fnx/HjCMsH3DJSTS22rhVkbhSs/Qq5OTlgHM/JFzBBgy1c3WkTSg2wbjfv2OlZSoluAFFx9C0HJP5+No4TjOj0M9bdNxU4FSmjA5hllDkXQCsTZSWiv/uesQ6WTMVbYCpZQgUKzRPNefM/OlPHfeNRJJt5q2070kTCXttdyQFEWX68yssbVkxQlNVk2hcKsiEGXrePCDpxB2Pj8FsjimanmonFSUx1QtDRMQjIv/FA4CAwCpEE/2hoAPkiyDUPJlMAslSskx3920o3W3p3V3a/15CwBcTXCIpn1gZg4ROoev0FHgoHNBAZlBwgG9gC2Zj7rADQyIxD1vRqCvZNQtq5WF7F0="
+    },
+    {
+     "topic": "logs_ingestion",
+     "partition": 3,
+     "offset": 6,
+     "timestamp": 1736944632250,
+     "key": null,
+     "headers": [
+      [
+       "token",
+       "phc_parity_plain"
+      ],
+      [
+       "bytes_uncompressed",
+       "9396"
+      ],
+      [
+       "bytes_uncompressed_records",
+       "6264"
+      ],
+      [
+       "bytes_compressed",
+       "3132"
+      ],
+      [
+       "record_count",
+       "1"
+      ],
+      [
+       "created_at",
+       "2025-01-15T12:37:07.414Z"
+      ],
+      [
+       "backfill_days",
+       "1"
+      ]
+     ],
+     "value_b64": "T2JqAQQWYXZyby5zY2hlbWGALHsibmFtZSI6IkxvZ1JlY29yZCIsInR5cGUiOiJyZWNvcmQiLCJmaWVsZHMiOlt7Im5hbWUiOiJ1dWlkIiwidHlwZSI6WyJudWxsIiwic3RyaW5nIl0sImRvYyI6IlVuaXF1ZSBpZGVudGlmaWVyIGZvciB0aGUgbG9nIHJlY29yZC4ifSx7Im5hbWUiOiJ0cmFjZV9pZCIsInR5cGUiOlsibnVsbCIsImJ5dGVzIl0sImRvYyI6IklkZW50aWZpZXIgZm9yIHRoZSB0cmFjZSB0aGlzIGxvZyBpcyBhIHBhcnQgb2YuIn0seyJuYW1lIjoic3Bhbl9pZCIsInR5cGUiOlsibnVsbCIsImJ5dGVzIl0sImRvYyI6IklkZW50aWZpZXIgZm9yIHRoZSBzcGFuIHdpdGhpbiB0aGUgdHJhY2UuIn0seyJuYW1lIjoidHJhY2VfZmxhZ3MiLCJ0eXBlIjpbIm51bGwiLCJpbnQiXSwiZG9jIjoiRmxhZ3MgYXNzb2NpYXRlZCB3aXRoIHRoZSB0cmFjZS4ifSx7Im5hbWUiOiJ0aW1lc3RhbXAiLCJ0eXBlIjpbIm51bGwiLCJsb25nIl0sImRvYyI6IlRoZSBwcmltYXJ5IHRpbWVzdGFtcCBvZiB0aGUgZXZlbnQsIGluIG1pY3Jvc2Vjb25kcyBzaW5jZSBlcG9jaC4ifSx7Im5hbWUiOiJvYnNlcnZlZF90aW1lc3RhbXAiLCJ0eXBlIjpbIm51bGwiLCJsb25nIl0sImRvYyI6IlRoZSB0aW1lc3RhbXAgd2hlbiB0aGUgZXZlbnQgd2FzIG9ic2VydmVkIG9yIGluZ2VzdGVkLCBpbiBtaWNyb3NlY29uZHMgc2luY2UgZXBvY2guIn0seyJuYW1lIjoiYm9keSIsInR5cGUiOlsibnVsbCIsInN0cmluZyJdLCJkb2MiOiJUaGUgbWFpbiBjb250ZW50IG9yIG1lc3NhZ2Ugb2YgdGhlIGxvZy4ifSx7Im5hbWUiOiJzZXZlcml0eV90ZXh0IiwidHlwZSI6WyJudWxsIiwic3RyaW5nIl0sImRvYyI6Ikh1bWFuLXJlYWRhYmxlIHNldmVyaXR5IGxldmVsIChlLmcuLCAnSU5GTycsICdFUlJPUicpLiJ9LHsibmFtZSI6InNldmVyaXR5X251bWJlciIsInR5cGUiOlsibnVsbCIsImludCJdLCJkb2MiOiJOdW1lcmljIHJlcHJlc2VudGF0aW9uIG9mIHRoZSBzZXZlcml0eSBsZXZlbC4ifSx7Im5hbWUiOiJzZXJ2aWNlX25hbWUiLCJ0eXBlIjpbIm51bGwiLCJzdHJpbmciXSwiZG9jIjoiVGhlIG5hbWUgb2YgdGhlIHNlcnZpY2UgdGhhdCBnZW5lcmF0ZWQgdGhlIGV2ZW50LiJ9LHsibmFtZSI6InJlc291cmNlX2F0dHJpYnV0ZXMiLCJ0eXBlIjpbIm51bGwiLHsidHlwZSI6Im1hcCIsInZhbHVlcyI6InN0cmluZyJ9XSwiZG9jIjoiQXR0cmlidXRlcyBkZXNjcmliaW5nIHRoZSByZXNvdXJjZSB0aGF0IHByb2R1Y2VkIHRoZSBsb2cgKGUuZy4sIGhvc3QsIHJlZ2lvbikuIn0seyJuYW1lIjoiaW5zdHJ1bWVudGF0aW9uX3Njb3BlIiwidHlwZSI6WyJudWxsIiwic3RyaW5nIl0sImRvYyI6IlRoZSBuYW1lIG9mIHRoZSBsaWJyYXJ5IG9yIGZyYW1ld29yayB0aGF0IGNhcHR1cmVkIHRoZSBsb2cuIn0seyJuYW1lIjoiZXZlbnRfbmFtZSIsInR5cGUiOlsibnVsbCIsInN0cmluZyJdLCJkb2MiOiJUaGUgbmFtZSBvZiBhIHNwZWNpZmljIGV2ZW50IHRoYXQgb2NjdXJyZWQuIn0seyJuYW1lIjoiYXR0cmlidXRlcyIsInR5cGUiOlsibnVsbCIseyJ0eXBlIjoibWFwIiwidmFsdWVzIjoic3RyaW5nIn1dLCJkb2MiOiJBIG1hcCBvZiBjdXN0b20gc3RyaW5nLXZhbHVlZCBhdHRyaWJ1dGVzIGFzc29jaWF0ZWQgd2l0aCB0aGUgbG9nLiJ9LHsibmFtZSI6ImJ5dGVzX3VuY29tcHJlc3NlZCIsInR5cGUiOlsibnVsbCIsImxvbmciXSwiZG9jIjoiTG9naWNhbCBjb250ZW50IHNpemUgb2YgdGhlIHJvdyAoc3VtIG9mIGJ5dGUgbGVuZ3RocyBvZiBzdHJpbmcvbWFwIGZpZWxkcykuIFVzZWQgYnkgZHJvcC1ydWxlIGFjY291bnRpbmc7IGRvZXMgbm90IGluY2x1ZGUgZml4ZWQtd2lkdGggbnVtZXJpYyBvciB0aW1lc3RhbXAgZmllbGRzLiJ9LHsibmFtZSI6InJldGVudGlvbl9kYXlzIiwidHlwZSI6WyJudWxsIiwiaW50Il0sImRlZmF1bHQiOm51bGwsImRvYyI6IlBlci1yb3cgcmV0ZW50aW9uIGluIGRheXMsIHN0YW1wZWQgYnkgdGhlIE5vZGUgY29uc3VtZXIgZnJvbSB0ZWFtIHJldGVudGlvbiBydWxlcy4gTnVsbCB3aGVuIHVuc2V0IOKAlCBDbGlja0hvdXNlIHRoZW4gZmFsbHMgYmFjayB0byB0aGUgYmF0Y2ggYHJldGVudGlvbi1kYXlzYCBoZWFkZXIuIGNhcHR1cmUtbG9ncyBhbHdheXMgd3JpdGVzIG51bGw7IGl0IGRvZXMgbm90IGV2YWx1YXRlIHRlYW0gcnVsZXMuIn0seyJuYW1lIjoicGF0dGVybiIsInR5cGUiOlsibnVsbCIsInN0cmluZyJdLCJkZWZhdWx0IjpudWxsLCJkb2MiOiJNYXNrZWQgbG9nIGJvZHksIHN0YW1wZWQgYnkgdGhlIE5vZGUgY29uc3VtZXIuIElkZW50aWZpZXJzIGFyZSByZXBsYWNlZCB3aXRoIHBsYWNlaG9sZGVycywgc28gdHdvIGxpbmVzIGRpZmZlcmluZyBvbmx5IGJ5IGEgcmVxdWVzdCBpZCBzaGFyZSBvbmUgcGF0dGVybi4gY2FwdHVyZS1sb2dzIGFsd2F5cyB3cml0ZXMgbnVsbDsgaXQgZG9lcyBub3QgbWFzay4ifSx7Im5hbWUiOiJwYXR0ZXJuX3ZlcnNpb24iLCJ0eXBlIjpbIm51bGwiLCJpbnQiXSwiZGVmYXVsdCI6bnVsbCwiZG9jIjoiTWFza2luZyBydWxlIHNldCB0aGF0IHByb2R1Y2VkIGBwYXR0ZXJuYC4gQSBydWxlIGNoYW5nZSByZS1tYXNrcyBldmVyeSBsaW5lLCBzbyB0aGUgZGV0ZWN0b3IgY29tcGFyZXMgd2l0aGluIGEgdmVyc2lvbiBhbmQgdHJlYXRzIGEgY2hhbmdlIGFzIGEgY29sZCBzdGFydC4gTnVsbCByZWFkcyBhcyB2ZXJzaW9uIDAgaW4gQ2xpY2tIb3VzZSwgbWFya2luZyBhIHJvdyB3cml0dGVuIGJlZm9yZSBtYXNraW5nLiBjYXB0dXJlLWxvZ3MgYWx3YXlzIHdyaXRlcyBudWxsLiJ9XSwiZG9jIjoiU2NoZW1hIGZvciBhIHN0cnVjdHVyZWQgbG9nIG9yIHRyYWNlIGV2ZW50LiJ9FGF2cm8uY29kZWMSenN0YW5kYXJkAINqqHyjnfPFv3IqETWBHakC4AMotS/9IPk9BwASDjY0YG1zyGLpzQoEsIyAxMHougYwMti1k+TKFNpmGk5aiyQ/uf//OwWztMqPiU2wh3eNa1iJye+9RdkHu61/WpqPNau04IR59r3F+p8NwIvsNdmZBQWeVjhHqmxTxyKFdzBb/7NowX1vrfXTrh59HuyDCBXmFV4wr7HbeDJwVgml3iSNzZkfrrtMZbn2cA4KWLhXxHU9SEu961DY1OSHeqcY01pCI5CUkQzRWkIjDxGTk5J9ExrXhQBggQGzHQYOHAUSH5NrSEJEGw0gaplZYVMxc0LFzFwxxAYEALJNCRCCTJIyMASDaqh8o53zxb9yKhE1gR2p"
+    }
+   ],
+   [
+    {
+     "topic": "logs_ingestion",
+     "partition": 1,
+     "offset": 7,
+     "timestamp": 1736944632250,
+     "key": null,
+     "headers": [
+      [
+       "token",
+       "phc_parity_plain"
+      ],
+      [
+       "bytes_uncompressed",
+       "9270"
+      ],
+      [
+       "bytes_uncompressed_records",
+       "6180"
+      ],
+      [
+       "bytes_compressed",
+       "3090"
+      ],
+      [
+       "record_count",
+       "1"
+      ],
+      [
+       "created_at",
+       "2025-01-15T12:36:56.361Z"
+      ]
+     ],
+     "value_b64": "T2JqAQQWYXZyby5zY2hlbWGALHsibmFtZSI6IkxvZ1JlY29yZCIsInR5cGUiOiJyZWNvcmQiLCJmaWVsZHMiOlt7Im5hbWUiOiJ1dWlkIiwidHlwZSI6WyJudWxsIiwic3RyaW5nIl0sImRvYyI6IlVuaXF1ZSBpZGVudGlmaWVyIGZvciB0aGUgbG9nIHJlY29yZC4ifSx7Im5hbWUiOiJ0cmFjZV9pZCIsInR5cGUiOlsibnVsbCIsImJ5dGVzIl0sImRvYyI6IklkZW50aWZpZXIgZm9yIHRoZSB0cmFjZSB0aGlzIGxvZyBpcyBhIHBhcnQgb2YuIn0seyJuYW1lIjoic3Bhbl9pZCIsInR5cGUiOlsibnVsbCIsImJ5dGVzIl0sImRvYyI6IklkZW50aWZpZXIgZm9yIHRoZSBzcGFuIHdpdGhpbiB0aGUgdHJhY2UuIn0seyJuYW1lIjoidHJhY2VfZmxhZ3MiLCJ0eXBlIjpbIm51bGwiLCJpbnQiXSwiZG9jIjoiRmxhZ3MgYXNzb2NpYXRlZCB3aXRoIHRoZSB0cmFjZS4ifSx7Im5hbWUiOiJ0aW1lc3RhbXAiLCJ0eXBlIjpbIm51bGwiLCJsb25nIl0sImRvYyI6IlRoZSBwcmltYXJ5IHRpbWVzdGFtcCBvZiB0aGUgZXZlbnQsIGluIG1pY3Jvc2Vjb25kcyBzaW5jZSBlcG9jaC4ifSx7Im5hbWUiOiJvYnNlcnZlZF90aW1lc3RhbXAiLCJ0eXBlIjpbIm51bGwiLCJsb25nIl0sImRvYyI6IlRoZSB0aW1lc3RhbXAgd2hlbiB0aGUgZXZlbnQgd2FzIG9ic2VydmVkIG9yIGluZ2VzdGVkLCBpbiBtaWNyb3NlY29uZHMgc2luY2UgZXBvY2guIn0seyJuYW1lIjoiYm9keSIsInR5cGUiOlsibnVsbCIsInN0cmluZyJdLCJkb2MiOiJUaGUgbWFpbiBjb250ZW50IG9yIG1lc3NhZ2Ugb2YgdGhlIGxvZy4ifSx7Im5hbWUiOiJzZXZlcml0eV90ZXh0IiwidHlwZSI6WyJudWxsIiwic3RyaW5nIl0sImRvYyI6Ikh1bWFuLXJlYWRhYmxlIHNldmVyaXR5IGxldmVsIChlLmcuLCAnSU5GTycsICdFUlJPUicpLiJ9LHsibmFtZSI6InNldmVyaXR5X251bWJlciIsInR5cGUiOlsibnVsbCIsImludCJdLCJkb2MiOiJOdW1lcmljIHJlcHJlc2VudGF0aW9uIG9mIHRoZSBzZXZlcml0eSBsZXZlbC4ifSx7Im5hbWUiOiJzZXJ2aWNlX25hbWUiLCJ0eXBlIjpbIm51bGwiLCJzdHJpbmciXSwiZG9jIjoiVGhlIG5hbWUgb2YgdGhlIHNlcnZpY2UgdGhhdCBnZW5lcmF0ZWQgdGhlIGV2ZW50LiJ9LHsibmFtZSI6InJlc291cmNlX2F0dHJpYnV0ZXMiLCJ0eXBlIjpbIm51bGwiLHsidHlwZSI6Im1hcCIsInZhbHVlcyI6InN0cmluZyJ9XSwiZG9jIjoiQXR0cmlidXRlcyBkZXNjcmliaW5nIHRoZSByZXNvdXJjZSB0aGF0IHByb2R1Y2VkIHRoZSBsb2cgKGUuZy4sIGhvc3QsIHJlZ2lvbikuIn0seyJuYW1lIjoiaW5zdHJ1bWVudGF0aW9uX3Njb3BlIiwidHlwZSI6WyJudWxsIiwic3RyaW5nIl0sImRvYyI6IlRoZSBuYW1lIG9mIHRoZSBsaWJyYXJ5IG9yIGZyYW1ld29yayB0aGF0IGNhcHR1cmVkIHRoZSBsb2cuIn0seyJuYW1lIjoiZXZlbnRfbmFtZSIsInR5cGUiOlsibnVsbCIsInN0cmluZyJdLCJkb2MiOiJUaGUgbmFtZSBvZiBhIHNwZWNpZmljIGV2ZW50IHRoYXQgb2NjdXJyZWQuIn0seyJuYW1lIjoiYXR0cmlidXRlcyIsInR5cGUiOlsibnVsbCIseyJ0eXBlIjoibWFwIiwidmFsdWVzIjoic3RyaW5nIn1dLCJkb2MiOiJBIG1hcCBvZiBjdXN0b20gc3RyaW5nLXZhbHVlZCBhdHRyaWJ1dGVzIGFzc29jaWF0ZWQgd2l0aCB0aGUgbG9nLiJ9LHsibmFtZSI6ImJ5dGVzX3VuY29tcHJlc3NlZCIsInR5cGUiOlsibnVsbCIsImxvbmciXSwiZG9jIjoiTG9naWNhbCBjb250ZW50IHNpemUgb2YgdGhlIHJvdyAoc3VtIG9mIGJ5dGUgbGVuZ3RocyBvZiBzdHJpbmcvbWFwIGZpZWxkcykuIFVzZWQgYnkgZHJvcC1ydWxlIGFjY291bnRpbmc7IGRvZXMgbm90IGluY2x1ZGUgZml4ZWQtd2lkdGggbnVtZXJpYyBvciB0aW1lc3RhbXAgZmllbGRzLiJ9LHsibmFtZSI6InJldGVudGlvbl9kYXlzIiwidHlwZSI6WyJudWxsIiwiaW50Il0sImRlZmF1bHQiOm51bGwsImRvYyI6IlBlci1yb3cgcmV0ZW50aW9uIGluIGRheXMsIHN0YW1wZWQgYnkgdGhlIE5vZGUgY29uc3VtZXIgZnJvbSB0ZWFtIHJldGVudGlvbiBydWxlcy4gTnVsbCB3aGVuIHVuc2V0IOKAlCBDbGlja0hvdXNlIHRoZW4gZmFsbHMgYmFjayB0byB0aGUgYmF0Y2ggYHJldGVudGlvbi1kYXlzYCBoZWFkZXIuIGNhcHR1cmUtbG9ncyBhbHdheXMgd3JpdGVzIG51bGw7IGl0IGRvZXMgbm90IGV2YWx1YXRlIHRlYW0gcnVsZXMuIn0seyJuYW1lIjoicGF0dGVybiIsInR5cGUiOlsibnVsbCIsInN0cmluZyJdLCJkZWZhdWx0IjpudWxsLCJkb2MiOiJNYXNrZWQgbG9nIGJvZHksIHN0YW1wZWQgYnkgdGhlIE5vZGUgY29uc3VtZXIuIElkZW50aWZpZXJzIGFyZSByZXBsYWNlZCB3aXRoIHBsYWNlaG9sZGVycywgc28gdHdvIGxpbmVzIGRpZmZlcmluZyBvbmx5IGJ5IGEgcmVxdWVzdCBpZCBzaGFyZSBvbmUgcGF0dGVybi4gY2FwdHVyZS1sb2dzIGFsd2F5cyB3cml0ZXMgbnVsbDsgaXQgZG9lcyBub3QgbWFzay4ifSx7Im5hbWUiOiJwYXR0ZXJuX3ZlcnNpb24iLCJ0eXBlIjpbIm51bGwiLCJpbnQiXSwiZGVmYXVsdCI6bnVsbCwiZG9jIjoiTWFza2luZyBydWxlIHNldCB0aGF0IHByb2R1Y2VkIGBwYXR0ZXJuYC4gQSBydWxlIGNoYW5nZSByZS1tYXNrcyBldmVyeSBsaW5lLCBzbyB0aGUgZGV0ZWN0b3IgY29tcGFyZXMgd2l0aGluIGEgdmVyc2lvbiBhbmQgdHJlYXRzIGEgY2hhbmdlIGFzIGEgY29sZCBzdGFydC4gTnVsbCByZWFkcyBhcyB2ZXJzaW9uIDAgaW4gQ2xpY2tIb3VzZSwgbWFya2luZyBhIHJvdyB3cml0dGVuIGJlZm9yZSBtYXNraW5nLiBjYXB0dXJlLWxvZ3MgYWx3YXlzIHdyaXRlcyBudWxsLiJ9XSwiZG9jIjoiU2NoZW1hIGZvciBhIHN0cnVjdHVyZWQgbG9nIG9yIHRyYWNlIGV2ZW50LiJ9FGF2cm8uY29kZWMSenN0YW5kYXJkAED+FAx8EVNDE/u5n+LhDh4CjAMotS/9IMntBQD0CgJIMC0wMDAwLTQwMDAtODcwMDACIEEAJn0KrbSshjXu96YdU08CEM7zDkZk8ph3AgICgqCI56zvlQYCoIPg/b3vlQYCRHsiZHVwIjogMSwgMiwgIm90aGVyIjogIngifQIISU5GTwISAgx3b3JrZXICAhhzZXJ2aWNlLm5hbWUKIndlYiIAAippby5vcGVudGVsZW1ldHJ5Lmh0dHACEGpvYi5kb25lAgACqAgAAAAEAEFLBrBBJkkZGAJA/hQMfBFTQxP7uZ/i4Q4e"
+    }
+   ]
+  ]
+ },
+ "expected": {
+  "batches": [
+   {
+    "error": "KafkaError"
+   },
+   {
+    "error": null
+   }
+  ],
+  "outputs": [
+   {
+    "batch": 0,
+    "output": "logs",
+    "key": null,
+    "headers": {
+     "bytes_compressed": "3321",
+     "bytes_uncompressed": "9963",
+     "bytes_uncompressed_records": "6642",
+     "created_at": "2025-01-15T12:36:53.989Z",
+     "json-parse": "false",
+     "record_count": "2",
+     "retention-days": "14",
+     "source_partition": "1",
+     "source_topic": "logs_ingestion",
+     "team_id": "101",
+     "token": "phc_parity_plain"
+    },
+    "value": {
+     "kind": "passthrough",
+     "batch": 0,
+     "index": 0
+    }
+   },
+   {
+    "batch": 1,
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "raw": "{\"team_id\":101,\"timestamp\":\"2025-01-15 12:37:13.250\",\"app_source\":\"logs\",\"app_source_id\":\"\",\"instance_id\":\"\",\"metric_kind\":\"usage\",\"metric_name\":\"bytes_ingested\",\"count\":9270}",
+     "json": {
+      "app_source": "logs",
+      "app_source_id": "",
+      "count": 9270,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "bytes_ingested",
+      "team_id": 101,
+      "timestamp": "2025-01-15 12:37:13.250"
+     }
+    }
+   },
+   {
+    "batch": 1,
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "raw": "{\"team_id\":101,\"timestamp\":\"2025-01-15 12:37:13.250\",\"app_source\":\"logs\",\"app_source_id\":\"\",\"instance_id\":\"\",\"metric_kind\":\"usage\",\"metric_name\":\"bytes_ingested_records\",\"count\":6180}",
+     "json": {
+      "app_source": "logs",
+      "app_source_id": "",
+      "count": 6180,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "bytes_ingested_records",
+      "team_id": 101,
+      "timestamp": "2025-01-15 12:37:13.250"
+     }
+    }
+   },
+   {
+    "batch": 1,
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "raw": "{\"team_id\":101,\"timestamp\":\"2025-01-15 12:37:13.250\",\"app_source\":\"logs\",\"app_source_id\":\"\",\"instance_id\":\"\",\"metric_kind\":\"usage\",\"metric_name\":\"bytes_ingested_retention_14d\",\"count\":9270}",
+     "json": {
+      "app_source": "logs",
+      "app_source_id": "",
+      "count": 9270,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "bytes_ingested_retention_14d",
+      "team_id": 101,
+      "timestamp": "2025-01-15 12:37:13.250"
+     }
+    }
+   },
+   {
+    "batch": 1,
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "raw": "{\"team_id\":101,\"timestamp\":\"2025-01-15 12:37:13.250\",\"app_source\":\"logs\",\"app_source_id\":\"\",\"instance_id\":\"\",\"metric_kind\":\"usage\",\"metric_name\":\"bytes_received\",\"count\":9270}",
+     "json": {
+      "app_source": "logs",
+      "app_source_id": "",
+      "count": 9270,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "bytes_received",
+      "team_id": 101,
+      "timestamp": "2025-01-15 12:37:13.250"
+     }
+    }
+   },
+   {
+    "batch": 1,
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "raw": "{\"team_id\":101,\"timestamp\":\"2025-01-15 12:37:13.250\",\"app_source\":\"logs\",\"app_source_id\":\"\",\"instance_id\":\"\",\"metric_kind\":\"usage\",\"metric_name\":\"records_dropped_backfill_not_enabled\",\"count\":1}",
+     "json": {
+      "app_source": "logs",
+      "app_source_id": "",
+      "count": 1,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "records_dropped_backfill_not_enabled",
+      "team_id": 101,
+      "timestamp": "2025-01-15 12:37:13.250"
+     }
+    }
+   },
+   {
+    "batch": 1,
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "raw": "{\"team_id\":101,\"timestamp\":\"2025-01-15 12:37:13.250\",\"app_source\":\"logs\",\"app_source_id\":\"\",\"instance_id\":\"\",\"metric_kind\":\"usage\",\"metric_name\":\"records_ingested\",\"count\":1}",
+     "json": {
+      "app_source": "logs",
+      "app_source_id": "",
+      "count": 1,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "records_ingested",
+      "team_id": 101,
+      "timestamp": "2025-01-15 12:37:13.250"
+     }
+    }
+   },
+   {
+    "batch": 1,
+    "output": "app_metrics",
+    "key": null,
+    "headers": {},
+    "value": {
+     "kind": "json",
+     "raw": "{\"team_id\":101,\"timestamp\":\"2025-01-15 12:37:13.250\",\"app_source\":\"logs\",\"app_source_id\":\"\",\"instance_id\":\"\",\"metric_kind\":\"usage\",\"metric_name\":\"records_received\",\"count\":1}",
+     "json": {
+      "app_source": "logs",
+      "app_source_id": "",
+      "count": 1,
+      "instance_id": "",
+      "metric_kind": "usage",
+      "metric_name": "records_received",
+      "team_id": 101,
+      "timestamp": "2025-01-15 12:37:13.250"
+     }
+    }
+   },
+   {
+    "batch": 1,
+    "output": "logs",
+    "key": null,
+    "headers": {
+     "bytes_compressed": "3090",
+     "bytes_uncompressed": "9270",
+     "bytes_uncompressed_records": "6180",
+     "created_at": "2025-01-15T12:36:56.361Z",
+     "json-parse": "false",
+     "record_count": "1",
+     "retention-days": "14",
+     "source_partition": "1",
+     "source_topic": "logs_ingestion",
+     "team_id": "101",
+     "token": "phc_parity_plain"
+    },
+    "value": {
+     "kind": "passthrough",
+     "batch": 1,
+     "index": 0
+    }
+   }
+  ],
+  "metric_emits": [],
+  "usage_records": [
+   {
+    "batch": 1,
+    "team_id": 101,
+    "metric": "logs_bytes",
+    "quantity": 9270,
+    "unit": "bytes",
+    "record_group": 0
+   },
+   {
+    "batch": 1,
+    "team_id": 101,
+    "metric": "logs_records",
+    "quantity": 1,
+    "unit": "records",
+    "record_group": 0
+   }
+  ],
+  "teams_ingested": [
+   [
+    101
+   ]
+  ],
+  "quota_checks": [
+   [
+    "phc_parity_json",
+    "logs_mb_ingested"
+   ],
+   [
+    "phc_parity_plain",
+    "logs_mb_ingested"
+   ]
+  ]
+ }
+}

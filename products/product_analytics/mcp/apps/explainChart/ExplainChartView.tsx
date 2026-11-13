@@ -43,6 +43,7 @@ export interface ExplainChartViewProps {
     /** Draws the chart with the overlay as a child, so the overlay can read the chart's scales. */
     renderChart: (overlay: ReactNode) => ReactNode
     openLink: (url: string) => void
+    openLinkLabel?: ReactNode
     title?: string | null
     formatValue?: (value: number) => string
     onPageChange?: (change: StoryPageChange) => void
@@ -62,6 +63,12 @@ function warningMessages(warnings: unknown[] = []): string[] {
 }
 
 function seriesNoteOf(data: ExplainChartData): string | null {
+    if (data.shape === 'funnel_steps') {
+        const breakdown = data.breakdowns[data.seriesIndex]
+        return data.breakdowns.length < 2 || breakdown === undefined
+            ? null
+            : `This follows ${breakdown}, one of the ${data.breakdowns.length} breakdown values on the funnel.`
+    }
     if (data.results.length < 2) {
         return null
     }
@@ -74,6 +81,7 @@ export function ExplainChartView({
     data,
     renderChart,
     openLink,
+    openLinkLabel,
     title,
     formatValue = defaultFormat,
     onPageChange,
@@ -202,6 +210,7 @@ export function ExplainChartView({
                                     warnings={warningMessages(data.warnings)}
                                     page={active}
                                     openLink={openLink}
+                                    openLinkLabel={openLinkLabel}
                                     canShowChart={canShowChart}
                                     shownEvidenceIndex={shownEvidenceIndex}
                                     onToggleChart={toggleEvidenceChart}
@@ -210,6 +219,7 @@ export function ExplainChartView({
                                 <StoryChapterView
                                     page={active}
                                     openLink={openLink}
+                                    openLinkLabel={openLinkLabel}
                                     canShowChart={canShowChart}
                                     shownEvidenceIndex={shownEvidenceIndex}
                                     onToggleChart={toggleEvidenceChart}

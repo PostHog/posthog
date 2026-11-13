@@ -1,9 +1,11 @@
-"""Find the warehouse sources that point at a core ``Integration``.
+"""Find the warehouse sources and destinations that point at a core ``Integration``.
 
 A source points at its typed-in credentials row with its ``credentials_integration_id`` column, which
 one indexed query reads. An OAuth source still stores its pointer as a ``*_integration_id`` field in its
 inputs. The inputs are encrypted, so SQL cannot search them. That search loads the inputs of the
 non-deleted sources of one team, which keeps the cost bounded by the size of that team.
+
+A destination points at its row with its ``integration`` foreign key.
 """
 
 from collections.abc import Mapping
@@ -12,8 +14,12 @@ from typing import Any
 from posthog.helpers.encrypted_fields import FERNET_TOKEN_PREFIX
 from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationReference
 
-from products.warehouse_sources.backend.facade.contracts import SourceReferencingIntegration
+from products.warehouse_sources.backend.facade.contracts import (
+    DestinationReferencingIntegration,
+    SourceReferencingIntegration,
+)
 from products.warehouse_sources.backend.logic.source_inputs import SourceInputsStore
+from products.warehouse_sources.backend.models.external_data_destination import ExternalDataDestination
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -28,6 +34,15 @@ def list_sources_using_integration(team_id: int, integration_pk: int) -> list[So
     for source in _sources_by_inputs(team_id, integration_pk):
         users.setdefault(source.id, source)
     return list(users.values())
+
+
+def list_destinations_using_integration(team_id: int, integration_pk: int) -> list[DestinationReferencingIntegration]:
+    destinations = (
+        ExternalDataDestination.objects.for_team(team_id)
+        .filter(integration_id=integration_pk, deleted=False)
+        .only("id", "name")
+    )
+    return [DestinationReferencingIntegration(id=destination.id, name=destination.name) for destination in destinations]
 
 
 def _sources_by_column(team_id: int, integration_pk: int) -> list[SourceReferencingIntegration]:
@@ -51,7 +66,7 @@ def _sources_by_inputs(team_id: int, integration_pk: int) -> list[SourceReferenc
         ExternalDataSource.objects.select_related(None)
         .filter(team_id=team_id)
         .exclude(deleted=True)
-        .only("id", "source_type", "prefix", "job_inputs")
+        .only("id", "team_id", "source_type", "prefix", "job_inputs", "credentials_integration_id")
     )
     inputs_by_source = {
         source_id: inputs

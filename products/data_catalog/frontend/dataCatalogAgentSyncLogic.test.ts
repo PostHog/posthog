@@ -28,7 +28,7 @@ const TOOLS_YAML_PATH = path.resolve(__dirname, '../mcp/tools.yaml')
 jest.mock('./certificationsLogic', () => ({
     certificationsLogic: {
         isMounted: () => true,
-        actions: { loadCertifications: jest.fn(), loadDatabase: jest.fn() },
+        actions: { loadCertifications: jest.fn(), refreshDatabaseSchema: jest.fn() },
     },
 }))
 
@@ -125,7 +125,7 @@ describe('dataCatalogAgentSyncLogic', () => {
         toolStreamEventsLogic.actions.emitToolEvent(toolEvent({ toolName: 'data-catalog-certification-propose' }))
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(certificationsLogic.actions.loadDatabase).toHaveBeenCalledWith({ force: true })
+        expect(certificationsLogic.actions.refreshDatabaseSchema).toHaveBeenCalled()
     })
 
     it('does not reload the database when only proposals land', async () => {
@@ -135,7 +135,7 @@ describe('dataCatalogAgentSyncLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(certificationsLogic.actions.loadCertifications).toHaveBeenCalled()
-        expect(certificationsLogic.actions.loadDatabase).not.toHaveBeenCalled()
+        expect(certificationsLogic.actions.refreshDatabaseSchema).not.toHaveBeenCalled()
     })
 
     it('keeps the joins reload when a second relationship write coalesces with it', async () => {

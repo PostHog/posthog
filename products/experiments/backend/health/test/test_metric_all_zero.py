@@ -18,10 +18,15 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingCode,
     ExperimentHealthFindingSeverity,
     ExperimentHealthReaderAccess,
+    ExperimentHealthValueKey,
 )
-from products.experiments.backend.health.checks.metric_all_zero import metric_all_zero
-from products.experiments.backend.health.context import LatestCalculation, ZeroMetric
-from products.experiments.backend.health.skips import CheckSkip
+from products.experiments.backend.health.checks.metric_all_zero import (
+    WAITS_FOR_DATA,
+    metric_all_zero,
+    metric_all_zero_rows,
+)
+from products.experiments.backend.health.context import HealthContext, LatestCalculation, ZeroMetric
+from products.experiments.backend.health.skips import CheckOutcome, CheckSkip, not_applicable
 from products.experiments.backend.health.test.factories import ENDED, RUNNING_CONTEXT
 from products.experiments.backend.metric_calculation.config import get_metric_calculation_config
 from products.experiments.backend.metric_calculation.results import MetricResultStore
@@ -37,6 +42,12 @@ NO_QUERIES = ExperimentHealthReaderAccess(
 LAST_ARRIVED = datetime(2026, 10, 1, 9, 30, tzinfo=UTC)
 MEAN = {"metric_type": "mean"}
 BOUNDED = {"metric_type": "mean", "upper_bound_percentile": 0.99}
+RETENTION_FROM_DAY_2 = {
+    "metric_type": "retention",
+    "retention_window_start": 2,
+    "retention_window_end": 3,
+    "retention_window_unit": "day",
+}
 
 
 def _metric(**changes: Any) -> ZeroMetric:
@@ -57,9 +68,7 @@ def _metric(**changes: Any) -> ZeroMetric:
     return ZeroMetric(**{**fields, **changes})
 
 
-def _outcome(
-    *metrics: ZeroMetric, hours_of_data: float = 96, **changes: Any
-) -> ExperimentHealthFinding | CheckSkip | None:
+def _context(*metrics: ZeroMetric, hours_of_data: float = 96, **changes: Any) -> HealthContext:
     calculation = LatestCalculation(
         metric_count=len(metrics) or 1,
         finished_at=LAST_ARRIVED,
@@ -69,7 +78,11 @@ def _outcome(
         zero_metrics=metrics,
         hours_of_data=hours_of_data,
     )
-    return metric_all_zero(replace(RUNNING_CONTEXT, latest_calculation=calculation, **changes))
+    return replace(RUNNING_CONTEXT, latest_calculation=calculation, **changes)
+
+
+def _outcome(*metrics: ZeroMetric, hours_of_data: float = 96, **changes: Any) -> CheckOutcome:
+    return metric_all_zero(_context(*metrics, hours_of_data=hours_of_data, **changes))
 
 
 def _variant(
@@ -212,22 +225,24 @@ class TestMetricAllZero(TestCase):
 
     @parameterized.expand(
         [
-            ("under_the_exposures_floor", _metric(exposures=999), 96),
-            ("under_the_data_floor", _metric(), 71),
-            ("a_secondary_metric_without_a_bound", _metric(role="secondary"), 96),
-            ("an_empty_event_name_under_its_exposures_floor", _metric(has_blank_event=True, exposures=99), 96),
-            ("an_empty_event_name_in_the_first_hours", _metric(has_blank_event=True), 11),
-            ("a_bound_under_its_exposures_floor", _metric(definition=BOUNDED, exposures=99), 96),
-            ("a_bound_in_the_first_hours", _metric(definition=BOUNDED, exposures=800), 11),
+            ("under_the_exposures_floor", _metric(exposures=999), 96, True),
+            ("under_the_data_floor", _metric(), 71, True),
+            ("a_secondary_metric_without_a_bound", _metric(role="secondary"), 96, False),
+            ("an_empty_event_name_under_its_exposures_floor", _metric(has_blank_event=True, exposures=99), 96, True),
+            ("an_empty_event_name_in_the_first_hours", _metric(has_blank_event=True), 11, True),
+            ("a_bound_under_its_exposures_floor", _metric(definition=BOUNDED, exposures=99), 96, True),
+            ("a_bound_in_the_first_hours", _metric(definition=BOUNDED, exposures=800), 11, True),
             (
                 "a_bound_that_ignores_zeros_under_the_floor",
                 _metric(definition={**BOUNDED, "ignore_zeros": True}, exposures=800),
                 96,
+                True,
             ),
             (
                 "a_bound_on_the_largest_value",
                 _metric(definition={**BOUNDED, "upper_bound_percentile": 1}, exposures=800),
                 96,
+                True,
             ),
             (
                 "a_bound_per_breakdown_group",
@@ -239,16 +254,19 @@ class TestMetricAllZero(TestCase):
                     },
                 ),
                 96,
+                False,
             ),
             (
                 "a_bound_that_picks_the_largest_of_its_exposures",
                 _metric(role="secondary", definition=BOUNDED, exposures=100),
                 96,
+                False,
             ),
             (
                 "a_stopped_event_on_a_secondary_metric",
                 _metric(role="secondary", definition=BOUNDED, stopped_events={"purchase": LAST_ARRIVED}),
                 96,
+                False,
             ),
             (
                 "a_retention_window_that_starts_later",
@@ -261,11 +279,28 @@ class TestMetricAllZero(TestCase):
                     }
                 ),
                 96,
+                True,
             ),
         ]
     )
-    def test_stays_quiet(self, _name: str, metric: ZeroMetric, hours_of_data: float) -> None:
-        self.assertIsNone(_outcome(metric, hours_of_data=hours_of_data))
+    def test_reports_no_finding(self, _name: str, metric: ZeroMetric, hours_of_data: float, waits: bool) -> None:
+        self.assertEqual(
+            _outcome(metric, hours_of_data=hours_of_data), not_applicable(WAITS_FOR_DATA) if waits else None
+        )
+
+    @parameterized.expand(
+        [
+            ("a_funnel", {}, 96),
+            ("a_retention_window_that_starts_after_two_days", RETENTION_FROM_DAY_2, 48),
+            ("a_retention_window_that_has_not_started", {**RETENTION_FROM_DAY_2, "retention_window_start": 7}, 0),
+        ]
+    )
+    def test_lists_each_metric_with_the_hours_that_count(
+        self, _name: str, definition: dict[str, Any], data_hours: float
+    ) -> None:
+        rows = metric_all_zero_rows(_context(_metric(definition=definition), hours_of_data=96))
+
+        self.assertEqual([row[ExperimentHealthValueKey.DATA_HOURS] for row in rows], [data_hours])
 
     def test_leaves_an_event_that_never_arrived_to_the_check_that_reports_it(self) -> None:
         self.assertIsNone(_outcome(_metric(), events_received={"purchase": False}))

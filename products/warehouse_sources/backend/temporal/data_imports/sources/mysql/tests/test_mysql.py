@@ -77,9 +77,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.sour
     _INVALID_CREDENTIALS_ERROR,
     MySQLSource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.planetscale_mysql.source import (
-    PlanetScaleMySQLSource,
-)
 from products.warehouse_sources.backend.types import IncrementalFieldType
 
 # ---------------------------------------------------------------------------
@@ -1164,9 +1161,8 @@ class TestStreamingConnectionTimeouts:
         ],
         ids=["read_timeout", "write_timeout"],
     )
-    @pytest.mark.parametrize("source_class", [MySQLSource, PlanetScaleMySQLSource])
-    def test_driver_timeout_is_retryable(self, source_class, error, kept_out_of_error_tracking):
-        source = source_class()
+    def test_driver_timeout_is_retryable(self, error, kept_out_of_error_tracking):
+        source = MySQLSource()
         assert error_message_matches(str(error), source.get_retryable_errors()) is kept_out_of_error_tracking
         assert not error_message_matches(str(error), {**Any_Source_Errors, **source.get_non_retryable_errors()})
 
@@ -2522,11 +2518,13 @@ class TestMySQLSourceNonRetryableErrors:
         [
             "(3032, 'The server is currently in offline mode')",
             "OperationalError: (3032, 'The server is currently in offline mode')",
+            "(6400, 'The server is currently in offline mode since 2026-11-03 14:27:19.007589, reason: (HM) low disk space')",
         ],
     )
     def test_server_offline_mode_is_non_retryable(self, source, error_msg):
-        # A DB admin put the server into offline mode — only they can turn it back off, and
-        # every retry reconnects as the same non-admin user and fails identically until they do.
+        # A DB admin (3032) or the server's own health monitor (6400) put the server into offline
+        # mode — only an admin or a resolved resource problem turns it back off, and every retry
+        # reconnects to the same offline server and fails identically until then.
         non_retryable = source.get_non_retryable_errors()
         friendly = next(
             (message for pattern, message in non_retryable.items() if pattern in error_msg),
@@ -3474,8 +3472,8 @@ class TestConnectCertificateVerification:
             delegate.assert_called_once()
 
 
-class TestOOBDomainDetection:
-    def test_the_pinned_path_logs_before_it_resolves(self, mocker):
+class TestOOBDomainGuard:
+    def test_the_pinned_path_refuses_before_it_resolves(self, mocker):
         mysql_module = "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql"
         mixins_module = "products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins"
         mocker.patch(f"{mixins_module}.is_cloud", return_value=True)
@@ -3486,7 +3484,7 @@ class TestOOBDomainDetection:
         )
         log_host_check = mocker.patch(f"{mixins_module}._log_host_check")
 
-        with pytest.raises(AssertionError):
+        with pytest.raises(HostNotAllowedError):
             _pinned_addresses("abc.oast.live", 3306, 5, 2)
 
         stages = [call.args[3] for call in log_host_check.call_args_list]

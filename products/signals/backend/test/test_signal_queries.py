@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from itertools import islice, product
 
@@ -23,7 +24,8 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser
-from posthog.models import Team
+from posthog.errors import ClickHouseAtCapacity
+from posthog.models import Integration, Team
 
 from products.signals.backend.enums import SignalSourceProduct, SignalSourceType
 from products.signals.backend.facade.api import (
@@ -37,6 +39,10 @@ from products.signals.backend.models import (
     SignalReportArtefact,
     SignalReportPullRequest,
     SignalSpend,
+)
+from products.signals.backend.report_monitoring_provenance import (
+    monitoring_repository_allowed,
+    monitoring_repository_sources,
 )
 from products.signals.backend.signal_metadata import (
     EMBEDDING_MODEL,
@@ -60,6 +66,7 @@ from products.signals.backend.temporal.signal_queries import (
     fetch_source_signal_matches,
     retract_source_signals,
 )
+from products.signals.backend.temporal.types import SignalData
 
 _MODEL_TABLE = f"sharded_posthog_document_embeddings_{EMBEDDING_MODEL.value.replace('-', '_')}"
 
@@ -150,12 +157,16 @@ class TestFetchSourceProductsForReports(_SignalEmbeddingsTestBase):
         self._emit_version(document_id="d3", report_id="rA", source_product="errors", inserted_at=self.base)
         self._emit_version(document_id="d4", report_id="rB", source_product="surveys", inserted_at=self.base)
 
+        # +1 each for the projection kill-switch and properties-narrowing instance settings the HogQL
+        # compile reads, cold-cache here but TTL-cached per worker in production.
         with (
-            self.assertNumQueries(FuzzyInt(0, 1)),
+            self.assertNumQueries(FuzzyInt(1, 3)),
             patch("products.signals.backend.signal_metadata.execute_hogql_query", wraps=execute_hogql_query) as query,
         ):
-            result = fetch_source_products_for_reports(
-                self.team, ["rA", "rB"], **({"ch_user": ch_user} if ch_user else {})
+            result = (
+                fetch_source_products_for_reports(self.team, ["rA", "rB"], ch_user=ch_user)
+                if ch_user
+                else fetch_source_products_for_reports(self.team, ["rA", "rB"])
             )
 
         assert query.call_args.kwargs["ch_user"] == (ch_user or ClickHouseUser.DEFAULT)
@@ -344,6 +355,172 @@ class TestFetchOriginSourcesForReport(_SignalEmbeddingsTestBase):
             ("error_tracking", "signals-scout-error-tracking", ("src-scout",)),
             ("error_tracking", "", ("src-later",)),
         ]
+
+
+class TestMonitoringRepositorySources(_SignalEmbeddingsTestBase):
+    @parameterized.expand(
+        [
+            ("direct", False, False, False),
+            ("nested", True, False, False),
+            ("missing_origin", False, True, False),
+            ("unknown_origin", False, False, True),
+            ("nested_unknown_origin", True, False, True),
+            ("mixed_nested_public_origin", True, False, False, True),
+            ("mixed_nested_selected_origin", True, False, False, True, True),
+        ]
+    )
+    def test_retains_original_repository_restrictions(
+        self,
+        _name: str,
+        nested: bool,
+        missing: bool,
+        unknown: bool,
+        mixed_parent: bool = False,
+        selected_parent: bool = False,
+    ) -> None:
+        origin = SignalReport.objects.create(team=self.team, status="closed")
+        self._emit_version(
+            document_id="original-private-issue",
+            report_id=str(origin.id),
+            source_product="error_tracking" if unknown else "github",
+            source_type="issue",
+            inserted_at=self.base,
+            extra={"html_url": f"https://github.com/example/{'public' if mixed_parent else 'private'}/issues/1"},
+        )
+        if unknown:
+            SignalReportArtefact.objects.create(
+                team=self.team,
+                report=origin,
+                type="repo_selection",
+                content='{"repository": null, "reason": "No repository"}',
+            )
+        source_id = str(origin.id)
+        if nested:
+            parent = SignalReport.objects.create(team=self.team, status="closed")
+            self._emit_version(
+                document_id="previous-monitoring",
+                report_id=str(parent.id),
+                source_product="signals_check",
+                source_type="monitoring_unresolved",
+                inserted_at=self.base,
+                extra={"report_id": source_id, "attempt_id": str(uuid.uuid4())},
+            )
+            if mixed_parent:
+                self._emit_version(
+                    document_id="intermediate-exception",
+                    report_id=str(parent.id),
+                    source_product="error_tracking",
+                    source_type="exception",
+                    inserted_at=self.base,
+                )
+                SignalReportArtefact.objects.create(
+                    team=self.team,
+                    report=parent,
+                    type="repo_selection",
+                    content=json.dumps({"repository": "example/public" if selected_parent else None}),
+                )
+            source_id = str(parent.id)
+        if missing:
+            source_id = str(uuid.uuid4())
+        signal = SignalData(
+            signal_id=str(uuid.uuid4()),
+            content="Unresolved monitoring",
+            source_product="signals_check",
+            source_type="monitoring_unresolved",
+            source_id=str(uuid.uuid4()),
+            weight=1.0,
+            timestamp=self.base,
+            extra={"report_id": source_id, "attempt_id": str(uuid.uuid4())},
+        )
+        public_signal = replace(
+            signal,
+            source_product="github",
+            source_type="issue",
+            extra={"html_url": "https://github.com/example/public/issues/1"},
+        )
+        sources = monitoring_repository_sources(self.team.id, [signal, public_signal])
+        assert sources is not None
+        assert sources.repositories == frozenset(
+            {"example/public"} if missing or unknown or mixed_parent else {"example/public", "example/private"}
+        )
+        assert sources.require_private_destination is (missing or unknown or (mixed_parent and not selected_parent))
+        receiving = SignalReport.objects.create(team=self.team, status="ready")
+        self._emit_version(
+            document_id="receiving-monitoring",
+            report_id=str(receiving.id),
+            source_product="signals_check",
+            source_type="monitoring_unresolved",
+            inserted_at=self.base,
+            extra=signal.extra,
+        )
+        self._emit_version(
+            document_id="receiving-public-issue",
+            report_id=str(receiving.id),
+            source_product="github",
+            source_type="issue",
+            inserted_at=self.base,
+            extra=public_signal.extra,
+        )
+        Integration.objects.create(
+            team=self.team,
+            kind="github",
+            integration_id="privacy-test",
+            config={"installation_id": "privacy-test"},
+            repository_cache=[
+                {"id": 1, "name": "public", "full_name": "example/public", "private": False},
+                {"id": 2, "name": "private", "full_name": "example/private", "private": True},
+            ],
+            repository_cache_updated_at=timezone.now(),
+        )
+        assert monitoring_repository_allowed(self.team.id, str(receiving.id), "example/public") is (
+            mixed_parent and selected_parent
+        )
+        assert monitoring_repository_allowed(self.team.id, str(receiving.id), "example/private")
+
+    def test_retries_provenance_read_when_clickhouse_is_at_capacity(self) -> None:
+        origin = SignalReport.objects.create(team=self.team, status="closed")
+        self._emit_version(
+            document_id="original-private-issue",
+            report_id=str(origin.id),
+            source_product="github",
+            source_type="issue",
+            inserted_at=self.base,
+            extra={"html_url": "https://github.com/example/private/issues/1"},
+        )
+        receiving = SignalReport.objects.create(team=self.team, status="ready")
+        self._emit_version(
+            document_id="receiving-monitoring",
+            report_id=str(receiving.id),
+            source_product="signals_check",
+            source_type="monitoring_unresolved",
+            inserted_at=self.base,
+            extra={"report_id": str(origin.id), "attempt_id": str(uuid.uuid4())},
+        )
+        Integration.objects.create(
+            team=self.team,
+            kind="github",
+            integration_id="privacy-test",
+            config={"installation_id": "privacy-test"},
+            repository_cache=[
+                {"id": 1, "name": "public", "full_name": "example/public", "private": False},
+                {"id": 2, "name": "private", "full_name": "example/private", "private": True},
+            ],
+            repository_cache_updated_at=timezone.now(),
+        )
+        capacity_errors = [ClickHouseAtCapacity()]
+
+        def busy_once(*args, **kwargs):
+            if capacity_errors:
+                raise capacity_errors.pop()
+            return execute_hogql_query(*args, **kwargs)
+
+        with (
+            patch("products.signals.backend.report_monitoring_provenance.execute_hogql_query", side_effect=busy_once),
+            patch(
+                "products.signals.backend.report_monitoring_provenance._read_monitoring_source_references.retry.sleep"
+            ),
+        ):
+            assert not monitoring_repository_allowed(self.team.id, str(receiving.id), "example/public")
 
 
 class TestFetchReportIdsForScoutNames(_SignalEmbeddingsTestBase):

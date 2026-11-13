@@ -23,17 +23,20 @@ class PosthogJwtAudience(Enum):
     DELEGATED_USER = "posthog:delegated_user"
     EXPORT_RENDERER = "posthog:export_renderer"
     LIVESTREAM = "posthog:livestream"
-    HOGQL_LANGUAGE_SERVICE = "hogql-language-service"
+    LIVESTREAM_AUTHORIZATION = "posthog:livestream:authorization"
     SHARING_PASSWORD_PROTECTED = "posthog:sharing_password_protected"
     RECORDING_API = "posthog:recording_api"
     REPLAY_PROXY = "posthog:replay_proxy"
+    REPLAY_BLOCKS = "posthog:replay:blocks"
     WORKFLOWS_RESCHEDULE_PARKED = "posthog:workflows:reschedule_parked"
     WORKFLOWS_CANCEL_INVOCATIONS = "posthog:workflows:cancel_invocations"
     WORKFLOWS_CANCEL_BATCH = "posthog:workflows:cancel_batch"
+    WORKFLOWS_MANUAL_RUN = "posthog:workflows:manual_run"
     WORKFLOWS_STEP_RESUME = "posthog:workflows:step_resume"
     WORKFLOWS_SEND_TRANSACTIONAL_EMAIL = "posthog:workflows:send_transactional_email"
     WORKFLOWS_RESUME_BATCH = "posthog:workflows:resume_batch"
     CREDENTIALS_SERVICE = "posthog:credentials_service"
+    CREDENTIALS_SERVICE_INTEGRATIONS = "posthog:credentials_service:integrations"
     TASKS_CREATE = "posthog:tasks:create"
     CUSTOMER_TASKS_CREATE = "posthog:customer-tasks:create"
     WORKFLOW_SCOUT_RUN = "posthog:workflows:scout_run"
@@ -100,8 +103,22 @@ def get_oidc_verification_keys() -> list[Any]:
     in the JWKS). A token minted under a key being rotated out keeps verifying until
     it expires, instead of breaking the moment the active key is swapped.
     """
-    pems = [
+    pems = (
         getattr(settings, "OIDC_RSA_PRIVATE_KEY", None),
         *(getattr(settings, "OIDC_RSA_PRIVATE_KEYS_INACTIVE", None) or []),
-    ]
-    return [serialization.load_pem_private_key(pem.encode(), password=None).public_key() for pem in pems if pem]
+    )
+    return list(_public_keys_from_pems(tuple(pem for pem in pems if pem)))
+
+
+# Parsing a private key validates it, which is slow enough to matter on every request a stateless
+# token authenticates, so the keys are parsed once. The PEMs they came from are kept to notice a change
+# of settings, such as a key rotation or a test that overrides the keys.
+_loaded_public_keys: tuple[tuple[str, ...], tuple[Any, ...]] | None = None
+
+
+def _public_keys_from_pems(pems: tuple[str, ...]) -> tuple[Any, ...]:
+    global _loaded_public_keys
+    if _loaded_public_keys is None or _loaded_public_keys[0] != pems:
+        keys = tuple(serialization.load_pem_private_key(pem.encode(), password=None).public_key() for pem in pems)
+        _loaded_public_keys = (pems, keys)
+    return _loaded_public_keys[1]

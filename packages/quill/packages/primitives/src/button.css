@@ -2,6 +2,13 @@
     /* =========================================================================
        Base
        ========================================================================= */
+
+    /* The ring on a highlighted row of any menu. It is set on the row so that `--ring` resolves in the row's theme. */
+    :is(.quill-button, .quill-select__item) {
+        --quill-row-ring-color: color-mix(in oklab, var(--ring) 30%, transparent);
+        --quill-row-ring: 0 0 0 1px var(--card), 0 0 0 3px var(--quill-row-ring-color);
+    }
+
     .quill-button {
         font-size: var(--text-ui, 0.8125rem);
         font-weight: 500;
@@ -33,15 +40,14 @@
 
     /*
      * Press feedback — the button dips 1px under the cursor. Excluded are the
-     * variants/components that own their own press motion: `primary` rests
-     * raised and settles to 0, `toggle` dips 2px, and tabs stay put (a tab
-     * that jumps would drag the whole strip's baseline with it).
+     * variants/components that own their own press motion: `primary` sinks its
+     * face into its shelf, `toggle` dips 2px, and tabs stay put (a tab that jumps
+     * would drag the whole strip's baseline with it).
      */
     .quill-button:not(
         :disabled,
         [aria-disabled='true'],
         .quill-button--variant-primary,
-        .quill-button--elevated,
         .quill-tabs__trigger,
         .quill-toggle
     ):active {
@@ -114,13 +120,11 @@
         background-color: var(--fill-selected);
     }
 
+    /* The row keyboard input or a filter would act on takes the ring. A row under the pointer stays a plain hover. */
     .quill-button--variant-default[data-highlighted] {
         background-color: var(--fill-hover);
-    }
-
-    .quill-button--variant-default[data-highlighted]:not(:hover) {
         border-color: var(--ring);
-        box-shadow: 0 0 0 2px color-mix(in oklab, var(--ring) 30%, transparent);
+        box-shadow: var(--quill-row-ring);
     }
 
     /* Consecutive selected items collapse corners for a seamless stack */
@@ -140,38 +144,77 @@
     /* =========================================================================
        Variant: primary
        ========================================================================= */
+
+    /*
+     * A raised face on a shelf, drawn by two layers inside the button's own box, so
+     * the button keeps its size and lines up with its neighbors in a row:
+     * - `::before` is the shelf, in a mid shade of the brand color.
+     * - `::after` is the face, which stops `--quill-button-lift` above the shelf's bottom.
+     * Both take the dark edge as their outline. `--quill-button-shelf` is the shelf's height
+     * at rest. A press drops the lift to 0: the face and the label move down by the whole
+     * shelf, compressing it to a plain 1px bottom edge, and nothing shows above the face.
+     */
     .quill-button--variant-primary {
+        --quill-button-edge: color-mix(in oklab, var(--primary) 70%, black);
+        --quill-button-side: color-mix(in oklab, var(--primary) 84%, black);
+        --quill-button-face: var(--primary);
+        --quill-button-shelf: 2px;
+        --quill-button-lift: var(--quill-button-shelf);
+        --quill-button-sink: calc(var(--quill-button-shelf) - var(--quill-button-lift));
+
         position: relative;
+        padding-block: var(--quill-button-sink) var(--quill-button-lift);
         color: var(--primary-foreground);
-        background-color: var(--primary);
-        box-shadow: 0 2px 0 -1px color-mix(in oklab, var(--primary) 50%, transparent);
-        translate: 0 -1px;
+        background-color: transparent;
+        isolation: isolate;
+        border-color: transparent;
+    }
+
+    :is(.dark, [theme='dark']) .quill-button--variant-primary {
+        --quill-button-edge: color-mix(in oklab, var(--primary) 62%, black);
+        --quill-button-side: color-mix(in oklab, var(--primary) 78%, black);
+    }
+
+    .quill-button--variant-primary::before,
+    .quill-button--variant-primary::after {
+        position: absolute;
+        inset: -1px;
+        z-index: -1;
+        pointer-events: none;
+        content: '';
+        border: 1px solid var(--quill-button-edge);
+
+        /* Follow the button's own corners: squared ones inside a ButtonGroup, a pill or a circle from a consumer. */
+        border-radius: inherit;
+    }
+
+    .quill-button--variant-primary::before {
+        inset-block-start: calc(var(--quill-button-sink) - 1px);
+        background-color: var(--quill-button-side);
     }
 
     .quill-button--variant-primary::after {
-        position: absolute;
-        top: 3px;
-        bottom: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        content: '';
+        inset-block: calc(var(--quill-button-sink) - 1px) calc(var(--quill-button-lift) - 1px);
+        background-color: var(--quill-button-face);
+    }
+
+    .quill-button--variant-primary:focus-visible {
+        border-color: transparent;
+        box-shadow: 0 0 0 3px color-mix(in oklab, var(--ring) 30%, transparent);
     }
 
     .quill-button--variant-primary:not(:disabled, [aria-disabled='true']):hover {
-        background-color: color-mix(in oklab, var(--primary) 98%, black 5%);
+        --quill-button-face: color-mix(in oklab, var(--primary) 98%, black 5%);
     }
 
     .quill-button--variant-primary:not(:disabled, [aria-disabled='true']):active {
-        box-shadow: 0 1px 0 -1px color-mix(in oklab, var(--primary) 50%, transparent);
-        translate: 0 0;
+        --quill-button-lift: 0px;
     }
 
-    /* Disabled sits flat — no raised lift/shadow that reads as pressable. */
+    /* Disabled sits flat, with no shelf that reads as pressable. */
     .quill-button--variant-primary:disabled,
     .quill-button--variant-primary[aria-disabled='true']:not([data-loading]) {
-        box-shadow: none;
-        translate: 0 0;
+        --quill-button-shelf: 0px;
     }
 
     /* =========================================================================
@@ -268,8 +311,24 @@
         box-shadow: 0 0 0 2px color-mix(in oklab, var(--destructive-foreground) 60%, transparent);
     }
 
+    :is(.quill-button--variant-destructive, .quill-button--variant-destructive-outline)[data-highlighted] {
+        --quill-row-ring-color: color-mix(in oklab, var(--destructive-foreground) 60%, transparent);
+
+        border-color: currentColor;
+        box-shadow: var(--quill-row-ring);
+    }
+
+    :is(
+        .quill-button--variant-default,
+        .quill-button--variant-destructive,
+        .quill-button--variant-destructive-outline
+    )[data-highlighted]:hover {
+        border-color: transparent;
+        box-shadow: none;
+    }
+
     /* =========================================================================
-       Variant: link / link-muted
+       Variant: link / link-foreground / link-muted
        ========================================================================= */
     .quill-button--variant-link {
         color: var(--primary);
@@ -279,6 +338,15 @@
     .quill-button--variant-link:not(:disabled, [aria-disabled='true']):hover,
     .quill-button--variant-link[data-popup-open] {
         text-decoration: underline;
+    }
+
+    .quill-button--variant-link-foreground {
+        color: var(--foreground);
+    }
+
+    .quill-button--variant-link-foreground:not(:disabled, [aria-disabled='true']):hover,
+    .quill-button--variant-link-foreground[data-popup-open] {
+        background-color: var(--fill-hover);
     }
 
     .quill-button--variant-link-muted {
@@ -447,91 +515,6 @@
     }
 
     /* =========================================================================
-       Elevated — heavy edge + solid bottom ledge for strong CTAs.
-       Two looks only: `primary` (brand fill) and neutral (card fill, any other
-       variant). `--quill-button-edge` colors both the border and the ledge.
-       ========================================================================= */
-    .quill-button--elevated {
-        --quill-button-edge: color-mix(in oklab, var(--foreground) 72%, var(--background));
-        --quill-button-ledge: 2px;
-
-        position: relative;
-        font-weight: 600;
-        background-color: var(--card);
-        border: 1.5px solid var(--quill-button-edge);
-        border-radius: var(--radius-sm);
-        box-shadow: 0 var(--quill-button-ledge) 0 0 var(--quill-button-edge);
-        transition:
-            translate 80ms ease-out,
-            box-shadow 80ms ease-out,
-            background-color 80ms ease-out;
-        translate: 0 0;
-    }
-
-    /* The ledge sits outside the border box; extend the hit area over it so
-       clicking the ledge still presses the button. */
-    .quill-button--elevated::after {
-        position: absolute;
-        inset: 0 0 calc(var(--quill-button-ledge) * -1 - 1.5px);
-        width: auto;
-        height: auto;
-        content: '';
-    }
-
-    .quill-button--elevated:not(:disabled, [aria-disabled='true']):hover {
-        background-color: color-mix(in oklab, var(--card) 94%, var(--foreground));
-    }
-
-    .quill-button--elevated:not(:disabled, [aria-disabled='true']):active {
-        box-shadow: 0 1px 0 0 var(--quill-button-edge);
-        translate: 0 calc(var(--quill-button-ledge) - 1px);
-    }
-
-    .quill-button--elevated:focus-visible {
-        border-color: var(--quill-button-edge);
-        box-shadow:
-            0 var(--quill-button-ledge) 0 0 var(--quill-button-edge),
-            0 calc(var(--quill-button-ledge) + 2px) 0 2px color-mix(in oklab, var(--ring) 30%, transparent),
-            0 0 0 3px color-mix(in oklab, var(--ring) 30%, transparent);
-    }
-
-    /* Dark mode inverts the neutral look onto a foreground fill, so the CTA stands out on a dark surface. */
-    :is(.dark, [theme='dark']) .quill-button--elevated:not(.quill-button--variant-primary) {
-        --quill-button-edge: color-mix(in oklab, var(--background) 75%, var(--foreground));
-
-        color: var(--quill-button-edge);
-        background-color: var(--foreground);
-        border-color: var(--quill-button-edge);
-    }
-
-    :is(.dark, [theme='dark'])
-        .quill-button--elevated:not(.quill-button--variant-primary, :disabled, [aria-disabled='true']):hover {
-        background-color: color-mix(in oklab, var(--foreground) 92%, var(--background));
-    }
-
-    .quill-button--elevated.quill-button--variant-primary {
-        --quill-button-edge: color-mix(in oklab, var(--primary) 62%, black);
-
-        background-color: var(--primary);
-    }
-
-    .quill-button--elevated.quill-button--variant-primary:not(:disabled, [aria-disabled='true']):hover {
-        background-color: color-mix(in oklab, var(--primary) 92%, white);
-    }
-
-    :is(.dark, [theme='dark']) .quill-button--elevated.quill-button--variant-primary {
-        --quill-button-edge: color-mix(in oklab, var(--primary) 55%, black);
-    }
-
-    /* Disabled keeps its ledge and only dims, unlike flat primary: an elevated CTA holds its
-       shape while it waits for input, such as a composer's send button before anything is typed. */
-    .quill-button--elevated:disabled,
-    .quill-button--elevated[aria-disabled='true']:not([data-loading]) {
-        box-shadow: 0 var(--quill-button-ledge) 0 0 var(--quill-button-edge);
-        translate: 0 0;
-    }
-
-    /* =========================================================================
        Modifiers
        ========================================================================= */
     .quill-button--not-focusable-when-disabled:disabled {
@@ -622,6 +605,10 @@
 
     .quill-button--variant-link[data-loading] > .quill-spinner {
         color: var(--primary);
+    }
+
+    .quill-button--variant-link-foreground[data-loading] > .quill-spinner {
+        color: var(--foreground);
     }
 
     .quill-button--variant-link-muted[data-loading] > .quill-spinner {

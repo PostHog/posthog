@@ -1,6 +1,6 @@
-import { sqlNameFromDisplayName, validateMetricName } from './common'
+import { sqlNameAfterDisplayNameChange, sqlNameFromDisplayName, validateMetricName } from './common'
 
-describe('sqlNameFromDisplayName', () => {
+describe('metric SQL names', () => {
     it.each([
         ['Monthly active users', 'monthly_active_users'],
         ['  Revenue (USD) / day  ', 'revenue_usd_day'],
@@ -14,5 +14,18 @@ describe('sqlNameFromDisplayName', () => {
         if (sqlName) {
             expect(validateMetricName(sqlName)).toBeUndefined()
         }
+    })
+
+    it.each([
+        [
+            'follows the display name while it was derived from it',
+            'Weekly signups',
+            'weekly_signups',
+            'weekly_signups_v2',
+        ],
+        ['starts following from an empty form', '', '', 'weekly_signups_v2'],
+        ['stays fixed once the user edited it', 'Weekly signups', 'signups_custom', 'signups_custom'],
+    ])('the SQL name %s', (_case, displayName, sqlName, expected) => {
+        expect(sqlNameAfterDisplayNameChange(displayName, sqlName, 'Weekly signups v2')).toEqual(expected)
     })
 })

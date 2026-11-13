@@ -4,6 +4,7 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -19,6 +20,8 @@ from products.metrics.backend.metric_names_query_runner import (
     MAX_PICKER_SERVICES,
     MetricNamesQueryRunner,
     cached_metric_names,
+    fold_classic_histograms,
+    name_matches,
 )
 from products.metrics.backend.tests._seeder import seed_metric, seed_metric_event, truncate_metrics_tables
 
@@ -284,6 +287,140 @@ class TestMetricNamesQueryRunner(ClickhouseTestMixin, APIBaseTest):
         runner = MetricNamesQueryRunner(team=self.team, services=services)
         self.assertEqual({row["name"] for row in runner.run()}, expected)
 
+    def _seed_names(self, names: list[str]) -> None:
+        anchor = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=5)
+        for metric_name in names:
+            _seed_point(team_id=self.team.id, metric_name=metric_name, value=1.0, timestamp=anchor)
+
+    @parameterized.expand(
+        [
+            # A substring search for "lag" also matches every "flag" name.
+            ("substring", "lag", "substring", ["lag", "lag_seconds", "consumer_lag", "flag_count", "flags"]),
+            ("prefix", "lag", "prefix", ["lag", "lag_seconds"]),
+            ("prefix_is_case_insensitive", "LAG", "prefix", ["lag", "lag_seconds"]),
+            ("prefix_underscore_is_literal", "lag_", "prefix", ["lag_seconds"]),
+            ("regex_anchored_suffix", "(^|_)lag(_|$)", "regex", ["consumer_lag", "lag", "lag_seconds"]),
+            ("regex_is_case_sensitive", "^LAG", "regex", []),
+            ("regex_case_flag", "(?i)^LAG$", "regex", ["lag"]),
+        ]
+    )
+    def test_search_match_modes(self, _name: str, search: str, match: str, expected: list[str]):
+        self._seed_names(["lag", "lag_seconds", "consumer_lag", "flag_count", "flags", "queue.depth"])
+
+        runner = MetricNamesQueryRunner(team=self.team, search=search, match=match, include_sparklines=False)
+        self.assertEqual([row["name"] for row in runner.run()], expected)
+
+    @parameterized.expand([("unknown_mode", "lag", "glob"), ("invalid_regex", "(unclosed", "regex")])
+    def test_rejects_bad_match(self, _name: str, search: str, match: str):
+        with self.assertRaises(ValueError):
+            MetricNamesQueryRunner(team=self.team, search=search, match=match)
+
+    def test_first_seen_reaches_past_the_lookback(self):
+        now = timezone.now().replace(microsecond=0)
+        three_days_ago = now - dt.timedelta(days=3, minutes=10)
+        two_hours_ago = now - dt.timedelta(hours=2, minutes=10)
+        _seed_point(team_id=self.team.id, metric_name="old.metric", value=1.0, timestamp=three_days_ago)
+        _seed_point(team_id=self.team.id, metric_name="old.metric", value=1.0, timestamp=now - dt.timedelta(minutes=5))
+        _seed_point(team_id=self.team.id, metric_name="new.metric", value=1.0, timestamp=two_hours_ago)
+
+        rows = MetricNamesQueryRunner(team=self.team, include_sparklines=False, include_first_seen=True).run()
+
+        first_seen = {row["name"]: dt.datetime.fromisoformat(row["first_seen"]) for row in rows}
+        self.assertEqual(first_seen["old.metric"], three_days_ago.replace(minute=0, second=0))
+        self.assertEqual(first_seen["new.metric"], two_hours_ago.replace(minute=0, second=0))
+
+    def test_first_seen_is_opt_in(self):
+        self._seed_names(["queue.depth"])
+        with patch(
+            "products.metrics.backend.metric_names_query_runner.execute_hogql_query", wraps=execute_hogql_query
+        ) as execute:
+            rows = MetricNamesQueryRunner(team=self.team, include_sparklines=False).run()
+        self.assertNotIn("first_seen", rows[0])
+        self.assertEqual(execute.call_count, 1)
+
+    def test_skipping_sparklines_runs_one_query(self):
+        self._seed_names(["queue.depth"])
+        with patch(
+            "products.metrics.backend.metric_names_query_runner.execute_hogql_query", wraps=execute_hogql_query
+        ) as execute:
+            rows = MetricNamesQueryRunner(team=self.team, include_sparklines=False).run()
+        self.assertEqual(rows[0]["sparkline"], [])
+        self.assertEqual(execute.call_count, 1)
+
+
+class TestNameMatches(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("empty_matches_all", "logs.count", "", "substring", True),
+            ("substring", "logs.error_count", "ERROR", "substring", True),
+            ("prefix_hit", "logs.count", "LOGS.", "prefix", True),
+            ("prefix_miss", "spans.logs", "logs", "prefix", False),
+            ("regex_hit", "spans.duration", "^spans\\.", "regex", True),
+            ("regex_case_sensitive", "spans.duration", "^SPANS", "regex", False),
+        ]
+    )
+    def test_name_matches(self, _name: str, name: str, search: str, match: str, expected: bool):
+        self.assertEqual(name_matches(name, search, match), expected)
+
+
+class TestFoldClassicHistograms(SimpleTestCase):
+    def _row(self, name: str, last_seen: str, first_seen: str | None = None) -> dict:
+        row = {"name": name, "metric_type": "sum", "unit": "", "last_seen": last_seen, "sparkline": []}
+        if first_seen is not None:
+            row["first_seen"] = first_seen
+        return row
+
+    def test_folds_a_complete_triple_into_the_bucket_row(self):
+        rows = [
+            self._row("lag_seconds_count", "2026-01-01T00:03:00+00:00", "2026-01-01T00:00:00+00:00"),
+            self._row("lag_seconds_bucket", "2026-01-01T00:01:00+00:00", "2025-12-31T23:00:00+00:00"),
+            self._row("queue_depth", "2026-01-01T00:00:00+00:00", "2026-01-01T00:00:00+00:00"),
+            self._row("lag_seconds_sum", "2026-01-01T00:02:00+00:00", "2026-01-01T00:00:00+00:00"),
+        ]
+
+        folded = fold_classic_histograms(rows)
+
+        self.assertEqual([row["name"] for row in folded], ["lag_seconds_bucket", "queue_depth"])
+        self.assertEqual(
+            folded[0]["classic_histogram"],
+            {
+                "base_name": "lag_seconds",
+                "bucket": "lag_seconds_bucket",
+                "sum": "lag_seconds_sum",
+                "count": "lag_seconds_count",
+            },
+        )
+        self.assertEqual(folded[0]["last_seen"], "2026-01-01T00:03:00+00:00")
+        self.assertEqual(folded[0]["first_seen"], "2025-12-31T23:00:00+00:00")
+        self.assertNotIn("classic_histogram", folded[1])
+
+    @parameterized.expand(
+        [
+            ("missing_sum", ["x_bucket", "x_count"]),
+            ("missing_bucket", ["x_sum", "x_count"]),
+            ("bare_suffixes", ["_bucket", "_sum", "_count"]),
+        ]
+    )
+    def test_leaves_an_incomplete_triple_alone(self, _name: str, names: list[str]):
+        rows = [self._row(name, "2026-01-01T00:00:00+00:00") for name in names]
+        self.assertEqual(fold_classic_histograms(rows), rows)
+
+    def test_leaves_gauges_with_histogram_suffixes_alone(self):
+        rows = [
+            {**self._row(name, "2026-01-01T00:00:00+00:00"), "metric_type": "gauge"}
+            for name in ["x_bucket", "x_sum", "x_count"]
+        ]
+        self.assertEqual(fold_classic_histograms(rows), rows)
+
+    def test_keeps_a_native_histogram_beside_its_classic_triple(self):
+        rows = [
+            {**self._row("x", "2026-01-01T00:00:00+00:00"), "metric_type": "histogram"},
+            self._row("x_bucket", "2026-01-01T00:00:00+00:00"),
+            self._row("x_sum", "2026-01-01T00:00:00+00:00"),
+            self._row("x_count", "2026-01-01T00:00:00+00:00"),
+        ]
+        self.assertEqual([row["name"] for row in fold_classic_histograms(rows)], ["x", "x_bucket"])
+
 
 class TestMetricsValuesAPI(ClickhouseTestMixin, APIBaseTest):
     CLASS_DATA_LEVEL_SETUP = True
@@ -409,6 +546,43 @@ class TestMetricsValuesAPI(ClickhouseTestMixin, APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/metrics/values?limit=100{query}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual({row["name"] for row in response.json()["results"]}, expected)
+
+    def test_values_mcp_shape(self):
+        anchor = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=5)
+        for metric_name in ("lag_seconds_bucket", "lag_seconds_sum", "lag_seconds_count", "flag_count"):
+            _seed_point(team_id=self.team.id, metric_name=metric_name, value=1.0, timestamp=anchor, metric_type="sum")
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/metrics/values/"
+            "?value=lag&match=prefix&sparklines=false&first_seen=true&fold_histograms=true"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        rows = response.json()["results"]
+        self.assertEqual([row["name"] for row in rows], ["lag_seconds_bucket"])
+        self.assertEqual(rows[0]["sparkline"], [])
+        self.assertEqual(rows[0]["classic_histogram"]["sum"], "lag_seconds_sum")
+        self.assertEqual(
+            dt.datetime.fromisoformat(rows[0]["first_seen"]), anchor.replace(minute=0, second=0, microsecond=0)
+        )
+
+    def test_values_defaults_keep_the_catalog_shape(self):
+        anchor = timezone.now().replace(microsecond=0) - dt.timedelta(minutes=5)
+        for metric_name in ("x_bucket", "x_sum", "x_count"):
+            _seed_point(team_id=self.team.id, metric_name=metric_name, value=1.0, timestamp=anchor)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/metrics/values/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        rows = response.json()["results"]
+        self.assertEqual({row["name"] for row in rows}, {"x_bucket", "x_sum", "x_count"})
+        for row in rows:
+            self.assertEqual(set(row), {"name", "metric_type", "unit", "last_seen", "sparkline"})
+
+    @parameterized.expand([("unknown_match", "?value=x&match=glob"), ("invalid_regex", "?value=(x&match=regex")])
+    def test_values_rejects_bad_match(self, _name: str, query: str):
+        response = self.client.get(f"/api/projects/{self.team.id}/metrics/values/{query}")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_values_rejects_invalid_limit(self):
         response = self.client.get(f"/api/projects/{self.team.id}/metrics/values?limit=not-a-number")

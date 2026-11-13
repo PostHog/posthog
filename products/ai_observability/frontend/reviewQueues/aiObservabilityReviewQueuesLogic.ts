@@ -19,6 +19,7 @@ import type {
     ReviewQueueApi,
     ReviewQueueItemApi,
 } from '../generated/api.schemas'
+import { changedOnlyTraceDrawerParams } from '../redesign/trace/traceDrawerRows'
 import { reviewQueuesApi } from './reviewQueuesApi'
 import { getApiErrorDetail } from './reviewQueueUtils'
 
@@ -837,8 +838,20 @@ export const aiObservabilityReviewQueuesLogic = kea<aiObservabilityReviewQueuesL
     })),
 
     urlToAction(({ actions, values }) => ({
-        [urls.aiObservabilityReviews()]: (_, searchParams, __, { method }) => {
+        [urls.aiObservabilityReviews()]: (_, searchParams, __, { method, pathname }, previousLocation) => {
             if (searchParams.human_reviews_tab === 'reviews' || searchParams.human_reviews_tab === 'scorers') {
+                return
+            }
+
+            // Stepping through the drawer keeps the rows it started with. Reviewed traces leave the queue on the
+            // server, so the list catches up once the drawer closes.
+            if (changedOnlyTraceDrawerParams(previousLocation, { pathname, searchParams })) {
+                if ('trace' in previousLocation.searchParams && !('trace' in searchParams)) {
+                    actions.loadQueues(false)
+                    if (values.selectedQueueId) {
+                        actions.loadQueueItems(false)
+                    }
+                }
                 return
             }
 
