@@ -293,7 +293,16 @@ export function createRunner(
                     CdpRole.options.map((role) => ({ role, metricsUrl: environment.role(role).metricsUrl }))
                 )
                 await valves.start(card.valves, { environment, probe, teams: seeded.teamIds })
-                const units = await drive(loaded, seeded, judge, signal, { producer, eventsTopic, cdpApi, runId })
+                const windowOpen = new AbortController()
+                void sleep(durationMs(card.drive.for), undefined, { signal: windowOpen.signal })
+                    .then(() => valves.releaseAll())
+                    .catch(() => undefined)
+                const units = await drive(loaded, seeded, judge, signal, {
+                    producer,
+                    eventsTopic,
+                    cdpApi,
+                    runId,
+                }).finally(() => windowOpen.abort())
                 await valves.releaseAll()
                 const convergence = await judge.converge(durationMs(card.convergeWithin), signal)
                 sampled = await sampler.stop()
