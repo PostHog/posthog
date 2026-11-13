@@ -67,7 +67,7 @@ filters:
         - products/alerts_platform/backend/temporal/metrics.py
         - products/alerts_platform/backend/temporal/telemetry.py
         - products/alerts_platform/backend/temporal/sources.py
-        - products/experiments/backend/temporal/recalculation_metrics.py
+        - products/experiments/backend/temporal/recalculation/metrics.py
         - products/logs/backend/temporal/metrics.py
         - products/logs/backend/temporal/volume_tick/metrics.py
         - products/tasks/backend/temporal/metrics.py
