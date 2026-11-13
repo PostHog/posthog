@@ -328,6 +328,17 @@ async fn run_scenario(
                 .map(|(t, r)| JsValue::Array(vec![JsValue::string(t), JsValue::string(r)])),
         ),
     );
+    // Node's harness records no unknown tokens, so this expectation comes from the scenarios. Only `drops` has a
+    // token that belongs to no team. A token whose lookup failed must not be recorded.
+    check(
+        "unknown_tokens",
+        if name == "\"drops\"" {
+            vec!["token-unknown".to_string()]
+        } else {
+            Vec::new()
+        },
+        recorded.unknown_tokens.lock().unwrap().clone(),
+    );
     (!problems.is_empty()).then_some(problems)
 }
 

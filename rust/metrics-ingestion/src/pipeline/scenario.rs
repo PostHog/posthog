@@ -16,6 +16,7 @@ use logs_ingestion::rate_limiter::{Clock, KeyRoot, TokenBucketRedis};
 
 use super::config::{MetricsLimiterConfig, AGGREGATION_TEAMS_KEY};
 use super::consumer::{MetricsPipelineConsumer, MetricsPipelineConsumerDeps};
+use super::unknown_tokens::UnknownTokens;
 
 fn get<'a>(v: &'a JsValue, key: &str) -> Option<&'a JsValue> {
     match v {
@@ -135,6 +136,14 @@ pub struct Recorded {
     pub teams_ingested: Mutex<Vec<Vec<i64>>>,
     pub usage_rows: Mutex<Vec<UsageRow>>,
     pub quota_checks: Mutex<Vec<(String, String)>>,
+    /// Node's harness does not record these, so the corpus test checks them against the scenario itself.
+    pub unknown_tokens: Mutex<Vec<String>>,
+}
+
+impl UnknownTokens for Recorded {
+    fn record(&self, token: &str) {
+        self.unknown_tokens.lock().unwrap().push(token.to_string());
+    }
 }
 
 struct ScenarioTeams {
@@ -312,7 +321,7 @@ pub fn scenario_parts(
         clock,
         dev_env: false,
         source_offset_header: false,
-        unknown_tokens: None,
+        unknown_tokens: Some(recorded.clone()),
     };
     let config = match get(scenario, "config") {
         Some(JsValue::Object(o)) => o.clone(),
