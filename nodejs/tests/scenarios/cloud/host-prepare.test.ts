@@ -1,7 +1,8 @@
 import { spawnSync } from 'child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'fs'
 import os from 'os'
 import path from 'path'
+import { Client } from 'pg'
 
 import { parseJSON } from '~/common/utils/json-parse'
 
@@ -26,20 +27,14 @@ case "$1 $2" in
 esac
 `
 
-const FAKE_SQLX = `#!/usr/bin/env bash
-[ "$1 $2" = "migrate run" ] || exit 2
-shift 2
-database=\${DATABASE_URL:-}
-while [ $# -gt 0 ]; do
-    case $1 in
-    -D | --database-url) database=$2 && shift ;;
-    --source) source=$2 && shift ;;
-    esac
-    shift
+const CLUSTER = '@scn.cluster.example.com:5432/cyclotron_node?sslmode=require'
+
+const LOCAL_SQLX = `#!/usr/bin/env bash
+args=()
+for arg in "$@"; do
+    args+=("\${arg/"$CLUSTER"/"@localhost:5432/$LOCAL_DATABASE?sslmode=disable"}")
 done
-echo 'migration step output' >&2
-[ "\${FAKE_MIGRATE_EXIT:-0}" = 0 ] || exit "$FAKE_MIGRATE_EXIT"
-jq -n --arg database "$database" --arg source "$(realpath "$source")" '{$database, $source}' >"$FAKE_CALLS/migrated"
+exec "$REAL_SQLX" "\${args[@]}"
 `
 
 const FAKE_PNPM = `#!/usr/bin/env bash
@@ -59,8 +54,25 @@ jq -n --arg database "$CYCLOTRON_NODE_DATABASE_URL" --arg manifest "$SCENARIO_RU
     --arg command "\${command:-}" --arg profile "\${profile:-}" '{$database, $manifest, $program, $command, $profile}' >"$FAKE_CALLS/seeded"
 `
 
+const ADMIN_URL = 'postgres://posthog:posthog@localhost:5432/postgres'
+const CLUSTER_USER = 'scn admin'
+const CLUSTER_PASSWORD = 'p@ss/w:rd%'
+const MIGRATIONS = path.join(REPO, 'rust', 'cyclotron-node-migrations')
+
+async function onPostgres<T>(url: string, work: (client: Client) => Promise<T>): Promise<T> {
+    const client = new Client({ connectionString: url })
+    await client.connect()
+    try {
+        return await work(client)
+    } finally {
+        await client.end()
+    }
+}
+
 describe('host-prepare.sh', () => {
     let dir: string
+    let database: string
+    const realSqlx = spawnSync('bash', ['-c', 'command -v sqlx'], { encoding: 'utf8' }).stdout.trim()
 
     const recorded = (tool: string): unknown =>
         existsSync(path.join(dir, 'calls', tool))
@@ -73,7 +85,7 @@ describe('host-prepare.sh', () => {
         mkdirSync(path.join(dir, 'calls'))
         mkdirSync(path.join(dir, 'host', 'input'), { recursive: true })
         writeFileSync(path.join(bin, 'aws'), FAKE_AWS, { mode: 0o755 })
-        writeFileSync(path.join(bin, 'sqlx'), FAKE_SQLX, { mode: 0o755 })
+        writeFileSync(path.join(bin, 'sqlx'), LOCAL_SQLX, { mode: 0o755 })
         writeFileSync(path.join(bin, 'pnpm'), FAKE_PNPM, { mode: 0o755 })
         return spawnSync('bash', [SCRIPT], {
             env: {
@@ -84,25 +96,50 @@ describe('host-prepare.sh', () => {
                 SCENARIO_HOST_ROOT: path.join(dir, 'host'),
                 FAKE_S3: path.join(dir, 's3'),
                 FAKE_CALLS: path.join(dir, 'calls'),
+                REAL_SQLX: realSqlx,
+                CLUSTER,
+                LOCAL_DATABASE: database,
                 ...env,
             },
             stdio: 'ignore',
         }).status
     }
 
-    beforeEach(() => {
-        dir = mkdtempSync(path.join(os.tmpdir(), 'scenario-prepare-'))
+    beforeAll(async () => {
+        expect(realSqlx).not.toBe('')
+        await onPostgres(ADMIN_URL, async (client) => {
+            const { rowCount } = await client.query('SELECT 1 FROM pg_roles WHERE rolname = $1', [CLUSTER_USER])
+            const verb = rowCount ? 'ALTER' : 'CREATE'
+            const password = await client.query('SELECT quote_literal($1) AS literal', [CLUSTER_PASSWORD])
+            await client.query(`${verb} ROLE "${CLUSTER_USER}" LOGIN PASSWORD ${password.rows[0].literal}`)
+        })
     })
 
-    afterEach(() => rmSync(dir, { recursive: true, force: true }))
+    beforeEach(async () => {
+        dir = mkdtempSync(path.join(os.tmpdir(), 'scenario-prepare-'))
+        database = `test_scenario_prepare_${process.pid}_${Date.now()}`
+        await onPostgres(ADMIN_URL, (client) => client.query(`CREATE DATABASE ${database} OWNER "${CLUSTER_USER}"`))
+    })
 
-    it('migrates and seeds the run cluster with its encoded credentials', () => {
+    afterEach(async () => {
+        rmSync(dir, { recursive: true, force: true })
+        await onPostgres(ADMIN_URL, (client) => client.query(`DROP DATABASE IF EXISTS ${database} WITH (FORCE)`))
+    })
+
+    it('migrates and seeds the run cluster with its encoded credentials', async () => {
         expect(prepareHost({})).toBe(0)
 
-        expect(recorded('migrated')).toEqual({
-            database: URL,
-            source: path.join(REPO, 'rust', 'cyclotron-node-migrations'),
-        })
+        const applied = await onPostgres(`postgres://posthog:posthog@localhost:5432/${database}`, (client) =>
+            client.query<{ version: string }>(
+                'SELECT version::text FROM _sqlx_migrations WHERE success ORDER BY version'
+            )
+        )
+        expect(applied.rows.map(({ version }) => version)).toEqual(
+            readdirSync(MIGRATIONS)
+                .filter((file) => file.endsWith('.sql'))
+                .map((file) => file.split('_')[0])
+                .sort()
+        )
         expect(recorded('seeded')).toEqual({
             database: URL,
             manifest: path.join(dir, 'host', 'input', 'manifest.json'),
@@ -113,7 +150,7 @@ describe('host-prepare.sh', () => {
     })
 
     it.each([
-        ['the migration fails', { FAKE_MIGRATE_EXIT: '1' }, 'migration step output'],
+        ['the migration fails', { LOCAL_DATABASE: 'test_scenario_prepare_missing' }, 'test_scenario_prepare_missing'],
         ['the seed fails', { FAKE_SEED_EXIT: '1' }, 'seed step output'],
     ])('fails and uploads its log when %s', (_, env, output) => {
         expect(prepareHost(env)).not.toBe(0)
