@@ -31,6 +31,7 @@ describe('LegacyWebhookService', () => {
     let organizationId: string
     let otherOrganizationId: string
     let userId: number
+    let stopService: (() => Promise<void>) | undefined
 
     const ZAPIER = { key: 'zapier', name: 'Zapier' }
 
@@ -125,14 +126,17 @@ describe('LegacyWebhookService', () => {
         const requests = mockFetch.mock.calls.map(([url, init]) => ({
             url,
             method: init?.method,
+            headers: init?.headers,
             body: parseJSON(init?.body as string),
         }))
         return { events, requests }
     }
 
     const startService = async (): Promise<void> => {
-        service = new LegacyWebhookService(hub.postgres, hub.teamManager, hub.pubSub)
-        await service.start()
+        const started = new LegacyWebhookService(hub.postgres, hub.teamManager, hub.pubSub)
+        await started.start()
+        service = started
+        stopService = () => started.stop()
     }
 
     beforeEach(async () => {
@@ -149,7 +153,8 @@ describe('LegacyWebhookService', () => {
     })
 
     afterEach(async () => {
-        await service.stop()
+        await stopService?.()
+        stopService = undefined
         await closeHub(hub)
         jest.clearAllMocks()
     })
@@ -183,6 +188,7 @@ describe('LegacyWebhookService', () => {
                 {
                     url: 'https://hooks.zapier.com/team',
                     method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
                     body: expect.objectContaining({
                         hook: { id: hookId, event: 'action_performed', target: 'https://hooks.zapier.com/team' },
                         data: expect.objectContaining({
@@ -299,23 +305,6 @@ describe('LegacyWebhookService', () => {
             }
         })
 
-        it('should process events with matching actions', async () => {
-            const hook = createMockHook(team.id)
-            const action = createMockAction(team.id, { hooks: [hook] })
-            service['actionMatcher'].match = jest.fn().mockReturnValue([action])
-            hub.teamManager.hasAvailableFeature = jest.fn().mockResolvedValue(true)
-
-            await service.processEvent(event)
-
-            expect(service['actionMatcher'].match).toHaveBeenCalledWith(event)
-            expect(mockFetch).toHaveBeenCalledWith(
-                'https://hooks.zapier.com/test',
-                expect.objectContaining({
-                    method: 'POST',
-                })
-            )
-        })
-
         it('should skip events when team not found', async () => {
             const hook = createMockHook(team.id)
             const action = createMockAction(team.id, { hooks: [hook] })
@@ -345,23 +334,6 @@ describe('LegacyWebhookService', () => {
                 person_properties: {},
                 person_id: undefined,
             }
-        })
-
-        it('should fire webhooks when zapier feature is enabled', async () => {
-            const hook = createMockHook(team.id)
-            const action = createMockAction(team.id, { hooks: [hook] })
-
-            hub.teamManager.hasAvailableFeature = jest.fn().mockResolvedValue(true)
-
-            await service['fireWebhooks'](event, [action])
-
-            expect(mockFetch).toHaveBeenCalledWith(
-                'https://hooks.zapier.com/test',
-                expect.objectContaining({
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                })
-            )
         })
 
         it('should not fire webhooks when zapier feature is disabled', async () => {
