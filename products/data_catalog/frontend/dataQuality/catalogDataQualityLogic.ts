@@ -10,10 +10,13 @@ import {
 
 import {
     CatalogTableRow,
+    ChecksScope,
     ChecksSubject,
     DATA_QUALITY_TAB,
     TABLES_SEARCH_PARAM,
     checksSubjectOf,
+    subjectHasFailingChecks,
+    subjectMatchesSearch,
 } from '../catalogTableRows'
 import { catalogTablesLogic } from '../catalogTablesLogic'
 
@@ -26,6 +29,11 @@ export interface catalogDataQualityLogicValues {
     searchParams: Record<string, any> // router
     checkedRows: ChecksSubject[]
     expandedTableKeys: string[]
+    scope: ChecksScope
+    scopeCounts: Record<ChecksScope, number>
+    search: string
+    searchedRows: ChecksSubject[]
+    shownRows: ChecksSubject[]
     tableFilter: string | null
 }
 
@@ -38,8 +46,17 @@ export interface catalogDataQualityLogicActions {
         checkIds: string[]
         target: import('products/data_quality/frontend/overview/dataQualityOverviewLogic').OverviewRunTarget
     } // dataQualityOverviewLogic
+    clearFilters: () => {
+        value: true
+    }
     runTableChecks: (row: ChecksSubject) => {
         row: ChecksSubject
+    }
+    setScope: (scope: ChecksScope) => {
+        scope: ChecksScope
+    }
+    setSearch: (search: string) => {
+        search: string
     }
     showAllTables: () => {
         value: true
@@ -58,6 +75,9 @@ export interface catalogDataQualityLogicMeta {
             checkGroups: SubjectGroup[],
             tableFilter: string | null
         ) => ChecksSubject[]
+        searchedRows: (checkedRows: ChecksSubject[], search: string, tableFilter: string | null) => ChecksSubject[]
+        scopeCounts: (searchedRows: ChecksSubject[]) => Record<ChecksScope, number>
+        shownRows: (searchedRows: ChecksSubject[], scope: ChecksScope, tableFilter: string | null) => ChecksSubject[]
     }
 }
 
@@ -78,8 +98,25 @@ export const catalogDataQualityLogic = kea<catalogDataQualityLogicType>([
         toggleTableExpanded: (rowKey: string) => ({ rowKey }),
         runTableChecks: (row: ChecksSubject) => ({ row }),
         showAllTables: true,
+        setSearch: (search: string) => ({ search }),
+        setScope: (scope: ChecksScope) => ({ scope }),
+        clearFilters: true,
     }),
     reducers({
+        search: [
+            '',
+            {
+                setSearch: (_, { search }) => search,
+                clearFilters: () => '',
+            },
+        ],
+        scope: [
+            'all' as ChecksScope,
+            {
+                setScope: (_, { scope }) => scope,
+                clearFilters: () => 'all',
+            },
+        ],
         expandedTableKeys: [
             [] as string[],
             {
@@ -111,6 +148,23 @@ export const catalogDataQualityLogic = kea<catalogDataQualityLogicType>([
                 }
                 return [...rows.filter((row) => row.checkGroup), ...unlisted]
             },
+        ],
+        searchedRows: [
+            (s) => [s.checkedRows, s.search, s.tableFilter],
+            (checkedRows: ChecksSubject[], search: string, tableFilter: string | null): ChecksSubject[] =>
+                tableFilter ? checkedRows : checkedRows.filter((row) => subjectMatchesSearch(row, search)),
+        ],
+        scopeCounts: [
+            (s) => [s.searchedRows],
+            (searchedRows: ChecksSubject[]): Record<ChecksScope, number> => ({
+                all: searchedRows.length,
+                failing: searchedRows.filter(subjectHasFailingChecks).length,
+            }),
+        ],
+        shownRows: [
+            (s) => [s.searchedRows, s.scope, s.tableFilter],
+            (searchedRows: ChecksSubject[], scope: ChecksScope, tableFilter: string | null): ChecksSubject[] =>
+                tableFilter || scope === 'all' ? searchedRows : searchedRows.filter(subjectHasFailingChecks),
         ],
     }),
     listeners(({ actions, values }) => ({

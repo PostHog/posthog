@@ -1,6 +1,6 @@
 import { BindLogic, useActions, useValues } from 'kea'
 
-import { Button, Empty, EmptyDescription, EmptyHeader, EmptyTitle, Skeleton, Text } from '@posthog/quill'
+import { Button, Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle, Skeleton, Text } from '@posthog/quill'
 
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 
@@ -13,6 +13,7 @@ import { QuillCheckEditorDialog } from 'products/data_quality/frontend/QuillChec
 
 import { CatalogDataQualityActions } from './CatalogDataQualityActions'
 import { catalogDataQualityLogic } from './catalogDataQualityLogic'
+import { CatalogDataQualityToolbar } from './CatalogDataQualityToolbar'
 import { CatalogTableChecksGroup } from './CatalogTableChecksGroup'
 
 const SKELETON_ROWS = 4
@@ -52,8 +53,25 @@ function NoTables({ tableFilter }: { tableFilter: string | null }): JSX.Element 
     )
 }
 
+function NoMatchingTables(): JSX.Element {
+    const { clearFilters } = useActions(catalogDataQualityLogic)
+    return (
+        <Empty className="py-8">
+            <EmptyHeader>
+                <EmptyTitle>No tables match these filters</EmptyTitle>
+            </EmptyHeader>
+            <EmptyContent>
+                <Button variant="outline" onClick={clearFilters} data-attr="data-catalog-quality-clear-filters">
+                    Clear filters
+                </Button>
+            </EmptyContent>
+        </Empty>
+    )
+}
+
 function QualityContent(): JSX.Element {
-    const { checkedRows, rowsLoaded, rowsError, tableFilter, expandedTableKeys } = useValues(catalogDataQualityLogic)
+    const { checkedRows, shownRows, rowsLoaded, rowsError, tableFilter, expandedTableKeys } =
+        useValues(catalogDataQualityLogic)
     const { loadDatabase } = useActions(databaseTableListLogic)
     const { loadOverview } = useActions(dataQualityOverviewLogic)
 
@@ -83,7 +101,8 @@ function QualityContent(): JSX.Element {
     }
     return (
         <div className="flex flex-col gap-2">
-            {checkedRows.map((row) => (
+            {shownRows.length === 0 && <NoMatchingTables />}
+            {shownRows.map((row) => (
                 <CatalogTableChecksGroup
                     key={row.key}
                     row={row}
@@ -105,7 +124,7 @@ export function CatalogDataQualitySection(): JSX.Element {
         <BindLogic logic={dataQualityCheckEditorLogic} props={editorProps}>
             <section aria-label="Data quality" className="flex flex-col gap-3" data-attr="data-catalog-quality">
                 <div className="flex flex-wrap items-center gap-2">
-                    {tableFilter && <TableFilterNote tableName={tableFilter} />}
+                    {tableFilter ? <TableFilterNote tableName={tableFilter} /> : <CatalogDataQualityToolbar />}
                     <CatalogDataQualityActions />
                 </div>
                 <QuillRunAllBanners />
