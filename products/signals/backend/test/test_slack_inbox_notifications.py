@@ -473,6 +473,10 @@ def test_dispatch_sends_to_configured_reviewer(
             side_effect=flag_result if isinstance(flag_result, Exception) else None,
             return_value=flag_result,
         ) as evaluate_flag,
+        patch(
+            "products.signals.backend.slack_inbox_notifications.organization_inbox_slack_state_buttons_enabled",
+            return_value=False,
+        ),
     ):
         slack_cls.return_value.client = fake_client
         sent = dispatch_inbox_item_notifications(str(report.id), team.id)
@@ -624,6 +628,39 @@ def test_dispatch_posts_team_channel_through_the_workspace_that_owns_it(org_and_
 
     assert sent == 1
     assert slack_cls.call_args.args[0] == (newer if binding == "bound" else oldest)
+
+
+@pytest.mark.parametrize(("flag_enabled", "expected_posts"), [(True, 2), (False, 1)])
+@pytest.mark.django_db
+def test_dispatch_posts_state_buttons_as_a_thread_reply_only_when_enabled(org_and_team, flag_enabled, expected_posts):
+    org, team = org_and_team
+    reviewer = _make_reviewer_user(org, "buttons-reviewer@example.com", "buttons-bot")
+    integration = _make_slack_integration(team, reviewer)
+    SignalUserAutonomyConfig.objects.create(
+        user=reviewer, slack_notification_integration=integration, slack_notification_channel="C123|#inbox"
+    )
+    report = _make_ready_report(team, priority=AutonomyPriority.P1, suggested_logins=["buttons-bot"])
+
+    fake_client = MagicMock()
+    fake_client.chat_postMessage.return_value = {"ok": True, "ts": "1700000000.000100", "channel": "C123"}
+    with (
+        patch("products.signals.backend.slack_inbox_notifications.SlackIntegration") as slack_cls,
+        patch(
+            "products.signals.backend.slack_inbox_notifications.organization_inbox_slack_state_buttons_enabled",
+            return_value=flag_enabled,
+        ),
+    ):
+        slack_cls.return_value.client = fake_client
+        dispatch_inbox_item_notifications(str(report.id), team.id)
+
+    assert fake_client.chat_postMessage.call_count == expected_posts
+    if flag_enabled:
+        followup = fake_client.chat_postMessage.call_args.kwargs
+        assert followup["thread_ts"] == "1700000000.000100"
+        action_ids = [e["action_id"] for e in followup["blocks"][1]["elements"]]
+        assert action_ids == ["signals_resolve_report", "signals_dismiss_report"]
+        value = json.loads(followup["blocks"][1]["elements"][0]["value"])
+        assert value == {"integration_id": integration.id, "report_id": str(report.id), "team_id": team.id}
 
 
 @pytest.mark.parametrize(

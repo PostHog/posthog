@@ -544,7 +544,9 @@ class TestSignalsDismissReport(TestCase):
             total_weight=1.0,
         )
 
-    def _dismiss_payload(self, report_id: str, *, team_id: int | None = None) -> dict:
+    def _dismiss_payload(
+        self, report_id: str, *, team_id: int | None = None, action_id: str = "signals_dismiss_report"
+    ) -> dict:
         return {
             "type": "block_actions",
             "team": {"id": "T12345"},
@@ -552,7 +554,7 @@ class TestSignalsDismissReport(TestCase):
             "response_url": "https://hooks.slack.test/response",
             "actions": [
                 {
-                    "action_id": "signals_dismiss_report",
+                    "action_id": action_id,
                     "value": json.dumps(
                         {
                             "integration_id": self.integration.id,
@@ -596,6 +598,45 @@ class TestSignalsDismissReport(TestCase):
         assert dismissal.created_by_id == self.user.id
         # The original message is replaced with a dismissed acknowledgement.
         assert mock_requests_post.call_args.kwargs["json"]["replace_original"] is True
+
+    @patch("products.slack_app.backend.api._is_org_member")
+    @patch("products.slack_app.backend.services.inbox_interactivity.requests.post")
+    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
+    def test_resolve_marks_report_resolved_and_replaces_the_message(
+        self, mock_config, mock_requests_post, mock_is_org_member
+    ):
+        from products.signals.backend.models import SignalReport, SignalReportArtefact
+
+        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+        mock_is_org_member.return_value = self.user
+        report = self._make_ready_report()
+
+        response = self._post_interactivity(self._dismiss_payload(str(report.id), action_id="signals_resolve_report"))
+
+        assert response.status_code == 200
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.RESOLVED
+        dismissal = SignalReportArtefact.objects.get(report=report, type=SignalReportArtefact.ArtefactType.DISMISSAL)
+        assert dismissal.created_by_id == self.user.id
+        sent = mock_requests_post.call_args.kwargs["json"]
+        assert sent["replace_original"] is True
+        assert "Resolved by <@U777>" in sent["text"]
+
+    @patch("products.slack_app.backend.api._is_org_member")
+    @patch("products.slack_app.backend.services.inbox_interactivity.requests.post")
+    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
+    def test_resolve_refuses_non_org_member(self, mock_config, mock_requests_post, mock_is_org_member):
+        from products.signals.backend.models import SignalReport
+
+        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+        mock_is_org_member.return_value = None
+        report = self._make_ready_report()
+
+        response = self._post_interactivity(self._dismiss_payload(str(report.id), action_id="signals_resolve_report"))
+
+        assert response.status_code == 200
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.READY
 
     @patch("products.slack_app.backend.api._is_org_member")
     @patch("products.slack_app.backend.services.inbox_interactivity.requests.post")

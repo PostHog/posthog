@@ -65,3 +65,47 @@ def suppress_report_from_slack(
     # The linked implementation PR is closed by the post_save receiver on suppression or snooze
     # (see receivers.close_pr_when_report_dismissed) — no per-caller call needed here.
     return True
+
+
+def resolve_report_from_slack(
+    team_id: int, report_id: str, *, slack_user_id: str | None = None, user_id: int | None = None
+) -> bool:
+    """Resolve a report from a Slack 'Mark resolved' click. Idempotent — an already-resolved
+    report is treated as success; returns False if the report doesn't exist or the transition
+    isn't allowed.
+
+    Like a resolve through the state API, it says the work is done without the inbox pull request,
+    so that pull request is superseded and the receiver closes it.
+    """
+    with transaction.atomic():
+        report = SignalReport.objects.filter(id=report_id, team_id=team_id).select_for_update().first()
+        if report is None:
+            logger.warning(
+                "resolve_report_from_slack: report not found", extra={"report_id": report_id, "team_id": team_id}
+            )
+            return False
+
+        if report.status == SignalReport.Status.RESOLVED:
+            return True
+
+        try:
+            updated_fields = report.transition_to(SignalReport.Status.RESOLVED)
+        except InvalidStatusTransition:
+            logger.warning(
+                "resolve_report_from_slack: invalid transition",
+                extra={"report_id": report_id, "team_id": team_id, "status": report.status},
+            )
+            return False
+
+        attribution = ArtefactAttribution.from_user(user_id) if user_id is not None else ArtefactAttribution.system()
+        report._transition_actor = attribution  # type: ignore[attr-defined]
+        report._close_pr_on_resolve = True  # type: ignore[attr-defined]
+        report._wrote_dismissal_feedback = True  # type: ignore[attr-defined]
+        report.save(update_fields=updated_fields)
+        SignalReportArtefact.append_dismissal(
+            team_id=team_id,
+            report_id=str(report.id),
+            content=Dismissal(state="resolved", reason="slack_resolve", slack_user_id=slack_user_id),
+            attribution=attribution,
+        )
+    return True

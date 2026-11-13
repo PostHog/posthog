@@ -461,6 +461,17 @@ def dismiss_report_from_slack(
     return suppress_report_from_slack(team_id, report_id, slack_user_id=slack_user_id, user_id=user_id)
 
 
+def resolve_report_from_slack(
+    team_id: int, report_id: str, *, slack_user_id: str | None = None, user_id: int | None = None
+) -> bool:
+    """Facade entrypoint for the Slack 'Mark resolved' button. See report_actions.resolve_report_from_slack."""
+    from products.signals.backend.report_actions import (
+        resolve_report_from_slack as resolve_report_from_slack_impl,  # noqa: PLC0415 — avoids importing model layer at facade import time
+    )
+
+    return resolve_report_from_slack_impl(team_id, report_id, slack_user_id=slack_user_id, user_id=user_id)
+
+
 def report_id_for_slack_thread(*, team_id: int, slack_workspace_id: str, channel: str, thread_ts: str) -> str | None:
     """Facade entrypoint for the Slack mention handler. See slack_report_threads.report_id_for_slack_thread."""
     from products.signals.backend.slack_report_threads import (
