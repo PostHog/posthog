@@ -698,10 +698,8 @@ export class EmailTrackingService {
                 return { outcome: 'rejected', status, body }
             }
 
-            // Written before anything is queued, so a failed write fails the batch with nothing to flush and the
-            // redelivery counts this notification once. Deliveries are processed first so a delivery + bounce in
-            // the same batch nets out conservatively (count resets, then the fresh bounce re-counts from a clean slate).
-            // A lost delivery only keeps a bounce count or a global suppression in place, which errs toward suppressing.
+            // Runs before anything is queued, so a failed write queues nothing here and the retry counts it once.
+            // Deliveries go first so a delivery and bounce in one batch net out; a lost one only errs to suppressing.
             const strict = { throwOnFailure: true }
             try {
                 for (const { teamId, emailAddresses, timestamp, clearsGlobalHardBounces } of deliveredRecipients ||
