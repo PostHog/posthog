@@ -59,6 +59,7 @@ These measurements describe query work and are not billing amounts.
 ## SQL heatmaps
 
 For a 2D heatmap, **X-axis order** in the Series settings sorts columns ascending or descending by their labels, with numeric labels in numeric order.
+Ascending order places numeric labels before text labels; descending order reverses both groups.
 **Query order** keeps the order in which values first appear in the results.
 Clicking a column header sorts rows by that column's values independently of the X-axis order.
 

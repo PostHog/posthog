@@ -29,18 +29,27 @@ export function getDistinctHeatmapLabels(values: unknown[], nullLabel: string): 
     return labels
 }
 
-const compareHeatmapLabels = (left: string, right: string): number => {
+const compareHeatmapLabels = (left: string, right: string): number =>
+    left.localeCompare(right, undefined, { numeric: true, sensitivity: 'base' })
+
+const compareHeatmapColumnLabels = (left: string, right: string): number => {
     const leftNumber = left.trim() === '' ? NaN : Number(left)
     const rightNumber = right.trim() === '' ? NaN : Number(right)
-    return Number.isFinite(leftNumber) && Number.isFinite(rightNumber)
-        ? leftNumber - rightNumber
-        : left.localeCompare(right, undefined, { numeric: true, sensitivity: 'base' })
+    const leftIsNumber = Number.isFinite(leftNumber)
+    const rightIsNumber = Number.isFinite(rightNumber)
+    if (leftIsNumber && rightIsNumber) {
+        return leftNumber - rightNumber
+    }
+    if (leftIsNumber !== rightIsNumber) {
+        return leftIsNumber ? -1 : 1
+    }
+    return compareHeatmapLabels(left, right)
 }
 
 export const sortHeatmapColumns = (columnLabels: string[], order?: HeatmapSortOrder): string[] =>
     order
         ? [...columnLabels].sort(
-              (left, right) => compareHeatmapLabels(left, right) * (order === HeatmapSortOrder.Asc ? 1 : -1)
+              (left, right) => compareHeatmapColumnLabels(left, right) * (order === HeatmapSortOrder.Asc ? 1 : -1)
           )
         : columnLabels
 
