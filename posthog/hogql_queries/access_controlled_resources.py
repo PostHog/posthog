@@ -76,7 +76,7 @@ _TRANSITIVE_SYSTEM_TABLE_SCOPES: dict[str, frozenset[str]] = {
     # Task predicates need these public channel IDs even under object-only task grants.
     "system._task_public_channels": frozenset({"task"}),
     "system.customer_tasks": frozenset({"account"}),
-    # Insight alerts are readable only with their insight, through `system.insights`.
+    # Insight alerts are readable only with their insight, so the reader's insight rules decide their rows.
     "system.alerts": frozenset({"insight"}),
     "system._insight_alert_rows": frozenset({"insight"}),
     "system._platform_insight_alerts": frozenset({"insight"}),

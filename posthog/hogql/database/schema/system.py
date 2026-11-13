@@ -297,11 +297,71 @@ batch_export_runs: _BatchExportRunsTable = _BatchExportRunsTable(
 
 # The one state a source shows for a platform alert, as `runtime_by_public_id` composes it: a failing check replaces
 # the instances' state, an alert fires while any of its groups fires, and otherwise the ungrouped instance holds it.
-# An alert with no instance yet has not fired. `c` is the configuration and `i` its instances, grouped.
+# Only an ungrouped alert has that instance, and it has no other. An alert with no instance yet has not fired. `c` is
+# the configuration and `i` its instances, grouped.
 _PLATFORM_STATE = """
     if(c.check_status != 'ok', c.check_status,
-        if(ifNull(i.any_firing, 0) = 1, 'firing', coalesce(nullIf(i.ungrouped_state, ''), 'not_firing')))
+        if(ifNull(i.any_firing, 0) = 1, 'firing',
+            if(JSONExtractString(c.grouping, 'mode') = 'single', coalesce(nullIf(i.any_state, ''), 'not_firing'), 'not_firing')))
 """
+
+
+class _InsightReadGatedTable(PostgresTable):
+    """A table of insight alerts that keeps only the alerts whose insight the reader may view, as the alert API
+    gates every alert read. The rule comes from the reader's insight access at print time, so the query reads no
+    insights and needs no insight API scope."""
+
+    # None for a table whose alerts watch no insight.
+    insight_id_expr: Optional[str]
+
+    def get_predicates(self, context: Optional[HogQLContext] = None) -> list[Expr]:
+        user_access_control = context.database.user_access_control if context and context.database else None
+        if user_access_control is None or self.insight_id_expr is None:
+            return list(self.predicates)
+        guard = _insight_read_guard(
+            parse_expr(self.insight_id_expr), user_access_control, context.team_id if context else None
+        )
+        return [*self.predicates, guard] if guard is not None else list(self.predicates)
+
+
+def _insight_read_guard(
+    insight_id: ast.Expr, user_access_control: "UserAccessControl", team_id: Optional[int]
+) -> Optional[ast.Expr]:
+    """The insights a reader may view, as `filter_queryset_by_access_level` narrows them: only the granted ones
+    without resource-level access, otherwise all but the denied ones, and the reader's own insights either way."""
+    from products.access_control.backend.facade.user_access_control import NO_ACCESS_LEVEL  # noqa: PLC0415
+
+    allowlisted = user_access_control.allowlisted_resource_ids_by_scope.get("insight")
+    access = user_access_control.access_level_for_resource("insight")
+    if allowlisted or access is None or access.access_level == NO_ACCESS_LEVEL:
+        readable = (allowlisted or frozenset()) | _own_insight_ids(user_access_control, team_id, None)
+        return ast.CompareOperation(
+            op=ast.CompareOperationOp.In,
+            left=insight_id,
+            right=ast.Constant(value=sorted(int(insight) for insight in readable), is_sensitive=True),
+        )
+    blocked = user_access_control.blocked_resource_ids_by_scope.get("insight", frozenset())
+    blocked -= _own_insight_ids(user_access_control, team_id, blocked)
+    if not blocked:
+        return None
+    return ast.CompareOperation(
+        op=ast.CompareOperationOp.NotIn,
+        left=insight_id,
+        right=ast.Constant(value=sorted(int(insight) for insight in blocked), is_sensitive=True),
+    )
+
+
+def _own_insight_ids(
+    user_access_control: "UserAccessControl", team_id: Optional[int], candidate_ids: Optional[frozenset[str]]
+) -> frozenset[str]:
+    from products.product_analytics.backend.facade.models import Insight  # noqa: PLC0415
+
+    if team_id is None or user_access_control.user is None:
+        return frozenset()
+    insights = Insight.objects.filter(team_id=team_id, created_by_id=user_access_control.user.pk)
+    if candidate_ids is not None:
+        insights = insights.filter(id__in=[int(insight) for insight in candidate_ids])
+    return frozenset(str(insight) for insight in insights.values_list("id", flat=True))
 
 
 def _platform_state_expr() -> ast.Expr:
@@ -309,10 +369,11 @@ def _platform_state_expr() -> ast.Expr:
 
 
 def _platform_configuration_table(
-    name: str, source_kind: str, access_scope: APIScopeObject, source_predicates: list[Expr]
-) -> PostgresTable:
-    return PostgresTable(
+    name: str, source_kind: str, access_scope: APIScopeObject, insight_id_expr: Optional[str]
+) -> _InsightReadGatedTable:
+    return _InsightReadGatedTable(
         name=name,
+        insight_id_expr=insight_id_expr,
         postgres_table_name="alerts_platformalertconfiguration",
         access_scope=access_scope,
         # Object grants key an alert by its public id, which this table does not hold as a column.
@@ -324,7 +385,6 @@ def _platform_configuration_table(
                 "source_kind = {source_kind} AND (legacy_configuration_id IS NULL OR owner = 'platform')",
                 placeholders={"source_kind": ast.Constant(value=source_kind)},
             ),
-            *source_predicates,
         ],
         description=(
             f"Internal table of {source_kind} alerts the alerts platform holds, from "
@@ -345,6 +405,9 @@ def _platform_configuration_table(
             "enabled": BooleanDatabaseField(name="enabled", description="Whether the alert is active."),
             "source_config": StringJSONDatabaseField(
                 name="source_config", description="JSON settings the alert's source reads."
+            ),
+            "grouping": StringJSONDatabaseField(
+                name="grouping", description="JSON grouping: 'single' for one instance, or the keys it groups by."
             ),
             "check_interval_minutes": IntegerDatabaseField(
                 name="check_interval_minutes", description="How often the alert is evaluated, in minutes."
@@ -376,6 +439,7 @@ def _platform_instances_table(
         push_team_guard_with_predicates=True,
         # The instance table holds every source's alerts, so it reads only those of its own source's table.
         predicates=[configurations_predicate],
+        # The group's key holds raw breakdown values, which the insight's own access rules guard, so it stays out.
         description=f"Internal table of the runtime state of each group of the alerts in `system.{configurations_table}`; not for direct querying.",
         fields={
             "id": StringDatabaseField(name="id", description="Instance UUID."),
@@ -383,24 +447,21 @@ def _platform_instances_table(
             "configuration_id": StringDatabaseField(
                 name="configuration_id", description="Platform configuration UUID."
             ),
-            "grouping_key": StringDatabaseField(
-                name="grouping_key", description="The group this instance tracks; empty for an ungrouped alert."
-            ),
             "state": StringDatabaseField(name="state", description="Platform state of this group."),
             "last_notified_at": DateTimeDatabaseField(name="last_notified_at", nullable=True),
         },
     )
 
 
-insight_alert_rows: PostgresTable = PostgresTable(
+insight_alert_rows: _InsightReadGatedTable = _InsightReadGatedTable(
     name="_insight_alert_rows",
     postgres_table_name="posthog_alertconfiguration",
     access_scope="alert",
     resource_level_access_only=True,
     push_team_guard_with_predicates=True,
-    # The platform's copy holds the settings and state of an alert it owns, so its row would show stale ones. An
-    # alert is readable only with its insight, as the alert API gates it.
-    predicates=[parse_expr("owner != 'platform' AND insight_id IN (SELECT id FROM system.insights)")],
+    # The platform's copy holds the settings and state of an alert it owns, so its row would show stale ones.
+    predicates=[parse_expr("owner != 'platform'")],
+    insight_id_expr="insight_id",
     description="Internal table of the insight alerts their own stack evaluates; not for direct querying, use `system.alerts`.",
     fields={
         "id": StringDatabaseField(name="id", description="Alert UUID."),
@@ -424,11 +485,7 @@ insight_alert_rows: PostgresTable = PostgresTable(
 )
 
 platform_insight_alerts: PostgresTable = _platform_configuration_table(
-    "_platform_insight_alerts",
-    "insight",
-    "alert",
-    # An alert is readable only with its insight, as the alert API gates it.
-    [parse_expr("JSONExtractInt(source_config, 'insight_id') IN (SELECT id FROM system.insights)")],
+    "_platform_insight_alerts", "insight", "alert", "JSONExtractInt(source_config, 'insight_id')"
 )
 platform_insight_alert_instances: PostgresTable = _platform_instances_table(
     "_platform_insight_alert_instances",
@@ -483,7 +540,7 @@ def _insight_alerts_select() -> ast.SelectQuery | ast.SelectSetQuery:
             SELECT
                 configuration_id,
                 max(state = 'firing') AS any_firing,
-                anyIf(state, grouping_key = '') AS ungrouped_state,
+                any(state) AS any_state,
                 max(last_notified_at) AS last_notified_at
             FROM system._platform_insight_alert_instances
             GROUP BY configuration_id
@@ -2531,7 +2588,7 @@ logs_alert_rows: PostgresTable = PostgresTable(
     },
 )
 
-platform_logs_alerts: PostgresTable = _platform_configuration_table("_platform_logs_alerts", "logs", "logs", [])
+platform_logs_alerts: PostgresTable = _platform_configuration_table("_platform_logs_alerts", "logs", "logs", None)
 platform_logs_alert_instances: PostgresTable = _platform_instances_table(
     "_platform_logs_alert_instances",
     "_platform_logs_alerts",
@@ -2578,7 +2635,7 @@ def _logs_alerts_select() -> ast.SelectQuery | ast.SelectSetQuery:
             SELECT
                 configuration_id,
                 max(state = 'firing') AS any_firing,
-                anyIf(state, grouping_key = '') AS ungrouped_state,
+                any(state) AS any_state,
                 max(last_notified_at) AS last_notified_at
             FROM system._platform_logs_alert_instances
             GROUP BY configuration_id
