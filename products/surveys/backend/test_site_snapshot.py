@@ -39,14 +39,14 @@ MOBILE_HOME = "https://m.example.org/home"
 EARLY_START = "https://example.com/early-start"
 TWO_TABS = "https://example.com/two-tabs"
 SESSION_OFFSET_SECONDS = 10
-READ_STYLE = {
+READ_STYLE: dict[str, Any] = {
     "background_color": "#fdf6e3",
     "text_color": "#2a2633",
     "button_color": "#7b3fe4",
     "button_text_color": "#ffffff",
     "button_border_radius": 6,
 }
-NO_BUTTON = {"button_color": None, "button_text_color": None, "button_border_radius": None}
+NO_BUTTON: dict[str, Any] = {"button_color": None, "button_text_color": None, "button_border_radius": None}
 
 
 @time_machine.travel("2026-11-06 12:00:00", tick=False)
