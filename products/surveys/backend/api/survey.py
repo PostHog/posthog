@@ -4136,8 +4136,9 @@ def _survey_not_available_response(request: HttpRequest) -> HttpResponse:
     )
 
 
+_POSTHOG_SURVEY_DOMAIN = "posthogsurveys.com"
 # US serves the bare domain, so a survey US doesn't have can only be in EU.
-_SURVEY_DOMAIN_FOR_MISSING_SURVEY = {"posthogsurveys.com": "eu.posthogsurveys.com"}
+_SURVEY_DOMAIN_FOR_MISSING_SURVEY = {_POSTHOG_SURVEY_DOMAIN: f"eu.{_POSTHOG_SURVEY_DOMAIN}"}
 
 
 def _request_domain(request: HttpRequest) -> str:
@@ -4151,11 +4152,17 @@ def _redirect_to_survey_domain(request: HttpRequest, domain: str, survey_id: str
     return HttpResponseRedirect(f"https://{domain}/{survey_id}" + (f"?{query}" if query else ""))
 
 
+def _is_posthog_survey_domain(domain: str) -> bool:
+    return domain == _POSTHOG_SURVEY_DOMAIN or domain.endswith(f".{_POSTHOG_SURVEY_DOMAIN}")
+
+
 def _is_another_organizations_proxy_domain(request: HttpRequest, survey: Survey) -> bool:
+    domain = _request_domain(request)
+    # Every organization's surveys live on PostHog's survey domain. A row registered before it was reserved can't own it.
+    if _is_posthog_survey_domain(domain):
+        return False
     return (
-        ProxyRecord.objects.filter(domain__iexact=_request_domain(request))
-        .exclude(organization_id=survey.team.organization_id)
-        .exists()
+        ProxyRecord.objects.filter(domain__iexact=domain).exclude(organization_id=survey.team.organization_id).exists()
     )
 
 

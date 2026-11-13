@@ -453,6 +453,22 @@ class TestExternalSurveys(APIBaseTest):
         [
             ("own_proxy_domain", OWN_PROXY_DOMAIN, {}, {}, 200, "Quarterly feedback"),
             ("unregistered_host", "surveys.self-run-proxy.example.com", {}, {}, 200, "Quarterly feedback"),
+            (
+                "other_org_record_for_posthog_survey_domain",
+                "posthogsurveys.com",
+                {"domain": "posthogsurveys.com", "status": ProxyRecord.Status.TIMED_OUT},
+                {},
+                200,
+                "Quarterly feedback",
+            ),
+            (
+                "other_org_record_for_posthog_eu_survey_domain",
+                "eu.posthogsurveys.com",
+                {"domain": "eu.posthogsurveys.com"},
+                {},
+                200,
+                "Quarterly feedback",
+            ),
             ("other_org_proxy_domain", OTHER_PROXY_DOMAIN, {}, {}, 404, "Survey not available"),
             (
                 "other_org_domain_stored_mixed_case",
