@@ -19,6 +19,7 @@ from posthog.clickhouse.client.connection import (
     Workload,
     default_client,
     default_workload_from_settings,
+    events_cluster_connection,
     events_cluster_http_url,
     get_clickhouse_creds,
     get_http_client,
@@ -32,6 +33,7 @@ from posthog.clickhouse.client.connection import (
 )
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.models.event.new_events_schema import events_route_scope
+from posthog.models.instance_setting import override_instance_config
 
 if TYPE_CHECKING:
     from pytest_django.fixtures import Settings
@@ -111,10 +113,24 @@ def test_projects_on_the_events_table_connect_to_the_events_cluster(
     settings.CLICKHOUSE_CLUSTER = "posthog"
     settings.CLICKHOUSE_EVENTS_CLUSTER = "events"
 
-    with events_route_scope(HogQLQueryModifiers(useNewEventsSchema=reads_events_json)):
+    with events_route_scope(HogQLQueryModifiers(useNewEventsSchema=reads_events_json)), events_cluster_connection():
         assert get_kwargs_for_client(workload, team_id=team_id).get("host") == expected_host
         assert events_cluster_http_url(workload, team_id) == expected_http_url
         assert query_cluster_name(workload, team_id) == ("events" if expected_http_url else "posthog")
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("workload", [Workload.ONLINE, Workload.OFFLINE])
+def test_raw_reads_of_a_native_events_project_keep_the_legacy_hosts(settings, workload):
+    settings.CLICKHOUSE_EVENTS_ONLINE_HOST = "events-cluster.invalid"
+    settings.CLICKHOUSE_EVENTS_OFFLINE_HOST = "events-cluster.invalid"
+
+    with override_instance_config("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", "1"):
+        rows = sync_execute(
+            "SELECT count() FROM person WHERE team_id = %(team_id)s", {"team_id": 1}, workload=workload, team_id=1
+        )
+
+    assert rows == [(0,)]
 
 
 @pytest.mark.parametrize("value,expected", [("ONLINE", Workload.ONLINE), ("OFFLINE", Workload.OFFLINE)])

@@ -89,7 +89,7 @@ from posthog.hogql.visitor import TraversingVisitor, clone_expr
 from posthog.hogql.warehouse_warnings import record_warnings
 
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.client.connection import ClickHouseUser, Workload
+from posthog.clickhouse.client.connection import ClickHouseUser, Workload, events_cluster_connection
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags, tag_queries
 from posthog.clickhouse.workload import PINNED_CLUSTER_WORKLOADS
@@ -1090,7 +1090,7 @@ class HogQLQueryExecutor:
                 workload = table_workload
 
             def run_clickhouse_query() -> Any:
-                with events_route_scope(printed_events_route):
+                with events_route_scope(printed_events_route), events_cluster_connection():
                     return sync_execute(
                         self.clickhouse_sql,
                         clickhouse_context.values,
@@ -1142,7 +1142,7 @@ class HogQLQueryExecutor:
 
         if self.debug and self.error is None:
             with self.timings.measure("explain"):
-                with events_route_scope(printed_events_route):
+                with events_route_scope(printed_events_route), events_cluster_connection():
                     # nosemgrep: clickhouse-injection-taint - self.clickhouse_sql is HogQL-compiled from AST, not raw user input; values remain parameterized in clickhouse_context.values
                     explain_results = sync_execute(
                         f"EXPLAIN {self.clickhouse_sql}",

@@ -62,6 +62,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import (
     ClickHouseCredentials,
     ClickHouseUser,
+    events_cluster_connection,
     events_cluster_http_url,
     get_clickhouse_creds,
     get_kwargs_for_client,
@@ -846,6 +847,12 @@ def materialize_frame(inputs: FrameMaterializeInputs) -> str:
     Raises on failure so Temporal retries per policy; user-safe HogQL errors are written
     to the query status here (terminal — retrying can't fix a bad query) before raising.
     """
+    # A frame runs only SQL printed from HogQL, plus the query log lookup that must follow it.
+    with events_cluster_connection():
+        return _materialize_frame(inputs)
+
+
+def _materialize_frame(inputs: FrameMaterializeInputs) -> str:
     # The new flow rides one flag, resolved per user in the web process and carried on the
     # job. Off, this run is the path that has been serving frames all along: interactive
     # pool, default credentials.
