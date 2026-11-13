@@ -73,6 +73,7 @@ export function WidgetCardBody({
     return (
         <div
             data-slot="widget-card-body"
+            data-not-quill
             className={clsx(
                 '@container/widget-card WidgetCard__body flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden',
                 padding && 'p-4 pt-2',

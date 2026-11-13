@@ -8,6 +8,7 @@ import React from 'react'
 import { Button } from '@posthog/quill'
 
 import { Resizeable } from 'lib/components/Cards/CardMeta'
+import { DashboardTileShell } from 'lib/components/Cards/DashboardTileShell'
 import { DashboardResizeHandles } from 'lib/components/Cards/handles'
 import { QuillCardMoreMenu } from 'lib/components/Cards/QuillCardMoreMenu'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -76,12 +77,9 @@ function ButtonTileCardInternal(
     const isTransparent = tile.transparent_background
 
     return (
-        <div
-            className={clsx(
-                'DashboardTileCard ButtonTileCard rounded flex flex-col',
-                !isTransparent && 'bg-surface-primary border',
-                className
-            )}
+        <DashboardTileShell
+            transparent={isTransparent}
+            className={clsx('DashboardTileCard ButtonTileCard flex flex-col', className)}
             data-attr="button-tile-card"
             {...divProps}
             ref={ref}
@@ -120,7 +118,7 @@ function ButtonTileCardInternal(
 
             {showResizeHandles && <DashboardResizeHandles />}
             {children}
-        </div>
+        </DashboardTileShell>
     )
 }
 

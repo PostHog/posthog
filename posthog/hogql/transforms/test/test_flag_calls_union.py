@@ -1280,6 +1280,7 @@ class TestReadFlagCallsWithUnion(BaseTest):
         sql = self._sql(
             f"SELECT person.properties.email, count() FROM events SAMPLE 0.1 WHERE {MIXED} GROUP BY 1",
             persons_on_events=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
+            person_id_pushdown=False,
         )
 
         assert sql.count("SAMPLE 0.1") == 2
@@ -1395,6 +1396,32 @@ class TestReadFlagCallsWithUnion(BaseTest):
         persons = sql[sql.index("FROM person_distinct_id_overrides") :]
         assert "GLOBAL IN" in sql or "globalIn" in sql
         assert "probe-distinct-id" in persons
+
+    @parameterized.expand(
+        [
+            ("union", f"FROM events WHERE {MIXED}", None, True),
+            (
+                "flag_calls_swapped_to_flag_evaluations",
+                "FROM events WHERE event = '$feature_flag_called' AND properties.$feature_flag = 'f'",
+                None,
+                True,
+            ),
+            ("flag_evaluations", "FROM posthog.flag_evaluations WHERE flag_key = 'f'", None, True),
+            ("flag_evaluations_turned_off", "FROM posthog.flag_evaluations WHERE flag_key = 'f'", False, False),
+            ("events_only", "FROM events WHERE event = '$pageview'", None, False),
+        ]
+    )
+    def test_person_id_pushdown_defaults_on_for_flag_evaluations(
+        self, _name: str, from_where: str, person_id_pushdown: bool | None, pushed: bool
+    ):
+        sql = self._sql(
+            f"SELECT person.properties.email {from_where} AND timestamp >= now() - INTERVAL 7 DAY",
+            persons_on_events=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
+            person_id_pushdown=person_id_pushdown,
+        )
+
+        persons = sql[sql.index("FROM person_distinct_id_overrides") :]
+        assert ("SELECT DISTINCT" in persons) is pushed
 
     @parameterized.expand(
         [
@@ -1528,6 +1555,7 @@ class TestReadFlagCallsWithUnion(BaseTest):
         sql = self._sql(
             f"SELECT person_id, person.properties.email FROM events WHERE {MIXED}",
             persons_on_events=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
+            person_id_pushdown=False,
         )
 
         assert sql.count("FROM person_distinct_id_overrides") == 2  # one inner, one outer for `person_id`
@@ -1539,6 +1567,7 @@ class TestReadFlagCallsWithUnion(BaseTest):
             f"SELECT toFloatOrZero(properties.amount), properties.amount FROM events "
             f"WHERE {MIXED} AND properties.amount > 9 AND person.properties.amount > 9",
             persons_on_events=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
+            person_id_pushdown=False,
         )
 
         assert "accurateCastOrNull(accurateCastOrNull" not in sql
@@ -1846,6 +1875,15 @@ class TestFlagCallsUnionRows(ClickhouseTestMixin, APIBaseTest):
                 PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
                 "negatedPersonFiltersNotIn",
             ),
+            param(
+                "negated_person_filters_under_person_id_pushdown",
+                f"SELECT distinct_id, event FROM events WHERE {MIXED} AND person.properties.email != 'r@x.com' "
+                "ORDER BY timestamp, distinct_id",
+                PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
+                "negatedPersonFiltersNotIn",
+                shared_modifiers={"personIdPushdown": True},
+                pushed_sql="where_optimization",
+            ),
             (
                 "session_id_pushdown",
                 f"SELECT distinct_id, event, session.$session_duration FROM events WHERE {MIXED} "
@@ -1862,15 +1900,24 @@ class TestFlagCallsUnionRows(ClickhouseTestMixin, APIBaseTest):
             ),
         ]
     )
-    def test_pushdown_does_not_change_the_rows(self, _name: str, query: str, poe: PersonsOnEventsMode, modifier: str):
+    def test_pushdown_does_not_change_the_rows(
+        self,
+        _name: str,
+        query: str,
+        poe: PersonsOnEventsMode,
+        modifier: str,
+        shared_modifiers: dict[str, Any] | None = None,
+        pushed_sql: str | None = None,
+    ):
         self.addCleanup(cleanup_materialized_columns)
         materialize("person", "email")
 
-        pushed = self._run(query, READ, poe, **{modifier: True}).results
-        flat = self._run(query, READ, poe, **{modifier: False}).results
+        pushed = self._run(query, READ, poe, **{**(shared_modifiers or {}), modifier: True})
+        flat = self._run(query, READ, poe, **{**(shared_modifiers or {}), modifier: False}).results
 
-        assert len(pushed) >= 2
-        assert sorted(map(str, pushed)) == sorted(map(str, flat))
+        assert len(pushed.results) >= 2
+        assert sorted(map(str, pushed.results)) == sorted(map(str, flat))
+        assert pushed_sql is None or pushed_sql in (pushed.clickhouse or "")
 
     @parameterized.expand(
         [

@@ -1286,7 +1286,7 @@ export const externalDataSourcesIncrementalFieldRecommendationsCreateBodyTablesI
 
 export const externalDataSourcesIncrementalFieldRecommendationsCreateBodyTablesItemIncrementalFieldsMax = 16
 
-export const externalDataSourcesIncrementalFieldRecommendationsCreateBodyTablesMax = 128
+export const externalDataSourcesIncrementalFieldRecommendationsCreateBodyTablesMax = 8
 
 export const ExternalDataSourcesIncrementalFieldRecommendationsCreateBody = /* @__PURE__ */ zod.object({
     tables: zod
@@ -1362,7 +1362,9 @@ export const ExternalDataSourcesIncrementalFieldRecommendationsCreateBody = /* @
             })
         )
         .max(externalDataSourcesIncrementalFieldRecommendationsCreateBodyTablesMax)
-        .describe('Tables from database_schema to get a recommended incremental field for.'),
+        .describe(
+            'Tables from database_schema to get a recommended incremental field for. One request is one model call: up to 8 tables with up to 32 candidate fields in total, or a single table of any size.'
+        ),
 })
 
 /**
