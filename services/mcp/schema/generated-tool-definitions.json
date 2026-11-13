@@ -11714,6 +11714,38 @@
             "readOnlyHint": true
         }
     },
+    "notifications-list": {
+        "description": "List notifications for the connected user. Returns unread notifications by default. Set read to true to list notifications that the user has already handled.",
+        "category": "Notifications",
+        "feature": "notifications",
+        "summary": "List notifications",
+        "title": "List notifications",
+        "required_scopes": ["user:read"],
+        "api_operations": ["GET /api/projects/{project_id}/notifications/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "real-time-notifications"
+    },
+    "notifications-mark-read": {
+        "description": "Mark notifications as read after you handle them. Notifications that do not belong to the connected user are ignored.",
+        "category": "Notifications",
+        "feature": "notifications",
+        "summary": "Mark notifications as read",
+        "title": "Mark notifications as read",
+        "required_scopes": ["user:write"],
+        "api_operations": ["POST /api/projects/{project_id}/notifications/mark_read_bulk/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "real-time-notifications"
+    },
     "opt-outs-add": {
         "description": "Opt one or more recipients (up to 1000 per call) out of marketing messages. Each entry can name its own message category via category_key; entries without one use the request-level category_key, or all marketing messages if omitted. Importing only ever opts recipients out, so repeating a call is safe.",
         "category": "Messaging",

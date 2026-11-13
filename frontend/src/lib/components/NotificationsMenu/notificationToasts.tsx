@@ -47,6 +47,8 @@ const NOTIFICATION_TYPE_ICONS: Record<string, { Icon: ComponentType<{ className?
     feature_flag_failure: { Icon: IconToggle, color: 'text-danger' },
     first_report_completed: { Icon: IconSparkles, color: 'text-success' },
     report_claim_taken_over: { Icon: IconPerson, color: 'text-primary' },
+    report_assigned: { Icon: IconPerson, color: 'text-primary' },
+    report_run_finished: { Icon: IconSparkles, color: 'text-success' },
 }
 
 export function getNotificationIcon(notificationType: string, className: string = 'size-5'): JSX.Element {

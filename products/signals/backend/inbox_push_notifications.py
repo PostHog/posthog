@@ -27,6 +27,12 @@ from posthog.models.user import User
 from posthog.push_notifications import MobilePushCategory, mobile_push_preference_enabled
 from posthog.tasks.push_notifications import send_user_push
 
+from products.notifications.backend.facade.api import (
+    NotificationData,
+    NotificationType,
+    TargetType,
+    create_notification,
+)
 from products.signals.backend.artefact_schemas import (
     SIGNALS_PRODUCT,
     TASK_RUN_TYPE_IMPLEMENTATION,
@@ -56,6 +62,43 @@ PULL_REQUEST_READY_TITLE = "PR ready to review"
 
 # A push for one of these would open a report the inbox no longer lists.
 _HIDDEN_STATUSES = (SignalReport.Status.DELETED, SignalReport.Status.SUPPRESSED)
+_RUN_FINISHED_KINDS = {"completed", "turn_completed", "failed", "cancelled"}
+
+
+def _notify_run_finished(report: SignalReport, task_run: TaskRun, kind: str) -> None:
+    task = task_run.task
+    if task.created_by_id is None or kind not in _RUN_FINISHED_KINDS:
+        return
+    outcome = {
+        "completed": "finished",
+        "turn_completed": "finished",
+        "failed": "failed",
+        "cancelled": "was cancelled",
+    }[kind]
+    prefix = 'The run for "'
+    suffix = f'" {outcome}'
+    report_title = report.title or "Untitled report"
+    max_report_title_length = 255 - len(prefix) - len(suffix)
+    if len(report_title) > max_report_title_length:
+        report_title = report_title[: max_report_title_length - 1] + "…"
+    title = f"{prefix}{report_title}{suffix}"
+    try:
+        create_notification(
+            NotificationData(
+                team_id=report.team_id,
+                notification_type=NotificationType.REPORT_RUN_FINISHED,
+                title=title,
+                body="",
+                target_type=TargetType.USER,
+                target_id=str(task.created_by_id),
+                resource_type="inbox",
+                resource_id=str(report.id),
+                source_url=f"/project/{report.team_id}/inbox/reports/{report.id}",
+                idempotency_key=f"report-run-finished:{task_run.id}:{'finished' if kind in {'completed', 'turn_completed'} else kind}",
+            )
+        )
+    except Exception:
+        logger.exception("signals.report_run_finished.in_app_failed", report_id=str(report.id))
 
 
 def schedule_report_visible_push(*, team_id: int, report_id: str) -> None:
@@ -270,6 +313,15 @@ def notify_report_task_update(
                 on_enqueued=on_enqueued,
             )
         )
+        implementation_run = any(
+            run.task_id == str(task.id)
+            and run.run_id == str(task_run.id)
+            and run.product == SIGNALS_PRODUCT
+            and run.type == TASK_RUN_TYPE_IMPLEMENTATION
+            for run in task_runs.get(str(report.id), [])
+        )
+        if implementation_run and not report_is_hidden_from_inbox(report.team_id, str(report.id)):
+            _notify_run_finished(report, task_run, kind)
     return True
 
 
