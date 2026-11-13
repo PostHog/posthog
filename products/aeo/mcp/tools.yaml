@@ -324,10 +324,10 @@ tools:
         enabled: true
         title: Rank the project against its competitors in AI answers
         description: >
-            Get how often AI answers named the project against its competitors over the last `days` days (default 30,
-            in the project's timezone), with the same share for the window before. `brands` lists the project and its
-            competitors, most visible first. Competitors are the ones confirmed in the brand catalog, or, while none
-            are confirmed (`competitors_confirmed` false), the brands behind the most cited domains. `daily` gives the
+            Get how often AI answers named the project against its competitors over the last `days` days (default 30, in
+            the project's timezone), with the same share for the window before. `brands` lists the project and its
+            competitors, most visible first. Competitors are the ones confirmed in the brand catalog, or, while none are
+            confirmed (`competitors_confirmed` false), the brands behind the most cited domains. `daily` gives the
             visibility per brand and day, and `top_domains` and `top_pages` the sites and pages the engines cited most.
             `answers` is the denominator of every share. `branded` picks the checks: `all` (default), `branded` (the
             prompt names the brand) or `non_branded`; prefer `non_branded` to judge visibility. Use it to answer "who is
