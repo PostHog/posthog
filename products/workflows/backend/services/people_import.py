@@ -170,6 +170,14 @@ def start_people_import(
 
     try:
         object_storage.write(storage_key, json.dumps(people))
+        # Scheduled before the caller commits, so the stored rows are deleted even when its transaction rolls back
+        # or the dispatch below never runs. A worker that dies mid-task leaves the cohort calculating too, and the
+        # stuck-cohort sweep resets an uploaded cohort only after SOURCELESS_STATIC_COHORT_STUCK_AFTER without
+        # deleting the rows.
+        fail_people_import_if_stalled.apply_async(
+            kwargs={"team_id": team.id, "cohort_id": target_id, "storage_key": storage_key},
+            countdown=int(STALLED_IMPORT_AFTER.total_seconds()),
+        )
     except Exception:
         fail_people_import(team.id, target_id, storage_key)
         raise
@@ -180,13 +188,6 @@ def start_people_import(
                 capture_people_import.delay(team_id=team.id, cohort_id=target_id, storage_key=storage_key)
             else:
                 schedule_people_import_fill(team_id=team.id, cohort_id=target_id, storage_key=storage_key)
-            # A worker that dies mid-task, or a task that can't schedule the next one, leaves the cohort calculating.
-            # The stuck-cohort sweep resets an uploaded cohort only after SOURCELESS_STATIC_COHORT_STUCK_AFTER. The
-            # sweep does not delete the stored rows. This check ends the import sooner and deletes them.
-            fail_people_import_if_stalled.apply_async(
-                kwargs={"team_id": team.id, "cohort_id": target_id, "storage_key": storage_key},
-                countdown=int(STALLED_IMPORT_AFTER.total_seconds()),
-            )
         except Exception:
             # No task would finish this cohort. The stuck-cohort sweep would leave it calculating until
             # SOURCELESS_STATIC_COHORT_STUCK_AFTER passes.

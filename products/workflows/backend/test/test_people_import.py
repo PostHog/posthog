@@ -136,14 +136,15 @@ class TestPeopleImport(_StorageMixin, ClickhouseTestMixin, BaseTest):
         cohort.refresh_from_db()
         assert cohort.is_calculating
 
-    def test_a_rolled_back_caller_sends_no_events(self) -> None:
+    def test_a_rolled_back_caller_sends_no_events_and_still_cleans_up(self) -> None:
         with self.captureOnCommitCallbacks(execute=True), self.assertRaises(RuntimeError):
             with transaction.atomic():
                 start_people_import(team=self.team, user=self.user, name="List", rows=[{"email": "a@example.com"}])
                 raise RuntimeError("a later list failed")
 
         self.dispatch.assert_not_called()
-        self.stall_check.assert_not_called()
+        # The stall check deletes the stored rows once the hour is up, because nothing else will.
+        assert self.stall_check.call_args.kwargs["countdown"] == 3600
 
     @parameterized.expand(
         [
