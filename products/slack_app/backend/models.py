@@ -314,6 +314,8 @@ class SlackDailyFocus(TeamScopedRootMixin, UUIDModel):
     next_run_at = models.DateTimeField(null=True, blank=True)
     # The next run reads the messages sent after it, and a changed time never adds a second run on its day.
     last_run_at = models.DateTimeField(null=True, blank=True)
+    # Set before a run's DM goes out. A retry of that run sends nothing when it is at or after last_run_at.
+    sent_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

@@ -4,15 +4,12 @@ import { LemonButton, LemonInput, LemonModal, LemonTextArea } from '@posthog/lem
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
+import {
+    RELATIONSHIP_PROPOSAL_FIELDS,
+    RELATIONSHIP_PROPOSAL_REASONING_LABEL,
+    proposalDisabledReason,
+} from '../relationshipProposalFields'
 import { relationshipsLogic } from '../relationshipsLogic'
-
-const FIELDS = [
-    ['source_table_name', 'Source table'],
-    ['source_table_key', 'Source key'],
-    ['joining_table_name', 'Related table'],
-    ['joining_table_key', 'Related key'],
-    ['field_name', 'Relationship name'],
-] as const
 
 export function RelationshipProposalModal(): JSX.Element {
     const { proposalOpen, proposalDraft: draft, proposing } = useValues(relationshipsLogic)
@@ -28,11 +25,7 @@ export function RelationshipProposalModal(): JSX.Element {
                     data-attr="data-catalog-propose-relationship"
                     onClick={proposeRelationship}
                     loading={proposing}
-                    disabledReason={
-                        FIELDS.some(([key]) => !draft[key].trim())
-                            ? 'Fill in both tables, keys, and a relationship name'
-                            : undefined
-                    }
+                    disabledReason={proposalDisabledReason(draft)}
                 >
                     Send for review
                 </LemonButton>
@@ -40,7 +33,7 @@ export function RelationshipProposalModal(): JSX.Element {
         >
             <p>A catalog reviewer must accept this proposal before it becomes a join available to worksheets.</p>
             <div className="flex flex-col gap-3">
-                {FIELDS.map(([key, label]) => (
+                {RELATIONSHIP_PROPOSAL_FIELDS.map(([key, label]) => (
                     <LemonField.Pure key={key} label={label}>
                         <LemonInput
                             aria-label={label}
@@ -51,9 +44,9 @@ export function RelationshipProposalModal(): JSX.Element {
                         />
                     </LemonField.Pure>
                 ))}
-                <LemonField.Pure label="Why should these tables be related?">
+                <LemonField.Pure label={RELATIONSHIP_PROPOSAL_REASONING_LABEL}>
                     <LemonTextArea
-                        aria-label="Why should these tables be related?"
+                        aria-label={RELATIONSHIP_PROPOSAL_REASONING_LABEL}
                         value={draft.reasoning ?? ''}
                         disabled={proposing}
                         onChange={(reasoning) => setProposalDraft({ reasoning })}

@@ -108,6 +108,96 @@ class TestPagination:
         assert result.requests[0].param("page") == "1"
 
 
+class TestFanout:
+    def test_child_pages_walk_per_parent_and_carry_parent_id(self) -> None:
+        result = _run(
+            "coupons",
+            [
+                _response([{"id": 7}, {"id": 8}], total_pages=1),  # parent: promotions
+                _response([{"id": 1, "code": "A"}], total_pages=2),  # coupons for promotion 7, page 1
+                _response([{"id": 2, "code": "B"}], total_pages=2),  # coupons for promotion 7, page 2
+                _response([{"id": 3, "code": "C"}], total_pages=1),  # coupons for promotion 8
+            ],
+        )
+
+        assert result.raised is None
+        assert result.rows == [
+            {"id": 1, "code": "A", "promotion_id": 7},
+            {"id": 2, "code": "B", "promotion_id": 7},
+            {"id": 3, "code": "C", "promotion_id": 8},
+        ]
+        assert result.paths == [
+            "/api/public/v1/promotions",
+            "/api/public/v1/coupons",
+            "/api/public/v1/coupons",
+            "/api/public/v1/coupons",
+        ]
+        assert result.params("promotion_id") == [None, "7", "7", "8"]
+        assert result.params("page") == ["1", "1", "2", "1"]
+
+    def test_chapters_take_course_id_from_parent(self) -> None:
+        result = _run(
+            "chapters",
+            [
+                _response([{"id": 11}], total_pages=1),
+                _response([{"id": 5, "name": "Intro"}], total_pages=1),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.rows == [{"id": 5, "name": "Intro", "course_id": 11}]
+        assert result.paths == ["/api/public/v1/courses", "/api/public/v1/courses/11/chapters"]
+
+    @parameterized.expand(
+        [
+            ("missing", {"id": 12}),
+            ("null", {"id": 12, "chapter_ids": None}),
+            ("empty", {"id": 12, "chapter_ids": []}),
+        ]
+    )
+    def test_contents_fan_out_over_each_course_chapter(self, _name: str, course_without_chapters: dict) -> None:
+        result = _run(
+            "contents",
+            [
+                _response([{"id": 11, "chapter_ids": [101, 102]}, course_without_chapters], total_pages=1),
+                _response([{"id": 1, "chapter_id": 101}], total_pages=1),
+                _response([{"id": 2, "chapter_id": 102}], total_pages=1),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.rows == [
+            {"id": 1, "chapter_id": 101, "course_id": 11},
+            {"id": 2, "chapter_id": 102, "course_id": 11},
+        ]
+        # A course with no chapters makes no contents request.
+        assert result.paths == [
+            "/api/public/v1/courses",
+            "/api/public/v1/chapters/101/contents",
+            "/api/public/v1/chapters/102/contents",
+        ]
+
+    def test_resume_skips_completed_parents(self) -> None:
+        result = _run(
+            "course_reviews",
+            [
+                _response([{"id": 11}, {"id": 22}], total_pages=1),
+                _response([{"id": 2, "course_id": 22, "rating": 4}], total_pages=1),
+            ],
+            resume_state=ThinkificResumeConfig(completed=["/course_reviews?course_id=11"]),
+        )
+
+        assert result.raised is None
+        assert result.rows == [{"id": 2, "course_id": 22, "rating": 4}]
+        assert result.params("course_id") == [None, "22"]
+
+    def test_fanout_session_keeps_bodies_out_of_sample_capture(self) -> None:
+        result = _run("course_reviews", [_response([])])
+
+        assert result.session_options[0]["capture"] is False
+        assert result.session_options[0]["allow_redirects"] is False
+
+
 class TestIncrementalFilter:
     @parameterized.expand(
         [
@@ -150,7 +240,7 @@ class TestErrorHandling:
 
 
 class TestSourceResponse:
-    @parameterized.expand([("enrollments",), ("users",)])
+    @parameterized.expand([("enrollments",), ("users",), ("coupons",), ("course_reviews",)])
     def test_partitioned_endpoint_partitions_by_created_at(self, endpoint: str) -> None:
         resp = _run(endpoint, [_response([])]).response
 
@@ -164,7 +254,7 @@ class TestSourceResponse:
         resp = _run(endpoint, [_response([])]).response
 
         assert resp is not None
-        assert resp.primary_keys == ["id"]
+        assert resp.primary_keys == THINKIFIC_ENDPOINTS[endpoint].primary_keys
         assert callable(resp.items)
 
 

@@ -92,6 +92,7 @@ import {
 import { FeatureFlagDeletedBanner } from 'products/feature_flags/frontend/FeatureFlagDeletedBanner'
 import { FeatureFlagDeletedCohortBanner } from 'products/feature_flags/frontend/FeatureFlagDeletedCohortBanner'
 import { FeatureFlagStaleBanner } from 'products/feature_flags/frontend/FeatureFlagStaleBanner'
+import { FeatureFlagRestoreVersionButton } from 'products/feature_flags/frontend/restoreVersion/FeatureFlagRestoreVersionButton'
 import { AGENT_TOOL_APPLY_BACK_CONTEXT_ITEM, useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
 import { featureFlagContextItems } from './featureFlagAiContext'
@@ -378,7 +379,20 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                 label: 'History',
                 key: FeatureFlagsTab.HISTORY,
                 content: (
-                    <>{featureFlag.id && <ActivityLog scope={ActivityScope.FEATURE_FLAG} id={featureFlag.id} />}</>
+                    <>
+                        {featureFlag.id && (
+                            <ActivityLog
+                                scope={ActivityScope.FEATURE_FLAG}
+                                id={featureFlag.id}
+                                renderRowActions={(logItem) => (
+                                    <FeatureFlagRestoreVersionButton
+                                        flagId={featureFlag.id as number}
+                                        logItem={logItem}
+                                    />
+                                )}
+                            />
+                        )}
+                    </>
                 ),
             },
             {

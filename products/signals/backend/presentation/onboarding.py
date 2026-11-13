@@ -153,6 +153,11 @@ class InboxOnboardingStateSerializer(serializers.Serializer):
     github_optional_available = serializers.BooleanField(
         required=False, help_text="Whether this project can activate Self-driving without connecting GitHub."
     )
+    setup_default_skills = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text="Canonical scout skill names that quick setup enables for this project, with the general scout first.",
+    )
     first_report_completion_notification = serializers.BooleanField(
         required=False,
         help_text="Whether the current user can receive an in-app notification when this investigation finishes.",

@@ -306,6 +306,9 @@ CLICKHOUSE_TEST_DB: str = "posthog" + SUFFIX
 CLICKHOUSE_HOST: str = os.getenv("CLICKHOUSE_HOST", "clickhouse")
 CLICKHOUSE_LOGS_HOST: str = os.getenv("CLICKHOUSE_LOGS_HOST", "clickhouse")
 CLICKHOUSE_OFFLINE_CLUSTER_HOST: str | None = os.getenv("CLICKHOUSE_OFFLINE_CLUSTER_HOST", None)
+# Where queries from projects on the native events table connect. Unset keeps them on the hosts above.
+CLICKHOUSE_EVENTS_ONLINE_HOST: str | None = os.getenv("CLICKHOUSE_EVENTS_ONLINE_HOST", None)
+CLICKHOUSE_EVENTS_OFFLINE_HOST: str | None = os.getenv("CLICKHOUSE_EVENTS_OFFLINE_HOST", None)
 # Workload that Workload.DEFAULT resolves to in this process. Celery tasks switch to OFFLINE per task.
 # Temporal workers and Dagster set OFFLINE so background queries are tagged with where they run.
 CLICKHOUSE_DEFAULT_WORKLOAD: str = os.getenv("CLICKHOUSE_DEFAULT_WORKLOAD", "ONLINE")
@@ -498,6 +501,17 @@ if TEST or DEBUG or os.getenv("CLICKHOUSE_OFFLINE_CLUSTER_HOST", None) is None:
     # When testing, there is no offline cluster.
     # Also in EU, there is no offline cluster.
     CLICKHOUSE_OFFLINE_HTTP_URL = CLICKHOUSE_HTTP_URL
+
+CLICKHOUSE_EVENTS_ONLINE_HTTP_URL: str | None = (
+    f"{_clickhouse_http_protocol}{CLICKHOUSE_EVENTS_ONLINE_HOST}:{_clickhouse_http_port}/"
+    if CLICKHOUSE_EVENTS_ONLINE_HOST
+    else None
+)
+CLICKHOUSE_EVENTS_OFFLINE_HTTP_URL: str | None = (
+    f"{_clickhouse_http_protocol}{CLICKHOUSE_EVENTS_OFFLINE_HOST}:{_clickhouse_http_port}/"
+    if CLICKHOUSE_EVENTS_OFFLINE_HOST
+    else None
+)
 
 READONLY_CLICKHOUSE_USER: str | None = os.getenv("READONLY_CLICKHOUSE_USER", None)
 READONLY_CLICKHOUSE_PASSWORD: str | None = os.getenv("READONLY_CLICKHOUSE_PASSWORD", None)
@@ -793,6 +807,13 @@ CACHES["task_artifact_preview"] = {
     "LOCATION": REDIS_URL,
 }
 
+# Destination replay claims must read what they wrote: a replica that still serves an
+# expired or released claim would let a second sender queue the same replay.
+CACHES["cdp_invocation_replay"] = {
+    **CACHES["default"],
+    "LOCATION": REDIS_URL,
+}
+
 # The signup throttle reads its per-IP history, changes it and writes it back under a lock. A lagging
 # replica would hand it a stale history, and the write-back would erase another request's reservation.
 CACHES["signup_throttle"] = {
@@ -810,6 +831,13 @@ CACHES["metrics_variable_options"] = {
 # Warehouse destination connect tokens are polled right after they are written, and completion claims a
 # token with SETNX. A lagging replica would report a fresh token as expired, so read from the writer.
 CACHES["warehouse_destination_connect"] = {
+    **CACHES["default"],
+    "LOCATION": REDIS_URL,
+}
+
+# A PostHog Admin result is read once, right after the operation stores it. A lagging replica would report it
+# as already shown, and a result can hold a password that the control plane returns only once.
+CACHES["admin_console_results"] = {
     **CACHES["default"],
     "LOCATION": REDIS_URL,
 }
@@ -887,10 +915,12 @@ if TEST:
     CACHES["cohort_dependencies"] = CACHES["default"]
     CACHES["ingress_dedup"] = CACHES["default"]
     CACHES["task_artifact_preview"] = CACHES["default"]
+    CACHES["cdp_invocation_replay"] = CACHES["default"]
     CACHES["metrics_variable_options"] = CACHES["default"]
     CACHES["warehouse_destination_connect"] = CACHES["default"]
     CACHES["aeo_prompt_suggestions"] = CACHES["default"]
     CACHES["signup_throttle"] = CACHES["default"]
+    CACHES["admin_console_results"] = CACHES["default"]
 
 # Cache timeout for materialized columns metadata (in seconds)
 MATERIALIZED_COLUMNS_CACHE_TIMEOUT: int = get_from_env("MATERIALIZED_COLUMNS_CACHE_TIMEOUT", 900, type_cast=int)

@@ -5,6 +5,9 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.models import Team
+from posthog.models.integration import Integration
+
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
 from products.workflows.backend.services.ses_tenant_state import (
     PROVIDER_PAUSE_REASON,
@@ -12,6 +15,7 @@ from products.workflows.backend.services.ses_tenant_state import (
     apply_ses_tenant_state,
     sync_ses_tenant_state,
 )
+from products.workflows.backend.tasks.ses_tenant_state import reconcile_ses_tenant_states
 
 
 class TestApplySesTenantState(BaseTest):
@@ -183,3 +187,27 @@ class TestSyncSesTenantState(BaseTest):
 
         provider.get_tenant_reputation.assert_not_called()
         assert not TeamWorkflowsConfig.objects.filter(team_id=self.team.id + 99_999).exists()
+
+
+class TestReconcileSesTenantStates(BaseTest):
+    def test_sweep_reads_every_page_and_syncs_each_ses_team_once(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        third_team = Team.objects.create(organization=self.organization, name="Third")
+        for team, external_id, provider in [
+            (self.team, "a.example.com", "ses"),
+            (other_team, "b.example.com", "ses"),
+            (other_team, "c.example.com", "ses"),
+            (third_team, "d.example.com", "maildev"),
+        ]:
+            Integration.objects.create(
+                team=team, kind="email", integration_id=external_id, config={"provider": provider}
+            )
+
+        with (
+            patch("products.workflows.backend.tasks.ses_tenant_state._RECONCILE_PAGE_SIZE", 1),
+            patch("products.workflows.backend.tasks.ses_tenant_state.SESProvider"),
+            patch("products.workflows.backend.tasks.ses_tenant_state.sync_ses_tenant_state") as sync,
+        ):
+            reconcile_ses_tenant_states()
+
+        assert [call.args[0] for call in sync.call_args_list] == sorted([self.team.id, other_team.id])

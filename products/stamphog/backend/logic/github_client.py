@@ -1201,6 +1201,17 @@ class StamphogGitHubClient:
         Raises on any HTTP, GraphQL, or shape failure. These queries feed an advisory signal, so
         they run on the sheddable BATCH lane.
         """
+        commit = self._repository_graphql(repo, query, variables, timeout=timeout, priority=Priority.BATCH).get(
+            "object"
+        )
+        if not isinstance(commit, dict):
+            raise StamphogGitHubError(f"Commit not found in {repo}")
+        return commit
+
+    def _repository_graphql(
+        self, repo: str, query: str, variables: dict[str, Any], *, timeout: int, priority: Priority
+    ) -> dict:
+        """Run a query against ``repo`` and return the repository's fields, raising on any failure."""
         owner, name = repo.split("/", 1)
         response = self._request(
             "POST",
@@ -1208,7 +1219,7 @@ class StamphogGitHubClient:
             endpoint="/graphql",
             json_body={"query": query, "variables": {"owner": owner, "name": name, **variables}},
             timeout=timeout,
-            priority=Priority.BATCH,
+            priority=priority,
         )
         if response.status_code != 200:
             raise StamphogGitHubError(f"GraphQL request failed on {repo}", status_code=response.status_code)
@@ -1220,10 +1231,10 @@ class StamphogGitHubClient:
             raise GitHubRateLimitError(f"GitHub GraphQL rate limit exceeded on {repo}")
         if not isinstance(data, dict) or errors:
             raise StamphogGitHubError(f"GraphQL errors on {repo}")
-        commit = ((data.get("data") or {}).get("repository") or {}).get("object")
-        if not isinstance(commit, dict):
-            raise StamphogGitHubError(f"Commit not found in {repo}")
-        return commit
+        repository = (data.get("data") or {}).get("repository")
+        if not isinstance(repository, dict):
+            raise StamphogGitHubError(f"Repository not found: {repo}")
+        return repository
 
     def get_blame_ranges(self, repo: str, oid: str, path: str, *, timeout: int) -> list[dict]:
         """The blame ranges of ``path`` at commit ``oid``, as GraphQL returns them."""
@@ -1329,6 +1340,23 @@ class StamphogGitHubClient:
             return RepoPathEntry(kind=kind, text=base64.b64decode(data["content"]).decode("utf-8"))
         except (binascii.Error, UnicodeDecodeError) as exc:
             raise StamphogGitHubError(f"Failed to decode base64 contents for {repo}:{path}") from exc
+
+    def get_default_branch_blob_shas(self, repo: str, paths: list[str]) -> dict[str, str | None]:
+        """The blob sha of each of ``paths`` on the default branch now, None for a path it lacks.
+
+        The paths come from a check run, so they travel as GraphQL variables and never as query
+        text. `object(expression:)` answers null for a missing path. `Commit.file` answers it with
+        a NOT_FOUND error, which would fail the whole request.
+        """
+        declarations = " ".join(f"$p{index}: String!" for index in range(len(paths)))
+        aliases = " ".join(f"p{index}: object(expression: $p{index}) {{ oid }}" for index in range(len(paths)))
+        query = (
+            f"query($owner: String!, $name: String!, {declarations}) "
+            f"{{ repository(owner: $owner, name: $name) {{ {aliases} }} }}"
+        )
+        variables = {f"p{index}": f"HEAD:{path}" for index, path in enumerate(paths)}
+        repository = self._repository_graphql(repo, query, variables, timeout=15, priority=Priority.CRITICAL)
+        return {path: (repository.get(f"p{index}") or {}).get("oid") for index, path in enumerate(paths)}
 
     def get_default_branch_file(self, repo: str, path: str, *, priority: Priority = Priority.CRITICAL) -> str | None:
         """Fetch a file's text from the repo's DEFAULT branch, or ``None`` if it doesn't exist.

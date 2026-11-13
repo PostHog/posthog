@@ -78,7 +78,7 @@ export interface Runtime {
     skipTlsVerification: () => void
     // The MCP server's tool catalog, which `hog api` browses and calls. Loaded on first use: it is large.
     loadApiTools: () => Promise<ApiToolLibrary>
-    // The PostHog agent skills `hog learn` serves. Loaded on first use, like the tool catalog.
+    // The PostHog agent skills `hog skills read` serves. Loaded on first use, like the tool catalog.
     loadSkills: (options: SkillsLibraryOptions) => Promise<SkillsLibrary>
 }
 

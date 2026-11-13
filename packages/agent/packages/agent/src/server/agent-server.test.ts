@@ -22,7 +22,7 @@ import * as localTools from "@posthog/harness/extensions/local-tools";
 import { zipSync } from "fflate";
 import jwt from "jsonwebtoken";
 import { HttpResponse, http } from "msw";
-import { type SetupServerApi, setupServer } from "msw/node";
+import { type SetupServer, setupServer } from "msw/node";
 import {
   afterAll,
   afterEach,
@@ -664,7 +664,7 @@ it.each([
 describe("AgentServer HTTP Mode", () => {
   let repo: TestRepo;
   let server: AgentServer | undefined;
-  let mswServer: SetupServerApi;
+  let mswServer: SetupServer;
   let appendLogCalls: unknown[][];
   let updateTaskRunCalls: unknown[];
   let port: number;
@@ -7779,6 +7779,45 @@ describe("AgentServer HTTP Mode", () => {
         }
         for (const text of shouldNotContain) {
           expect(prompt).not.toContain(text);
+        }
+      },
+    );
+
+    it.each([
+      {
+        mrUrl: undefined,
+        expected: [
+          "git push -u origin <branch>",
+          ".gitlab/merge_request_templates/",
+        ],
+      },
+      {
+        mrUrl: "https://gitlab.com/acme/platform/api/-/merge_requests/7",
+        expected: [
+          'operation "view"',
+          "git remote set-branches --add origin <branch>",
+          "git fetch origin +refs/heads/<branch>:refs/remotes/origin/<branch>",
+          "git checkout -b <branch> --track origin/<branch>",
+        ],
+      },
+    ])(
+      "gives GitLab instructions instead of GitHub ones for a GitLab auto-publish run (mr=$mrUrl)",
+      async ({ mrUrl, expected }) => {
+        vi.stubEnv("POSTHOG_GIT_PROVIDER", "gitlab");
+        vi.stubEnv("POSTHOG_CODE_INTERACTION_ORIGIN", "slack");
+        const s = createServer();
+        await openProduct(s, "slack");
+
+        const prompt = (s as unknown as TestableServer).buildCloudSystemPrompt(
+          mrUrl,
+        );
+
+        expect(prompt).toContain("gitlab_merge_request");
+        for (const text of expected) {
+          expect(prompt).toContain(text);
+        }
+        for (const githubOnly of ["git_signed_commit", "gh pr", "gh_stack"]) {
+          expect(prompt).not.toContain(githubOnly);
         }
       },
     );

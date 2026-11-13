@@ -75,6 +75,12 @@ def linked_user_token(*, slack_user_id: str, slack_team_id: str) -> LinkedUserTo
     return LinkedUserToken(access_token=token, scopes=granted_user_scopes(str((link.config or {}).get("scope") or "")))
 
 
+def linked_search_token(*, slack_user_id: str, slack_team_id: str) -> LinkedUserToken | None:
+    """The link's token when it can search public channels, which the work focus needs. Otherwise None."""
+    token = linked_user_token(slack_user_id=slack_user_id, slack_team_id=slack_team_id)
+    return token if token is not None and "search:read.public" in token.scopes else None
+
+
 def linked_posthog_user_ids(*, slack_user_id: str, slack_team_id: str) -> list[int]:
     """Active PostHog users linked to this Slack identity, most recently linked first.
 
