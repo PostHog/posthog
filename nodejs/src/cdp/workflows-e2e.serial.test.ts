@@ -3548,6 +3548,18 @@ describe('Workflows E2E (email queue)', () => {
             )
         }
 
+        const moveTriggerOffApi = async (flow: HogFlow): Promise<void> => {
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `UPDATE posthog_hogflow SET trigger = $1 WHERE id = $2`,
+                [
+                    JSON.stringify({ type: 'event', filters: { events: [{ id: '$pageview', type: 'events' }] } }),
+                    flow.id,
+                ],
+                'test-change-hog-flow-trigger'
+            )
+        }
+
         const deliver = async (workerDeps: typeof deps = deps, batchSize = hub.CONSUMER_BATCH_SIZE): Promise<void> => {
             emailWorker = new CdpCyclotronWorkerEmail(hub, workerDeps, new CyclotronJobQueuePostgresV2(batchSize, hub))
             await emailWorker.start()
@@ -4044,15 +4056,7 @@ describe('Workflows E2E (email queue)', () => {
             expect(res.status).toEqual(202)
             await optOut(to, optedOutOf)
             if ('triggerChanged' in row) {
-                await hub.postgres.query(
-                    PostgresUse.COMMON_WRITE,
-                    `UPDATE posthog_hogflow SET trigger = $1 WHERE id = $2`,
-                    [
-                        JSON.stringify({ type: 'event', filters: { events: [{ id: '$pageview', type: 'events' }] } }),
-                        flow.id,
-                    ],
-                    'test-change-hog-flow-trigger'
-                )
+                await moveTriggerOffApi(flow)
             }
             if (scheduled) {
                 await sendNow(res.body.invocation_id)
@@ -4177,6 +4181,13 @@ describe('Workflows E2E (email queue)', () => {
             { send: 'send', name: 'a cc', stepEmail: (copy: string) => ({ cc: copy }), skipped: 'copies_not_allowed' },
             {
                 send: 'send',
+                name: 'a cc and a trigger outside the API',
+                stepEmail: (copy: string) => ({ cc: copy }),
+                skipped: 'copies_not_allowed',
+                triggerChanged: true,
+            },
+            {
+                send: 'send',
                 name: 'no unsubscribe link',
                 stepEmail: () => ({ html: '<p>News</p>', text: 'News' }),
                 skipped: 'unsubscribe_link_required',
@@ -4189,7 +4200,7 @@ describe('Workflows E2E (email queue)', () => {
             },
         ])(
             'skips a marketing code $send without its own content whose email step gains $name between the API accepting it and the email worker sending it',
-            async ({ send, stepEmail, skipped }) => {
+            async ({ send, stepEmail, skipped, triggerChanged }) => {
                 const flow = await insertHogFlow(hub.postgres, sendFlow('template', 'transactional'))
                 const to = `reader-${new UUIDT().toString()}@example.com`
                 const copy = `manager-${new UUIDT().toString()}@example.com`
@@ -4203,6 +4214,9 @@ describe('Workflows E2E (email queue)', () => {
                 })
                 expect(res.status).toEqual(202)
                 await changeWorkflowEmail(flow, stepEmail(copy))
+                if (triggerChanged) {
+                    await moveTriggerOffApi(flow)
+                }
                 if (scheduled) {
                     await sendNow(res.body.invocation_id)
                 }
