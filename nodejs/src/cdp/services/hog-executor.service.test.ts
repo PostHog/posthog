@@ -1863,7 +1863,11 @@ describe('Hog Executor', () => {
                 expect(receivedAuth).toContain('AKIDEXAMPLE/20250101/us-east-1/kinesis/aws4_request')
             })
 
-            it.each(['GET', 'HEAD'])('signs the empty body a %s request sends', async (method) => {
+            it.each([
+                ['GET', {}, ''],
+                ['HEAD', {}, ''],
+                ['POST', { hmac_sha256: { secret_input: 'signing_secret', webhook_id: 'delivery-id' } }, '{"a":1}'],
+            ])('signs the %s request exactly as it is sent, with signers %j', async (method, signers, sentBody) => {
                 let received: { headers: Record<string, string>; body: string } | undefined
                 mockRequest.mockImplementation((req: any, res: any) => {
                     let body = ''
@@ -1879,15 +1883,17 @@ describe('Hog Executor', () => {
                     url: `${baseUrl}/`,
                     method,
                     body: '{"a":1}',
-                    headers: { 'Content-Type': 'application/x-amz-json-1.1' },
+                    headers: { 'Content-Type': 'application/x-amz-json-1.1', 'X-Hub-Signature-256': 'sha256=stale' },
                     aws_sigv4: sigv4Refs,
+                    ...signers,
                 })
+                invocation.hogFunction.encrypted_inputs = { signing_secret: { value: 'a-shared-secret' } } as any
                 seedAwsCredentialInputs(invocation)
 
                 const result = await executor.executeFetch(invocation)
 
                 expect(result.error).toBeUndefined()
-                expect(received!.body).toBe('')
+                expect(received!.body).toBe(sentBody)
                 const authorization = received!.headers.authorization
                 // AWS re-signs the request it received. The signer adds host and x-amz-date itself.
                 const signedHeaderNames = /SignedHeaders=([^,]+)/

@@ -476,23 +476,9 @@ export class HogExecutorAsyncService {
             signedHeaders = mergeSecretHeaders(signedHeaders, resolved.headers)
         }
 
-        if (params.aws_sigv4) {
-            const resolved = resolveAwsSigV4Credentials(params.aws_sigv4, invocation.hogFunction)
-            if (!resolved.ok) {
-                return failSigning(resolved.error)
-            }
-            signedHeaders = signAwsRequest({
-                method,
-                url: params.url,
-                body: sentBody,
-                headers: signedHeaders,
-                credentials: resolved.credentials,
-            })
-        }
-
         // Standard Webhooks signatures embed a timestamp the receiver checks
         // against a tolerance window (5 minutes in the reference libraries), so
-        // like AWS SigV4 above they are computed immediately before each attempt
+        // like AWS SigV4 below they are computed immediately before each attempt
         // and never persisted back to queueParameters. The `webhook-id` the
         // receiver dedupes on is the exception: it comes from the queue payload,
         // which the retry path preserves, so it stays constant across attempts.
@@ -519,6 +505,21 @@ export class HogExecutorAsyncService {
                 body: sentBody,
                 headers: signedHeaders,
                 secret: resolved.secret,
+            })
+        }
+
+        // SigV4 covers the headers it is given, so it runs after every signer that sets one.
+        if (params.aws_sigv4) {
+            const resolved = resolveAwsSigV4Credentials(params.aws_sigv4, invocation.hogFunction)
+            if (!resolved.ok) {
+                return failSigning(resolved.error)
+            }
+            signedHeaders = signAwsRequest({
+                method,
+                url: params.url,
+                body: sentBody,
+                headers: signedHeaders,
+                credentials: resolved.credentials,
             })
         }
 
