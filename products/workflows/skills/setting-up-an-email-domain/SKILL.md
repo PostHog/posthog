@@ -45,7 +45,7 @@ Free mailbox domains such as gmail.com are rejected, and so is a domain another 
 
 Check `integrations-list` with `kind=email` first; each sender's `display_name` is its address.
 If a sender with the exact requested address exists, skip to step 3 with its `id`.
-Never create it again: re-creating an existing sender marks it unverified until the next successful verify.
+Never create it again: creating a sender for an address that already has one fails.
 
 ### 2. Create the sender
 

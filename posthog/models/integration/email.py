@@ -322,7 +322,8 @@ class EmailIntegration:
         )
 
     def reject_address_change(self, email_address: str) -> None:
-        if email_address.lower() != self.integration.config.get("email", "").lower():
+        stored_address = self.integration.config.get("email") or self.integration.integration_id
+        if stored_address and email_address.lower() != stored_address.lower():
             raise ValidationError(f"The sender address cannot change. Create a new sender for {email_address} instead.")
 
     def _adopt_mail_from_subdomain_ses_uses(self, stored_mail_from_subdomain: str) -> None:

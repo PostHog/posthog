@@ -39,6 +39,7 @@ TOKEN_AUTHENTICATIONS = ["pak", "oauth"]
 ALL_AUTHENTICATIONS = [*TOKEN_AUTHENTICATIONS, "session"]
 NO_TOKEN_ACCESS = "This action is not available to API keys or OAuth tokens in this project."
 MISSING_WRITE_SCOPE = "API key missing required scope 'integration:write'"
+NO_ADDRESS = object()
 REDIRECT_OUTSIDE_POSTHOG = "redirect_uri must point back to PostHog."
 SHARED_MAIL_FROM = "Other projects send from this domain, so change its MAIL FROM subdomain in PostHog."
 
@@ -481,12 +482,39 @@ class TestEmailSenderScopedAccess(EmailDomainApiTestCase):
                 status.HTTP_200_OK,
             ),
             ("token_cannot_change_the_address", True, "pak", SENDER, f"team@{DOMAIN}", status.HTTP_400_BAD_REQUEST),
+            (
+                "app_with_the_flag_renames_a_sender_stored_without_an_address",
+                True,
+                "session",
+                NO_ADDRESS,
+                SENDER,
+                status.HTTP_200_OK,
+            ),
+            (
+                "app_with_the_flag_renames_a_sender_stored_with_a_null_address",
+                True,
+                "session",
+                None,
+                SENDER,
+                status.HTTP_200_OK,
+            ),
+            (
+                "token_cannot_change_a_sender_stored_without_an_address",
+                True,
+                "pak",
+                NO_ADDRESS,
+                f"team@{DOMAIN}",
+                status.HTTP_400_BAD_REQUEST,
+            ),
         ]
     )
     def test_sender_update_keeps_the_sender_address(
-        self, _name: str, flag: bool, authentication: str, stored_email: str, sent_email: str, expected_status: int
+        self, _name: str, flag: bool, authentication: str, stored_email: object, sent_email: str, expected_status: int
     ) -> None:
-        Integration.objects.filter(id=self.sender).update(config={**self.config(), "email": stored_email})
+        stored_config = {key: value for key, value in self.config().items() if key != "email"}
+        if stored_email is not NO_ADDRESS:
+            stored_config["email"] = stored_email
+        Integration.objects.filter(id=self.sender).update(config=stored_config)
 
         with email_from_code(flag):
             response = self.update_sender({"email": sent_email, "name": "Acme"}, **self.credentials(authentication))
@@ -496,7 +524,7 @@ class TestEmailSenderScopedAccess(EmailDomainApiTestCase):
             assert response.json()["detail"] == (
                 f"The sender address cannot change. Create a new sender for {sent_email} instead."
             )
-        assert self.config()["email"] == stored_email
+        assert self.config().get("email", NO_ADDRESS) == stored_email
         assert self.config()["name"] == ("Acme" if expected_status == status.HTTP_200_OK else "Example")
 
     @parameterized.expand(
