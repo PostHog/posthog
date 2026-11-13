@@ -8,9 +8,12 @@ import { z } from 'zod'
 const definitions: Definitions = {
     ...DEFINITIONS,
     valves: [
-        { name: 'role.kill', params: z.object({}).strict() },
-        { name: 'pg.drop_connections', params: z.object({ share: z.number() }).strict() },
-        { name: 'ses.reject', params: z.object({ type: z.enum(['bounce', 'rejected']), share: z.number() }).strict() },
+        ...DEFINITIONS.valves,
+        {
+            name: 'ses.reject',
+            params: z.object({ type: z.enum(['bounce', 'rejected']), share: z.number() }).strict(),
+            target: z.string(),
+        },
     ],
     invariants: [...DEFINITIONS.invariants, { name: 'bounced_suppressed', params: z.object({}).strict() }],
     measurements: [{ name: 'role_cpu_seconds', params: z.object({}).strict() }],
@@ -107,9 +110,47 @@ describe('load', () => {
         ],
         [
             'a dose its valve refuses',
-            { ...card, valves: [{ ...emailWorkerKill, valve: 'pg.drop_connections', dose: { share: 'all' } }] },
+            {
+                ...card,
+                valves: [
+                    { ...emailWorkerKill, valve: 'pg.drop_connections', target: 'postgres', dose: { share: 'all' } },
+                ],
+            },
             undefined,
             'valves.0.dose.share: ',
+        ],
+        [
+            'a kill aimed at something that is not a role',
+            { ...card, valves: [{ ...emailWorkerKill, target: 'postgres' }] },
+            undefined,
+            'valves.0.target: ',
+        ],
+        [
+            'a destination status aimed at a host the edge does not answer for',
+            {
+                ...card,
+                valves: [
+                    {
+                        ...emailWorkerKill,
+                        valve: 'dest.status',
+                        target: 'api.example.com',
+                        dose: { code: 503, share: 1 },
+                    },
+                ],
+            },
+            undefined,
+            'valves.0.target: ',
+        ],
+        [
+            'running_on_queue on a queue the probe does not count',
+            {
+                ...card,
+                valves: [
+                    { ...emailWorkerKill, when: { name: 'running_on_queue', params: { queue: 'hog', atLeast: 1 } } },
+                ],
+            },
+            undefined,
+            'valves.0.when.params.queue: ',
         ],
         [
             'both at and when',
@@ -197,6 +238,12 @@ describe('load', () => {
             },
             undefined,
             'invariants.1.name: bounced_suppressed needs a ses.reject entry with type bounce',
+        ],
+        [
+            'transactional traffic with no verdict on intake refusals',
+            { ...card, drive: { ...card.drive, traffic: [{ name: 'transactional_email' }] } },
+            { ...profile, traffic: { transactional_email: { ratePerSecond: 2 } } },
+            'invariants: transactional_email counts a unit its intake refused as offered, so the card needs refused_at_intake',
         ],
         [
             'a profile without the traffic a card drives',

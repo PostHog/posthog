@@ -396,6 +396,17 @@ class TestProcessDueSchedules(APIBaseTest):
         assert batch_job.variables == {"greeting": "Hello"}
         mock_dispatch.assert_called_once()
 
+    def test_due_schedule_keeps_the_batch_job_when_dispatch_times_out(self, mock_dispatch):
+        mock_dispatch.side_effect = requests.ReadTimeout()
+        hog_flow, schedule = self._create_workflow_with_schedule(next_run_at=datetime(2020, 1, 1, tzinfo=UTC))
+
+        response = self._post()
+
+        assert response.json()["failed"] == [str(schedule.id)]
+        # The resolver may have been queued before the timeout, so the run and the cap that locks the rate limit stay.
+        batch_job = HogFlowBatchJob.objects.get(hog_flow=hog_flow)
+        assert batch_job.max_audience_size == mock_dispatch.call_args.kwargs["max_audience_size"]
+
     def test_workflow_stopped_after_the_status_check_creates_no_batch_job(self, mock_dispatch):
         hog_flow, _ = self._create_workflow_with_schedule(next_run_at=datetime(2020, 1, 1, tzinfo=UTC))
         real_compute = compute_next_occurrences

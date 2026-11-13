@@ -88,4 +88,19 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "private": "Whether the list is visible only to its owner.",
         },
     },
+    "SearchedPosts": {
+        "description": "Posts from the last 7 days that match the source's search query, newest first. Incremental syncs keep posts older than 7 days, and a full refresh replaces them with the last 7 days only.",
+        "docs_url": "https://docs.x.com/x-api/posts/search-recent-posts",
+        "columns": _POST_COLUMNS,
+    },
+    "ApiUsage": {
+        "description": "Posts the X developer project of the bearer token read each day, per client app, for up to the last 90 days.",
+        "docs_url": "https://docs.x.com/x-api/usage/get-usage",
+        "columns": {
+            "project_id": "Unique identifier of the X developer project.",
+            "client_app_id": "Unique identifier of the client app in the project. Empty when X does not name one.",
+            "date": "The day the usage was counted for.",
+            "usage": "Number of posts the client app read on this day.",
+        },
+    },
 }

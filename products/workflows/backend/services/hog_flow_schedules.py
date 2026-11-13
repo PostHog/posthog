@@ -281,6 +281,7 @@ def process_due_schedules() -> ProcessedSchedules:
                 dispatch.add(scheduled_run)
             if batch_job_params:
                 dispatch.flush()
+                dispatch_error: Exception | None = None
                 with transaction.atomic():
                     # Re-read the status under the flow's lock, so a stop that committed after
                     # the check above wins, and a stop that lands later sees this job.
@@ -290,10 +291,16 @@ def process_due_schedules() -> ProcessedSchedules:
                         .exists()
                     )
                     if still_active:
-                        HogFlowBatchJob.objects.create(
-                            **batch_job_params,
-                            status=HogFlowBatchJob.State.QUEUED,
-                        )
+                        try:
+                            HogFlowBatchJob.objects.create(
+                                **batch_job_params,
+                                status=HogFlowBatchJob.State.QUEUED,
+                            )
+                        except Exception as e:
+                            # Keep the job and its recorded cap: a failed dispatch may still have queued the resolver.
+                            dispatch_error = e
+                if dispatch_error is not None:
+                    raise dispatch_error
                 if still_active:
                     processed.append(str(schedule_id))
         except Exception:

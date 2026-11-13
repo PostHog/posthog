@@ -4,10 +4,12 @@ import { useState } from 'react'
 import { IconPlus } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSelect, LemonSkeleton, LemonTextArea } from '@posthog/lemon-ui'
 
-import { DeliveryTargetsConfig, GUIDANCE_PLACEHOLDER } from '../components/EvaluationReportConfig'
+import { DeliveryTargetsConfig } from '../components/DeliveryTargetsConfig'
 import { WEEKDAY_OPTIONS, evaluationReportLogic } from '../evaluationReportLogic'
 import { llmEvaluationLogic } from '../llmEvaluationLogic'
 import { reportsUnavailableReason } from './evaluationSummary'
+
+const GUIDANCE_PLACEHOLDER = 'For example: focus on cost changes between models, and keep it to 2 sections.'
 
 type Cadence = 'every_n' | 'daily' | 'weekly'
 

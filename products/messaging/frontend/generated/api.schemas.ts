@@ -178,7 +178,7 @@ export interface EmailAttachmentApi {
      */
     filename: string
     /**
-     * MIME type of the file, such as `application/pdf`. Without it, the type follows from the file name.
+     * MIME type of the file, such as `application/pdf`, with any parameters, such as `text/calendar; charset=utf-8; method=REQUEST`. Without it, the type follows from the file name. A `name` parameter is refused, because the file name comes from `filename`.
      * @maxLength 78
      */
     content_type?: string
@@ -245,11 +245,35 @@ export interface SendEmailApi {
     from?: string
 }
 
+/**
+ * * `sandbox_sender` - Sent from the sandbox sender
+ */
+export type SendWarningCodeEnumApi = (typeof SendWarningCodeEnumApi)[keyof typeof SendWarningCodeEnumApi]
+
+export const SendWarningCodeEnumApi = {
+    SandboxSender: 'sandbox_sender',
+} as const
+
+export interface SendWarningApi {
+    /** What the warning is about. `sandbox_sender`: the email went out from PostHog's sandbox sender because the project has no verified sending domain, so it only reaches members of the organization.
+     *
+     * * `sandbox_sender` - Sent from the sandbox sender */
+    code: SendWarningCodeEnumApi
+    /** What happened and what to do next, in words a person can read. */
+    message: string
+    /** Absolute URL of the page where the project verifies a sending domain: the page of its unverified sender when it has one, otherwise the page that adds a new one. */
+    setup_url: string
+    /** The next step for an AI agent that made the send: what to tell the user, and which PostHog MCP tool starts the domain setup. */
+    agent_action: string
+}
+
 export interface SendTransactionalEmailResponseApi {
     /** ID of the queued send. Delivery and engagement are reported against the template asynchronously. */
     message_id: string
     /** True when an earlier request with the same `Idempotency-Key` already queued this email. No new email was sent, and `message_id` is the earlier send's ID. */
     replayed: boolean
+    /** Things the caller should act on although the email was queued. Left out when there are none. */
+    warnings?: SendWarningApi[]
 }
 
 /**
@@ -971,6 +995,8 @@ export interface UserBasicApi {
 }
 
 export interface MessageTemplateApi {
+    /** Project folder for the new email template. */
+    _create_in_folder?: string
     readonly id: string
     /**
      * Human-readable template name shown in the library.
@@ -1025,6 +1051,8 @@ export interface PaginatedMessageTemplateListApi {
 }
 
 export interface PatchedMessageTemplateApi {
+    /** Project folder for the new email template. */
+    _create_in_folder?: string
     readonly id?: string
     /**
      * Human-readable template name shown in the library.
@@ -1133,6 +1161,14 @@ export interface MakeTransactionalApi {
      * @nullable
      */
     from_integration_id?: number | null
+}
+
+export interface MessageTemplatePlacementApi {
+    /**
+     * Project tree path of the template's own file, such as 'Campaigns/Welcome'. Null when the template has no file.
+     * @nullable
+     */
+    path: string | null
 }
 
 /**
