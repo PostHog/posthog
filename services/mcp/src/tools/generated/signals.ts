@@ -3172,24 +3172,6 @@ const scoutTrialStart = (): ToolBase<ReturnType<typeof ScoutTrialStartSchema>, u
     },
 })
 
-const SelfDrivingActivationPreviewSchema = () => z.object({})
-
-const selfDrivingActivationPreview = (): ToolBase<
-    ReturnType<typeof SelfDrivingActivationPreviewSchema>,
-    Schemas.QuickActivationPlan
-> => ({
-    name: 'self-driving-activation-preview',
-    schema: SelfDrivingActivationPreviewSchema(),
-    handler: async (context: Context, _params: z.infer<ReturnType<typeof SelfDrivingActivationPreviewSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.QuickActivationPlan>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/onboarding/quick_activation/`,
-        })
-        return result
-    },
-})
-
 const SelfDrivingActivateSchema = () => {
     const SignalsOnboardingQuickActivationCreateBody = orvalSchemas.SignalsOnboardingQuickActivationCreateBody()
     return SignalsOnboardingQuickActivationCreateBody.extend({
@@ -3259,6 +3241,24 @@ const selfDrivingActivateExecute = (): ToolBase<
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/onboarding/quick_activation/`,
             body,
+        })
+        return result
+    },
+})
+
+const SelfDrivingActivationPreviewSchema = () => z.object({})
+
+const selfDrivingActivationPreview = (): ToolBase<
+    ReturnType<typeof SelfDrivingActivationPreviewSchema>,
+    Schemas.QuickActivationPlan
+> => ({
+    name: 'self-driving-activation-preview',
+    schema: SelfDrivingActivationPreviewSchema(),
+    handler: async (context: Context, _params: z.infer<ReturnType<typeof SelfDrivingActivationPreviewSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.QuickActivationPlan>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/onboarding/quick_activation/`,
         })
         return result
     },
@@ -4124,9 +4124,9 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'scout-trial-resume': scoutTrialResume,
     'scout-trial-setup': scoutTrialSetup,
     'scout-trial-start': scoutTrialStart,
-    'self-driving-activation-preview': selfDrivingActivationPreview,
     'self-driving-activate-prepare': selfDrivingActivatePrepare,
     'self-driving-activate-execute': selfDrivingActivateExecute,
+    'self-driving-activation-preview': selfDrivingActivationPreview,
     'self-driving-status-get': selfDrivingStatusGet,
     'signals-scout-config-create': signalsScoutConfigCreate,
     'signals-scout-config-delete': signalsScoutConfigDelete,
