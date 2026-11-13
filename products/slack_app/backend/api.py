@@ -6119,11 +6119,11 @@ def _handle_signals_report_state_click(payload: dict) -> HttpResponse:
         return HttpResponse(status=200)
 
     if action_id == SIGNALS_REMOVE_REVIEWER_ACTION_ID:
-        outcome = remove_reviewer_from_slack(report_team_id, str(report_id), user_id=org_member.id)
+        removal = remove_reviewer_from_slack(report_team_id, str(report_id), user_id=org_member.id)
         # Only the clicker stepped off, so the buttons stay for everyone else and only they see the outcome.
         inbox_interactivity.post_response_url(
             payload.get("response_url", ""),
-            {"response_type": "ephemeral", "replace_original": False, "text": _REMOVE_REVIEWER_FEEDBACK[outcome]},
+            {"response_type": "ephemeral", "replace_original": False, "text": _REMOVE_REVIEWER_FEEDBACK[removal]},
         )
         return HttpResponse(status=200)
 

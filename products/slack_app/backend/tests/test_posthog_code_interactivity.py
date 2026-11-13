@@ -662,6 +662,7 @@ class TestSignalsDismissReport(TestCase):
             .first()
         )
         if on_report:
+            assert latest is not None
             assert [e.get("user_uuid") for e in json.loads(latest.content)] == expected_left
         sent = mock_requests_post.call_args.kwargs["json"]
         assert sent == {"response_type": "ephemeral", "replace_original": False, "text": expected_text}
