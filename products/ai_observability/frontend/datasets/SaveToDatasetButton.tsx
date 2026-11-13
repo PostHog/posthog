@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import React, { useMemo } from 'react'
+import React from 'react'
 
 import { IconDatabase, IconExternal, IconPencil } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDivider, LemonDropdown, LemonInput, LemonSkeleton } from '@posthog/lemon-ui'
@@ -9,57 +9,28 @@ import { LemonBanner, LemonButton, LemonDivider, LemonDropdown, LemonInput, Lemo
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { toAccessControlLevel } from 'lib/utils/accessControlUtils'
-import { isObject } from 'lib/utils/guards'
 import { urls } from 'scenes/urls'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import type { DatasetItemCreateApi } from '../generated/api.schemas'
 import { DatasetItemModal } from './DatasetItemModal'
 import { type StepReadFailure, saveToDatasetButtonLogic } from './saveToDatasetButtonLogic'
 import type { TraceStep } from './traceStepDatasetItem'
 import { useKeyboardNavigation } from './useKeyboardNavigation'
-import { normalizeJsonValue } from './utils'
 
-export interface SaveToDatasetButtonContentProps {
-    traceId: string
-    timestamp: string
-    sourceId: string
-    input?: unknown
-    output?: unknown
-    metadata?: unknown
+export interface SaveToDatasetButtonProps {
+    step: TraceStep
 }
-
-export type SaveToDatasetButtonProps = SaveToDatasetButtonContentProps | { step: TraceStep }
 
 const STEP_READ_FAILURE_MESSAGES: Record<StepReadFailure, string> = {
     error: "Couldn't load this step.",
     not_found: 'This step no longer exists.',
 }
 
-export const SaveToDatasetButton = React.memo(function SaveToDatasetButton(
-    props: SaveToDatasetButtonProps
-): JSX.Element {
-    const step = 'step' in props ? props.step : null
-    const content: Partial<SaveToDatasetButtonContentProps> = 'step' in props ? {} : props
-    const { traceId, timestamp, sourceId, input, output, metadata } = content
-    const isStepMode = step !== null
-    const partialDatasetItem: Partial<DatasetItemCreateApi> | null = useMemo(
-        () =>
-            isStepMode
-                ? null
-                : {
-                      client_item_id: sourceId,
-                      source_trace_id: traceId,
-                      source_timestamp: timestamp,
-                      source_event_id: sourceId,
-                      input: normalizeJsonValue(input ?? {}, {}) ?? {},
-                      source_output: normalizeJsonValue(output, null),
-                      metadata: toMetadataObject(metadata),
-                  },
-        [isStepMode, traceId, timestamp, sourceId, input, output, metadata]
-    )
-    const logic = saveToDatasetButtonLogic({ partialDatasetItem, step })
+export const SaveToDatasetButton = React.memo(function SaveToDatasetButton({
+    step,
+}: SaveToDatasetButtonProps): JSX.Element {
+    const logic = saveToDatasetButtonLogic({ step })
 
     const { dropdownVisible, isModalOpen, selectedDataset, isModalMounted, modalItem } = useValues(logic)
     const { setEditMode, setDropdownVisible, closeItemModal } = useActions(logic)
@@ -105,7 +76,7 @@ export const SaveToDatasetButton = React.memo(function SaveToDatasetButton(
                     isOpen={isModalOpen}
                     onClose={closeItemModal}
                     datasetId={selectedDataset.id}
-                    partialDatasetItem={'step' in props ? modalItem : partialDatasetItem}
+                    partialDatasetItem={modalItem}
                     title={`New dataset item for ${selectedDataset.name}`}
                 />
             )}
@@ -248,16 +219,4 @@ function OverlayMenu(): JSX.Element {
             </LemonButton>
         </Form>
     )
-}
-
-function toMetadataObject(metadata: unknown): Record<string, unknown> {
-    if (metadata === null || metadata === undefined) {
-        return {}
-    }
-
-    if (isObject(metadata) && !Array.isArray(metadata)) {
-        return metadata
-    }
-
-    return { value: metadata }
 }
