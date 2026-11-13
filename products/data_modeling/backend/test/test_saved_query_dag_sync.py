@@ -364,8 +364,7 @@ class TestSyncSavedQueryToDag(BaseTest):
     @parameterized.expand(
         [
             ("read_under_models_root", "models.revenue", NodeType.VIEW),
-            # the bare name reads the table, so the table is the parent
-            ("read_by_bare_name", "revenue", NodeType.TABLE),
+            ("the_bare_name_still_reads_the_table", "revenue", NodeType.TABLE),
         ]
     )
     def test_a_model_parent_survives_a_same_named_warehouse_table(self, _name: str, reference: str, parent_type: str):
