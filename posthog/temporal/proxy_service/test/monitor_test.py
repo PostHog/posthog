@@ -1,8 +1,9 @@
 import ipaddress
+from urllib.parse import urlparse
 
 import pytest
 import time_machine
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import MagicMock, Mock, call, patch
 
 from django.test import SimpleTestCase, TestCase
 
@@ -10,6 +11,7 @@ import requests
 from parameterized import parameterized
 
 from posthog.models import Organization, ProxyRecord
+from posthog.security.pinned_requests import SSRFBlockedError
 from posthog.security.url_validation import PinnedUrlVerdict
 from posthog.temporal.proxy_service.cloudflare import (
     CustomHostname,
@@ -18,11 +20,46 @@ from posthog.temporal.proxy_service.cloudflare import (
     CustomHostnameStatus,
 )
 from posthog.temporal.proxy_service.monitor import (
+    CAPTURE_V1_PROBE_TIMEOUT_S,
     PROXY_LIVE_CHECK_TIMEOUT_S,
     CheckActivityInput,
     _check_cloudflare_certificate_status,
     check_proxy_is_live,
 )
+
+
+def _capture_v1_rejection() -> Mock:
+    return Mock(status_code=400, json=Mock(return_value={"error": "missing_required_headers"}))
+
+
+def _non_capture_response(status_code: int) -> Mock:
+    return Mock(status_code=status_code, json=Mock(side_effect=ValueError("not JSON")))
+
+
+def _respond_by_path(v0: object, analytics: object = None, ai: object = None):
+    """A `pinned_request` side effect keyed by path, since the two v1 probes run in parallel."""
+    by_path = {
+        "/i/v0/e/": v0,
+        "/i/v1/analytics/events": analytics or _capture_v1_rejection(),
+        "/i/v1/ai/events": ai or _capture_v1_rejection(),
+    }
+
+    def respond(_method: str, url: str, **_kwargs):
+        outcome = by_path[urlparse(url).path]
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+    return respond
+
+
+def _serve_cert(mock_ssl_context: Mock, not_after: str) -> None:
+    mock_socket = Mock()
+    mock_socket.getpeercert.return_value = {"notAfter": not_after}
+    mock_wrapped_socket = Mock()
+    mock_wrapped_socket.__enter__ = Mock(return_value=mock_socket)
+    mock_wrapped_socket.__exit__ = Mock(return_value=None)
+    mock_ssl_context.return_value.wrap_socket.return_value = mock_wrapped_socket
 
 
 class TestCheckProxyIsLive(TestCase):
@@ -61,7 +98,7 @@ class TestCheckProxyIsLive(TestCase):
         mock_response = Mock()
         mock_response.status_code = 200
         mock_response.raise_for_status.return_value = None
-        mock_post.return_value = mock_response
+        mock_post.side_effect = _respond_by_path(mock_response)
 
         # Mock the raw socket the cert fetch opens so no real network connection is made
         mock_create_connection.return_value = MagicMock()
@@ -83,15 +120,133 @@ class TestCheckProxyIsLive(TestCase):
         # pinned_request carries the security boundary: it validates the host, pins the address it
         # validated, and never follows a redirect (see check_proxy_is_live). timeout stops a
         # malicious domain hanging us.
-        mock_post.assert_called_once_with(
-            "POST",
-            f"https://{self.proxy_record.domain}/i/v0/e/",
-            json={"event": "test", "api_key": "test", "distinct_id": "test"},
-            timeout=PROXY_LIVE_CHECK_TIMEOUT_S,
+        self.assertCountEqual(
+            mock_post.call_args_list,
+            [
+                call(
+                    "POST",
+                    f"https://{self.proxy_record.domain}/i/v0/e/",
+                    json={"event": "test", "api_key": "test", "distinct_id": "test"},
+                    timeout=PROXY_LIVE_CHECK_TIMEOUT_S,
+                ),
+                call(
+                    "POST",
+                    f"https://{self.proxy_record.domain}/i/v1/analytics/events",
+                    headers={"Authorization": "Bearer phc_probe"},
+                    json={},
+                    timeout=CAPTURE_V1_PROBE_TIMEOUT_S,
+                ),
+                call(
+                    "POST",
+                    f"https://{self.proxy_record.domain}/i/v1/ai/events",
+                    headers={"Authorization": "Bearer phc_probe"},
+                    json={},
+                    timeout=CAPTURE_V1_PROBE_TIMEOUT_S,
+                ),
+            ],
         )
 
         self.assertEqual(result.errors, [])
         self.assertEqual(result.warnings, [])
+
+    @parameterized.expand(
+        [
+            (
+                "not_routed",
+                _non_capture_response(404),
+                "Proxy does not forward /i/v1/analytics/events (got 404); v1 SDKs send events there",
+            ),
+            (
+                "redirect",
+                _non_capture_response(301),
+                "Proxy does not forward /i/v1/analytics/events (got 301); v1 SDKs send events there",
+            ),
+            (
+                "blocked_in_front_of_capture",
+                _non_capture_response(403),
+                "Proxy does not forward /i/v1/analytics/events (got 403); v1 SDKs send events there",
+            ),
+            (
+                "deeply_nested_body",
+                Mock(status_code=200, json=Mock(side_effect=RecursionError("too deep"))),
+                "Proxy does not forward /i/v1/analytics/events (got 200); v1 SDKs send events there",
+            ),
+            (
+                "other_json_error",
+                Mock(status_code=401, json=Mock(return_value={"error": "unauthorized"})),
+                "Proxy does not forward /i/v1/analytics/events (got 401); v1 SDKs send events there",
+            ),
+            (
+                "authorization_dropped",
+                Mock(status_code=401, json=Mock(return_value={"error": "missing_authorization"})),
+                "Proxy does not forward /i/v1/analytics/events (got 401); v1 SDKs send events there",
+            ),
+            (
+                "ssrf_blocked",
+                SSRFBlockedError("private address"),
+                "Proxy does not forward /i/v1/analytics/events (SSRFBlockedError); v1 SDKs send events there",
+            ),
+            (
+                "upstream_error",
+                _non_capture_response(502),
+                "Couldn't check whether the proxy forwards /i/v1/analytics/events (got 502). The next daily check tries again.",
+            ),
+            (
+                "connection_error",
+                requests.exceptions.ConnectionError("refused"),
+                "Couldn't check whether the proxy forwards /i/v1/analytics/events (ConnectionError). The next daily check tries again.",
+            ),
+            (
+                "read_timeout",
+                requests.exceptions.ReadTimeout("timed out"),
+                "Couldn't check whether the proxy forwards /i/v1/analytics/events (ReadTimeout). The next daily check tries again.",
+            ),
+        ]
+    )
+    @pytest.mark.asyncio
+    @time_machine.travel("2024-01-16 10:00:00", tick=False)
+    @patch("posthog.temporal.proxy_service.monitor.socket.create_connection")
+    @patch("posthog.temporal.proxy_service.monitor.ssl.create_default_context")
+    @patch("posthog.temporal.proxy_service.monitor.pinned_request")
+    @patch("posthog.temporal.proxy_service.monitor.get_record")
+    async def test_check_proxy_is_live_reports_unrouted_v1_capture_and_still_checks_cert(
+        self, _name, v1_response, expected_warning, mock_get_record, mock_post, mock_ssl_context, mock_create_connection
+    ):
+        mock_get_record.return_value = self.proxy_record
+        mock_post.side_effect = _respond_by_path(
+            Mock(status_code=200, raise_for_status=Mock(return_value=None)), analytics=v1_response
+        )
+        mock_create_connection.return_value = MagicMock()
+        _serve_cert(mock_ssl_context, not_after="Jan 25 10:00:00 2024 GMT")
+
+        result = await check_proxy_is_live(self.input)
+
+        self.assertEqual(result.errors, ["Live proxy certificate is expiring soon"])
+        self.assertEqual(result.warnings, [expected_warning])
+
+    @pytest.mark.asyncio
+    @time_machine.travel("2024-01-16 10:00:00", tick=False)
+    @patch("posthog.temporal.proxy_service.monitor.socket.create_connection")
+    @patch("posthog.temporal.proxy_service.monitor.ssl.create_default_context")
+    @patch("posthog.temporal.proxy_service.monitor.pinned_request")
+    @patch("posthog.temporal.proxy_service.monitor.get_record")
+    async def test_check_proxy_is_live_reports_unrouted_v1_ai_capture(
+        self, mock_get_record, mock_post, mock_ssl_context, mock_create_connection
+    ):
+        mock_get_record.return_value = self.proxy_record
+        mock_post.side_effect = _respond_by_path(
+            Mock(status_code=200, raise_for_status=Mock(return_value=None)), ai=_non_capture_response(404)
+        )
+        mock_create_connection.return_value = MagicMock()
+        _serve_cert(mock_ssl_context, not_after="Feb  5 10:00:00 2024 GMT")
+
+        result = await check_proxy_is_live(self.input)
+
+        self.assertEqual(result.errors, [])
+        self.assertEqual(
+            result.warnings,
+            ["Proxy does not forward /i/v1/ai/events (got 404); v1 SDKs send AI events there"],
+        )
 
     @parameterized.expand(
         [
@@ -167,7 +322,7 @@ class TestCheckProxyIsLive(TestCase):
         self, mock_get_record, mock_post, mock_ssl_context, mock_create_connection, mock_validate
     ):
         mock_get_record.return_value = self.proxy_record
-        mock_post.return_value = Mock(status_code=200, raise_for_status=Mock(return_value=None))
+        mock_post.side_effect = _respond_by_path(Mock(status_code=200, raise_for_status=Mock(return_value=None)))
         mock_validate.return_value = PinnedUrlVerdict(
             allowed=True, reason=None, pinned_ips={ipaddress.ip_address("203.0.113.7")}
         )
@@ -221,7 +376,7 @@ class TestCheckProxyIsLive(TestCase):
         self, mock_get_record, mock_post, mock_create_connection, mock_validate
     ):
         mock_get_record.return_value = self.proxy_record
-        mock_post.return_value = Mock(status_code=200, raise_for_status=Mock(return_value=None))
+        mock_post.side_effect = _respond_by_path(Mock(status_code=200, raise_for_status=Mock(return_value=None)))
         mock_validate.return_value = PinnedUrlVerdict(allowed=False, reason="private address", pinned_ips=set())
 
         result = await check_proxy_is_live(self.input)
@@ -281,7 +436,7 @@ class TestCheckProxyIsLive(TestCase):
         mock_response = Mock()
         mock_response.status_code = 200
         mock_response.raise_for_status.return_value = None
-        mock_post.return_value = mock_response
+        mock_post.side_effect = _respond_by_path(mock_response)
 
         # Mock the raw socket the cert fetch opens so no real network connection is made
         mock_create_connection.return_value = MagicMock()

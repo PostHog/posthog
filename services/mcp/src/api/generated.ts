@@ -7607,6 +7607,7 @@ export namespace Schemas {
       color?: DataColorToken | null;
       customColor?: string | null;
       hidden?: boolean | null;
+      label?: string | null;
     }
 
     export interface ResultCustomizationByPosition {
@@ -10538,6 +10539,17 @@ export namespace Schemas {
       Suppressed: 'suppressed',
     } as const;
 
+    export interface ErrorTrackingIssueTag {
+      /** What the tag means, for a tooltip. */
+      description: string;
+      /** Key of the tag definition. */
+      key: string;
+      /** Short name of the tag. */
+      label: string;
+      /** The tagger that applied the tag: `jev` for AI, `manual` for a person. Issue detail sets it, list results send null. */
+      source?: string | null;
+    }
+
     export interface ErrorTrackingIssue {
       aggregations?: ErrorTrackingIssueAggregations | null;
       assignee?: ErrorTrackingIssueAssignee | null;
@@ -10555,6 +10567,8 @@ export namespace Schemas {
       severity?: ErrorTrackingQueryIssueSeverity | null;
       source?: string | null;
       status: ErrorTrackingIssueStatus;
+      /** The enabled tags that are applied to the issue, on issue list results and issue detail. Null or absent when the project has no enabled tag. */
+      tags?: ErrorTrackingIssueTag[] | null;
     }
 
     export interface Response14 {
@@ -10607,6 +10621,8 @@ export namespace Schemas {
       population: Population;
       severity?: ErrorTrackingQueryIssueSeverity | null;
       status: ErrorTrackingIssueStatus;
+      /** The enabled tags that are applied to the issue, on issue list results and issue detail. Null or absent when the project has no enabled tag. */
+      tags?: ErrorTrackingIssueTag[] | null;
     }
 
     export interface Response15 {
@@ -11814,6 +11830,13 @@ export namespace Schemas {
       webQueryModifiers?: WebAnalyticsQueryModifiers | null;
     }
 
+    export interface ErrorTrackingIssueTagFilter {
+      /** True matches the issues the tag is applied to. False matches every other issue. */
+      applied: boolean;
+      /** Key of the tag definition. */
+      key: string;
+    }
+
     export type ErrorTrackingOrderBy = typeof ErrorTrackingOrderBy[keyof typeof ErrorTrackingOrderBy];
 
 
@@ -11889,6 +11912,8 @@ export namespace Schemas {
       groupTypeIndex?: number | null;
       /** Filter to a specific error tracking issue by ID. */
       issueId?: string | null;
+      /** Filter by whether one issue tag is applied. Ignored when issue tags or this tag are off for the project. */
+      issueTag?: ErrorTrackingIssueTagFilter | null;
       kind?: 'ErrorTrackingQuery';
       limit?: number | null;
       /** Modifiers used when performing the query */
@@ -14238,6 +14263,14 @@ export namespace Schemas {
       InProgress: 'in_progress',
     } as const;
 
+    export interface AirbrakeIssueSignalExtra {
+      project_id: string | null;
+      environment: string | null;
+      notice_total_count: string | null;
+      created_at: string | null;
+      last_notice_at: string | null;
+    }
+
     export interface InsightsThresholdBounds {
       /** Alert fires when the value drops below this number. */
       lower?: number | null;
@@ -15262,6 +15295,23 @@ export namespace Schemas {
       enabled: boolean;
     }
 
+    export interface AlertRouteMatch {
+      /** A route these labels match. */
+      route: AlertRoute;
+      /** The receiver the route sends to. */
+      receiver: AlertReceiver;
+    }
+
+    /**
+     * The alert's labels, by name, such as {"team": "checkout"}. Unsaved labels work too.
+     */
+    export type AlertRouteMatchingRequestLabels = {[key: string]: string};
+
+    export interface AlertRouteMatchingRequest {
+      /** The alert's labels, by name, such as {"team": "checkout"}. Unsaved labels work too. */
+      labels: AlertRouteMatchingRequestLabels;
+    }
+
     export interface AlertRouteWrite {
       /** ID of the receiver this route sends to. */
       receiver_id: string;
@@ -15388,6 +15438,14 @@ export namespace Schemas {
       email_recipient_count: number;
       /** Configured delivery channels that failed to schedule or send. */
       failed_delivery_channels: FailedDeliveryChannelsEnum[];
+    }
+
+    export interface AmazonCloudwatchIncidentSignalExtra {
+      alarm_name: string | null;
+      alarm_kind: string | null;
+      transitions: string | null;
+      first_seen: string | null;
+      last_seen: string | null;
     }
 
     /**
@@ -16500,6 +16558,14 @@ export namespace Schemas {
       snapshots: ApproveSnapshotInput[];
     }
 
+    export type AppsignalIssueSignalExtraKind = typeof AppsignalIssueSignalExtraKind[keyof typeof AppsignalIssueSignalExtraKind] | null;
+
+
+    export const AppsignalIssueSignalExtraKind = {
+      PerformanceIncident: 'performance_incident',
+      AnomalyIncident: 'anomaly_incident',
+    } as const;
+
     export interface AppsignalIssueSignalExtra {
       state: string | null;
       severity: string | null;
@@ -16507,6 +16573,10 @@ export namespace Schemas {
       occurrence_count: string | null;
       created_at: string | null;
       last_occurred_at: string | null;
+      kind?: AppsignalIssueSignalExtraKind;
+      mean_duration_ms?: string | null;
+      alert_state?: string | null;
+      metric_name?: string | null;
     }
 
     export interface ArchiveExperiment {
@@ -22543,6 +22613,15 @@ export namespace Schemas {
       name: string;
     }
 
+    export interface RateLimitedAudience {
+      /** The fastest email sending rate limit that raises the audience limit. A faster rate keeps the normal limit. */
+      max_emails_per_hour: number;
+      /** The most days a rate-limited send may take to reach everyone. */
+      max_days: number;
+      /** The audience limit with a rate limit of max_emails_per_hour. A slower rate allows fewer people. */
+      limit: number;
+    }
+
     export interface BlastRadius {
       /** Number of users matching the filters */
       affected: number;
@@ -22560,12 +22639,40 @@ export namespace Schemas {
       realtime_cohort?: RealtimeCohortStatus | null;
       /** Set when a realtime cohort shares the audience with other conditions. Saving that audience fails: a realtime cohort has to be the only condition. */
       realtime_cohort_with_other_conditions?: RealtimeCohortRef | null;
+      /** Set when an email sending rate limit can raise 'limit'. A send at a slow enough rate leaves part of the project's daily email allowance to its other workflows, so it may reach more people over several days. */
+      rate_limited?: RateLimitedAudience | null;
     }
 
     /**
      * Property filters to apply
      */
     export type BlastRadiusRequestFilters = { [key: string]: unknown };
+
+    /**
+     * * `minute` - minute
+     * * `hour` - hour
+     */
+    export type HogFlowEmailSendingRateLimitPeriodEnum = typeof HogFlowEmailSendingRateLimitPeriodEnum[keyof typeof HogFlowEmailSendingRateLimitPeriodEnum];
+
+
+    export const HogFlowEmailSendingRateLimitPeriodEnum = {
+      Minute: 'minute',
+      Hour: 'hour',
+    } as const;
+
+    export interface HogFlowEmailSendingRateLimit {
+      /**
+         * Maximum number of emails this workflow sends per period.
+         * @minimum 1
+         * @maximum 1000000
+         */
+      count: number;
+      /** Window the count applies to. Sends over the limit are delayed until capacity frees up, not dropped.
+       *
+       * * `minute` - minute
+       * * `hour` - hour */
+      period: HogFlowEmailSendingRateLimitPeriodEnum;
+    }
 
     export interface BlastRadiusRequest {
       /** Property filters to apply */
@@ -22581,6 +22688,8 @@ export namespace Schemas {
       dedupe_key?: DedupeKeyEnum | null;
       /** Whether the workflow contains an email step. The tiered audience limit only applies to email sends; SMS, push, and webhook batches keep the flat limit. Defaults to true. */
       sends_email?: boolean;
+      /** The workflow's email sending rate limit. A slow enough rate raises the email audience limit. The response's rate_limited field says which rates qualify. */
+      email_sending_rate_limit?: HogFlowEmailSendingRateLimit | null;
     }
 
     /**
@@ -38503,7 +38612,7 @@ export namespace Schemas {
     }
 
     export interface DiagnosticCheckResult {
-      /** Stable identifier for the check (e.g. cname, cloudflare, caa, http_challenge, live_event, cert_expiry). */
+      /** Stable identifier for the check (e.g. cname, cloudflare, caa, http_challenge, live_event, capture_v1, cert_expiry). */
       id: string;
       /** Human-readable check name. */
       name: string;
@@ -40630,6 +40739,11 @@ export namespace Schemas {
       readonly emails_sent_last_day: number;
       /** True when these allowances are applied to sends. False while they are only being measured. */
       readonly enforced: boolean;
+      /**
+         * The largest audience a single email batch may reach when its sending rate limit is slow enough. Null when no rate limit raises max_batch_audience.
+         * @nullable
+         */
+      readonly rate_limited_max_batch_audience: number | null;
     }
 
     /**
@@ -43058,6 +43172,17 @@ export namespace Schemas {
       includeBreakdown?: boolean;
     }
 
+    export interface ErrorTrackingIssueTagRead {
+      /** Key of the tag. Pass it as `issueTag.key` to filter the issue list. */
+      key: string;
+      /** Short name of the tag. */
+      label: string;
+      /** What the tag means, for a tooltip. */
+      description: string;
+      /** The tagger that applied the tag: `jev` for AI, `manual` for a person. */
+      source: string;
+    }
+
     /**
      * Read-only serializer for issue contract types returned by the facade.
      */
@@ -43075,6 +43200,8 @@ export namespace Schemas {
       assignee: ErrorTrackingIssueAssigneeRead | null;
       external_issues: ErrorTrackingExternalReferenceResult[];
       cohort: ErrorTrackingIssueCohortRead | null;
+      /** The enabled tags that are applied to the issue. Only issue detail returns it, and only while the project has an enabled tag. */
+      tags?: ErrorTrackingIssueTagRead[];
     }
 
     export interface ErrorTrackingIssueRedirectResponse {
@@ -43187,6 +43314,33 @@ export namespace Schemas {
        * * `disabled` - Disabled
        * * `ai_not_approved` - Ai Not Approved */
       reason: IssueSummaryUnavailableReasonEnum | null;
+    }
+
+    export interface ErrorTrackingIssueTagCorrection {
+      /** Key of the tag. Pass it as `issueTag.key` to filter the issue list. */
+      key: string;
+      /** Short name of the tag. */
+      label: string;
+      /** What the tag means, for a tooltip. */
+      description: string;
+      /** The tagger that applied the tag: `jev` for AI, `manual` for a person. */
+      source: string;
+      /** Whether the tag is applied to the issue after the change. */
+      applied: boolean;
+    }
+
+    export interface ErrorTrackingIssueTagDefinition {
+      /** Key of the tag. Pass it as `issueTag.key` to filter the issue list. */
+      key: string;
+      /** Short name of the tag. */
+      label: string;
+      /** What the tag means, for a tooltip. */
+      description: string;
+    }
+
+    export interface ErrorTrackingIssueTagDefinitionsResponse {
+      /** The tags enabled for the project. Empty while issue tags are off for the project. */
+      results: ErrorTrackingIssueTagDefinition[];
     }
 
     export interface ErrorTrackingIssueValue {
@@ -48702,6 +48856,8 @@ export namespace Schemas {
       remotely_evaluated_calls: number;
       /** The people who got a variant from a call without a flag version that is no local evaluation in a server SDK, from an hour after the start of the window: a bootstrap or the caller's own assignment. With a 0% rollout, 10 or more of them turn `running_but_no_rollout` into `assigned_outside_flag_service`. */
       people_assigned_outside: number;
+      /** Whether the counts leave out the calls that the project's filter for internal and test users excludes, because the experiment applies that filter. */
+      filters_test_accounts: boolean;
     }
 
     export interface ExperimentHealthInputsReaderAccess {
@@ -57228,32 +57384,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `minute` - minute
-     * * `hour` - hour
-     */
-    export type HogFlowEmailSendingRateLimitPeriodEnum = typeof HogFlowEmailSendingRateLimitPeriodEnum[keyof typeof HogFlowEmailSendingRateLimitPeriodEnum];
-
-
-    export const HogFlowEmailSendingRateLimitPeriodEnum = {
-      Minute: 'minute',
-      Hour: 'hour',
-    } as const;
-
-    export interface HogFlowEmailSendingRateLimit {
-      /**
-         * Maximum number of emails this workflow sends per period.
-         * @minimum 1
-         * @maximum 1000000
-         */
-      count: number;
-      /** Window the count applies to. Sends over the limit are delayed until capacity frees up, not dropped.
-       *
-       * * `minute` - minute
-       * * `hour` - hour */
-      period: HogFlowEmailSendingRateLimitPeriodEnum;
-    }
-
-    /**
      * * `continue` - continue
      * * `branch` - branch
      */
@@ -59460,6 +59590,22 @@ export namespace Schemas {
       SearchTerm: 'search_term',
     } as const;
 
+    export type MarketingAnalyticsRecommendationResolutionState = typeof MarketingAnalyticsRecommendationResolutionState[keyof typeof MarketingAnalyticsRecommendationResolutionState];
+
+
+    export const MarketingAnalyticsRecommendationResolutionState = {
+      Dismissed: 'dismissed',
+      Applied: 'applied',
+    } as const;
+
+    export interface MarketingAnalyticsRecommendationResolution {
+      /** The resolution id. Delete it through the resolutions API to show the recommendation again. */
+      id: string;
+      resolution: MarketingAnalyticsRecommendationResolutionState;
+      /** When someone last dismissed the recommendation or marked it as applied, as an ISO 8601 timestamp. */
+      resolved_at: string;
+    }
+
     export interface MarketingAnalyticsRecommendationStep {
       /** Text to paste into Google Ads at this step, such as a campaign name or keywords in match type syntax, one per line. */
       copyValue?: string | null;
@@ -59486,6 +59632,8 @@ export namespace Schemas {
       key: string;
       level: MarketingAnalyticsRecommendationLevel;
       reason: string;
+      /** Set only when the query includes resolved recommendations and someone dismissed this one or marked it as applied. */
+      resolution?: MarketingAnalyticsRecommendationResolution | null;
       rule: MarketingAnalyticsRecommendationRule;
       /** How to apply the recommendation in Google Ads, in order. Empty when the rule has no steps yet. */
       steps?: MarketingAnalyticsRecommendationStep[] | null;
@@ -59561,6 +59709,8 @@ export namespace Schemas {
       /** Resource names of the Google Ads conversion actions that count as conversions, such as `customers/123/conversionActions/456`. Each ad account uses the actions under its own customer ID, and an account with none of them counts its primary actions. Selected actions count every conversion, including secondary actions and conversions outside campaign goals. Omit to count the primary actions only. */
       conversionActions?: string[] | null;
       dateRange?: DateRange | null;
+      /** Also return recommendations that someone in the project dismissed or marked as applied, with their `resolution`. */
+      includeResolved?: boolean | null;
       kind?: 'MarketingAnalyticsRecommendationsQuery';
       /** Modifiers used when performing the query */
       modifiers?: HogQLQueryModifiers | null;
@@ -62975,6 +63125,10 @@ export namespace Schemas {
      * * `vitally_nps` - Vitally NPS
      * * `woocommerce` - WooCommerce
      * * `yotpo` - Yotpo
+     * * `airbrake` - Airbrake
+     * * `amazon_cloudwatch` - Amazon CloudWatch
+     * * `logicmonitor` - LogicMonitor
+     * * `mux` - Mux
      */
     export type SignalSourceProductEnum = typeof SignalSourceProductEnum[keyof typeof SignalSourceProductEnum];
 
@@ -63110,6 +63264,10 @@ export namespace Schemas {
       VitallyNps: 'vitally_nps',
       Woocommerce: 'woocommerce',
       Yotpo: 'yotpo',
+      Airbrake: 'airbrake',
+      AmazonCloudwatch: 'amazon_cloudwatch',
+      Logicmonitor: 'logicmonitor',
+      Mux: 'mux',
     } as const;
 
     /**
@@ -63294,7 +63452,11 @@ export namespace Schemas {
        * * `uservoice_nps` - UserVoice NPS
        * * `vitally_nps` - Vitally NPS
        * * `woocommerce` - WooCommerce
-       * * `yotpo` - Yotpo */
+       * * `yotpo` - Yotpo
+       * * `airbrake` - Airbrake
+       * * `amazon_cloudwatch` - Amazon CloudWatch
+       * * `logicmonitor` - LogicMonitor
+       * * `mux` - Mux */
       source_product: SignalSourceProductEnum;
       /** Signal type selected during setup.
        *
@@ -67339,6 +67501,16 @@ export namespace Schemas {
          * @maxLength 255
          */
       project_name: string;
+    }
+
+    export interface LogicmonitorIncidentSignalExtra {
+      severity: string | null;
+      acked: string | null;
+      monitor_object_name: string | null;
+      datasource: string | null;
+      instance_name: string | null;
+      data_point_name: string | null;
+      start_epoch: string | null;
     }
 
     /**
@@ -73247,6 +73419,14 @@ export namespace Schemas {
       tile: MoveTileTile;
     }
 
+    export interface MuxIssueSignalExtra {
+      error_id: string | null;
+      error_code: string | null;
+      view_count: string | null;
+      view_share: string | null;
+      last_seen_at: string | null;
+    }
+
     export interface MyFlagsResponse {
       feature_flag: MinimalFeatureFlag;
       value: unknown;
@@ -73283,6 +73463,28 @@ export namespace Schemas {
       connect: HoglakeConnect;
       /** The projects you can put in a credential */
       projects: HoglakeProject[];
+    }
+
+    export type NewrelicIssueSignalExtraKindEnum = typeof NewrelicIssueSignalExtraKindEnum[keyof typeof NewrelicIssueSignalExtraKindEnum];
+
+
+    export const NewrelicIssueSignalExtraKindEnum = {
+      AlertIssue: 'alert_issue',
+      JavascriptError: 'javascript_error',
+      TransactionError: 'transaction_error',
+    } as const;
+
+    export interface NewrelicIssueSignalExtra {
+      kind: NewrelicIssueSignalExtraKindEnum;
+      issue_id?: string | null;
+      priority?: string | null;
+      activated_at?: string | null;
+      app_name?: string | null;
+      error_class?: string | null;
+      sample_transaction?: string | null;
+      occurrences?: string | null;
+      first_seen?: string | null;
+      last_seen?: string | null;
     }
 
     export interface NoMatchMetadata {
@@ -88297,6 +88499,16 @@ export namespace Schemas {
     export interface PatchedErrorTrackingIssueAssignRequest {
       /** Assignment target. Set to null or omit to remove the current assignment. */
       assignee?: ErrorTrackingIssueAssigneeWrite | null;
+    }
+
+    export interface PatchedErrorTrackingIssueTagWrite {
+      /**
+         * Key of the tag to apply or remove. The tag definitions endpoint lists the tags enabled for the project.
+         * @maxLength 64
+         */
+      key?: string;
+      /** True applies the tag. False removes it and stops automatic taggers from applying it again. */
+      applied?: boolean;
     }
 
     export interface PatchedErrorTrackingIssueWrite {
@@ -107328,6 +107540,10 @@ export namespace Schemas {
      * * `vitally_nps` - vitally_nps
      * * `woocommerce` - woocommerce
      * * `yotpo` - yotpo
+     * * `airbrake` - airbrake
+     * * `amazon_cloudwatch` - amazon_cloudwatch
+     * * `logicmonitor` - logicmonitor
+     * * `mux` - mux
      */
     export type SignalSourceProduct = typeof SignalSourceProduct[keyof typeof SignalSourceProduct];
 
@@ -107463,6 +107679,10 @@ export namespace Schemas {
       VitallyNps: 'vitally_nps',
       Woocommerce: 'woocommerce',
       Yotpo: 'yotpo',
+      Airbrake: 'airbrake',
+      AmazonCloudwatch: 'amazon_cloudwatch',
+      Logicmonitor: 'logicmonitor',
+      Mux: 'mux',
     } as const;
 
     /**
@@ -107827,7 +108047,7 @@ export namespace Schemas {
       created_at: string | null;
     }
 
-    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | CheckFailedSignalExtra | MonitoringUnresolvedSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | AnalyticsAlertFiringSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | ClickupTaskSignalExtra | WrikeTaskSignalExtra | TrelloCardSignalExtra | BugherdTaskSignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | DatadogSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | UsersnapFeedbackSignalExtra | TypeformFeedbackSignalExtra | QualtricsFeedbackSignalExtra | SurveymonkeyFeedbackSignalExtra | FormbricksFeedbackSignalExtra | SurvicateFeedbackSignalExtra | SurveysparrowFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra | Dynamics365TicketSignalExtra | ZohoCrmTicketSignalExtra | GoogleSearchConsoleSearchOpportunitySignalExtra | HelpscoutConversationSignalExtra | DecagonConversationSignalExtra | VitallyConversationSignalExtra | IntercomTicketsTicketSignalExtra | PylonTicketSignalExtra | PagerdutyIncidentSignalExtra | OpsgenieAlertSignalExtra | IncidentIoIncidentSignalExtra | FirehydrantIncidentSignalExtra | SquadcastIncidentSignalExtra | ServicenowIncidentSignalExtra | SolarwindsServiceDeskIncidentSignalExtra | GrafanaIrmIncidentSignalExtra | XmattersIncidentSignalExtra | LaceworkScannerFindingSignalExtra | OrcaSecurityScannerFindingSignalExtra | TenableVulnerabilityManagementScannerFindingSignalExtra | BetterstackIncidentSignalExtra | AsanaIssueSignalExtra | MondayIssueSignalExtra | PlaneIssueSignalExtra | AzureDevopsIssueSignalExtra | MonteCarloAlertSignalExtra | BigeyeIssueSignalExtra | DynatraceIncidentSignalExtra | StatuspageIncidentSignalExtra | CronitorIncidentSignalExtra | InstatusIncidentSignalExtra | GooglePlayConsoleIssueSignalExtra | AzureApplicationInsightsIssueSignalExtra | AppsignalIssueSignalExtra | CursorIssueSignalExtra | TriggerDevErrorSignalExtra | ChecklyErrorGroupSignalExtra | RoarkIssueSignalExtra | SleekplanFeedbackSignalExtra | BettermodeFeedbackSignalExtra | DiscourseFeedbackSignalExtra | MintlifyFeedbackSignalExtra | LangsmithFeedbackSignalExtra | SprigFeedbackSignalExtra | GainsightPxFeedbackSignalExtra | TrustpilotReviewSignalExtra | OkendoReviewSignalExtra | BeamerFeedbackSignalExtra | BeamerNpsFeedbackSignalExtra | ChameleonFeedbackSignalExtra | FeaturebaseSurveysFeedbackSignalExtra | UservoiceNpsFeedbackSignalExtra | VitallyNpsFeedbackSignalExtra | EtsyReviewSignalExtra | G2ReviewSignalExtra | GumroadReviewSignalExtra | TrustpilotProductReviewsReviewSignalExtra | WoocommerceReviewSignalExtra | YotpoReviewSignalExtra | AwsSecurityHubScannerFindingSignalExtra | AwsGuarddutyScannerFindingSignalExtra | AwsInspectorScannerFindingSignalExtra | MicrosoftDefenderCloudAppsScannerFindingSignalExtra | GithubDependabotScannerFindingSignalExtra | GithubCodeScanningScannerFindingSignalExtra | GithubSecretScanningScannerFindingSignalExtra;
+    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | CheckFailedSignalExtra | MonitoringUnresolvedSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | AnalyticsAlertFiringSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | ClickupTaskSignalExtra | WrikeTaskSignalExtra | TrelloCardSignalExtra | BugherdTaskSignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | DatadogSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | UsersnapFeedbackSignalExtra | TypeformFeedbackSignalExtra | QualtricsFeedbackSignalExtra | SurveymonkeyFeedbackSignalExtra | FormbricksFeedbackSignalExtra | SurvicateFeedbackSignalExtra | SurveysparrowFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra | Dynamics365TicketSignalExtra | ZohoCrmTicketSignalExtra | GoogleSearchConsoleSearchOpportunitySignalExtra | HelpscoutConversationSignalExtra | DecagonConversationSignalExtra | VitallyConversationSignalExtra | IntercomTicketsTicketSignalExtra | PylonTicketSignalExtra | PagerdutyIncidentSignalExtra | OpsgenieAlertSignalExtra | IncidentIoIncidentSignalExtra | FirehydrantIncidentSignalExtra | SquadcastIncidentSignalExtra | ServicenowIncidentSignalExtra | SolarwindsServiceDeskIncidentSignalExtra | GrafanaIrmIncidentSignalExtra | XmattersIncidentSignalExtra | LaceworkScannerFindingSignalExtra | OrcaSecurityScannerFindingSignalExtra | TenableVulnerabilityManagementScannerFindingSignalExtra | BetterstackIncidentSignalExtra | AsanaIssueSignalExtra | MondayIssueSignalExtra | PlaneIssueSignalExtra | AzureDevopsIssueSignalExtra | MonteCarloAlertSignalExtra | BigeyeIssueSignalExtra | DynatraceIncidentSignalExtra | StatuspageIncidentSignalExtra | CronitorIncidentSignalExtra | InstatusIncidentSignalExtra | GooglePlayConsoleIssueSignalExtra | AzureApplicationInsightsIssueSignalExtra | AppsignalIssueSignalExtra | CursorIssueSignalExtra | TriggerDevErrorSignalExtra | ChecklyErrorGroupSignalExtra | RoarkIssueSignalExtra | SleekplanFeedbackSignalExtra | BettermodeFeedbackSignalExtra | DiscourseFeedbackSignalExtra | MintlifyFeedbackSignalExtra | LangsmithFeedbackSignalExtra | SprigFeedbackSignalExtra | GainsightPxFeedbackSignalExtra | TrustpilotReviewSignalExtra | OkendoReviewSignalExtra | BeamerFeedbackSignalExtra | BeamerNpsFeedbackSignalExtra | ChameleonFeedbackSignalExtra | FeaturebaseSurveysFeedbackSignalExtra | UservoiceNpsFeedbackSignalExtra | VitallyNpsFeedbackSignalExtra | EtsyReviewSignalExtra | G2ReviewSignalExtra | GumroadReviewSignalExtra | TrustpilotProductReviewsReviewSignalExtra | WoocommerceReviewSignalExtra | YotpoReviewSignalExtra | AwsSecurityHubScannerFindingSignalExtra | AwsGuarddutyScannerFindingSignalExtra | AwsInspectorScannerFindingSignalExtra | MicrosoftDefenderCloudAppsScannerFindingSignalExtra | GithubDependabotScannerFindingSignalExtra | GithubCodeScanningScannerFindingSignalExtra | GithubSecretScanningScannerFindingSignalExtra | NewrelicIssueSignalExtra | AmazonCloudwatchIncidentSignalExtra | LogicmonitorIncidentSignalExtra | AirbrakeIssueSignalExtra | MuxIssueSignalExtra;
 
     export type SignalMatchMetadata = MatchedMetadata | NoMatchMetadata;
 
@@ -107974,7 +108194,11 @@ export namespace Schemas {
        * * `uservoice_nps` - uservoice_nps
        * * `vitally_nps` - vitally_nps
        * * `woocommerce` - woocommerce
-       * * `yotpo` - yotpo */
+       * * `yotpo` - yotpo
+       * * `airbrake` - airbrake
+       * * `amazon_cloudwatch` - amazon_cloudwatch
+       * * `logicmonitor` - logicmonitor
+       * * `mux` - mux */
       source_product: SignalSourceProduct;
       /** Signal type within the source product.
        *
@@ -141197,7 +141421,7 @@ export namespace Schemas {
 
     export type LlmSkillsSearchRetrieveParams = {
     /**
-     * Case-insensitive substring to search across ordinary skill names, descriptions, bodies, file paths, and Markdown file contents.
+     * Case-insensitive text to search for in ordinary skills. Names, descriptions, and file paths match any substring. Bodies and Markdown file contents match whole words and word prefixes.
      * @minLength 1
      * @maxLength 200
      */
