@@ -47,7 +47,7 @@ function RenderUiContent({
     app: App | null
     openLink: (url: string) => void
 }): JSX.Element {
-    const [data, setData] = useState<unknown>(null)
+    const [loaded, setLoaded] = useState<unknown>(null)
     const [error, setError] = useState<{
         reason: string
         message: string
@@ -60,13 +60,13 @@ function RenderUiContent({
     const toolName = envelope.tool_name
     const appKey = envelope.app_key
     const toolInputJson = JSON.stringify(envelope.tool_input ?? {})
-    const envelopeData = envelope[APP_DATA_META_KEY] ?? null
-    const needsFetch = envelopeData === null
+    const preloaded = envelope[APP_DATA_META_KEY] ?? null
+    const isPreloaded = preloaded !== null
     useEffect(() => {
         capture('mcp_ui_app_render_requested', { rendered_tool_name: toolName, app_key: envelope.app_key })
     }, [toolName, envelope.app_key])
     useEffect(() => {
-        if (!needsFetch) {
+        if (isPreloaded) {
             return
         }
         if (!app) {
@@ -74,7 +74,7 @@ function RenderUiContent({
             return
         }
         let cancelled = false
-        setData(null)
+        setLoaded(null)
         setError(null)
         loadRenderUiData(app, toolName, JSON.parse(toolInputJson) as Record<string, unknown>, appKey, resultMeta)
             .then((result) => {
@@ -85,7 +85,7 @@ function RenderUiContent({
                     setError({ reason: 'tool_error', message: `Could not load data for ${toolName}.` })
                     return
                 }
-                setData(result.structuredContent)
+                setLoaded(result.structuredContent)
             })
             .catch((e: unknown) => {
                 if (!cancelled) {
@@ -102,7 +102,7 @@ function RenderUiContent({
         return () => {
             cancelled = true
         }
-    }, [app, toolName, toolInputJson, appKey, resultMeta, needsFetch])
+    }, [app, toolName, toolInputJson, appKey, resultMeta, isPreloaded])
 
     const render = RENDER_DISPATCH[envelope.app_key]
     const failureReason = render ? error?.reason : 'no_visualization'
@@ -126,11 +126,11 @@ function RenderUiContent({
     if (error) {
         return <AppErrorState message={error.message} />
     }
-    const viewData = envelopeData ?? data
-    if (viewData === null) {
+    const data = preloaded ?? loaded
+    if (data === null) {
         return <AppLoadingState />
     }
-    return render({ data: viewData, app, openLink })
+    return render({ data, app, openLink })
 }
 
 const container = document.getElementById('root')
