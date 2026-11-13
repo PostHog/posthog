@@ -1054,10 +1054,6 @@ _FLAG_CALL_KEY_REASON = (
     'Add an event property filter where "Feature flag" equals one or more flag keys, and filter only on event '
     "properties."
 )
-_FLAG_CALL_REALTIME_REASON = (
-    "Real-time cohorts can't use this event on your organization yet. "
-    "To see who called a flag, open the flag and check its Usage tab."
-)
 _FLAG_CALL_COMPILE_REASON = "PostHog can't calculate this criterion. Check its count and its event property filters."
 _FLAG_CALL_FILTER_REASON = "Use event property filters on this event instead of a SQL expression."
 _FLAG_CALL_SQL_EXPRESSION_REASON = (
@@ -1164,12 +1160,6 @@ def _another_criterions_sql_expression_blocks_swap(candidates: Sequence[Property
 
 def _criteria_counts(properties: Iterable[Property]) -> collections.Counter[str]:
     return collections.Counter(_criteria_key(prop.to_dict()) for prop in properties)
-
-
-def _flag_call_criterion_counts(properties: Iterable[Property]) -> collections.Counter[str]:
-    return _criteria_counts(
-        prop for event, prop in _hidden_event_references(properties) if event == FLAG_EVALUATIONS_SOURCE_EVENT
-    )
 
 
 def _added_unsupported_hidden_event_reference(
@@ -2080,47 +2070,33 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
         # Passing no attrs reads the stored definition. Cohort.properties would rewrite the stored
         # legacy groups in place.
         existing_properties = _flat_properties(self._effective_filters_after_update({}))
+        if mode == FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY and self._edits_cohort_with_realtime_on(attrs, team):
+            # An edit of a cohort with realtime on queues a backfill of every criterion. In this mode cohort-seeder
+            # reads flag calls only from flag_evaluations, and it refuses a run with a criterion that table can't serve.
+            existing_properties = []
         added = _added_unsupported_hidden_event_reference(new_properties, existing_properties, team)
-        if added is None and mode == FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY:
-            added = self._added_realtime_flag_call_criterion(attrs, new_properties, existing_properties, team)
         if added is not None:
             raise ValidationError(
                 {"filters": f"You can't save this criterion on {added.event}. {added.reason}"},
                 code="hidden_event",
             )
 
-    def _added_realtime_flag_call_criterion(
-        self, attrs: dict, new_properties: list[Property], existing_properties: list[Property], team: Team
-    ) -> HiddenEventRefusal | None:
-        """A flag-call criterion that a save puts on a realtime cohort, or None.
-
-        On FLAG_EVALUATIONS_ONLY, events holds no flag calls, and cohort-seeder backfills a realtime cohort from
-        events. A new or edited criterion starts a backfill, and so does a cohort that becomes realtime.
-        """
-        if not self._saves_realtime_cohort(attrs, team):
-            return None
+    def _edits_cohort_with_realtime_on(self, attrs: dict, team: Team) -> bool:
+        # A new cohort turns realtime on through turn_realtime_on, which refuses a cohort the seeder can't backfill.
         instance = cast(Optional[Cohort], self.instance)
-        was_realtime = instance is not None and not instance.is_static and instance.cohort_type == CohortType.REALTIME
-        added = _flag_call_criterion_counts(new_properties)
-        if was_realtime:
-            added -= _flag_call_criterion_counts(existing_properties)
-        if not added:
-            return None
-        return HiddenEventRefusal(event=FLAG_EVALUATIONS_SOURCE_EVENT, reason=_FLAG_CALL_REALTIME_REASON)
-
-    def _saves_realtime_cohort(self, attrs: dict, team: Team) -> bool:
-        # Mirrors how create() and update() set cohort_type.
-        instance = cast(Optional[Cohort], self.instance)
-        if attrs.get("is_static", instance.is_static if instance is not None else False):
+        if instance is None or not instance.realtime_enabled:
+            return False
+        if attrs.get("is_static", instance.is_static):
             return False
         filters = attrs.get("filters")
         if not filters:
-            return instance is not None and instance.cohort_type == CohortType.REALTIME
+            return instance.cohort_type == CohortType.REALTIME
+        # Mirrors how update() sets cohort_type.
         _, cohort_type, _ = validate_filters_and_compute_realtime_support(
             filters,
             team,
-            current_cohort_type=attrs.get("cohort_type", instance.cohort_type if instance is not None else None),
-            cohort_count=instance.count if instance is not None else None,
+            current_cohort_type=attrs.get("cohort_type", instance.cohort_type),
+            cohort_count=instance.count,
         )
         return cohort_type == CohortType.REALTIME
 

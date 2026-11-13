@@ -13,6 +13,8 @@ from django.utils import timezone
 
 import structlog
 
+from products.cohorts.backend.backfill.flag_calls_table import FlagCallsTableUnresolved
+from products.cohorts.backend.backfill.pinning import pin_behavioral_run
 from products.cohorts.backend.backfill.readiness import ensure_filters_shape_hash
 from products.cohorts.backend.backfill.runs import (
     behavioral_backfill_ineligibility_reason,
@@ -135,8 +137,20 @@ def _refuse_unless_it_can_be_ready(cohort: Cohort) -> None:
         raise RealtimeTurnOnRefused(f"{refusal}, because it is deleted.")
     if cohort.cohort_type != CohortType.REALTIME:
         raise RealtimeTurnOnRefused(f"{refusal}, because its criteria aren't supported in realtime.")
-    for kind in cohort._required_backfill_stamps():
-        reason = _INELIGIBILITY_REASON[CohortBackfillKind(kind)](cohort)
+    kinds = [CohortBackfillKind(kind) for kind in cohort._required_backfill_stamps()]
+    for kind in kinds:
+        reason = _INELIGIBILITY_REASON[kind](cohort)
         if reason is not None:
             logger.info("cohort_realtime_turn_on_refused", cohort_id=cohort.id, team_id=cohort.team_id, reason=reason)
             raise RealtimeTurnOnRefused(f"{refusal}, because PostHog can't prepare one of its criteria in realtime.")
+    if CohortBackfillKind.BEHAVIORAL in kinds:
+        # The backfill run pins the same table, so a cohort that fails here would get no run and never be ready.
+        try:
+            pin_behavioral_run([cohort], cohort.team)
+        except FlagCallsTableUnresolved as error:
+            logger.info(
+                "cohort_realtime_turn_on_refused", cohort_id=cohort.id, team_id=cohort.team_id, reason=str(error)
+            )
+            raise RealtimeTurnOnRefused(
+                f"{refusal}, because PostHog can't prepare one of its criteria in realtime."
+            ) from error
