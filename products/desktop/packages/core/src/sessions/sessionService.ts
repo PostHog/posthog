@@ -7130,6 +7130,10 @@ export class SessionService {
         initialMode,
         existing?.taskRunId === taskRunId ? existing.adapter : persistedAdapter,
       );
+      if (existing && existing.taskRunId !== taskRunId) {
+        session.messageQueue = [...existing.messageQueue];
+        session.editingQueuedId = existing.editingQueuedId;
+      }
       this.d.store.setSession(session);
       // Creation supplies the exact prompt before setup logs can arrive.
       // Reopened tasks have no creation seed and must await transcript hydration.
