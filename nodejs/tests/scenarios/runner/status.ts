@@ -1,5 +1,7 @@
+import type { RoleExit } from '../environment/supervisor'
 import type { DriveSummary } from '../generator/generator'
 import type { Convergence, InvariantResult } from '../judge/judge'
+import type { ValveTimelineEntry } from '../valves/valves'
 
 export type Status = 'passed' | 'failed' | 'invalid'
 
@@ -15,9 +17,24 @@ export type Verdict = {
     down: string[]
     convergence: Convergence
     invariants: InvariantResult[]
+    timeline: ValveTimelineEntry[]
+    exits: RoleExit[]
 }
 
-export function statusOf({ minOffered, units, down, convergence, invariants }: Verdict): {
+const appliedDuring = (entry: ValveTimelineEntry, at: string): boolean =>
+    entry.appliedAt !== undefined && entry.appliedAt <= at && (entry.releasedAt === undefined || at <= entry.releasedAt)
+
+function unexpectedExit({ role, at, code, signal }: RoleExit, timeline: ValveTimelineEntry[]): string {
+    const applied = timeline.filter(
+        (entry) => (entry.target === role || entry.target === 'postgres') && appliedDuring(entry, at)
+    )
+    return [
+        `${role} exited (${signal ?? `code ${code}`}) without a valve causing it`,
+        ...applied.map(({ valve, target }) => `while ${valve} on ${target} was applied`),
+    ].join(', ')
+}
+
+export function statusOf({ minOffered, units, down, convergence, invariants, timeline, exits }: Verdict): {
     status: Status
     statusReason: string
 } {
@@ -30,7 +47,11 @@ export function statusOf({ minOffered, units, down, convergence, invariants }: V
             statusReason: `the generator offered ${units.offeredUnits} of ${units.targetUnits} units, under minOffered ${minOffered}`,
         }
     }
-    const reasons = [
+    const crashes = exits.filter(({ byValve }) => !byValve).map((exit) => unexpectedExit(exit, timeline))
+    const unobserved = timeline
+        .filter(({ observedAt }) => observedAt === undefined)
+        .map(({ valve, target, error }) => `${valve} on ${target} was not observed: ${error ?? 'no record'}`)
+    const failures = [
         ...(convergence.converged
             ? []
             : [
@@ -40,6 +61,10 @@ export function statusOf({ minOffered, units, down, convergence, invariants }: V
             .filter(({ passed }) => !passed)
             .map(({ name, violation }) => `${name} failed${violation ? `: ${violation}` : ''}`),
     ]
+    if (crashes.length === 0 && failures.length === 0 && unobserved.length > 0) {
+        return { status: 'invalid', statusReason: unobserved.join('; ') }
+    }
+    const reasons = [...crashes, ...unobserved, ...failures]
     return reasons.length > 0
         ? { status: 'failed', statusReason: reasons.join('; ') }
         : { status: 'passed', statusReason: 'every invariant held' }
