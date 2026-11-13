@@ -73,7 +73,12 @@ export function SurveyInContextPreview({
                     ]}
                 />
             </div>
-            <SurveyPreviewBrowserFrame device={device} highlightedArea={highlightedArea} preview={preview} />
+            <SurveyPreviewBrowserFrame
+                key={device}
+                device={device}
+                highlightedArea={highlightedArea}
+                preview={preview}
+            />
         </div>
     )
 }
