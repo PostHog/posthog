@@ -366,25 +366,33 @@ describe('judge', () => {
         expect(result).toMatchObject({ name: 'refused_at_intake', ...expected })
     })
 
+    const TEAM = 2_100_000_000
+    const seededFor = (profile: string, rows: ResidentBacklog['found']): ResidentBacklog['seeded'] => ({
+        profile,
+        rows,
+    })
+
     it.each<[string, ResidentBacklog | undefined, object]>([
         [
             'every seeded row is still there',
             {
-                seeded: [{ teamId: 2_100_000_000, status: 'available', rows: 4 }],
-                found: [{ teamId: 2_100_000_000, status: 'available', rows: 4 }],
+                profile: 'resident',
+                seeded: seededFor('resident', [{ teamId: TEAM, status: 'available', rows: 4 }]),
+                found: [{ teamId: TEAM, status: 'available', rows: 4 }],
             },
             { passed: true, observed: 0 },
         ],
         [
             'a row was lost',
             {
-                seeded: [
-                    { teamId: 2_100_000_000, status: 'available', rows: 4 },
-                    { teamId: 2_100_000_001, status: 'available', rows: 4 },
-                ],
+                profile: 'resident',
+                seeded: seededFor('resident', [
+                    { teamId: TEAM, status: 'available', rows: 4 },
+                    { teamId: TEAM + 1, status: 'available', rows: 4 },
+                ]),
                 found: [
-                    { teamId: 2_100_000_000, status: 'available', rows: 4 },
-                    { teamId: 2_100_000_001, status: 'available', rows: 3 },
+                    { teamId: TEAM, status: 'available', rows: 4 },
+                    { teamId: TEAM + 1, status: 'available', rows: 3 },
                 ],
             },
             { passed: false, observed: 1, violation: 'team 2100000001 available: expected 4 rows, found 3' },
@@ -392,17 +400,31 @@ describe('judge', () => {
         [
             'a parked row woke and completed',
             {
-                seeded: [{ teamId: 2_100_000_000, status: 'available', rows: 4 }],
+                profile: 'resident',
+                seeded: seededFor('resident', [{ teamId: TEAM, status: 'available', rows: 4 }]),
                 found: [
-                    { teamId: 2_100_000_000, status: 'available', rows: 3 },
-                    { teamId: 2_100_000_000, status: 'completed', rows: 1 },
+                    { teamId: TEAM, status: 'available', rows: 3 },
+                    { teamId: TEAM, status: 'completed', rows: 1 },
                 ],
             },
             { passed: false, observed: 2, violation: 'team 2100000000 available: expected 4 rows, found 3' },
         ],
         [
+            'the backlog was seeded for another profile',
+            {
+                profile: 'resident',
+                seeded: seededFor('synthetic', [{ teamId: TEAM, status: 'available', rows: 4 }]),
+                found: [{ teamId: TEAM, status: 'available', rows: 4 }],
+            },
+            {
+                passed: false,
+                violation:
+                    'the resident backlog was seeded for profile synthetic; run seed-backlog with profile resident first',
+            },
+        ],
+        [
             'no backlog was seeded',
-            { found: [] },
+            { profile: 'resident', found: [] },
             {
                 passed: false,
                 violation: 'no resident backlog was seeded; run seed-backlog with this profile first',

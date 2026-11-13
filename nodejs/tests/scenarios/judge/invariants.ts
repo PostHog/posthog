@@ -142,8 +142,16 @@ export const residentBacklogIntact: InvariantDefinition = {
                 unitIds: [],
             }
         }
+        if (resident.seeded.profile !== resident.profile) {
+            return {
+                passed: false,
+                observed: 0,
+                violation: `the resident backlog was seeded for profile ${resident.seeded.profile}; run seed-backlog with profile ${resident.profile} first`,
+                unitIds: [],
+            }
+        }
         const keyOf = ({ teamId, status }: { teamId: number; status: string }): string => `team ${teamId} ${status}`
-        const seeded = new Map(resident.seeded.map((row) => [keyOf(row), row.rows]))
+        const seeded = new Map(resident.seeded.rows.map((row) => [keyOf(row), row.rows]))
         const found = new Map(resident.found.map((row) => [keyOf(row), row.rows]))
         const changed = [...new Set([...seeded.keys(), ...found.keys()])]
             .sort()

@@ -282,7 +282,7 @@ export function createRunner(
             const judge = createJudge({
                 edgeUrl,
                 probe,
-                residentBacklog: () => residentBacklogOf(stateDir, cyclotronUrlOf(specs[0])),
+                residentBacklog: () => residentBacklogOf(profile.name, stateDir, cyclotronUrlOf(specs[0])),
                 fetchRetries: fetchRetriesOf(specs.find(({ role }) => role === 'cdp-cyclotron-worker-hogflow')!),
             })
             const valves = createValves()
