@@ -1,6 +1,7 @@
 import { z } from 'zod'
 
 import { getDefaultCdpConfig } from '~/cdp/config'
+import { overrideConfigWithEnv } from '~/common/config/config'
 
 import { CdpRole, Profile } from '../cards'
 import { MARKER_KEY } from './processes'
@@ -23,6 +24,8 @@ export type Secrets = { encryptionSaltKeys: string; transactionalEmailJwtSecret:
 
 export type RoleSpec = { role: Role; env: NodeJS.ProcessEnv }
 
+export type EdgeAddress = { url: string; caCertPath?: string }
+
 export type ConsumerGroup = { group: string; topics: string[] }
 
 export function secretsOf(env: NodeJS.ProcessEnv): Secrets {
@@ -35,14 +38,18 @@ export function secretsOf(env: NodeJS.ProcessEnv): Secrets {
 
 export function roleSpecs(
     base: NodeJS.ProcessEnv,
-    edgeUrl: string,
+    edge: EdgeAddress,
     secrets: Secrets,
     stateDir: string,
     settings: Profile['settings'] = {},
     sesValkey: { host: string; port: number } = SES_RATE_LIMITER_VALKEY
 ): RoleSpec[] {
     const { AWS_PROFILE: _profile, ...inherited } = base
-    const { KAFKA_CONSUMER_GROUP_ID: _group, ...configured }: NodeJS.ProcessEnv = {
+    const {
+        KAFKA_CONSUMER_GROUP_ID: _group,
+        EXTERNAL_REQUEST_PROXY_TEAMS: _proxyTeams,
+        ...configured
+    }: NodeJS.ProcessEnv = {
         ...inherited,
         NODE_ENV: 'dev',
         SES_REGION: 'us-east-1',
@@ -55,7 +62,9 @@ export function roleSpecs(
         role,
         env: {
             ...configured,
-            SES_ENDPOINT: edgeUrl,
+            SES_ENDPOINT: edge.url,
+            HTTPS_PROXY: edge.url,
+            ...(edge.caCertPath ? { NODE_EXTRA_CA_CERTS: edge.caCertPath } : {}),
             PERSONHOG_ADDR,
             SES_RATE_LIMITER_VALKEY_HOST: sesValkey.host,
             SES_RATE_LIMITER_VALKEY_PORT: String(sesValkey.port),
@@ -67,6 +76,14 @@ export function roleSpecs(
             [MARKER_KEY]: stateDir,
         },
     }))
+}
+
+export function fetchRetriesOf({ env }: RoleSpec): number {
+    const retries = overrideConfigWithEnv(getDefaultCdpConfig(), env).CDP_FETCH_RETRIES
+    if (!Number.isFinite(retries)) {
+        throw new Error(`CDP_FETCH_RETRIES ${env.CDP_FETCH_RETRIES} is not a number of retries`)
+    }
+    return retries
 }
 
 export function consumerGroupsOf(specs: RoleSpec[]): ConsumerGroup[] {

@@ -54,6 +54,7 @@ from .serializers import (
     DataQualitySubjectSerializer,
     DataQualitySubjectsQuerySerializer,
     DataQualitySuiteRunSerializer,
+    FailingCheckCountSerializer,
     SubjectHealthSerializer,
 )
 
@@ -413,13 +414,14 @@ class DataQualityCheckViewSet(_ProjectQualityViewSet, viewsets.ModelViewSet):
             "run",
             "runs",
             "health",
+            "failing_count",
             "output_schema",
             "schedule",
             "subjects",
             "metric_subjects",
         }
     )
-    SUBJECT_FILTERED_ACTIONS = frozenset({"list", "health", "schedules"})
+    SUBJECT_FILTERED_ACTIONS = frozenset({"list", "health", "failing_count", "schedules"})
     serializer_class = DataQualityCheckSerializer
     queryset = DataQualityCheck.objects.unscoped()
 
@@ -666,6 +668,15 @@ class DataQualityCheckViewSet(_ProjectQualityViewSet, viewsets.ModelViewSet):
             for (subject_type, subject_uuid), checks in by_subject.items()
         ]
         return Response(SubjectHealthSerializer(rollups, many=True).data)
+
+    @extend_schema(
+        description="How many enabled checks you can see last reported a failure, across the project.",
+        responses={200: FailingCheckCountSerializer},
+    )
+    @action(methods=["GET"], detail=False, pagination_class=None)
+    def failing_count(self, request: Request, **kwargs) -> Response:
+        failing = self.get_queryset().filter(enabled=True, last_status=CheckRunStatus.FAILED)
+        return Response(FailingCheckCountSerializer({"count": self.filter_queryset(failing).count()}).data)
 
     @extend_schema(
         description="The check types this project can author, with the JSON schema of each type's config. "

@@ -1124,13 +1124,31 @@ export interface DesignOperationApi {
     index?: number
 }
 
+/**
+ * * `sandbox` - sandbox
+ * * `own` - own
+ */
+export type EmailStepSenderEnumApi = (typeof EmailStepSenderEnumApi)[keyof typeof EmailStepSenderEnumApi]
+
+export const EmailStepSenderEnumApi = {
+    Sandbox: 'sandbox',
+    Own: 'own',
+} as const
+
 export interface PatchedHogFlowActionEmailUpdateApi {
     /** Optimistic concurrency: the updated_at (or draft_updated_at) last loaded. If the stored workflow is newer, the patch is rejected with 409 instead of clobbering a concurrent edit. */
     base_updated_at?: string
     /** Ordered design edits applied atomically to this step's email design - the same operations as the email template patch. The result is re-rendered to HTML server-side, so the sent email always matches the patched design. */
     operations?: DesignOperationApi[]
-    /** Partial email fields deep-merged into the step's email (a null leaf deletes the key): subject, preheader, text, to, from, replyTo, cc, bcc. The sender is from: {integrationId, email?, name?}, where email and name are optional templated overrides resolved per invocation; the address must resolve to the selected sender's verified domain or the send fails. The design is edited via operations, and html is always re-rendered from it. */
+    /** Partial email fields deep-merged into the step's email (a null leaf deletes the key): subject, preheader, text, to, from, replyTo, cc, bcc. The sender is from: {integrationId, email?, name?}, where email and name are optional templated overrides resolved per invocation; the address must resolve to the selected sender's verified domain or the send fails. A sandbox step (type email_sandbox) takes only subject, preheader, text and to. The design is edited via operations, and html is always re-rendered from it. */
     email_patch?: unknown
+    /** Switch the step's sender. 'sandbox' moves it to PostHog's sandbox sender, which sends only to verified members of the organization and needs no verified domain; it is set up for the project on first use. 'own' moves a sandbox step back to one of the project's verified senders, named in email_patch.from.integrationId. The step keeps its id, recipient, content and category.
+     *
+     * * `sandbox` - sandbox
+     * * `own` - own */
+    sender?: EmailStepSenderEnumApi
+    /** With sender 'sandbox': drop the settings the sandbox sender can't keep (custom from address or name, several senders, replyTo, cc, bcc, turned-off tracking, UTM tags). Without it, the switch is refused and the error lists them, so confirm with the user before setting it. */
+    drop_own_sender_settings?: boolean
 }
 
 export interface MessageAssetApi {
@@ -2279,6 +2297,11 @@ export interface EmailSendingAllowanceApi {
     readonly emails_sent_last_day: number
     /** True when these allowances are applied to sends. False while they are only being measured. */
     readonly enforced: boolean
+    /**
+     * The largest audience a single email batch may reach when its sending rate limit is slow enough. Null when no rate limit raises max_batch_audience.
+     * @nullable
+     */
+    readonly rate_limited_max_batch_audience: number | null
 }
 
 export interface TeamEmailReputationResponseApi {
@@ -2401,6 +2424,8 @@ export interface BlastRadiusRequestApi {
     dedupe_key?: DedupeKeyEnumApi | null
     /** Whether the workflow contains an email step. The tiered audience limit only applies to email sends; SMS, push, and webhook batches keep the flat limit. Defaults to true. */
     sends_email?: boolean
+    /** The workflow's email sending rate limit. A slow enough rate raises the email audience limit. The response's rate_limited field says which rates qualify. */
+    email_sending_rate_limit?: HogFlowEmailSendingRateLimitApi | null
 }
 
 /**
@@ -2445,6 +2470,15 @@ export interface RealtimeCohortRefApi {
     name: string
 }
 
+export interface RateLimitedAudienceApi {
+    /** The fastest email sending rate limit that raises the audience limit. A faster rate keeps the normal limit. */
+    max_emails_per_hour: number
+    /** The most days a rate-limited send may take to reach everyone. */
+    max_days: number
+    /** The audience limit with a rate limit of max_emails_per_hour. A slower rate allows fewer people. */
+    limit: number
+}
+
 export interface BlastRadiusApi {
     /** Number of users matching the filters */
     affected: number
@@ -2462,6 +2496,8 @@ export interface BlastRadiusApi {
     realtime_cohort?: RealtimeCohortStatusApi | null
     /** Set when a realtime cohort shares the audience with other conditions. Saving that audience fails: a realtime cohort has to be the only condition. */
     realtime_cohort_with_other_conditions?: RealtimeCohortRefApi | null
+    /** Set when an email sending rate limit can raise 'limit'. A send at a slow enough rate leaves part of the project's daily email allowance to its other workflows, so it may reach more people over several days. */
+    rate_limited?: RateLimitedAudienceApi | null
 }
 
 export interface PushTokenImportCreateApi {

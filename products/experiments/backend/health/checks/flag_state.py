@@ -38,6 +38,7 @@ from products.experiments.backend.health.context import (
     PauseHistory,
 )
 from products.experiments.backend.health.delays import ENDED_FLAG_QUIET_PERIOD
+from products.experiments.backend.health.pinned_share import assigns_nobody_by_split, pinned_variant_keys
 from products.experiments.backend.health.skips import NO_FLAG, CheckOutcome, CheckSkip, CheckValues, not_applicable
 from products.experiments.backend.health.split_changes import (
     SplitChangeShape,
@@ -92,7 +93,24 @@ def flag_state_values(ctx: HealthContext) -> CheckValues:
         ExperimentHealthValueKey.SHIPPED_VARIANT: shipped_variant_key(flag)
         if is_single_variant_shipped(flag)
         else None,
+        # After the end, a call of the flag decides whether a flag that still serves variants is a warning.
+        **_last_called_values(ctx.flag_last_called_at if ctx.has_ended else None),
+        **_assigned_outside_values(ctx),
     }
+
+
+def _assigned_outside_values(ctx: HealthContext) -> CheckValues:
+    # At a 0% rollout, the people who still got a variant decide between the note and the warning.
+    traffic = ctx.condition_set_traffic
+    if traffic is None or not needs_outside_assignment_check(ctx):
+        return {}
+    return {ExperimentHealthValueKey.ASSIGNED_OUTSIDE_COUNT: traffic.people_assigned_outside}
+
+
+def _last_called_values(last_called_at: datetime | None) -> CheckValues:
+    if last_called_at is None:
+        return {}
+    return {ExperimentHealthValueKey.FLAG_LAST_CALLED_AT: last_called_at.astimezone(UTC).isoformat()}
 
 
 def flag_state(ctx: HealthContext) -> CheckOutcome:
@@ -147,7 +165,7 @@ def flag_state(ctx: HealthContext) -> CheckOutcome:
     elif ctx.has_ended:
         if (
             flag.active
-            and _has_multiple_variants_active(flag)
+            and _serves_multiple_variants(flag)
             and not zero_rollout
             and not single_variant_shipped
             and ctx.ended_at is not None
@@ -157,7 +175,7 @@ def flag_state(ctx: HealthContext) -> CheckOutcome:
         # The draft state is also reached again when resetting experiment measurements.
         if _running_others(ctx):
             return not_applicable(OTHER_EXPERIMENT_DECIDES)
-        if flag.active and _has_multiple_variants_active(flag) and not zero_rollout:
+        if flag.active and _serves_multiple_variants(flag) and not zero_rollout:
             # Info, because a flag turned on to test the variants before launch is the usual path.
             return _finding(
                 code=ExperimentHealthFindingCode.FLAG_LIVE_BEFORE_LAUNCH,
@@ -284,7 +302,8 @@ def _live_after_end(ctx: HealthContext, ended_at: datetime) -> ExperimentHealthF
     if ctx.flag_called_after_end is False:
         return _ended_flag_not_called(ended_at, ctx.flag_last_called_at, ctx.team_timezone)
     # Info, because only a recorded call shows that users still get a variant. PostHog can't tell yet in the first
-    # days after the end, and never for an organization whose flag calls it can't read.
+    # days after the end, and never for an organization whose flag calls it can't read or for a reader who can't
+    # read them.
     return _finding(
         code=ExperimentHealthFindingCode.FLAG_LIVE_AFTER_END,
         subcode=ENDED_FLAG_CALLS_UNKNOWN,
@@ -423,9 +442,14 @@ def _has_zero_rollout(flag: FlagState) -> bool:
     return bool(flag.release_groups) and all(group.rollout_percentage == 0 for group in flag.release_groups)
 
 
-def _has_multiple_variants_active(flag: FlagState) -> bool:
-    # A variant without a rollout percentage counts as active, as on the flag itself.
-    return sum(1 for variant in flag.variants if variant.rollout_percentage != 0) > 1
+def _serves_multiple_variants(flag: FlagState) -> bool:
+    """Whether the flag can give users more than one variant. A variant override replaces the split for the users its
+    release condition matches, so the split counts only when a condition that includes users has no override."""
+    served: set[str | None] = set(pinned_variant_keys(flag.reachable_conditions))
+    if not assigns_nobody_by_split(flag):
+        # A variant without a rollout percentage counts as active, as on the flag itself.
+        served |= {variant.key for variant in flag.variants if variant.rollout_percentage != 0}
+    return len(served) > 1
 
 
 def is_single_variant_shipped(flag: FlagState) -> bool:

@@ -3280,6 +3280,7 @@ export interface ResultCustomizationByValueApi {
     color?: DataColorTokenApi | null
     customColor?: string | null
     hidden?: boolean | null
+    label?: string | null
 }
 
 export interface ResultCustomizationByPositionApi {
@@ -5365,14 +5366,17 @@ export interface Response3Api {
     error?: string | null
     /** Query explanation output */
     explain?: string[] | null
+    /** Set when the default row limit applied, because the query is a single SELECT with no LIMIT of its own. True means more rows exist beyond `limit`: add an explicit LIMIT, or page with `offset`. Not set when the query has its own LIMIT, uses UNION, or runs with `sendRawQuery`. */
     hasMore?: boolean | null
     /** Generated HogQL query. */
     hogql?: string | null
+    /** The default row limit that applied (100 for API queries). Not set when the query has its own LIMIT. */
     limit?: number | null
     /** Query metadata output */
     metadata?: HogQLMetadataResponseApi | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
+    /** Rows skipped before the default row limit applied. */
     offset?: number | null
     /** Input query string */
     query?: string | null
@@ -5795,6 +5799,7 @@ export const IntegrationKindApi = {
     Stripe: 'stripe',
     Intercom: 'intercom',
     Email: 'email',
+    EmailSandbox: 'email_sandbox',
     Twilio: 'twilio',
     Linear: 'linear',
     Github: 'github',
@@ -5875,6 +5880,17 @@ export const ErrorTrackingIssueStatusApi = {
     Suppressed: 'suppressed',
 } as const
 
+export interface ErrorTrackingIssueTagApi {
+    /** What the tag means, for a tooltip. */
+    description: string
+    /** Key of the tag definition. */
+    key: string
+    /** Short name of the tag. */
+    label: string
+    /** The tagger that applied the tag: `jev` for AI, `manual` for a person. Issue detail sets it, list results send null. */
+    source?: string | null
+}
+
 export interface ErrorTrackingIssueApi {
     aggregations?: ErrorTrackingIssueAggregationsApi | null
     assignee?: ErrorTrackingIssueAssigneeApi | null
@@ -5892,6 +5908,8 @@ export interface ErrorTrackingIssueApi {
     severity?: ErrorTrackingQueryIssueSeverityApi | null
     source?: string | null
     status: ErrorTrackingIssueStatusApi
+    /** The enabled tags that are applied to the issue, on issue list results and issue detail. Null or absent when the project has no enabled tag. */
+    tags?: ErrorTrackingIssueTagApi[] | null
 }
 
 export interface Response14Api {
@@ -5944,6 +5962,8 @@ export interface ErrorTrackingCorrelatedIssueApi {
     population: PopulationApi
     severity?: ErrorTrackingQueryIssueSeverityApi | null
     status: ErrorTrackingIssueStatusApi
+    /** The enabled tags that are applied to the issue, on issue list results and issue detail. Null or absent when the project has no enabled tag. */
+    tags?: ErrorTrackingIssueTagApi[] | null
 }
 
 export interface Response15Api {
@@ -7399,14 +7419,17 @@ export interface HogQLQueryResponseApi {
     error?: string | null
     /** Query explanation output */
     explain?: string[] | null
+    /** Set when the default row limit applied, because the query is a single SELECT with no LIMIT of its own. True means more rows exist beyond `limit`: add an explicit LIMIT, or page with `offset`. Not set when the query has its own LIMIT, uses UNION, or runs with `sendRawQuery`. */
     hasMore?: boolean | null
     /** Generated HogQL query. */
     hogql?: string | null
+    /** The default row limit that applied (100 for API queries). Not set when the query has its own LIMIT. */
     limit?: number | null
     /** Query metadata output */
     metadata?: HogQLMetadataResponseApi | null
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
+    /** Rows skipped before the default row limit applied. */
     offset?: number | null
     /** Input query string */
     query?: string | null
@@ -7461,6 +7484,7 @@ export interface HogQLQueryApi {
     name?: string | null
     /** Rows to skip before the default row limit applies. Rejected when the query sets its own LIMIT, uses UNION, or runs as raw SQL. */
     offset?: number | null
+    /** The HogQL SQL to run. A SELECT without a LIMIT returns at most 100 rows; check `hasMore` in the response, or set an explicit LIMIT. Each SELECT in a UNION gets the same default limit. With `sendRawQuery`, no default limit applies and `hasMore` is not set. */
     query: string
     response?: HogQLQueryResponseApi | null
     /** Run the selected connection query directly without translating it through HogQL first */
@@ -8623,6 +8647,13 @@ export interface MarketingAnalyticsAggregatedQueryApi {
     webQueryModifiers?: WebAnalyticsQueryModifiersApi | null
 }
 
+export interface ErrorTrackingIssueTagFilterApi {
+    /** True matches the issues the tag is applied to. False matches every other issue. */
+    applied: boolean
+    /** Key of the tag definition. */
+    key: string
+}
+
 export type OrderDirection2Api = (typeof OrderDirection2Api)[keyof typeof OrderDirection2Api]
 
 export const OrderDirection2Api = {
@@ -8685,6 +8716,8 @@ export interface ErrorTrackingQueryApi {
     groupTypeIndex?: number | null
     /** Filter to a specific error tracking issue by ID. */
     issueId?: string | null
+    /** Filter by whether one issue tag is applied. Ignored when issue tags or this tag are off for the project. */
+    issueTag?: ErrorTrackingIssueTagFilterApi | null
     kind?: 'ErrorTrackingQuery'
     limit?: number | null
     /** Modifiers used when performing the query */
@@ -10695,6 +10728,57 @@ export interface RunWidgetsResponseApi {
     results: DashboardWidgetRunResultApi[]
 }
 
+/**
+ * * `shared` - Shared
+ * * `separate` - Separate
+ * * `fallback` - Shared attempt failed
+ */
+export type DashboardSharingOutcomeEnumApi =
+    (typeof DashboardSharingOutcomeEnumApi)[keyof typeof DashboardSharingOutcomeEnumApi]
+
+export const DashboardSharingOutcomeEnumApi = {
+    Shared: 'shared',
+    Separate: 'separate',
+    Fallback: 'fallback',
+} as const
+
+export interface DashboardSharingExecutionDebugApi {
+    /** Execution sharing outcome.
+     *
+     * * `shared` - Shared
+     * * `separate` - Separate
+     * * `fallback` - Shared attempt failed */
+    outcome: DashboardSharingOutcomeEnumApi
+    /** Tiles participating in this execution. */
+    tile_ids: number[]
+    /** Sharing rule, or empty for separate execution. */
+    rule: string
+    /** Why the query ran separately or fell back. */
+    reason: string
+}
+
+export interface DashboardSharingDebugApi {
+    /** Decisions recorded by this tile's worker. */
+    executions: DashboardSharingExecutionDebugApi[]
+    /** Whether the per-worker limit of 64 diagnostic records was reached. */
+    truncated: boolean
+    /** ClickHouse queries measured by this worker, including lookups. */
+    query_count: number
+    /** ClickHouse rows read, attributed once to the executing worker. */
+    rows_read: number
+    /** Summed ClickHouse execution time in milliseconds; client round-trip time on older protocols. */
+    duration_ms: number
+}
+
+export interface DashboardQuerySharingEventApi {
+    /** SSE event type: tile, complete, or error. */
+    type: string
+    /** Independently completed dashboard tile. */
+    tile?: DashboardTileApi
+    /** Present only when debug is requested. */
+    debug?: DashboardSharingDebugApi
+}
+
 export interface DashboardSubscribeNudgeResponseApi {
     /** Whether a nudge notification was created. False when one was already sent recently for this user and dashboard, or when in-app notifications are unavailable. */
     created: boolean
@@ -11637,6 +11721,56 @@ export type DashboardsRunWidgetsRetrieveFormat =
 export const DashboardsRunWidgetsRetrieveFormat = {
     Json: 'json',
     Txt: 'txt',
+} as const
+
+export type DashboardsStreamQueryResultsRetrieveParams = {
+    /**
+     * Cancellation ID for this dashboard refresh batch.
+     */
+    client_query_id: string
+    /**
+     * Include request-local sharing decisions and measured ClickHouse work in tile events.
+     */
+    debug?: boolean
+    /**
+     * Object (or pre-encoded JSON string) to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.
+     */
+    filters_override?: string
+    format?: DashboardsStreamQueryResultsRetrieveFormat
+    /**
+     * Use fresh cached results (blocking), or recalculate (force_blocking).
+     *
+     * * `blocking` - Use fresh cached results
+     * * `force_blocking` - Recalculate
+     * @minLength 1
+     */
+    refresh: DashboardsStreamQueryResultsRetrieveRefresh
+    /**
+     * Comma-separated insight tile IDs, at most 32.
+     * @minLength 1
+     * @maxLength 512
+     */
+    tile_ids: string
+    /**
+     * Object (or pre-encoded JSON string) to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.
+     */
+    variables_override?: string
+}
+
+export type DashboardsStreamQueryResultsRetrieveFormat =
+    (typeof DashboardsStreamQueryResultsRetrieveFormat)[keyof typeof DashboardsStreamQueryResultsRetrieveFormat]
+
+export const DashboardsStreamQueryResultsRetrieveFormat = {
+    Json: 'json',
+    Txt: 'txt',
+} as const
+
+export type DashboardsStreamQueryResultsRetrieveRefresh =
+    (typeof DashboardsStreamQueryResultsRetrieveRefresh)[keyof typeof DashboardsStreamQueryResultsRetrieveRefresh]
+
+export const DashboardsStreamQueryResultsRetrieveRefresh = {
+    Blocking: 'blocking',
+    ForceBlocking: 'force_blocking',
 } as const
 
 export type DashboardsStreamTilesRetrieveParams = {
