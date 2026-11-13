@@ -12,9 +12,10 @@ import { mcpClusteringLogic } from './mcpClusteringLogic'
  * runs. They are kept out of the groups above so one busy automation can't pose as a theme.
  */
 export function RecurringIntentsSection(): JSX.Element | null {
-    const { recurring } = useValues(mcpClusteringLogic)
+    const { recurring, toolsInScope } = useValues(mcpClusteringLogic)
 
-    if (recurring.length === 0) {
+    // Recurring rows carry no tool breakdown, so they can't be narrowed to a category.
+    if (recurring.length === 0 || toolsInScope) {
         return null
     }
 
@@ -30,7 +31,7 @@ export function RecurringIntentsSection(): JSX.Element | null {
                     These are listed here instead of in the intent groups.
                 </span>
             </div>
-            <Table>
+            <Table fullWidth>
                 <TableHeader>
                     <TableRow>
                         <TableHead expand>Intent</TableHead>
