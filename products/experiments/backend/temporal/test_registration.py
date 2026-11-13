@@ -3,8 +3,8 @@ from products.experiments.backend.temporal.enrollment_census_activities import r
 from products.experiments.backend.temporal.enrollment_census_workflow import (
     ExperimentPrecomputeEnrollmentCensusWorkflow,
 )
-from products.experiments.backend.temporal.recalculation_activities import calculate_experiment_metric_for_recalculation
-from products.experiments.backend.temporal.recalculation_workflow import ExperimentMetricsRecalculationWorkflow
+from products.experiments.backend.temporal.recalculation.activities import calculate_experiment_metric_for_recalculation
+from products.experiments.backend.temporal.recalculation.workflow import ExperimentMetricsRecalculationWorkflow
 from products.experiments.backend.temporal.registry import (
     ACTIVITIES,
     EXPERIMENT_RECALCULATION_ACTIVITY_QUEUE_ACTIVITIES,

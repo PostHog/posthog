@@ -32,13 +32,13 @@ with temporalio.workflow.unsafe.imports_passed_through():
         MetricOutOfTimeFailure,
         RecalculationProgressUpdate,
     )
-    from products.experiments.backend.temporal.recalculation_activities import (
+    from products.experiments.backend.temporal.recalculation.activities import (
         calculate_experiment_metric_for_recalculation,
         discover_experiment_metrics,
         record_metric_out_of_time_failure,
         update_recalculation_progress,
     )
-    from products.experiments.backend.temporal.recalculation_metrics import increment_workflow_finished
+    from products.experiments.backend.temporal.recalculation.metrics import increment_workflow_finished
 
 
 def _ended_by_temporal(error: ActivityError) -> bool:

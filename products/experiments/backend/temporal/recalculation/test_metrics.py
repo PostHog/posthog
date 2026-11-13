@@ -10,8 +10,8 @@ from temporalio.worker import ActivityInboundInterceptor
 from posthog.temporal.ai_observability.metrics import ExecutionTimeRecorder
 from posthog.temporal.common.interceptor import is_task_queue_supported
 
-from products.experiments.backend.temporal import recalculation_metrics
-from products.experiments.backend.temporal.recalculation_metrics import (
+from products.experiments.backend.temporal.recalculation import metrics as recalculation_metrics
+from products.experiments.backend.temporal.recalculation.metrics import (
     EXPERIMENT_METRICS_RECALCULATION_LATENCY_HISTOGRAM_BUCKETS,
     EXPERIMENT_METRICS_RECALCULATION_LATENCY_HISTOGRAM_METRICS,
     EXPERIMENT_METRICS_RECALCULATION_SCHEDULE_TO_START_HISTOGRAM_BUCKETS,
@@ -119,7 +119,7 @@ def test_increment_workflow_finished_emits_status_attribute(name: str, status: s
     mock_meter_with_attrs.create_counter.return_value = mock_counter
 
     with patch(
-        "products.experiments.backend.temporal.recalculation_metrics.workflow.metric_meter",
+        "products.experiments.backend.temporal.recalculation.metrics.workflow.metric_meter",
         return_value=mock_meter,
     ):
         increment_workflow_finished(status)
@@ -151,9 +151,9 @@ async def test_workflow_interceptor_emits_finished_failed_on_hard_failure():
     mock_info.workflow_type = "experiment-metrics-recalculation-workflow"
 
     with (
-        patch("products.experiments.backend.temporal.recalculation_metrics.workflow.info", return_value=mock_info),
+        patch("products.experiments.backend.temporal.recalculation.metrics.workflow.info", return_value=mock_info),
         patch(
-            "products.experiments.backend.temporal.recalculation_metrics.workflow.metric_meter",
+            "products.experiments.backend.temporal.recalculation.metrics.workflow.metric_meter",
             return_value=MagicMock(),
         ),
         # ExecutionTimeRecorder reaches into Temporal's workflow context on exit; stub it for the unit test.
@@ -161,7 +161,7 @@ async def test_workflow_interceptor_emits_finished_failed_on_hard_failure():
         # get_metric_meter() call resolves. Patching the ai_observability re-export leaves the real call live.
         patch("posthog.temporal.common.metrics.get_metric_meter", return_value=MagicMock()),
         patch(
-            "products.experiments.backend.temporal.recalculation_metrics.increment_workflow_finished"
+            "products.experiments.backend.temporal.recalculation.metrics.increment_workflow_finished"
         ) as mock_finished,
     ):
         with pytest.raises(RuntimeError, match="activity retries exhausted"):

@@ -1,7 +1,7 @@
 """Temporal activity entrypoints for experiment metrics recalculation.
 
 These are thin ``@temporalio.activity.defn`` wrappers; the DB-touching implementations and helpers live in
-``recalculation_logic``. Keeping the decorated entrypoints isolated makes the worker-registered surface obvious
+``recalculation.logic``. Keeping the decorated entrypoints isolated makes the worker-registered surface obvious
 and lets the logic be unit-tested without the activity decorator.
 """
 
@@ -23,7 +23,7 @@ from products.experiments.backend.temporal.models import (
     MetricRecalculationResult,
     RecalculationProgressUpdate,
 )
-from products.experiments.backend.temporal.recalculation_logic import (
+from products.experiments.backend.temporal.recalculation.logic import (
     _calculate_experiment_metric_for_recalculation_sync,
     _cancel_metric_query_sync,
     _discover_experiment_metrics_sync,
