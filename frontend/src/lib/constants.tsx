@@ -255,7 +255,6 @@ export const FEATURE_FLAGS = {
     // Temporary feature flags, still WIP, should be removed eventually
     ADVANCE_MARKETING_ANALYTICS_SETTINGS: 'advance-marketing-analytics-settings', // owner: @jabahamondes  #team-web-analytics
     AI_OBSERVABILITY_OFFLINE_EVALUATIONS: 'ai-observability-offline-evaluations', // owner: #team-ai-observability
-    AI_OBSERVABILITY_TRACE_REDESIGN: 'ai-observability-trace-redesign', // owner: #team-ai-observability, gates the redesigned trace view
     AI_OBSERVABILITY_TRACES_USERS_REDESIGN: 'ai-observability-traces-users-redesign', // owner: #team-ai-observability, gates the metric chart and simpler tables on the Traces and Users tabs
     /** Alert edit modal: check history chart + chart/table toggle (table remains when off). */
     ALERTS_DESTINATION_CUSTOMIZATION: 'alerts-destination-customization', // owner: #team-logs, gates the custom message tag and edit notice on logs alert destinations
@@ -304,6 +303,7 @@ export const FEATURE_FLAGS = {
     DASHBOARD_TILE_GROUP_SECTIONS: 'dashboard-tile-group-sections', // owner: @pauldambra #team-analytics-platform, shows tile groups as bands that open and close
     DATA_CATALOG_RESTRUCTURE: 'data-catalog-restructure', // owner: #team-data-modeling, moves lineage and data quality from Models into the Data catalog
     DATA_CATALOG_REVIEW_QUEUE: 'data-catalog-review-queue', // owner: #team-data-modeling, gates the data catalog lifecycle strip and review queue
+    DATA_CATALOG_USAGE: 'data-catalog-usage', // owner: #team-data-modeling, the usage tab on the data catalog scene and the metric page
     DATA_MODELING_USAGE: 'data-modeling-usage', // owner: #team-data-modeling, gates the Models usage tab
     DATA_WAREHOUSE_CUSTOM_SOURCE_AI_BUILDER: 'dwh-custom-source-ai-builder', // owner: #team-warehouse-sources
     DATA_WAREHOUSE_CUSTOM_SOURCE_OAUTH2: 'dwh-custom-source-oauth2', // owner: #team-warehouse-sources
@@ -385,7 +385,6 @@ export const FEATURE_FLAGS = {
     LLM_ANALYTICS_EVAL_SETTLING_STRATEGY: 'llm-analytics-eval-settling-strategy', // owner: #team-ai-observability
     LLM_ANALYTICS_EVAL_SUGGESTIONS: 'llm-analytics-eval-suggestions', // owner: #team-ai-observability, shows suggested evaluations at the top of the evaluations page
     LLM_ANALYTICS_TAGS: 'llm-analytics-tags', // owner: #team-ai-observability
-    LLM_ANALYTICS_TRACE_NAVIGATION: 'llm-analytics-trace-navigation', // owner: #team-ai-observability
     LLM_OBSERVABILITY_TRACE_SEARCH: 'llm-observability-trace-search', // owner: #team-ai-observability
     LOGS: 'logs', // owner: #team-logs
     LOGS_ALERTS_GROUPING: 'logs-alerts-grouping', // owner: #team-apm, shows the Group by field on logs alerts the alerts platform runs
