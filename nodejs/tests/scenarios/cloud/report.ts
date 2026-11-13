@@ -14,13 +14,14 @@ import { receiptsOf } from './teardown'
 
 export type RunEnd = { exitCode: number; reasons: string[]; teardownClean: boolean }
 
-type Minute = { at: number; max: number; avg: number }
+type Minute = { at: number; max?: number; avg?: number }
 
 type Capacity = { minutes: Minute[]; gaps: number[] }
 
 const CARD = 'cyclotron-failover-under-load'
 const FAILOVER_VALVE = 'pg.failover'
 const ENVIRONMENT_KIND = 'run-host'
+const TARGET = 'cloud'
 const MIN_ACU = 1
 const MINUTE_MS = 60_000
 const HOUR_MS = 60 * MINUTE_MS
@@ -34,7 +35,7 @@ const EXCLUDED = ['data transfer', 'S3 requests', 'Enhanced Monitoring log inges
 
 const HostScorecard = z.object({
     timeline: z.array(z.object({ valve: z.string(), requestedAt: z.string() }).passthrough()),
-    event: z.record(z.string(), z.unknown()),
+    event: z.object({ status: z.enum(['passed', 'failed', 'invalid']) }).catchall(z.unknown()),
 })
 
 const MetricData = z.object({
@@ -87,20 +88,18 @@ async function capacityOf(aws: Aws, readerId: string, from: number, to: number):
             JSON.stringify(queries),
         ])
     )
-    const byMinute = new Map<number, Partial<Minute>>()
+    const byMinute = new Map<number, Minute>()
     for (const { Id, Timestamps, Values } of MetricDataResults) {
         Timestamps.forEach((timestamp, i) => {
             const at = Date.parse(timestamp)
             byMinute.set(at, { ...byMinute.get(at), at, [Id]: Values[i] })
         })
     }
-    const minutes = [...byMinute.values()]
-        .filter((minute): minute is Minute => minute.max !== undefined && minute.avg !== undefined)
-        .sort((a, b) => a.at - b.at)
-    const measured = new Set(minutes.map(({ at }) => at))
+    const minutes = [...byMinute.values()].sort((a, b) => a.at - b.at)
     const gaps: number[] = []
-    for (let at = minutes[0]?.at ?? 0; at < (minutes.at(-1)?.at ?? 0); at += MINUTE_MS) {
-        if (!measured.has(at)) {
+    for (let at = minutes[0]?.at ?? 0; at <= (minutes.at(-1)?.at ?? -1); at += MINUTE_MS) {
+        const minute = byMinute.get(at)
+        if (minute?.max === undefined || minute.avg === undefined) {
             gaps.push(at)
         }
     }
@@ -147,15 +146,16 @@ async function keepEnhancedMonitoring(
 
 function judgeCapacity({ minutes }: Capacity, t0: number): { scalars: Record<string, number | null>; reason?: string } {
     const t0Minute = minuteOf(t0)
-    const before = minutes.filter(({ at }) => at < t0Minute)
-    const after = minutes.filter(({ at }) => at >= t0Minute)
-    const peak = after.reduce<Minute | undefined>(
+    const maxima = minutes.flatMap(({ at, max }) => (max === undefined ? [] : [{ at, max }]))
+    const before = maxima.filter(({ at }) => at < t0Minute)
+    const after = maxima.filter(({ at }) => at >= t0Minute)
+    const peak = after.reduce<{ at: number; max: number } | undefined>(
         (top, minute) => (top && top.max >= minute.max ? top : minute),
         undefined
     )
     const scalars = {
         acu_pre_t0_max: before.length > 0 ? Math.max(...before.map(({ max }) => max)) : null,
-        acu_t0_minute_max: minutes.find(({ at }) => at === t0Minute)?.max ?? null,
+        acu_t0_minute_max: maxima.find(({ at }) => at === t0Minute)?.max ?? null,
         acu_peak: peak?.max ?? null,
         acu_seconds_to_peak: peak ? (peak.at - t0Minute) / 1000 : null,
     }
@@ -171,7 +171,7 @@ function judgeCapacity({ minutes }: Capacity, t0: number): { scalars: Record<str
 function costOf(profile: CloudProfile, hours: number, capacity: Capacity | undefined): [string, number][] {
     const { rates, allowances } = profile.admission
     const months = hours / HOURS_PER_MONTH
-    const acuHours = (capacity?.minutes ?? []).reduce((sum, { avg }) => sum + avg / 60, 0)
+    const acuHours = (capacity?.minutes ?? []).reduce((sum, { avg }) => sum + (avg ?? 0) / 60, 0)
     const missing = capacity === undefined ? 'capacity unread' : `${capacity.gaps.length} minutes missing`
     return [
         [`writer ${profile.writerClass}, ${hours.toFixed(2)} h`, hours * rates.writerPerHour],
@@ -191,14 +191,22 @@ function environmentOf(profile: CloudProfile, manifest: Manifest, runnerFingerpr
         host_class: profile.host.class,
         engine_version: profile.engineVersion,
         pooler_replicas: profile.pooler.replicas,
-        cloud_profile_hash: manifest.inputs['cloud-profile.yaml'],
         runner_profile_hash: manifest.inputs['runner-profile.yaml'],
         deviations: DEVIATIONS,
     }
+    const { clusterParameterGroup, instanceParameterGroup } = profile.baseline
     const fingerprint = createHash('sha256')
-        .update(JSON.stringify([environment, runnerFingerprint ?? null]))
+        .update(
+            JSON.stringify([
+                environment,
+                profile.pooler,
+                clusterParameterGroup,
+                instanceParameterGroup,
+                runnerFingerprint ?? null,
+            ])
+        )
         .digest('hex')
-    return { ...environment, fingerprint }
+    return { ...environment, cloud_profile_hash: manifest.inputs['cloud-profile.yaml'], fingerprint }
 }
 
 async function attempt<T>(reasons: string[], what: string, work: () => Promise<T>): Promise<T | undefined> {
@@ -223,6 +231,9 @@ export async function report(
     const reasons = [...end.reasons]
     const host = await attempt(reasons, 'could not read the runner scorecard', () => hostScorecardOf(evidence, runId))
     const t0 = host?.timeline.find(({ valve }) => valve === FAILOVER_VALVE)?.requestedAt
+    if (host?.event.status === 'passed' && !t0) {
+        reasons.push(`the runner recorded no ${FAILOVER_VALVE}, so the reader was not judged`)
+    }
     const capacity = await attempt(reasons, 'could not read the reader capacity', () =>
         capacityOf(controller.aws, `scn-${runId}-reader`, from, to)
     )
@@ -239,16 +250,17 @@ export async function report(
     const receipt = (await receiptsOf(evidence, manifest).catch(() => [])).at(-1)
     const cost = costOf(profile, (to - from) / HOUR_MS, capacity)
     const costItems = cost.map(([item, usd]) => `${item}: ${dollars(usd)}`)
-    const status: Status = reasons.length > 0 || !host ? 'invalid' : (host.event.status as Status)
+    const status: Status = reasons.length > 0 || !host ? 'invalid' : host.event.status
     const environment = environmentOf(profile, manifest, host?.event.fingerprint)
     const properties: ScorecardProperties = {
         schema_version: SCHEMA_VERSION,
         card_id: CARD,
-        started_at: manifest.createdAt,
         ...host?.event,
         ...environment,
         run_id: runId,
         origin: 'cloud-manual',
+        target: TARGET,
+        started_at: manifest.createdAt,
         status,
         status_reason: reasons.length > 0 ? reasons.join('; ') : String(host?.event.status_reason ?? ''),
         ended_at: iso(to),
@@ -269,10 +281,15 @@ export async function report(
     const key = keyOf(runId, 'scorecard.json')
     controller.print(`Cost estimate, excluding ${EXCLUDED.join(', ')}:`)
     costItems.forEach((item) => controller.print(`  ${item}`))
-    await evidence.put(key, JSON.stringify(properties)).then(
-        () => controller.print(`Kept the ${status} scorecard at s3://${evidence.name}/${key}.`),
-        (error: Error) =>
+    const kept = await evidence.put(key, JSON.stringify(properties)).then(
+        () => {
+            controller.print(`Kept the ${status} scorecard at s3://${evidence.name}/${key}.`)
+            return true
+        },
+        (error: Error) => {
             controller.warn(`Could not keep the scorecard at s3://${evidence.name}/${key}: ${error.message}`)
+            return false
+        }
     )
     const written = await publish(properties, controller.env, new AbortController().signal)
     if (written.recorded) {
@@ -282,8 +299,8 @@ export async function report(
     } else {
         controller.print('Scenario runs credentials are not set, so the scorecard is not published.')
     }
-    if (status === 'invalid') {
-        return EXIT_CODE.invalid
+    if (written.problem || (!kept && !written.recorded)) {
+        return EXIT_CODE.writeFailed
     }
-    return written.problem ? EXIT_CODE.writeFailed : end.exitCode
+    return status === 'invalid' ? EXIT_CODE.invalid : end.exitCode
 }

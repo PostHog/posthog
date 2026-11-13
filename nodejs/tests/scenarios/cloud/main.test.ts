@@ -1223,43 +1223,74 @@ describe('cloud controller', () => {
         expect(cloud.billable()).toEqual([])
     })
 
-    it.each<[string, ReaderMinute[], (fake: FakeCloud) => void, string, string]>([
+    it.each<[string, Partial<FakeCloudOptions>, (fake: FakeCloud) => void, string, string]>([
         [
             'a T0 minute above 1 ACU alone',
-            [...minutes(-3, -1, 1, 1), ...minutes(0, 0, 2.5, 1.4), ...minutes(1, 2, 8, 6)],
+            { readerAcu: [...minutes(-3, -1, 1, 1), ...minutes(0, 0, 2.5, 1.4), ...minutes(1, 2, 8, 6)] },
             () => undefined,
             'passed',
             '',
         ],
         [
             'a complete minute before T0 above 1 ACU',
-            [
-                ...minutes(-3, -3, 1, 1),
-                ...minutes(-2, -2, 1.5, 1.2),
-                ...minutes(-1, -1, 1, 1),
-                ...minutes(0, 0, 2.5, 1.4),
-                ...minutes(1, 2, 8, 6),
-            ],
+            {
+                readerAcu: [
+                    ...minutes(-3, -3, 1, 1),
+                    ...minutes(-2, -2, 1.5, 1.2),
+                    ...minutes(-1, -1, 1, 1),
+                    ...minutes(0, 0, 2.5, 1.4),
+                    ...minutes(1, 2, 8, 6),
+                ],
+            },
+            () => undefined,
+            'invalid',
+            'reader above 1 ACU before T0',
+        ],
+        [
+            'a minute before T0 above 1 ACU whose average CloudWatch left out',
+            {
+                readerAcu: [
+                    ...minutes(-3, -3, 1, 1),
+                    { minute: -2, max: 1.5 },
+                    ...minutes(-1, -1, 1, 1),
+                    ...minutes(0, 0, 2.5, 1.4),
+                    ...minutes(1, 2, 8, 6),
+                ],
+            },
             () => undefined,
             'invalid',
             'reader above 1 ACU before T0',
         ],
         [
             'no capacity before T0',
-            [...minutes(0, 0, 2.5, 1.4), ...minutes(1, 2, 8, 6)],
+            { readerAcu: [...minutes(0, 0, 2.5, 1.4), ...minutes(1, 2, 8, 6)] },
             () => undefined,
             'invalid',
             'no reader capacity before T0',
         ],
         [
             'capacity CloudWatch cannot answer',
-            minutes(-3, 2, 1, 1),
+            { readerAcu: minutes(-3, 2, 1, 1) },
             (fake) => fake.failWhen('get-metric-data', (args) => args.includes('--scan-by')),
             'invalid',
             'could not read the reader capacity',
         ],
-    ])('judges the reader on %s and publishes it', async (_, readerAcu, arrange, status, reason) => {
-        const { controller } = prepare({ cloud: { readerAcu }, env: api.credentials })
+        [
+            'a card that passes before its failover',
+            { card: { takesMs: HOUR_MS / 6 } },
+            () => undefined,
+            'invalid',
+            'the runner recorded no pg.failover',
+        ],
+        [
+            'a runner status outside passed, failed and invalid',
+            { card: { runnerStatus: 'skipped' } },
+            () => undefined,
+            'invalid',
+            'could not read the runner scorecard',
+        ],
+    ])('judges the run on %s and publishes it', async (_, cloudOptions, arrange, status, reason) => {
+        const { controller } = prepare({ cloud: cloudOptions, env: api.credentials })
         arrange(cloud)
 
         await expect(main(['run', profilePath()], controller)).resolves.toBe(status === 'passed' ? 0 : 2)
@@ -1277,7 +1308,12 @@ describe('cloud controller', () => {
     })
 
     it('publishes the receipt, the cost estimate and the fingerprint beside the runner measurements', async () => {
-        const readerAcu = [...minutes(-30, -1, 1, 1), ...minutes(0, 9, 6, 5), ...minutes(12, 29, 6, 5)]
+        const readerAcu: ReaderMinute[] = [
+            ...minutes(-30, -1, 1, 1),
+            ...minutes(0, 9, 6, 5),
+            ...minutes(12, 29, 6, 5),
+            { minute: 30, max: 6 },
+        ]
         const { controller } = prepare({ cloud: { readerAcu }, env: api.credentials })
 
         await expect(main(['run', profilePath()], controller)).resolves.toBe(0)
@@ -1291,6 +1327,8 @@ describe('cloud controller', () => {
         expect(properties).toMatchObject({
             run_id: runId,
             origin: 'cloud-manual',
+            target: 'cloud',
+            started_at: createdAt,
             status: 'passed',
             m_writer_recovery_s: 42,
             environment_kind: 'run-host',
@@ -1304,7 +1342,7 @@ describe('cloud controller', () => {
             runner_profile_hash: sha256(readFileSync(path.join(dir, 'runner.yaml'), 'utf8')),
             teardown_clean: true,
             teardown_leftovers: [],
-            acu_gaps: [minuteAt(10), minuteAt(11)],
+            acu_gaps: [minuteAt(10), minuteAt(11), minuteAt(30)],
             enhanced_monitoring_events: 6,
             cost_estimate_excluded: ['data transfer', 'S3 requests', 'Enhanced Monitoring log ingestion'],
         })
@@ -1312,7 +1350,7 @@ describe('cloud controller', () => {
         expect(properties.cost_estimate_items).toEqual(
             expect.arrayContaining([
                 `writer db.r8g.2xlarge, ${hours.toFixed(2)} h: $${hours.toFixed(2)}`,
-                'reader, 2.83 ACU-hours, 2 minutes missing: $0.28',
+                'reader, 2.83 ACU-hours, 3 minutes missing: $0.28',
             ])
         )
         const items = properties.cost_estimate_items as string[]
@@ -1328,22 +1366,22 @@ describe('cloud controller', () => {
     })
 
     it('fingerprints runs alike only when their environment matches', async () => {
-        const fingerprintOf = async (replicas: number): Promise<unknown> => {
+        const fingerprintOf = async (profile: Setup['profile']): Promise<unknown> => {
             api.captured.length = 0
-            const { controller } = prepare({
-                profile: (p) => ({ ...p, pooler: { ...p.pooler, replicas } }),
-                env: api.credentials,
-            })
+            const { controller } = prepare({ profile, env: api.credentials })
             await expect(main(['run', profilePath()], controller)).resolves.toBe(0)
             return published().fingerprint
         }
 
-        const first = await fingerprintOf(2)
-        const again = await fingerprintOf(2)
-        const other = await fingerprintOf(3)
+        const first = await fingerprintOf((p) => p)
+        const repriced = await fingerprintOf((p) => ({
+            ...p,
+            admission: { ...p.admission, rates: { ...p.admission.rates, hostPerHour: 2 } },
+        }))
+        const other = await fingerprintOf((p) => ({ ...p, pooler: { ...p.pooler, replicas: 3 } }))
 
         expect(first).toMatch(/^[0-9a-f]{64}$/)
-        expect(again).toBe(first)
+        expect(repriced).toBe(first)
         expect(other).not.toBe(first)
     })
 
@@ -1355,6 +1393,25 @@ describe('cloud controller', () => {
         const [volume] = cloud.billable()
         expect(published()).toMatchObject({ status: 'invalid', teardown_clean: false })
         expect(published().teardown_leftovers).toEqual([expect.stringContaining(volume.split(' ')[1])])
+    })
+
+    it.each<[string, Partial<FakeCloudOptions>, boolean, (fake: FakeCloud) => void]>([
+        ['Scenario runs refuses an invalid run', { outlives: ['AWS::EC2::Volume'] }, true, () => undefined],
+        [
+            'the bucket refuses the copy and no Scenario runs credentials are set',
+            {},
+            false,
+            (fake) =>
+                fake.failWhen('put-object', (args) => args.some((arg) => /^runs\/[^/]+\/scorecard\.json$/.test(arg))),
+        ],
+    ])('exits as a failed scorecard write when %s', async (_, cloudOptions, refused, arrange) => {
+        const env = refused ? { ...api.credentials, SCENARIO_RUNS_PROJECT_TOKEN: 'wrong' } : {}
+        const { controller } = prepare({ cloud: cloudOptions, env })
+        arrange(cloud)
+
+        await expect(main(['run', profilePath()], controller)).resolves.toBe(3)
+
+        expect(api.captured).toEqual([])
     })
 
     it('keeps the scorecard in the bucket and names it when no Scenario runs credentials are set', async () => {

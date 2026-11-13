@@ -44,7 +44,7 @@ type Card = {
     reportsDone: boolean
 }
 
-export type ReaderMinute = { minute: number; max: number; avg: number }
+export type ReaderMinute = { minute: number; max: number; avg?: number }
 
 type MetricQuery = {
     Id: string
@@ -110,7 +110,14 @@ export type FakeCloudOptions = {
     rollsBack?: 'create' | 'update'
     outlives?: string[]
     seed?: { exitCode?: number; takesMs?: number }
-    card?: { exitCode?: number; takesMs?: number; ignoresStop?: boolean; uploadFails?: boolean; diesAfterMs?: number }
+    card?: {
+        exitCode?: number
+        takesMs?: number
+        ignoresStop?: boolean
+        uploadFails?: boolean
+        diesAfterMs?: number
+        runnerStatus?: string
+    }
     probe?: 'lost' | 'timedOut'
     agent?: 'offline'
     readerAcu?: ReaderMinute[]
@@ -426,7 +433,7 @@ export class FakeCloud implements Aws {
     }
 
     private runnerScorecard(card: Card, runnerRunId: string, exitCode: number): string {
-        const status = STATUSES[exitCode] ?? 'invalid'
+        const status = this.options.card?.runnerStatus ?? STATUSES[exitCode] ?? 'invalid'
         const statusReason = status === 'passed' ? '' : `the card ended ${status}`
         const failoverAt = this.failovers.get(card.runId)
         const timeline =
