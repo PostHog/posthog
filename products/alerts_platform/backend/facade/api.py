@@ -874,8 +874,9 @@ def recent_destination_sends(
     return destination_sends.recent_destination_sends(team_id=team_id, destination_ids=destination_ids, limit=limit)
 
 
-def list_alert_receivers(*, team_id: int) -> tuple[StoredAlertReceiver, ...]:
-    return alert_routing.list_receivers(team_id=team_id)
+def list_alert_receivers(*, team_id: int, ids: Collection[UUID] | None = None) -> tuple[StoredAlertReceiver, ...]:
+    """Every receiver on the team, or only those with these ids."""
+    return alert_routing.list_receivers(team_id=team_id, ids=ids)
 
 
 def create_alert_receiver(*, team_id: int, edit: AlertReceiverEdit) -> StoredAlertReceiver:

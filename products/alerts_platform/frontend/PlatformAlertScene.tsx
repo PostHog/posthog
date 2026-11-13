@@ -22,8 +22,7 @@ import { PlatformAlertGroupsTable } from './PlatformAlertGroupsTable'
 import { PlatformAlertLogicProps, platformAlertLogic } from './platformAlertLogic'
 import { PlatformAlertRuleMetadata } from './PlatformAlertRuleMetadata'
 import { PlatformAlertRuleMetadataModal } from './PlatformAlertRuleMetadataModal'
-import { PlatformAlertRoutedReceivers } from './routing/PlatformAlertRoutedReceivers'
-import { routingUrl } from './routing/platformAlertRoutingFormat'
+import { PlatformAlertRoutingSection } from './routing/PlatformAlertRoutingSection'
 
 export const scene: SceneExport = {
     component: PlatformAlertScene,
@@ -121,24 +120,7 @@ export function PlatformAlertScene(): JSX.Element {
                 <PlatformAlertRuleMetadata configuration={configuration} />
                 <PlatformAlertRuleMetadataModal />
             </SceneSection>
-            {featureFlags[FEATURE_FLAGS.PLATFORM_ALERTS_ROUTING] && (
-                <SceneSection
-                    title="Routing"
-                    description="Team-wide receivers this alert also notifies, because a route matches its labels."
-                    actions={
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            to={routingUrl()}
-                            data-attr="platform-alert-manage-routing"
-                        >
-                            Manage routing
-                        </LemonButton>
-                    }
-                >
-                    <PlatformAlertRoutedReceivers labels={configuration.labels} />
-                </SceneSection>
-            )}
+            <PlatformAlertRoutingSection configuration={configuration} />
             <SceneSection
                 title="Groups"
                 description={

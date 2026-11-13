@@ -6,7 +6,7 @@ refused here, so one bad row cannot fail the routed sends of every alert on the 
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from typing import Final, cast
 from uuid import UUID
 
@@ -39,8 +39,11 @@ DEFAULT_ROUTE_EVENT_KINDS: Final = (
 _EQUALS: Final = "="
 
 
-def list_receivers(*, team_id: int) -> tuple[StoredAlertReceiver, ...]:
-    rows = AlertReceiver.objects.for_team(team_id).annotate(route_count=Count("routes")).order_by("name", "id")
+def list_receivers(*, team_id: int, ids: Collection[UUID] | None = None) -> tuple[StoredAlertReceiver, ...]:
+    rows = AlertReceiver.objects.for_team(team_id)
+    if ids is not None:
+        rows = rows.filter(id__in=ids)
+    rows = rows.annotate(route_count=Count("routes")).order_by("name", "id")
     return tuple(_stored_receiver(row, row.route_count) for row in rows)
 
 

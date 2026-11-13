@@ -13,6 +13,7 @@ import {
     AlertRouteMatchApi,
     PlatformAlertConfigurationApi,
 } from './generated/api.schemas'
+import { routingUrl } from './routing/platformAlertRoutingFormat'
 
 const CONFIGURATION: PlatformAlertConfigurationApi = {
     id: '0192a5b0-0000-7000-8000-000000000001',
@@ -138,6 +139,7 @@ const GROUPED_CONFIGURATION: PlatformAlertConfigurationApi = {
 const ROUTED_CONFIGURATION: PlatformAlertConfigurationApi = {
     ...CONFIGURATION,
     id: '0192a5b0-0000-7000-8000-000000000004',
+    owner: 'platform',
     labels: { team: 'infra', severity: 'critical' },
     annotations: { runbook: 'https://example.com/runbooks/api-errors' },
 }
@@ -267,7 +269,7 @@ export const DetailRuleMetadataModalOpen: Story = {
 
 export const Routing: Story = {
     parameters: {
-        pageUrl: `${urls.platformAlerts()}?tab=routing`,
+        pageUrl: routingUrl(),
         featureFlags: [FEATURE_FLAGS.PLATFORM_ALERTS, FEATURE_FLAGS.PLATFORM_ALERTS_ROUTING],
     },
 }
