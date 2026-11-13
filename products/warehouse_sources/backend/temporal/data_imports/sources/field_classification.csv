@@ -1302,7 +1302,7 @@ TwelveLabs,api_key,,,,,twelve-labs
 Twenty,api_key base_url,,,,,twenty
 Twilio,account_sid auth_method,,,,,twilio
 Twitch,,,,,,twitch
-Twitter,bearer_token username,,,,,twitter
+Twitter,bearer_token username,,,search_query,,twitter
 TwitterAds,,twitter_ads_integration_id,account_id,,,twitter-ads
 TwoC2p,,,,,,two-c2p
 TyntecSMS,api_key,,,request_ids,,tyntec-sms
