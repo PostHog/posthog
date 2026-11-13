@@ -296,6 +296,9 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
         translationErrorsForField,
         aiGeneratedTranslationFields,
     } = useValues(surveyLogic)
+    const exampleIdentifiedSurveyUrl = `${getSurveyUrl('01984280-fc8a-0000-28a5-01078e2d553f')}?distinct_id=${encodeURIComponent(
+        user?.email ?? 'john@acme.co'
+    )}`
     const {
         setSurveyValue,
         resetTargeting,
@@ -786,13 +789,11 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                         query parameter to the URL. Here's an example:
                                                                         {'\n'}
                                                                         <Link
-                                                                            to={`${getSurveyUrl('01984280-fc8a-0000-28a5-01078e2d553f')}?distinct_id=${
-                                                                                user?.email ?? 'john@acme.co'
-                                                                            }`}
+                                                                            to={exampleIdentifiedSurveyUrl}
                                                                             target="_blank"
-                                                                        >{`${getSurveyUrl('01984280-fc8a-0000-28a5-01078e2d553f')}?distinct_id=${
-                                                                            user?.email ?? 'john@acme.co'
-                                                                        }`}</Link>
+                                                                        >
+                                                                            {exampleIdentifiedSurveyUrl}
+                                                                        </Link>
                                                                     </li>
                                                                     <li>
                                                                         • Check more details about identifying
