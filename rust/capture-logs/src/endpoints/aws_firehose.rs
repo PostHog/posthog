@@ -541,6 +541,7 @@ fn spawn_write(
             batch.timestamps_overridden,
             None,
             None,
+            None,
         )
         .await
     });

@@ -24,6 +24,8 @@ use tracing::log::{debug, info};
 
 // The logs consumer verifies this signature against the team it resolves from the token.
 pub const INTERNAL_LOGS_KAFKA_HEADER: &str = "posthog-internal";
+// The logs consumer verifies this signature with the team's logs signing secret.
+pub const LOGS_SIGNATURE_KAFKA_HEADER: &str = "posthog-signature";
 
 struct KafkaContext {
     liveness: HealthHandle,
@@ -406,6 +408,7 @@ impl KafkaSink {
         min_timestamp_micros: Option<i64>,
         backfill_days: Option<u32>,
         internal_signature: Option<&str>,
+        logs_signature: Option<&str>,
     ) -> Result<(), anyhow::Error> {
         let mut writer = Writer::with_codec(
             schema,
@@ -464,6 +467,12 @@ impl KafkaSink {
                         value: Some(signature),
                     });
                 }
+                if let Some(signature) = logs_signature {
+                    headers = headers.insert(Header {
+                        key: LOGS_SIGNATURE_KAFKA_HEADER,
+                        value: Some(signature),
+                    });
+                }
                 headers
                     .insert(Header {
                         key: "bytes_compressed",
@@ -497,6 +506,7 @@ impl KafkaSink {
         interpret_delivery_result(future.await.ok(), topic)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn write(
         &self,
         token: &str,
@@ -505,6 +515,7 @@ impl KafkaSink {
         timestamps_overridden: u64,
         backfill_days: Option<u32>,
         internal_signature: Option<&str>,
+        logs_signature: Option<&str>,
     ) -> Result<(), anyhow::Error> {
         if rows.is_empty() {
             return Ok(());
@@ -535,6 +546,7 @@ impl KafkaSink {
             min_kafka_log_row_timestamp_micros(&rows),
             backfill_days,
             internal_signature,
+            logs_signature,
         )
         .await?;
 
@@ -565,6 +577,7 @@ impl KafkaSink {
             uncompressed_bytes,
             None,
             timestamps_overridden,
+            None,
             None,
             None,
             None,
@@ -608,6 +621,7 @@ impl KafkaSink {
             uncompressed_bytes,
             Some(records_uncompressed_bytes),
             timestamps_overridden,
+            None,
             None,
             None,
             None,
