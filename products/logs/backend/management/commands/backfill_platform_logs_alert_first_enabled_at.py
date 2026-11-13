@@ -2,6 +2,7 @@ from typing import Any
 
 from django.core.management.base import BaseCommand, CommandError
 
+from products.alerts_platform.backend.facade.created_at_backfill_command import add_copy_backfill_arguments
 from products.logs.backend.platform_alert_backfill import backfill_copies_first_enabled_at
 
 
@@ -12,10 +13,7 @@ class Command(BaseCommand):
     )
 
     def add_arguments(self, parser: Any) -> None:
-        parser.add_argument(
-            "--team-id", type=int, action="append", dest="team_ids", help="Only this team. Repeat for more."
-        )
-        parser.add_argument("--apply", action="store_true", help="Write the changes. Without it, only count them.")
+        add_copy_backfill_arguments(parser)
 
     def handle(self, *args: Any, **options: Any) -> None:
         dry_run = not options["apply"]
