@@ -925,12 +925,12 @@ export const workflowsOnboardingWizardLogic = kea<workflowsOnboardingWizardLogic
                 if (save) {
                     actions.updateCurrentTeam(save)
                 }
-                if (values.isLastStep && save && values.journeyFirst) {
-                    cache.finishAfterSave = save
-                } else if (values.isLastStep) {
-                    actions.finish()
-                } else {
+                if (!values.isLastStep) {
                     actions.setStepIndex(values.stepIndex + 1)
+                } else if (save && values.journeyFirst) {
+                    cache.finishAfterSave = save
+                } else {
+                    actions.finish()
                 }
             },
             updateCurrentTeamSuccess: ({ payload }) => {
