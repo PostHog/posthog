@@ -1275,6 +1275,66 @@ Grade how well the agent's process and answer match the expected behavior. Judge
 how the agent found and checked its sources, and the final answer for what it told the user."""
 
 
+# render-ui shows a chart after the written analysis, so the text before it is still the answer.
+_PRESENTATION_TOOLS = frozenset({"render-ui", "show_actions", "task_summary_update"})
+
+
+def final_answer(output: dict[str, Any] | None) -> str:
+    """The agent's text after its last tool call that is not a presentation tool.
+
+    In the app, the agent can write its answer, call ``show_actions``, and then add a one-line note
+    about the buttons. The note is the last message, but the answer is the text before it.
+    """
+    fallback = (output or {}).get("last_message")
+    fallback = fallback if isinstance(fallback, str) else ""
+    messages = (output or {}).get("messages")
+    if not isinstance(messages, list):
+        return fallback
+    texts: list[str] = []
+    for message in reversed(messages):
+        if not isinstance(message, dict) or message.get("role") != "assistant":
+            continue
+        content = message.get("content")
+        blocks = [block for block in content if isinstance(block, dict)] if isinstance(content, list) else []
+        work = [
+            index
+            for index, block in enumerate(blocks)
+            if block.get("type") == "tool_use"
+            and str(block.get("name") or "").rsplit("__", 1)[-1] not in _PRESENTATION_TOOLS
+        ]
+        after_work = blocks[work[-1] + 1 :] if work else blocks
+        text = "\n".join(block["text"] for block in after_work if block.get("type") == "text" and block.get("text"))
+        if text:
+            texts.append(text)
+        if work:
+            break
+    return "\n\n".join(reversed(texts)) or fallback
+
+
+def chain_judge_input(name: str, output: Any, expected: Any, field: str) -> dict[str, Any] | Score:
+    """The judge input with the question, the ordered tool chain, and the final answer, or the ``Score`` that skips it.
+
+    ``field`` names the string the case must set in ``expected[name]`` for the judge to grade against.
+    """
+    spec = expected_spec(expected, name)
+    if spec is None:
+        return Score(name=name, score=None, metadata={"reason": "not requested"})
+    value = spec.get(field)
+    if not isinstance(value, str) or not value:
+        return Score(name=name, score=0.0, metadata={"reason": "invalid expected metadata"})
+    final_message = final_answer(output)
+    if not final_message.strip():
+        return Score(name=name, score=0.0, metadata={"reason": "No final assistant message"})
+    return {
+        "output": {
+            "prompt": (output or {}).get("prompt", ""),
+            "tool_chain": render_tool_chain(build_tool_chain(output)),
+            "final_message": final_message,
+        },
+        "expected": spec,
+    }
+
+
 class SemanticLayerAnswer(JudgedScorer):
     """Graded judge for the semantic layer suites. It reads the ordered tool chain and the final answer."""
 
@@ -1288,20 +1348,4 @@ class SemanticLayerAnswer(JudgedScorer):
         )
 
     def _prepare(self, output: Any, expected: Any) -> dict[str, Any] | Score:
-        spec = expected_spec(expected, self._name())
-        if spec is None:
-            return Score(name=self._name(), score=None, metadata={"reason": "not requested"})
-        behavior = spec.get("expected_behavior")
-        if not isinstance(behavior, str) or not behavior:
-            return Score(name=self._name(), score=0.0, metadata={"reason": "expected_behavior is required"})
-        final_message = (output or {}).get("last_message") or ""
-        if not final_message:
-            return Score(name=self._name(), score=0.0, metadata={"reason": "no final answer"})
-        return {
-            "output": {
-                "prompt": (output or {}).get("prompt", ""),
-                "tool_chain": render_tool_chain(build_tool_chain(output)),
-                "final_message": final_message,
-            },
-            "expected": {"expected_behavior": behavior},
-        }
+        return chain_judge_input(self._name(), output, expected, "expected_behavior")
