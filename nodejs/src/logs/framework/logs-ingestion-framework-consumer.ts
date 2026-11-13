@@ -4,9 +4,9 @@ import { KafkaConsumerInterface, createKafkaConsumer } from '~/common/kafka/cons
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { AppMetricsAggregator } from '~/common/services/app-metrics-aggregator'
 import { QuotaResource } from '~/common/services/quota-limiting.service'
-import { UnknownTokenRecorder } from '~/logs/services/unknown-token-recorder'
 import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
 import { logger } from '~/common/utils/logger'
+import { UnknownTokenRecorder } from '~/logs/services/unknown-token-recorder'
 import type { LogsSettings } from '~/types'
 import { HealthCheckResult, PluginServerService } from '~/types'
 

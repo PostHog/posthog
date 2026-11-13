@@ -1,10 +1,10 @@
 import { Message } from 'node-rdkafka'
 
 import { QuotaLimiting } from '~/common/services/quota-limiting.service'
-import type { UnknownTokenRecorder } from '~/logs/services/unknown-token-recorder'
 import { TeamManager } from '~/common/utils/team-manager'
 import { isOkResult } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
+import type { UnknownTokenRecorder } from '~/logs/services/unknown-token-recorder'
 
 import { createDropQuotaLimitedStep } from './drop-quota-limited-step'
 import { retryAfterFirstFailure } from './metrics-retry'
