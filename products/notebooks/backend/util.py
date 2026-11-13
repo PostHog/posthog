@@ -716,9 +716,9 @@ def _read_markdown_component_block(lines: list[str], line_index: int) -> tuple[s
         return None
 
     tag_match = re.match(r"^<([A-Z][A-Za-z0-9]*)", first_line)
-    tag_name = tag_match.group(1) if tag_match else None
-    if not tag_name:
+    if not tag_match:
         return None
+    tag_name = tag_match.group(1)
 
     scan = _scan_markdown_component_block(lines, line_index, tag_name, recover_escaped_source)
     if recover_escaped_source and scan.next_line_index <= line_index + 1:
