@@ -334,9 +334,9 @@ sequenceDiagram
     participant V as Valves
     participant J as Judge
     participant S as Scorecard
-    alt a dependency died, a valve was never observed or never released, or the generator fell short
+    alt a dependency died, a valve was never released, or the generator fell short
         E-->>R: dependency down
-        V-->>R: requested, not observed
+        V-->>R: applied, not released
         Note over R: invalid
     else a role exited without a valve causing it
         E-->>R: exit not caused by a valve
@@ -347,6 +347,9 @@ sequenceDiagram
     else an invariant broke
         J-->>R: first violation, unit ids
         Note over R: failed
+    else only a valve was never observed
+        V-->>R: requested, not observed
+        Note over R: invalid
     end
     R->>R: write the evidence first
     R->>S: publish
@@ -463,9 +466,9 @@ export interface Runner {
 - **A failed reset stops the environment.** Later cards of the same invocation are skipped; run the command again.
 - **Seeding is bounded.** `seed` runs on its own Postgres pool with a 5-second statement timeout and must finish within 60 seconds. When the bound passes or the run is interrupted, the runner destroys the pool's connections and requires a restart, as a write already sent may still land in the next card.
 - **Status rules.**
-  - `invalid` when a dependency the card did not break went away (Postgres, Kafka, Redis, the SES rate limiter's Valkey, PersonHog, the edge), a valve was never observed, a valve was applied and never released, fewer than `minOffered` of the target units counted as offered, a traffic kind could not offer a unit it requires, the run was interrupted, or the evidence could not be written. The run could not judge, so this outranks a failed invariant.
+  - `invalid` when a dependency the card did not break went away (Postgres, Kafka, Redis, the SES rate limiter's Valkey, PersonHog, the edge), a valve was never observed, a valve was applied and never released, fewer than `minOffered` of the target units counted as offered, a traffic kind could not offer a unit it requires, the run was interrupted, or the evidence could not be written. The run could not judge, so each of these outranks a failed invariant, except a valve that was never observed.
   - `failed` when the stack did not converge, any invariant failed, or a Node role exited without a valve causing it, even if every delivery later arrives.
-    An unexplained exit outranks a valve that was never observed: the run fails, and the reason also lists every unobserved valve.
+    An unexplained exit, a failed invariant or a stack that did not converge outranks a valve that was never observed: the run fails, and the reason also lists every unobserved valve.
     An exit while `pg.drop_connections` is applied still counts as unexplained; its reason names the drop.
   - `passed` otherwise.
 - **Exit code.** The status's code, or 3 when the scorecard variables are set and the scorecard was not read back. A run interrupted after the capture keeps the status's code. Evidence files that could not be written make the run `invalid`, exit 2.
@@ -613,7 +616,7 @@ export interface Valves {
 
 - **Scheduling.** `at` fires at an offset from the drive's start. `when` asks the probe once a second until `running_on_queue` holds; an entry whose predicate never holds before the drive ends is not observed. A valve that strands running jobs, `role.kill` or `role.freeze`, asks again once observed, and an entry applied after its predicate stopped holding is not observed.
 - **Holds.** Every valve's `for` starts once `apply` returns, on one timer. The hold's signal aborts when that timer passes or the drive ends; observation waits on the same signal, and the valve releases once it aborts. So a `10s` hold lasts about 10 seconds however long observation took.
-- **Observation.** Each entry must be observed within its valve's window, or the timeline records an error and the run is `invalid`. A broken harness never reads as a passing engine. An edge fault counts as observed only when the edge answered a request with it inside its 10-second window, so a hold shorter than the window ends observation sooner.
+- **Observation.** Each entry must be observed within its valve's window, or the timeline records an error and the run is `invalid`, unless an unexplained exit, a failed invariant or a stack that did not converge already fails it. A broken harness never reads as a passing engine. An edge fault counts as observed only when the edge answered a request with it inside its 10-second window, so a hold shorter than the window ends observation sooner.
 - **Release.** An applied entry that is never released makes the run `invalid`. An entry that was never applied has nothing to release.
 - **Adding a valve** is one `ValveDefinition`. Cards name valves, never backends.
 
