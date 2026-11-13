@@ -78736,6 +78736,8 @@ export namespace Schemas {
       owner: ReleaseOwnerDTO | null;
       feature_flag_ids: number[];
       broadcast_ids: string[];
+      survey_ids: string[];
+      insight_ids: number[];
       created_at: string;
     }
 
@@ -96192,6 +96194,18 @@ export namespace Schemas {
          * @maxItems 100
          */
       broadcast_ids?: string[];
+      /**
+         * IDs of the surveys that collect feedback on the release, at most 100.
+         * @maxItems 100
+         */
+      survey_ids?: string[];
+      /**
+         * IDs of the saved insights that measure the release, at most 100.
+         * @maxItems 100
+         * @items.minimum 1
+         * @items.maximum 2147483647
+         */
+      insight_ids?: number[];
     }
 
     /**
@@ -126915,6 +126929,18 @@ export namespace Schemas {
          * @maxItems 100
          */
       broadcast_ids?: string[];
+      /**
+         * IDs of the surveys that collect feedback on the release, at most 100.
+         * @maxItems 100
+         */
+      survey_ids?: string[];
+      /**
+         * IDs of the saved insights that measure the release, at most 100.
+         * @maxItems 100
+         * @items.minimum 1
+         * @items.maximum 2147483647
+         */
+      insight_ids?: number[];
     }
 
     export interface ZendeskImportError {

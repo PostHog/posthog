@@ -76,6 +76,8 @@ def _to_dto(obj: Release, hidden: _Hidden) -> contracts.ReleaseDTO:
             for broadcast_id in obj.broadcast_ids
             if broadcast_id not in hidden.broadcasts and broadcast_id in hidden.summaries
         ],
+        survey_ids=list(obj.survey_ids),
+        insight_ids=list(obj.insight_ids),
         created_at=obj.created_at,
     )
 
@@ -130,6 +132,8 @@ def create(input: contracts.CreateReleaseInput, lookups: LinkLookups) -> contrac
         owner_id=input.owner_id,
         feature_flag_ids=feature_flag_ids,
         broadcast_ids=broadcast_ids,
+        survey_ids=list(input.survey_ids),
+        insight_ids=list(input.insight_ids),
     )
     return _visible_dto(logic.get_release(input.team_id, obj.id), lookups)
 

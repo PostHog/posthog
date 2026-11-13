@@ -3,6 +3,7 @@ import { urls } from 'scenes/urls'
 
 import type { FeatureFlagApi } from 'products/feature_flags/frontend/generated/api.schemas'
 
+import type { RelatedInsight, RelatedSurvey } from './releaseRelatedLogic'
 import { RolloutStep } from './releaseRollout'
 import {
     CALENDAR_DAYS_AFTER,
@@ -17,7 +18,6 @@ import {
 export const DAY = 30
 export const TOTAL = CALENDAR_DAYS_BEFORE + CALENDAR_DAYS_AFTER
 export const LANE = 34
-export const FLAG_LANE = 52
 export const DETAILED_LANE = 44
 const NO_STEPS: RolloutStep[] = []
 
@@ -26,6 +26,7 @@ export const SPAN_LOOK: Record<ReleaseSpan['kind'], { top: number; height: numbe
     early_access: { top: 4, height: 14, color: STAGE_COLOR.early_access },
     experiment: { top: 4, height: 14, color: STAGE_COLOR.experiment },
     experiment_done: { top: 4, height: 14, color: STAGE_COLOR.ended },
+    survey: { top: 4, height: 14, color: 'var(--release-survey)' },
 }
 
 export const TONE_COLOR: Record<NonNullable<ReleaseSpan['tone']>, string> = {
@@ -83,6 +84,15 @@ export type Lane =
           events: ReleaseEvent[]
           href: string
       }
+    | {
+          key: string
+          kind: 'survey'
+          title: string
+          status: string
+          live: boolean
+          span: ReleaseSpan
+          href: string
+      }
 
 export interface Track {
     row: ReleaseRow
@@ -90,7 +100,36 @@ export interface Track {
     lanes: Lane[]
 }
 
-export function buildTrack(row: ReleaseRow, stepsByFlag: Map<number, RolloutStep[]>): Track {
+export interface TrackRelated {
+    surveys: RelatedSurvey[]
+    insights: RelatedInsight[]
+}
+
+const NO_RELATED: TrackRelated = { surveys: [], insights: [] }
+
+export function relatedFor(
+    release: { survey_ids?: string[]; insight_ids?: number[] } | undefined,
+    surveysById: Record<string, RelatedSurvey>,
+    insightsById: Record<number, RelatedInsight>
+): TrackRelated {
+    if (!release) {
+        return NO_RELATED
+    }
+    return {
+        surveys: (release.survey_ids ?? []).flatMap((id) => (surveysById[id] ? [surveysById[id]] : [])),
+        insights: (release.insight_ids ?? []).flatMap((id) => (insightsById[id] ? [insightsById[id]] : [])),
+    }
+}
+
+function surveyStatus(survey: RelatedSurvey): string {
+    return survey.endDate ? 'Complete' : survey.startDate ? 'Running' : 'Draft'
+}
+
+export function buildTrack(
+    row: ReleaseRow,
+    stepsByFlag: Map<number, RolloutStep[]>,
+    related: TrackRelated = NO_RELATED
+): Track {
     const lanes: Lane[] = []
     for (const flag of row.flags) {
         lanes.push({
@@ -153,6 +192,25 @@ export function buildTrack(row: ReleaseRow, stepsByFlag: Map<number, RolloutStep
             href: urls.broadcast(broadcast.id),
         })
     }
+    for (const survey of related.surveys) {
+        const status = surveyStatus(survey)
+        lanes.push({
+            key: `survey-${survey.id}`,
+            kind: 'survey',
+            title: survey.name,
+            status,
+            live: status === 'Running',
+            span: {
+                key: `survey-span-${survey.id}`,
+                kind: 'survey',
+                from: survey.startDate ?? survey.createdAt,
+                to: survey.endDate ?? dayjs().toISOString(),
+                label: status === 'Draft' ? 'Survey draft' : status === 'Running' ? 'Survey running' : 'Survey',
+                href: urls.survey(survey.id),
+            },
+            href: urls.survey(survey.id),
+        })
+    }
     return { row, steps: row.flags[0] ? (stepsByFlag.get(row.flags[0].id) ?? NO_STEPS) : NO_STEPS, lanes }
 }
 
@@ -161,8 +219,8 @@ export function sendLabel(event: ReleaseEvent): string {
     return event.upcoming ? 'Scheduled' : kind ? kind[0].toUpperCase() + kind.slice(1) : 'Sent'
 }
 
-export function laneHeight(lane: Lane, detailed?: boolean): number {
-    return lane.kind === 'flag' ? FLAG_LANE : detailed ? DETAILED_LANE : LANE
+export function laneHeight(_lane: Lane, detailed?: boolean): number {
+    return detailed ? DETAILED_LANE : LANE
 }
 
 export function statusLabel(status: string): string {

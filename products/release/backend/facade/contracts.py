@@ -81,6 +81,8 @@ class ReleaseDTO:
     has_hidden_flags: bool
     broadcast_ids: list[UUID]
     broadcasts: list[LinkedBroadcastDTO]
+    survey_ids: list[UUID]
+    insight_ids: list[int]
     created_at: datetime
 
 
@@ -92,6 +94,8 @@ class CreateReleaseInput:
     owner_id: int | None = None
     feature_flag_ids: tuple[int, ...] = ()
     broadcast_ids: tuple[UUID, ...] = ()
+    survey_ids: tuple[UUID, ...] = ()
+    insight_ids: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True)

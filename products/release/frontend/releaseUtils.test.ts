@@ -25,6 +25,8 @@ function row(hasHiddenFlags: boolean, flags: FeatureFlagApi[] = [FLAG]): ReturnT
         feature_flag_ids: flags.map((flag) => flag.id),
         has_hidden_flags: hasHiddenFlags,
         broadcast_ids: [],
+        survey_ids: [],
+        insight_ids: [],
         broadcasts: [],
         created_at: '2026-10-02T00:00:00Z',
     } as ReleaseDTOApi
@@ -72,6 +74,8 @@ describe('buildReleaseRow', () => {
             feature_flag_ids: [FLAG.id],
             has_hidden_flags: false,
             broadcast_ids: [LAUNCH_SEND.id],
+            survey_ids: [],
+            insight_ids: [],
             broadcasts: [{ id: LAUNCH_SEND.id, name: 'Launch email', status: 'active', recent_sends: [] }],
             created_at: '2026-10-02T00:00:00Z',
         } as ReleaseDTOApi
@@ -117,6 +121,8 @@ describe('buildReleaseRow', () => {
             feature_flag_ids: [FLAG.id],
             has_hidden_flags: false,
             broadcast_ids: [],
+            survey_ids: [],
+            insight_ids: [],
             broadcasts: [],
             created_at: '2026-10-02T00:00:00Z',
         } as ReleaseDTOApi
@@ -143,6 +149,8 @@ describe('buildReleaseRow', () => {
             feature_flag_ids: [FLAG.id],
             has_hidden_flags: false,
             broadcast_ids: [],
+            survey_ids: [],
+            insight_ids: [],
             broadcasts: [],
             created_at: '2026-10-02T00:00:00Z',
         } as ReleaseDTOApi
@@ -181,6 +189,8 @@ describe('buildReleaseRow', () => {
             feature_flag_ids: [FLAG.id, targeted.id],
             has_hidden_flags: false,
             broadcast_ids: [],
+            survey_ids: [],
+            insight_ids: [],
             broadcasts: [],
             created_at: '2026-10-02T00:00:00Z',
         } as ReleaseDTOApi

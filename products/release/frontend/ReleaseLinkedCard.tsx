@@ -7,7 +7,6 @@ import {
     Button,
     Card,
     CardContent,
-    CardGroup,
     CardHeader,
     CardTitle,
     Item,
@@ -37,8 +36,8 @@ import {
 } from 'products/experiments/frontend/scenes/experimentsLogic'
 
 import { ReleaseAddLinkCombobox } from './ReleaseAddLinkCombobox'
-import { ReleaseLinkSuggestions } from './ReleaseLinkSuggestions'
 import { releaseLogic } from './releaseLogic'
+import { releaseRelatedLogic } from './releaseRelatedLogic'
 import { ReleaseShowMore } from './ReleaseShowMore'
 import { ReleaseBadgeVariant, ReleaseRow, badgeVariantForTag } from './releaseUtils'
 
@@ -50,23 +49,22 @@ interface LinkedObject {
     badge?: string
     badgeVariant: ReleaseBadgeVariant
     to: string
-    mono?: boolean
     onRemove?: () => void
 }
 
 function LinkedRow({ item }: { item: LinkedObject }): JSX.Element {
     return (
-        <Card size="sm" className="flex flex-row items-center p-0">
+        <div className="group flex flex-row items-center rounded-md hover:bg-fill-hover">
             <LinkPrimitive
                 to={item.to}
-                className="flex w-full min-w-0 items-center gap-2.5 px-3 py-2 text-start text-foreground hover:bg-fill-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/30"
+                className="flex w-full min-w-0 items-center gap-2.5 rounded-md px-2 py-1.5 text-start text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/30"
                 data-attr="release-linked-row"
             >
                 <span className="flex size-4 shrink-0 items-center justify-center [&_svg]:size-4">
                     {iconForType(item.type as FileSystemIconType)}
                 </span>
                 <span className="flex min-w-0 flex-1 flex-col">
-                    <Text size="xs" weight="medium" className={item.mono ? 'truncate font-mono' : 'truncate'}>
+                    <Text size="xs" weight="medium" className="truncate">
                         {item.title}
                     </Text>
                     <Text size="xxs" variant="muted" className="truncate">
@@ -79,19 +77,21 @@ function LinkedRow({ item }: { item: LinkedObject }): JSX.Element {
                     </Badge>
                 )}
             </LinkPrimitive>
-            {item.onRemove && (
+            {item.onRemove ? (
                 <Button
                     variant="default"
                     size="icon-sm"
-                    className="mr-1 shrink-0"
+                    className="mr-1 shrink-0 opacity-0 focus-visible:opacity-100 group-hover:opacity-100"
                     aria-label={`Remove ${item.title} from the release`}
                     onClick={item.onRemove}
                     data-attr="release-linked-remove"
                 >
                     <IconX />
                 </Button>
+            ) : (
+                <span className="mr-1 size-7 shrink-0" />
             )}
-        </Card>
+        </div>
     )
 }
 
@@ -101,6 +101,9 @@ export function ReleaseLinkedCard({ row }: { row: ReleaseRow }): JSX.Element {
     const [visible, setVisible] = useState(LINKED_LIMIT)
     const { canEditReleases } = useValues(releaseLogic)
     const { updateRelease, unlinkBroadcast } = useActions(releaseLogic)
+    const { relatedByRelease } = useValues(releaseRelatedLogic)
+    const { unlinkRelated } = useActions(releaseRelatedLogic)
+    const related = relatedByRelease[row.id]
     const items: LinkedObject[] = [
         ...row.flags.map((flag) => ({
             key: `flag-${flag.id}`,
@@ -110,7 +113,6 @@ export function ReleaseLinkedCard({ row }: { row: ReleaseRow }): JSX.Element {
             badge: flag.active ? undefined : 'Disabled',
             badgeVariant: (flag.active ? 'success' : 'warning') as ReleaseBadgeVariant,
             to: urls.featureFlag(flag.id),
-            mono: true,
         })),
         ...row.experiments.map((experiment) => {
             const status = getExperimentStatus(experiment as never)
@@ -124,6 +126,25 @@ export function ReleaseLinkedCard({ row }: { row: ReleaseRow }): JSX.Element {
                 to: urls.experiment(experiment.id),
             }
         }),
+        ...(related?.surveys ?? []).map((survey) => ({
+            key: `survey-${survey.id}`,
+            type: 'survey',
+            title: survey.name,
+            meta: 'Survey',
+            badge: survey.endDate ? 'Complete' : survey.startDate ? 'Running' : 'Draft',
+            badgeVariant: (survey.endDate ? 'default' : survey.startDate ? 'success' : 'default') as ReleaseBadgeVariant,
+            to: urls.survey(survey.id),
+            onRemove: canEditReleases ? () => unlinkRelated(row.id, 'survey', survey.id) : undefined,
+        })),
+        ...(related?.insights ?? []).map((insight) => ({
+            key: `insight-${insight.id}`,
+            type: 'insight/trends',
+            title: insight.name,
+            meta: 'Insight',
+            badgeVariant: 'default' as ReleaseBadgeVariant,
+            to: urls.insightView(insight.shortId as never),
+            onRemove: canEditReleases ? () => unlinkRelated(row.id, 'insight', String(insight.id)) : undefined,
+        })),
         ...row.broadcasts.map((broadcast) => ({
             key: `broadcast-${broadcast.id}`,
             type: 'broadcasts',
@@ -189,11 +210,11 @@ export function ReleaseLinkedCard({ row }: { row: ReleaseRow }): JSX.Element {
                     </Item>
                 )}
                 {items.length > 0 ? (
-                    <CardGroup>
+                    <div className="-mx-2 flex flex-col">
                         {shown.map((item) => (
                             <LinkedRow key={item.key} item={item} />
                         ))}
-                    </CardGroup>
+                    </div>
                 ) : (
                     <Text size="xs" variant="muted">
                         Nothing linked yet.
@@ -206,7 +227,6 @@ export function ReleaseLinkedCard({ row }: { row: ReleaseRow }): JSX.Element {
                     onChange={setVisible}
                     dataAttr="release-linked"
                 />
-                {canEditReleases && <ReleaseLinkSuggestions row={row} />}
                 {canEditReleases && <ReleaseAddLinkCombobox row={row} />}
             </CardContent>
         </Card>

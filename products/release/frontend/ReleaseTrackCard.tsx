@@ -13,6 +13,7 @@ import { ReleaseTimelineAxis } from './ReleaseTimelineAxis'
 import { ReleaseTrackGrid } from './ReleaseTrackGrid'
 import { ReleaseTrackLabel } from './ReleaseTrackLabel'
 import { ReleaseTrackLane } from './ReleaseTrackLane'
+import { releaseRelatedLogic } from './releaseRelatedLogic'
 import { Lane, Scale, Track, buildTrack } from './releaseTracks'
 import { CALENDAR_DAYS_AFTER, ReleaseRow, STAGE_COLOR, STAGE_COLOR_VARS, isEnrollingEarlyAccess } from './releaseUtils'
 import { useRefreshChangedFlagHistory } from './useRefreshChangedFlagHistory'
@@ -36,7 +37,7 @@ function trackScale(track: Track, width: number): Scale {
                     : [lane.span.from]
                 : lane.kind === 'broadcast'
                   ? lane.events.map((event) => event.date)
-                  : lane.span
+                  : 'span' in lane && lane.span
                     ? [lane.span.from, lane.span.to]
                     : []
         ),
@@ -134,9 +135,11 @@ export function ReleaseTrackCard({ row }: { row: ReleaseRow }): JSX.Element | nu
     useRefreshChangedFlagHistory(row.flags)
 
     const stepsByFlag = useRolloutStepsByFlag(TRACK_MAX_FUTURE_DAYS)
-    const track = useMemo(() => buildTrack(row, stepsByFlag), [row, stepsByFlag])
+    const { relatedByRelease } = useValues(releaseRelatedLogic)
+    const related = relatedByRelease[row.id]
+    const track = useMemo(() => buildTrack(row, stepsByFlag, related), [row, stepsByFlag, related])
 
-    const rows = useMemo(() => buildTrack(row, new Map()).lanes, [row])
+    const rows = useMemo(() => buildTrack(row, new Map(), related).lanes, [row, related])
     const lanesByKey = useMemo(() => new Map(track.lanes.map((lane) => [lane.key, lane])), [track])
     const scale = useMemo(() => trackScale(track, width), [track, width])
     const color = STAGE_COLOR[row.stage]

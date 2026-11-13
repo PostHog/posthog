@@ -11,6 +11,7 @@ const LANE_ICON: Record<Lane['kind'], string> = {
     experiment: 'experiment',
     early_access: 'early_access_feature',
     broadcast: 'broadcasts',
+    survey: 'survey',
 }
 
 function laneDetail(lane: Lane): string {
@@ -48,10 +49,7 @@ export function ReleaseTrackLabel({
             <span className="flex min-w-0 flex-1 flex-col gap-0.5">
                 <LinkPrimitive
                     to={lane.href}
-                    className={cn(
-                        'truncate text-foreground hover:underline',
-                        lane.kind === 'flag' ? 'font-mono text-[11px]' : 'text-xs'
-                    )}
+                    className="truncate text-xs text-foreground hover:underline"
                 >
                     {lane.title}
                 </LinkPrimitive>

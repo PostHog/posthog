@@ -74,6 +74,18 @@ class WriteReleaseSerializer(serializers.Serializer):
         max_length=MAX_LINKED,
         help_text=f"IDs of the broadcasts that announce the release, at most {MAX_LINKED}.",
     )
+    survey_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        required=False,
+        max_length=MAX_LINKED,
+        help_text=f"IDs of the surveys that collect feedback on the release, at most {MAX_LINKED}.",
+    )
+    insight_ids = serializers.ListField(
+        child=serializers.IntegerField(min_value=1, max_value=2**31 - 1),
+        required=False,
+        max_length=MAX_LINKED,
+        help_text=f"IDs of the saved insights that measure the release, at most {MAX_LINKED}.",
+    )
 
     def validate_owner_id(self, value: int | None) -> int | None:
         if value is None:
