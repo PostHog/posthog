@@ -182,6 +182,7 @@ export class UrlFetchConsumer {
             const fetchable: FetchCandidate[] = []
             const notReady: FetchCandidate[] = []
             const refreshDue: { candidate: FetchCandidate; history: UrlCrawlHistoryItem }[] = []
+            const storedFresh: { candidate: FetchCandidate; history: UrlCrawlHistoryItem }[] = []
             for (const candidate of candidates) {
                 const history = stored.get(candidate.originalRef)
                 if (history?.kind === 'url') {
@@ -191,6 +192,7 @@ export class UrlFetchConsumer {
                         continue
                     }
                     if (job === 'drop') {
+                        storedFresh.push({ candidate, history })
                         ImageFetchConsumerMetrics.incDeduped('store', 1)
                         this.topHogMetrics?.recordFilteredUrl(candidate, 'store_deduped')
                         for (const sourcePartition of candidate.sourcePartitions ?? []) {
@@ -214,10 +216,17 @@ export class UrlFetchConsumer {
                 }
             }
 
+            const sink = this.options.refreshingSink
+            if (sink?.indexStoredImage) {
+                await Promise.all(
+                    storedFresh.map(({ candidate, history }) => sink.indexStoredImage!(candidate, history))
+                )
+            }
             const refreshed = await Promise.all(
                 refreshDue.map(async ({ candidate, history }): Promise<UrlCrawlHistoryItem> => {
-                    if (await this.options.refreshingSink!.refreshImage(candidate)) {
-                        return { ...history, storedAtMs: nowMs }
+                    const refresh = await this.options.refreshingSink!.refreshImage(candidate, history)
+                    if (refresh) {
+                        return { ...history, storedAtMs: refresh.pack?.storedAtMs ?? nowMs, pack: refresh.pack }
                     }
                     // The stored image is gone, for example because S3 expired it. Admission already dropped a job
                     // whose key is deleted, and a refused image has no stored time, so this one is fetched again now,
@@ -225,6 +234,7 @@ export class UrlFetchConsumer {
                     const missing: UrlCrawlHistoryItem = {
                         ...history,
                         storedAtMs: undefined,
+                        pack: undefined,
                         nextFetchAtMs: nowMs,
                         cache: undefined,
                     }

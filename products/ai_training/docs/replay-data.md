@@ -417,20 +417,20 @@ UpdateItem  SET deleted = :true, expires_at = if_not_exists(expires_at, :expiry)
 
 Nothing in v4 is kept for good. Each kind of data has a fixed lifetime, and a deletion only makes data unreadable sooner.
 
-| Data                           | Where                                                            | Lifetime                                                                                                                                    | Removed by                    |
-| ------------------------------ | ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------- |
-| Session blocks                 | `rrweb-v4` `blocks/`                                             | 30 days after the write                                                                                                                     | S3 expiration                 |
-| Block and image index          | `rrweb-v4` `index/`                                              | 30 days after the write                                                                                                                     | S3 expiration                 |
-| Inline image packs             | `images-v4` `images/packs/`                                      | 38 days after the write                                                                                                                     | S3 expiration                 |
-| Fetched images                 | `images-v4` `images/url/`                                        | 38 days after the last write. The fetcher copies an image onto itself when a job refers to it and the copy is more than 7 days old          | S3 expiration                 |
-| Fetched fonts                  | `images-v4` `fonts/url/`                                         | The same as fetched images                                                                                                                  | S3 expiration                 |
-| Team month and session keys    | `ai-research-replay-v4-keys`                                     | Until the start of the fifth month after `key_month`                                                                                        | DynamoDB TTL                  |
-| Tombstones                     | `ai-research-replay-v4-keys`                                     | The same expiry as the row they replace                                                                                                     | DynamoDB TTL                  |
-| Fetch history and robots cache | `ai-research-v4-image-fetch-history`                             | URL history: 8 days after the end of its month, and a public font's history until its next fetch. Robots and tdmrep cache: at least 30 days | DynamoDB TTL                  |
-| Index records                  | Kafka `ai_research_v4_index`                                     | 7 days                                                                                                                                      | Topic retention               |
-| Fetch jobs, with raw URLs      | Kafka `ai_research_v4_image_fetch`, its retry topics and its DLQ | 24 hours                                                                                                                                    | Topic retention               |
-| Seen and blocked sessions      | `ai-research-v4` Redis, `@posthog/ai-research-v4/`               | The main lane's expiry, or earlier under memory pressure                                                                                    | Redis expiry and LRU eviction |
-| Held keys                      | Recorder and fetcher memory                                      | 5 minutes for a session row, one hour for a team month row                                                                                  | Cache expiry                  |
+| Data                           | Where                                                            | Lifetime                                                                                                                                                                           | Removed by                    |
+| ------------------------------ | ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------- |
+| Session blocks                 | `rrweb-v4` `blocks/`                                             | 30 days after the write                                                                                                                                                            | S3 expiration                 |
+| Block and image index          | `rrweb-v4` `index/`                                              | 30 days after the write                                                                                                                                                            | S3 expiration                 |
+| Inline image packs             | `images-v4` `images/packs/`                                      | 38 days after the write                                                                                                                                                            | S3 expiration                 |
+| Fetched images                 | `images-v4` `images/url/`                                        | 38 days after the last write. When a job refers to an image whose copy is more than 7 days old, the fetcher copies it onto itself, or writes a packed copy's frame into a new pack | S3 expiration                 |
+| Fetched fonts                  | `images-v4` `fonts/url/`                                         | The same as fetched images                                                                                                                                                         | S3 expiration                 |
+| Team month and session keys    | `ai-research-replay-v4-keys`                                     | Until the start of the fifth month after `key_month`                                                                                                                               | DynamoDB TTL                  |
+| Tombstones                     | `ai-research-replay-v4-keys`                                     | The same expiry as the row they replace                                                                                                                                            | DynamoDB TTL                  |
+| Fetch history and robots cache | `ai-research-v4-image-fetch-history`                             | URL history: 8 days after the end of its month, and a public font's history until its next fetch. Robots and tdmrep cache: at least 30 days                                        | DynamoDB TTL                  |
+| Index records                  | Kafka `ai_research_v4_index`                                     | 7 days                                                                                                                                                                             | Topic retention               |
+| Fetch jobs, with raw URLs      | Kafka `ai_research_v4_image_fetch`, its retry topics and its DLQ | 24 hours                                                                                                                                                                           | Topic retention               |
+| Seen and blocked sessions      | `ai-research-v4` Redis, `@posthog/ai-research-v4/`               | The main lane's expiry, or earlier under memory pressure                                                                                                                           | Redis expiry and LRU eviction |
+| Held keys                      | Recorder and fetcher memory                                      | 5 minutes for a session row, one hour for a team month row                                                                                                                         | Cache expiry                  |
 
 - S3 expiration counts from the time an object was written, rounds up to the next midnight UTC and can run late, so plan for objects to stay for up to 2 days more.
 - Blocks expire by write time, not by session start, so a session whose blocks span several write days loses its first blocks first. Nothing marks the rest as partial, and `cold_start` does not cover it. Readers that need whole sessions follow the rule in [Block index](#block-index).
@@ -504,20 +504,21 @@ The recorder streams each block into the encoder. Read a block as a stream: a Br
 ### Layout
 
 Every prefix that the recorder writes is partitioned by the UTC day of the write.
-Fetched images and fonts are partitioned by the key month of their reference. A public font file has no month.
+Fetched images and fonts are partitioned by the key month of their reference. A public font file has no month. Packs of fetched images are partitioned by the UTC day of the write.
 
-| Bucket      | Prefix                                        | Contents                                                                        |
-| ----------- | --------------------------------------------- | ------------------------------------------------------------------------------- |
-| `rrweb-v4`  | `blocks/dt={day}/`                            | One object per recorder flush: sealed blocks, each found by byte range          |
-| `rrweb-v4`  | `index/blocks/dt={day}/`                      | Parquet, one row per block                                                      |
-| `rrweb-v4`  | `index/images/dt={day}/`                      | Parquet, one row per stored inline image                                        |
-| `rrweb-v4`  | `index/blocks/_watermarks/`                   | JSON, one object per Kafka partition: how far the block index is complete       |
-| `rrweb-v4`  | `index/images/_watermarks/`                   | JSON, one object per Kafka partition: how far the image index is complete       |
-| `rrweb-v4`  | `index/_recorder_watermarks/dt={day}/`        | JSON, one object per input Kafka partition: how far the recorder is complete    |
-| `images-v4` | `images/packs/dt={day}/{team_id}/`            | One object per recorder flush and team: sealed images, each found by byte range |
-| `images-v4` | `images/url/month={YYYY-MM}/{team_id}/{hash}` | One sealed fetched image per URL reference                                      |
-| `images-v4` | `fonts/url/month={YYYY-MM}/{team_id}/{hash}`  | One sealed fetched font per font URL reference                                  |
-| `images-v4` | `fonts/url/public/{hash}`                     | One unsealed font file per public font reference, for every team                |
+| Bucket      | Prefix                                        | Contents                                                                              |
+| ----------- | --------------------------------------------- | ------------------------------------------------------------------------------------- |
+| `rrweb-v4`  | `blocks/dt={day}/`                            | One object per recorder flush: sealed blocks, each found by byte range                |
+| `rrweb-v4`  | `index/blocks/dt={day}/`                      | Parquet, one row per block                                                            |
+| `rrweb-v4`  | `index/images/dt={day}/`                      | Parquet, one row per stored inline image                                              |
+| `rrweb-v4`  | `index/blocks/_watermarks/`                   | JSON, one object per Kafka partition: how far the block index is complete             |
+| `rrweb-v4`  | `index/images/_watermarks/`                   | JSON, one object per Kafka partition: how far the image index is complete             |
+| `rrweb-v4`  | `index/_recorder_watermarks/dt={day}/`        | JSON, one object per input Kafka partition: how far the recorder is complete          |
+| `images-v4` | `images/packs/dt={day}/{team_id}/`            | One object per recorder flush and team: sealed images, each found by byte range       |
+| `images-v4` | `images/url/month={YYYY-MM}/{team_id}/{hash}` | One sealed fetched image per URL reference                                            |
+| `images-v4` | `images/url/packs/dt={day}/{team_id}/`        | One object per fetcher pack and team: sealed fetched images, each found by byte range |
+| `images-v4` | `fonts/url/month={YYYY-MM}/{team_id}/{hash}`  | One sealed fetched font per font URL reference                                        |
+| `images-v4` | `fonts/url/public/{hash}`                     | One unsealed font file per public font reference, for every team                      |
 
 S3 expires every object a fixed time after it was written: 30 days in `rrweb-v4` and 38 days in `images-v4`. [Lifecycle](#lifecycle) lists every lifetime and why they fit together.
 
@@ -725,16 +726,17 @@ Some limits apply:
 
 ### Image index
 
-`index/images/` has one row per inline image in a pack: `team_id`, `key_month`, `image_ref`, `pack_s3_key`, `byte_start`, `byte_end`, `mime` and `byte_size`.
+`index/images/` has one row per image in a pack, inline or fetched: `team_id`, `key_month`, `image_ref`, `pack_s3_key`, `byte_start`, `byte_end`, `mime` and `byte_size`.
 
 - Each frame in a pack is sealed under the team month key of the write month, as a fetched image is. A session deletion therefore does not make inline images unreadable (see [Deletion](#deletion)).
 - `image_ref` uses the team month image content key, so the same image has the same reference in every session of the team month. A pack holds one frame per distinct reference, so an image that two sessions show in one flush is stored once. A later flush stores it again.
-- A reader resolves an image of a block by (`team_id`, `image_ref`) and opens it with the team month key of `key_month`.
+- A reader resolves an image of a block by (`team_id`, `image_ref`) in the image index of the block's write day, and opens it with the team month key of `key_month`.
+- A fetched image (`imageurl:v4:`) in a pack has a row in the image index of each write day whose blocks refer to it, as [Packed fetched images](#packed-fetched-images) says. Its frame is sealed as a fetched image, with the `image-url` context.
 - The sink writes [watermark files](#watermark-files) for this index too, under `index/images/_watermarks/`.
 
 ### Remote images
 
-The recorder sends each remote image URL that the URL policy accepts to the `ai_research_v4_image_fetch` topic in the v3 job shape, keyed by registrable domain. The job carries the reference that replaces the URL in the block.
+The recorder sends each remote image URL that the URL policy accepts to the `ai_research_v4_image_fetch` topic in the v3 job shape, keyed by registrable domain. The job carries the reference that replaces the URL in the block, and `writeDays`, the write day of the flush's blocks.
 It collects URLs from image sources, the kept candidate of each `srcset`, SVG image links, CSS `url(...)` values and attribute mutations, and skips hidden or 1×1 images as v3 does. Unlike v3, it also collects CSS custom properties and relative CSS URLs, and fetches one `image-set()` candidate of a stored type.
 The topics hold jobs for 24 hours, because jobs carry raw URLs.
 The v4 image fetcher is its own copy of the v3 fetcher under `ai-research/image-fetch-v4/`, with the v3 fetch policy, its own consumer groups and its own `AI_RESEARCH_V4_IMAGE_FETCH_*` settings. It shares no code or table with v3.
@@ -746,8 +748,8 @@ The response must have one of these media types and bytes of that format: a sign
 The fetcher keeps a crawl history per URL reference, so per team and month, in its own DynamoDB table `ai-research-v4-image-fetch-history`, with the v3 fetch interval and conditional requests. The table also holds its robots.txt and tdmrep cache:
 
 - The first job for a reference fetches the image from its origin.
-- A later job before the v3 refetch time does not contact the origin. When the stored copy is more than 7 days old, the fetcher copies it onto itself. Otherwise it drops the job.
-- A job after the v3 refetch time sends a conditional request with the stored `ETag` or `Last-Modified`. A `304` refreshes the stored copy by a copy onto itself, and a `200` replaces it.
+- A later job before the v3 refetch time does not contact the origin. When the stored copy is more than 7 days old, the fetcher refreshes it: it copies the object onto itself, or writes a packed copy's frame into a new pack. Otherwise it drops the job.
+- A job after the v3 refetch time sends a conditional request with the stored `ETag` or `Last-Modified`. A `304` refreshes the stored copy, and a `200` replaces it.
 - The history item expires 8 days after the end of its month, as v3 history does. A reference carries the month of its write, so no job refers to it after that.
 - An item that does not parse, for example one that a newer build wrote, reads as a miss. The fetcher counts it and fetches the image again.
 - The history holds no URL in plaintext. It binds the stored validators to an HMAC of the response URL under the team month URL key, and sends them only when the job's URL has the same HMAC.
@@ -760,13 +762,33 @@ The fetcher drops a job whose team month row is missing, expired or deleted. A p
 Each recorder pod sends a reference at most once per UTC day. When `AI_RESEARCH_V4_IMAGE_FETCH_HISTORY_TABLE` is set, the recorder also reads the fetcher's history, as the v3 mirror did:
 
 - It reads only the image and font references of the flush that it did not send or mark that day, each one once. The read starts with the flush and runs while the flush seals its blocks.
-- It does not send a job that the fetcher would still drop at the end of the day. That is a job before the refetch time of its reference, when the reference has no stored copy or a stored copy less than 7 days old. It marks that reference as sent for the day.
+- It does not send a job that the fetcher would still drop at the end of the day. That is a job before the refetch time of its reference, when the reference has no stored copy or a stored copy less than 7 days old. It marks that reference as sent for the day, once the flush has handed its index rows to the producer.
+- When that stored copy is in a pack, it sends an image index row for the copy with the flush's own index rows, so the day's image index lists the image.
 - It sends every other job, so the fetcher still refreshes each stored copy within its interval.
 - It parses a history row with the same code as the fetcher. A row that the fetcher reads as a miss is a miss for the recorder too.
 - A read that fails or takes more than 5 seconds checks nothing, and its jobs go out. The read does not retry a failed request.
-- `ai_research_v4_recorder_image_fetch_history_total` counts the references it read by `outcome`: `fresh` (marked), `due` (a refresh or refetch is due today), `absent`, `invalid` and `error`.
+- `ai_research_v4_recorder_image_fetch_history_total` counts the references it read by `outcome`: `fresh` (marked), `fresh_packed` (marked, with a row for the packed copy), `due` (a refresh or refetch is due today), `absent`, `invalid` and `error`.
 
 `replay_core_v4::fetch_history` holds the drop rule, the 7-day refresh interval and the row parser. The recorder calls it directly, and the fetcher calls it through `@posthog/ai-research-v4-native`.
+
+#### Packed fetched images
+
+With `AI_RESEARCH_V4_IMAGE_FETCH_PACK_IMAGES` on, the fetcher stores a team's fetched images in packs, one S3 object for many images, instead of one object per reference. It is off by default.
+
+- The fetcher collects each team's sealed frames for `AI_RESEARCH_V4_IMAGE_FETCH_PACK_LINGER_MS`, then writes them as one object under `images/url/packs/dt={day}/{team_id}/`. A pack holds one team's frames only. Each frame is sealed exactly as a fetched image stored alone.
+- For each packed image it sends one image index row to `ai_research_v4_index` per day in the job's `writeDays`, with that day as `ml-write-day`. A publish resolves only after the pack is stored and its rows are delivered, so the crawl history never names a pack before the index can.
+- It packs an image only when every row arrives at least an hour before its write day ends. A reader takes a write day's index once the recorder's watermark files cover it, and those files cover every row delivered before they were written. It stores every other image as the one object of its reference: a job with no `writeDays`, a job whose day ends within the hour, and every font.
+- The crawl history item records the copy's place in `pack`: `key`, `byteStart`, `byteEnd`, `mime`, `byteSize` and `storedAtMs`. The pack names the stored copy only while its `storedAtMs` equals the item's. A build that does not know `pack` keeps the field when it stores a copy elsewhere, and that copy then gets a new `storedAtMs`.
+- A job for a packed copy that needs no refresh gets rows for its `writeDays`. If those rows would be late, or the job has no `writeDays`, the fetcher writes the copy's frame as the one object of its reference instead.
+
+A reader finds a fetched image as follows:
+
+1. Look up (`team_id`, `image_ref`) in the image index of the write days of the session's blocks, as for an inline image.
+2. If no row lists it, read `images/url/month={key_month}/{team_id}/{hash}`.
+
+Both copies open with the `image-url` context. Every image fetched before packing, and every image the fetcher does not pack, is found by step 2.
+
+Turn packing on only after every reader does step 1, and after the recorder that sends `writeDays` and writes rows for packed copies is deployed. To turn it off, clear the setting: the fetcher then stores each image alone and refreshes each packed copy by writing it alone, so every stored copy is out of a pack within the 7-day refresh interval.
 
 #### Limits per domain and frontier backlog
 

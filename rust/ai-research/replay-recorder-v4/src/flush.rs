@@ -24,7 +24,7 @@ use replay_core_v4::keys::table::{AwsKeyTable, CachedKeyTable};
 use tokio::sync::Semaphore;
 
 use crate::batch::Block;
-use crate::history::{mark_fresh, FetchHistory};
+use crate::history::{fresh_urls, FetchHistory, Fresh};
 use crate::index::{Index, IndexMessage};
 use crate::store::BlobStore;
 use crate::urls::{fetch_jobs, records, FetchJobs, FlushUrls};
@@ -213,11 +213,11 @@ pub async fn write_flush(
         })
         .collect();
     let mut done = Vec::with_capacity(seals.len());
-    let (results, ()) = tokio::join!(
+    let (results, fresh) = tokio::join!(
         stream::iter(seals)
             .buffer_unordered(concurrency.max(1))
             .collect::<Vec<_>>(),
-        mark_fresh_urls(writer, &urls, &day),
+        fresh_flush_urls(writer, &urls, &day),
     );
     for (index, result) in results {
         match result {
@@ -270,7 +270,8 @@ pub async fn write_flush(
             .filter(|(index, _)| kept[*index])
             .map(|(index, (block, stats))| (index, &**block, stats)),
         now.timestamp_millis(),
-        &already_sent,
+        &day,
+        &|reference: &str| already_sent(reference) || fresh.references.contains(reference),
     );
     drop(urls);
 
@@ -309,8 +310,11 @@ pub async fn write_flush(
     let flush_captured_at_ms = blocks.iter().filter_map(|b| b.captured_at_ms).min();
     let mut index = image_rows
         .iter()
+        .chain(&fresh.rows)
         .map(|row| IndexMessage::image(row, flush_captured_at_ms))
         .collect::<Result<Vec<_>, _>>()?;
+    counter!("ai_research_v4_recorder_packed_url_image_rows_total")
+        .increment(fresh.rows.len() as u64);
     for row in block_index_rows(&entries, &keys, &attempt)? {
         index.push(IndexMessage::block(&row)?);
     }
@@ -322,22 +326,25 @@ pub async fn write_flush(
         index,
         flush_done.clone(),
     );
+    for reference in fresh.references {
+        writer.sent_urls.insert((day.clone(), reference), ());
+    }
     Ok(())
 }
 
-async fn mark_fresh_urls(writer: &Writer, urls: &FlushUrls, day: &str) {
+async fn fresh_flush_urls(writer: &Writer, urls: &FlushUrls, day: &str) -> Fresh {
     let Some(history) = &writer.fetch_history else {
-        return;
+        return Fresh::default();
     };
     let deadline = tokio::time::Instant::now() + HISTORY_READ_BUDGET;
-    mark_fresh(
+    fresh_urls(
         history.as_ref(),
         &writer.sent_urls,
         urls.unsent_references(),
         day,
         deadline,
     )
-    .await;
+    .await
 }
 
 /// Sends every fetch job of the flush, then waits for all deliveries before the flush commits, as the v3 mirror does.

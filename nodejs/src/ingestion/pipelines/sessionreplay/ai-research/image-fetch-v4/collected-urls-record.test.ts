@@ -49,7 +49,10 @@ function record(overrides: Record<string, unknown> = {}): Buffer {
 
 describe('frontier record', () => {
     it('round trips the durable job state', () => {
-        const durableCandidate = candidate({ lastBlockReason: 'configuration_unreachable' })
+        const durableCandidate = candidate({
+            lastBlockReason: 'configuration_unreachable',
+            writeDays: ['2026-10-13', '2026-10-14'],
+        })
         const parsed = parseCollectedUrlsRecord(serializeFrontierRecord([durableCandidate]), 'example.com')
 
         expect(parsed).toEqual({ ok: true, candidates: [durableCandidate], urlCount: 1, rejected: [], skipped: [] })
@@ -74,8 +77,16 @@ describe('frontier record', () => {
         })
     })
 
-    it('drops a job with a non-boolean low-origin-diversity marker', () => {
-        expect(parseCollectedUrlsRecord(record({ lowOriginDiversityDeferred: 'true' }), 'example.com')).toEqual({
+    it.each([
+        ['a non-boolean low-origin-diversity marker', { lowOriginDiversityDeferred: 'true' }],
+        ['write days that are not a list', { writeDays: '2026-10-14' }],
+        ['a write day that is not a date', { writeDays: ['2026-02-30'] }],
+        [
+            'more write days than a job keeps',
+            { writeDays: ['2026-10-11', '2026-10-12', '2026-10-13', '2026-10-14', '2026-10-15'] },
+        ],
+    ])('drops a job with %s', (_name, overrides) => {
+        expect(parseCollectedUrlsRecord(record(overrides), 'example.com')).toEqual({
             ok: false,
             reason: 'bad_url',
         })

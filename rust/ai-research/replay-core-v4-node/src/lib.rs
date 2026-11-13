@@ -62,6 +62,7 @@ fn url_job_ffi(mut cx: FunctionContext) -> JsResult<JsString> {
     let history = UrlHistory {
         next_fetch_at_ms,
         stored_at_ms,
+        pack: None,
     };
     Ok(cx.string(history.job_at(now_ms).label()))
 }
