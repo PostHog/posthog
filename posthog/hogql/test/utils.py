@@ -170,8 +170,9 @@ def pretty_dataclasses(obj, seen=None, indent=0):
 def native_stored_document(document: str) -> str:
     """A properties document as the native cleaner stores it, for fixtures that cast text into the JSON column.
 
-    Every top-level object and array becomes a string of the JSON text that was sent. Every other value keeps its
-    text, so a number token such as `2.0` or `1e21` reaches ClickHouse as it was written.
+    Every top-level object and array becomes a string of the JSON text that was sent, except the `$feature_flags`
+    map of event properties. Every other value keeps its text, so a number token such as `2.0` or `1e21` reaches
+    ClickHouse as it was written.
     """
     decoder = json.JSONDecoder()
     members = []
@@ -184,7 +185,8 @@ def native_stored_document(document: str) -> str:
         start = len(document) - len(document[document.index(":", index) + 1 :].lstrip())
         _, index = decoder.raw_decode(document, start)
         value = document[start:index]
-        members.append(f"{json.dumps(key)}:{json.dumps(value) if value[0] in '[{' else value}")
+        is_stored_as_text = value[0] in "[{" and key != "$feature_flags"
+        members.append(f"{json.dumps(key)}:{json.dumps(value) if is_stored_as_text else value}")
         index = len(document) - len(document[index:].lstrip())
         if document[index] == ",":
             index += 1
