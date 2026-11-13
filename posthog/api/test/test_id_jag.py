@@ -1352,3 +1352,44 @@ class TestIDJagAccessTokenAuthentication(APIBaseTest):
         resp = self.client.get(url, HTTP_AUTHORIZATION=f"Bearer {token}")
 
         self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND, resp.content)
+
+    def test_me_hides_the_current_project_and_organization_outside_the_tokens_organization(self) -> None:
+        other_organization, _, other_team = Organization.objects.bootstrap(self.user)
+        self.user.current_team = other_team
+        self.user.current_organization = other_organization
+        self.user.save()
+
+        token = self._mint_access_token(scope="user:read")
+        resp = self.client.get("/api/users/@me/", HTTP_AUTHORIZATION=f"Bearer {token}")
+
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        body = resp.json()
+        self.assertIsNone(body["team"])
+        self.assertIsNone(body["organization"])
+        self.assertEqual([organization["id"] for organization in body["organizations"]], [str(self.organization.id)])
+
+    def test_me_refuses_to_switch_to_a_project_outside_the_tokens_organization(self) -> None:
+        _, _, other_team = Organization.objects.bootstrap(self.user)
+        self.user.current_team = self.team
+        self.user.save()
+
+        token = self._mint_access_token(scope="user:write")
+        resp = self.client.patch(
+            "/api/users/@me/",
+            {"set_current_team": other_team.id},
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST, resp.content)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.current_team_id, self.team.id)
+
+    def test_organization_list_holds_only_the_tokens_organization(self) -> None:
+        Organization.objects.bootstrap(self.user)
+
+        token = self._mint_access_token(scope="organization:read")
+        resp = self.client.get("/api/organizations/", HTTP_AUTHORIZATION=f"Bearer {token}")
+
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        self.assertEqual([organization["id"] for organization in resp.json()["results"]], [str(self.organization.id)])
