@@ -22,6 +22,7 @@ import { PlatformAlertGroupsTable } from './PlatformAlertGroupsTable'
 import { PlatformAlertLogicProps, platformAlertLogic } from './platformAlertLogic'
 import { PlatformAlertRuleMetadata } from './PlatformAlertRuleMetadata'
 import { PlatformAlertRuleMetadataModal } from './PlatformAlertRuleMetadataModal'
+import { PlatformAlertRoutingSection } from './routing/PlatformAlertRoutingSection'
 
 export const scene: SceneExport = {
     component: PlatformAlertScene,
@@ -119,6 +120,7 @@ export function PlatformAlertScene(): JSX.Element {
                 <PlatformAlertRuleMetadata configuration={configuration} />
                 <PlatformAlertRuleMetadataModal />
             </SceneSection>
+            <PlatformAlertRoutingSection configuration={configuration} />
             <SceneSection
                 title="Groups"
                 description={

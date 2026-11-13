@@ -23,25 +23,34 @@ class RoutedReceiver:
     event_kinds: tuple[AlertEventKind, ...]
 
 
-def routed_receivers(*, team_id: int, labels: Mapping[str, str]) -> tuple[RoutedReceiver, ...]:
-    """The receivers of every enabled route these labels match, in route order.
-
-    A receiver that two routes reach is sent to once, with the kinds of both.
-    """
+def matching_routes(*, team_id: int, labels: Mapping[str, str]) -> list[AlertRoute]:
+    """Every enabled route to an enabled receiver that these labels match, in route order, up to
+    the first match that stops matching."""
+    matched: list[AlertRoute] = []
     routes = (
         AlertRoute.objects.for_team(team_id)
         .filter(enabled=True, receiver__enabled=True)
         .order_by("position", "created_at", "id")
     )
-    kinds_by_receiver: dict[UUID, dict[AlertEventKind, None]] = {}
     for route in routes:
         if not _matches(route, labels):
             continue
+        matched.append(route)
+        if not route.continue_matching:
+            break
+    return matched
+
+
+def routed_receivers(*, team_id: int, labels: Mapping[str, str]) -> tuple[RoutedReceiver, ...]:
+    """The receivers of every route `matching_routes` finds, in route order.
+
+    A receiver that two routes reach is sent to once, with the kinds of both.
+    """
+    kinds_by_receiver: dict[UUID, dict[AlertEventKind, None]] = {}
+    for route in matching_routes(team_id=team_id, labels=labels):
         kinds_by_receiver.setdefault(route.receiver_id, {}).update(
             dict.fromkeys(AlertEventKind(kind) for kind in route.event_kinds)
         )
-        if not route.continue_matching:
-            break
     # Loaded only for the receivers that matched, so a team's other configs are never decrypted.
     configs = {
         receiver.id: receiver.config
