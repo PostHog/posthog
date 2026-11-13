@@ -1,9 +1,11 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { dayjs } from 'lib/dayjs'
+import { teamLogic } from 'scenes/teamLogic'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { initKeaTests } from '~/test/init'
-import { AnnotationScope, AnnotationType } from '~/types'
+import { AnnotationScope, AnnotationType, SidePanelTab } from '~/types'
 
 import * as generatedApi from '../generated/api'
 import type { AnnotationApi } from '../generated/api.schemas'
@@ -19,6 +21,40 @@ describe('annotationModalLogic', () => {
 
     afterEach(() => {
         updateSpy.mockRestore()
+    })
+
+    it('keeps the draft when its chart unmounts and another panel opens', () => {
+        const unmountPanel = sidePanelStateLogic.mount()
+        const logic = annotationModalLogic()
+        const unmount = logic.mount()
+        logic.actions.openModalToCreateAnnotation(null, 7)
+        logic.actions.setAnnotationModalValue('content', 'Deployment notes')
+        unmount()
+
+        sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Max)
+        sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Annotations)
+        const unmountEditor = logic.mount()
+        expect(logic.values.annotationModal).toMatchObject({ content: 'Deployment notes', dashboardItemId: 7 })
+        expect(logic.values.isModalOpen).toBe(true)
+
+        logic.actions.closeModal()
+        expect(logic.values.annotationModal.content).toBe('')
+        expect(sidePanelStateLogic.values.sidePanelOpen).toBe(false)
+        unmountEditor()
+        unmountPanel()
+    })
+
+    it('discards the draft when the current project changes', () => {
+        const logic = annotationModalLogic()
+        logic.mount()
+        logic.actions.openModalToCreateAnnotation()
+        logic.actions.setAnnotationModalValue('content', 'Project-specific note')
+
+        teamLogic.actions.loadCurrentTeamSuccess({ ...teamLogic.values.currentTeam!, id: 99 })
+
+        expect(logic.values.isModalOpen).toBe(false)
+        expect(logic.values.annotationModal.content).toBe('')
+        expect(sidePanelStateLogic.values.sidePanelOpen).toBe(false)
     })
 
     it.each([

@@ -2,21 +2,19 @@ import './AnnotationsOverlay.scss'
 
 import { BindLogic, useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import React, { Suspense, useEffect, useRef, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 
 import { IconPencil, IconPlusSmall, IconTrash } from '@posthog/icons'
 
 import { LazyTextContent } from 'lib/components/RichContentEditor/LazyRichContent'
 import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { useKeepMountedWhileOpen } from 'lib/hooks/useKeepMountedWhileOpen'
 import { LemonBadge } from 'lib/lemon-ui/LemonBadge/LemonBadge'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
-import { lazyWithRetry } from 'lib/utils/retryImport'
 import { fullName, pluralize } from 'lib/utils/strings'
 import { shortTimeZone } from 'lib/utils/timezones'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -32,11 +30,6 @@ import { QuillAnnotationCard } from './QuillAnnotationCard'
 import { QuillAnnotationsPopover } from './QuillAnnotationsPopover'
 import { useAnnotationPopoverHover } from './useAnnotationPopoverHover'
 import { AnnotationsChartGeometry, useAnnotationsPositioning } from './useAnnotationsPositioning'
-
-// The modal carries a markdown editor, which a chart needs only once someone adds or edits an annotation.
-const AnnotationModal = lazyWithRetry(() =>
-    import('products/annotations/frontend/components/AnnotationModal').then((m) => ({ default: m.AnnotationModal }))
-)
 
 const MIN_BADGE_SPACING_PX = 24
 /** Clusters anchor on their starting badge (leftPx) so a chain of near-adjacent badges
@@ -131,22 +124,15 @@ export const AnnotationsOverlay = React.memo(function AnnotationsOverlay({
     const logic = annotationsOverlayLogic(annotationsOverlayLogicProps)
     const { activeDate, tickDates, annotationBadgeDataIndices, groupedAnnotations, readOnly } = useValues(logic)
     const { closePopover, deactivateDate } = useActions(logic)
-    const { closeModal } = useActions(annotationModalLogic)
-    const { isModalOpen } = useValues(annotationModalLogic)
-    // Grace-extended so the modal's exit animation finishes before its lazy subtree unmounts.
-    const shouldRenderAnnotationModal = useKeepMountedWhileOpen(isModalOpen)
     const hover = useAnnotationPopoverHover(deactivateDate)
 
     useEffect(() => {
         return () => {
             closePopover()
-            closeModal()
         }
-    }, [closePopover, closeModal])
+    }, [closePopover])
 
     const overlayRef = useRef<HTMLDivElement | null>(null)
-    const modalContentRef = useRef<HTMLDivElement | null>(null)
-    const modalOverlayRef = useRef<HTMLDivElement | null>(null)
     const badgeRefs = useRef<Map<string, HTMLButtonElement>>(new Map())
     const chartAreaLeft = geometry.plotLeft
 
@@ -247,20 +233,12 @@ export const AnnotationsOverlay = React.memo(function AnnotationsOverlay({
                 ))}
                 {activeBadgeElement && (
                     <AnnotationsPopover
-                        overlayRefs={[overlayRef, modalContentRef, modalOverlayRef]}
+                        overlayRefs={[overlayRef]}
                         badgeElement={activeBadgeElement}
                         cluster={activeCluster}
                         hover={hover}
                     />
                 )}
-                {shouldRenderAnnotationModal ? (
-                    <Suspense fallback={null}>
-                        <AnnotationModal
-                            contentRef={(el) => (modalContentRef.current = el)}
-                            overlayRef={(el) => (modalOverlayRef.current = el)}
-                        />
-                    </Suspense>
-                ) : null}
             </div>
         </BindLogic>
     )

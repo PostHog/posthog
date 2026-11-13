@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
 import { IconX } from '@posthog/icons'
-import { LemonButton, LemonModal, LemonModalProps, LemonSelect, LemonSelectOptions, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonSelect, LemonSelectOptions, Link } from '@posthog/lemon-ui'
 
 import { DatePicker } from 'lib/components/DatePicker/DatePicker'
 import { EmojiPickerPopover } from 'lib/components/EmojiPicker/EmojiPickerPopover'
@@ -12,33 +12,34 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { shortTimeZone } from 'lib/utils/timezones'
 import { urls } from 'scenes/urls'
 
+import { SidePanelPaneHeader } from '~/layout/navigation-3000/sidepanel/components/SidePanelPaneHeader'
+import { SidePanelContentContainer } from '~/layout/navigation-3000/sidepanel/SidePanelContentContainer'
 import { AnnotationScope, AnnotationType } from '~/types'
 
 import { annotationModalLogic, annotationScopeToName } from '../logics/annotationModalLogic'
 
-export function NewAnnotationButton(): JSX.Element {
-    const { openModalToCreateAnnotation } = useActions(annotationModalLogic)
-    return (
-        <LemonButton type="primary" data-attr="create-annotation" onClick={() => openModalToCreateAnnotation()}>
-            New annotation
-        </LemonButton>
-    )
-}
-
-export function AnnotationModal({
-    overlayRef,
-    contentRef,
-}: Pick<LemonModalProps, 'overlayRef' | 'contentRef'>): JSX.Element {
+export function AnnotationEditor(): JSX.Element {
     const {
         isModalOpen,
         existingModalAnnotation,
         annotationModal,
-        annotationModalChanged,
         isAnnotationModalSubmitting,
         onSavedInsight,
         timezone,
     } = useValues(annotationModalLogic)
-    const { closeModal, deleteAnnotation, submitAnnotationModal } = useActions(annotationModalLogic)
+    const { closeModal, deleteAnnotation, submitAnnotationModal, openModalToCreateAnnotation } =
+        useActions(annotationModalLogic)
+
+    if (!isModalOpen) {
+        return (
+            <SidePanelContentContainer>
+                <SidePanelPaneHeader title="Annotations" />
+                <LemonButton type="primary" data-attr="create-annotation" onClick={() => openModalToCreateAnnotation()}>
+                    New annotation
+                </LemonButton>
+            </SidePanelContentContainer>
+        )
+    }
 
     const scopeOptions: LemonSelectOptions<AnnotationType['scope'] | null> = [
         {
@@ -95,50 +96,40 @@ export function AnnotationModal({
     ]
 
     return (
-        <LemonModal
-            overlayRef={overlayRef}
-            contentRef={contentRef}
-            isOpen={isModalOpen}
-            onClose={closeModal}
-            hasUnsavedInput={annotationModalChanged}
-            title={existingModalAnnotation ? 'Edit annotation' : 'New annotation'}
-            description="Use annotations to comment on insights, dashboards"
-            footer={
-                <div className="flex-1 flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                        {existingModalAnnotation && (
-                            <LemonButton
-                                form="annotation-modal-form"
-                                type="secondary"
-                                status="danger"
-                                onClick={() => {
-                                    deleteAnnotation(existingModalAnnotation)
-                                    closeModal()
-                                }}
-                                data-attr="delete-annotation"
-                            >
-                                Delete annotation
-                            </LemonButton>
-                        )}
-                    </div>
-                    <div className="flex items-center gap-2">
-                        <LemonButton form="annotation-modal-form" type="secondary" onClick={closeModal}>
-                            Cancel
-                        </LemonButton>
+        <SidePanelContentContainer>
+            <SidePanelPaneHeader title={existingModalAnnotation ? 'Edit annotation' : 'New annotation'} />
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+                <div className="flex items-center gap-2">
+                    {existingModalAnnotation && (
                         <LemonButton
                             form="annotation-modal-form"
-                            htmlType="submit"
-                            type="primary"
-                            loading={isAnnotationModalSubmitting}
-                            data-attr="create-annotation-submit"
+                            type="secondary"
+                            status="danger"
+                            onClick={() => {
+                                deleteAnnotation(existingModalAnnotation)
+                                closeModal()
+                            }}
+                            data-attr="delete-annotation"
                         >
-                            Save
+                            Delete annotation
                         </LemonButton>
-                    </div>
+                    )}
                 </div>
-            }
-            width={512}
-        >
+                <div className="flex items-center gap-2">
+                    <LemonButton form="annotation-modal-form" type="secondary" onClick={closeModal}>
+                        Cancel
+                    </LemonButton>
+                    <LemonButton
+                        form="annotation-modal-form"
+                        htmlType="submit"
+                        type="primary"
+                        loading={isAnnotationModalSubmitting}
+                        data-attr="create-annotation-submit"
+                    >
+                        Save
+                    </LemonButton>
+                </div>
+            </div>
             <Form
                 logic={annotationModalLogic}
                 formKey="annotationModal"
@@ -211,6 +202,6 @@ export function AnnotationModal({
                     )}
                 </LemonField>
             </Form>
-        </LemonModal>
+        </SidePanelContentContainer>
     )
 }
