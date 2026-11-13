@@ -138,6 +138,7 @@ class TestDownloadFavicon:
             assert (content_type, source_url) == (None, None)
         else:
             assert content_type == "image/png"
+            assert source_url is not None
             assert httpx.URL(source_url).host == expected_data.decode()
 
 
