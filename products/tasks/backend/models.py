@@ -1070,12 +1070,16 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             state["initial_permission_mode"] = permission_mode
         state["ai_defaults_source"] = resolved.source
 
-    def _cloud_run_ids_holding_the_task(self, runs: models.QuerySet["TaskRun"]) -> list[uuid.UUID]:
+    def _cloud_run_ids_holding_the_task(
+        self, runs: models.QuerySet["TaskRun"], exclude_run_id: uuid.UUID | None
+    ) -> list[uuid.UUID]:
         unfinished = runs.filter(
             team_id=self.team_id,
             environment=TaskRun.Environment.CLOUD,
             status__in=[TaskRun.Status.QUEUED, TaskRun.Status.IN_PROGRESS],
         )
+        if exclude_run_id is not None:
+            unfinished = unfinished.exclude(id=exclude_run_id)
         return [
             run_id
             for run_id, state in unfinished.values_list("id", "state")
@@ -1084,12 +1088,12 @@ class Task(Taggable, DeletedMetaFields, models.Model):
 
     def live_cloud_run_ids(self, exclude_run_id: uuid.UUID | None = None) -> list[uuid.UUID]:
         return self._cloud_run_ids_holding_the_task(
-            self.runs.exclude(id=exclude_run_id).filter(updated_at__gte=django_timezone.now() - LIVE_RUN_STALE_AFTER)
+            self.runs.filter(updated_at__gte=django_timezone.now() - LIVE_RUN_STALE_AFTER), exclude_run_id
         )
 
     def stale_cloud_run_ids(self, exclude_run_id: uuid.UUID | None = None) -> list[uuid.UUID]:
         return self._cloud_run_ids_holding_the_task(
-            self.runs.exclude(id=exclude_run_id).filter(updated_at__lt=django_timezone.now() - LIVE_RUN_STALE_AFTER)
+            self.runs.filter(updated_at__lt=django_timezone.now() - LIVE_RUN_STALE_AFTER), exclude_run_id
         )
 
     def refuse_run_beside_live_run(self, *, source: str, exclude_run_id: uuid.UUID | None = None) -> None:
