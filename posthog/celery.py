@@ -9,7 +9,7 @@ from django.conf import settings
 from django.dispatch import receiver
 
 import structlog
-from celery import Celery
+from celery import Celery, bootsteps
 from celery.bootsteps import RUN
 from celery.exceptions import WorkerShutdown
 from celery.platforms import EX_FAILURE
@@ -35,7 +35,8 @@ from prometheus_client import Counter, Histogram, start_http_server
 from posthog.celery_task_names import LIVENESS_ALERTED_TASK_NAMES
 
 if TYPE_CHECKING:
-    from celery.worker.consumer import Consumer
+    from celery.worker import WorkController
+    from kombu.asynchronous import Hub
 
 # When PROMETHEUS_MULTIPROC_DIR is set (by bin/docker-worker-celery),
 # prometheus_client uses file-backed storage so all prefork children's
@@ -287,29 +288,35 @@ def write_heartbeat_when_worker_is_ready(**kwargs) -> None:
 _EMBEDDED_SCHEDULER_CHECK_INTERVAL_SECONDS = 30.0
 
 
-@worker_ready.connect
-def stop_worker_when_embedded_scheduler_exits(sender: "Consumer", **kwargs: object) -> None:
-    worker = sender.controller
-    scheduler = worker.beat
-    if scheduler is None:
-        return
-
-    def stop_worker_if_scheduler_exited() -> None:
-        # A worker that stops ends its scheduler first, and then Celery fires this timer from a
-        # helper thread while the pool finishes its tasks. An exception raised there ends that
-        # thread, and the task time limits stop with it.
-        worker_is_stopping = worker.blueprint.state != RUN
-        if worker_is_stopping or scheduler.is_alive():
-            return
-        logger.error("embedded_scheduler_exited", exitcode=scheduler.exitcode)
-        raise WorkerShutdown(EX_FAILURE)
-
+class StopWorkerWhenEmbeddedSchedulerExits(bootsteps.StartStopStep):
     # Celery never restarts an embedded scheduler that exits, so the worker would keep running with
     # nothing scheduling tasks. Exit instead, the same way the container exits when a separate
-    # scheduler process exits, so that the restart policy starts both again. The check asks the
-    # process object and not the process list, because a scheduler that waits for the RedBeat lock
-    # does not have the "[celery beat]" title yet.
-    worker.timer.call_repeatedly(_EMBEDDED_SCHEDULER_CHECK_INTERVAL_SECONDS, stop_worker_if_scheduler_exited)
+    # scheduler process exits, so that the restart policy starts both again.
+
+    def register_with_event_loop(self, worker: "WorkController", hub: "Hub") -> None:
+        scheduler = worker.beat
+        if scheduler is None:
+            return
+
+        def stop_worker_if_scheduler_exited() -> None:
+            # A worker that stops ends its scheduler first, and then Celery fires this timer from a
+            # helper thread while the pool finishes its tasks. An exception raised there ends that
+            # thread, and the task time limits stop with it.
+            worker_is_stopping = worker.blueprint.state != RUN
+            if worker_is_stopping or scheduler.is_alive():
+                return
+            logger.error("embedded_scheduler_exited", exitcode=scheduler.exitcode)
+            raise WorkerShutdown(EX_FAILURE)
+
+        # The check asks the process object and not the process list, because a scheduler that waits
+        # for the RedBeat lock does not have the "[celery beat]" title yet. Celery clears the timers
+        # of the event loop when it loses the broker connection, and calls this method again when
+        # the loop restarts, so the check is registered here and not in a worker_ready receiver.
+        hub.call_repeatedly(_EMBEDDED_SCHEDULER_CHECK_INTERVAL_SECONDS, stop_worker_if_scheduler_exited)
+
+
+if app.steps:
+    app.steps["worker"].add(StopWorkerWhenEmbeddedSchedulerExits)
 
 
 _ANALYTICS_METRICS_FLUSH_TIMEOUT_SECONDS = 5.0

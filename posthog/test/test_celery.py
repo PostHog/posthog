@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 from django.test import override_settings
 
 import posthoganalytics
-from celery.bootsteps import CLOSE, RUN
+from celery.bootsteps import CLOSE, RUN, Blueprint
 from celery.exceptions import WorkerShutdown
 from celery.platforms import EX_FAILURE
 from parameterized import parameterized
@@ -16,10 +16,10 @@ from prometheus_client import REGISTRY
 
 import posthog.celery
 from posthog.celery import (
+    StopWorkerWhenEmbeddedSchedulerExits,
     _initialize_worker_metrics,
     freeze_objects_before_pool_forks,
     on_worker_process_shutdown,
-    stop_worker_when_embedded_scheduler_exits,
     write_heartbeat_when_worker_is_ready,
 )
 from posthog.celery_task_names import (
@@ -99,10 +99,18 @@ class TestWorkerReadyHeartbeat(TestCase):
 
 
 class TestWorkerStopsWhenEmbeddedSchedulerExits(TestCase):
+    def _registered_check(self, worker: MagicMock) -> MagicMock:
+        # Through a real blueprint, because Celery calls register_with_event_loop only on the steps
+        # that the blueprint keeps, and it calls it again after each broker reconnect.
+        worker.steps = []
+        blueprint = Blueprint(steps=[StopWorkerWhenEmbeddedSchedulerExits])
+        blueprint.apply(worker)
+        hub = MagicMock()
+        blueprint.send_all(worker, "register_with_event_loop", args=(hub,))
+        return hub.call_repeatedly
+
     def test_worker_without_embedded_scheduler_runs_no_check(self) -> None:
-        worker = MagicMock(beat=None)
-        stop_worker_when_embedded_scheduler_exits(sender=MagicMock(controller=worker))
-        worker.timer.call_repeatedly.assert_not_called()
+        self._registered_check(MagicMock(beat=None)).assert_not_called()
 
     @parameterized.expand(
         [
@@ -117,8 +125,7 @@ class TestWorkerStopsWhenEmbeddedSchedulerExits(TestCase):
         self, _name: str, scheduler_alive: bool, worker_state: int, expect_shutdown: bool
     ) -> None:
         worker = MagicMock(**{"beat.is_alive.return_value": scheduler_alive, "blueprint.state": worker_state})
-        stop_worker_when_embedded_scheduler_exits(sender=MagicMock(controller=worker))
-        _interval, check = worker.timer.call_repeatedly.call_args.args
+        _interval, check = self._registered_check(worker).call_args.args
 
         if not expect_shutdown:
             check()
