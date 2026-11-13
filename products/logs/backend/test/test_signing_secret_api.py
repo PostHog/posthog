@@ -28,6 +28,7 @@ class TestLogsSigningSecretAPI(APIBaseTest):
         self.organization_membership.save()
 
     def test_get_without_a_row_returns_null(self):
+        self._make_admin()
         response = self.client.get(self._url())
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {"secret": None, "updated_at": None, "previous_secret_valid_until": None}
@@ -41,7 +42,10 @@ class TestLogsSigningSecretAPI(APIBaseTest):
         row = LogsSigningSecret.objects.for_team(self.team.id).get()
         assert response.json()["secret"] == row.secret
         assert response.json()["previous_secret_valid_until"] is None
-        assert self.client.get(self._url()).json()["secret"] == row.secret
+        assert response["Cache-Control"] == "private, no-store"
+        read = self.client.get(self._url())
+        assert read.json()["secret"] == row.secret
+        assert read["Cache-Control"] == "private, no-store"
 
     def test_rotate_keeps_the_old_secret_for_the_grace_period_and_masks_the_audit_entry(self):
         self._make_admin()
@@ -64,6 +68,7 @@ class TestLogsSigningSecretAPI(APIBaseTest):
         assert "old_secret_value" not in str(log.detail)
 
     def test_previous_secret_expires_after_the_grace_period(self):
+        self._make_admin()
         LogsSigningSecret.objects.for_team(self.team.id).create(
             team=self.team,
             secret="new_secret_value",
@@ -95,10 +100,15 @@ class TestLogsSigningSecretAPI(APIBaseTest):
         )
         assert "old_secret_value" not in str(log.detail)
 
-    def test_rotate_requires_admin(self):
-        response = self.client.post(self._url("rotate/"))
+    @parameterized.expand([("get", ""), ("post", "rotate/"), ("post", "expire_previous/")])
+    def test_member_who_is_not_an_admin_gets_403(self, method, suffix):
+        LogsSigningSecret.objects.for_team(self.team.id).create(team=self.team, secret="secret_value")
+
+        response = getattr(self.client, method)(self._url(suffix))
+
         assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert not LogsSigningSecret.objects.for_team(self.team.id).exists()
+        assert "secret_value" not in response.content.decode()
+        assert LogsSigningSecret.objects.for_team(self.team.id).get().secret == "secret_value"
 
     def test_member_without_logs_access_cannot_read_the_secret(self):
         self.organization.available_product_features = [

@@ -15,7 +15,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import SessionAuthentication
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models.user import User
-from posthog.permissions import TeamMemberStrictManagementPermission, TimeSensitiveActionPermission
+from posthog.permissions import TeamMemberAdminManagementPermission, TimeSensitiveActionPermission
 
 from products.logs.backend.facade.signing_secret import (
     SigningSecretState,
@@ -51,7 +51,9 @@ def _response(state: SigningSecretState) -> Response:
                 "updated_at": state.updated_at,
                 "previous_secret_valid_until": state.previous_secret_valid_until,
             }
-        ).data
+        ).data,
+        # Each response carries the raw secret, so no browser or proxy may store it.
+        headers={"Cache-Control": "private, no-store"},
     )
 
 
@@ -89,7 +91,8 @@ class LogsSigningSecretViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     permission_classes = [
         _SessionOnlyPermission,
         TimeSensitiveActionPermission,
-        TeamMemberStrictManagementPermission,
+        # The GET returns the raw secret, so reads need project admin too.
+        TeamMemberAdminManagementPermission,
         _LogsAccessPermission,
     ]
 
