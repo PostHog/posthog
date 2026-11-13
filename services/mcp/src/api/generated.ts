@@ -68902,6 +68902,28 @@ export namespace Schemas {
       annotations?: LogsPlatformAlertConfigurationEditAnnotations;
     }
 
+    /**
+     * * `initial_load` - initial_load
+     * * `filter_change` - filter_change
+     * * `filters_restored` - filters_restored
+     * * `sort_change` - sort_change
+     * * `column_change` - column_change
+     * * `scope_change` - scope_change
+     * * `refresh` - refresh
+     */
+    export type LogsQueryTriggerEnum = typeof LogsQueryTriggerEnum[keyof typeof LogsQueryTriggerEnum];
+
+
+    export const LogsQueryTriggerEnum = {
+      InitialLoad: 'initial_load',
+      FilterChange: 'filter_change',
+      FiltersRestored: 'filters_restored',
+      SortChange: 'sort_change',
+      ColumnChange: 'column_change',
+      ScopeChange: 'scope_change',
+      Refresh: 'refresh',
+    } as const;
+
     export interface LogsRetentionRule {
       /** Unique identifier for this retention rule. */
       readonly id: string;
@@ -113706,11 +113728,36 @@ export namespace Schemas {
       identifiers?: TransactionalEmailIdentifiers;
     }
 
+    /**
+     * * `sandbox_sender` - Sent from the sandbox sender
+     */
+    export type SendWarningCodeEnum = typeof SendWarningCodeEnum[keyof typeof SendWarningCodeEnum];
+
+
+    export const SendWarningCodeEnum = {
+      SandboxSender: 'sandbox_sender',
+    } as const;
+
+    export interface SendWarning {
+      /** What the warning is about. `sandbox_sender`: the email went out from PostHog's sandbox sender because the project has no verified sending domain, so it only reaches members of the organization.
+       *
+       * * `sandbox_sender` - Sent from the sandbox sender */
+      code: SendWarningCodeEnum;
+      /** What happened and what to do next, in words a person can read. */
+      message: string;
+      /** Absolute URL of the page where the project verifies a sending domain: the page of its unverified sender when it has one, otherwise the page that adds a new one. */
+      setup_url: string;
+      /** The next step for an AI agent that made the send: what to tell the user, and which PostHog MCP tool starts the domain setup. */
+      agent_action: string;
+    }
+
     export interface SendTransactionalEmailResponse {
       /** ID of the queued send. Delivery and engagement are reported against the template asynchronously. */
       message_id: string;
       /** True when an earlier request with the same `Idempotency-Key` already queued this email. No new email was sent, and `message_id` is the earlier send's ID. */
       replayed: boolean;
+      /** Things the caller should act on although the email was queued. Left out when there are none. */
+      warnings?: SendWarning[];
     }
 
     export interface ServiceAccountAccessUpdate {
@@ -127725,6 +127772,16 @@ export namespace Schemas {
     export interface _LogsQueryRequest {
       /** The logs query to execute. */
       query: _LogsQueryBody;
+      /** What caused the PostHog app to run this query. Used for usage analytics only, with no effect on results. API clients omit it.
+       *
+       * * `initial_load` - initial_load
+       * * `filter_change` - filter_change
+       * * `filters_restored` - filters_restored
+       * * `sort_change` - sort_change
+       * * `column_change` - column_change
+       * * `scope_change` - scope_change
+       * * `refresh` - refresh */
+      trigger?: LogsQueryTriggerEnum;
     }
 
     /**
