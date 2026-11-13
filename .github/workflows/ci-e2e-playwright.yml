@@ -124,16 +124,6 @@ jobs:
         outputs:
             # Debounce can veto a PR run whose SHA has already been superseded (see below).
             shouldRun: ${{ steps.decide.outputs.shouldRun == 'true' && steps.debounce.outputs.superseded != 'true' }}
-            # True only when the decision itself is "no run". shouldRun is also false for a
-            # superseded push, whose newer run reports for the PR head, so vr-skip cannot read it.
-            decided_no_run: ${{ steps.decide.outputs.shouldRun == 'false' }}
-            # Same definition as in ci-storybook.yml, where the comment explains the same-repo scope.
-            merge_queue: >-
-                ${{
-                    github.event_name == 'pull_request'
-                    && github.event.pull_request.head.repo.full_name == github.repository
-                    && startsWith(github.head_ref, 'trunk-merge/')
-                }}
             oldest_supported: ${{ steps.read-versions.outputs.oldest_supported }}
             schema_cache_key: ${{ steps.schema-key.outputs.key }}
             schema_migrations_key: ${{ steps.schema-key.outputs.migrations_key }}
@@ -1110,10 +1100,7 @@ jobs:
                   VR_PR: ${{ github.event.pull_request.number }}
                   # PRs are gating ("review"); master pushes are tracking-only ("observe") since
                   # there's no PR to approve and we don't want master runs to block or prompt for approval.
-                  # trunk-merge/** is observe too: the queue's PR has no reviewer and no approval
-                  # path. Its observe run records the evidence that decides whether an approval
-                  # lands, and vr-complete still fails it on drift.
-                  VR_PURPOSE: ${{ (github.event_name == 'push' || needs.changes.outputs.merge_queue == 'true') && 'observe' || 'review' }}
+                  VR_PURPOSE: ${{ github.event_name == 'push' && 'observe' || 'review' }}
                   # The rerun target for recompute until the complete job records its own ID.
                   JOB_CHECK_RUN_ID: ${{ job.check_run_id }}
                   # A selective run only regenerates a subset of snapshots. --partial tells VR
@@ -1375,7 +1362,7 @@ jobs:
         # reads: GitHub-hosted and Depot runners keep separate cache stores.
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 15
-        needs: [changes, playwright]
+        needs: [playwright]
         # !cancelled() is load-bearing. select-specs is skipped on every full-run event (push to
         # master, PR opened/reopened/ready_for_review), and GitHub propagates a skip down the whole
         # needs chain — only a status-check function breaks the inheritance. The playwright job has
@@ -1455,137 +1442,19 @@ jobs:
                   npm prune --omit=dev
 
             - name: Complete Visual Review run
-              # Pass the same --purpose the playwright job created the run with. The backend
-              # reports zero unresolved on an observe run however many snapshots drifted, so
-              # without the flag the CLI cannot tell a clean observe run from a drifting one.
-              # An observe run fails on drift, so drift on the merge-queue run stops the merge.
-              # --tolerate-drift exempts master, as in ci-storybook.yml: no merge is left to
-              # stop there. continue-on-error keeps a CLI failure on master informational too.
+              # On master pushes the run was created with --purpose observe (tracking-only), but
+              # `run complete` still exits 1 whenever visual changes are detected. Treat that as
+              # informational on push; PRs still gate. Mirrors ci-storybook.yml.
               continue-on-error: ${{ github.event_name == 'push' }}
               env:
                   VR_TOKEN: ${{ secrets.VR_API_TOKEN }}
-                  VR_RUN_ID: ${{ needs.playwright.outputs.vr_run_id }}
-                  VR_OBSERVE: ${{ github.event_name == 'push' || needs.changes.outputs.merge_queue == 'true' }}
-                  VR_TOLERATE_DRIFT: ${{ github.event_name == 'push' }}
                   # Recompute re-runs this job, which re-reads the verdict without re-running the E2E suite.
                   JOB_CHECK_RUN_ID: ${{ job.check_run_id }}
               run: |
-                  args=(--run-id "$VR_RUN_ID" --baseline playwright/snapshots.yml --token "$VR_TOKEN")
-                  if [ "$VR_OBSERVE" = 'true' ]; then
-                      args+=(--purpose observe)
-                  fi
-                  if [ "$VR_TOLERATE_DRIFT" = 'true' ]; then
-                      args+=(--tolerate-drift)
-                  fi
-                  node products/visual_review/cli/dist/cli/src/index.js run complete "${args[@]}"
-
-    # A required commit status that never arrives blocks the PR. When change detection
-    # decides that a commit needs no run, this job tells Visual Review, which then posts a
-    # passing status for that commit. A superseded push reports nothing, because the run
-    # of the newer push reports for the PR head.
-    # Not in the needs of the required gate: a failed report shows as this failed job and
-    # a missing status, and must not turn the gate red.
-    # Off until the repository variable is set, because the report only does something
-    # once the repo keeps its baselines in Visual Review.
-    # The job needs the changes job. When that job fails or times out, this one is skipped and
-    # no status arrives for the commit, so a re-run of the workflow is the repair.
-    vr-skip:
-        name: Report no Visual Review run needed
-        runs-on: ${{ startsWith(github.head_ref, 'trunk-merge/') && 'depot-ubuntu-24.04' || 'ubuntu-24.04' }}
-        timeout-minutes: 10
-        needs: [changes]
-        if: |
-            vars.VISUAL_REVIEW_REPORT_NO_RUN == 'true'
-            && github.repository == 'PostHog/posthog'
-            && github.event_name == 'pull_request'
-            && github.event.pull_request.head.repo.full_name == github.repository
-            && needs.changes.outputs.decided_no_run == 'true'
-        steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-              with:
-                  ref: ${{ github.event.repository.default_branch }}
-                  sparse-checkout: playwright/snapshots.yml
-                  sparse-checkout-cone-mode: false
-
-            # The baseline file's config block names the API host, the team and the repo, as
-            # it does for the CLI. The job reads the default branch's copy, because the host
-            # receives the token and a pull request can change its own copy. Only connection
-            # errors are retried: on a 502 the backend already tried to post the status, and
-            # a re-run of this job is the repair. A 404 or 405 means a backend that does not
-            # have this call yet, so the job passes. The token goes to curl on stdin, so it
-            # never shows in the process list.
-            - name: Report no Visual Review run needed
-              env:
-                  VR_TOKEN: ${{ secrets.VR_API_TOKEN }}
-                  VR_BASELINE: playwright/snapshots.yml
-                  VR_RUN_TYPE: playwright
-                  VR_BRANCH: ${{ github.event.pull_request.head.ref }}
-                  VR_COMMIT: ${{ github.event.pull_request.head.sha }}
-                  VR_PR: ${{ github.event.pull_request.number }}
-              run: |
-                  set -euo pipefail
-                  if [ -z "$VR_TOKEN" ]; then
-                      echo "::notice::No token is available for this pull request, so no status was reported."
-                      exit 0
-                  fi
-                  api=$(yq '.config.api // ""' "$VR_BASELINE")
-                  team=$(yq '.config.team // ""' "$VR_BASELINE")
-                  repo=$(yq '.config.repo // ""' "$VR_BASELINE")
-                  if [ -z "$api" ] || [ -z "$team" ] || [ -z "$repo" ]; then
-                      echo "::error::$VR_BASELINE has no complete config block (api, team, repo)."
-                      exit 1
-                  fi
-                  url="${api%/}/api/projects/${team}/visual_review/runs/skip/"
-                  body=$(jq -cn \
-                      --arg repo_id "$repo" \
-                      --arg run_type "$VR_RUN_TYPE" \
-                      --arg commit_sha "$VR_COMMIT" \
-                      --arg branch "$VR_BRANCH" \
-                      --argjson pr_number "$VR_PR" \
-                      '{repo_id: $repo_id, run_type: $run_type, commit_sha: $commit_sha, branch: $branch, pr_number: $pr_number}')
-                  response="$RUNNER_TEMP/vr-skip-response.txt"
-                  status=""
-                  for attempt in 1 2 3; do
-                      if status=$(printf 'Authorization: Bearer %s\n' "$VR_TOKEN" | curl -sS \
-                          --connect-timeout 10 --max-time 30 \
-                          -H @- -H 'Content-Type: application/json' \
-                          --data "$body" -o "$response" -w '%{http_code}' "$url"); then
-                          break
-                      fi
-                      status=""
-                      if [ "$attempt" -lt 3 ]; then
-                          sleep $((attempt * 5))
-                      fi
-                  done
-                  case "$status" in
-                      200)
-                          jq -r '.detail' "$response"
-                          ;;
-                      404 | 405)
-                          # A deployed backend answers 404 only for a repo it does not know. That is a
-                          # wrong config, and passing on it would hide a status that never arrives.
-                          if [ "$(jq -r '.detail // empty' "$response" 2>/dev/null)" = 'Repo not found' ]; then
-                              echo "::error::Visual Review does not know the repo in $VR_BASELINE."
-                              exit 1
-                          fi
-                          echo "::notice::Visual Review answered $status, so it has no report for commits that need no run yet. Nothing was reported."
-                          cat "$response"
-                          ;;
-                      502)
-                          echo "::error::Visual Review could not post the commit status. Re-run this job to try again."
-                          cat "$response"
-                          exit 1
-                          ;;
-                      "")
-                          echo "::error::Visual Review did not answer after 3 attempts."
-                          exit 1
-                          ;;
-                      *)
-                          echo "::error::Visual Review answered $status."
-                          cat "$response"
-                          exit 1
-                          ;;
-                  esac
+                  node products/visual_review/cli/dist/cli/src/index.js run complete \
+                    --run-id "${{ needs.playwright.outputs.vr_run_id }}" \
+                    --baseline playwright/snapshots.yml \
+                    --token "$VR_TOKEN"
 
     # Collate test + VR completion status for the required check
     playwright_tests:
