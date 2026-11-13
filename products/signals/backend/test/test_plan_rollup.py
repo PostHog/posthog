@@ -136,6 +136,18 @@ class TestPlanRollup(BaseTest):
             assert feedback is not None
             assert feedback.state == "suppressed"
 
+    @parameterized.expand([("monitoring",), ("closed",)])
+    def test_reopening_a_plan_with_finished_steps_leaves_it_ready(self, parent_status: str) -> None:
+        parent = self._report("plan", status=parent_status)
+        child = self._report("step")
+        self._part_of(child, parent)
+        with patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True):
+            self._close(child, SignalReport.Status.RESOLVED)
+            self._close(parent, SignalReport.Status.READY)
+
+        parent.refresh_from_db()
+        assert parent.status == SignalReport.Status.READY
+
     @parameterized.expand([("ready",), ("closed",)])
     def test_a_plan_stays_open_while_a_step_has_not_resolved(self, child_status: str) -> None:
         parent = self._report("plan")

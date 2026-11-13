@@ -5,6 +5,12 @@ This file records how it maps to React Native.
 
 ## App icon
 
+On iOS, the Icon Composer bundles in `assets/` keep the background and hedgehog on separate layers.
+Default uses the color mark on white. Dark uses the white square logomark on a dark fill.
+Clear and Tinted use the monochrome mark with the system's glass and tint effects. Dev and Preview add
+their labels on a separate layer. Preview all four appearances on the iOS Home Screen when
+changing the icon. [Apple's Icon Composer guide](https://developer.apple.com/documentation/xcode/creating-your-app-icon-using-icon-composer)
+
 Android adaptive icon layers use a 108dp canvas, with a central 72dp viewport and a 66dp safe circle.
 `plugins/withAndroidAdaptiveIconInsets.js` adds a proportional 18dp inset on every side during
 prebuild, so the hedgehog and the DEV or PREVIEW label fit inside launcher masks. The inset
@@ -13,6 +19,14 @@ applies to both regular and round adaptive icons for all three build variants.
 Keep the 1024px source images at their existing scale; the plugin supplies Android's extra
 spacing. Icon changes need a new native build and cannot ship through an over-the-air update.
 See [Android's adaptive icon guidelines](https://developer.android.com/develop/ui/compose/system/icon_design_adaptive).
+
+## Splash and in-app branding
+
+The native splash follows the device appearance. The animated splash and in-app logos
+use the app's Appearance setting. Light uses the gradient artwork. Dark uses the
+[official white artwork](https://brand.posthog.com/logo) for the logomark and landscape logo.
+The checked-in artwork comes from `@posthog/brand`. With `rsvg-convert` installed, run
+`pnpm brand:generate app` from `products/mobile` to refresh the in-app SVGs and dark splash PNG.
 
 ## Tokens
 
@@ -28,7 +42,6 @@ Scheme-independent values live in `src/ui/tokens.ts`. Colors and everything deri
   `surface` for cards, pills, sheets, floating cards, text fields and menus;
   `onInk` for text and icons on an `ink` fill; `onAccent` for text and icons on an `accent` fill.
   `white` is literal white in both schemes, only for text on a fixed color, such as avatar initials.
-  The logomark's head and the wordmark use `ink`, so they stay visible on a dark background.
 - `accent` (`accentHover` when pressed) fills the primary call to action: Sign in, Hand off, Send a decision.
   `orange` stays for warnings, failures, destructive actions, the P0/P1 priority and the report `alert` accent.
 - Some roles shared `border` or `ink` in light but need their own value in dark:
@@ -112,11 +125,19 @@ The native build supports rotation; iOS builds use Xcode 27.1 for the full Duo d
   It retries the reveal as rows are measured, and stops if the reader starts scrolling.
   Both inbox lists prefetch reports as rows become visible, including rows beyond the initial prefetch window.
   The report's inbox pane only prefetches while it is visible and its screen is focused.
-- Navigation uses a side rail in sufficiently tall, wide landscape windows, or when a side safe area signals side chrome.
-  It requires at least 600pt of safe width; narrow cover displays keep the phone navigation and full reading width.
-  The rail follows the side with the larger inset. Short windows keep horizontal tab navigation and the report's Back control,
-  without adding a second navigation bar below its actions.
-  Custom controls stay inside safe content; they do not occupy native reserved regions or infer a hinge angle.
+- iOS follows the system's vertical-bar signal. When the rail is active, native tabs and stack toolbar buttons occupy it.
+  Subscribe to Expo's initial edge event; its synchronous edge getter can deadlock React's event beat during startup.
+  They use raster copies of the existing app glyphs, icon-only tab labels, and a distinct Chat action.
+  Without a vertical rail, the native tab bar is hidden and the existing floating pill and Chat button remain.
+  Native header options reset when the vertical system rail disappears.
+  Navigation pin toasts and Undo live above the native tab host so tab visibility changes preserve them.
+  The iOS navigator stays mounted across these transitions. Android retains its existing custom navigation.
+  Page titles, the logomark, and header backgrounds keep the app's original styling in every pose.
+  Regenerate native glyph images from their SVG components with `node scripts/make-navigation-icons.mjs` (`rsvg-convert` required).
+- Active division regions determine the inbox and report boundary, including a horizontal fold. If the panes are too small for a pair, the report stays inside the detail pane. Each pane must have enough
+  reading space; a narrow window keeps one report instance. A flat display uses the normal width-based split.
+  Measure regions above navigator transitions and translate them into the scene's safe content coordinates; a provider inside an animating screen can retain a translated fold frame.
+- Paired reports keep their heading in the detail pane, leaving the inbox heading clear.
 - Reports keep their contextual Chat action; their navigation bar does not add a second compose button.
   The report action bar stays in the page layout when the keyboard opens or the window rotates.
   With a navigation rail beside native side chrome, its bottom gutter is 16pt; phone layouts retain their bottom safe-area spacing.
@@ -128,14 +149,21 @@ The native build supports rotation; iOS builds use Xcode 27.1 for the full Duo d
   The first visible pin anchors the list when its columns change; chart tooltips can close as their canvases resize.
   The chosen pin stays anchored through deferred row measurements until the user scrolls.
 - Sheets have a bounded width on expanded windows. Their height follows their current scene, including rotation and Split View.
-  Their floating presentation uses the full safe window width, even when opened from a narrow report pane.
+  Sheet contents receive that pane’s dimensions and shrink their scroll areas to keep controls reachable.
+  Their floating presentation uses a safe pane, even when opened from a narrow report list. Active folds and occlusions keep sheets and picker cards on one side without resetting their form state.
   Floating sheets subtract their bottom margin from the available height so their top stays below the safe area.
   Resolve and Dismiss resize above the keyboard; their headings scroll with the form in short windows while Confirm stays visible.
   Assignee and Project cards cap their width at 600pt; navigation menus cap at 400pt.
   Android Back dismisses the top sheet or card on the focused screen before navigating away from that page.
+  Native rail actions switch to Close while an overlay is open, and native tabs are disabled.
+  Row menus convert window measurements into overlay coordinates
+  and close when their measured frame or reserved regions change, so a stale anchor cannot survive rotation.
 - Full-screen charts use the space remaining below the title and above the safe bottom edge, including short landscape phones.
 
 ## Component inventory
+
+`features/chat/ChatErrorNotice.tsx` provides a bordered, wrapping error message with a screen-reader alert and 44pt Dismiss button.
+Optional recovery actions sit below the message and wrap on narrow screens.
 
 | Component                             | File                                                       | Notes                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | ------------------------------------- | ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -170,7 +198,7 @@ The native build supports rotation; iOS builds use Xcode 27.1 for the full Duo d
 | `BlurEdge`                            | `ui/BlurEdge.tsx`                                          | Masked blur of the content under floating top chrome                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | `BackChip`                            | `ui/BackChip.tsx`                                          | Report and Settings back button                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | `EnvironmentRibbon`                   | `ui/EnvironmentRibbon.tsx`                                 | 28pt band above the sign-in logo and under the Settings title: amber for dev builds, purple for preview builds, red for a store build on a host that is not PostHog Cloud. Hidden in a store build on Cloud. Colors in `environmentRibbonColors`, text from `environmentBadge()`                                                                                                                                                                                                                                                                                                                                                    |
-| `StateView`, `LoadingView`            | `ui/StateView.tsx`                                         | Empty and error screens with a next action; loading spinner                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `StateView`, `LoadingView`            | `ui/StateView.tsx`                                         | Empty and error screens with a next action, or a disabled action with its reason; loading spinner                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `PostHogLogomark`, `PostHogLogo`      | `ui/icons/PostHogLogomark.tsx`, `ui/icons/PostHogLogo.tsx` | Brand logomark and landscape lockup as SVG, sized by `height`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | Icons                                 | `ui/icons/*.tsx`                                           | One component per glyph, ported from the prototype's SVG paths                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 
@@ -180,9 +208,10 @@ The native build supports rotation; iOS builds use Xcode 27.1 for the full Duo d
   It uses a gentle 720ms hop every 1.4 seconds, with 45ms between parts and a smooth start and landing.
   All four parts share one animation clock, and the logo stays still with reduced motion enabled.
   The native launch screen fades into this animation once the animated splash lays out.
-  The splash stays above the app until the session and first screen are ready, with the existing eight-second inbox timeout.
-- **Tabs header** (`features/tabs/TabsHeader.tsx`): Inbox, Chats and Views share one header that the
-  tabs layout draws once, like the bottom bar. The logomark and the tab's title sit at the same spot on
+  The splash stays above the app until the session is ready and, when the app opens on the inbox, until the inbox loads, with an eight-second timeout.
+- **Tabs header** (`features/tabs/TabsHeader.tsx`): Home, Inbox, Chats and Views share one header that the
+  tabs layout draws once, like the bottom bar. Home is titled "Live", after the screen it shows.
+  The logomark and the tab's title sit at the same spot on
   every tab. The pill on the right holds More on every tab, and a filter button left of it on a tab that
   publishes one (the Inbox); Views in Edit pins swaps the pill for Done. Pull to refresh is the only manual
   refresh, so the header has no refresh button. A tab may add a status line under the title (Views does); it
@@ -191,10 +220,9 @@ The native build supports rotation; iOS builds use Xcode 27.1 for the full Duo d
   The logomark plays the splash's hop while the focused Inbox, Chats or Views page refreshes, including pull-to-refresh and automatic refreshes.
   It finishes its current hop when refreshing ends and stays still with reduced motion enabled.
 - **Inbox**: rows (source · `#123` PR tag when the report has a PR, green when open, purple when merged, gray otherwise · time),
-  pull to refresh, floating nav pill (Home selected,
-  Chats, Products) and the Chat button. Chats in the pill opens the Chats screen; the Chat button
-  opens a new chat sheet. Products opens the project's product library in the web app, and is
-  dimmed in demo mode or when the session has no project. A long press on a row (or the screen
+  pull to refresh, floating nav pill (Home, Inbox selected, Chats, Views) and the Chat button.
+  The Inbox slot has an 8pt blue dot while the loaded list has an unread report. Chats in the pill opens the Chats
+  screen; the Chat button opens a new chat sheet. A long press on a row (or the screen
   reader's "Show report actions") opens a menu with Hand off to the saved agent (PostHog,
   Claude Code or Codex), Reassign, Resolve, Dismiss, Chat and Mark as read (for an unread report) or Mark as unread.
   A full swipe on a row changes its read state: swipe right past 30% of the row marks the report read (blue),
@@ -218,11 +246,13 @@ The native build supports rotation; iOS builds use Xcode 27.1 for the full Duo d
   and an origin label, a status dot and the time under the title. A row opens the chat sheet on that
   task: the agent's thread, its PR card, and a pending decision above the composer. The nav pill
   shows Chats selected. Loading, error, empty and "No matches" are separate screens.
-- **Nav menu** (More in the tabs header): project name (opens the Project card), then on Views a section with
-  Edit pins, then Settings and Sign out.
+- **Nav menu** (More in the tabs header): project name (opens the Project card), then on Home a section with
+  Open on web and on Views a section with Edit pins, then Settings and Sign out.
 - **Report**: top chrome, headline, the byline with the Owner and Priority chips (`ReportMeta`), lede,
   "Read the full report" (only when there is a summary or a signal), evidence (trace, quotes, replay), facts,
   the observation card, impact tiles, charts, activity, and the action bar.
+  The report and full report wrap their scrolling content in `BlurTargetView` and pass its ref to the top chrome.
+  Android uses this target to blur content behind the header; iOS uses its native background blur.
 - **Full report** (`report/[id]/details`): top chrome with Back only and the headline as its scroll title,
   a "Full report" eyebrow, the headline and the byline, the whole summary, then "Signals" with a count and one card per
   signal, newest first, and "Open in PostHog" at the end (hidden in demo mode).
@@ -262,10 +292,12 @@ The native build supports rotation; iOS builds use Xcode 27.1 for the full Duo d
   within each organization. It initially shows five projects in total. See more expands the full list,
   and See less collapses it again. Organization labels stay visible for accounts with multiple organizations.
   Appearance is Match system, Light or Dark, saved on the device; screens wait for it to load so they never paint in the wrong scheme.
-  Start page picks the tab the app opens on (Inbox, Chats or Views) and is saved on the device (`defaultPageStore`).
+  Start page picks the tab the app opens on (Home, Inbox, Chats or Views) and is saved on the device (`defaultPageStore`).
   Sign in also lands there, and so do Back on Settings or a view and closing the chat when there is no screen to go back to.
-  Until the person picks one, the app saves a start page once, on the first launch that knows whether the selected project's organization approved AI data processing: Views if it did not, Inbox if it did.
-  While that status is unknown, the app opens the inbox and saves nothing.
+  Until the person picks one, the app opens Home.
+  A start page that an earlier version saved as Inbox or Web analytics goes back to no choice once, and sends `mobile_default_page_migrated` (`from`, `to`),
+  because that version saved Inbox on its own for every organization that approved AI.
+  A saved Views stays: that version also saved Views on its own for organizations without AI approval, but most saved Views values were chosen in Settings.
 - **Errors list** (`features/errors/ErrorsListScreen.tsx`): one body in two chromes. Pushed from the Views Browse
   row, it draws the Back chip and More over a 28pt "Errors" title and the "Most users first · updated 5m ago" line; as
   a pinned tab, the tabs header draws the title and that line. Under them sit the 24h and 7d `SegmentedPill` and the New,
@@ -318,3 +350,5 @@ The native build supports rotation; iOS builds use Xcode 27.1 for the full Duo d
   rows with the event name as the chip and the offset as the time; errors and rage clicks draw in orange, and an error
   with an issue opens it. The round ink Chat button sits bottom right. Loading is a skeleton of the screen; "Couldn't
   find this recording" (expired or deleted) and "Couldn't load this session" are separate states.
+  With `mobile-replay-video` on, the pill's icon is a play glyph labeled Watch replay, and More starts with Open in PostHog.
+  Watch replay opens `ReplayVideoPlayer`, a full-screen modal: "Session replay" and a close button, then "Preparing video" with a spinner and the time waited, the video on black with native controls, or "Couldn't play this recording" with Try again and Open in PostHog.

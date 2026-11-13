@@ -799,16 +799,17 @@ describe('exec tool', () => {
             {
                 // Requires `reportInput: true` at the dispatch site — without it the
                 // message degrades to zod's default, which omits the actual length.
-                case: 'a string over its max length, naming actual length and limit',
+                case: 'a string over its max length, naming actual length and limit and echoing the field description',
                 input: `{"id":1,"description":"${'x'.repeat(401)}"}`,
-                expected: /parameter "description" is too long: 401 characters \(max 400\)/,
+                expected:
+                    /parameter "description" is too long: 401 characters \(max 400\) \(Short summary, not the full text\.\)$/,
             },
         ])('rejects a call with $case', async ({ input, expected }) => {
             const tool = makeMockTool({
                 name: 'action-get',
                 schema: z.object({
                     id: z.number(),
-                    description: z.string().max(400).optional(),
+                    description: z.string().max(400).optional().describe('Short summary, not the full text.'),
                     buckets: z.number().optional().describe('Bucket count, not a time unit.'),
                 }),
                 handler: async (_ctx, params) => params,
@@ -1988,7 +1989,7 @@ describe('exec tool', () => {
         const exec = createExec([makeMockTool({ name: 'notebooks-create-markdown' })], undefined, { heldTools })
 
         // An unknown-tool reply sends the agent to `search` for another way to reach the operation.
-        it.each(['info notebooks-create', 'schema notebooks-create', 'call notebooks-create {}'])(
+        it.each(['info notebooks-list', 'schema notebooks-list', 'call notebooks-list {}'])(
             'refuses a catalog tool outside the held set as not granted on %s',
             async (command) => {
                 await expect(exec.handler(mockContext, { command })).rejects.toMatchObject({
@@ -2005,17 +2006,17 @@ describe('exec tool', () => {
     })
 
     describe('flag-gated tool redirects', () => {
-        const notebooksCreateMarkdown = makeMockTool({ name: 'notebooks-create-markdown' })
+        const notebooksCreateMarkdown = makeMockTool({ name: 'notebooks-update-cell' })
 
         it('names the successor a flag retired the tool for', async () => {
             const exec = createExec([notebooksCreateMarkdown], undefined, {
-                flagGatedTools: [{ name: 'notebooks-create', supersededBy: ['notebooks-create-markdown'] }],
+                flagGatedTools: [{ name: 'notebooks-partial-update', supersededBy: ['notebooks-update-cell'] }],
             })
-            await expect(exec.handler(mockContext, { command: 'call notebooks-create {}' })).rejects.toThrow(
-                /retired[\s\S]*notebooks-create-markdown/
+            await expect(exec.handler(mockContext, { command: 'call notebooks-partial-update {}' })).rejects.toThrow(
+                /retired[\s\S]*notebooks-update-cell/
             )
-            await expect(exec.handler(mockContext, { command: 'info notebooks-create' })).rejects.toThrow(
-                /notebooks-create-markdown/
+            await expect(exec.handler(mockContext, { command: 'info notebooks-partial-update' })).rejects.toThrow(
+                /notebooks-update-cell/
             )
         })
 
@@ -2035,9 +2036,9 @@ describe('exec tool', () => {
         // so pointing at it would send the agent on a second dead-end round trip.
         it('falls back to the not-enabled message when no declared successor is registered', async () => {
             const exec = createExec([makeMockTool()], undefined, {
-                flagGatedTools: [{ name: 'notebooks-create', supersededBy: ['notebooks-create-markdown'] }],
+                flagGatedTools: [{ name: 'notebooks-partial-update', supersededBy: ['notebooks-update-cell'] }],
             })
-            await expect(exec.handler(mockContext, { command: 'call notebooks-create {}' })).rejects.toThrow(
+            await expect(exec.handler(mockContext, { command: 'call notebooks-partial-update {}' })).rejects.toThrow(
                 /is not enabled on this PostHog connection/
             )
         })
@@ -2046,17 +2047,17 @@ describe('exec tool', () => {
         // gate here. Held to the same rule as the successors, or the redirect trades
         // one dead end for another.
         it.each<[string, string, boolean]>([
-            ['a tool the catalog serves', 'Pair it with notebooks-create-markdown for the new shape.', true],
+            ['a tool the catalog serves', 'Pair it with notebooks-update-cell for the new shape.', true],
             ['a tool this connection cannot serve', 'Read the notebook with notebooks-get first.', false],
             ['a hyphenated word that is not a tool', 'The revamped notebooks are cell-based.', true],
         ])('holds a hint naming %s to the same reachability rule', async (_case, redirectHint, kept) => {
             const exec = createExec([notebooksCreateMarkdown], undefined, {
                 flagGatedTools: [
-                    { name: 'notebooks-create', supersededBy: ['notebooks-create-markdown'], redirectHint },
+                    { name: 'notebooks-partial-update', supersededBy: ['notebooks-update-cell'], redirectHint },
                 ],
             })
 
-            const message = await exec.handler(mockContext, { command: 'call notebooks-create {}' }).then(
+            const message = await exec.handler(mockContext, { command: 'call notebooks-partial-update {}' }).then(
                 () => '',
                 (error: Error) => error.message
             )
@@ -2076,7 +2077,7 @@ describe('exec tool', () => {
 
         it('still reports a name we do not own as unknown', async () => {
             const exec = createExec([notebooksCreateMarkdown], undefined, {
-                flagGatedTools: [{ name: 'notebooks-create', supersededBy: ['notebooks-create-markdown'] }],
+                flagGatedTools: [{ name: 'notebooks-partial-update', supersededBy: ['notebooks-update-cell'] }],
             })
             await expect(exec.handler(mockContext, { command: 'call not-a-posthog-tool {}' })).rejects.toThrow(
                 /Unknown tool[\s\S]*search not-a-posthog-tool/
@@ -2086,6 +2087,9 @@ describe('exec tool', () => {
 
     describe('deprecated tool redirects', () => {
         it.each([
+            ['notebooks-create', 'notebooks-create-markdown'],
+            ['notebooks-retrieve', 'notebooks-get'],
+            ['notebook-edit', 'notebooks-update-cell'],
             ['read-data-warehouse-schema', 'execute-sql'],
             ['entity-search', 'execute-sql'],
             ['event-definitions-list', 'read-data-schema'],
@@ -2097,6 +2101,7 @@ describe('exec tool', () => {
             ['experiment-get-all', 'experiment-list'],
             ['llma-tagger-create', 'llma-evaluation-create'],
             ['vision-scanners-suggest-tags', 'vision-scanners-update'],
+            ['warehouse-tables-create', 'data-warehouse-source-setup'],
         ])('throws redirect when calling deprecated %s', async (deprecated, replacement) => {
             const exec = createExec()
             await expect(exec.handler(mockContext, { command: `call ${deprecated} {}` })).rejects.toThrow(
@@ -3037,14 +3042,14 @@ describe('exec tool', () => {
                 )
             })
 
-            it('fires for the real generated notebooks-retrieve tool, not just a stand-in schema', () => {
+            it('fires for the real generated notebooks-get tool, not just a stand-in schema', () => {
                 // The failure this whole branch exists for: agents call the shipped
                 // tool with no short_id, so its rejection has to name notebooks-list.
-                const tool = GENERATED_TOOL_MAP['notebooks-retrieve']!()
+                const tool = GENERATED_TOOL_MAP['notebooks-get']!()
                 const result = tool.schema.safeParse({}, { reportInput: true })
                 expect(result.success).toBe(false)
 
-                expect(formatInputValidationError('notebooks-retrieve', result.error!, {}, tool.schema)).toContain(
+                expect(formatInputValidationError('notebooks-get', result.error!, {}, tool.schema)).toContain(
                     '`notebooks-list`'
                 )
             })
@@ -3180,6 +3185,71 @@ describe('exec tool', () => {
                 })
 
                 expect(message).toContain('parameter "series.0.nodes.0.properties.0.value"')
+            })
+        })
+
+        // Production traces show experiment-update rejections where a metrics
+        // payload failing deep validation read "parameter 'metrics_secondary':
+        // Invalid input: expected null, received array" — the null branch of the
+        // nullable metrics union, not the real error inside the array branch.
+        describe('a nullable field whose non-null branch failed inside', () => {
+            const formatFor = (input: unknown): string => {
+                const tool = GENERATED_TOOL_MAP['experiment-update']!()
+                const result = tool.schema.safeParse(input, { reportInput: true })
+                expect(result.success).toBe(false)
+                return formatInputValidationError('experiment-update', result.error!, input, tool.schema)
+            }
+
+            // Two invalid entries, not one: a single bad metric yields one array-branch
+            // issue, which TIES the null branch's single complaint, and the pre-fix
+            // formatter already broke that tie in the array branch's favor. Two bad
+            // metrics make the array branch "noisier" than the null branch, which is
+            // the real production shape the old fewest-issues heuristic got wrong.
+            it.each(['metrics', 'metrics_secondary'] as const)(
+                'names the field inside the %s array, not the null branch',
+                (field) => {
+                    const message = formatFor({
+                        id: 1,
+                        [field]: [
+                            { kind: 'ExperimentMetric', metric_type: 'bogus' },
+                            { kind: 'ExperimentMetric', metric_type: 'bogus' },
+                        ],
+                    })
+
+                    expect(message).toContain(`${field}.0.metric_type`)
+                    expect(message).not.toContain('expected null')
+                }
+            )
+
+            it('still accepts an explicit null', () => {
+                const tool = GENERATED_TOOL_MAP['experiment-update']!()
+                const result = tool.schema.safeParse({ id: 1, metrics_secondary: null }, { reportInput: true })
+                expect(result.success, JSON.stringify(result.error?.issues)).toBe(true)
+            })
+
+            it('keeps the honest type error when the value matches no branch at all', () => {
+                const message = formatFor({ id: 1, metrics_secondary: 'garbage' })
+
+                expect(message).toContain('metrics_secondary')
+                expect(message).toContain('expected array')
+            })
+
+            // The synthetic shape pins the mechanism down without the generated
+            // schema's size: the null branch's single root complaint must lose to
+            // the branch that engaged with the array's contents, even when the
+            // engaged branch carries MORE issues (two bad entries) than null's one.
+            it('prefers the engaged branch on a minimal union([array, null])', () => {
+                const schema = z.object({
+                    metrics: z.union([z.array(z.object({ metric_type: z.enum(['mean', 'funnel']) })), z.null()]),
+                })
+                const input = { metrics: [{ metric_type: 'bogus' }, { metric_type: 'bogus' }] }
+                const result = schema.safeParse(input, { reportInput: true })
+                expect(result.success).toBe(false)
+
+                const message = formatInputValidationError('some-tool', result.error!, input, schema)
+
+                expect(message).toContain('metrics.0.metric_type')
+                expect(message).not.toContain('expected null')
             })
         })
     })

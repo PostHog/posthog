@@ -3,6 +3,7 @@ import { createHash, createPrivateKey, X509Certificate } from 'node:crypto'
 import { appendFileSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { basename, dirname, join, resolve } from 'node:path'
+import { setTimeout as delay } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { isDeepStrictEqual, parseArgs } from 'node:util'
 
@@ -215,27 +216,54 @@ async function nativeFingerprints(expoRequire) {
     return fingerprints
 }
 
-async function loadProductionEnvironment() {
+async function fetchProductionEnvironment() {
     const fields = 'name type visibility value valueWithFileContent: value(includeFileContent: true)'
-    const response = await fetch('https://api.expo.dev/graphql', {
+    const options = {
         method: 'POST',
         headers: { Authorization: `Bearer ${process.env.EXPO_TOKEN}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
             query: `query MobileNativeEnvironment($appId: String!, $environment: EnvironmentVariableEnvironment) { app { byId(appId: $appId) { environmentVariablesIncludingSensitive(environment: $environment) { ${fields} } ownerAccount { environmentVariablesIncludingSensitive(environment: $environment) { ${fields} linkedEnvironments(appId: $appId) } } } } }`,
             variables: { appId: config.projectId, environment: 'production' },
         }),
-        signal: AbortSignal.timeout(30000),
-    })
-    const payload = await response.json()
+    }
+    for (let attempt = 1; attempt <= 3; attempt++) {
+        let failure = 'network failure'
+        let retryable = true
+        try {
+            const response = await fetch('https://api.expo.dev/graphql', {
+                ...options,
+                signal: AbortSignal.timeout(30000),
+            })
+            if (response.ok) {
+                return await response.json()
+            }
+            failure = `HTTP ${response.status}`
+            retryable = [408, 429, 500, 502, 503, 504].includes(response.status)
+            await response.body?.cancel()
+        } catch (error) {
+            if (error instanceof SyntaxError) {
+                failure = 'invalid JSON response'
+                retryable = false
+            }
+        }
+        if (!retryable || attempt === 3) {
+            throw new Error(`Cannot read the EAS production environment after ${attempt} attempt(s): ${failure}`)
+        }
+        console.error(`EAS production environment read failed (${failure}); retrying (${attempt}/3)`)
+        await delay(attempt * 1000)
+    }
+}
+
+async function loadProductionEnvironment() {
+    const payload = await fetchProductionEnvironment()
     const app = payload.data?.app?.byId
     if (
-        !response.ok ||
         payload.errors ||
         !app ||
         !Array.isArray(app.environmentVariablesIncludingSensitive) ||
         !Array.isArray(app.ownerAccount?.environmentVariablesIncludingSensitive)
     ) {
-        throw new Error('Cannot audit the EAS production environment; no release was claimed')
+        throw new Error('Cannot audit the EAS production environment; publication stopped')
     }
     const shared = app.ownerAccount.environmentVariablesIncludingSensitive.filter((variable) =>
         variable.linkedEnvironments?.includes('production')
@@ -339,6 +367,17 @@ function releaseReceipt(id) {
     return { release, receipt: attached ? downloadReceipt(id) : JSON.parse(release.body) }
 }
 
+function isAbandonedNativeClaim({ release, receipt }, request) {
+    return (
+        release.draft === true &&
+        !release.assets?.length &&
+        request.kind === 'native' &&
+        receipt.state === 'abandoned' &&
+        isDeepStrictEqual(receipt.request, request) &&
+        !('staged' in receipt || 'stagingDeployment' in receipt || 'result' in receipt)
+    )
+}
+
 function productionState() {
     const ref = optionalApi(`git/ref/${pointerRef}`)
     if (!ref) {
@@ -424,11 +463,11 @@ async function publish() {
     const previous = productionState()
     for (const name of requestFiles()) {
         const sibling = readRequest(join(requestRoot, name))
-        if (
-            sibling.id !== request.id &&
-            sibling.previousRelease === request.previousRelease &&
-            releaseReceipt(sibling.id)
-        ) {
+        if (sibling.id === request.id || sibling.previousRelease !== request.previousRelease) {
+            continue
+        }
+        const claimed = releaseReceipt(sibling.id)
+        if (claimed && !isAbandonedNativeClaim(claimed, sibling)) {
             throw new Error(
                 'Another request sharing this predecessor already has a release receipt. Reconcile its EAS results or repair the production pointer before creating a successor'
             )

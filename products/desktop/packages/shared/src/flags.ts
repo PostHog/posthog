@@ -22,10 +22,13 @@ export const SAVED_SEARCHES_RAIL_FLAG =
   featureFlagKeys.SAVED_SEARCHES_RAIL_FLAG;
 export const TASKS_PREWARM_SANDBOX_FLAG =
   featureFlagKeys.TASKS_PREWARM_SANDBOX_FLAG;
+/** Lets cloud tasks run in a GitLab project from a gitlab.com integration. Same flag key as the backend. */
+export const TASKS_GITLAB_FLAG = featureFlagKeys.TASKS_GITLAB_FLAG;
 
 export const TASK_ANALYSIS_FLAG = featureFlagKeys.TASK_ANALYSIS_FLAG;
 /** Gates the Fast Mode section of the reasoning dropdown. */
 export const FAST_MODE_FLAG = featureFlagKeys.FAST_MODE_FLAG;
+export const GITLAB_INTEGRATION_FLAG = featureFlagKeys.GITLAB_INTEGRATION_FLAG;
 /** Spoken narration (agent speaks via the `speak` tool). Gated for a staged rollout. */
 export const SPOKEN_NARRATION_FLAG = featureFlagKeys.SPOKEN_NARRATION_FLAG;
 export const CODEX_OWN_SUBSCRIPTION_FLAG =
@@ -63,13 +66,6 @@ export const SIGNALS_PR_REFUNDS_FLAG = featureFlagKeys.SIGNALS_PR_REFUNDS_FLAG;
  * report detail route, plus report entries in the feed.
  */
 export const CHANNEL_REPORTS_FLAG = featureFlagKeys.CHANNEL_REPORTS_FLAG;
-
-/**
- * One-report-at-a-time keyboard triage inside the reports inbox. On by
- * default in dev builds for iteration (see useTriageFocusEnabled); off in
- * production until it stabilizes.
- */
-export const TRIAGE_FOCUS_FLAG = featureFlagKeys.TRIAGE_FOCUS_FLAG;
 
 export {
   BEDROCK_GATEWAY_VARIANTS,

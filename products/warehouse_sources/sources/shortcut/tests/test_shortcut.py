@@ -114,6 +114,103 @@ class TestBuildSearchBody:
 
 
 class TestRequests:
+    @pytest.mark.parametrize(
+        "endpoint, path, body, expected",
+        [
+            (
+                "epic_workflow",
+                "/epic-workflow",
+                {"id": 1, "epic_states": [{"id": 20, "name": "Started"}], "default_epic_state_id": 20},
+                [{"id": 1, "epic_states": [{"id": 20, "name": "Started"}], "default_epic_state_id": 20}],
+            ),
+            (
+                "documents",
+                "/documents",
+                [
+                    {
+                        "id": "00000000-0000-4000-8000-000000000001",
+                        "title": "Example plan",
+                        "app_url": "https://example.com/doc",
+                    }
+                ],
+                [
+                    {
+                        "id": "00000000-0000-4000-8000-000000000001",
+                        "title": "Example plan",
+                        "app_url": "https://example.com/doc",
+                    }
+                ],
+            ),
+            ("documents", "/documents", [], []),
+        ],
+    )
+    def test_additional_top_level_shapes(
+        self, endpoint: str, path: str, body: Any, expected: list[dict[str, Any]]
+    ) -> None:
+        result = _driver().run(endpoint, [ScriptedResponse(json=body)])
+
+        assert result.raised is None
+        assert result.rows == expected
+        assert result.paths == [f"/api/v3{path}"]
+        assert result.requests[0].method == "GET"
+
+    @pytest.mark.parametrize("parent_ids", [[], [1, 2, 3]])
+    def test_epic_comments_retains_parent_ids_and_threaded_replies(self, parent_ids: list[int]) -> None:
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            path = request.path
+            if path == "/api/v3/epics":
+                return ScriptedResponse(json=[{"id": parent_id} for parent_id in parent_ids])
+            epic_id = int(path.split("/")[-2])
+            assert path == f"/api/v3/epics/{epic_id}/comments"
+            return ScriptedResponse(
+                json=[] if epic_id == 2 else [{"id": 10, "text": "Example comment", "comments": [{"id": 11}]}]
+            )
+
+        result = _driver().run("epic_comments", respond)
+
+        assert result.raised is None
+        assert result.rows == [
+            {"epic_id": epic_id, "id": 10, "text": "Example comment", "comments": [{"id": 11}]}
+            for epic_id in parent_ids
+            if epic_id != 2
+        ]
+        assert result.paths == ["/api/v3/epics", *[f"/api/v3/epics/{epic_id}/comments" for epic_id in parent_ids]]
+        assert all(not request.query for request in result.requests)
+
+    def test_story_history_reads_all_parents_once_across_search_windows(self) -> None:
+        stories = [_story(i, f"2025-0{i}-01T00:00:00Z") for i in range(1, 5)]
+        search = _stories_search_fake(stories, cap=2, order="desc")
+
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            path = request.path
+            if path == "/api/v3/stories/search":
+                assert request.method == "POST"
+                assert request.json()["created_at_start"]
+                assert request.json()["includes_description"] is True
+                return search(request)
+            story_id = int(path.split("/")[-2])
+            assert path == f"/api/v3/stories/{story_id}/history"
+            assert request.method == "GET"
+            assert request.json() is None
+            return ScriptedResponse(
+                json=[{"id": "change-1", "changed_at": "2025-05-01T00:00:00Z", "actions": [{"action": "update"}]}]
+            )
+
+        result = _driver().run("story_history", respond)
+
+        assert result.raised is None
+        assert sorted(result.rows, key=lambda row: row["story_id"]) == [
+            {
+                "story_id": i,
+                "id": "change-1",
+                "changed_at": "2025-05-01T00:00:00Z",
+                "actions": [{"action": "update"}],
+            }
+            for i in range(1, 5)
+        ]
+        history_paths = [path for path in result.paths if path.endswith("/history")]
+        assert sorted(history_paths) == [f"/api/v3/stories/{i}/history" for i in range(1, 5)]
+
     def test_auth_uses_shortcut_token_header_and_content_headers(self) -> None:
         result = _driver().run("members", [ScriptedResponse(json=[{"id": 1}])])
 

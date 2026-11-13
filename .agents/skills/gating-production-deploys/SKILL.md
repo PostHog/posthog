@@ -85,7 +85,9 @@ The publisher validates source policy offline, then authenticates with the
 selective role and checks origin access through the frontier lookup. It copies
 once to the US origin and verifies its digest; ECR handles replication. Adding
 another worker needs its infrastructure entry and policy entry, with no workflow
-edit. A receipt proves the origin, not regional availability.
+edit while the channel count stays within the workflow's
+[channel budget](references/ordered-image-releases.md#bound-work-before-activation).
+A receipt proves the origin, not regional availability.
 
 For new-service onboarding or an existing-service migration, hand the consumer's
 source identity, policy and destination coordinates to the Charts migration

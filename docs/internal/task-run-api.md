@@ -80,7 +80,7 @@ Without an authenticated GitHub token, the agent can still read public repositor
 ## Model selection
 
 Task runs accept `gpt-6.1-sol` with the `codex` runtime adapter and `low`, `medium`, `high`, `xhigh`, or `max` reasoning effort.
-The bundled Codex 0.164.0 runtime supports this model with ChatGPT subscription billing.
+The bundled Codex 0.165.0 runtime supports this model with ChatGPT subscription billing.
 The task model catalog supplies the web and Desktop pickers with the model name, reasoning levels, and public price comparison.
 The gateway must list the model for the task's product before the picker offers it.
 Adding the model does not change the default model or the capability slider.
@@ -130,6 +130,22 @@ Task details, paginated task lists, and task summaries include the effective `ta
 Workflow summaries are visible only to the task owner or its authorized sandbox agent.
 Shared workflow stream events always set `task_summary` to `null`.
 Other task streams include the effective summary.
+
+## Task status
+
+Task details, paginated task lists, and task summaries include `status` and `status_reason`.
+`status` is `queued`, `running`, `idle`, or `done`.
+It is `null` on a task created before the field existed, until the status backfill reaches it.
+`status_reason` says why an idle or done task stopped, for example `turn_closed`, `user_stopped`, or `unexpected_failure`.
+Task details and task lists also include `status_detail`, the message from a failed run.
+It is `null` for a caller who cannot read the latest run's analytics context.
+`?task_status=` filters the task list on the task's own status.
+`?status=` still filters on the status of the task's most recent run.
+
+A done task refuses new runs, cloud resumes, and follow-up messages with `409`.
+`POST /api/projects/{team_id}/tasks/{task_id}/close/` moves an idle task to done.
+A task can become done only while its profile is set to `enforce` in the `tasks-task-done` feature flag payload.
+Every profile is off until the payload names it.
 
 ## MCP tools
 

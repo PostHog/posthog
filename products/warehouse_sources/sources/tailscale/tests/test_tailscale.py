@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import parse_qs
 
@@ -131,6 +131,32 @@ class TestGetRows:
             "https://api.tailscale.com/api/v2/tailnet/example.com/keys/k2",
         ]
 
+    def test_service_devices_fans_out_per_service_and_tags_rows(self):
+        result = _driver().run(
+            "service_devices",
+            [
+                ScriptedResponse(
+                    json={"vipServices": [{"name": "svc:web"}, {"name": "svc:gone"}, {"name": "svc:idle"}]}
+                ),
+                ScriptedResponse(json={"hosts": [{"stableNodeID": "n1", "approvalLevel": "approved:auto"}]}),
+                ScriptedResponse(status=404),
+                ScriptedResponse(json={"hosts": []}),
+            ],
+        )
+
+        # A service deleted mid-sync (404) or with no hosts yields nothing rather than failing.
+        assert result.rows == [{"stableNodeID": "n1", "approvalLevel": "approved:auto", "serviceName": "svc:web"}]
+        # Host rows are only unique per service, so the injected service name must be part of the key.
+        assert result.response is not None and result.response.primary_keys is not None
+        assert all(set(result.response.primary_keys) <= row.keys() for row in result.rows)
+        urls = [request.origin + request.path for request in result.requests]
+        assert urls == [
+            "https://api.tailscale.com/api/v2/tailnet/example.com/services",
+            "https://api.tailscale.com/api/v2/tailnet/example.com/services/svc:web/devices",
+            "https://api.tailscale.com/api/v2/tailnet/example.com/services/svc:gone/devices",
+            "https://api.tailscale.com/api/v2/tailnet/example.com/services/svc:idle/devices",
+        ]
+
 
 class TestAuditLogRows:
     @pytest.fixture(autouse=True)
@@ -187,6 +213,55 @@ class TestAuditLogRows:
         saved = [state.window_start for state in result.saved_states]
         assert saved == ["2026-01-27T00:00:00Z", "2026-01-30T00:00:00Z"]
 
+    def test_network_flow_logs_window_on_logged(self):
+        # Watermark 23:30 with 15-minute windows and now=00:00 → two windows.
+        window1 = ScriptedResponse(
+            json={
+                "logs": [
+                    {"logged": "2026-01-29T23:40:00.123456789Z", "nodeId": "n2"},
+                    {"logged": "2026-01-29T23:35:00Z", "nodeId": "n1"},
+                    # `start` is inclusive, so the watermark row comes back — it must be dropped.
+                    {"logged": "2026-01-29T23:30:00Z", "nodeId": "n0"},
+                ]
+            }
+        )
+        window2 = ScriptedResponse(json={"logs": [{"logged": "2026-01-29T23:50:00Z", "nodeId": "n3"}]})
+        result = _driver().run(
+            "network_flow_logs",
+            [window1, window2],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value="2026-01-29T23:30:00Z",
+        )
+
+        assert [[r["nodeId"] for r in batch] for batch in result.items] == [["n1", "n2"], ["n3"]]
+        requests = [(request.path, request.param("start"), request.param("end")) for request in result.requests]
+        assert requests == [
+            ("/api/v2/tailnet/example.com/logging/network", "2026-01-29T23:30:00Z", "2026-01-29T23:45:00Z"),
+            ("/api/v2/tailnet/example.com/logging/network", "2026-01-29T23:45:00Z", "2026-01-30T00:00:00Z"),
+        ]
+
+    @pytest.mark.parametrize(
+        "endpoint, expected_windows",
+        [
+            # 90-day retention in 7-day windows.
+            (
+                "configuration_audit_logs",
+                [("2025-11-01T00:00:00Z", "2025-11-08T00:00:00Z"), ("2025-11-08T00:00:00Z", "2025-11-15T00:00:00Z")],
+            ),
+            # 30-day retention in 15-minute windows.
+            (
+                "network_flow_logs",
+                [("2025-12-31T00:00:00Z", "2025-12-31T00:15:00Z"), ("2025-12-31T00:15:00Z", "2025-12-31T00:30:00Z")],
+            ),
+        ],
+    )
+    def test_first_sync_starts_at_retention_floor(self, endpoint, expected_windows):
+        # The second window fails, which ends the walk after two requests.
+        result = _driver().run(endpoint, [ScriptedResponse(json={"logs": []}), ScriptedResponse(status=400)])
+
+        assert result.raised is not None
+        assert [(request.param("start"), request.param("end")) for request in result.requests] == expected_windows
+
     def test_resumes_from_saved_window(self):
         result = _driver().run(
             "configuration_audit_logs",
@@ -226,18 +301,33 @@ class TestValidateCredentials:
         if not expected_valid:
             assert message
 
-    def test_audit_logs_probe_sends_required_time_window(self):
-        with scripted_network([ScriptedResponse(json={"logs": []})]) as network:
+    @pytest.mark.parametrize(
+        "schema_name, expected_path, expected_window",
+        [
+            ("configuration_audit_logs", "/api/v2/tailnet/-/logging/configuration", timedelta(hours=1)),
+            ("network_flow_logs", "/api/v2/tailnet/-/logging/network", timedelta(minutes=1)),
+            # A hosts call needs a service name, so the probe lists services instead.
+            ("service_devices", "/api/v2/tailnet/-/services", None),
+        ],
+    )
+    def test_schema_probe_request(self, schema_name, expected_path, expected_window):
+        with scripted_network([ScriptedResponse(json={})]) as network:
             valid, _ = validate_credentials(
                 api_key="tskey-api-x",
                 client_id=None,
                 client_secret=None,
                 tailnet=None,
-                schema_name="configuration_audit_logs",
+                schema_name=schema_name,
             )
         assert valid is True
         request = network.requests_log[0]
-        assert request.param("start") is not None and request.param("end") is not None
+        assert request.path == expected_path
+        if expected_window is None:
+            assert request.param("start") is None
+        else:
+            start, end = _parse_datetime(request.param("start")), _parse_datetime(request.param("end"))
+            assert start is not None and end is not None
+            assert end - start == expected_window
 
     def test_oauth_exchange_failure_is_reported(self):
         with scripted_network(always(ScriptedResponse(status=401, json={}))):

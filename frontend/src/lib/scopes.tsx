@@ -1,4 +1,6 @@
 import { AGENT_USE_CASE_SCOPES } from 'lib/agentScopes.generated'
+import { RISKY_SCOPE_WARNINGS } from 'lib/oauthScopes.generated'
+import { SCOPE_DOCS, SCOPE_GROUPS } from 'lib/scopeDocs.generated'
 
 import type { APIScopeAction, APIScopeObject } from '~/types'
 
@@ -96,7 +98,6 @@ export type APIScope = {
     info?: string | JSX.Element
     disabledActions?: ('read' | 'write')[]
     disabledWhenProjectScoped?: boolean
-    description?: string
     warnings?: Partial<Record<'read' | 'write', string | JSX.Element>>
     /** Mirrors `PRIVILEGED_SCOPES` in posthog/scopes.py — excluded from every unprivileged preset. */
     unprivilegedExcluded?: boolean
@@ -128,263 +129,52 @@ export function scopeMatchesSearch(scope: ScopeSearchFields, searchTerm: string)
     return tokens.every((token) => haystack.includes(token))
 }
 
-// Scopes whose write action also writes a feature flag as a side effect (survey targeting flag,
-// early access feature linked flag), so they imply `feature_flag:write`. Single source of truth for
-// both the picker warning (attached below) and the auto-select in personalAPIKeysLogic, so the rule
-// and the copy can't drift. `ScopeAccessRow` renders warnings as plain text — no markdown formatting.
-export const SCOPES_IMPLYING_FEATURE_FLAG_WRITE: Partial<Record<APIScopeObject, string>> = {
-    survey: 'Surveys with targeting also manage a feature flag, so this key needs write access to feature flags too.',
-    early_access_feature:
-        'Early access features manage a linked feature flag, so this key needs write access to feature flags too.',
+/**
+ * The warning a scope picker row shows for a risky scope at the picked level. The backend owns the list of
+ * risky scopes and their wording. Write access includes read, so a write pick also shows the read warning.
+ */
+export const riskyScopeWarning = (
+    scopeObject: string,
+    level: ScopeAccessLevel,
+    riskyScopes: Record<string, string>
+): string | undefined => {
+    const actions: APIScopeAction[] = level === 'write' ? ['write', 'read'] : level === 'read' ? ['read'] : []
+    const warnings = actions.map((action) => riskyScopes[`${scopeObject}:${action}`]).filter(Boolean)
+    return warnings.length > 0 ? `Add with care: ${warnings.join(' ')}` : undefined
 }
 
-export const API_SCOPES: APIScope[] = [
-    { key: 'action', objectName: 'Action', objectPlural: 'actions' },
-    { key: 'access_control', objectName: 'Access control', objectPlural: 'access controls' },
-    { key: 'account', objectName: 'Account', objectPlural: 'accounts' },
-    { key: 'activity_log', objectName: 'Activity log', objectPlural: 'activity logs' },
-    { key: 'alert', objectName: 'Alert', objectPlural: 'alerts' },
-    { key: 'annotation', objectName: 'Annotation', objectPlural: 'annotations' },
-    { key: 'approvals', objectName: 'Approvals', objectPlural: 'approvals' },
-    { key: 'autoresearch', objectName: 'Autoresearch', objectPlural: 'autoresearch pipelines' },
-    { key: 'batch_export', objectName: 'Batch export', objectPlural: 'batch exports' },
-    { key: 'billing', objectName: 'Billing', objectPlural: 'billing' },
-    { key: 'business_knowledge', objectName: 'Business knowledge', objectPlural: 'business knowledge' },
-    { key: 'canvas', objectName: 'Canvas', objectPlural: 'canvases' },
-    {
-        key: 'workload_trust_policy',
-        objectName: 'Workload trust policy',
-        objectPlural: 'workload trust policies',
-        disabledActions: ['write'],
-    },
-    { key: 'cohort', objectName: 'Cohort', objectPlural: 'cohorts' },
-    { key: 'comment', objectName: 'Comment', objectPlural: 'comments' },
-    {
-        key: 'conversation',
-        objectName: 'AI conversation',
-        objectPlural: 'AI conversations',
-        info: 'Programmatic access to the PostHog AI (Max) chat via the conversations API.',
-    },
-    { key: 'customer_analytics', objectName: 'Customer analytics', objectPlural: 'customer analytics' },
-    { key: 'customer_task', objectName: 'Customer task', objectPlural: 'customer tasks' },
-    { key: 'customer_journey', objectName: 'Customer journey', objectPlural: 'customer journeys' },
-    { key: 'data_catalog', objectName: 'Data catalog', objectPlural: 'data catalog' },
-    {
-        key: 'data_catalog_approval',
-        objectName: 'Data catalog approval',
-        objectPlural: 'data catalog approvals',
-        info: 'Grants the ability to promote catalog entries (approve a metric, certify a table, accept a relationship). This is the human-in-the-loop trust boundary: agents that can write to the catalog still cannot self-approve without this scope.',
-        disabledActions: ['read'],
-    },
-    { key: 'data_deletion', objectName: 'Data deletion', objectPlural: 'data deletion requests' },
-    { key: 'dashboard', objectName: 'Dashboard', objectPlural: 'dashboards' },
-    { key: 'dashboard_template', objectName: 'Dashboard template', objectPlural: 'dashboard templates' },
-    { key: 'dataset', objectName: 'Dataset', objectPlural: 'datasets' },
-    {
-        key: 'early_access_feature',
-        objectName: 'Early access feature',
-        objectPlural: 'early access features',
-        warnings: {
-            write: SCOPES_IMPLYING_FEATURE_FLAG_WRITE.early_access_feature,
-        },
-    },
-    { key: 'element', objectName: 'Element', objectPlural: 'elements' },
-    { key: 'endpoint', objectName: 'Endpoint', objectPlural: 'endpoints' },
-    { key: 'engineering_analytics', objectName: 'Engineering analytics', objectPlural: 'engineering analytics' },
-    { key: 'event_definition', objectName: 'Event definition', objectPlural: 'event definitions' },
-    { key: 'event_filter', objectName: 'Event filter', objectPlural: 'event filters' },
-    { key: 'error_tracking', objectName: 'Error tracking', objectPlural: 'error tracking' },
-    { key: 'evaluation', objectName: 'Evaluation', objectPlural: 'evaluations' },
-    {
-        key: 'offline_evaluation_ingestion',
-        objectName: 'Offline evaluation ingestion',
-        objectPlural: 'offline evaluation uploads',
-        info: 'Create experiments, upload results, and mark experiments as completed or failed.',
-        disabledActions: ['read'],
-    },
-    { key: 'experiment', objectName: 'Experiment', objectPlural: 'experiments' },
-    { key: 'experiment_holdout', objectName: 'Holdout', objectPlural: 'holdouts' },
-    { key: 'experiment_saved_metric', objectName: 'Shared metric', objectPlural: 'shared metrics' },
-    { key: 'external_data_source', objectName: 'External data source', objectPlural: 'external data sources' },
-    { key: 'export', objectName: 'Export', objectPlural: 'exports' },
-    { key: 'feature_flag', objectName: 'Feature flag', objectPlural: 'feature flags' },
-    {
-        key: 'file_system',
-        objectName: 'File system',
-        objectPlural: 'file system items',
-        // Read-only for now: the file-system delete path cascades into the backing
-        // object (dashboard, insight, cohort, feature flag, hog function, ...), so a
-        // `file_system:write` token would bypass the more specific resource scopes.
-        disabledActions: ['write'],
-    },
-    { key: 'file_system_shortcut', objectName: 'File system shortcut', objectPlural: 'file system shortcuts' },
-    { key: 'group', objectName: 'Group', objectPlural: 'groups' },
-    { key: 'health_issue', objectName: 'Health issue', objectPlural: 'health issues' },
-    { key: 'heatmap', objectName: 'Heatmap', objectPlural: 'heatmaps' },
-    { key: 'hog_flow', objectName: 'Workflow', objectPlural: 'workflows' },
-    { key: 'hog_function', objectName: 'Hog function', objectPlural: 'hog functions' },
-    { key: 'inbox', objectName: 'Inbox', objectPlural: 'inbox reports' },
-    {
-        key: 'ingestion_warning',
-        objectName: 'Ingestion warning',
-        objectPlural: 'ingestion warnings',
-        disabledActions: ['write'],
-    },
-    { key: 'insight', objectName: 'Insight', objectPlural: 'insights' },
-    { key: 'insight_variable', objectName: 'Insight variable', objectPlural: 'insight variables' },
-    { key: 'integration', objectName: 'Integration', objectPlural: 'integrations', disabledActions: ['write'] },
-    { key: 'legal_document', objectName: 'Legal document', objectPlural: 'legal documents' },
-    { key: 'link', objectName: 'Link', objectPlural: 'links' },
-    { key: 'live_debugger', objectName: 'Live debugger', objectPlural: 'live debugger' },
-    { key: 'llm_analytics', objectName: 'AI observability', objectPlural: 'AI observability' },
-    { key: 'ai_observability_clusters', objectName: 'Cluster', objectPlural: 'clusters' },
-    {
-        key: 'llm_gateway',
-        objectName: 'LLM gateway',
-        objectPlural: 'LLM gateway',
-        disabledActions: ['write'],
-        unprivilegedExcluded: true,
-    },
-    { key: 'llm_playground', objectName: 'LLM playground', objectPlural: 'LLM playground' },
-    { key: 'llm_prompt', objectName: 'LLM prompt', objectPlural: 'LLM prompts' },
-    { key: 'llm_provider_key', objectName: 'LLM provider key', objectPlural: 'LLM provider keys' },
-    { key: 'llm_skill', objectName: 'LLM skill', objectPlural: 'LLM skills' },
-    { key: 'logs', objectName: 'Logs', objectPlural: 'logs' },
-    { key: 'loop', objectName: 'Loop', objectPlural: 'loops' },
-    { key: 'marketing_analytics', objectName: 'Marketing analytics', objectPlural: 'marketing analytics' },
-    { key: 'mcp_analytics', objectName: 'MCP analytics', objectPlural: 'MCP analytics' },
-    { key: 'metrics', objectName: 'Metrics', objectPlural: 'metrics' },
-    { key: 'notebook', objectName: 'Notebook', objectPlural: 'notebooks' },
-    { key: 'organization', objectName: 'Organization', objectPlural: 'organizations', disabledWhenProjectScoped: true },
-    {
-        key: 'organization_integration',
-        objectName: 'Organization integration',
-        objectPlural: 'organization integrations',
-        disabledWhenProjectScoped: true,
-    },
-    {
-        key: 'organization_member',
-        objectName: 'Organization member',
-        objectPlural: 'organization members',
-        disabledWhenProjectScoped: true,
-        warnings: {
-            write: (
-                <>
-                    This scope can be used to invite users to your organization,
-                    <br />
-                    effectively <strong>allowing access to other scopes via the added user</strong>.
-                </>
-            ),
-        },
-    },
-    { key: 'person', objectName: 'Person', objectPlural: 'persons' },
-    { key: 'customer_profile_config', objectName: 'Customer profile config', objectPlural: 'customer profile configs' },
-    { key: 'plugin', objectName: 'Plugin', objectPlural: 'plugins' },
-    {
-        key: 'product_enablement',
-        objectName: 'Product enablement',
-        objectPlural: 'product enablement',
-        disabledActions: ['read'],
-    },
-    { key: 'product_tour', objectName: 'Product tour', objectPlural: 'product tours' },
-    {
-        key: 'project',
-        objectName: 'Project',
-        objectPlural: 'projects',
-        info: 'If you grant write access, this scope can be used to create or modify projects, including settings about how data is ingested.',
-    },
-    { key: 'property_definition', objectName: 'Property definition', objectPlural: 'property definitions' },
-    { key: 'query', objectName: 'Query', objectPlural: 'queries', disabledActions: ['write'] },
-    { key: 'replay_scanner', objectName: 'Replay scanner', objectPlural: 'replay scanners' },
-    { key: 'revenue_analytics', objectName: 'Revenue analytics', objectPlural: 'revenue analytics' },
-    { key: 'session_recording', objectName: 'Session recording', objectPlural: 'session recordings' },
-    {
-        key: 'session_recording_playlist',
-        objectName: 'Session recording playlist',
-        objectPlural: 'session recording playlists',
-    },
-    { key: 'sharing_configuration', objectName: 'Sharing configuration', objectPlural: 'sharing configurations' },
-    { key: 'subscription', objectName: 'Subscription', objectPlural: 'subscriptions' },
-    { key: 'support_ticket', objectName: 'Support ticket', objectPlural: 'support tickets' },
-    {
-        key: 'survey',
-        objectName: 'Survey',
-        objectPlural: 'surveys',
-        warnings: {
-            write: SCOPES_IMPLYING_FEATURE_FLAG_WRITE.survey,
-        },
-    },
-    { key: 'tagger', objectName: 'Tagger', objectPlural: 'taggers' },
-    { key: 'ticket', objectName: 'Ticket', objectPlural: 'tickets' },
-    { key: 'toolbar', objectName: 'Toolbar', objectPlural: 'toolbar' },
-    { key: 'tracing', objectName: 'Tracing', objectPlural: 'tracing' },
-    {
-        key: 'transactional_email',
-        objectName: 'Transactional email',
-        objectPlural: 'transactional emails',
-        info: "Write sends transactional email from a template. Read gets a sent email's status and works only with a project secret API key. This scope can't change templates or workflows.",
-    },
-    { key: 'field_note', objectName: 'Field note', objectPlural: 'field notes' },
-    { key: 'uploaded_media', objectName: 'Uploaded media', objectPlural: 'uploaded media' },
-    { key: 'usage_metric', objectName: 'Usage metric', objectPlural: 'usage metrics' },
-    {
-        key: 'user',
-        objectName: 'User',
-        objectPlural: 'users',
-        disabledActions: ['write'],
-        warnings: {
-            read: (
-                <>
-                    This scope allows you to retrieve your own user object.
-                    <br />
-                    Note that the user object <strong>lists all organizations and projects you're in</strong>.
-                </>
-            ),
-        },
-    },
-    { key: 'signal_scout', objectName: 'Signals agent', objectPlural: 'signals agents' },
-    {
-        key: 'signal_usage',
-        objectName: 'Self-driving usage',
-        objectPlural: 'self-driving usage',
-        disabledActions: ['write'],
-    },
-    { key: 'review_hog', objectName: 'PostHog Review', objectPlural: 'PostHog Review reviews' },
-    { key: 'stamphog', objectName: 'Stamphog', objectPlural: 'stamphog' },
-    { key: 'streamlit_app', objectName: 'Streamlit app', objectPlural: 'Streamlit apps' },
-    { key: 'task', objectName: 'Task', objectPlural: 'tasks' },
-    { key: 'today', objectName: 'Today home', objectPlural: 'Today home' },
-    { key: 'user_interview', objectName: 'User interview', objectPlural: 'user interviews' },
-    { key: 'vision_alert', objectName: 'Vision alert', objectPlural: 'vision alerts' },
-    { key: 'visual_review', objectName: 'Visual review', objectPlural: 'visual reviews' },
-    {
-        key: 'webhook',
-        objectName: 'Webhook',
-        objectPlural: 'webhooks',
-        info: 'Webhook configuration is currently only enabled for the Zapier integration.',
-    },
-    { key: 'warehouse_view', objectName: 'Warehouse view', objectPlural: 'warehouse views' },
-    { key: 'warehouse_table', objectName: 'Warehouse table', objectPlural: 'warehouse tables' },
-    { key: 'web_analytics', objectName: 'Web analytics', objectPlural: 'web analytics' },
-]
+/**
+ * What a personal API key or OAuth scope row warns about at the picked level: the scope's own note, such as a
+ * feature flag it also writes, followed by the backend's risky scope warning.
+ */
+export function scopeRowWarning(
+    apiScope: APIScope | undefined,
+    scopeObject: string,
+    level: ScopeAccessLevel
+): string | JSX.Element | undefined {
+    const note = level === 'none' ? undefined : apiScope?.warnings?.[level]
+    const risky = riskyScopeWarning(scopeObject, level, RISKY_SCOPE_WARNINGS)
+    return note && risky ? (
+        <>
+            {note} {risky}
+        </>
+    ) : (
+        (note ?? risky)
+    )
+}
+
+// Every scope object a picker offers, built from the backend ScopeDoc declarations.
+export const API_SCOPES: APIScope[] = Object.entries(SCOPE_DOCS).map(([key, doc]) => ({
+    key: key as APIScopeObject,
+    objectName: doc.name,
+    objectPlural: doc.plural,
+    info: doc.description,
+    disabledActions: (['read', 'write'] as const).filter((action) => !doc.actions.includes(action)),
+    disabledWhenProjectScoped: doc.organizationWide,
+    unprivilegedExcluded: doc.privileged,
+    warnings: doc.writeRequires ? { write: doc.writeRequires.reason } : undefined,
+}))
 API_SCOPES.sort((a, b) => a.objectName.localeCompare(b.objectName))
-
-// Scope objects deliberately absent from the key-creation modal above, each with the reason.
-// Every scope object in `ScopeObjectEnumApi` must be either offered in `API_SCOPES` or listed here,
-// except the OAuth-hidden ones in `OAUTH_SCOPES_HIDDEN` (lib/oauthScopes.generated), which no picker shows.
-// scopes.test.ts enforces that partition so a newly added backend scope can't silently go missing.
-export const API_SCOPES_OMITTED_FROM_MODAL: Partial<Record<APIScopeObject, string>> = {
-    // Umbrella access-control resource that `warehouse_view`/`warehouse_table` inherit from —
-    // the granular scopes are offered instead, so keep the umbrella out of the modal.
-    warehouse_objects: 'Umbrella resource: grant warehouse_view/warehouse_table instead.',
-    // Pending removal — no endpoint enforces these, so they do nothing when granted.
-    // Remove from posthog/scopes.py once no PAK/OAuth grant references them.
-    batch_import: 'Pending removal: no endpoint enforces it (its viewset is INTERNAL).',
-    mcp_registry: 'Behind a feature flag.',
-    cross_project_dashboard: 'Behind a feature flag.',
-    external_data_schema: 'Pending removal: covered by external_data_source; no viewset uses it.',
-    vision_action: 'Retired: no endpoint enforces it; kept for desktop OAuth clients that still request it.',
-}
 
 // Keep in sync with PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION in posthog/scopes.py.
 // posthog/test/test_scopes.py compares the two lists.
@@ -405,6 +195,8 @@ export const PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION = [
     'messaging_preference:write',
     'transactional_email:read',
     'transactional_email:write',
+    'llm_prompt:read',
+    'logs:read',
 ] as const
 
 export type ProjectSecretAPIKeyAllowedScope = (typeof PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION)[number]
@@ -422,19 +214,23 @@ const API_KEY_CREATION_RENDERABLE_SCOPES = new Set(
 )
 
 // Actions the manual key-creation UI withholds from Personal API Keys
-// (e.g. file_system:write, integration:write, user:write) — see `disabledActions`
+// (e.g. file_system:write, user:write) — see `disabledActions`
 // above.
 export const API_KEY_CREATION_DISABLED_SCOPES = new Set(
     API_SCOPES.flatMap(({ key, disabledActions }) => (disabledActions ?? []).map((action) => `${key}:${action}`))
 )
 
+// Writes a person can choose in a picker but no preset adds. integration:write creates and deletes
+// project integrations, which hold stored third-party credentials.
+const OPT_IN_ONLY_SCOPES: ReadonlySet<string> = new Set(['integration:write'])
+
 // A preset must not set a level the key picker cannot show, or the picker shows the level on a
 // disabled segment. A write on a write-disabled object falls back to read, which write implies on the
-// server anyway. A scope with no allowed level is dropped.
+// server anyway, and so does an opt-in-only write. A scope with no allowed level is dropped.
 export const clampToKeyCreationScopes = (scopes: readonly string[]): string[] => [
     ...new Set(
         scopes.flatMap((scope) => {
-            if (API_KEY_CREATION_RENDERABLE_SCOPES.has(scope)) {
+            if (API_KEY_CREATION_RENDERABLE_SCOPES.has(scope) && !OPT_IN_ONLY_SCOPES.has(scope)) {
                 return [scope]
             }
             const [object, action] = scope.split(':')
@@ -457,7 +253,7 @@ export const API_KEY_SCOPE_PRESETS: {
     {
         value: 'source_map_upload',
         label: 'Source map upload',
-        scopes: ['organization:read', 'error_tracking:write'],
+        scopes: ['error_tracking:write'],
     },
     {
         value: 'zapier',
@@ -531,171 +327,10 @@ export type APIScopeGroup = {
     objects: APIScopeObject[]
 }
 
-export const API_SCOPE_GROUPS: APIScopeGroup[] = [
-    {
-        label: 'Product analytics',
-        objects: [
-            'insight',
-            'insight_variable',
-            'dashboard',
-            'dashboard_template',
-            'cross_project_dashboard',
-            'query',
-            'notebook',
-            'canvas',
-            'subscription',
-            'alert',
-            'annotation',
-            'export',
-            'sharing_configuration',
-        ],
-    },
-    {
-        label: 'Web, marketing & revenue analytics',
-        objects: ['web_analytics', 'marketing_analytics', 'revenue_analytics', 'heatmap', 'link'],
-    },
-    {
-        label: 'Events, people & data model',
-        objects: [
-            'person',
-            'group',
-            'cohort',
-            'action',
-            'event_definition',
-            'property_definition',
-            'event_filter',
-            'element',
-        ],
-    },
-    {
-        label: 'Session replay',
-        objects: ['session_recording', 'session_recording_playlist', 'replay_scanner', 'vision_action', 'vision_alert'],
-    },
-    {
-        label: 'Feature flags, experiments & surveys',
-        objects: [
-            'feature_flag',
-            'experiment',
-            'experiment_holdout',
-            'experiment_saved_metric',
-            'early_access_feature',
-            'survey',
-            'user_interview',
-            'product_tour',
-        ],
-    },
-    {
-        label: 'Error tracking, logs & tracing',
-        objects: ['error_tracking', 'logs', 'tracing', 'metrics'],
-    },
-    {
-        label: 'Developer experience',
-        objects: ['engineering_analytics', 'stamphog', 'visual_review'],
-    },
-    {
-        label: 'LLM & MCP analytics',
-        objects: [
-            'llm_analytics',
-            'llm_prompt',
-            'llm_provider_key',
-            'llm_skill',
-            'llm_playground',
-            'dataset',
-            'evaluation',
-            'offline_evaluation_ingestion',
-            'tagger',
-            'ai_observability_clusters',
-            'mcp_analytics',
-            'llm_gateway',
-        ],
-    },
-    {
-        label: 'Data warehouse & pipelines',
-        objects: [
-            'external_data_source',
-            'external_data_schema',
-            'warehouse_objects',
-            'warehouse_table',
-            'warehouse_view',
-            'batch_export',
-            'batch_import',
-            'hog_function',
-            'hog_flow',
-            'endpoint',
-            'streamlit_app',
-            'webhook',
-            'plugin',
-        ],
-    },
-    {
-        label: 'Messaging',
-        objects: ['transactional_email'],
-    },
-    {
-        label: 'AI & context management tools',
-        objects: [
-            'conversation',
-            'business_knowledge',
-            'data_catalog',
-            'data_catalog_approval',
-            'mcp_registry',
-            'task',
-            'inbox',
-            'today',
-            'loop',
-            'signal_scout',
-            'signal_usage',
-            'review_hog',
-            'approvals',
-            'autoresearch',
-            'field_note',
-        ],
-    },
-    {
-        label: 'Customers & support',
-        objects: [
-            'customer_analytics',
-            'account',
-            'customer_journey',
-            'customer_task',
-            'customer_profile_config',
-            'usage_metric',
-            'ticket',
-            'support_ticket',
-        ],
-    },
-    {
-        label: 'Setup & data management',
-        objects: [
-            'toolbar',
-            'live_debugger',
-            'ingestion_warning',
-            'health_issue',
-            'data_deletion',
-            'product_enablement',
-            'integration',
-            'organization_integration',
-        ],
-    },
-    {
-        label: 'Organization & account',
-        objects: [
-            'organization',
-            'organization_member',
-            'project',
-            'workload_trust_policy',
-            'user',
-            'billing',
-            'access_control',
-            'activity_log',
-            'comment',
-            'legal_document',
-            'uploaded_media',
-            'file_system',
-            'file_system_shortcut',
-        ],
-    },
-]
+export const API_SCOPE_GROUPS: APIScopeGroup[] = SCOPE_GROUPS.map((label) => ({
+    label,
+    objects: API_SCOPES.filter(({ key }) => SCOPE_DOCS[key].group === label).map(({ key }) => key),
+}))
 
 export const OTHER_SCOPE_GROUP_LABEL = 'Other'
 

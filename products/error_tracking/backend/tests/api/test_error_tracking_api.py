@@ -667,7 +667,7 @@ class TestErrorTracking(APIBaseTest):
     ) -> None:
         issue = self.create_issue()
 
-        with summary_state(self, issue.id, flag=flag, readable=readable, approved=approved, stored=stored) as publish:
+        with summary_state(self, issue.id, flag=flag, readable=readable, approved=approved, stored=stored):
             response = self.client.get(f"/api/projects/{self.team.id}/error_tracking/issues/{issue.id}/summary")
 
         assert response.status_code == 200
@@ -682,7 +682,6 @@ class TestErrorTracking(APIBaseTest):
             else None
         )
         assert response.json() == {"status": expected_status, "summary": expected_summary, "reason": expected_reason}
-        publish.assert_not_called()
         assert not lock_held(self.team.id, issue.id)
 
     @parameterized.expand([("other_team", True), ("malformed_id", False)])
@@ -696,6 +695,27 @@ class TestErrorTracking(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/error_tracking/issues/{issue_id}/summary")
 
         assert response.status_code == 404
+
+    @parameterized.expand(
+        [
+            ("retrieve", "get", "", None),
+            ("update", "patch", "", {"status": "resolved"}),
+            ("merge", "post", "/merge", {"ids": [str(uuid7())]}),
+            ("split", "post", "/split", {"fingerprints": [{"fingerprint": "fingerprint"}]}),
+            ("assign", "patch", "/assign", {"assignee": None}),
+            ("cohort", "put", "/cohort", {"cohortId": 1}),
+            ("activity", "get", "/activity", None),
+        ]
+    )
+    def test_issue_actions_return_404_for_malformed_id(
+        self, _name: str, method: str, suffix: str, data: dict | None
+    ) -> None:
+        response = getattr(self.client, method)(
+            f"/api/projects/{self.team.id}/error_tracking/issues/not-a-uuid{suffix}", data=data, format="json"
+        )
+
+        assert response.status_code == 404, response.content
+        assert response.json()["detail"] == "Issue not found"
 
     @parameterized.expand(
         [
@@ -2613,6 +2633,62 @@ class TestErrorTracking(APIBaseTest):
         assert patched_capture.call_args.kwargs["properties"]["success"] is True
         symbol_set.refresh_from_db()
         assert symbol_set.content_hash == "hash"
+
+    @parameterized.expand(
+        [
+            ("file_not_found", None, ["first", "failing", "second"]),
+            ("file_too_large", "file/oversized", ["first", "second"]),
+        ]
+    )
+    @patch("posthog.storage.object_storage.head_object")
+    def test_bulk_finish_upload_rejects_the_batch_when_one_symbol_set_fails(
+        self,
+        expected_code: str,
+        failing_storage_ptr: str | None,
+        surviving_refs: list[str],
+        patched_head_object: Mock,
+    ) -> None:
+        sizes = {
+            "file/first": 1000,
+            "file/second": 1000,
+            "file/oversized": symbol_sets_logic.ONE_HUNDRED_MEGABYTES + 1,
+        }
+        patched_head_object.side_effect = lambda file_key: {"ContentLength": sizes[file_key]}
+        symbol_sets = [
+            ErrorTrackingSymbolSet.objects.create(team=self.team, ref="first", storage_ptr="file/first"),
+            ErrorTrackingSymbolSet.objects.create(team=self.team, ref="failing", storage_ptr=failing_storage_ptr),
+            ErrorTrackingSymbolSet.objects.create(team=self.team, ref="second", storage_ptr="file/second"),
+        ]
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/symbol_sets/bulk_finish_upload",
+            data={"content_hashes": {str(symbol_set.id): f"hash-{symbol_set.ref}" for symbol_set in symbol_sets}},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["code"] == expected_code
+        assert dict(
+            ErrorTrackingSymbolSet.objects.filter(team=self.team).values_list("ref", "content_hash")
+        ) == dict.fromkeys(surviving_refs)
+
+    @patch("posthog.storage.object_storage.head_object", return_value=None)
+    def test_bulk_finish_upload_sends_no_more_head_requests_after_a_failed_batch(
+        self, patched_head_object: Mock
+    ) -> None:
+        symbol_sets = ErrorTrackingSymbolSet.objects.bulk_create(
+            ErrorTrackingSymbolSet(team=self.team, ref=f"ref-{i}", storage_ptr=f"file/{i}")
+            for i in range(symbol_sets_logic.HEAD_OBJECT_PARALLELISM + 1)
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/symbol_sets/bulk_finish_upload",
+            data={"content_hashes": {str(symbol_set.id): "hash" for symbol_set in symbol_sets}},
+            format="json",
+        )
+
+        assert response.json()["code"] == "file_not_found"
+        assert patched_head_object.call_count <= symbol_sets_logic.HEAD_OBJECT_PARALLELISM
 
     def _assert_logs_the_activity(self, error_tracking_issue_id: int, expected: list[dict]) -> None:
         activity_response = self._get_error_tracking_issue_activity(error_tracking_issue_id)

@@ -44,7 +44,8 @@ from posthog.hogql.functions.mapping import HOGQL_COMPARISON_MAPPING
 from posthog.hogql.printer.base import resolve_field_type
 from posthog.hogql.printer.clickhouse import AI_BLOOM_FILTER_PROPERTIES, COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING
 from posthog.hogql.restricted_properties import (
-    mirrored_property_for_column,
+    key_read_overlaps_restriction,
+    mirrored_properties_for_column,
     property_path_overlaps_restriction,
     restricted_feature_flag_names,
     restricted_key_path,
@@ -602,11 +603,11 @@ def _map_value_read(blob: ast.Expr, key: str) -> ast.Expr:
     )
 
 
-def _mirrored_source_property(field_type: ast.FieldType, context: HogQLContext) -> str | None:
+def _mirrored_source_properties(field_type: ast.FieldType, context: HogQLContext) -> tuple[str, ...]:
     resolved_field = field_type.resolve_database_field(context)
     if not isinstance(resolved_field, DatabaseField):
-        return None
-    return mirrored_property_for_column(field_type.table_type, resolved_field.name, context)
+        return ()
+    return mirrored_properties_for_column(field_type.table_type, resolved_field.name, context)
 
 
 def feature_flag_variant_read(value: ast.Expr) -> ast.Expr:
@@ -933,11 +934,11 @@ def _substitute_value_read(node: ast.PropertyAccess, context: HogQLContext) -> a
     # JSONDropKeys strips the key, so extracting it always yields '' which scrubs to NULL — so return that constant
     # directly and skip the wasted drop-then-extract. (The column resolvers also decline, so comparisons over a
     # restricted property never read the backing column either; their operand falls through to this same NULL.)
-    source_property = _mirrored_source_property(field_type, context)
+    source_properties = _mirrored_source_properties(field_type, context)
     restricted_keys = restricted_property_keys_for_table_type(field_type.table_type, context)
     if (
-        source_property in restricted_keys
-        if source_property is not None
+        any(source_property in restricted_keys for source_property in source_properties)
+        if source_properties
         else restricted_key_path(node.keys, restricted_keys) is not None
     ):
         _record_property_usage(context, None)
@@ -1033,6 +1034,13 @@ def _coalesce_empty(expr: ast.Expr) -> ast.Call:
 
 def _string_pattern_constant(expr: ast.Expr) -> ast.Constant | None:
     return expr if isinstance(expr, ast.Constant) and isinstance(expr.value, str) else None
+
+
+def _boolean_constant_text(expr: ast.Expr) -> ast.Constant | None:
+    """The text a property holds for a boolean constant, or None for any other expression."""
+    if isinstance(expr, ast.Constant) and isinstance(expr.value, bool):
+        return _const("true" if expr.value else "false")
+    return None
 
 
 def _column_constant_type(source: MaterializedPropertySource) -> ast.ConstantType:
@@ -1318,10 +1326,14 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
         Must match what `_substitute_value_read` builds for the source property, so the mirror column and
         its source property become the same AST node and agree on nullability and comparison printing.
         """
-        source_property = _mirrored_source_property(field_type, self.context)
-        if source_property is None:
+        source_properties = _mirrored_source_properties(field_type, self.context)
+        if not source_properties:
             return None
-        if source_property not in restricted_property_keys_for_table_type(field_type.table_type, self.context):
+        restricted_keys = restricted_property_keys_for_table_type(field_type.table_type, self.context)
+        # A dotted source such as `metadata.backend` is restricted by its parent `metadata` too.
+        if not any(
+            key_read_overlaps_restriction(source_property, restricted_keys) for source_property in source_properties
+        ):
             return None
         return ast.Constant(value=None, type=ast.StringType(nullable=True))
 
@@ -1974,7 +1986,37 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
 
         return _call("isNotNull", [_json_subcolumn_value_expr(field_type, [first_key], source=source)])
 
+    def _boolean_constant_as_text(self, node: ast.CompareOperation) -> ast.CompareOperation:
+        """`<text property> = true` on the JSON events table, with the constant as the text the property holds.
+
+        ClickHouse cannot compare text with a boolean, so the query would fail. The legacy table compares the constant
+        as 'true' or 'false' for the keys it keeps in a property-group map, and every later rewrite here already
+        handles a text constant, so the constant becomes that text before any of them runs.
+        """
+        if node.op in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.NotEq):
+            if (text := _boolean_constant_text(node.right)) and self._reads_json_text(node.left):
+                return replace(node, right=text)
+            if (text := _boolean_constant_text(node.left)) and self._reads_json_text(node.right):
+                return replace(node, left=text)
+        return node
+
+    def _reads_json_text(self, expr: ast.Expr) -> bool:
+        """Whether `expr` is a single-key property of the JSON events table that HogQL reads as text."""
+        single = self._property_operand(expr)
+        if single is None:
+            return False
+        field_type, property_name = single
+        source = resolve_materialized_property_source(field_type, property_name, self.context)
+        property_type = ast.PropertyType(field_type=field_type, chain=[property_name])
+        return (
+            source is not None
+            and source.kind == "json_subcolumn"
+            # A Boolean or Numeric property definition converts the read, and ClickHouse compares that with a boolean.
+            and isinstance(property_type.resolve_constant_type(self.context), ast.StringType)
+        )
+
     def visit_compare_operation(self, node: ast.CompareOperation) -> ast.Expr:
+        node = self._boolean_constant_as_text(node)
         if self._in_grouped_clause:
             return super().visit_compare_operation(node)
 
@@ -2141,8 +2183,8 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
         )
 
     def _typed_property_to_compare_as_text(self, expr: ast.Expr, values: list[str]) -> _OptimizableProperty | None:
-        """A Numeric or Boolean JSON property compared to text it cannot be read as, read as text the way the legacy
-        table compares it.
+        """A Numeric, Boolean or DateTime JSON property compared to text it cannot be read as, read as text the way the
+        legacy table compares it.
 
         A property definition keeps the type of the first value seen, so a Numeric key can still hold text that a
         Float64 read never matches, and a Boolean key can hold text that the Bool read turns into NULL. Comparing that
@@ -2156,9 +2198,15 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
         field_type, property_name = single
         property_type = ast.PropertyType(field_type=field_type, chain=[property_name])
         semantic_type = runtime_type_from_constant_type(property_type.resolve_constant_type(self.context))
-        if semantic_type.family not in ("float", "boolean"):
+        if semantic_type.family == "datetime":
+            # ClickHouse's best-effort parser accepts spellings a Python check would reject, so only a lone empty
+            # string counts as unreadable. A list that also holds dates keeps its conversion, because '2024-04-06'
+            # matches a stored '2024-04-06 00:00:00' only through it.
+            if values != [""]:
+                return None
+        elif semantic_type.family not in ("float", "boolean"):
             return None
-        if all(convert_literal_to_runtime_type(value, semantic_type) is not None for value in values):
+        elif all(convert_literal_to_runtime_type(value, semantic_type) is not None for value in values):
             return None
         source = resolve_materialized_property_source(field_type, property_name, self.context)
         if source is None or not _is_dynamic_json_source(source):
@@ -2535,13 +2583,17 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
             values = [constant.value] if constant is not None else None
         else:
             values = self._extract_string_constants(node.right)
-        if not values or any(not value or value.startswith(("[", "{")) for value in values):
+        if not values:
             return None
         # A user-written `toBool(properties.x)` over a String property keeps its cast and is handled by
         # `_optimize_materialized_equals`. The swapper's Boolean cast over a Boolean-typed property is the one looked
         # through here, so that text the property cannot be read as compares as text.
+        # A String property keeps its full read for '' and for constants that start with `[` or `{`, because a declared
+        # String column stores '' the same as a missing key, and arrays and objects serialize differently from scalars.
+        # A typed property compares those constants as text, because its typed read of them can only fail.
+        scalar_text = all(value and not value.startswith(("[", "{")) for value in values)
         prop = None
-        if not self._is_boolean_conversion(property_expr):
+        if scalar_text and not self._is_boolean_conversion(property_expr):
             prop = self._materialized_string_property(property_expr, allow_dynamic_json=True)
         prop = prop or self._typed_property_to_compare_as_text(property_expr, values)
         if prop is None or prop.source.kind != "json_subcolumn":

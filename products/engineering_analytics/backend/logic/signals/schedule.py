@@ -1,10 +1,3 @@
-"""Temporal schedule for the engineering-analytics CI-signals coordinator (hourly, SKIP overlap).
-
-Registered in ``posthog/temporal/schedule.py`` via the product facade. The coordinator no-ops for
-teams that haven't enabled the engineering_analytics signal source, so registering the schedule is
-inert until a team opts in.
-"""
-
 from datetime import timedelta
 
 from django.conf import settings
@@ -31,14 +24,13 @@ async def create_ci_signals_coordinator_schedule(client: Client) -> None:
             "engineering-analytics-ci-signals-coordinator",
             id=SCHEDULE_ID,
             task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
-            # Bounded to the interval so a wedged sweep can never block more than one SKIP tick.
+            # Bounded to the interval so that a stuck sweep blocks at most one tick under SKIP.
             execution_timeout=SCHEDULE_INTERVAL,
         ),
         spec=ScheduleSpec(
             intervals=[ScheduleIntervalSpec(every=SCHEDULE_INTERVAL, offset=timedelta(minutes=2))],
             jitter=timedelta(minutes=10),
         ),
-        # SKIP so a slow tick doesn't stack; enrolment (not cron frequency) bounds the work.
         policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP, catchup_window=SCHEDULE_INTERVAL),
     )
     if await a_schedule_exists(client, SCHEDULE_ID):

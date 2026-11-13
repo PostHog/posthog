@@ -113,6 +113,7 @@ def clone_repository(input: ProvisionedWizardWorker) -> PreparedGitRepositoryWor
         root_path = cloud_worker.clone_repository(
             GitRepositoryCloneRequest(
                 sandbox_id=input.sandbox_id,
+                team_id=input.team_id,
                 github_integration_id=integration_id,
                 repository=run.workspace.repository,
                 branch=run.workspace.branch,

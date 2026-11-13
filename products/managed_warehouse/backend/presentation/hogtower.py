@@ -44,6 +44,7 @@ _WAREHOUSE_STILL_EXISTS = (
 
 _TEAM_PATH = re.compile(r"/teams/(?P<team_id>[^/]+)")
 _SERVICE_GRANT_PATH = re.compile(r"/service-grants/(?P<credential_id>[^/]+)")
+_HOGLAKE_CREDENTIAL_PATH = re.compile(r"/hoglake-credentials/(?P<credential_id>[^/]+)(?P<rotate>/rotate)?")
 
 
 def is_configured() -> bool:
@@ -188,9 +189,11 @@ def _status(call: _Call) -> TranslatedResponse:
             "database": connection.get("database") or warehouse.get("database_name", ""),
             "username": connection.get("username") or "root",
         }
-    bucket = _dict(warehouse.get("data_store")).get("bucket_name")
-    if bucket:
-        out["bucket"] = bucket
+    data_store = _dict(warehouse.get("data_store"))
+    if data_store.get("bucket_name"):
+        out["bucket"] = data_store["bucket_name"]
+    if data_store.get("prefix"):
+        out["bucket_prefix"] = data_store["prefix"]
     return TranslatedResponse(resp.status_code, out)
 
 
@@ -331,10 +334,18 @@ def _trino(call: _Call) -> TranslatedResponse:
     resp = call.send("GET", f"{call.warehouse}/trino")
     if not resp.ok or not isinstance(resp.body, dict):
         return resp
+    tenancy = resp.body.get("trino")
     live = resp.body.get("live")
     if isinstance(live, dict) and isinstance(live.get("enabled"), bool):
-        return TranslatedResponse(resp.status_code, live)
-    tenancy = resp.body.get("trino")
+        # The live body is duckgres's and knows nothing of hoglake: the tenancy row says
+        # which backend the catalog is and whether hoglake's catalog exists yet.
+        detail = dict(live)
+        if isinstance(tenancy, dict):
+            if tenancy.get("backend"):
+                detail["backend"] = tenancy["backend"]
+            if "hoglake_initialized" in tenancy:
+                detail["hoglake_initialized"] = tenancy["hoglake_initialized"] is True
+        return TranslatedResponse(resp.status_code, detail)
     if not isinstance(tenancy, dict) or tenancy.get("enabled") is not True:
         out: dict[str, Any] = {"enabled": False}
         if isinstance(tenancy, dict) and tenancy.get("backend"):
@@ -352,7 +363,12 @@ def _trino(call: _Call) -> TranslatedResponse:
             trino_status[key] = tenancy[key]
     return TranslatedResponse(
         resp.status_code,
-        {"enabled": True, "backend": tenancy.get("backend", ""), "status": trino_status},
+        {
+            "enabled": True,
+            "backend": tenancy.get("backend", ""),
+            "hoglake_initialized": tenancy.get("hoglake_initialized") is True,
+            "status": trino_status,
+        },
     )
 
 
@@ -383,6 +399,45 @@ def _revoke_credential(call: _Call, credential_id: str) -> TranslatedResponse:
     Both answer {"revoked": "<cid>"} on success, so the body passes through.
     """
     return call.send("DELETE", f"{call.warehouse}/service-credentials/{quote(credential_id, safe='')}")
+
+
+# --- hoglake credentials -------------------------------------------------------------
+#
+# Customer OAuth clients for hoglake (hlc_<id> + a secret shown once), exchanged at
+# hogtower's public /oauth/token. hogtower-only: duckgres has no equivalent, so the
+# v1-style paths below exist only in this adapter and views refuse them without hogtower.
+
+
+def _list_hoglake_credentials(call: _Call) -> TranslatedResponse:
+    """GET /hoglake-credentials -> v2 GET /warehouses/:id/hoglake-credentials (never a secret).
+
+    ``owner_user_uuid`` keeps only that member's personal credentials; nothing else is forwarded.
+    """
+    owner = (call.params or {}).get("owner_user_uuid")
+    params = {"owner_user_uuid": str(owner)} if owner else None
+    return call.send("GET", f"{call.warehouse}/hoglake-credentials", params=params)
+
+
+def _create_hoglake_credential(call: _Call) -> TranslatedResponse:
+    """POST /hoglake-credentials -> v2 POST /warehouses/:id/hoglake-credentials (secret once)."""
+    return call.send("POST", f"{call.warehouse}/hoglake-credentials", json_body=call.json_body)
+
+
+def _hoglake_credential(call: _Call, method: str, credential_id: str, rotate: bool) -> TranslatedResponse:
+    """POST /hoglake-credentials/:cid/rotate (secret once) and DELETE /hoglake-credentials/:cid (revoke).
+
+    ``owner_user_uuid`` (rotate: body, revoke: params) names the acting member, and hogtower then
+    acts only on that member's own credentials. Without it the call acts as an organization admin.
+    Nothing else is forwarded.
+    """
+    path = f"{call.warehouse}/hoglake-credentials/{quote(credential_id, safe='')}"
+    if rotate and method == "POST":
+        owner = (call.json_body or {}).get("owner_user_uuid")
+        return call.send("POST", f"{path}/rotate", json_body={"owner_user_uuid": str(owner)} if owner else None)
+    if not rotate and method == "DELETE":
+        owner = (call.params or {}).get("owner_user_uuid")
+        return call.send("DELETE", path, params={"owner_user_uuid": str(owner)} if owner else None)
+    return _not_supported(method, f"/hoglake-credentials/{credential_id}{'/rotate' if rotate else ''}")
 
 
 def _not_supported(method: str, path: str) -> TranslatedResponse:
@@ -422,6 +477,8 @@ _ORG_ROUTES: dict[tuple[str, str], Callable[[_Call], TranslatedResponse]] = {
     ("GET", "/trino"): _trino,
     ("POST", "/service-credentials"): _mint_credential,
     ("POST", "/service-credentials/refresh"): _refresh_credential,
+    ("GET", "/hoglake-credentials"): _list_hoglake_credentials,
+    ("POST", "/hoglake-credentials"): _create_hoglake_credential,
     ("GET", "/monitoring/snapshot"): _org_passthrough("/monitoring/snapshot"),
     ("GET", "/monitoring/series"): _org_passthrough("/monitoring/series"),
     ("GET", "/monitoring/trino/snapshot"): _org_passthrough("/monitoring/trino/snapshot"),
@@ -467,8 +524,62 @@ def request(
         grant = _SERVICE_GRANT_PATH.fullmatch(path)
         if handler is None and grant is not None and method == "DELETE":
             return _revoke_credential(call, grant.group("credential_id"))
+        hoglake = _HOGLAKE_CREDENTIAL_PATH.fullmatch(path)
+        if handler is None and hoglake is not None:
+            return _hoglake_credential(call, method, hoglake.group("credential_id"), bool(hoglake.group("rotate")))
     else:
         handler = _GLOBAL_ROUTES.get((method, path))
     if handler is None:
         return _not_supported(method, path)
     return handler(call)
+
+
+# --- hogtower-only routes -----------------------------------------------------------------
+# No duckgres v1 counterpart, so no translation: callers check is_configured() first.
+
+MEMBER_TEAMS_TIMEOUT_SECONDS = 10
+
+
+def _member_path(organization_id: object, user_uuid: object) -> str:
+    return f"/warehouses/{quote(str(organization_id), safe='')}/members/{quote(str(user_uuid), safe='')}"
+
+
+def list_warehouses(*, timeout: int | float = 30) -> TranslatedResponse:
+    """v2 GET /warehouses: every warehouse hogtower manages, as ``{"warehouses": [...]}``."""
+    return _send("GET", "/warehouses", timeout=timeout)
+
+
+def list_members(organization_id: object, *, timeout: int | float = MEMBER_TEAMS_TIMEOUT_SECONDS) -> TranslatedResponse:
+    """v2 GET /warehouses/:id/members: the members hogtower holds who are not removed."""
+    return _send("GET", f"/warehouses/{quote(str(organization_id), safe='')}/members", timeout=timeout)
+
+
+def put_member_teams(
+    organization_id: object,
+    user_uuid: object,
+    teams: dict[int, str],
+    version: int,
+    *,
+    timeout: int | float = MEMBER_TEAMS_TIMEOUT_SECONDS,
+) -> TranslatedResponse:
+    """v2 PUT /warehouses/:id/members/:user_uuid/teams: the member's whole team set.
+
+    ``teams`` maps a team id to ``"read"`` or ``"write"``. hogtower keeps the push with
+    the highest ``version`` and answers 409 for an older one.
+    """
+    body = {"teams": {str(team_id): perm for team_id, perm in teams.items()}, "version": version}
+    return _send("PUT", f"{_member_path(organization_id, user_uuid)}/teams", json_body=body, timeout=timeout)
+
+
+def remove_member(
+    organization_id: object,
+    user_uuid: object,
+    version: int,
+    *,
+    timeout: int | float = MEMBER_TEAMS_TIMEOUT_SECONDS,
+) -> TranslatedResponse:
+    """v2 DELETE /warehouses/:id/members/:user_uuid: tombstone the member at ``version``.
+
+    hogtower revokes every team credential the member owns in the same transaction.
+    """
+    return _send("DELETE", _member_path(organization_id, user_uuid), json_body={"version": version}, timeout=timeout)

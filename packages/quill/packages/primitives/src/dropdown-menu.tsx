@@ -6,8 +6,10 @@ import * as React from 'react'
 
 import { Button } from './button'
 import { Checkbox } from './checkbox'
+import { InputGroup, InputGroupInput } from './input-group'
 import { Kbd } from './kbd'
 import { cn } from './lib/utils'
+import { MenuEmpty } from './menu-empty'
 import { MenuItemBody } from './menu-item-body'
 import { MenuLabel } from './menu-label'
 import { RadioIndicator } from './radio-group'
@@ -54,16 +56,28 @@ const DropdownMenuTrigger = React.forwardRef<HTMLButtonElement, MenuPrimitive.Tr
 const DropdownMenuContent = React.forwardRef<
     React.ComponentRef<typeof MenuPrimitive.Popup>,
     MenuPrimitive.Popup.Props &
-        Pick<MenuPrimitive.Positioner.Props, 'align' | 'alignOffset' | 'side' | 'sideOffset' | 'anchor'> & {
+        Pick<MenuPrimitive.Positioner.Props, 'align' | 'alignOffset' | 'side' | 'sideOffset' | 'anchor'> &
+        Pick<MenuPrimitive.Portal.Props, 'container'> & {
             /** Drops the padding and scrolling, for content that lays out and scrolls on its own. */
             flush?: boolean
         }
 >(function DropdownMenuContent(
-    { align = 'start', alignOffset = 0, side = 'bottom', sideOffset = 4, className, anchor, flush, children, ...props },
+    {
+        align = 'start',
+        alignOffset = 0,
+        side = 'bottom',
+        sideOffset = 4,
+        className,
+        anchor,
+        container,
+        flush,
+        children,
+        ...props
+    },
     ref
 ) {
     return (
-        <MenuPrimitive.Portal>
+        <MenuPrimitive.Portal container={container}>
             <MenuPrimitive.Positioner
                 data-quill
                 data-quill-portal="popover"
@@ -213,6 +227,40 @@ const DropdownMenuSubContent = React.forwardRef<
     )
 })
 
+const DropdownMenuFilterProvider = MenuPrimitive.FilterProvider
+
+const DropdownMenuInput = React.forwardRef<HTMLInputElement, MenuPrimitive.Input.Props>(
+    function DropdownMenuInput(props, ref) {
+        return (
+            <div className="quill-menu__input" data-slot="dropdown-menu-input">
+                <InputGroup>
+                    <MenuPrimitive.Input ref={ref} render={<InputGroupInput />} {...props} />
+                </InputGroup>
+            </div>
+        )
+    }
+)
+
+const DropdownMenuEmpty = React.forwardRef<HTMLDivElement, MenuPrimitive.Empty.Props>(
+    function DropdownMenuEmpty(props, ref) {
+        return <MenuPrimitive.Empty ref={ref} data-slot="dropdown-menu-empty" render={<MenuEmpty />} {...props} />
+    }
+)
+
+const DropdownMenuList = React.forwardRef<HTMLDivElement, MenuPrimitive.List.Props>(function DropdownMenuList(
+    { className, ...props },
+    ref
+) {
+    return (
+        <MenuPrimitive.List
+            ref={ref}
+            data-slot="dropdown-menu-list"
+            className={cn('quill-menu__list', className)}
+            {...props}
+        />
+    )
+})
+
 const DropdownMenuCheckboxItem = React.forwardRef<
     React.ComponentRef<typeof MenuPrimitive.CheckboxItem>,
     MenuPrimitive.CheckboxItem.Props &
@@ -245,7 +293,7 @@ const DropdownMenuCheckboxItem = React.forwardRef<
                 data-slot="dropdown-menu-checkbox-item-indicator"
             >
                 <Checkbox size="sm" tabIndex={-1} />
-                <MenuPrimitive.CheckboxItemIndicator className="absolute">
+                <MenuPrimitive.CheckboxItemIndicator className="absolute inset-0 flex items-center justify-center">
                     <Checkbox size="sm" checked tabIndex={-1} />
                 </MenuPrimitive.CheckboxItemIndicator>
             </span>
@@ -290,7 +338,7 @@ const DropdownMenuRadioItem = React.forwardRef<
                 data-slot="dropdown-menu-radio-item-indicator"
             >
                 <RadioIndicator size="sm" />
-                <MenuPrimitive.RadioItemIndicator className="absolute">
+                <MenuPrimitive.RadioItemIndicator className="absolute inset-0 flex items-center justify-center">
                     <RadioIndicator size="sm" checked />
                 </MenuPrimitive.RadioItemIndicator>
             </span>
@@ -454,7 +502,11 @@ export {
     DropdownMenuPortal,
     DropdownMenuTrigger,
     DropdownMenuContent,
+    DropdownMenuEmpty,
+    DropdownMenuFilterProvider,
     DropdownMenuGroup,
+    DropdownMenuInput,
+    DropdownMenuList,
     DropdownMenuLabel,
     DropdownMenuItem,
     DropdownMenuCheckboxItem,

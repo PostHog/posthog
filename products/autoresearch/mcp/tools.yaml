@@ -77,6 +77,23 @@ tools:
             - status
             - iteration_budget_remaining
         feature_flag: autoresearch
+    autoresearch-limits-retrieve:
+        operation: autoresearch_limits_retrieve
+        enabled: false
+        disabled_reason:
+            Feeds the Setup tab. The refusals from autoresearch-train-create already name the limit and when the
+            next run can start, which keeps the family under its tool cap
+        scopes:
+            - autoresearch:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Read project limits
+        description: >
+            Read the project's autoresearch limits and current usage: training runs against the daily limit and when the
+            next can start, the most experiments per run, and live pipelines against the live pipeline limit.
+        feature_flag: autoresearch
     autoresearch-list:
         operation: autoresearch_list
         enabled: true
@@ -491,13 +508,17 @@ tools:
             reaches 'completed' or 'failed'. A pipeline's first run has no champion until it completes and server-side
             promotion runs; on a retrain the existing champion keeps scoring until a new one is promoted. Returns 400 if
             a training run is already in progress, the pipeline is paused, or its creator or target is no longer valid
-            (recreate the pipeline). Returns 403 from inside a sandbox, such as a PostHog AI cloud task: do not retry,
-            and ask the user to start training from the pipeline's page in PostHog. Needs PostHog Desktop access,
-            because the run is a cloud sandbox. After a run promotes a champion, the daily 02:00 UTC scoring job scores
-            the inference population and emits autoresearch_prediction events. To score now instead, call
-            autoresearch-score-create once. The run uses the pipeline's iterations_per_run unless you override
-            iteration_budget for this run. A manual run resets the clock for the next scheduled research run. A pipeline
-            with an action target also needs the action:read scope.
+            (recreate the pipeline). Also returns 400 on a draft pipeline when the project already has its limit of live
+            pipelines (bootstrapping, running or converged): tell the user to pause or delete one first, and do not
+            retry. Returns 403 from inside a sandbox, such as a PostHog AI cloud task: do not retry, and ask the user to
+            start training from the pipeline's page in PostHog. Needs PostHog Desktop access, because the run is a cloud
+            sandbox. After a run promotes a champion, the daily 02:00 UTC scoring job scores the inference population
+            and emits autoresearch_prediction events. To score now instead, call autoresearch-score-create once. The run
+            uses the pipeline's iterations_per_run unless you override iteration_budget for this run, and the project's
+            iteration limit per run can lower either. Returns 429 when the project has used its daily limit of training
+            runs, across all its pipelines: do not retry before next_slot_at in the response, and tell the user when the
+            next run can start. A manual run resets the clock for the next scheduled research run. A pipeline with an
+            action target also needs the action:read scope.
         feature_flag: autoresearch
     autoresearch-training-runs-artifacts-delete-create:
         operation: autoresearch_training_runs_artifacts_delete_create
@@ -708,6 +729,26 @@ tools:
                 - started_at
                 - completed_at
                 - created_at
+    autoresearch-training-runs-stop-create:
+        operation: autoresearch_training_runs_stop_create
+        enabled: false
+        disabled_reason: Enable after the stop route deploys, because the MCP server deploys before Django
+        scopes:
+            - autoresearch:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        title: Stop a training run
+        description: >
+            Stop a pending or running training run, for example one that started on a misconfigured pipeline. Get the
+            run id from autoresearch-training-runs-list. The run fails with a 'stopped' error, its sandbox is cancelled,
+            and no model is promoted from it, so the current champion keeps scoring. The iterations it recorded stay.
+            When this was the pipeline's first run, the pipeline goes back to draft, so autoresearch-partial-update can
+            change its target, horizon, lookback or populations before you call autoresearch-train-create again. The
+            stopped run still counts against the project's daily training limit. Returns 400 when the run already
+            finished, and 403 from inside a training sandbox. Confirm with the user before you stop a run.
+        feature_flag: autoresearch
     autoresearch-validate-create:
         operation: autoresearch_validate_create
         enabled: true

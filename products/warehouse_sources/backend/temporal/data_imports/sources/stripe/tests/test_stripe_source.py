@@ -543,6 +543,9 @@ class TestStripeSource:
             # The key belongs to a connected account, so Stripe refuses to nest Connect access two
             # levels deep when an "Account id" is also configured — a customer misconfiguration.
             "Request req_abc123: You cannot access the connected accounts of your platform's connected accounts.",
+            # An Organization API key was used — Stripe rejects every request that omits the
+            # Stripe-Context header these keys require, matched on the stable boilerplate text.
+            "Please include the Stripe-Context header with your target account when using an Organization API key.",
         ],
     )
     def test_non_retryable_errors_match_permission_failures(self, observed_error):
@@ -582,6 +585,22 @@ class TestStripeSource:
         assert messages
         assert messages[0] is not None
         assert "Account id" in messages[0]
+
+    def test_organization_api_key_rejection_has_actionable_message(self):
+        # Stripe's own text doesn't say which key type the customer should use instead, so the
+        # guidance has to name it — every call with an Organization key fails identically, since
+        # it never carries the Stripe-Context header these keys require.
+        observed_error = (
+            "Please include the Stripe-Context header with your target account when using an Organization API key."
+        )
+        messages = [
+            message
+            for pattern, message in self.source.get_non_retryable_errors().items()
+            if error_message_matches(observed_error, [pattern])
+        ]
+        assert messages
+        assert messages[0] is not None
+        assert "secret or restricted API key" in messages[0]
 
     @pytest.mark.parametrize(
         "other_error",
@@ -1573,6 +1592,54 @@ class TestWebhookOnlyResponseWiring:
         response = self._source(CUSTOMER_RESOURCE_NAME, manager)
         assert response.webhook_only is False
         manager.webhook_enabled.assert_awaited_once_with(webhook_only=False)
+
+    @parameterized.expand(
+        [
+            ("listing_without_cursor", CUSTOMER_RESOURCE_NAME, False, True, False, None, "full_refresh"),
+            ("incremental_without_value", CUSTOMER_RESOURCE_NAME, False, True, True, None, "full_refresh"),
+            ("cursor_poll", CUSTOMER_RESOURCE_NAME, False, True, True, 1700000000, "incremental"),
+            (
+                "nested_lists_every_parent",
+                CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME,
+                False,
+                True,
+                True,
+                1700000000,
+                "full_refresh",
+            ),
+            ("webhook_only_endpoint", DISCOUNT_RESOURCE_NAME, False, True, False, None, None),
+            ("webhook_present_or_poll_by_design", CUSTOMER_RESOURCE_NAME, False, False, False, None, None),
+            ("webhook_active", CUSTOMER_RESOURCE_NAME, True, False, False, None, None),
+        ]
+    )
+    def test_records_webhook_fallback(
+        self,
+        _name: str,
+        endpoint: str,
+        enabled: bool,
+        webhook_missing: bool,
+        should_use_incremental_field: bool,
+        last_value: int | None,
+        expected: str | None,
+    ) -> None:
+        manager = self._make_manager(enabled=enabled)
+        manager.webhook_missing = webhook_missing
+        stripe_module.stripe_source(
+            api_key="sk_test_123",
+            account_id=None,
+            endpoint=endpoint,
+            db_incremental_field_last_value=last_value,
+            db_incremental_field_earliest_value=last_value,
+            logger=MagicMock(adebug=mock.AsyncMock()),
+            resumable_source_manager=MagicMock(can_resume=MagicMock(return_value=False)),
+            webhook_source_manager=manager,
+            api_version=STRIPE_API_VERSION_ACACIA,
+            should_use_incremental_field=should_use_incremental_field,
+        )
+        if expected is None:
+            manager.record_webhook_fallback.assert_not_awaited()
+        else:
+            manager.record_webhook_fallback.assert_awaited_once_with(expected)
 
     def test_discount_partitions_on_start_not_created(self) -> None:
         # Discount objects carry `start`/`end`, not `created`. If the incremental-field entry is

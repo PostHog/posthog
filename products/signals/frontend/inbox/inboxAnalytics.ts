@@ -4,16 +4,22 @@ import type { CaptureOptions } from 'posthog-js'
 import { dayjs } from 'lib/dayjs'
 
 import type { TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
-import type { InboxSummaryApi } from 'products/signals/frontend/generated/api.schemas'
+import type {
+    InboxSummaryApi,
+    PaginatedSignalReportListListApiPersonalRankingStatus,
+} from 'products/signals/frontend/generated/api.schemas'
 
 import type { ReportTaskPurpose } from './components/detail/artefactTypes'
 import type { ReportDiscussionIntent } from './inboxTaskKickoffLogic'
 import {
     InboxReportSectionKey,
+    SignalAlertScope,
     SignalReport,
     SignalReportActionability,
     SignalReportPriority,
     SignalRunKind,
+    SignalSourceProduct,
+    SignalSourceType,
 } from './types'
 import { rankingPillLifts } from './utils/reportOrdering'
 import { reportPullRequests } from './utils/reportPullRequests'
@@ -65,6 +71,8 @@ export const INBOX_EVENTS = {
     SOURCE_CATALOG_SOURCE_SELECTED: 'Signal source catalog source selected',
     SOURCE_STEERING_CHANGED: 'Signal source steering changed',
     SOURCE_FILTERS_CHANGED: 'Signal source filters changed',
+    SOURCE_ALERT_SCOPE_CHANGED: 'Signal source alert scope changed',
+    SOURCE_ALERT_PATTERNS_CHANGED: 'Signal source alert patterns changed',
     // Scout-troop management. Names and property shapes match the desktop app one-for-one so both
     // clients union in one project; desktop sends no `inbox_client`, so its rows read as null.
     SCOUT_FLEET_VIEWED: 'Scout fleet viewed',
@@ -177,6 +185,10 @@ export type InboxReportActionType =
     | 'resume_discussion'
     | 'restore'
     | 'create_pr'
+    | 'implementation_button_clicked'
+    | 'monitor'
+    | 'reopen'
+    | 'change_priority'
     | 'github_access_recovery'
     | 'copy_implementation_prompt'
     | 'refund'
@@ -189,7 +201,9 @@ export type InboxReportActionType =
     | 'remove_suggested_reviewer'
     | 'claim'
     | 'unclaim'
+    | 'claim_dialog'
     | 'expand_preview'
+    | 'add_note'
 
 /**
  * Where the text of an "Ask AI" question came from. `suggested` is a scout-authored question sent as
@@ -235,10 +249,10 @@ export type InboxReportActionOutcome = 'success' | 'failure' | 'blocked' | 'limi
 export type InboxPanelName = 'runs' | 'config' | 'sources' | 'scratchpad' | 'findings' | 'triage' | 'onboarding'
 
 /** A panel read that carries its own timeout, named so each one's stall rate reads separately. */
-export type InboxPanelLoad = 'scout_notes' | 'scout_memory'
+export type InboxPanelLoad = 'scout_notes' | 'scout_memory' | 'report_notes'
 
 /** A report write that carries its own timeout. `state` covers dismiss, resolve, restore, and monitoring. */
-export type InboxWrite = 'claim' | 'priority' | 'state'
+export type InboxWrite = 'claim' | 'note' | 'priority' | 'retire_note' | 'state'
 
 /** Which control moved the report list to a new query. `url` is a shared/deep link being applied. */
 export type InboxQueryChange =
@@ -254,7 +268,7 @@ export type InboxQueryChange =
     | 'created_window'
 
 /** Surface a scout-management event fired from. Matches the desktop values. */
-export type ScoutSurface = 'fleet_list' | 'scout_detail' | 'empty_state' | 'replay_vision_scanner'
+export type ScoutSurface = 'fleet_list' | 'scout_detail' | 'empty_state' | 'replay_vision_scanner' | 'report_detail'
 
 /**
  * Scout-management actions. The first block matches desktop's enum; the trailing block is
@@ -450,7 +464,15 @@ export function captureInboxViewed(params: {
     /** Selected report states on the flat Reports list; [] (every state) on other surfaces. */
     stateFilter?: string[]
     scope: string
+    /** The user's own stored personal ranking. Null when personal ranking is off or no page loaded. */
+    personalRankingStatus: PaginatedSignalReportListListApiPersonalRankingStatus
+    /** Reports in the For you scope across the counted states. Null when the counts describe another scope or a filtered list. */
+    forYouReportCount: number | null
+    /** The sort and ranker of the served list, as on `Inbox reports impressed`. */
+    sortField: string
+    rankerId: string | null
 }): void {
+    const status = params.personalRankingStatus
     captureInboxEvent(INBOX_EVENTS.VIEWED, {
         tab: params.tab,
         report_count: params.reports.length,
@@ -463,6 +485,14 @@ export function captureInboxViewed(params: {
         priority_filter: params.priorityFilter,
         state_filter: params.stateFilter ?? [],
         scope: params.scope,
+        personal_list_state: status?.state ?? null,
+        personal_list_size: status?.size ?? null,
+        personal_list_age_minutes: status?.age_minutes ?? null,
+        personal_list_checked_age_minutes: status?.checked_age_minutes ?? null,
+        personal_list_fallback_reason: status?.fallback_reason ?? null,
+        for_you_report_count: params.forYouReportCount,
+        sort_field: params.sortField,
+        ranker_id: params.rankerId,
         ...priorityBreakdown(params.reports),
         ...actionabilityBreakdown(params.reports),
     })
@@ -495,6 +525,7 @@ export function captureInboxReportsImpressed(params: {
     rankingPill: boolean
 }): void {
     const rankingSort = params.sortField.startsWith('ranking_')
+    const personalSort = params.sortField === 'personal' || params.rankerId === 'personal'
     if (params.rankingPill) {
         params.reports
             .filter((report) => rankingPillLifts(report) !== null)
@@ -522,6 +553,9 @@ export function captureInboxReportsImpressed(params: {
             total_weight: report.total_weight,
             is_suggested_reviewer: report.is_suggested_reviewer,
             ...(rankingSort ? { ranking_served_key: report.ranking?.model ?? null } : {}),
+            ...(personalSort
+                ? { personal_tier: report.personal_tier ?? null, personal_reason_shown: !!report.personal_reason }
+                : {}),
             ...rankingPillProperties(report, params.rankingPill),
         })),
     })
@@ -543,6 +577,10 @@ export function captureInboxReportOpened(
         section: InboxReportSectionKey | null
         /** The ranker of the list the report was opened from. Null for other sorts and for a cold deep-link. */
         rankerId: string | null
+        /** The tier the card showed under the Personalized sort. Null for other sorts and for a cold deep-link. */
+        personalTier: string | null
+        /** Whether the card showed a personal ranking reason under the Personalized sort. */
+        personalReasonShown: boolean
     },
     /** The unload flush passes `{ send_instantly: true }` so the open leaves before the page does. */
     options?: CaptureOptions
@@ -560,6 +598,8 @@ export function captureInboxReportOpened(
             list_size: params.listSize,
             section: params.section,
             ranker_id: params.rankerId,
+            personal_tier: params.personalTier,
+            personal_reason_shown: params.personalReasonShown,
             ...rankingPillProperties(params.report, seenInboxRankingPillReportIds.has(params.report.id)),
         },
         options
@@ -616,6 +656,8 @@ export function captureInboxRankingDetailsViewed(params: {
     head: string | null
     state: 'scored' | 'stale' | 'unscored'
     strength: string | null
+    /** The tier the card showed under the Personalized sort. Null for other sorts. */
+    personalTier?: string | null
 }): void {
     captureInboxEvent(INBOX_EVENTS.RANKING_DETAILS_VIEWED, {
         ...baseReportProperties(params.report),
@@ -623,6 +665,7 @@ export function captureInboxRankingDetailsViewed(params: {
         ranking_head: params.head,
         ranking_state: params.state,
         ranking_strength: params.strength,
+        personal_tier: params.personalTier ?? null,
     })
 }
 
@@ -951,10 +994,49 @@ export function captureSignalSourceFiltersChanged(params: {
 }
 
 /**
+ * The product analytics source switched between investigated alerts only and all firing alerts.
+ * Fired once the request settles, so `success` separates a saved change from a rejected one.
+ */
+export function captureSignalSourceAlertScopeChanged(params: {
+    alertScope: SignalAlertScope
+    previousAlertScope: SignalAlertScope
+    success: boolean
+}): void {
+    captureInboxEvent(INBOX_EVENTS.SOURCE_ALERT_SCOPE_CHANGED, {
+        source_product: SignalSourceProduct.Analytics,
+        source_type: SignalSourceType.AnomalyInvestigation,
+        alert_scope: params.alertScope,
+        previous_alert_scope: params.previousAlertScope,
+        success: params.success,
+    })
+}
+
+/**
+ * The product analytics source's allow or block patterns were saved. Carries only counts: the patterns
+ * name the customer's own alerts and insights, so they never leave their project. `droppedAlertCount`
+ * is how many alerts the preview showed as dropped, or null when the preview had not loaded.
+ */
+export function captureSignalSourceAlertPatternsChanged(params: {
+    allowCount: number
+    blockCount: number
+    droppedAlertCount: number | null
+    success: boolean
+}): void {
+    captureInboxEvent(INBOX_EVENTS.SOURCE_ALERT_PATTERNS_CHANGED, {
+        source_product: SignalSourceProduct.Analytics,
+        source_type: SignalSourceType.AnomalyInvestigation,
+        allow_pattern_count: params.allowCount,
+        block_pattern_count: params.blockCount,
+        dropped_alert_count: params.droppedAlertCount,
+        success: params.success,
+    })
+}
+
+/**
  * Outcome of a task-kickoff action, fired once the request settles. Pairs with the press event on
  * `report_id` + `action_type`. `blocked` means we never issued the request (no AI consent), which is
  * a product problem rather than a failure — hence its own bucket. `limited` means the server
- * refused the request with a limit 429; `limit_code` says which limit.
+ * refused the request with a usage, billing, or task limit; `limit_code` says which limit.
  */
 export function captureInboxReportActionCompleted(params: {
     report: SignalReport
@@ -962,8 +1044,10 @@ export function captureInboxReportActionCompleted(params: {
     outcome: InboxReportActionOutcome
     /** Only set for `blocked`, and only ever our own consent copy — never a server error body. */
     blockedReason?: string | null
-    /** Only set for `limited`: the server's error code (`signal_report_task_cap` or `throttled`). */
+    /** Only set for `limited`: the server's error code. */
     limitCode?: string | null
+    status?: number | null
+    code?: string | null
 }): void {
     captureInboxEvent(INBOX_EVENTS.REPORT_ACTION_COMPLETED, {
         ...baseReportProperties(params.report),
@@ -971,6 +1055,8 @@ export function captureInboxReportActionCompleted(params: {
         outcome: params.outcome,
         ...(params.blockedReason ? { blocked_reason: params.blockedReason } : {}),
         ...(params.limitCode ? { limit_code: params.limitCode } : {}),
+        ...(params.status != null ? { status: params.status } : {}),
+        ...(params.code ? { code: params.code } : {}),
     })
 }
 

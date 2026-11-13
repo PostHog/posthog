@@ -1,15 +1,4 @@
-"""Curated query: default-branch failures grouped by workflow + failing job.
-
-At this repo's volume a flat failure feed is a firehose (thousands of failing runs a
-day across all branches), so the triage view groups instead — error-tracking style:
-one row per (workflow, de-sharded failing job name) on the default branch, with a run
-count and first/last seen. PR-branch failures are deliberately out of scope here; they
-surface on their PR pages.
-
-Two-step like the failure-logs query: fetch the window's failed default-branch runs
-first (small — the branch filter does the heavy lifting), then their failed jobs by
-``run_id IN``, then group in Python where the shard-stripping regex lives.
-"""
+"""Curated query: failures on one branch, one row per workflow and de-sharded failing job name."""
 
 import re
 from datetime import datetime
@@ -24,7 +13,7 @@ from products.engineering_analytics.backend.logic.queries._workflow_filters impo
     run_windowed_job_created_floor_constant,
 )
 
-# Failed default-branch runs in the window is a triage view, not an archive, so cap it.
+# This is a triage view, not an archive, so only the newest failed runs are read.
 _RUN_CAP = 500
 
 _FAILED_RUNS_SELECT = f"""
@@ -44,8 +33,8 @@ _FAILED_JOBS_SELECT = f"""
     LIMIT {UNPAGED_SCAN_LIMIT}
 """
 
-# Trailing "(G/N)" shard suffix, incl. nested parens ("Product tests (experiments (1/2))") —
-# same rule as the frontend's jobGroups.stripShardSuffix, so both sides group identically.
+# A trailing "(G/N)" shard suffix, including nested parens ("Product tests (experiments (1/2))").
+# Keep in sync with the frontend's jobGroups.stripShardSuffix and job_aggregates._JOB_NAME_TEMPLATE.
 _SHARD_SUFFIX = re.compile(r"\s*\((\d+)/(\d+)\)(\))?$")
 
 
@@ -69,7 +58,9 @@ def query_master_failures(
         placeholders["date_to"] = ast.Constant(value=date_to)
 
     runs_response = curated.run(
-        _FAILED_RUNS_SELECT.replace("__RUNS_SOURCE__", curated.run_source()).replace("__DATE_TO__", date_to_clause),
+        _FAILED_RUNS_SELECT.replace("__RUNS_SOURCE__", curated.run_source(since=date_from)).replace(
+            "__DATE_TO__", date_to_clause
+        ),
         query_type="engineering_analytics.master_failures_runs",
         placeholders=placeholders,
     )
@@ -77,13 +68,13 @@ def query_master_failures(
     if not runs:
         return []
 
-    # Failed job names per run — empty when the jobs source isn't synced, in which case
-    # groups degrade to workflow-level (failed_job = '').
+    # Empty when the jobs source is not synced, so the groups degrade to workflow level
+    # (failed_job = '').
     jobs_by_run: dict[tuple[str, int], list[str]] = {}
-    # run_id IN (...) scopes the result but not the scan, and the builder's is_rerun_copy window would
-    # otherwise sort the whole jobs history. The run ids come from a run_started_at-windowed scan, so
-    # the floor takes the wider re-run slack.
-    jobs_source = curated.jobs_source(created_floor=True)
+    # run_id IN (...) scopes the result but not the scan, so without a floor the builder's
+    # is_rerun_copy duplicate scan reads the whole jobs history. The run ids come from a
+    # run_started_at-windowed scan, so the floor takes the wider re-run slack.
+    jobs_source = curated.jobs_source(created_floor=True, since=date_from)
     if jobs_source is not None:
         jobs_response = curated.run(
             _FAILED_JOBS_SELECT.replace("__JOBS_SOURCE__", jobs_source),

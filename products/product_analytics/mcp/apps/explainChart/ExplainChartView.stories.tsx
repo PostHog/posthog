@@ -3,7 +3,13 @@ import { within } from '@testing-library/dom'
 import type { ReactElement, ReactNode } from 'react'
 
 import { McpThemeDecorator } from '@posthog/mcp-ui/storybook/decorator'
-import { DEFAULT_CHART_COLORS, type Series, TimeSeriesLineChart, useChartTheme } from '@posthog/quill-charts'
+import { BarChart, DEFAULT_CHART_COLORS, type Series, TimeSeriesLineChart, useChartTheme } from '@posthog/quill-charts'
+
+import {
+    buildFunnelStepsBarConfig,
+    buildSingleSeriesFunnelStepsBars,
+    FUNNEL_STEPS_BAR_SERIES_KEY,
+} from 'products/product_analytics/frontend/insights/funnels/shared/funnelStepsBarShared'
 
 import { userEvent } from 'storybook/test'
 
@@ -31,6 +37,7 @@ const BY_REFERRER: Series[] = [
 ]
 
 const story: ExplainChartData = {
+    shape: 'time_series',
     query: { kind: 'TrendsQuery', interval: 'day', series: [{ kind: 'EventsNode', event: 'signed_up' }] },
     results: [{ label: 'signed_up', data: VALUES, days: DAYS }],
     seriesIndex: 0,
@@ -100,6 +107,8 @@ function StoryChart({ series, overlay }: { series: Series[]; overlay?: ReactNode
     )
 }
 
+const FUNNEL_CHART_CONFIG = buildFunnelStepsBarConfig({ maxCategoryLabelWidth: 120, tooltipPlacement: 'cursor' })
+
 const evidenceCharts: StoryEvidenceCharts = {
     canShow: (item) => !!item.query,
     prefetch: () => {},
@@ -116,6 +125,61 @@ const singleChapterStory: ExplainChartData = {
     ...story,
     headline: 'One article on **news.example.com** caused the spike.',
     chapters: story.chapters.slice(0, 1),
+}
+
+const FUNNEL_STEPS = [
+    { name: 'Viewed pricing', count: 4210 },
+    { name: 'Started signup', count: 1630 },
+    { name: 'Verified email', count: 1490 },
+    { name: 'Paid', count: 212 },
+]
+
+const funnelStory: ExplainChartData = {
+    shape: 'funnel_steps',
+    query: { kind: 'FunnelsQuery', series: [] },
+    steps: FUNNEL_STEPS,
+    breakdowns: [],
+    seriesIndex: 0,
+    insightName: 'Signup funnel',
+    headline: 'Most people who verify their email never pay, since checkout moved to **annual plans only**.',
+    chapters: [
+        {
+            title: 'Leaving the signup form',
+            range: [1, 1],
+            summary: 'Most visitors to the pricing page never start signing up, as in earlier months.',
+            cause: 'This drop matches the months before, so nothing changed here.',
+            confidence: 'high',
+            confidenceReason: 'The share has held steady for six months.',
+            evidence: [],
+        },
+        {
+            title: 'The drop to paying',
+            range: [2, 3],
+            summary: 'Almost everyone who verifies their email leaves at checkout.',
+            cause: 'Checkout started offering **annual plans only** in the same week, and the drop is in people who had picked a monthly plan.',
+            confidence: 'medium',
+            confidenceReason: 'The timing and the plan breakdown agree, with no other change that week.',
+            evidence: [
+                {
+                    text: 'People who chose a **monthly** plan on the pricing page convert far less since the change.',
+                    url: null,
+                },
+            ],
+        },
+    ],
+}
+
+function FunnelStoryChart({ overlay }: { overlay: ReactNode }): ReactElement {
+    const theme = useChartTheme()
+    const { series, labels, rows } = buildSingleSeriesFunnelStepsBars(FUNNEL_STEPS, { color: DEFAULT_CHART_COLORS[0]! })
+    const config = { ...FUNNEL_CHART_CONFIG, xTickFormatter: (_: string, index: number) => rows[index]?.name ?? '' }
+    return (
+        <div className="flex h-[260px] flex-col @3xl/story:h-[400px]">
+            <BarChart series={series} labels={labels} theme={theme} config={config}>
+                {overlay}
+            </BarChart>
+        </div>
+    )
 }
 
 const renderStory = (data: ExplainChartData = story): ReactElement => (
@@ -183,6 +247,24 @@ export const EvidenceChart: Story = {
         const [chapter] = await canvas.findAllByRole('button', { name: 'Chapter 1: A spike on October 2' })
         await userEvent.click(chapter!)
         await userEvent.click(await canvas.findByRole('button', { name: 'Show chart' }))
+    },
+}
+
+export const FunnelChapter: Story = {
+    decorators: [width('w-[1100px]')],
+    render: () => (
+        <ExplainChartView
+            data={funnelStory}
+            renderChart={(overlay) => <FunnelStoryChart overlay={overlay} />}
+            openLink={() => {}}
+            seriesKey={FUNNEL_STEPS_BAR_SERIES_KEY}
+        />
+    ),
+    play: async ({ canvasElement }) => {
+        const [chapter] = await within(canvasElement).findAllByRole('button', {
+            name: 'Chapter 2: The drop to paying',
+        })
+        await userEvent.click(chapter!)
     },
 }
 

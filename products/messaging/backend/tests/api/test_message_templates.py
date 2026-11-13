@@ -10,6 +10,7 @@ from rest_framework import status
 
 from posthog.models import Organization, Team
 
+from products.cdp.backend.presentation.hog_functions import build_html_wrap_design
 from products.messaging.backend.models.message_category import MessageCategory
 from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.unlayer import UnlayerNotConfiguredError, UnlayerRenderError
@@ -78,6 +79,55 @@ class TestMessageTemplatesAPI(APIBaseTest):
         ]
 
         assert pages == [[str(ids[2]), str(ids[1])], [str(ids[0]), str(self.message_template.id)]]
+
+    @parameterized.expand(
+        [
+            ("all", "", {"Test Template", "Password reset", "Receipt"}),
+            ("transactional", "?transactional=true", {"Password reset", "Receipt"}),
+            ("not transactional", "?transactional=false", {"Test Template"}),
+        ]
+    )
+    def test_list_filters_templates_by_transactional(self, _name: str, query: str, expected: set[str]) -> None:
+        for name in ("Password reset", "Receipt"):
+            MessageTemplate.objects.create(
+                team=self.team, name=name, type="email", transactional_hog_flow_id=UUID(int=len(name))
+            )
+        MessageTemplate.objects.filter(id=self.other_team_template.id).update(transactional_hog_flow_id=UUID(int=1))
+        MessageTemplate.objects.create(
+            team=self.team, name="Deleted", type="email", transactional_hog_flow_id=UUID(int=2), deleted=True
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/messaging_templates/{query}")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["count"] == len(expected)
+        assert {row["name"] for row in response.json()["results"]} == expected
+
+    @parameterized.expand([("full", "", True), ("basic", "&basic=true", False)])
+    def test_list_leaves_out_content_only_for_basic_rows(self, _name: str, query: str, has_content: bool) -> None:
+        drafted = MessageTemplate.objects.create(
+            team=self.team,
+            name="Password reset",
+            type="email",
+            content={"email": {"subject": "Reset", "html": "<p>Reset</p>"}},
+            draft_content={"email": {"subject": "Reset now"}},
+            transactional_hog_flow_id=UUID(int=1),
+            created_by=self.user,
+        )
+        MessageTemplate.objects.create(
+            team=self.team, name="Receipt", type="email", transactional_hog_flow_id=UUID(int=2)
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/messaging_templates/?transactional=true{query}")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        rows = {row["name"]: row for row in response.json()["results"]}
+        assert {name: row["has_draft"] for name, row in rows.items()} == {"Password reset": True, "Receipt": False}
+        assert rows["Password reset"]["id"] == str(drafted.id)
+        assert rows["Password reset"]["transactional_hog_flow_id"] == str(UUID(int=1))
+        assert rows["Password reset"]["created_by"]["id"] == self.user.id
+        assert all(("content" in row) == has_content for row in rows.values())
+        assert all(("draft_content" in row) == has_content for row in rows.values())
 
     def test_tags_round_trip_through_create_update_and_list(self):
         response = self.client.post(
@@ -247,6 +297,39 @@ class TestMessageTemplatesAPI(APIBaseTest):
         contents = email["design"]["body"]["rows"][0]["columns"][0]["contents"]
         assert contents[0]["type"] == "html"
         assert contents[0]["values"]["html"] == "<p>Hello</p>"
+
+    @parameterized.expand(
+        [
+            ("stale_wrap_is_rebuilt", "<p>New copy</p>", "<p>New copy</p>"),
+            ("wrap_with_appended_copy_is_rebuilt", "<p>Old copy</p><p>Footer</p>", "<p>Old copy</p><p>Footer</p>"),
+            (
+                "wrap_with_its_unlayer_render_is_kept",
+                '<html><body class="clean-body u_body"><div class="u-row"><p>Old copy</p></div></body></html>',
+                "<p>Old copy</p>",
+            ),
+        ]
+    )
+    def test_update_with_html_and_wrap_design(self, _name, html, expected_block_html):
+        self.message_template.content = {
+            "email": {"subject": "Hi", "html": "<p>Old copy</p>", "design": build_html_wrap_design("<p>Old copy</p>")}
+        }
+        self.message_template.save()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/messaging_templates/{self.message_template.id}/",
+            data={
+                "content": {
+                    "email": {"subject": "Hi", "html": html, "design": build_html_wrap_design("<p>Old copy</p>")}
+                }
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        self.message_template.refresh_from_db()
+        email = self.message_template.content["email"]
+        assert email["html"] == html
+        assert email["design"] == build_html_wrap_design(expected_block_html)
 
     def test_create_email_template_without_email_content_succeeds(self):
         response = self.client.post(

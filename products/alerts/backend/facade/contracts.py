@@ -7,6 +7,7 @@ an insight alert means, and the hooks other sources use to reach this product's 
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import datetime
 from enum import StrEnum
 from typing import Any, Final
@@ -44,6 +45,12 @@ INSIGHT_ALERT_DESTINATION_EVENT_IDS: Final[tuple[str, ...]] = (
 # Slack only, because `alert:write` is grantable to a sandboxed agent. A connected workspace is a
 # destination an admin chose, while every other transport takes a URL the caller supplies.
 INSIGHT_ALERT_DESTINATION_TYPES: Final[tuple[DestinationType, ...]] = (DestinationType.SLACK,)
+# The types whose address is a URL the caller supplies, so their route also asks for `hog_function:write`.
+INSIGHT_ALERT_URL_DESTINATION_TYPES: Final[tuple[DestinationType, ...]] = (
+    DestinationType.DISCORD,
+    DestinationType.TEAMS,
+    DestinationType.WEBHOOK,
+)
 
 
 class DestinationHoldBack(StrEnum):
@@ -97,10 +104,9 @@ class HogFunctionPathReason(StrEnum):
     # A function takes the source's alert events without being bound to one alert. Native
     # delivery reads destinations per alert, so it would never send to it.
     UNBOUND = "unbound"
-    # A stock webhook whose team receives the platform body natively. Its receiver parses the
-    # body the HogFunction sends.
-    NEW_WEBHOOK_BODY = "new_webhook_body"
     WEBHOOK_BODY_UNKNOWN = "webhook_body_unknown"
+    # Native delivery cannot send this source's legacy webhook body, and the team keeps it.
+    LEGACY_WEBHOOK_BODY_NOT_NATIVE = "legacy_webhook_body_not_native"
     # Native delivery sends PagerDuty incident actions only, never the firing event.
     PAGERDUTY_NOT_NATIVE = "pagerduty_not_native"
 
@@ -142,6 +148,24 @@ class FiringAlert:
     name: str
     insight_name: str | None
     insight_short_id: str
+
+
+@frozen
+class EnabledAlert:
+    id: UUID
+    name: str
+    insight_name: str | None
+    insight_short_id: str
+
+
+@frozen
+class ErroredAlert:
+    id: UUID
+    name: str
+    insight_name: str | None
+    insight_short_id: str
+    # None for an alert the platform owns, whose checks it keeps in ClickHouse.
+    last_checked_at: datetime | None
 
 
 @frozen
@@ -214,6 +238,20 @@ class MovedAlertCheckPage:
     # How many checks the requested window holds, past this page too.
     total: int
     checks: tuple[MovedAlertCheck, ...]
+
+
+class MovedAlertHistoryUnavailable(Exception):
+    """The platform's check history of an alert it owns could not be read."""
+
+
+@frozen
+class MovedAlertSettings:
+    """A moved alert's settings as its platform copy holds them."""
+
+    # By the insight row field each one replaces.
+    fields: Mapping[str, Any]
+    threshold: dict[str, Any] | None
+    schedule_start_time: str | None
 
 
 class PlatformCannotOwn(ValueError):

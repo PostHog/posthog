@@ -18,6 +18,7 @@ from ..facade.contracts import (
     SuggestionPayloadView,
     SuggestionReviewer,
     SuggestionStatus,
+    SurfaceMoreResult,
     UnmaterializePayload,
     VisibleSources,
 )
@@ -30,6 +31,7 @@ from ..facade.enums import (
     WarehouseSuggestionRefreshMode,
     WarehouseSuggestionStatus,
     WarehouseSuggestionSubjectKind,
+    WarehouseSuggestionSurface,
 )
 
 MAX_REFRESH_INTERVAL_SECONDS = int(timedelta(days=30).total_seconds())
@@ -212,6 +214,23 @@ class WarehouseSuggestionStatusSerializer(DataclassSerializer):
             "window_days": {"help_text": "Days of read history a full window holds."},
             "paused_reason": {"help_text": "Why new suggestions stopped showing. Null while they show."},
             "refreshed_at": {"help_text": "When the daily job last ran for this project."},
+            "waiting": {
+                "help_text": "Suggestions waiting to be shown on the requested surface that you can read and act "
+                "on. 0 without a surface, or while new suggestions are paused or off."
+            },
+            "can_show_more": {
+                "help_text": "Whether a surface_more call would show at least one waiting suggestion now. False "
+                "while the open limits are full."
+            },
+        }
+
+
+@extend_schema_serializer(component_name="WarehouseSuggestionSurfaceMoreResult")
+class WarehouseSuggestionSurfaceMoreResultSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = SurfaceMoreResult
+        extra_kwargs = {
+            "surfaced": {"help_text": "How many waiting suggestions this call showed. 0 when none could be shown."},
         }
 
 
@@ -338,6 +357,37 @@ class WarehouseSuggestionListQuerySerializer(serializers.Serializer):
     )
     assignee_id = serializers.IntegerField(
         required=False, help_text="Only return suggestions assigned to the user with this ID."
+    )
+    surface = serializers.ChoiceField(
+        choices=WarehouseSuggestionSurface.choices,
+        required=False,
+        help_text="Only return the kinds of suggestions this page shows. models: materialize, stop materializing "
+        "and view deprecations. catalog: certify and deprecate.",
+    )
+
+
+class WarehouseSuggestionStatusQuerySerializer(serializers.Serializer):
+    surface = serializers.ChoiceField(
+        choices=WarehouseSuggestionSurface.choices,
+        required=False,
+        help_text="Page to count waiting suggestions for. Without it, counts waiting suggestions of every kind.",
+    )
+
+
+class SurfaceMoreWarehouseSuggestionsSerializer(serializers.Serializer):
+    surface = serializers.ChoiceField(
+        choices=WarehouseSuggestionSurface.choices,
+        required=False,
+        help_text="Page to show more suggestions on. Only the kinds that page shows are picked. Without it, any kind "
+        "can be picked.",
+    )
+
+
+class WarehouseSuggestionDecisionQuerySerializer(serializers.Serializer):
+    surface = serializers.ChoiceField(
+        choices=WarehouseSuggestionSurface.choices,
+        required=False,
+        help_text="Page the decision was made on. Only recorded on the analytics event.",
     )
 
 

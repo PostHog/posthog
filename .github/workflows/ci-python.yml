@@ -165,6 +165,7 @@ jobs:
                         - 'packages/agent/packages/agent-contracts/src/model-catalog.generated.ts'
                         - 'services/mcp/src/lib/oauth-scopes.generated.ts'
                         - 'frontend/src/lib/oauthScopes.generated.ts'
+                        - 'frontend/src/lib/scopeDocs.generated.ts'
                         - 'products/commands/commands.generated.json'
                         - 'products/commands/COMMANDS.generated.md'
                         # Formatter inputs can change the generated mobile projection.
@@ -361,7 +362,7 @@ jobs:
               shell: bash
               run: |
                   echo "📊 Feedback welcome in #team-devex"
-                  uv run ty check
+                  UV_PROJECT_ENVIRONMENT="$pythonLocation" uv run --no-sync ty check --python "$pythonLocation"
 
             - name: Add mypy Problem Matcher
               shell: bash
@@ -412,20 +413,6 @@ jobs:
               run: |
                   bash bin/build-schema-python.sh && git diff --exit-code
 
-            # Every projection renderer is Python, so this job needs neither pnpm nor
-            # node_modules. Keep the step after "Install Python dependencies": the taxonomy
-            # and object-tag renderers import posthog/__init__.py, which pulls in Django,
-            # so they need the full synced dependency set, not just stdlib.
-            # Skip on unrebased branches: the build:projections command may not exist yet.
-            - name: Check if the generated projections are up to date
-              shell: bash
-              run: |
-                  if [ ! -f tools/hogli-commands/hogli_commands/projections.py ]; then
-                      echo "hogli build:projections not present on this branch yet — skipping (rebase to pick it up)"
-                      exit 0
-                  fi
-                  ./bin/hogli build:projections --check
-
             # Warn-only while the pre-existing violation backlog settles: findings annotate
             # the diff and land in the shared CI report comment, never a job failure.
             # Scoped to the PR's own diff because C901 stays off repo-wide. Skip on
@@ -461,6 +448,20 @@ jobs:
                   fi
 
             - parallel:
+                  # Every projection renderer is Python, so this job needs neither pnpm nor
+                  # node_modules. Keep the step after "Install Python dependencies": the taxonomy
+                  # and object-tag renderers import posthog/__init__.py, which pulls in Django,
+                  # so they need the full synced dependency set, not just stdlib.
+                  # Skip on unrebased branches: the build:projections command may not exist yet.
+                  - name: Check if the generated projections are up to date
+                    shell: bash
+                    run: |
+                        if [ ! -f tools/hogli-commands/hogli_commands/projections.py ]; then
+                            echo "hogli build:projections not present on this branch yet — skipping (rebase to pick it up)"
+                            exit 0
+                        fi
+                        ./bin/hogli build:projections --check
+
                   - name: Check for syntax errors, import sort, and code style violations
                     shell: bash
                     run: ruff check .
@@ -558,12 +559,12 @@ jobs:
                         [ "$RUN_BIN_SCRIPTS" = "true" ] || { echo "bin/ unchanged — skipping"; exit 0; }
                         pytest bin/test/test_semgrep_ratchet.py -v
 
-                  - name: Run granian shared socket tests
+                  - name: Run granian launcher tests
                     shell: bash
                     # The bin_scripts filter includes uv.lock, so every granian upgrade runs this.
                     run: |
                         [ "$RUN_BIN_SCRIPTS" = "true" ] || { echo "bin/ unchanged — skipping"; exit 0; }
-                        pytest bin/test/test_granian_shared_socket.py -v --junitxml=junit-granian-shared-socket.xml
+                        pytest bin/test/test_granian_shared_socket.py bin/test/test_granian_preload.py -v --junitxml=junit-granian-shared-socket.xml
 
             - name: Upload test results
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
@@ -752,15 +753,21 @@ jobs:
                   VENDORS: ${{ steps.select.outputs.vendors }}
               run: |
                   narrow=()
+                  targets=(products/warehouse_sources/backend/temporal/data_imports/sources/tests)
                   if [ "$MODE" = "vendors" ]; then
                       narrow=("--source-vendors=${VENDORS// /,}")
+                  else
+                      credential_tests=products/warehouse_sources/backend/temporal/data_imports/sources/common/test
+                      targets+=("$credential_tests/test_credential_kind.py" "$credential_tests/test_credential_auth_type.py")
                   fi
-                  pytest -p no:cacheprovider products/warehouse_sources/backend/temporal/data_imports/sources/tests --tb=short "${narrow[@]}"
+                  pytest -p no:cacheprovider "${targets[@]}" --tb=short "${narrow[@]}"
 
             # The committed credential kind and auth type maps hold one line per vendor. A vendors
-            # run skips Backend CI, so these suites run here in both modes, or a vendor change that
+            # run skips Backend CI, so these suites run in both modes, or a vendor change that
             # makes the maps stale would merge. They need no database.
             - name: Run credential map tests
+              # The catalog's vendor filter would deselect credential cases in a shared session.
+              if: steps.select.outputs.mode == 'vendors'
               run: |
                   credential_tests=products/warehouse_sources/backend/temporal/data_imports/sources/common/test
                   pytest -p no:cacheprovider "$credential_tests/test_credential_kind.py" "$credential_tests/test_credential_auth_type.py" --tb=short

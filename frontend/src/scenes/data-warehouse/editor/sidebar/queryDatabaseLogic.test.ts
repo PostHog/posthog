@@ -1,6 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import type { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import {
@@ -52,6 +53,7 @@ const buildMetric = (id: string, name: string, definitionKind: string | null): D
     referenced_table_names: [],
     status: 'approved',
     is_drifted: false,
+    match_reason: null,
     approved_at: null,
     approved_by: null,
     last_run_at: null,
@@ -678,6 +680,47 @@ describe('queryDatabaseLogic', () => {
         logic.unmount()
     })
 
+    it.each([
+        ['PostHog', 'posthog'],
+        ['System', 'system'],
+    ] as const)('limits the default %s category and keeps all search matches', (categoryName, tableType) => {
+        initKeaTests()
+        const logic = queryDatabaseLogic()
+        logic.mount()
+        const names = Array.from({ length: 20 }, (_, index) => `${tableType}.example_${index + 1}`)
+        databaseTableListLogic.findMounted()!.actions.loadDatabaseSuccess({
+            tables: {
+                events: { id: 'events', name: 'events', type: 'posthog', fields: {} },
+                ...Object.fromEntries(names.map((name) => [name, { id: name, name, type: tableType, fields: {} }])),
+            },
+            joins: [],
+        })
+
+        const category = (): TreeDataItem =>
+            logic.values.visibleTreeData
+                .find((item) => item.record?.type === 'sources')!
+                .children!.find((item) => item.name === categoryName)!
+
+        expect(category().children).toHaveLength(16)
+        expect(category().children?.at(-1)?.name).toEqual('Show all')
+        expect(
+            logic.values.visibleTreeData
+                .find((item) => item.id === 'sources')!
+                .children!.find((item) => item.name === 'Popular')?.children
+        ).toHaveLength(1)
+
+        logic.actions.setSearchTerm('example')
+        expect(category().children).toHaveLength(20)
+        expect(category().children?.every((item) => item.record?.type === 'table')).toEqual(true)
+
+        logic.actions.clearSearch()
+        expect(category().children).toHaveLength(16)
+        category().children?.at(-1)?.onClick?.()
+        expect(category().children).toHaveLength(tableType === 'posthog' ? 21 : 20)
+
+        logic.unmount()
+    })
+
     it('combines status search tokens with names and clears them when locating a table', async () => {
         initKeaTests()
         const logic = queryDatabaseLogic()
@@ -1118,6 +1161,89 @@ describe('queryDatabaseLogic', () => {
             jest.clearAllMocks()
         })
 
+        it.each([15, 18])('shows all %s tables through expansion and search', (count) => {
+            const databaseLogic = databaseTableListLogic.findMounted()!
+            const tables = Object.fromEntries(
+                ['public', 'archive'].flatMap((schema) =>
+                    Array.from({ length: count }, (_, index) => {
+                        const name = `${schema}.example_${String(index + 1).padStart(2, '0')}`
+                        return [
+                            name,
+                            {
+                                id: name,
+                                name,
+                                type: 'data_warehouse',
+                                fields: {},
+                                source: {
+                                    id: 'source-id',
+                                    status: 'Running',
+                                    source_type: 'Postgres',
+                                    prefix: '',
+                                    access_method: 'direct',
+                                },
+                            },
+                        ]
+                    })
+                )
+            )
+            databaseLogic.actions.loadDatabaseSuccess({ tables, joins: [] } as any)
+
+            const category = (): any => logic.values.visibleTreeData.find((item) => item.name === 'public')
+            expect(category().children.filter((item: any) => item.record?.type === 'table')).toHaveLength(15)
+            expect(category().children.at(-1).name).toEqual(count > 15 ? 'Show all' : 'public.example_15')
+            expect(logic.values.displayedTreeData.find((item) => item.name === 'public')?.children).toHaveLength(count)
+
+            if (count > 15) {
+                const focusItem = jest.fn()
+                logic.actions.setTreeRef({ current: { focusItem, getVisibleItems: () => [] } })
+                category().children.at(-1).onClick()
+                expect(category().children).toHaveLength(count)
+                expect(category().children.at(-1).name).toEqual('public.example_18')
+                expect(logic.values.visibleTreeData.find((item) => item.name === 'archive')?.children).toHaveLength(16)
+                expect(focusItem).toHaveBeenCalledWith('table-public.example_16')
+            }
+
+            logic.actions.setSearchTerm('example')
+            expect(logic.values.visibleTreeData.every((item) => item.children?.length === count)).toEqual(true)
+            expect(logic.values.visibleTreeData.flatMap((item) => item.children ?? [])).toHaveLength(count * 2)
+
+            logic.actions.clearSearch()
+            expect(category().children).toHaveLength(count)
+            databaseLogic.actions.setConnection('another-source')
+            databaseLogic.actions.loadDatabaseSuccess({ tables, joins: [] } as any)
+            expect(category().children).toHaveLength(count > 15 ? 16 : 15)
+        })
+
+        it.each([1, 15, 18])('reveals only the necessary tables when locating table %i', (tableNumber) => {
+            databaseTableListLogic.findMounted()!.actions.loadDatabaseSuccess({
+                tables: Object.fromEntries(
+                    Array.from({ length: 18 }, (_, index) => {
+                        const name = `public.example_${String(index + 1).padStart(2, '0')}`
+                        return [name, { id: name, name, type: 'data_warehouse', fields: {} }]
+                    })
+                ),
+                joins: [],
+            } as any)
+
+            const focusItem = jest.fn()
+            logic.actions.setTreeRef({ current: { focusItem, getVisibleItems: () => [] } })
+            const tableName = `public.example_${String(tableNumber).padStart(2, '0')}`
+            logic.actions.locateTable(tableName)
+
+            expect(logic.values.visibleTreeData[0].children).toHaveLength(tableNumber <= 15 ? 16 : 18)
+            expect(logic.values.visibleTreeData[0].children?.at(-1)?.name).toEqual(
+                tableNumber <= 15 ? 'Show all' : 'public.example_18'
+            )
+            expect(logic.values.expandedItemIds).toContain(`table-${tableName}`)
+            expect(focusItem).toHaveBeenLastCalledWith(`table-${tableName}`, {
+                scrollPosition: 'top-third',
+                behavior: 'smooth',
+            })
+            if (tableNumber <= 15) {
+                expect(focusItem).toHaveBeenCalledTimes(1)
+            }
+        })
+
         it('shows a direct schema failure and retry at the root of the sidebar', () => {
             databaseTableListLogic.findMounted()?.actions.loadDatabaseFailure('Connection failed.')
 
@@ -1200,21 +1326,59 @@ describe('queryDatabaseLogic', () => {
 
         it.each([
             { scope: null, schemaFails: false, expectedViews: ['clickhouse_view'] },
-            { scope: MANAGED_TRINO_SCHEMA_SCOPE, schemaFails: false, expectedViews: ['trino_view'] },
-            { scope: MANAGED_TRINO_SCHEMA_SCOPE, schemaFails: true, expectedViews: ['trino_view'] },
+            {
+                scope: MANAGED_TRINO_SCHEMA_SCOPE,
+                schemaFails: false,
+                expectedViews: ['trino_hogql_view', 'trino_view'],
+            },
+            {
+                scope: MANAGED_TRINO_SCHEMA_SCOPE,
+                schemaFails: true,
+                expectedViews: ['trino_hogql_view', 'trino_view'],
+            },
+            { scope: 'source-id', schemaFails: false, expectedViews: ['connection_view'] },
+            { scope: 'source-id', schemaFails: true, expectedViews: ['connection_view'] },
+            { scope: 'another-source', schemaFails: false, expectedViews: [] },
             { scope: null, schemaFails: false, search: 'trino', expectedViews: [] },
             { scope: null, schemaFails: false, onlyTrino: true, expectedViews: [] },
         ])(
-            'lists raw Trino views only under hosted Trino (scope $scope, schema fails $schemaFails)',
+            'lists each view only under the engine that runs it (scope $scope, schema fails $schemaFails)',
             async ({ scope, schemaFails, search, onlyTrino, expectedViews }) => {
                 const viewsLogic = dataWarehouseViewsLogic.findMounted()!
                 await expectLogic(viewsLogic).toFinishAllListeners()
+                const capabilities = (referenceable: boolean): Record<string, unknown> => ({
+                    materialize: { available: referenceable, reason: referenceable ? null : 'Not here.' },
+                    lineage: { available: referenceable, reason: referenceable ? null : 'Not here.' },
+                    referenceable_from_clickhouse: {
+                        available: referenceable,
+                        reason: referenceable ? null : 'Not here.',
+                    },
+                })
                 viewsLogic.actions.loadDataWarehouseSavedQueriesSuccess(
                     [
-                        { name: 'trino_view', is_raw_managed_trino: true },
-                        { name: 'clickhouse_view', is_raw_managed_trino: false },
+                        {
+                            name: 'trino_view',
+                            engine: { target: 'managed_trino', dialect: 'raw', capabilities: capabilities(false) },
+                        },
+                        {
+                            name: 'trino_hogql_view',
+                            engine: { target: 'managed_trino', dialect: 'hogql', capabilities: capabilities(true) },
+                        },
+                        {
+                            name: 'clickhouse_view',
+                            engine: { target: 'clickhouse', dialect: 'hogql', capabilities: capabilities(true) },
+                        },
+                        {
+                            name: 'connection_view',
+                            engine: {
+                                target: 'connection',
+                                dialect: 'hogql',
+                                connection_id: 'source-id',
+                                capabilities: capabilities(false),
+                            },
+                        },
                     ]
-                        .filter((view) => !onlyTrino || view.is_raw_managed_trino)
+                        .filter((view) => !onlyTrino || view.name === 'trino_view')
                         .map((view) => ({
                             ...view,
                             id: view.name,

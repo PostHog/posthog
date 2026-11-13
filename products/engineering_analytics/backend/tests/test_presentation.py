@@ -11,6 +11,7 @@ import requests
 from parameterized import parameterized
 from rest_framework import status
 
+from products.data_modeling.backend.facade.models import DataWarehouseManagedViewSet
 from products.engineering_analytics.backend.facade import contracts
 from products.engineering_analytics.backend.logic.ci_signals_config import (
     AUTHORIZED_SOURCES_CONFIG_KEY,
@@ -25,16 +26,16 @@ from products.engineering_analytics.backend.tests._github_fixtures import (
 )
 from products.signals.backend.models import SignalSourceConfig
 from products.warehouse_sources.backend.facade.contracts import GitHubSourceCredential
+from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
 
 
 class TestScopeEnrollment(SimpleTestCase):
     def test_every_action_is_enrolled_in_a_scope_list(self) -> None:
-        # An action's extra HTTP methods (`@action.mapping.<verb>`) dispatch under the mapped
-        # handler's name, so each mapped name needs its own scope enrollment too.
+        # An extra HTTP method on an action (`@action.mapping.<verb>`) dispatches under the mapped
+        # handler's name, so each mapped name needs its own scope enrollment.
         actions = {
             name
             for a in EngineeringAnalyticsViewSet.get_extra_actions()
-            # DRF's @action attaches `mapping` at runtime; its type stubs don't declare it.
             for name in a.mapping.values()  # type: ignore[attr-defined]
         }
         enrolled = set(EngineeringAnalyticsViewSet.scope_object_read_actions) | set(
@@ -252,10 +253,8 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
     @classmethod
     def setUpTestData(cls) -> None:
         super().setUpTestData()
-        # Source resolution precedes input validation, so the non-mocked bad-input tests below
-        # (window too large, malformed repo) need a connected source for those errors to surface
-        # rather than the no-source error. The mocked tests bypass resolution entirely.
-        # Class-level: no test mutates the source, so per-test creation is redundant writes.
+        # Source resolution runs before input validation, so the bad-input tests need a connected
+        # source to reach the validation error.
         connect_github_source_without_data(cls.team, prefix="presentation")
 
     def _url(self, action: str) -> str:
@@ -277,7 +276,6 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
         body = response.json()
         assert [s["id"] for s in body] == [sources[0].id, sources[1].id]
         assert body[0] == {"id": sources[0].id, "repo": "PostHog/posthog", "prefix": "older", "synced": True}
-        # synced defaults to False when the repo isn't fully synced yet.
         assert body[1]["synced"] is False
 
     def test_ci_signals_config_updates_the_detector_bundle(self) -> None:
@@ -289,7 +287,6 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
         assert response.json()["enabled"] is True
         rows = SignalSourceConfig.objects.filter(team=self.team, source_product=SOURCE_PRODUCT, enabled=True)
         assert set(rows.values_list("source_type", flat=True)) == set(CI_SIGNAL_SOURCE_TYPES)
-        # Wiring guard: exact snapshot semantics are covered in test_ci_signals.py.
         for row in rows:
             assert str(source.id) in row.config[AUTHORIZED_SOURCES_CONFIG_KEY]
 
@@ -406,8 +403,7 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
         ]
     )
     def test_repo_overview_serializes_and_forwards_include_series(self, _name, params, expected) -> None:
-        # The weekly digest depends on this param actually reaching the facade — a rename or
-        # parse regression silently restores the full chart-query cost it exists to skip.
+        # The weekly digest passes this param to skip the chart queries.
         with mock.patch(f"{_VIEWS}.get_repo_overview", return_value=_repo_overview()) as get:
             response = self.client.get(self._url("repo_overview"), params)
 
@@ -418,8 +414,9 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
         assert data["merged_pr_count_prev"] == 40
         assert data["reverting_pr_count"] == 2
         assert data["revert_share"] == 2 / 42
-        assert data["merge_queue_billable_minutes"] == 30.0  # the digest's queue row reads this key
-        assert data["depot_ci_billable_minutes"] == 20.0  # the digest's Depot CI row reads this key
+        # The weekly digest reads the next two keys by name.
+        assert data["merge_queue_billable_minutes"] == 30.0
+        assert data["depot_ci_billable_minutes"] == 20.0
         assert data["merge_queue_merged_pr_count"] == 38
         assert data["merge_queue_median_first_gate_to_merge_seconds"] == 1920.0
         assert data["merge_queue_failed_or_cancelled_share"] == 0.044
@@ -536,11 +533,9 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
         assert body[0]["id"] == 7777
         assert listing.call_args.kwargs["workflow_name"] == "CI"
         assert listing.call_args.kwargs["repo"] == "PostHog/posthog"
-        # The detail page's branch scope must reach the read layer, or the runs list widens to all branches.
         assert listing.call_args.kwargs["branch"] == "main"
 
     def test_workflow_runner_costs_passes_branch_through(self) -> None:
-        # The cost breakdown shares the detail page's branch scope, so the branch must reach the read layer.
         with mock.patch(f"{_VIEWS}.get_workflow_runner_costs", return_value=[]) as get_costs:
             response = self.client.get(
                 self._url("workflow_runner_costs"),
@@ -718,9 +713,7 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
                 {**_TIMING_PARAMS, "kind": "workflow", "run_attempt": "0"},
             ),
             ("pr_lifecycle_pr_number_invalid", "pr_lifecycle", {"pr_number": "not-a-number"}),
-            # repo is required (a PR number is repo-scoped), consistent with pr_runs/pr_cost.
             ("pr_lifecycle_repo_missing", "pr_lifecycle", {"pr_number": "10"}),
-            # Bare org (no '/name') would otherwise silently match the wrong repo.
             ("pr_lifecycle_repo_malformed", "pr_lifecycle", {"pr_number": "10", "repo": "PostHog"}),
             ("resolve_branch_branch_missing", "resolve_branch", {}),
             ("workflow_run_run_id_invalid", "workflow_run", {"run_id": "not-a-number"}),
@@ -736,7 +729,7 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
         ]
     )
     def test_bad_params_400(self, _name: str, action: str, params: dict[str, str]) -> None:
-        # Each action carries its own ValueError guard, so every action keeps a row here.
+        # Each action has its own ValueError guard, so each action needs a row.
         response = self.client.get(self._url(action), params)
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
@@ -783,8 +776,6 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
     def test_forwards_run_scope(
         self, action: str, facade_function: str, params: dict[str, str], result: object
     ) -> None:
-        # The detail page scopes on the same group as the workflow list, so each of its endpoints
-        # has to reach its facade function with the scope still attached.
         with mock.patch(f"{_VIEWS}.{facade_function}", return_value=result) as call:
             response = self.client.get(self._url(action), {**params, "run_scope": "merge_queue"})
 
@@ -793,18 +784,33 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
 
     @parameterized.expand(["sources", "quarantine"])
     def test_requires_authentication(self, action: str) -> None:
-        # permission_classes live once on the shared viewset base and per-action scope drift is
-        # TestScopeEnrollment's job, so one read and one write action prove the wiring.
+        # The permission classes sit on the shared viewset base, so one read action and one write
+        # action cover every endpoint.
         self.client.logout()
         response = self.client.get(self._url(action))
 
         assert response.status_code in (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN)
 
-    def test_requires_rollout_feature_flag(self) -> None:
-        # The whole viewset is gated on the engineering-analytics rollout flag (which the
-        # conftest fixture enables); with the flag off, every endpoint must 403.
+    @parameterized.expand([("sources", "get"), ("enable", "post")])
+    def test_requires_rollout_feature_flag(self, action: str, method: str) -> None:
         with mock.patch("posthoganalytics.feature_enabled", return_value=False):
-            response = self.client.get(self._url("sources"))
+            response = getattr(self.client, method)(self._url(action))
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert "engineering-analytics" in response.json()["detail"]
+
+    def test_enable_is_idempotent(self) -> None:
+        with mock.patch.object(DataWarehouseManagedViewSet, "sync_views") as mock_sync:
+            first = self.client.post(self._url("enable"))
+            second = self.client.post(self._url("enable"))
+
+        assert first.status_code == status.HTTP_204_NO_CONTENT
+        assert second.status_code == status.HTTP_204_NO_CONTENT
+        # The second call must not sync again, because the post-load hook keeps the views current.
+        mock_sync.assert_called_once()
+        assert (
+            DataWarehouseManagedViewSet.objects.filter(
+                team=self.team, kind=DataWarehouseManagedViewSetKind.ENGINEERING_ANALYTICS
+            ).count()
+            == 1
+        )

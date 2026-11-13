@@ -7,15 +7,11 @@ generation only — caching and persistence live in ``logic.generate_session_int
 
 from datetime import datetime, timedelta
 
-from django.conf import settings
 from django.utils import timezone
 
 import openai
 import structlog
-import posthoganalytics
 from google.genai.types import GenerateContentConfig
-from posthoganalytics.ai.gemini import genai
-from posthoganalytics.ai.openai import OpenAI
 from pydantic import BaseModel, Field, ValidationError
 
 from posthog.hogql import ast
@@ -23,6 +19,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.llm.gateway_client import build_gemini_client, build_openai_client, resolve_ai_gateway_config
 from posthog.models.team.team import Team
 
 from products.mcp_analytics.backend.constants import MCP_TOOL_CALL_EVENT
@@ -30,7 +27,7 @@ from products.mcp_analytics.backend.facade.contracts import IntentGenerationUnav
 
 logger = structlog.get_logger(__name__)
 
-SESSION_INTENT_MODEL = "gpt-4.1-mini"
+SESSION_INTENT_MODEL = "gpt-6-luna"
 MAX_INTENTS = 500
 # Fallback scan bound for the session-detail queries (tool calls + intents) — a single $session_id
 # isn't in the events sort key, so without a timestamp bound the scan covers the team's full
@@ -92,11 +89,11 @@ def _build_user_prompt(intents: list[str]) -> str:
     return f"Per-tool-call intents (chronological):\n{numbered}\n\nSummarise the agent's overall goal in at most two short, concrete sentences."
 
 
-def _ensure_llm_available(team: Team, *, api_key: str, key_name: str) -> None:
+def _ensure_llm_available(team: Team, *, configured: bool) -> None:
     """Intents are user-authored text, so sending them to the LLM requires the
     organization's AI data processing consent, same as every other AI-backed flow."""
-    if not api_key:
-        raise IntentGenerationUnavailable(f"{key_name} is not configured")
+    if not configured:
+        raise IntentGenerationUnavailable("AI gateway is not configured")
     if not team.organization.is_ai_data_processing_approved:
         raise IntentGenerationUnavailable("AI data processing is not approved for this organization")
 
@@ -108,21 +105,26 @@ def summarize_intents(intents: list[str], team: Team) -> str:
     has not approved AI data processing, or the request fails, so the endpoint can answer
     with a clean 503 rather than a 500.
     """
-    _ensure_llm_available(team, api_key=settings.OPENAI_API_KEY, key_name="OPENAI_API_KEY")
+    _ensure_llm_available(team, configured=resolve_ai_gateway_config() is not None)
 
-    client = OpenAI(posthog_client=posthoganalytics.default_client, base_url=settings.OPENAI_BASE_URL)
+    distinct_id = f"team/{team.id}/mcp-analytics-session-intent"
+    client = build_openai_client(
+        "django",
+        ai_product="mcp_analytics",
+        properties={"ai_feature": "session-intent-generation"},
+        distinct_id=distinct_id,
+    )
     try:
         response = client.chat.completions.create(
             model=SESSION_INTENT_MODEL,
-            temperature=0,
-            max_tokens=90,
+            reasoning_effort="low",
+            max_completion_tokens=1024,
             timeout=30,
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": _build_user_prompt(intents)},
             ],
-            user=f"team/{team.id}/mcp-analytics-session-intent",
-            posthog_properties={"ai_product": "mcp_analytics", "ai_feature": "session-intent-generation"},
+            user=distinct_id,
         )
     except openai.OpenAIError as e:
         raise IntentGenerationUnavailable("LLM request failed") from e
@@ -235,13 +237,14 @@ def summarize_project_intents(intents: list[tuple[str, str]], team: Team) -> Int
     has not approved AI data processing, or the request fails, so the endpoint can answer
     with a clean 503 rather than a 500.
     """
-    _ensure_llm_available(team, api_key=settings.GEMINI_API_KEY, key_name="GEMINI_API_KEY")
-
-    client = genai.Client(
-        api_key=settings.GEMINI_API_KEY,
-        posthog_client=posthoganalytics.default_client,
-        http_options={"timeout": DIGEST_TIMEOUT_MS},
+    client = build_gemini_client(
+        ai_product="mcp_analytics",
+        properties={"ai_feature": "activity-intent-digest"},
+        distinct_id=f"team/{team.id}/mcp-analytics-intent-digest",
+        timeout_ms=DIGEST_TIMEOUT_MS,
     )
+    _ensure_llm_available(team, configured=client is not None)
+    assert client is not None
     config = GenerateContentConfig(
         system_instruction=DIGEST_SYSTEM_PROMPT,
         response_mime_type="application/json",
@@ -253,9 +256,6 @@ def summarize_project_intents(intents: list[tuple[str, str]], team: Team) -> Int
             model=DIGEST_THEMES_MODEL,
             contents=_build_digest_prompt(intents),
             config=config,
-            posthog_distinct_id=f"team/{team.id}/mcp-analytics-intent-digest",
-            posthog_properties={"ai_product": "mcp_analytics", "ai_feature": "activity-intent-digest"},
-            posthog_groups={"project": str(team.id)},
         )
     except Exception as e:
         # Broad: the Gemini client surfaces transport, timeout, and API errors as unrelated types,

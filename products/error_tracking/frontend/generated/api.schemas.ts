@@ -1120,25 +1120,6 @@ export const IssueSummaryStatusEnumApi = {
     Unavailable: 'unavailable',
 } as const
 
-/**
- * * `own_code` - Own Code
- * * `third_party` - Third Party
- * * `network` - Network
- * * `bots` - Bots
- * * `expected` - Expected
- * * `unclear` - Unclear
- */
-export type IssueSummaryCategoryEnumApi = (typeof IssueSummaryCategoryEnumApi)[keyof typeof IssueSummaryCategoryEnumApi]
-
-export const IssueSummaryCategoryEnumApi = {
-    OwnCode: 'own_code',
-    ThirdParty: 'third_party',
-    Network: 'network',
-    Bots: 'bots',
-    Expected: 'expected',
-    Unclear: 'unclear',
-} as const
-
 export interface ErrorTrackingStoredIssueSummaryApi {
     /** What the exception is and where it happens. */
     what_happened: string
@@ -1148,15 +1129,6 @@ export interface ErrorTrackingStoredIssueSummaryApi {
     who_is_affected: string
     /** One concrete step to investigate or fix the issue. */
     suggested_next_step: string
-    /** Broad source of the issue, or null when the category model did not answer.
-     *
-     * * `own_code` - Own Code
-     * * `third_party` - Third Party
-     * * `network` - Network
-     * * `bots` - Bots
-     * * `expected` - Expected
-     * * `unclear` - Unclear */
-    category: IssueSummaryCategoryEnumApi | null
     /** Model that wrote the summary. */
     model: string
     /** When the summary was written. */
@@ -1429,15 +1401,6 @@ export interface ErrorTrackingIssueSummaryApi {
     who_is_affected: string
     /** One concrete step to investigate or fix the error. */
     suggested_next_step: string
-    /** Where the error most likely comes from. 'own_code' is a bug in the application's code, 'third_party' a third-party script, browser extension or dependency, 'network' a network or connectivity failure, 'bots' automated traffic, 'expected' handled behavior that needs no fix, and 'unclear' means the stack trace does not tell. Absent when no category was inferred.
-     *
-     * * `own_code` - Own Code
-     * * `third_party` - Third Party
-     * * `network` - Network
-     * * `bots` - Bots
-     * * `expected` - Expected
-     * * `unclear` - Unclear */
-    category?: IssueSummaryCategoryEnumApi
     /** When the summary was written. */
     generated_at: string
 }
@@ -1671,9 +1634,10 @@ export const OrderDirectionEnumApi = {
  * * `correlation` - correlation
  * * `diagnostics` - diagnostics
  */
-export type IncludeEnumApi = (typeof IncludeEnumApi)[keyof typeof IncludeEnumApi]
+export type ErrorTrackingIssueEventsQueryRequestIncludeEnumApi =
+    (typeof ErrorTrackingIssueEventsQueryRequestIncludeEnumApi)[keyof typeof ErrorTrackingIssueEventsQueryRequestIncludeEnumApi]
 
-export const IncludeEnumApi = {
+export const ErrorTrackingIssueEventsQueryRequestIncludeEnumApi = {
     Exception: 'exception',
     Stacktrace: 'stacktrace',
     CodeVariables: 'code_variables',
@@ -1715,7 +1679,7 @@ export interface ErrorTrackingIssueEventsQueryRequestApi {
      */
     offset?: number
     /** Context groups to return. Defaults to exception, environment, navigation, and correlation. Request stacktrace for frames, code_variables for captured and SDK-masked frame variables, release for release metadata, or diagnostics for ingestion errors. code_variables implies stacktrace. */
-    include?: IncludeEnumApi[]
+    include?: ErrorTrackingIssueEventsQueryRequestIncludeEnumApi[]
     /** When true, include only stack frames marked in_app. Defaults to true. */
     onlyAppFrames?: boolean
 }
@@ -2246,6 +2210,8 @@ export interface PatchedErrorTrackingReleaseUpdateRequestApi {
 }
 
 export interface ErrorTrackingSettingsApi {
+    /** Project preference for adaptive ingestion. Turning this on does not currently change ingestion. */
+    adaptive_ingestion_enabled?: boolean
     /**
      * Maximum number of exception events ingested per bucket for the entire project. Null removes the limit.
      * @minimum 1
@@ -2275,6 +2241,8 @@ export interface ErrorTrackingSettingsApi {
 }
 
 export interface PatchedErrorTrackingSettingsApi {
+    /** Project preference for adaptive ingestion. Turning this on does not currently change ingestion. */
+    adaptive_ingestion_enabled?: boolean
     /**
      * Maximum number of exception events ingested per bucket for the entire project. Null removes the limit.
      * @minimum 1

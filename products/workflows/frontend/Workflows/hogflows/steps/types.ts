@@ -1,18 +1,9 @@
-import { Handle, NodeProps } from '@xyflow/react'
 import { z } from 'zod'
 
-import { Optional } from 'lib/utils/types'
 import { LogEntry } from 'scenes/hog-functions/logs/logsViewerLogic'
 
 import { HogFlowAction } from '../types'
 import { isDuration, isSignedDuration } from './durations'
-
-export type HogFlowStepNodeProps = NodeProps & {
-    data: HogFlowAction
-    type: HogFlowAction['type']
-}
-
-export type StepViewNodeHandle = Omit<Optional<Handle, 'width' | 'height'>, 'nodeId'> & { label?: string }
 
 const ActionFiltersSchema = z.object({
     events: z.array(z.any()).optional(),
@@ -349,7 +340,9 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
                 z.literal('any'),
                 z.literal('weekday'),
                 z.literal('weekend'),
-                z.array(z.enum(['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'])),
+                z
+                    .array(z.enum(['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']))
+                    .min(1, 'Choose at least one day'),
             ]),
             // time can be "any", or a time range [start, end]
             time: z.union([
@@ -374,7 +367,7 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
         ..._commonActionFields,
         type: z.literal('function_email'),
         config: z.object({
-            message_category_id: z.string().optional(),
+            message_category_id: z.string().nullish(),
             message_category_type: z.enum(['marketing', 'transactional']).optional(),
             // When false, no open pixel is injected, links are not rewritten, and the send uses the
             // untracked SES configuration set. Absent/true means tracked. Keep in sync with
@@ -382,6 +375,8 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
             tracking_enabled: z.boolean().optional(),
             // When true, links get the UTM tags they don't already carry. Keep in sync with nodejs/src/cdp/schema/hogflow.ts.
             utm_tags_enabled: z.boolean().optional(),
+            // When true, a marketing send ignores the team's frequency cap. Keep in sync with nodejs/src/cdp/schema/hogflow.ts.
+            skip_frequency_cap: z.boolean().optional(),
             // Templates that replace the default tag values. An empty value keeps the default.
             utm_params: z
                 .object({
@@ -425,6 +420,28 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
         }),
     }),
 
+    z.object({
+        ..._commonActionFields,
+        type: z.literal('email_sandbox'),
+        config: z.object({
+            message_category_id: z.string().nullish(),
+            message_category_type: z.enum(['marketing', 'transactional']).nullish(),
+            inputs: z.object({
+                email: z.object({
+                    templating: z.enum(['hog', 'liquid']).optional(),
+                    value: z.object({
+                        to: z.object({ email: z.string(), name: z.string().optional() }).optional(),
+                        subject: z.string().optional(),
+                        preheader: z.string().optional(),
+                        text: z.string().optional(),
+                        html: z.string().optional(),
+                        design: z.any().optional(),
+                    }),
+                }),
+            }),
+        }),
+    }),
+
     // Exit
     z.object({
         ..._commonActionFields,
@@ -437,8 +454,11 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
 
 export const isOptOutEligibleAction = (
     action: HogFlowAction
-): action is Extract<HogFlowAction, { type: 'function_email' | 'function_sms' | 'function_push' }> => {
-    return ['function_email', 'function_sms', 'function_push'].includes(action.type)
+): action is Extract<
+    HogFlowAction,
+    { type: 'function_email' | 'function_sms' | 'function_push' | 'email_sandbox' }
+> => {
+    return ['function_email', 'function_sms', 'function_push', 'email_sandbox'].includes(action.type)
 }
 
 export const isEmailAction = (action: HogFlowAction): action is Extract<HogFlowAction, { type: 'function_email' }> => {
@@ -481,4 +501,5 @@ export interface HogflowTestResult {
     errors?: string[]
     variables?: Record<string, any>
     execResult?: unknown
+    mocked?: boolean
 }

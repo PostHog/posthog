@@ -95,6 +95,7 @@ export type PluginServerService = {
     id: string
     onShutdown: () => Promise<any>
     healthcheck: () => HealthCheckResult | Promise<HealthCheckResult>
+    readinessCheck?: () => HealthCheckResult | Promise<HealthCheckResult>
 }
 
 export interface PluginsServerConfig
@@ -139,11 +140,13 @@ export interface PluginServerCapabilities {
     cdpDataWarehouseEvents?: boolean
     cdpPersonUpdates?: boolean
     cdpInternalEvents?: boolean
+    cdpSesWebhooks?: boolean
     cdpLegacyOnEvent?: boolean
     cdpCyclotronWorkerBatchResolve?: boolean
     cdpCyclotronWorker?: boolean
     cdpCyclotronWorkerHogFlow?: boolean
     cdpCyclotronWorkerEmail?: boolean
+    cdpCyclotronWorkerEmailSandbox?: boolean
     cdpCohortMembership?: boolean
     cdpCohortMembershipTriggers?: boolean
     cdpApi?: boolean

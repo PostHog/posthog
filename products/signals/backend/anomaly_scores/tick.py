@@ -18,6 +18,7 @@ from django.core.cache import cache
 from django.utils import timezone
 
 import structlog
+from rest_framework.exceptions import ValidationError
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ActivityError, ApplicationError
@@ -59,7 +60,9 @@ from products.signals.backend.anomaly_scores.queue import (
     InsightPick,
     TeamCensus,
     mark_attempted,
+    mark_empty_train,
     mark_too_expensive,
+    reset_empty_train,
     reset_too_expensive,
     select_insights,
     too_expensive_cooldown,
@@ -133,6 +136,7 @@ class AnomalyScoringTickPlan:
     picked_score: int = 0
     picked_train: int = 0
     scored_stale_model: int = 0
+    stale_candidates: int = 0
     train_backlog_soft: int = 0
     train_backlog_hard: int = 0
     active: int = 0
@@ -142,6 +146,7 @@ class AnomalyScoringTickPlan:
     teams_planned: int = 0
     teams_skipped: int = 0
     long_cooldown: int = 0
+    empty_backoff: int = 0
     self_driving_organization_percentage: float = 0.0
     due_insights: int | None = None
     oldest_due_seconds: int | None = None
@@ -188,8 +193,10 @@ class AnomalyScoringTickResult:
     # Planned picks of the score pass and of the train pass, started or not.
     picked_score: int = 0
     picked_train: int = 0
-    # Planned score pass picks with a model due for a soft retrain, and the due train candidates left unpicked.
+    # Planned score pass picks with a model due for a soft retrain, the stale models that the score pass could take,
+    # and the due train candidates left unpicked.
     scored_stale_model: int = 0
+    stale_candidates: int = 0
     train_backlog_soft: int = 0
     train_backlog_hard: int = 0
     # Active insights of the eligible teams, and how many of them have each activity reason.
@@ -209,6 +216,8 @@ class AnomalyScoringTickResult:
     plan_error: str | None = None
     # Insights in a cooldown after two or more consecutive too-expensive visits.
     long_cooldown: int = 0
+    # Insights in a cooldown after a train pick with no series.
+    empty_backoff: int = 0
     # Due rows that the plan read from the stored due list, the time since the oldest of them became due, and
     # the time since the oldest row refresh. None when the plan does not read the due list.
     due_insights: int | None = None
@@ -255,6 +264,7 @@ def plan_tick(limit: int | None, now: datetime.datetime) -> AnomalyScoringTickPl
         picked_score=selection.picked_score,
         picked_train=selection.picked_train,
         scored_stale_model=selection.scored_stale_model,
+        stale_candidates=selection.stale_candidates,
         train_backlog_soft=selection.train_backlog_soft,
         train_backlog_hard=selection.train_backlog_hard,
         active=selection.active,
@@ -264,6 +274,7 @@ def plan_tick(limit: int | None, now: datetime.datetime) -> AnomalyScoringTickPl
         teams_planned=selection.teams_planned,
         teams_skipped=selection.teams_skipped,
         long_cooldown=selection.long_cooldown,
+        empty_backoff=selection.empty_backoff,
         self_driving_organization_percentage=config.self_driving_organization_percentage,
         due_insights=selection.due_insights,
         oldest_due_seconds=selection.oldest_due_seconds,
@@ -316,6 +327,9 @@ def failure_status(error: Exception) -> str | None:
     # Only the exposed invalid-query error, such as an unknown table. ResolutionError is internal to the engine.
     if isinstance(error, QueryError):
         return STATUS_BROKEN_QUERY
+    # A query runner raises this for a saved query that its validation rules reject, so a later tick cannot pass.
+    if isinstance(error, ValidationError):
+        return STATUS_BROKEN_QUERY
     return None
 
 
@@ -367,6 +381,14 @@ def run_insight(input: ScoreInsightInput, now: datetime.datetime) -> ScoreInsigh
     if too_expensive and result.status in (STATUS_SCORED, STATUS_UP_TO_DATE):
         reset_too_expensive(pick.insight_id)
         too_expensive = 0
+    empty_train = pick.empty_train
+    # A score step can return nothing because no bucket is new, so only a train step shows an empty insight.
+    if result.status == STATUS_UP_TO_DATE and not result.series and result.run == ScoringRun.TRAIN:
+        empty_train, empty_cooldown = mark_empty_train(pick.insight_id, pick.empty_train, pick.interval, now)
+        record_failed(pick.team_id, pick.insight_id, now, empty_cooldown)
+    elif empty_train and result.series:
+        reset_empty_train(pick.insight_id)
+        empty_train = 0
     logger.info(
         "anomaly_scoring_insight_scored",
         team_id=pick.team_id,
@@ -379,6 +401,7 @@ def run_insight(input: ScoreInsightInput, now: datetime.datetime) -> ScoreInsigh
         run=result.run,
         unmatched_series=result.unmatched_series,
         missing_series=result.missing_series,
+        empty_train_streak=empty_train,
     )
     record_pick(status=result.status, interval=interval, duration_ms=duration_ms, events=result.events, run=result.run)
     capture_pick(
@@ -390,6 +413,7 @@ def run_insight(input: ScoreInsightInput, now: datetime.datetime) -> ScoreInsigh
         series=result.series,
         events=result.events,
         too_expensive=too_expensive,
+        empty_train=empty_train,
     )
     return result
 
@@ -404,6 +428,7 @@ def capture_pick(
     series: int = 0,
     events: int = 0,
     too_expensive: int = 0,
+    empty_train: int = 0,
 ) -> None:
     """One event per pick, with the ids that the SDK metrics leave out, so cost and outcome break down per project."""
     ph_background_capture()(
@@ -421,6 +446,7 @@ def capture_pick(
             "events": events,
             "queries": pick.query_cost,
             "too_expensive_streak": too_expensive,
+            "empty_train_streak": empty_train,
         },
     )
 
@@ -552,6 +578,7 @@ def capture_tick(result: AnomalyScoringTickResult) -> None:
         picked_score=result.picked_score,
         picked_train=result.picked_train,
         scored_stale_model=result.scored_stale_model,
+        stale_candidates=result.stale_candidates,
         train_backlog_soft=result.train_backlog_soft,
         train_backlog_hard=result.train_backlog_hard,
         active=result.active,
@@ -565,6 +592,7 @@ def capture_tick(result: AnomalyScoringTickResult) -> None:
         plan_failed=result.plan_failed,
         plan_error=result.plan_error,
         long_cooldown=result.long_cooldown,
+        empty_backoff=result.empty_backoff,
         due_insights=result.due_insights,
         oldest_due_seconds=result.oldest_due_seconds,
         oldest_refresh_seconds=result.oldest_refresh_seconds,
@@ -594,6 +622,7 @@ def capture_tick(result: AnomalyScoringTickResult) -> None:
             "picked_score": result.picked_score,
             "picked_train": result.picked_train,
             "scored_stale_model": result.scored_stale_model,
+            "stale_candidates": result.stale_candidates,
             "train_backlog_soft": result.train_backlog_soft,
             "train_backlog_hard": result.train_backlog_hard,
             "active_insights": result.active,
@@ -607,6 +636,7 @@ def capture_tick(result: AnomalyScoringTickResult) -> None:
             "plan_failed": result.plan_failed,
             "plan_error": result.plan_error,
             "long_cooldown": result.long_cooldown,
+            "empty_backoff": result.empty_backoff,
             "due_insights": result.due_insights,
             "oldest_due_seconds": result.oldest_due_seconds,
             "oldest_refresh_seconds": result.oldest_refresh_seconds,
@@ -703,6 +733,7 @@ class AnomalyScoringTickWorkflow:
             picked_score=plan.picked_score,
             picked_train=plan.picked_train,
             scored_stale_model=plan.scored_stale_model,
+            stale_candidates=plan.stale_candidates,
             train_backlog_soft=plan.train_backlog_soft,
             train_backlog_hard=plan.train_backlog_hard,
             active=plan.active,
@@ -713,6 +744,7 @@ class AnomalyScoringTickWorkflow:
             teams_planned=plan.teams_planned,
             teams_skipped=plan.teams_skipped,
             long_cooldown=plan.long_cooldown,
+            empty_backoff=plan.empty_backoff,
             self_driving_organization_percentage=plan.self_driving_organization_percentage,
             due_insights=plan.due_insights,
             oldest_due_seconds=plan.oldest_due_seconds,

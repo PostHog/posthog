@@ -1,4 +1,5 @@
 import type { ParsedRobots, RobotsParseHandler } from '@trybyte/robotstxt-parser'
+import { LRUCache } from 'lru-cache'
 import { Token, parseDictionary } from 'structured-headers'
 
 import { parseJSON } from '~/common/utils/json-parse'
@@ -221,23 +222,35 @@ interface ParsedRobotsConfiguration {
     fields: Array<{ name: string; value: string }>
 }
 
+const PARSED_BODIES_MAX_BYTES = 128 * 1024 * 1024
+const PARSED_BODIES_MAX_ENTRIES = 20_000
+// A parse of a short body takes far more memory than the body, so each entry counts at least this much.
+const PARSED_BODY_OVERHEAD_BYTES = 1024
+
+/** Keyed by the body, so every item that holds a body shares its parse, also the items of jobs that waited on one fetch. */
 interface ParsedConfigurationCache {
-    robots: Map<string, Promise<ParsedRobotsConfiguration>>
-    tdmrep: Map<string, unknown>
+    robots: LRUCache<string, Promise<ParsedRobotsConfiguration>>
+    tdmrep: LRUCache<string, { document: unknown }>
+}
+
+function parsedBodies<V extends object>(): LRUCache<string, V> {
+    return new LRUCache({
+        max: PARSED_BODIES_MAX_ENTRIES,
+        maxSize: PARSED_BODIES_MAX_BYTES,
+        // The body as a key, and a parse that holds about as much again.
+        sizeCalculation: (_parsed, body) => 4 * body.length + PARSED_BODY_OVERHEAD_BYTES,
+    })
 }
 
 export class ConfigurationPolicyService {
     private readonly inFlight = new Map<string, Promise<ConfigurationFetchResult>>()
+    private readonly parsed: ParsedConfigurationCache = { robots: parsedBodies(), tdmrep: parsedBodies() }
 
     constructor(private readonly fetcher: HttpConfigurationFetcher) {}
 
     public createPass(): ConfigurationPolicyPass {
-        const parsed: ParsedConfigurationCache = {
-            robots: new Map(),
-            tdmrep: new Map(),
-        }
         return {
-            check: (url, cached, nowMs) => this.checkWithParsedCache(url, cached, nowMs, parsed),
+            check: (url, cached, nowMs) => this.checkWithParsedCache(url, cached, nowMs, this.parsed),
         }
     }
 
@@ -668,25 +681,24 @@ async function parsedRobotsConfiguration(
     item: ConfigurationCacheItem,
     parsed: ParsedConfigurationCache
 ): Promise<ParsedRobotsConfiguration> {
-    const revision = configurationRevision(item)
-    let configuration = parsed.robots.get(revision)
+    const body = item.body ?? ''
+    let configuration = parsed.robots.get(body)
     if (!configuration) {
-        configuration = parseRobotsConfiguration(item.body ?? '')
-        parsed.robots.set(revision, configuration)
+        configuration = parseRobotsConfiguration(body)
+        parsed.robots.set(body, configuration)
+        configuration.catch(() => parsed.robots.delete(body))
     }
     return await configuration
 }
 
 function parsedTdmrepDocument(item: ConfigurationCacheItem, parsed: ParsedConfigurationCache): unknown {
-    const revision = configurationRevision(item)
-    if (!parsed.tdmrep.has(revision)) {
-        parsed.tdmrep.set(revision, parseTdmrepDocument(item.body ?? ''))
+    const body = item.body ?? ''
+    let held = parsed.tdmrep.get(body)
+    if (!held) {
+        held = { document: parseTdmrepDocument(body) }
+        parsed.tdmrep.set(body, held)
     }
-    return parsed.tdmrep.get(revision)
-}
-
-function configurationRevision(item: ConfigurationCacheItem): string {
-    return `${item.key}\0${item.fetchedAtMs}`
+    return held.document
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {

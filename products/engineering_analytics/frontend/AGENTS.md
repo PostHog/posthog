@@ -1,30 +1,34 @@
 # Engineering analytics frontend conventions
 
-UI grammar for every scene in this product. `frontend/src/AGENTS.md` and the repo skills still apply; these rules are the product-specific layer on top. Model new surfaces on `RepoOverviewScene.tsx` (the repo hub), which is the reference implementation for all of them.
+These rules add to `frontend/src/AGENTS.md`. Use `scenes/RepoOverviewScene.tsx` as the model for a new page.
 
-## The scope panel bounds what the pickers govern
+## Scope panel
 
-- Content a window or repo picker modifies lives inside `ScopePanel` (`components/ScopePanel.tsx`): controls dock on its rim via the `controls` prop, and `busy` shows the rim spinner while anything inside reloads.
-- Current-state content (a backlog, a "now" signal list) sits outside the panel and must not refetch when a picker changes. If a section does not move with the picker, it does not belong inside the border, and the reverse.
-- Navigation (repo chip and crumbs via `ScopeBar`, `showDate={false}` when the page has its own picker) sits above the panel; it scopes identity, not time.
+- Content that a date or run-scope picker changes must sit inside `ScopePanel`. Pass the pickers through `controls`, or `null` for a fixed window.
+- Current-state content, such as a backlog, must sit outside the panel and must not refetch when a picker changes.
+- `ScopeBar` renders the breadcrumbs above the panel. Pass `showDate={false}` when the page has its own picker.
 
-## One comparison vocabulary per question
+## Comparisons
 
-- Window-vs-window comparison renders as `WindowComparisonCard` ("This window / Previous window" bars plus a `DeltaBadge`). Nothing else: no invented forms (a muted "was N" companion value was tried and removed), no `MetricTile` delta pills for windowed metrics.
-- Scope-vs-repository comparison (an author or a team against the repository) renders as `ScopeComparisonCard` ("This author / Repo" bars on one scale). The question there is "is this friction unusual here", which a previous window can't answer. It never renders a list of authors ordered by delivery performance. Friction is not performance (SPEC §2), so the Authors tab lists authors by friction. The standing extra baseline is the author's own team: the ready-to-merge card draws it as muted rows between the author and the repository, one row per team the comparison picked. Another author joins those rows only when the person asking named that author.
-- Table cells hold plain current values via `CountCell` (`components/CountCell.tsx`). Comparison never lives in a table cell.
+- A comparison of this window with the previous window must render as `WindowComparisonCard`.
+- A comparison of an author or a team with the repository must render as `ScopeComparisonCard`.
+- Another author's row appears in a comparison only when the viewer named that author.
+- No page may list authors ordered by delivery performance. The Authors tab orders authors by friction, which SPEC §2 allows.
+- A table cell must hold a plain current value through `CountCell`, never a comparison.
 
-## Information altitude
+## List and detail pages
 
-- List pages (the Teams roster) are scannable snapshots: few columns, plain numbers, fixed default window stated in tooltips, no picker.
-- Detail pages carry the depth: the picker, the comparison cards, charts, and drill-in tables.
+- A list page, such as the Teams tab, has few columns, a fixed window stated in its tooltips, and no picker.
+- A detail page holds the picker, the comparison cards, the charts and the drill-in tables.
 
 ## Test tables
 
-- The test id cell is `TestIdCell` (`components/TestIdCell.tsx`) in a `w-full max-w-0` column: link to Trunk when the payload carries a `trunk_url`, else to the file on GitHub via `githubFileUrl` in `lib/github.ts`.
-- Include a `Runner` column; render times with `TZLabel`.
+- The test id cell must be `TestIdCell` in a `w-full max-w-0` column.
+- The cell links to Trunk when the row has a Trunk URL, and otherwise to the file through `githubFileUrl` in `lib/github.ts`.
+- A test table must include a `Runner` column and render times with `TZLabel`.
 
 ## Components and copy
 
-- Lemon for all UI chrome; `@posthog/quill-charts` only for data viz (charts, the `MetricCard` pill). Never raw `@posthog/quill` primitives on the current UI. UI behind the `today-rail-nav` feature flag uses quill and follows [`frontend/src/design.md`](../../../frontend/src/design.md).
-- No boilerplate subheader paragraphs under section titles. Method caveats go in column and card tooltips; the scene subtitle is one plain line.
+- Use Lemon components outside charts, `@posthog/quill-charts` for charts, and `MetricTile` or `StatCard` for headline figures.
+- Import from `@posthog/quill` only for UI behind the `today-rail-nav` feature flag. Read [`frontend/src/design.md`](../../../frontend/src/design.md) before you add that UI.
+- Do not put a paragraph under a section title. Method caveats go in column and card tooltips.

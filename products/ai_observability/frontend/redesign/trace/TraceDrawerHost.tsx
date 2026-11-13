@@ -8,11 +8,11 @@ import { ResizerLogicProps, resizerLogic } from 'lib/lemon-ui/Resizer/resizerLog
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 
 import { DetailPanel, isDetailPanelFullWidth } from '../shared/components/DetailPanel'
-import { TraceViewContainer } from './adapter/TraceViewContainer'
 import { TraceDrawerToolbar } from './components/TraceDrawerToolbar'
 import { isOverlayOpen } from './shouldCloseOnEscape'
-import type { TraceDrawerListId } from './traceDrawerLists'
+import { TRACE_DRAWER_LISTS, TraceDrawerListId } from './traceDrawerLists'
 import { TraceStepDirection, traceDrawerLogic } from './traceDrawerLogic'
+import { TraceViewHost } from './TraceViewHost'
 
 export interface TraceDrawerHostProps {
     listId: TraceDrawerListId
@@ -20,8 +20,9 @@ export interface TraceDrawerHostProps {
 
 export function TraceDrawerHost({ listId }: TraceDrawerHostProps): JSX.Element | null {
     const logic = traceDrawerLogic({ listId })
-    const { hostId, isEnabled, openRef, position, previousTrace, nextTrace, fullPageHref } = useValues(logic)
+    const { hostId, openRef, openLabel, position, previousTrace, nextTrace, fullPageHref } = useValues(logic)
     const { stepTo, close } = useActions(logic)
+    const showNavigation = TRACE_DRAWER_LISTS[listId].showNavigation !== false
     const { mainContentRect } = useValues(panelLayoutLogic)
 
     const containerRef = useRef<HTMLDivElement>(null)
@@ -57,7 +58,7 @@ export function TraceDrawerHost({ listId }: TraceDrawerHostProps): JSX.Element |
         disabled: !nextTrace,
     })
 
-    if (!isEnabled || !openRef || !fullPageHref || !mainContentRect) {
+    if (!openRef || !fullPageHref || !mainContentRect) {
         return null
     }
 
@@ -71,15 +72,18 @@ export function TraceDrawerHost({ listId }: TraceDrawerHostProps): JSX.Element |
             resizer={isDetailPanelFullWidth(mainContentRect.width) ? null : <Resizer {...resizerProps} />}
             toolbar={
                 <TraceDrawerToolbar
+                    showNavigation={showNavigation}
                     position={position}
+                    label={openLabel}
                     onPrevious={previousTrace ? () => stepTo('previous') : null}
                     onNext={nextTrace ? () => stepTo('next') : null}
                     fullPageHref={fullPageHref}
+                    fullPageInNewTab={TRACE_DRAWER_LISTS[listId].fullPageInNewTab}
                     onClose={close}
                 />
             }
         >
-            <TraceViewContainer
+            <TraceViewHost
                 key={openRef.traceId}
                 hostId={hostId}
                 traceId={openRef.traceId}

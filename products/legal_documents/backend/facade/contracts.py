@@ -54,3 +54,15 @@ class CreateLegalDocumentInput:
     company_name: str
     company_address: str
     representative_email: str
+
+
+@dataclass(frozen=True)
+class StaffLegalDocument:
+    """A legal document as staff see it in PostHog Admin, with the PandaDoc state the staff operations depend on."""
+
+    id: UUID
+    document_type: str
+    status: str
+    signed_pdf_stored: bool
+    has_pandadoc_envelope: bool
+    created_at: datetime

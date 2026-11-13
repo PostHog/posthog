@@ -13,6 +13,8 @@ from products.tasks.backend import model_catalog
 PR_STATES = ("open", "draft", "merged", "closed")
 CI_STATUSES = ("passing", "failing", "pending", "none")
 
+TASK_DESCRIPTION_PREVIEW_LENGTH = 1000
+
 # Host prefix of the PR URLs written to ``TaskRun.output['pr_url']`` — GitHub's ``html_url``.
 # ``task_run_github_pr_run_idx`` is a partial index on exactly this prefix test, and Postgres only
 # skips the JSONB scan while a query repeats the predicate verbatim, so readers filtering on the
@@ -42,10 +44,10 @@ DEV_STACK_IMAGE_BAKE_FEATURE_FLAG = "tasks-dev-stack-image-bake"
 HOGLAND_SANDBOX_FEATURE_FLAG = "tasks-hogland-sandbox"
 HOGLAND_HOTPLUG_GOLDEN_FEATURE_FLAG = "tasks-hogland-hotplug-golden"
 PI_CLOUD_RUNTIME_FEATURE_FLAG = "pi-harness"
+GITLAB_TASKS_FEATURE_FLAG = "tasks-gitlab"
 REASONING_EFFORTS = model_catalog.REASONING_EFFORTS
 PI_ACP_FEATURE_FLAG = "pi-acp"
 TASK_ANALYSIS_FEATURE_FLAG = "posthog-code-task-analysis"
-TASK_TITLE_AI_GATEWAY_FEATURE_FLAG = "tasks-title-ai-gateway"
 
 ANALYSIS_TARGET_TASK_ID_STATE_KEY = "analysis_target_task_id"
 ANALYSIS_TARGET_RUN_ID_STATE_KEY = "analysis_target_run_id"
@@ -61,6 +63,8 @@ PR_LOOP_ENABLED_STATE_KEY = "pr_loop_enabled"
 TIMED_OUT_INACTIVITY_STATE_KEY = "timed_out_inactivity"
 # The skills-store stubs the sandbox agent writes into its skill roots at session start.
 STORE_SKILLS_STATE_KEY = "store_skills"
+# Separate from `store_skills`, which is also empty when the store is on and the user owns no skills.
+STORE_SKILLS_BRIDGE_STATE_KEY = "store_skills_bridge"
 AGENT_INSTRUCTIONS_STATE_KEY = "agent_instructions"
 # Matches the cap PostHog Code applies to its local personalization.
 AGENT_INSTRUCTIONS_MAX_LENGTH = 20_000
@@ -238,6 +242,7 @@ DEFAULT_SANDBOX_WORKING_DIR = "/tmp/workspace"
 # that tells an agent where its checkout is must read it from here (see `sandbox_repo_path`), or a
 # prompt sends the agent to a path the clone never used.
 SANDBOX_REPOSITORIES_ROOT = f"{DEFAULT_SANDBOX_WORKING_DIR}/repos"
+GITLAB_HOST = "gitlab.com"
 # Directory resume snapshots capture a directory and re-mount it into the next sandbox. The mount
 # REPLACES the target directory in the running sandbox, so only the quiescent workspace dir is safe:
 # mounting over a live system directory (the old "/tmp" default) rips scratch space and sockets out
@@ -459,6 +464,8 @@ RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS: frozenset[str] = frozenset(
         "JWT_PUBLIC_KEY",
         "GITHUB_TOKEN",
         "GH_TOKEN",
+        "GITLAB_TOKEN",
+        "POSTHOG_GIT_PROVIDER",
         "LLM_GATEWAY_URL",
         "AI_GATEWAY_URL",
         "AI_GATEWAY_PRODUCTS",

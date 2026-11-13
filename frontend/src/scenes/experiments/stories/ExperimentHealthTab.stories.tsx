@@ -13,9 +13,27 @@ import { NodeKind } from '~/queries/schema/schema-general'
 
 import { recalculationMocks, resultsByMetricType } from './recalculationMocks'
 
-type Check = { key: string; name: string; status: string; reason: string | null }
+type Check = {
+    key: string
+    name: string
+    description: string
+    status: string
+    reason: string | null
+    values: Record<string, string | number | boolean | null>
+    rule: object | null
+}
 
-const passed = (key: string, name: string): Check => ({ key, name, status: 'passed', reason: null })
+const DESCRIPTION = 'Looks for a problem in the setup of the experiment that can make its results wrong.'
+
+const passed = (key: string, name: string): Check => ({
+    key,
+    name,
+    description: DESCRIPTION,
+    status: 'passed',
+    reason: null,
+    values: {},
+    rule: null,
+})
 
 const EXPERIMENT_CHECKS: Check[] = [
     passed('flag_state', "Flag state that doesn't match the experiment"),
@@ -26,8 +44,7 @@ const EXPERIMENT_CHECKS: Check[] = [
     passed('flag_variants_mismatch', 'Flag variants not set up'),
     passed('forced_variant_release_condition', 'Release conditions that force a variant'),
     {
-        key: 'new_flag_no_traffic',
-        name: 'Flag calls not received yet',
+        ...passed('new_flag_no_traffic', 'Flag calls not received yet'),
         status: 'not_applicable',
         reason: 'Runs before launch',
     },
@@ -45,12 +62,21 @@ const EXPERIMENT_CHECKS: Check[] = [
 const EXPOSURE_CHECKS: Check[] = [
     passed('zero_exposures', 'Exposures not received since launch'),
     passed('test_account_filter_removes_exposures', 'Test account filters that leave out most users'),
-    passed('srm', 'Split of users across variants'),
     {
-        key: 'bias_risk_multiple_excluded',
-        name: 'Bias from an uneven split',
+        ...passed('srm', 'Split of users across variants'),
+        values: { p_value: 0.62, compared_count: 3000, multiple_variant_count: 18 },
+        rule: {
+            value: 'p_value',
+            threshold: 0.001,
+            warns: 'below',
+            test: 'chi_squared',
+            minimum: { value: 'compared_count', threshold: 100 },
+        },
+    },
+    {
+        ...passed('bias_risk_multiple_excluded', 'Bias from an uneven split'),
         status: 'not_applicable',
-        reason: 'The split is even',
+        reason: 'Runs when the variant split is uneven',
     },
     passed('multiple_variants_share', 'Users exposed to multiple variants'),
 ]
@@ -83,18 +109,6 @@ const EXPOSURES_WITH_SRM = {
         },
     ],
     health_checks: withStatus(EXPOSURE_CHECKS, 'srm', 'finding'),
-}
-
-const METRIC_NOTE = {
-    code: 'metrics_not_matured',
-    subcode: null,
-    reason: null,
-    severity: 'info',
-    title: 'Some users are still inside the conversion window',
-    detail: 'The primary metric counts conversions up to 7 days after exposure. Users exposed in the last 7 days can still convert, so the results can still change.',
-    evidence: {},
-    actions: [],
-    diagnostic_ref: null,
 }
 
 const RECALCULATION = recalculationMocks(
@@ -141,14 +155,7 @@ export default meta
 type Story = StoryObj<{}>
 
 export const AllChecksPassed: Story = {
-    decorators: [
-        mswDecorator(
-            healthMocks(
-                { findings: [METRIC_NOTE], checks: withStatus(EXPERIMENT_CHECKS, 'metrics_not_matured', 'finding') },
-                HEALTHY_EXPOSURES
-            )
-        ),
-    ],
+    decorators: [mswDecorator(healthMocks({ findings: [], checks: EXPERIMENT_CHECKS }, HEALTHY_EXPOSURES))],
     play: async () => {
         await makeDelay(1500)()
     },

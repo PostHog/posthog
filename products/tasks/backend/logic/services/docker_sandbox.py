@@ -70,6 +70,7 @@ from .sandbox import (
     parse_sandbox_repo_mount_map,
     read_pinned_agent_version,
     redact_sandbox_command,
+    sandbox_repo_path,
     wait_for_health_check,
 )
 
@@ -903,13 +904,16 @@ class DockerSandbox(AgentServerLaunchMixin):
         shallow: bool = True,
         branch: str | None = None,
         blobless: bool = False,
+        gitlab_token: str | None = None,
         baked_repo_clone: bool = False,
     ) -> ExecutionResult:
         mount_map = parse_sandbox_repo_mount_map()
         if repository.lower() in mount_map:
             logger.info(f"Repository {repository} is bind-mounted from host, skipping clone")
             return ExecutionResult(stdout="", stderr="", exit_code=0, error=None)
-        return super().clone_repository(repository, github_token, shallow, branch, blobless, baked_repo_clone)
+        return super().clone_repository(
+            repository, github_token, shallow, branch, blobless, gitlab_token, baked_repo_clone
+        )
 
     def setup_repository(self, repository: str) -> ExecutionResult:
         """No-op: Repository setup is now handled by agent-server."""
@@ -919,8 +923,7 @@ class DockerSandbox(AgentServerLaunchMixin):
         if not self.is_running():
             raise RuntimeError("Sandbox not in running state.")
 
-        org, repo = repository.lower().split("/")
-        repo_path = f"/tmp/workspace/repos/{org}/{repo}"
+        repo_path = sandbox_repo_path(repository)
 
         result = self.execute(f"cd {shlex.quote(repo_path)} && git status --porcelain")
         is_clean = not result.stdout.strip()

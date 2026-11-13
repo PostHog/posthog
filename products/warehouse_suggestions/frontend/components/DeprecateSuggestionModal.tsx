@@ -5,12 +5,12 @@ import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 import { LemonRadio, LemonRadioOption } from 'lib/lemon-ui/LemonRadio'
 
 import { deleteDisabledReason, isDeprecatePayload, noReadsLabel, refreshCostLabel } from '../suggestionCopy'
-import { warehouseSuggestionsLogic } from '../warehouseSuggestionsLogic'
+import { catalogEditBlockedReason, warehouseSuggestionsLogic } from '../warehouseSuggestionsLogic'
 
-type RefreshChoice = 'stop' | 'keep'
-type ActionChoice = 'deprecate' | 'delete'
+export type RefreshChoice = 'stop' | 'keep'
+export type ActionChoice = 'deprecate' | 'delete'
 
-const ACTION_CHOICES: LemonRadioOption<ActionChoice>[] = [
+export const ACTION_CHOICES: LemonRadioOption<ActionChoice>[] = [
     {
         value: 'deprecate',
         label: 'Mark it deprecated',
@@ -25,7 +25,7 @@ const ACTION_CHOICES: LemonRadioOption<ActionChoice>[] = [
     },
 ]
 
-const REFRESH_CHOICES: LemonRadioOption<RefreshChoice>[] = [
+export const REFRESH_CHOICES: LemonRadioOption<RefreshChoice>[] = [
     {
         value: 'stop',
         label: 'Stop refreshing it',
@@ -55,10 +55,12 @@ export function DeprecateSuggestionModal(): JSX.Element | null {
     const materialized = payload.materialized !== false
     const windowDays = status?.window_days ?? 0
     const noReads = noReadsLabel(windowDays)
-    const deleteBlockedReason = deleteDisabledReason(acceptConfirmSuggestion.evidence, windowDays)
-    const actionChoices = ACTION_CHOICES.map((choice) =>
-        choice.value === 'delete' ? { ...choice, disabledReason: deleteBlockedReason } : choice
-    )
+    const blockedReasons: Record<ActionChoice, string | undefined> = {
+        deprecate: catalogEditBlockedReason(),
+        delete: deleteDisabledReason(acceptConfirmSuggestion.evidence, windowDays),
+    }
+    const actionChoices = ACTION_CHOICES.map((choice) => ({ ...choice, disabledReason: blockedReasons[choice.value] }))
+    const chosen: ActionChoice = deleteView ? 'delete' : 'deprecate'
 
     return (
         <LemonModal
@@ -79,6 +81,7 @@ export function DeprecateSuggestionModal(): JSX.Element | null {
                         type="primary"
                         status={deleteView ? 'danger' : undefined}
                         loading={inFlight}
+                        disabledReason={blockedReasons[chosen]}
                         onClick={() => confirmAccept()}
                         data-attr={
                             deleteView
@@ -99,7 +102,7 @@ export function DeprecateSuggestionModal(): JSX.Element | null {
                     <h4 className="m-0 text-sm font-semibold">What to do</h4>
                     <LemonRadio
                         aria-label="What to do"
-                        value={deleteView ? 'delete' : 'deprecate'}
+                        value={chosen}
                         onChange={(choice) => setDeleteView(choice === 'delete')}
                         options={actionChoices}
                         radioPosition="top"

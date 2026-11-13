@@ -621,6 +621,16 @@ export interface UserBasicApi {
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
+/**
+ * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. Alert routes match on labels to send the alert to shared receivers. Only an alert the alerts platform evaluates can have labels. Any other alert reads as empty and rejects a value. Omit it on update to keep the current labels. A value replaces all of them.
+ */
+export type LogsAlertConfigurationApiLabels = { [key: string]: string }
+
+/**
+ * Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. Notifications show annotations. Only an alert the alerts platform evaluates can have annotations. Any other alert reads as empty and rejects a value. Omit it on update to keep the current annotations. A value replaces all of them.
+ */
+export type LogsAlertConfigurationApiAnnotations = { [key: string]: string }
+
 export interface LogsAlertConfigurationApi {
     /** Unique identifier for this alert. */
     readonly id: string
@@ -708,7 +718,11 @@ export interface LogsAlertConfigurationApi {
     readonly destination_types: readonly LogsAlertDestinationTypeEnumApi[]
     /** How the alert splits its results into instances. Mode single keeps one instance for the whole alert. Mode by_result_labels with keys service_name and/or severity_text keeps one instance per service or severity, each firing and resolving on its own, and needs threshold_operator above. Only an alert the alerts platform evaluates can group. Any other alert reads as single and rejects a different value. Omit it on update to keep the current grouping. Changing the keys deletes the existing instances and closes their notification threads without a message. */
     grouping?: LogsAlertGroupingApi
-    /** Whether the alerts platform evaluates this alert and sends its notifications. Only such an alert can set a grouping other than single. */
+    /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. Alert routes match on labels to send the alert to shared receivers. Only an alert the alerts platform evaluates can have labels. Any other alert reads as empty and rejects a value. Omit it on update to keep the current labels. A value replaces all of them. */
+    labels?: LogsAlertConfigurationApiLabels
+    /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. Notifications show annotations. Only an alert the alerts platform evaluates can have annotations. Any other alert reads as empty and rejects a value. Omit it on update to keep the current annotations. A value replaces all of them. */
+    annotations?: LogsAlertConfigurationApiAnnotations
+    /** Whether the alerts platform evaluates this alert and sends its notifications. Only such an alert can set labels, annotations, or a grouping other than single. */
     readonly platform_owned: boolean
     /**
      * When the alert was first enabled. Null means the alert is still in draft state.
@@ -733,6 +747,16 @@ export interface PaginatedLogsAlertConfigurationListApi {
     previous?: string | null
     results: LogsAlertConfigurationApi[]
 }
+
+/**
+ * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. Alert routes match on labels to send the alert to shared receivers. Only an alert the alerts platform evaluates can have labels. Any other alert reads as empty and rejects a value. Omit it on update to keep the current labels. A value replaces all of them.
+ */
+export type LogsAlertConfigurationDetailApiLabels = { [key: string]: string }
+
+/**
+ * Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. Notifications show annotations. Only an alert the alerts platform evaluates can have annotations. Any other alert reads as empty and rejects a value. Omit it on update to keep the current annotations. A value replaces all of them.
+ */
+export type LogsAlertConfigurationDetailApiAnnotations = { [key: string]: string }
 
 /**
  * * `critical` - critical
@@ -762,6 +786,11 @@ export const PagerDutyRegionEnumApi = {
 
 export interface LogsAlertDestinationConfigApi {
     hog_function_ids: string[]
+    /**
+     * The destination's ID on the alerts platform. Null for a destination added before the platform kept one, which `hog_function_ids` identifies instead. A destination whose HogFunctions are gone has an empty `hog_function_ids`, and is deleted by this ID.
+     * @nullable
+     */
+    id: string | null
     /** Notification destination type.
      *
      * * `slack` - slack
@@ -775,6 +804,8 @@ export interface LogsAlertDestinationConfigApi {
     message_customized: boolean
     slack_workspace_id?: number
     slack_channel_id?: string
+    /** The Slack channel's name when the destination was added. Absent for older destinations. */
+    slack_channel_name?: string
     /** Webhook endpoint reduced to scheme and host. The path, query and userinfo carry the secret. */
     webhook_url?: string
     /** PagerDuty integration key reduced to its last four characters. */
@@ -884,7 +915,11 @@ export interface LogsAlertConfigurationDetailApi {
     readonly destination_types: readonly LogsAlertDestinationTypeEnumApi[]
     /** How the alert splits its results into instances. Mode single keeps one instance for the whole alert. Mode by_result_labels with keys service_name and/or severity_text keeps one instance per service or severity, each firing and resolving on its own, and needs threshold_operator above. Only an alert the alerts platform evaluates can group. Any other alert reads as single and rejects a different value. Omit it on update to keep the current grouping. Changing the keys deletes the existing instances and closes their notification threads without a message. */
     grouping?: LogsAlertGroupingApi
-    /** Whether the alerts platform evaluates this alert and sends its notifications. Only such an alert can set a grouping other than single. */
+    /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. Alert routes match on labels to send the alert to shared receivers. Only an alert the alerts platform evaluates can have labels. Any other alert reads as empty and rejects a value. Omit it on update to keep the current labels. A value replaces all of them. */
+    labels?: LogsAlertConfigurationDetailApiLabels
+    /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. Notifications show annotations. Only an alert the alerts platform evaluates can have annotations. Any other alert reads as empty and rejects a value. Omit it on update to keep the current annotations. A value replaces all of them. */
+    annotations?: LogsAlertConfigurationDetailApiAnnotations
+    /** Whether the alerts platform evaluates this alert and sends its notifications. Only such an alert can set labels, annotations, or a grouping other than single. */
     readonly platform_owned: boolean
     /**
      * When the alert was first enabled. Null means the alert is still in draft state.
@@ -902,6 +937,16 @@ export interface LogsAlertConfigurationDetailApi {
     /** This alert's notification destinations, one entry per destination. Each carries the HogFunction IDs that delete it as a group, and its configuration with credential-bearing URL components removed. */
     readonly destinations: readonly LogsAlertDestinationConfigApi[]
 }
+
+/**
+ * Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. Alert routes match on labels to send the alert to shared receivers. Only an alert the alerts platform evaluates can have labels. Any other alert reads as empty and rejects a value. Omit it on update to keep the current labels. A value replaces all of them.
+ */
+export type PatchedLogsAlertConfigurationApiLabels = { [key: string]: string }
+
+/**
+ * Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. Notifications show annotations. Only an alert the alerts platform evaluates can have annotations. Any other alert reads as empty and rejects a value. Omit it on update to keep the current annotations. A value replaces all of them.
+ */
+export type PatchedLogsAlertConfigurationApiAnnotations = { [key: string]: string }
 
 export interface PatchedLogsAlertConfigurationApi {
     /** Unique identifier for this alert. */
@@ -990,7 +1035,11 @@ export interface PatchedLogsAlertConfigurationApi {
     readonly destination_types?: readonly LogsAlertDestinationTypeEnumApi[]
     /** How the alert splits its results into instances. Mode single keeps one instance for the whole alert. Mode by_result_labels with keys service_name and/or severity_text keeps one instance per service or severity, each firing and resolving on its own, and needs threshold_operator above. Only an alert the alerts platform evaluates can group. Any other alert reads as single and rejects a different value. Omit it on update to keep the current grouping. Changing the keys deletes the existing instances and closes their notification threads without a message. */
     grouping?: LogsAlertGroupingApi
-    /** Whether the alerts platform evaluates this alert and sends its notifications. Only such an alert can set a grouping other than single. */
+    /** Labels that say who owns the alert and how urgent it is, such as {"team": "checkout", "severity": "critical"}. Names use letters, digits and underscores. alertname and names that start with posthog_ are reserved. Values cannot use templates. Alert routes match on labels to send the alert to shared receivers. Only an alert the alerts platform evaluates can have labels. Any other alert reads as empty and rejects a value. Omit it on update to keep the current labels. A value replaces all of them. */
+    labels?: PatchedLogsAlertConfigurationApiLabels
+    /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. Notifications show annotations. Only an alert the alerts platform evaluates can have annotations. Any other alert reads as empty and rejects a value. Omit it on update to keep the current annotations. A value replaces all of them. */
+    annotations?: PatchedLogsAlertConfigurationApiAnnotations
+    /** Whether the alerts platform evaluates this alert and sends its notifications. Only such an alert can set labels, annotations, or a grouping other than single. */
     readonly platform_owned?: boolean
     /**
      * When the alert was first enabled. Null means the alert is still in draft state.
@@ -1044,11 +1093,13 @@ export interface LogsAlertDestinationResponseApi {
 }
 
 export interface LogsAlertDeleteDestinationApi {
+    /** HogFunction IDs to delete as one atomic destination group. */
+    hog_function_ids?: string[]
     /**
-     * HogFunction IDs to delete as one atomic destination group.
-     * @minItems 1
+     * Destination IDs, from `destinations[].id`, to delete with their HogFunctions.
+     * @maxItems 100
      */
-    hog_function_ids: string[]
+    destination_ids?: string[]
 }
 
 /**
@@ -1712,6 +1763,26 @@ export interface _LogsAttributesResponseApi {
     count: number
 }
 
+export interface _LogsContextAttributeAnchorApi {
+    /** Log attribute key, e.g. "workflow_run_id". */
+    key: string
+    /** Exact attribute value to follow. */
+    value: string
+}
+
+export interface _LogsContextAnchorApi {
+    /** uuid of one log line. Needs `timestamp`. */
+    logUuid?: string
+    /** ISO 8601 timestamp of the `logUuid` log line. */
+    timestamp?: string
+    /** Trace id, 32 hex characters or base64. */
+    traceId?: string
+    /** Follow every log with this attribute value. */
+    attribute?: _LogsContextAttributeAnchorApi
+    /** ISO 8601 time hint. Required with `attribute`, used with `traceId` only when the trace has no spans. */
+    around?: string
+}
+
 /**
  * * `trace` - trace
  * * `debug` - debug
@@ -1720,9 +1791,9 @@ export interface _LogsAttributesResponseApi {
  * * `error` - error
  * * `fatal` - fatal
  */
-export type SeverityLevelsEnumApi = (typeof SeverityLevelsEnumApi)[keyof typeof SeverityLevelsEnumApi]
+export type LogsSeverityLevelEnumApi = (typeof LogsSeverityLevelEnumApi)[keyof typeof LogsSeverityLevelEnumApi]
 
-export const SeverityLevelsEnumApi = {
+export const LogsSeverityLevelEnumApi = {
     Trace: 'trace',
     Debug: 'debug',
     Info: 'info',
@@ -1731,11 +1802,205 @@ export const SeverityLevelsEnumApi = {
     Fatal: 'fatal',
 } as const
 
+/**
+ * * `spans` - Spans
+ */
+export type LogsContextIncludeEnumApi = (typeof LogsContextIncludeEnumApi)[keyof typeof LogsContextIncludeEnumApi]
+
+export const LogsContextIncludeEnumApi = {
+    Spans: 'spans',
+} as const
+
+export interface _LogsContextBodyApi {
+    /** Exactly one anchor: a log line, a trace, or an attribute value. */
+    anchor: _LogsContextAnchorApi
+    /** Time on each side of the anchor: "30s", "5m", "1h" (max 6h). Default 30s for a trace, 5m otherwise. */
+    padding?: string
+    /** Keep only these severities in the timeline. */
+    severityLevels?: LogsSeverityLevelEnumApi[]
+    /** Restrict the timeline to these services. Default: the trace's services, the log's service, or all. */
+    serviceNames?: string[]
+    /** "spans" adds spans_summary for a trace anchor. */
+    include?: LogsContextIncludeEnumApi[]
+    /**
+     * Maximum timeline rows.
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number
+    /** `next_cursor` of a previous call with the same anchor. */
+    after?: string
+}
+
+export interface LogsContextRequestApi {
+    /** The context query. */
+    query: _LogsContextBodyApi
+}
+
+export interface LogsAgentWindowBoundsApi {
+    /** Window start, ISO 8601 UTC with a Z suffix (inclusive). */
+    from: string
+    /** Window end, ISO 8601 UTC with a Z suffix (exclusive). */
+    to: string
+}
+
+export interface LogsAgentWindowApi {
+    /** Absolute bounds the server used for the current window. */
+    current: LogsAgentWindowBoundsApi
+    /** Absolute bounds the server used for the baseline window, when there is one. */
+    baseline?: LogsAgentWindowBoundsApi
+    /** Always "UTC". */
+    timezone: string
+}
+
+/**
+ * * `trace` - Trace
+ * * `log` - Log
+ * * `attribute` - Attribute
+ */
+export type LogsContextAnchorTypeEnumApi =
+    (typeof LogsContextAnchorTypeEnumApi)[keyof typeof LogsContextAnchorTypeEnumApi]
+
+export const LogsContextAnchorTypeEnumApi = {
+    Trace: 'trace',
+    Log: 'log',
+    Attribute: 'attribute',
+} as const
+
+export interface _LogsContextAnchorSummaryApi {
+    /** The anchor kind.
+     *
+     * * `trace` - Trace
+     * * `log` - Log
+     * * `attribute` - Attribute */
+    type: LogsContextAnchorTypeEnumApi
+    /**
+     * Trace id (hex) of the anchor, when there is one.
+     * @nullable
+     */
+    trace_id: string | null
+    /** Reference time (UTC) that `t_offset_ms` counts from. */
+    timestamp: string
+    /**
+     * Trace start or first matching log (UTC).
+     * @nullable
+     */
+    start: string | null
+    /**
+     * Trace end or last matching log (UTC).
+     * @nullable
+     */
+    end: string | null
+    /**
+     * end - start in milliseconds.
+     * @nullable
+     */
+    duration_ms: number | null
+    /** Services of the anchor. */
+    services: string[]
+}
+
+export interface _LogsContextCorrelationKeyApi {
+    /** Id-like attribute of the anchor log. */
+    key: string
+    /** Its value on the anchor log. */
+    value: string
+    /** Logs in the window, any service, with this value. */
+    log_count: number
+}
+
+export interface _LogsContextTimelineRowApi {
+    /** Milliseconds from the anchor reference time. */
+    t_offset_ms: number
+    /** Log timestamp (UTC). */
+    timestamp: string
+    /** Service that emitted the line. */
+    service: string
+    /** Severity of the line. */
+    severity: string
+    /** Log body, cut to 300 characters. */
+    body: string
+    /** k=v attributes that differ from the anchor log, without noise keys. */
+    attrs: string
+    /** Log uuid, usable with `timestamp` as a log anchor. */
+    uuid: string
+}
+
+export interface _LogsContextSpanApi {
+    /** Span id (hex). */
+    span_id: string
+    /** Span name. */
+    name: string
+    /** Service of the span. */
+    service: string
+    /** Milliseconds from the trace start. */
+    start_offset_ms: number
+    /** Span duration in milliseconds. */
+    duration_ms: number
+    /** Duration not covered by child spans. */
+    self_time_ms: number
+    /** "error" or "ok". */
+    status: string
+}
+
+export interface _LogsContextSpansSummaryApi {
+    /** Spans read. */
+    span_count: number
+    /** True when the trace has more spans than were read. */
+    truncated: boolean
+    /** Services with spans in the trace. */
+    services: string[]
+    /** The root span, null when it never arrived. */
+    root: _LogsContextSpanApi | null
+    /** Up to 10 spans with an error status. */
+    error_spans: _LogsContextSpanApi[]
+    /** The 5 longest spans. */
+    slowest: _LogsContextSpanApi[]
+}
+
+/**
+ * Prefilled `query` object for that tool. Pass it as is or adjust it.
+ */
+export type LogsAgentNextCallApiQuery = { [key: string]: unknown }
+
+export interface LogsAgentNextCallApi {
+    /** MCP tool to call next, e.g. query-logs or logs-context. */
+    tool: string
+    /** One line on what the follow-up call answers. */
+    why: string
+    /** Prefilled `query` object for that tool. Pass it as is or adjust it. */
+    query: LogsAgentNextCallApiQuery
+}
+
+export interface LogsContextResponseApi {
+    /** Absolute UTC bounds the logs were read from. */
+    window: LogsAgentWindowApi
+    /** The resolved anchor. */
+    anchor: _LogsContextAnchorSummaryApi
+    /** Id-like attributes of the anchor log, with counts. */
+    correlation_keys: _LogsContextCorrelationKeyApi[]
+    /** Log lines, earliest first. */
+    timeline: _LogsContextTimelineRowApi[]
+    /** Set for a trace anchor with include ["spans"]. */
+    spans_summary: _LogsContextSpansSummaryApi | null
+    /** True when more rows exist past `limit`. */
+    truncated: boolean
+    /**
+     * Pass as `after` for the next page.
+     * @nullable
+     */
+    next_cursor: string | null
+    /** Prefilled follow-up calls. */
+    next: LogsAgentNextCallApi[]
+    /** Caveats about the window. */
+    notes: string[]
+}
+
 export interface _LogsCountBodyApi {
     /** Date range for the count. Defaults to last hour. */
     dateRange?: _DateRangeApi
     /** Filter by log severity levels. */
-    severityLevels?: SeverityLevelsEnumApi[]
+    severityLevels?: LogsSeverityLevelEnumApi[]
     /** Filter by service names. */
     serviceNames?: string[]
     /** Full-text search term to filter log bodies. */
@@ -1764,7 +2029,7 @@ export interface _LogsCountRangesBodyApi {
      */
     targetBuckets?: number
     /** Filter by log severity levels. Applied before bucketing. */
-    severityLevels?: SeverityLevelsEnumApi[]
+    severityLevels?: LogsSeverityLevelEnumApi[]
     /** Filter by service names. Applied before bucketing. */
     serviceNames?: string[]
     /** Full-text search across log bodies. Applied before bucketing. */
@@ -1833,7 +2098,7 @@ export interface _LogsFacetValuesBodyApi {
     /** Date range. Defaults to last hour. */
     dateRange?: _DateRangeApi
     /** Filter by log severity levels (ignored when faceting on severity_text). */
-    severityLevels?: SeverityLevelsEnumApi[]
+    severityLevels?: LogsSeverityLevelEnumApi[]
     /** Filter by service names (ignored when faceting on service_name). */
     serviceNames?: string[]
     /** Full-text search term to filter log bodies. */
@@ -1869,6 +2134,7 @@ export interface _LogsFacetValuesResponseApi {
  * * `log` - log
  * * `resource` - resource
  * * `column` - column
+ * * `body` - body
  */
 export type LogsGroupBySourceEnumApi = (typeof LogsGroupBySourceEnumApi)[keyof typeof LogsGroupBySourceEnumApi]
 
@@ -1876,16 +2142,18 @@ export const LogsGroupBySourceEnumApi = {
     Log: 'log',
     Resource: 'resource',
     Column: 'column',
+    Body: 'body',
 } as const
 
 export interface _LogsGroupByDimensionApi {
-    /** The key this dimension groups by — an attribute key (e.g. "session_id", "service.name") or, when source is "column", one of the top-level log fields: "severity_level", "service_name", "trace_id", "span_id", "pattern" (the masked message template). */
+    /** The key this dimension groups by — an attribute key (e.g. "session_id", "service.name"); when source is "column", one of the top-level log fields: "severity_level", "service_name", "trace_id", "span_id", "pattern" (the masked message template); when source is "body", a dot-separated JSON path into the log body (e.g. "fields.message"). */
     key: string
-    /** Where this dimension's key lives: "log" for log-level attributes, "resource" for resource-level attributes, "column" for top-level log fields.
+    /** Where this dimension's key lives: "log" for log-level attributes, "resource" for resource-level attributes, "column" for top-level log fields, "body" for a JSON path into the body.
      *
      * * `log` - log
      * * `resource` - resource
-     * * `column` - column */
+     * * `column` - column
+     * * `body` - body */
     source?: LogsGroupBySourceEnumApi
 }
 
@@ -1906,7 +2174,7 @@ export interface _LogsGroupByBodyApi {
     /** Date range to aggregate over. Defaults to last hour. */
     dateRange?: _DateRangeApi
     /** Filter by log severity levels before grouping. */
-    severityLevels?: SeverityLevelsEnumApi[]
+    severityLevels?: LogsSeverityLevelEnumApi[]
     /** Restrict grouping to these service names. */
     serviceNames?: string[]
     /** Full-text search term to filter log bodies before grouping. */
@@ -1915,11 +2183,12 @@ export interface _LogsGroupByBodyApi {
     filterGroup?: _LogPropertyFilterApi[]
     /** The key to group logs by — an attribute key (e.g. "session_id", "service.name") or, when groupBySource is "column", one of the top-level log fields: "severity_level", "service_name", "trace_id", "span_id", "pattern". Ignored when groupBys is provided. */
     groupBy?: string
-    /** Where the grouping key lives: "log" for log-level attributes, "resource" for resource-level attributes, "column" for top-level log fields. Ignored when groupBys is provided.
+    /** Where the grouping key lives: "log" for log-level attributes, "resource" for resource-level attributes, "column" for top-level log fields, "body" for a JSON path into the body. Ignored when groupBys is provided.
      *
      * * `log` - log
      * * `resource` - resource
-     * * `column` - column */
+     * * `column` - column
+     * * `body` - body */
     groupBySource?: LogsGroupBySourceEnumApi
     /**
      * Ordered group-by dimensions to combine (a group is one combination of per-dimension values), up to 4. Takes precedence over groupBy/groupBySource; one of the two must be provided.
@@ -1993,7 +2262,8 @@ export interface _LogsImpactGroupKeyApi {
      *
      * * `log` - log
      * * `resource` - resource
-     * * `column` - column */
+     * * `column` - column
+     * * `body` - body */
     source: LogsGroupBySourceEnumApi
     /** The attribute key that carries the ID on most matching logs. */
     key: string
@@ -2179,7 +2449,7 @@ export interface _LogsNaturalLanguageCandidateQueryApi {
     /** Date range of this reading. */
     dateRange: _LogsNaturalLanguageDateRangeApi
     /** Severity levels to keep. Empty means all levels. */
-    severityLevels: SeverityLevelsEnumApi[]
+    severityLevels: LogsSeverityLevelEnumApi[]
     /** Services to keep. Empty means all services. */
     serviceNames: string[]
     /** Attribute and message filters, combined with AND. */
@@ -2236,7 +2506,7 @@ export interface _LogsPatternsBodyApi {
     /** Date range to mine patterns from. Defaults to last hour. */
     dateRange?: _DateRangeApi
     /** Filter by log severity levels before mining. */
-    severityLevels?: SeverityLevelsEnumApi[]
+    severityLevels?: LogsSeverityLevelEnumApi[]
     /** Restrict mining to these service names. */
     serviceNames?: string[]
     /** Full-text search term to filter log bodies before mining. */
@@ -2297,7 +2567,7 @@ export interface _LogPatternExampleApi {
 export type _LogPatternApiSeverityCounts = { [key: string]: number }
 
 export interface _LogPatternApi {
-    /** Log template with variable tokens masked, e.g. "Connected to <ip> in <num>ms". Body mining masks <timestamp>, <uuid>, <ip>, <hex>, <num>, plus <*> for word positions Drain found to vary. Stored patterns use the ingestion vocabulary instead: <N>, <TIMESTAMP>, <KLOGTIME>, <UUID>, <IP>, <HOST>, <HEX>, <ID>, <EMAIL>, <JSON_ARRAY>, and <JSON:keys> for a JSON body reduced to its key set. */
+    /** Log template with variable tokens masked, e.g. "Connected to <ip> in <num>ms". Body mining masks <timestamp>, <uuid>, <ip>, <hex>, <num>, plus <*> for word positions Drain found to vary. Stored patterns use the ingestion vocabulary instead: <N>, <TIMESTAMP>, <KLOGTIME>, <UUID>, <IP>, <HOST>, <HEX>, <ID>, <EMAIL>, <JSON_ARRAY>, and <JSON:keys> for a JSON body reduced to its key set. The largest <JSON:keys> groups are split by the message their bodies carry (such as fields.message), so a key set remains only for rows with no message field. */
     pattern: string
     /** Occurrences of this pattern within the sample. When `sampled` is true this is a sample count, not the full-window total — prefer `estimated_count` for display. */
     count: number
@@ -2331,10 +2601,10 @@ export interface _LogPatternApi {
      * @nullable
      */
     match_literal: string | null
-    /** Exact canonical members of a stored-pattern group. Filter pattern IN these values AND pattern_version equals this group's version. Empty for body mining. */
+    /** Exact canonical members of a stored-pattern group. Filter pattern IN these values AND pattern_version equals this group's version. Empty for body mining and for a JSON key-set group split by message, which pivots with match_regex. */
     match_patterns?: string[]
     /**
-     * Version required by match_patterns. Null for body mining.
+     * Version required by match_patterns. Null when match_patterns is empty.
      * @nullable
      */
     pattern_version?: number | null
@@ -2398,7 +2668,7 @@ export interface _LogsPatternsDiffBodyApi {
     /** Date range to mine patterns from. Defaults to last hour. */
     dateRange?: _DateRangeApi
     /** Filter by log severity levels before mining. */
-    severityLevels?: SeverityLevelsEnumApi[]
+    severityLevels?: LogsSeverityLevelEnumApi[]
     /** Restrict mining to these service names. */
     serviceNames?: string[]
     /** Full-text search term to filter log bodies before mining. */
@@ -2425,22 +2695,6 @@ export interface _LogsPatternsDiffRequestApi {
     baselineDateRange?: _DateRangeApi
 }
 
-export interface LogsAgentWindowBoundsApi {
-    /** Window start, ISO 8601 UTC with a Z suffix (inclusive). */
-    from: string
-    /** Window end, ISO 8601 UTC with a Z suffix (exclusive). */
-    to: string
-}
-
-export interface LogsAgentWindowApi {
-    /** Absolute bounds the server used for the current window. */
-    current: LogsAgentWindowBoundsApi
-    /** Absolute bounds the server used for the baseline window, when there is one. */
-    baseline?: LogsAgentWindowBoundsApi
-    /** Always "UTC". */
-    timezone: string
-}
-
 /**
  * * `stored_patterns` - Stored Patterns
  * * `body_mining` - Body Mining
@@ -2451,20 +2705,6 @@ export const PatternsDiffSourceEnumApi = {
     StoredPatterns: 'stored_patterns',
     BodyMining: 'body_mining',
 } as const
-
-/**
- * Prefilled `query` object for that tool. Pass it as is or adjust it.
- */
-export type LogsAgentNextCallApiQuery = { [key: string]: unknown }
-
-export interface LogsAgentNextCallApi {
-    /** MCP tool to call next, e.g. query-logs or logs-context. */
-    tool: string
-    /** One line on what the follow-up call answers. */
-    why: string
-    /** Prefilled `query` object for that tool. Pass it as is or adjust it. */
-    query: LogsAgentNextCallApiQuery
-}
 
 /**
  * * `new` - new
@@ -2639,7 +2879,7 @@ export interface _LogsQueryBodyApi {
     /** Date range for the query. Defaults to last hour. */
     dateRange?: _DateRangeApi
     /** Filter by log severity levels. */
-    severityLevels?: SeverityLevelsEnumApi[]
+    severityLevels?: LogsSeverityLevelEnumApi[]
     /** Filter by service names. */
     serviceNames?: string[]
     /** Order results by timestamp.
@@ -2875,6 +3115,11 @@ export interface LogsSamplingRuleApi {
     scope_attribute_filters?: LogsSamplingRuleApiScopeAttributeFiltersItem[]
     /** Type-specific JSON. For path_drop: object with optional `filter_group` (PropertyGroupFilter shape — AND/OR tree of property predicates evaluated per record) and/or legacy `patterns` (list of regex strings) + `match_attribute_key` (string). When both are present a record is dropped if EITHER matches. Filter group example: `{"type":"AND","values":[{"type":"AND","values":[{"key":"service.name","operator":"exact","value":"api"}]}]}`. Every group in `filter_group` must contain at least one filter — empty groups never match, so the rule would never apply. For severity_sampling: object with `actions` per severity level and optional `always_keep`. For rate_limit: object with EITHER `logs_per_second` (integer 1–1000000, optional `burst_logs` integer ≥ logs_per_second, max 10000000) OR `kb_per_second` (integer 1–1000000 = 1 GB/s, optional `burst_kb` integer ≥ kb_per_second, max 10000000) — not both. Plus optional `filter_group` to narrow which logs the cap applies to. KB-mode charges each log its own uncompressed byte size, matching how billing measures ingested bytes. */
     config: unknown
+    /** Record source the rule filters: `logs` (default) runs in the logs pipeline, `spans` in the traces pipeline. Immutable after creation. Span rules support path_drop and rate_limit only.
+     *
+     * * `logs` - Logs
+     * * `spans` - Spans */
+    source?: LogsMetricRuleRecordSourceEnumApi
     /** Incremented on each update for worker cache coherency. */
     readonly version: number
     readonly created_by: number
@@ -2932,6 +3177,11 @@ export interface PatchedLogsSamplingRuleApi {
     scope_attribute_filters?: PatchedLogsSamplingRuleApiScopeAttributeFiltersItem[]
     /** Type-specific JSON. For path_drop: object with optional `filter_group` (PropertyGroupFilter shape — AND/OR tree of property predicates evaluated per record) and/or legacy `patterns` (list of regex strings) + `match_attribute_key` (string). When both are present a record is dropped if EITHER matches. Filter group example: `{"type":"AND","values":[{"type":"AND","values":[{"key":"service.name","operator":"exact","value":"api"}]}]}`. Every group in `filter_group` must contain at least one filter — empty groups never match, so the rule would never apply. For severity_sampling: object with `actions` per severity level and optional `always_keep`. For rate_limit: object with EITHER `logs_per_second` (integer 1–1000000, optional `burst_logs` integer ≥ logs_per_second, max 10000000) OR `kb_per_second` (integer 1–1000000 = 1 GB/s, optional `burst_kb` integer ≥ kb_per_second, max 10000000) — not both. Plus optional `filter_group` to narrow which logs the cap applies to. KB-mode charges each log its own uncompressed byte size, matching how billing measures ingested bytes. */
     config?: unknown
+    /** Record source the rule filters: `logs` (default) runs in the logs pipeline, `spans` in the traces pipeline. Immutable after creation. Span rules support path_drop and rate_limit only.
+     *
+     * * `logs` - Logs
+     * * `spans` - Spans */
+    source?: LogsMetricRuleRecordSourceEnumApi
     /** Incremented on each update for worker cache coherency. */
     readonly version?: number
     readonly created_by?: number
@@ -2971,7 +3221,7 @@ export interface _LogsServicesBodyApi {
     /** Date range for the services aggregation. Defaults to last hour. */
     dateRange?: _DateRangeApi
     /** Filter by log severity levels. */
-    severityLevels?: SeverityLevelsEnumApi[]
+    severityLevels?: LogsSeverityLevelEnumApi[]
     /** Restrict the aggregation to these service names. */
     serviceNames?: string[]
     /** Full-text search term to filter log bodies. */
@@ -3212,7 +3462,7 @@ export interface _LogsSparklineBodyApi {
     /** Date range for the sparkline. Defaults to last hour. */
     dateRange?: _DateRangeApi
     /** Filter by log severity levels. */
-    severityLevels?: SeverityLevelsEnumApi[]
+    severityLevels?: LogsSeverityLevelEnumApi[]
     /** Filter by service names. */
     serviceNames?: string[]
     /** Full-text search term to filter log bodies. */
@@ -3249,7 +3499,7 @@ export interface _LogsSparklineBucketApi {
     service?: string
     /** Number of log entries in the bucket. */
     count: number
-    /** Sum of uncompressed bytes for the bucket. */
+    /** Sum of uncompressed bytes for the bucket. Present only when sparklineRankBy is "bytes". */
     bytes_uncompressed?: number
 }
 
@@ -3528,7 +3778,22 @@ export type LogsSamplingRulesListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * Record source whose rules to list or reorder. Defaults to `logs`.
+     *
+     * * `logs` - Logs
+     * * `spans` - Spans
+     * @minLength 1
+     */
+    source?: LogsSamplingRulesListSource
 }
+
+export type LogsSamplingRulesListSource = (typeof LogsSamplingRulesListSource)[keyof typeof LogsSamplingRulesListSource]
+
+export const LogsSamplingRulesListSource = {
+    Logs: 'logs',
+    Spans: 'spans',
+} as const
 
 export type LogsSamplingRulesReorderCreateParams = {
     /**
@@ -3539,7 +3804,23 @@ export type LogsSamplingRulesReorderCreateParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * Record source whose rules to list or reorder. Defaults to `logs`.
+     *
+     * * `logs` - Logs
+     * * `spans` - Spans
+     * @minLength 1
+     */
+    source?: LogsSamplingRulesReorderCreateSource
 }
+
+export type LogsSamplingRulesReorderCreateSource =
+    (typeof LogsSamplingRulesReorderCreateSource)[keyof typeof LogsSamplingRulesReorderCreateSource]
+
+export const LogsSamplingRulesReorderCreateSource = {
+    Logs: 'logs',
+    Spans: 'spans',
+} as const
 
 export type LogsValuesRetrieveParams = {
     /**
