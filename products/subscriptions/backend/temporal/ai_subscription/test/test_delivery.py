@@ -812,6 +812,13 @@ class TestBuildAITeamsCard:
         assert len([b for b in body if set(b["text"]) == {filler}]) <= TEAMS_REPORT_BLOCK_COUNT
         assert "This report was shortened to fit." in body[-2]["text"]
 
+    def test_inline_code_in_the_report_shows_as_bold(self) -> None:
+        body = self._body("- `Signup conversion` fell `▼ 12%` to `31%` on _November 10_.\n\n```\nraw `x`\n```")
+
+        report = next(block["text"] for block in body if "Signup" in block.get("text", ""))
+        assert report.startswith("- **Signup conversion** fell **▼ 12%** to **31%** on _November 10_.")
+        assert "```\nraw `x`\n```" in report
+
     def test_external_links_in_the_report_are_stripped(self) -> None:
         body = self._body("See [the docs](https://evil.example.com/x) for more.")
 

@@ -20,6 +20,7 @@ from posthog.schema import (
     ExperimentEventExposureConfig,
     ExperimentExposureCriteria,
     ExperimentExposureHealthCheckKey,
+    ExperimentExposureHealthFindingActionKind,
     ExperimentExposureHealthFindingCode,
     ExperimentExposureHealthFindingSeverity,
     ExperimentExposureQuery,
@@ -1668,11 +1669,12 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
             ("reader_of_the_flag", True, None, "split_changed"),
             ("userless_run", False, None, None),
             ("reader_after_the_end", True, datetime(2024, 1, 6, 12, tzinfo=UTC), "split_changed"),
+            ("exposure_action", True, None, "split_changed", True),
         ]
     )
     @time_machine.travel("2024-01-07T12:00:00Z", tick=False)
     def test_srm_names_a_split_change_for_a_reader_of_the_flag_history(
-        self, _name: str, as_user: bool, end_date: datetime | None, subcode: str | None
+        self, _name: str, as_user: bool, end_date: datetime | None, subcode: str | None, exposure_action: bool = False
     ) -> None:
         ff_property = f"$feature/{self.feature_flag.key}"
         # 90/10 before the change on 2024-01-03, and the current 50/50 split after it.
@@ -1700,6 +1702,9 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         )
         flush_persons_and_events()
         self._log_split_change_from_90_10_on_2024_01_03()
+        if exposure_action:
+            action = create_action(name="Flag call", team=self.team, steps_json=[{"event": "$feature_flag_called"}])
+            self.experiment.exposure_criteria = {"exposure_config": ActionsNode(id=action.id).model_dump(mode="json")}
         query = self._running_exposure_query()
         if end_date is not None:
             self.experiment.end_date = end_date
@@ -1711,8 +1716,14 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         ).calculate()
 
         self.assertEqual(
-            [(finding.code, finding.subcode) for finding in response.health_findings or []],
-            [(ExperimentExposureHealthFindingCode.SRM, subcode)],
+            [(finding.code, finding.subcode, finding.actions) for finding in response.health_findings or []],
+            [
+                (
+                    ExperimentExposureHealthFindingCode.SRM,
+                    subcode,
+                    [ExperimentExposureHealthFindingActionKind.MOVE_START_DATE] if exposure_action else [],
+                )
+            ],
         )
 
     @time_machine.travel("2024-01-07T12:00:00Z", tick=False)
@@ -2783,7 +2794,7 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
 
         total_exposures = {"control": 800, "test": 200, MULTIPLE_VARIANT_KEY: 20}
 
-        def _runner(end_date: str | None) -> ExperimentExposuresQueryRunner:
+        def _runner(end_date: str | None, as_of: str | None = None) -> ExperimentExposuresQueryRunner:
             query = ExperimentExposureQuery(
                 kind="ExperimentExposureQuery",
                 experiment_id=experiment.id,
@@ -2791,6 +2802,7 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
                 feature_flag=model_to_dict(feature_flag),
                 start_date=experiment.start_date.isoformat(),
                 end_date=end_date,
+                as_of=as_of,
                 exposure_criteria=experiment.exposure_criteria,
             )
             return ExperimentExposuresQueryRunner(team=self.team, query=query)
@@ -2804,11 +2816,29 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         )
 
         # Query end_date cleared -> reads as running, warning evaluated.
-        risk = _runner(None)._evaluate_bias_risk(total_exposures, MultipleVariantHandling.EXCLUDE)
-        assert risk is not None
-        self.assertGreater(risk.multiple_variant_percentage, 0)
+        for as_of in (None, "2024-01-05T00:00:00+00:00"):
+            risk = _runner(None, as_of)._evaluate_bias_risk(total_exposures, MultipleVariantHandling.EXCLUDE)
+            assert risk is not None
+            self.assertGreater(risk.multiple_variant_percentage, 0)
 
-    def test_date_range_follows_query_not_model(self):
+    @parameterized.expand(
+        [
+            ("end_date_only", datetime(2024, 1, 10), None, datetime(2024, 1, 10)),
+            ("as_of_on_running_experiment", None, datetime(2024, 1, 12), datetime(2024, 1, 12)),
+            ("as_of_before_end_date", datetime(2024, 1, 14), datetime(2024, 1, 12), datetime(2024, 1, 12)),
+            ("as_of_after_end_date", datetime(2024, 1, 10), datetime(2024, 1, 12), datetime(2024, 1, 10)),
+            ("as_of_after_now_clamps_to_now", None, datetime(9999, 12, 31), datetime(2024, 1, 15)),
+            ("as_of_before_start_date_is_ignored", None, datetime(2023, 12, 20), datetime(2024, 1, 15)),
+        ]
+    )
+    @time_machine.travel("2024-01-15T00:00:00Z", tick=False)
+    def test_date_range_follows_query_not_model(
+        self,
+        _name: str,
+        query_end: datetime | None,
+        query_as_of: datetime | None,
+        expected_date_to: datetime,
+    ) -> None:
         # The result is cached under a key hashed from the query (see get_cache_payload), so the window
         # must come from the query — not live model state. A query whose end_date differs from the
         # model's must yield the query's window, or the cache key would describe a window the result
@@ -2819,17 +2849,45 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
             start_date=datetime(2024, 1, 1),
             end_date=datetime(2024, 1, 31),
         )
-        query_end = datetime(2024, 1, 10).replace(tzinfo=ZoneInfo("UTC"))
+        utc = ZoneInfo("UTC")
         query = ExperimentExposureQuery(
             kind="ExperimentExposureQuery",
             experiment_id=experiment.id,
             experiment_name=experiment.name,
             feature_flag=model_to_dict(feature_flag),
             start_date=experiment.start_date.isoformat(),
-            end_date=query_end.isoformat(),
+            end_date=query_end.replace(tzinfo=utc).isoformat() if query_end else None,
+            as_of=query_as_of.replace(tzinfo=utc).isoformat() if query_as_of else None,
             exposure_criteria=experiment.exposure_criteria,
         )
         runner = ExperimentExposuresQueryRunner(team=self.team, query=query)
         date_to = runner._get_date_range().date_to
         assert date_to is not None
-        assert datetime.fromisoformat(date_to) == query_end
+        assert datetime.fromisoformat(date_to) == expected_date_to.replace(tzinfo=utc)
+
+    @parameterized.expand(
+        [
+            ("naive", "2024-01-10T00:00:00", "2024-01-31T00:00:00+00:00"),
+            ("malformed", "not-a-date", "2024-01-31T00:00:00+00:00"),
+            ("naive_end_date", "2024-01-10T00:00:00+00:00", "2024-01-31T00:00:00"),
+        ]
+    )
+    def test_invalid_as_of_is_a_validation_error(self, _name: str, as_of: str, end_date: str) -> None:
+        feature_flag = self.create_feature_flag(key="invalid-as-of")
+        experiment = self.create_experiment(
+            feature_flag=feature_flag,
+            start_date=datetime(2024, 1, 1),
+            end_date=datetime(2024, 1, 31),
+        )
+        query = ExperimentExposureQuery(
+            kind="ExperimentExposureQuery",
+            experiment_id=experiment.id,
+            experiment_name=experiment.name,
+            feature_flag=model_to_dict(feature_flag),
+            start_date=experiment.start_date.isoformat(),
+            end_date=end_date,
+            as_of=as_of,
+            exposure_criteria=experiment.exposure_criteria,
+        )
+        with self.assertRaises(ValidationError):
+            ExperimentExposuresQueryRunner(team=self.team, query=query)

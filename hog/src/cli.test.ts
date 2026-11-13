@@ -117,6 +117,7 @@ describe('hog', () => {
             'api schema',
             'api call',
             'api access',
+            'api refresh',
             'api agents-md',
             'skills',
             'skills list',
@@ -143,6 +144,7 @@ describe('hog', () => {
             'config check',
             'config schema',
             'commands',
+            'feedback',
             ...Object.keys(LEGACY_COMMANDS),
         ])
     })

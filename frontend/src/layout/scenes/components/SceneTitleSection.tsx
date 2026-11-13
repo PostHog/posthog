@@ -52,6 +52,8 @@ export type SceneMainTitleProps = {
      * Optional node rendered inline immediately after the name (e.g. a status tag)
      */
     nameSuffix?: React.ReactNode
+    /** A control right after the name, outside the tags' colour scope. Shown only under the Today layout. */
+    nameAction?: React.ReactNode
     /**
      * null to hide the description,
      * undefined to show the default description

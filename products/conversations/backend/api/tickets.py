@@ -93,7 +93,6 @@ from products.conversations.backend.api.ticket_filters import (
 from products.conversations.backend.cache import (
     get_cached_unread_count,
     invalidate_identity_tickets_cache,
-    invalidate_messages_caches,
     invalidate_tickets_caches,
     invalidate_unread_count_cache,
     set_cached_unread_count,
@@ -509,6 +508,7 @@ class TicketSerializer(UserAccessControlSerializerMixin, TaggedItemSerializerMix
             "github_issue_number",
             "zendesk_ticket_id",
             "intercom_conversation_id",
+            "pylon_issue_id",
             "organization_id",
             "organization_id_source",
             "person",
@@ -541,6 +541,7 @@ class TicketSerializer(UserAccessControlSerializerMixin, TaggedItemSerializerMix
             "github_issue_number",
             "zendesk_ticket_id",
             "intercom_conversation_id",
+            "pylon_issue_id",
             "organization_id",
             "organization_id_source",
             "person",
@@ -563,6 +564,7 @@ class TicketSerializer(UserAccessControlSerializerMixin, TaggedItemSerializerMix
             "intercom_conversation_id": {
                 "help_text": "Intercom conversation id when the ticket was imported from Intercom. Null otherwise."
             },
+            "pylon_issue_id": {"help_text": "Pylon issue id when the ticket was imported from Pylon. Null otherwise."},
             "organization_id": {
                 "help_text": "Customer's PostHog organization group key, resolved at ticket creation. Null when unknown."
             },
@@ -1033,7 +1035,6 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         steps: list[Callable[[], object]] = [
             partial(cancel_open_deliveries_for_tickets, team_id=team_id, ticket_ids=ticket_ids),
             partial(cancel_pending_email_replies_for_tickets, team_id=team_id, ticket_ids=ticket_ids),
-            partial(invalidate_messages_caches, team_id, [str(ticket_id) for ticket_id in ticket_ids]),
             partial(invalidate_tickets_caches, team_id, [t.widget_session_id for t in tickets if t.widget_session_id]),
             partial(invalidate_unread_count_cache, team_id),
             partial(invalidate_identity_tickets_cache, team_id),

@@ -36,6 +36,8 @@ import type {
     PatchedTicketNoteUpdateRequestApi,
     PatchedTicketUpdateRequestApi,
     PatchedTicketViewApi,
+    PylonImportJobApi,
+    PylonImportStartApi,
     SigningSecretApi,
     TicketApi,
     TicketAttachmentApi,
@@ -237,6 +239,37 @@ export const conversationsMacrosUsedCreate = async (
     return apiMutator<TicketMacroApi>(getConversationsMacrosUsedCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getConversationsPylonImportsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/conversations/pylon_imports/`
+}
+
+export const conversationsPylonImportsCreate = async (
+    projectId: string,
+    pylonImportStartApi: PylonImportStartApi,
+    options?: RequestInit
+): Promise<PylonImportJobApi> => {
+    return apiMutator<PylonImportJobApi>(getConversationsPylonImportsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(pylonImportStartApi),
+    })
+}
+
+export const getConversationsPylonImportsStatusRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/conversations/pylon_imports/status/`
+}
+
+export const conversationsPylonImportsStatusRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<PylonImportJobApi> => {
+    return apiMutator<PylonImportJobApi>(getConversationsPylonImportsStatusRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
 

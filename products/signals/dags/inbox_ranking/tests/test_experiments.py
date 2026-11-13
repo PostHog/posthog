@@ -24,6 +24,7 @@ from products.signals.backend.ranking.features import (
     REPORT_FACT_GROUPS,
     REPORT_SCORED_FACTS_EXTRA,
     REPORT_SOURCES_EXTRA,
+    SOURCES_GROUP_FEATURE_NAMES,
     report_fact_matrix,
 )
 from products.signals.backend.ranking.model_store import ONNX_OUTPUT_HEADS_KEY
@@ -575,6 +576,49 @@ def test_a_late_signal_does_not_leak_into_an_earlier_row():
     # The github signal landed on dt=D, after the dt=D-1 row's moment, so only the dt=D row sees it.
     # A report with no signals has zero in every source column.
     assert matrix[columns].values.tolist() == [[1, 0, 0, 1, 1], [1, 1, 0, 2, 1], [0, 0, 0, 0, 0]]
+
+
+def test_the_serving_sources_columns_equal_the_training_ones_for_the_same_live_signals():
+    moment = datetime.datetime(2026, 10, 20, 12, tzinfo=datetime.UTC)
+    landed = pd.Timestamp("2026-10-20T09:00:00", tz="UTC")
+    log = pd.DataFrame(
+        [
+            ("s1", "r1", "error_tracking", False, landed),
+            ("s2", "r1", "a_new_product", False, landed),
+            ("s3", "r1", None, False, landed),
+            ("s4", "r2", "github", False, landed),
+            # Retracted later, so it is not live.
+            ("s5", "r2", "zendesk", False, landed),
+            ("s5", "r2", "zendesk", True, landed + pd.Timedelta(hours=1)),
+            # Regrouped from r3 to r2, so r3 has no live signal.
+            ("s6", "r3", "linear", False, landed),
+            ("s6", "r2", "linear", False, landed + pd.Timedelta(hours=1)),
+        ],
+        columns=["signal_id", "report_id", "source_product", "is_deleted", "embedding_inserted_at"],
+    ).assign(team_id=1)
+    live = pd.DataFrame(
+        [("r1", "error_tracking"), ("r1", "a_new_product"), ("r1", None), ("r2", "github"), ("r2", "linear")],
+        columns=["report_id", "source_product"],
+    )
+    vectors = pd.DataFrame(
+        {
+            "embedding_small": [np.zeros(EMBEDDING_DIMENSIONS, dtype=np.float32)] * 3,
+            "embedding_inserted_at": [landed] * 3,
+        },
+        index=pd.Index(["r1", "r2", "r3"], name="report_id"),
+    )
+    rows = pd.DataFrame({"priority": [None] * 3}, index=vectors.index)
+    feature_set = REPORT_EMBEDDINGS_PRIORITY_SOURCES_FEATURE_SET
+
+    training = feature_set.build_matrix(
+        rows, {REPORT_EMBEDDINGS_EXTRA: vectors, REPORT_SOURCES_EXTRA: log}, as_of=moment
+    )
+    serving = feature_set.build_matrix(rows, {REPORT_EMBEDDINGS_EXTRA: vectors, REPORT_SOURCES_EXTRA: live})
+
+    columns = list(SOURCES_GROUP_FEATURE_NAMES)
+    pd.testing.assert_frame_equal(serving[columns], training[columns])
+    picked = ["source_error_tracking", "source_github", "source_linear", "source_other", "source_count", "has_sources"]
+    assert training[picked].values.tolist() == [[1, 0, 0, 1, 3, 1], [0, 1, 1, 0, 2, 1], [0, 0, 0, 0, 0, 0]]
 
 
 _REPORT_FACTS = {
