@@ -12690,13 +12690,13 @@ Today (4): `people`, `person_updates`, `show_updates`, `shows`
 
 Diffed against: <https://www.tvmaze.com/api>
 
-- [ ] `GET /shows/{id}/episodes` — Episodes are the primary child object of every synced show and the grain most analysis needs (high)
-- [ ] `GET /shows/{id}/cast` — Cast membership joining the shows and people tables we already sync, including character records (high)
-- [ ] `GET /shows/{id}/seasons` — Lookup table resolving the season IDs that episodes reference (high)
+- [x] `GET /shows/{id}/episodes` — Episodes are the primary child object of every synced show and the grain most analysis needs (high). Added as `episodes` (fan-out over `shows`, with `specials=1` so specials are included).
+- [x] `GET /shows/{id}/cast` — Cast membership joining the shows and people tables we already sync, including character records (high). Added as `cast` (fan-out over `shows`, keyed on show, person and character).
+- [x] `GET /shows/{id}/seasons` — Lookup table resolving the season IDs that episodes reference (high). Added as `seasons` (fan-out over `shows`). Episodes carry the season number, not the season ID, so join on `show_id` and `number`.
 - [ ] `GET /shows/{id}/crew` — Crew membership with role type, the production-side counterpart of cast (medium)
 - [ ] `GET /people/{id}/castcredits and /people/{id}/crewcredits` — Person-to-show credit history, the reverse of the cast/crew join and the natural entry point when starting from people (medium)
 - [ ] `GET /schedule, /schedule/web, /schedule/full` — Airing schedule by date and country - the time-series view of what is broadcasting (medium)
-- [ ] `GET /seasons/{id}/episodes` — Episode listing keyed by season, cheaper than per-show fan-out when seasons are already synced (medium)
+- ~~`GET /seasons/{id}/episodes` — Episode listing keyed by season, cheaper than per-show fan-out when seasons are already synced (medium)~~ — skipped: it returns the same rows as `episodes` (`/shows/{id}/episodes?specials=1`) and needs one request per season instead of one per show, so it is not cheaper
 - [ ] `GET /episodes/{id}/guestcast and /episodes/{id}/guestcrew` — Per-episode guest appearance membership not covered by show-level cast (low)
 - [ ] `GET /shows/{id}/akas` — Alternative show titles per country, a lookup for cross-region matching (low)
 - [ ] `GET /shows/{id}/images` — Artwork records with type and resolution metadata (low)
