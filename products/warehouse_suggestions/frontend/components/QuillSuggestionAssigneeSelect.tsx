@@ -24,6 +24,16 @@ import { EDIT_ACCESS_REASON, SuggestionAssigneeSelectProps } from './SuggestionA
 
 const UNASSIGNED = 'unassigned'
 
+const TRIGGER_PROPS = {
+    column: {
+        variant: 'default',
+        size: 'sm',
+        className: 'max-w-full justify-start font-normal',
+        tooltip: 'Change assignee',
+    },
+    inline: { variant: 'link-muted', size: 'inline', className: 'text-xs font-normal' },
+} as const
+
 function ColumnTriggerLabel({ assignee }: Pick<SuggestionAssigneeSelectProps, 'assignee'>): JSX.Element {
     if (!assignee) {
         return <span className="text-muted-foreground">Unassigned</span>
@@ -92,12 +102,9 @@ export function QuillSuggestionAssigneeSelect({
         >
             <Button
                 ref={triggerRef}
-                variant={column ? 'default' : 'link-muted'}
-                size={column ? 'sm' : 'inline'}
-                className={column ? 'max-w-full justify-start font-normal' : 'text-xs font-normal'}
+                {...TRIGGER_PROPS[column ? 'column' : 'inline']}
                 loading={!!actionsInFlight[suggestionId]}
                 disabledReason={canAct ? undefined : EDIT_ACCESS_REASON}
-                tooltip={column ? 'Change assignee' : undefined}
                 onClick={() => setPickerOpen(!open)}
                 data-attr="warehouse-suggestions-assign"
             >

@@ -1,15 +1,15 @@
-import { ReactNode } from 'react'
+import { ReactNode, useContext } from 'react'
 
 import { Tooltip, TooltipContent, TooltipTrigger, cn } from '@posthog/quill'
 
 import { SavingHighlight } from '../suggestionCopy'
 import { QuillSuggestionAssigneeSelect } from './QuillSuggestionAssigneeSelect'
+import { SuggestionAssigneeColumnContext } from './suggestionAssigneeColumnContext'
 import { SuggestionAssigneeSelectProps } from './SuggestionAssigneeSelect'
 import { SuggestionRowProps } from './SuggestionRow'
 
 export interface QuillRowSelectionProps {
     selection?: ReactNode
-    assigneeColumn?: boolean
 }
 
 export const QUILL_SAVING_COLUMNS_CLASS =
@@ -62,11 +62,8 @@ function QuillHighlightAmount({ highlight }: { highlight: SavingHighlight }): JS
     )
 }
 
-function QuillAssigneeColumnCell({
-    assigneeColumn,
-    ...selectProps
-}: SuggestionAssigneeSelectProps & Pick<QuillRowSelectionProps, 'assigneeColumn'>): JSX.Element | null {
-    if (!assigneeColumn) {
+function QuillAssigneeColumnCell(selectProps: SuggestionAssigneeSelectProps): JSX.Element | null {
+    if (!useContext(SuggestionAssigneeColumnContext)) {
         return null
     }
     return (
@@ -87,8 +84,8 @@ export function QuillSuggestionRow({
     actions,
     leaving,
     selection,
-    assigneeColumn,
 }: SuggestionRowProps & QuillRowSelectionProps): JSX.Element {
+    const assigneeColumn = useContext(SuggestionAssigneeColumnContext)
     return (
         <div
             data-suggestion-row={suggestionId}
@@ -146,12 +143,7 @@ export function QuillSuggestionRow({
                             )}
                         </div>
                     )}
-                    <QuillAssigneeColumnCell
-                        suggestionId={suggestionId}
-                        assignee={assignee}
-                        canAct={canAct}
-                        assigneeColumn={assigneeColumn}
-                    />
+                    <QuillAssigneeColumnCell suggestionId={suggestionId} assignee={assignee} canAct={canAct} />
                     <div
                         data-suggestion-actions
                         className={cn(

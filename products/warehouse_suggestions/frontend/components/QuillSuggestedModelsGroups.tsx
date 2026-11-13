@@ -10,6 +10,7 @@ import { QuillSuggestedModelsSection } from './QuillSuggestedModelsSection'
 import { QuillRowSelectionProps } from './QuillSuggestionRow'
 import { QuillUnmaterializeSuggestionRow } from './QuillUnmaterializeSuggestionRow'
 import { SuggestedModelsGroupsProps } from './SuggestedModelsGroups'
+import { SuggestionAssigneeColumnContext } from './suggestionAssigneeColumnContext'
 
 const ROW_FOR_KIND: Record<
     string,
@@ -32,16 +33,15 @@ export function QuillSuggestedModelsGroups({
     windowDays,
     renderSelection,
     renderGroupSelection,
-    assigneeColumn,
+    assigneeColumn = false,
 }: QuillSuggestedModelsGroupsProps): JSX.Element {
     return (
-        <>
+        <SuggestionAssigneeColumnContext.Provider value={assigneeColumn}>
             {groups.map((group, index) => (
                 <QuillSuggestedModelsSection
                     key={group.kind}
                     {...SUGGESTED_MODEL_SECTIONS[group.kind]}
                     selection={renderGroupSelection?.(group)}
-                    assigneeColumn={assigneeColumn}
                     showsAssigneeLabel={index === 0}
                 >
                     {group.suggestions.map((suggestion) => {
@@ -52,12 +52,11 @@ export function QuillSuggestedModelsGroups({
                                 suggestion={suggestion}
                                 windowDays={windowDays}
                                 selection={renderSelection?.(suggestion)}
-                                assigneeColumn={assigneeColumn}
                             />
                         )
                     })}
                 </QuillSuggestedModelsSection>
             ))}
-        </>
+        </SuggestionAssigneeColumnContext.Provider>
     )
 }

@@ -131,6 +131,12 @@ describe('warehouseSuggestionsSectionLogic', () => {
         expect(logic.values.filtersActive).toBe(false)
     })
 
+    it('counts no suggestion as assigned to me while the current user is unknown', () => {
+        userLogic.actions.loadUserSuccess(null)
+
+        expect(logic.values.assigneeCounts.me).toEqual(0)
+    })
+
     it.each<[string, Parameters<typeof logic.actions.setAcceptChoices>[0], Record<string, unknown>]>([
         ['each view keeps its suggested interval', {}, { refresh_interval_seconds: 86400 }],
         [

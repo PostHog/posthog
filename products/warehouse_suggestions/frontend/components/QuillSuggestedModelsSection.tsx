@@ -1,3 +1,5 @@
+import { useContext } from 'react'
+
 import { Heading, Text, cn } from '@posthog/quill'
 
 import {
@@ -7,6 +9,11 @@ import {
     QuillRowSelectionProps,
 } from './QuillSuggestionRow'
 import { SuggestedModelsSectionProps } from './SuggestedModelsSection'
+import { SuggestionAssigneeColumnContext } from './suggestionAssigneeColumnContext'
+
+export interface QuillSuggestedModelsSectionProps extends SuggestedModelsSectionProps, QuillRowSelectionProps {
+    showsAssigneeLabel?: boolean
+}
 
 export function QuillSuggestedModelsSection({
     title,
@@ -14,9 +21,9 @@ export function QuillSuggestedModelsSection({
     showsSaving = true,
     children,
     selection,
-    assigneeColumn,
     showsAssigneeLabel = false,
-}: SuggestedModelsSectionProps & QuillRowSelectionProps & { showsAssigneeLabel?: boolean }): JSX.Element {
+}: QuillSuggestedModelsSectionProps): JSX.Element {
+    const assigneeColumn = useContext(SuggestionAssigneeColumnContext)
     return (
         <section aria-label={title}>
             <div

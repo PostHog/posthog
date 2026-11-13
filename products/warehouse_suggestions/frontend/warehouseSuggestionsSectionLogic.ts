@@ -92,7 +92,7 @@ function matchesAssignee(
 ): boolean {
     return (
         assignee === 'anyone' ||
-        (assignee === 'me' && suggestion.assignee?.id === currentUserId) ||
+        (assignee === 'me' && currentUserId !== undefined && suggestion.assignee?.id === currentUserId) ||
         (assignee === 'unassigned' && !suggestion.assignee)
     )
 }

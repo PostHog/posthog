@@ -17,7 +17,6 @@ export function QuillMaterializeSuggestionRow({
     suggestion,
     windowDays,
     selection,
-    assigneeColumn,
 }: MaterializeSuggestionRowProps & QuillRowSelectionProps): JSX.Element | null {
     const { actionsInFlight, leavingSuggestionIds } = useValues(warehouseSuggestionsLogic)
     const { openMaterializeModal } = useActions(warehouseSuggestionsLogic)
@@ -34,7 +33,6 @@ export function QuillMaterializeSuggestionRow({
         <QuillSuggestionRow
             suggestionId={suggestion.id}
             selection={selection}
-            assigneeColumn={assigneeColumn}
             assignee={suggestion.assignee}
             canAct={suggestion.can_act}
             leaving={leaving}
