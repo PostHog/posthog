@@ -22,9 +22,8 @@ export const SELF_LOOP_DEPTH_PROPERTY = '$hog_function_self_loop_depth'
 // Max self-capture hops, for a single destination, before its loop is broken.
 export const SELF_LOOP_MAX_DEPTH = 10
 
-// Capture v1 routes. They take the project token only from an `Authorization: Bearer` header.
-// `$ai_*` events re-enter the event pipeline too, because ingestion writes them to the events
-// topic that destinations consume, so the AI route can form a loop as well.
+// Capture v1 routes, which take the project token only from an `Authorization: Bearer` header.
+// The AI route can loop too, because ingestion writes `$ai_*` events to the topic destinations consume.
 const V1_INGEST_PATHS = new Set(['/i/v1/analytics/events', '/i/v1/ai/events'])
 
 // Only these paths re-enter the event pipeline. Observability (`/i/v1/logs`) and the
@@ -41,7 +40,6 @@ export const selfLoopGuardCounter = new Counter({
     labelNames: ['mode', 'action'],
 })
 
-// The ingest path a URL targets, or null when it is not a PostHog ingestion endpoint.
 const ingestPath = (urlString: string): string | null => {
     try {
         const url = new URL(urlString)
@@ -59,8 +57,7 @@ const ingestPath = (urlString: string): string | null => {
 
 export const isPostHogIngestUrl = (urlString: string): boolean => ingestPath(urlString) !== null
 
-// A legacy event's own token, read the way capture reads it (`RawEvent::extract_token`): its
-// `token`, `$token` or `api_key` field, else `properties.token`.
+// Mirrors capture's `RawEvent::extract_token`: the event's token field, else `properties.token`.
 const eventToken = (event: unknown): string | null => {
     if (!event || typeof event !== 'object' || Array.isArray(event)) {
         return null
@@ -79,12 +76,11 @@ const eventToken = (event: unknown): string | null => {
     return null
 }
 
-// The credential a legacy capture request authenticates with - a top-level body field, the
-// event's own token, or an `api_key`/`token` query parameter. A top-level array of events (the
-// posthog-js shape) counts only when exactly one distinct token appears, because capture rejects
-// one with several (`extract_token`). Deliberately does NOT look at `$lib_token`
-// (SDK metadata auto-attached to event properties) or `Authorization` headers: legacy capture
-// ingests with neither, so they carry a token without expressing intent to ingest as that project.
+// The credential a legacy capture request authenticates with - a top-level body field, an event's
+// own token, or an `api_key`/`token` query parameter. An array body counts only when exactly one
+// distinct token appears, because capture rejects several. Deliberately does NOT look at `$lib_token`
+// (SDK metadata auto-attached to event properties) or `Authorization` headers, both of
+// which carry a token without expressing intent to ingest as that project.
 export const extractRequestApiKey = (body: string | null | undefined, urlString: string): string | null => {
     if (body) {
         try {
@@ -118,8 +114,7 @@ export const extractRequestApiKey = (body: string | null | undefined, urlString:
     }
 }
 
-// The token in an `Authorization: Bearer` header, read the way capture v1 reads it: the header
-// name and the scheme are case-insensitive, and the token is trimmed.
+// Mirrors capture v1: the header name and the scheme are case-insensitive, and the token is trimmed.
 export const extractBearerToken = (headers: Record<string, string> | null | undefined): string | null => {
     if (!headers) {
         return null
@@ -150,7 +145,6 @@ export const isSelfReferentialIngestFetch = (input: {
     if (path === null) {
         return false
     }
-    // Each capture version authenticates one way, so read the credential the path ingests with.
     const requestToken = V1_INGEST_PATHS.has(path)
         ? extractBearerToken(input.headers)
         : extractRequestApiKey(input.body, input.url)
@@ -215,7 +209,6 @@ export const injectSelfLoopDepth = (
         event.properties = properties
     }
     const obj = parsed as Record<string, unknown>
-    // A batch object holds its events in `batch`; a posthog-js body is a top-level array of them.
     const entries = Array.isArray(parsed) ? parsed : Array.isArray(obj.batch) ? obj.batch : null
     if (entries) {
         for (const entry of entries) {

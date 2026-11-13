@@ -40,8 +40,6 @@ const batchBody = (events: string[], apiKey = OWN_TOKEN): string =>
         batch: events.map((event) => ({ event, distinct_id: 'synthetic_user_1', properties: {} })),
     })
 
-// The capture v1 shape: the token travels in the Authorization header, and each event carries
-// its own options.
 const v1Body = (events: string[]): string =>
     JSON.stringify({
         created_at: '2026-01-01T00:00:00Z',
@@ -55,7 +53,6 @@ const v1Body = (events: string[]): string =>
         })),
     })
 
-// The shape posthog-js posts to /e: a top-level array, each event carrying its own token.
 const arrayBody = (tokens: (string | null)[], where: 'token' | 'properties' = 'token'): string =>
     JSON.stringify(
         tokens.map((token, i) =>
@@ -190,9 +187,6 @@ describe('self-loop-guard', () => {
                 args: { body: JSON.stringify({ event: 'alpha' }) },
                 expected: false,
             },
-            // Legacy capture also takes the token from each event: its `token`, `$token` or
-            // `api_key` field, else `properties.token`. An array body counts only when exactly one
-            // distinct token appears, as capture's `extract_token` requires.
             {
                 case: 'posthog-js array body with the project own token on each event',
                 args: { url: 'https://us.i.posthog.com/e/', body: arrayBody([OWN_TOKEN, OWN_TOKEN]) },
@@ -209,9 +203,7 @@ describe('self-loop-guard', () => {
                 expected: true,
             },
             {
-                // Capture drops `$performance_event` entries before it reads the tokens, so the
-                // other token never reaches its check and the request lands in this project.
-                case: 'array body whose only other token is on a $performance_event',
+                case: 'array body whose only other token is on a $performance_event, which capture drops first',
                 args: {
                     url: 'https://us.i.posthog.com/e/',
                     body: JSON.stringify([
@@ -236,7 +228,6 @@ describe('self-loop-guard', () => {
                 args: { body: JSON.stringify({ event: 'alpha', properties: { token: OWN_TOKEN } }) },
                 expected: true,
             },
-            // Capture v1 authenticates only with the Authorization header.
             {
                 case: 'v1 batch with the project own token as a Bearer header',
                 args: { url: V1_URL, body: v1Body(['e1', 'e2']), headers: bearer(OWN_TOKEN) },
@@ -302,7 +293,6 @@ describe('self-loop-guard', () => {
             const before = entries(parseJSON(body))
             const after = entries(parseJSON(injectSelfLoopDepth(body, FN, 5) as string))
             expect(after.map((e: any) => e.properties[SELF_LOOP_DEPTH_PROPERTY][FN])).toEqual([5, 5])
-            // Everything outside the depth map, such as v1 options or per-event tokens, is sent as the destination built it.
             expect(after.map((e: any) => [e.options, e.token])).toEqual(before.map((e: any) => [e.options, e.token]))
         })
 

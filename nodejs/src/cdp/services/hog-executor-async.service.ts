@@ -433,9 +433,8 @@ export class HogExecutorAsyncService {
         // endpoint re-enters the pipeline and can re-trigger this same function. The
         // ingest-URL check gates the team lookup so external fetches (the common case) pay
         // nothing, and the whole block fails open - the guard must never break a destination
-        // it was only meant to protect. It runs after the secret headers are merged, because
-        // capture v1 takes the project token from an Authorization header that a destination
-        // may keep there, and before signing, because it rewrites the body the signatures cover.
+        // it was only meant to protect. It runs after the secret headers merge, where a capture v1
+        // token may sit, and before signing, because the signatures cover the body it rewrites.
         if (isPostHogIngestUrl(params.url)) {
             try {
                 const team = await this.deps.teamManager.getTeam(invocation.teamId)

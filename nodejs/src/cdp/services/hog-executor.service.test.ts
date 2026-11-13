@@ -2674,9 +2674,6 @@ describe('Hog Executor', () => {
                     ],
                 })
 
-            // The ways a destination can post back into its own project. Capture v1 takes the
-            // token from the Authorization header, which a webhook may keep in its encrypted
-            // secret headers, and the event properties sit inside `batch`.
             const SELF_POSTS = {
                 legacy: {
                     request: () => ({ url: INGEST_URL, method: 'POST', body: ownTokenCaptureBody() }),
@@ -2841,7 +2838,6 @@ describe('Hog Executor', () => {
 
                     const result = await executor.executeFetch(invocation)
 
-                    // Blocked: error set, finished, no fetch attempted, metric moved.
                     expect(result.error).toBeInstanceOf(Error)
                     expect(result.finished).toBe(true)
                     expect(mockRequest).not.toHaveBeenCalled()
