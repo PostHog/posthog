@@ -32,6 +32,7 @@ Then, in every v1 SDK:
 
 - `before_send` runs last. What it returns is sent.
 - After `before_send`, the SDK removes each legacy `$` option property from `properties` and copies its value into the matching option only when that option is missing or null. An option set at any layer wins over a legacy property set at any layer.
+- On identify-style events (`$identify`, `$create_alias`, `$merge_dangerously`, `$groupidentify`, `$set`, `$set_once`), global, context and registered person-processing values don't apply: server SDKs default `process_person_profile` to `true` unless the SDK generated the distinct id, and client SDKs add no default.
 
 The spec's requirements "Server SDKs build every event in one layer order", "Caller-supplied event properties take precedence" and "Per-event options replace the legacy option properties" give the details.
 

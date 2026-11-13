@@ -5,7 +5,7 @@ This file describes the wire contract and how capture hands events to the rest o
 The legacy endpoints (`/batch`, `/e`, `/capture`, `/i/v0/*`) take a different shape. They still serve older SDKs and stay supported, but new senders use v1.
 
 The cross-SDK contract is the `capture` spec in [PostHog/sdk-specs](https://github.com/PostHog/sdk-specs/blob/main/openspec/specs/capture/spec.md).
-Public docs: [capture v1 API](https://posthog.com/docs/api/capture-v1) and [SDK upgrade guide](https://posthog.com/docs/libraries/capture-v1).
+Public docs: [capture v1 API](https://posthog.com/docs/api/capture-v1) and the per-SDK migration guides ([Python](https://posthog.com/docs/libraries/python/migration), [Go](https://posthog.com/docs/libraries/go/migration), [Rust](https://posthog.com/docs/libraries/rust/migration), [Node.js](https://posthog.com/docs/libraries/node/migration)).
 For changes to this code, see the [`building-on-capture-v1`](../../../../.agents/skills/building-on-capture-v1/SKILL.md) skill.
 
 ## Endpoints
@@ -62,10 +62,11 @@ Capture checks each event on its own. A 200 carries one result per event uuid ([
 - `result` is `ok`, `drop`, `warning` (stored, but capture turned person processing off: do not resend) or `retry` (not stored: resend the same event with the same uuid).
 - `details` names the reason. The public [result details](https://posthog.com/docs/api/capture-v1#result-details) table lists the common values. In code, new values are constants in [`analytics/constants.rs`](analytics/constants.rs); quota names come from [`quota_limiter_shim.rs`](quota_limiter_shim.rs), and older values are string literals in [`analytics/`](analytics/).
 - A problem with one event is a per-event `drop`, not a failed request: a missing or too long `event`, a missing or too large `distinct_id`, a bad `timestamp`, `properties` that is not an object, unreadable `options`, or an event that is too big.
+- An event over its product's quota is a per-event `drop` (`events_over_quota`, `exceptions_over_quota`, `survey_responses_over_quota` or `llm_events_over_quota`), and exception, survey and AI events count only against their own product's quota.
 - `duplicates_dropped` counts later copies of the same uuid in the batch.
 - Any `retry` result adds `Retry-After: 1`.
 
-A whole-request error ([`error.rs`](error.rs)) is a 400 (missing or invalid headers, a body that is not valid JSON, an empty or invalid batch, an invalid `uuid`), 401, 402 (billing limit, no `Retry-After`), 404, 408, 413, 415 or 5xx.
+A whole-request error ([`error.rs`](error.rs)) is a 400 (missing or invalid headers, a body that is not valid JSON, an empty or invalid batch, an invalid `uuid`), 401, 402 (quotas leave no event in the request to store, no `Retry-After`), 404, 408, 413, 415 or 5xx.
 408 and 5xx carry `Retry-After`.
 Capture never returns 429: rate limits are per-event results. The network edge in front of capture can still return 429.
 

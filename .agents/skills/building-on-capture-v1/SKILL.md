@@ -20,7 +20,7 @@ Sources of truth, in the order to read them:
 
 - [`rust/capture/src/v1/README.md`](../../../rust/capture/src/v1/README.md): the request, response and options contract, and how capture hands events to ingestion.
 - The `capture` spec in [PostHog/sdk-specs](https://github.com/PostHog/sdk-specs/blob/main/openspec/specs/capture/spec.md): what every v1 SDK does.
-- Public docs: the [capture v1 API](https://posthog.com/docs/api/capture-v1) for HTTP senders, and the [SDK upgrade guide](https://posthog.com/docs/libraries/capture-v1) for SDK users.
+- Public docs: the [capture v1 API](https://posthog.com/docs/api/capture-v1) for HTTP senders, and the per-SDK migration guides ([Python](https://posthog.com/docs/libraries/python/migration), [Go](https://posthog.com/docs/libraries/go/migration), [Rust](https://posthog.com/docs/libraries/rust/migration), [Node.js](https://posthog.com/docs/libraries/node/migration)) for SDK users.
 
 ## Send events from PostHog code
 
@@ -57,7 +57,7 @@ Ingestion then writes the matching `$` property, so products and queries read th
 
 Any v1 sender can put any string key with any JSON value in `options`, as with `properties`.
 Every v1 SDK passes unknown option keys through unchanged, so a new option needs no SDK change.
-The v1 SDKs move the four legacy `$` properties into options under the option names (see the mapping in the [SDK upgrade guide](https://posthog.com/docs/libraries/capture-v1#event-options-replace-legacy-option-properties) and the [sdk-specs capture spec](https://github.com/PostHog/sdk-specs/blob/main/openspec/specs/capture/spec.md#requirement-per-event-options-replace-the-legacy-option-properties)).
+The v1 SDKs move the four legacy `$` properties into options under the option names (see the mapping in the [capture v1 API docs](https://posthog.com/docs/api/capture-v1#legacy-option-properties) and the [sdk-specs capture spec](https://github.com/PostHog/sdk-specs/blob/main/openspec/specs/capture/spec.md#requirement-per-event-options-replace-the-legacy-option-properties)).
 A new option has no legacy property: capture relays it in the Kafka message, and ingestion writes it into `properties` when later services need it.
 
 Options are costly to add.
