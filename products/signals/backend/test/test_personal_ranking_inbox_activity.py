@@ -86,7 +86,9 @@ class TestInboxActivityBlock(SimpleTestCase):
 
     def test_facts_below_the_minimum_strength_stay_out(self) -> None:
         inbox = InboxActivity(
-            actions=(InboxAction(report_id="r1", title="Checkout drops", type="view", first_at=_at(3), last_at=_at(1)),),
+            actions=(
+                InboxAction(report_id="r1", title="Checkout drops", type="view", first_at=_at(3), last_at=_at(1)),
+            ),
             artefacts=(_acted("r2", "Export timeouts", "work_claim", days_ago=2),),
         )
 
