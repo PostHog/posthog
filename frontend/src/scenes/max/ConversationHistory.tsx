@@ -54,7 +54,7 @@ export function ConversationHistory({ sidePanel = false, compact = false }: Conv
 
     return (
         <div
-            className="@container/chat-history flex flex-col gap-1 w-full self-center px-4 py-4 grow max-w-screen-lg"
+            className="@container/chat-history flex flex-col gap-0.5 w-full self-center px-4 py-4 grow max-w-screen-lg"
             data-attr="max-conversation-history"
         >
             {conversationHistory.length > 0 ? (
@@ -69,13 +69,13 @@ export function ConversationHistory({ sidePanel = false, compact = false }: Conv
                 ))
             ) : conversationHistoryLoading ? (
                 <>
-                    <LemonSkeleton className="h-10" />
-                    <LemonSkeleton className="h-10 opacity-80" />
-                    <LemonSkeleton className="h-10 opacity-60" />
-                    <LemonSkeleton className="h-10 opacity-40" />
-                    <LemonSkeleton className="h-10 opacity-20" />
-                    <LemonSkeleton className="h-10 opacity-10" />
-                    <LemonSkeleton className="h-10 opacity-5" />
+                    <LemonSkeleton className="h-8" />
+                    <LemonSkeleton className="h-8 opacity-80" />
+                    <LemonSkeleton className="h-8 opacity-60" />
+                    <LemonSkeleton className="h-8 opacity-40" />
+                    <LemonSkeleton className="h-8 opacity-20" />
+                    <LemonSkeleton className="h-8 opacity-10" />
+                    <LemonSkeleton className="h-8 opacity-5" />
                 </>
             ) : (
                 <div className="flex items-center flex-1">
@@ -119,7 +119,7 @@ function ConversationCard({
 }: ConversationCardProps): JSX.Element {
     return (
         <Link
-            className="px-3 py-1 flex flex-row rounded-lg gap-2 w-full min-h-10 items-center justify-between text-sm text-primary hover:text-accent-hover hover:bg-fill-button-tertiary-hover active:text-accent-active"
+            className="px-3 py-0.5 flex flex-row rounded-lg gap-2 w-full min-h-8 items-center justify-between text-sm text-primary hover:text-accent-hover hover:bg-fill-button-tertiary-hover active:text-accent-active"
             data-attr="max-open-conversation"
             to={combineUrl(urls.ai(conversation.id), { from: 'history' }).url}
             onClick={(e) => {
