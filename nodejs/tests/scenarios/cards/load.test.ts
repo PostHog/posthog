@@ -8,9 +8,13 @@ import { z } from 'zod'
 const definitions: Definitions = {
     ...DEFINITIONS,
     valves: [
-        { name: 'role.kill', params: z.object({}).strict() },
-        { name: 'pg.drop_connections', params: z.object({ share: z.number() }).strict() },
-        { name: 'ses.reject', params: z.object({ type: z.enum(['bounce', 'rejected']), share: z.number() }).strict() },
+        ...DEFINITIONS.valves,
+        { name: 'pg.drop_connections', params: z.object({ share: z.number() }).strict(), target: z.string() },
+        {
+            name: 'ses.reject',
+            params: z.object({ type: z.enum(['bounce', 'rejected']), share: z.number() }).strict(),
+            target: z.string(),
+        },
     ],
     invariants: [...DEFINITIONS.invariants, { name: 'bounced_suppressed', params: z.object({}).strict() }],
     measurements: [{ name: 'role_cpu_seconds', params: z.object({}).strict() }],
@@ -110,6 +114,23 @@ describe('load', () => {
             { ...card, valves: [{ ...emailWorkerKill, valve: 'pg.drop_connections', dose: { share: 'all' } }] },
             undefined,
             'valves.0.dose.share: ',
+        ],
+        [
+            'a kill aimed at something that is not a role',
+            { ...card, valves: [{ ...emailWorkerKill, target: 'postgres' }] },
+            undefined,
+            'valves.0.target: ',
+        ],
+        [
+            'running_on_queue on a queue the probe does not count',
+            {
+                ...card,
+                valves: [
+                    { ...emailWorkerKill, when: { name: 'running_on_queue', params: { queue: 'hog', atLeast: 1 } } },
+                ],
+            },
+            undefined,
+            'valves.0.when.params.queue: ',
         ],
         [
             'both at and when',

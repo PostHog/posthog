@@ -40,7 +40,12 @@ export interface Judge {
     evidence(): { journal: JournalEntry[]; truth: TruthRecord[] }
 }
 
-export type JudgeOptions = { edgeUrl: string; probe: CyclotronProbe; pollMs?: number; now?: () => number }
+export type JudgeOptions = {
+    edgeUrl: string
+    probe: Pick<CyclotronProbe, 'unfinishedJobs'>
+    pollMs?: number
+    now?: () => number
+}
 
 export function createJudge({ edgeUrl, probe, pollMs = 1000, now = Date.now }: JudgeOptions): Judge {
     let journal: JournalEntry[] = []

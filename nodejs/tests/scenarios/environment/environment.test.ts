@@ -31,7 +31,16 @@ import { isPortFree } from '~/tests/helpers/service-process'
 import { CdpRole } from '../cards'
 import { Environment, createEnvironment } from './environment'
 import * as processes from './processes'
-import { ProcEntry, holdRunLock, lockAddress, planCleanup, readProcs, strangerConflict, terminate } from './processes'
+import {
+    ProcEntry,
+    holdRunLock,
+    lockAddress,
+    planCleanup,
+    processState,
+    readProcs,
+    strangerConflict,
+    terminate,
+} from './processes'
 import { ROLE_PORTS, Role, consumerGroupsOf, roleSpecs, secretsOf } from './roles'
 import {
     SES_RATE_LIMIT_KEY,
@@ -835,6 +844,49 @@ describe('scenario environment', () => {
             }
         }, 15_000)
 
+        const blockEventLoopUntilZombie = (pid: number): void => {
+            const deadline = Date.now() + 10_000
+            while (processState(pid) !== 'Z') {
+                if (Date.now() > deadline) {
+                    throw new Error(`${pid} did not become a zombie within 10 s`)
+                }
+                Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10)
+            }
+        }
+
+        it('refuses to kill a role that something else killed before its exit was reported', async () => {
+            const killedElsewhere = createSupervisor({
+                command: process.execPath,
+                args: ['-e', 'setInterval(() => {}, 1000)'],
+                cwd: os.tmpdir(),
+                logDir: mkdtempSync(path.join(tempRoot, 'logs-')),
+                graceMs: 1000,
+                restartBackoffMs: 60_000,
+            })
+            const killedTag = `killed-${process.pid}`
+            const [spec] = roleSpecs(process.env, EDGE, secretsOf({}), STATE_DIR)
+            try {
+                await killedElsewhere.start([{ ...spec, env: { ...spec.env, SCENARIO_TEST_TAG: killedTag } }])
+                const [{ pid }] = readProcs().filter((entry) =>
+                    entry.environ?.includes(`SCENARIO_TEST_TAG=${killedTag}`)
+                )
+                process.kill(pid, 'SIGKILL')
+                blockEventLoopUntilZombie(pid)
+
+                await expect(killedElsewhere.kill(spec.role, 2000)).rejects.toThrow(`${spec.role} is not running`)
+                await waitForExpect(
+                    () =>
+                        expect(killedElsewhere.exits()).toEqual([
+                            expect.objectContaining({ role: spec.role, signal: 'SIGKILL', byValve: false }),
+                        ]),
+                    5000,
+                    20
+                )
+            } finally {
+                await killedElsewhere.stop()
+            }
+        }, 15_000)
+
         it('records a role it cannot start again and keeps retrying until it starts', async () => {
             const cwd = mkdtempSync(path.join(tempRoot, 'cwd-'))
             const exiting = createSupervisor({
@@ -1354,6 +1406,25 @@ describe('scenario environment', () => {
                 expect(Number(await answer.text())).not.toBe(killed)
             }, 15_000)
             expect(environment.exits()).toEqual([expect.objectContaining({ role, signal: 'SIGKILL', byValve: false })])
+        }, 30_000)
+
+        it('kills a role on a valve, sees the old process gone, records the exit as the valve and starts it again', async () => {
+            const role = 'cdp-cyclotron-worker-email'
+            environment = environmentOf()
+            await environment.up()
+            const health = `http://127.0.0.1:${ROLE_PORTS[role]}/_health`
+            const killed = Number(await (await internalFetch(health)).text())
+
+            const actuation = await environment.actuate({ kind: 'kill', role })
+
+            expect(await actuation.observed()).toBe(true)
+            expect(() => process.kill(killed, 0)).toThrow()
+            await waitForExpect(async () => {
+                const answer = await internalFetch(health)
+                expect(Number(await answer.text())).not.toBe(killed)
+            }, 15_000)
+            await actuation.release()
+            expect(environment.exits()).toEqual([expect.objectContaining({ role, signal: 'SIGKILL', byValve: true })])
         }, 30_000)
 
         it('brings every role up healthy, and keeps a role that stops answering out of the dependency health', async () => {

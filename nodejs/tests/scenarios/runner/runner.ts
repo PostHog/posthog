@@ -22,7 +22,7 @@ import { PostgresRouter } from '~/common/utils/db/postgres'
 import { CdpRole, LOAD_PRODUCER_SETTING_PREFIX, LoadedCard } from '../cards'
 import { durationMs } from '../duration'
 import { Environment, defaultStateDir } from '../environment/environment'
-import { ROLE_PORTS, RoleSpec, consumerGroupsOf, roleSpecs, secretsOf } from '../environment/roles'
+import { RoleSpec, consumerGroupsOf, roleSpecs, secretsOf } from '../environment/roles'
 import { cyclotronUrlOf, postgresUrlOf } from '../environment/stack'
 import { DriveSummary, SeedState, drive, seed } from '../generator/generator'
 import { Convergence, InvariantResult, createJudge } from '../judge/judge'
@@ -31,6 +31,7 @@ import { createCyclotronProbe } from '../probe/cyclotron-probe'
 import { provenanceOf } from '../scorecard/provenance'
 import { scorecardOf } from '../scorecard/scorecard'
 import { publish } from '../scorecard/write'
+import { ValveTimelineEntry, createValves } from '../valves/valves'
 import { Status, statusOf } from './status'
 
 export type RunVerdict = Omit<RunResult, 'recorded' | 'captured' | 'scorecardError'>
@@ -50,7 +51,7 @@ export type RunResult = {
     convergence?: Convergence
     invariants: InvariantResult[]
     measurements: Measurement[]
-    timeline: never[]
+    timeline: ValveTimelineEntry[]
     startedAt: string
     endedAt: string
     evidenceDir: string
@@ -248,7 +249,7 @@ export function createRunner(
             const secrets = secretsOf(env)
             const specs = roleSpecs(env, { url: edgeUrl }, secrets, stateDir, profile.settings)
             const cdpApi = {
-                url: `http://127.0.0.1:${ROLE_PORTS['cdp-api']}`,
+                url: environment.role('cdp-api').url,
                 jwt: new ScopedServiceJwt(
                     PosthogJwtAudience.WORKFLOWS_SEND_TRANSACTIONAL_EMAIL,
                     secrets.transactionalEmailJwtSecret
@@ -259,7 +260,9 @@ export function createRunner(
                     topics: [eventsTopic],
                 },
             ] = consumerGroupsOf(specs)
-            const judge = createJudge({ edgeUrl, probe: createCyclotronProbe(cyclotronUrlOf(specs[0])) })
+            const probe = createCyclotronProbe(cyclotronUrlOf(specs[0]))
+            const judge = createJudge({ edgeUrl, probe })
+            const valves = createValves()
             let outcome: Outcome = { status: 'invalid', statusReason: 'not started', invariants: [], measurements: [] }
             let stopHealth: (() => Promise<string[]>) | undefined
             let sampler: Sampler | undefined
@@ -284,11 +287,23 @@ export function createRunner(
                     }
                 )
                 await judge.open(seeded)
+                const exitsBefore = environment.exits().length
                 stopHealth = watchHealth(environment)
                 sampler = await startSampler(
                     CdpRole.options.map((role) => ({ role, metricsUrl: environment.role(role).metricsUrl }))
                 )
-                const units = await drive(loaded, seeded, judge, signal, { producer, eventsTopic, cdpApi, runId })
+                await valves.start(card.valves, { environment, probe, teams: seeded.teamIds })
+                const windowOpen = new AbortController()
+                void sleep(durationMs(card.drive.for), undefined, { signal: windowOpen.signal })
+                    .then(() => valves.releaseAll())
+                    .catch(() => undefined)
+                const units = await drive(loaded, seeded, judge, signal, {
+                    producer,
+                    eventsTopic,
+                    cdpApi,
+                    runId,
+                }).finally(() => windowOpen.abort())
+                await valves.releaseAll()
                 const convergence = await judge.converge(durationMs(card.convergeWithin), signal)
                 sampled = await sampler.stop()
                 const down = await stopHealth()
@@ -298,7 +313,15 @@ export function createRunner(
                     ...sampled,
                     sampledFrom: sampler.sampledFrom,
                 })
-                const verdict = statusOf({ minOffered: card.drive.minOffered, units, down, convergence, invariants })
+                const verdict = statusOf({
+                    minOffered: card.drive.minOffered,
+                    units,
+                    down,
+                    convergence,
+                    invariants,
+                    timeline: valves.timeline(),
+                    exits: environment.exits().slice(exitsBefore),
+                })
                 outcome = { ...verdict, units, convergence, invariants, measurements }
                 if (signal.aborted) {
                     outcome = { ...outcome, status: 'invalid', statusReason: 'the run was interrupted' }
@@ -310,6 +333,7 @@ export function createRunner(
                     statusReason: `the run stopped: ${messageOf(error)}`,
                 }
             } finally {
+                await valves.releaseAll()
                 await stopHealth?.()
                 sampled = (await sampler?.stop()) ?? sampled
                 try {
@@ -333,7 +357,7 @@ export function createRunner(
                 cardHash: loaded.cardHash,
                 profileHash: loaded.profileHash,
                 origin: 'local-agent',
-                timeline: [],
+                timeline: valves.timeline(),
                 startedAt,
                 endedAt: new Date().toISOString(),
                 evidenceDir,
