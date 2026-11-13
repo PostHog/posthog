@@ -4,7 +4,7 @@ A source pushes occurrence facts with `record_occurrence`, or registers a feed t
 registrar reads. The platform evaluates every appearance alert itself.
 """
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import datetime
 from typing import Any, Final, Literal
 from uuid import UUID
@@ -15,9 +15,11 @@ from products.alerts_platform.backend.facade.contracts import (
     APPEARANCE_GROUPING,
     InvalidPlatformAlertEdit,
     NativeAlertLifecycle,
+    NewAlertDestination,
     OccurrenceFeed,
     OccurrenceKind,
     PlatformAlertConfigurationEdit,
+    PlatformAlertConfigurationView,
     SourceConfigSpec,
     SourceKind,
 )
@@ -152,3 +154,33 @@ def record_occurrence(
 def register_occurrence_feed(source: SourceKind, feed: OccurrenceFeed) -> None:
     """A source without detection reports what it saw, and the platform's registry decides what is new."""
     occurrences.register_feed(source, feed)
+
+
+def create_appearance_alert(
+    *,
+    team_id: int,
+    source: SourceKind,
+    name: str,
+    filters: Sequence[dict[str, Any]],
+    destinations: Sequence[NewAlertDestination],
+    created_by_id: int | None = None,
+) -> PlatformAlertConfigurationView:
+    """Creates an appearance alert and its destinations in one transaction."""
+    # Imported here, because sources import this module from `ready()` and the write path reaches Temporal.
+    from products.alerts_platform.backend.logic import appearance_alerts  # noqa: PLC0415
+
+    return appearance_alerts.create_appearance_alert(
+        team_id=team_id,
+        source=source,
+        name=name,
+        filters=filters,
+        destinations=destinations,
+        created_by_id=created_by_id,
+    )
+
+
+def appearance_create_warning(team_id: int, source: SourceKind) -> str | None:
+    """Why a new appearance alert on this source may surprise the project, or None."""
+    from products.alerts_platform.backend.logic import appearance_alerts  # noqa: PLC0415
+
+    return appearance_alerts.create_warning(team_id, source)
