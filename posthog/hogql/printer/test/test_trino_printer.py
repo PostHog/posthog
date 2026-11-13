@@ -870,6 +870,17 @@ def test_regex_character_classes_keep_clickhouse_meaning(pattern: str, expected:
             "TRY_CAST(truncate(",
         ),
         ("SELECT toInt(toDecimal(id, 2)) FROM users", "TRY_CAST(truncate(CAST(", "__hogql_accurate_cast_value"),
+        # Trino rejects an aggregate inside a lambda, so the aggregate is computed outside and passed in.
+        (
+            "SELECT groupArray(id) AS ids, arrayMap(i -> ids[i], range(1, 3)) AS r FROM users",
+            'element_at(transform(ARRAY[ROW(array_agg("users"."id"))], __hogql_aggregates_0 -> transform(',
+            '"i" -> element_at(array_agg(',
+        ),
+        (
+            "SELECT arrayFilter(x -> x > avg(id), groupArray(id)) FROM users",
+            "__hogql_aggregates_0 -> filter(__hogql_aggregates_0[2], ",
+            '"x" -> ("x" > avg(',
+        ),
         # Trino has no sum() or avg() over varchar, so property and text values are summed as numbers.
         (
             "SELECT sumIf(properties.amount, id > 0) FROM users",

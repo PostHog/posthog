@@ -35,9 +35,10 @@ from posthog.hogql.printer.trino_functions import (
     TRINO_WINDOW_ONLY_FUNCTIONS,
 )
 from posthog.hogql.printer.trino_json import keys_and_values, keys_and_values_path, parse_keys_and_values_type
+from posthog.hogql.printer.trino_lambda_aggregates import aggregates_to_hoist
 from posthog.hogql.printer.types import JoinExprResponse
 from posthog.hogql.transforms.trino.errors import TrinoLoweringError
-from posthog.hogql.transforms.trino.expressions import constant_integer
+from posthog.hogql.transforms.trino.expressions import constant_integer, expression_key
 from posthog.hogql.transforms.trino.limits import MAX_TRINO_SQL_LENGTH
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
@@ -322,6 +323,11 @@ class TrinoPrinter(PostgresPrinter):
     DIALECT_LABEL: ClassVar[str] = "Trino"
 
     def visit(self, node: ast.AST | None) -> str:
+        hoisted = self.__dict__.get("_hoisted_aggregates")
+        if hoisted and isinstance(node, ast.Call):
+            reference = hoisted.get(expression_key(node))
+            if reference is not None:
+                return reference
         sql = super().visit(node)
         if len(sql) > MAX_TRINO_SQL_LENGTH:
             self._unsupported(
@@ -616,6 +622,10 @@ class TrinoPrinter(PostgresPrinter):
         return self.visit(node.expr)
 
     def visit_call(self, node: ast.Call) -> str:
+        hoisted = self.__dict__.setdefault("_hoisted_aggregates", {})
+        aggregates = aggregates_to_hoist(node, lambda call: expression_key(call) in hoisted)
+        if aggregates:
+            return self._visit_with_hoisted_aggregates(node, aggregates)
         name = node.name.lower()
         pattern_index = _TRINO_REGEX_PATTERN_ARGUMENTS.get(name)
         if pattern_index is not None and pattern_index < len(node.args):
@@ -1363,6 +1373,27 @@ class TrinoPrinter(PostgresPrinter):
         if node.with_fill is not None:
             self._unsupported("TRINO_WITH_FILL_UNSUPPORTED", "WITH FILL is not supported in Trino mode.", node)
         return super().visit_order_expr(node)
+
+    def _visit_with_hoisted_aggregates(self, node: ast.Call, aggregates: list[ast.Call]) -> str:
+        hoisted: dict[tuple[object, ...], str] = self.__dict__["_hoisted_aggregates"]
+        index = self.__dict__.get("_hoisted_aggregates_index", 0)
+        self.__dict__["_hoisted_aggregates_index"] = index + 1
+        variable = f"__hogql_aggregates_{index}"
+        values: list[str] = []
+        added: list[tuple[object, ...]] = []
+        for aggregate in aggregates:
+            key = expression_key(aggregate)
+            if key in hoisted:
+                continue
+            values.append(self.visit(aggregate))
+            hoisted[key] = f"{variable}[{len(values)}]"
+            added.append(key)
+        try:
+            body = self.visit_call(node)
+        finally:
+            for key in added:
+                del hoisted[key]
+        return f"element_at(transform(ARRAY[ROW({', '.join(values)})], {variable} -> {body}), 1)"
 
     def _visit_predicate(self, node: ast.Expr) -> str:
         rendered = self.visit(node)
