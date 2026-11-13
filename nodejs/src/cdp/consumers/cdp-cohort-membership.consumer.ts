@@ -5,6 +5,7 @@ import { z } from 'zod'
 import { KAFKA_COHORT_MEMBERSHIP_CHANGED, KAFKA_COHORT_RECONCILE_MARKERS } from '~/common/config/kafka-topics'
 import { getKafkaConfigFromEnv } from '~/common/kafka/config'
 import { KafkaConsumerInterface, START_AT_LATEST, createKafkaConsumer } from '~/common/kafka/consumer'
+import { DEFAULT_PRODUCER_BROKER_LIST } from '~/common/outputs/kafka-producer-config'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { PostgresUse, TransactionClient } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
@@ -12,6 +13,7 @@ import { logger } from '~/common/utils/logger'
 
 import { HealthCheckResult } from '../../types'
 import type { CdpConfig } from '../config'
+import { KafkaWarpstreamIngestionProducerEnvConfig, WARPSTREAM_INGESTION_PRODUCER } from '../outputs/producers'
 import {
     CohortMembershipSweeper,
     MembershipWatermarks,
@@ -29,7 +31,8 @@ export type CdpCohortMembershipConsumerConfig = CdpConsumerBaseConfig &
         | 'COHORT_MEMBERSHIP_SWEEP_BATCH_SIZE'
         | 'COHORT_MEMBERSHIP_SWEEP_CLAIM_TIMEOUT_MS'
         | 'COHORT_MEMBERSHIP_SWEEP_ABANDON_AFTER_DAYS'
-    >
+    > &
+    Pick<KafkaWarpstreamIngestionProducerEnvConfig, 'KAFKA_WARPSTREAM_INGESTION_PRODUCER_METADATA_BROKER_LIST'>
 
 /**
  * The broker list the membership consumer resolves, mirroring the consumer's own config
@@ -182,6 +185,17 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase<CdpCohortMember
         }
 
         if (config.COHORT_MEMBERSHIP_SWEEP_ENABLED) {
+            // The sweep publishes its floors with this producer. A floor on another cluster never
+            // reaches a reader of this topic, which then keeps every member the sweep deletes.
+            const floorCluster =
+                config.KAFKA_WARPSTREAM_INGESTION_PRODUCER_METADATA_BROKER_LIST || DEFAULT_PRODUCER_BROKER_LIST
+            if (floorCluster !== this.membershipCluster) {
+                throw new Error(
+                    'COHORT_MEMBERSHIP_SWEEP_ENABLED requires KAFKA_WARPSTREAM_INGESTION_PRODUCER_METADATA_BROKER_LIST ' +
+                        `to name the brokers this consumer reads (${this.membershipCluster}), not ${floorCluster}`
+                )
+            }
+
             // Markers from runs that predate the sweeper are useless, because the next reconcile
             // heals anyway, so a fresh sweeper group starts at the tip of the marker topic.
             this.markerKafkaConsumer = createKafkaConsumer(
@@ -193,6 +207,7 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase<CdpCohortMember
                 topic: KAFKA_COHORT_MEMBERSHIP_CHANGED,
                 captureMembershipWatermarks: () => this.captureMembershipWatermarks(),
                 refreshConsumerProgress: () => this.refreshConsumerProgressFromCommittedOffsets(),
+                producer: deps.cdpProducerRegistry.getProducer(WARPSTREAM_INGESTION_PRODUCER),
             })
         }
     }
