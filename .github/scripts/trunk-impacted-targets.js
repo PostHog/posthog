@@ -87,11 +87,14 @@
 //      directly. The core modules that the SDK, or a conftest every vendor test
 //      collects, imports directly claim it too, in addition to their own lanes,
 //      and the set is read from those sources.
-//      The source field classification audit (field_classification.csv), which
-//      a new source or a changed source field regenerates, claims only the
-//      vendor lane too. No code reads it at runtime. Its one reader is the test
-//      that compares it with the generated output, and the warehouse sources
-//      job runs that test.
+//      The generated registries that a new source regenerates (the field
+//      classification audit and the two credential maps) claim only the vendor
+//      lane too, as they already count as vendor files in PR CI. The audit has
+//      no runtime reader. The maps are read by warehouse_sources code and the
+//      integrations SDK, which both claim the vendor lane, and by Django startup,
+//      which the warehouse sources job runs. A new source only adds entries.
+//      Changing an existing entry needs --allow-changed and a data migration,
+//      and the migration claims the product lanes.
 //      The rest of posthog/, common/ and other products do not claim it, because
 //      they reach a vendor only through one of those modules.
 //
@@ -1552,10 +1555,6 @@ const WAREHOUSE_SOURCES_PRODUCT = 'warehouse_sources'
 const WAREHOUSE_SOURCE_PLUGIN_DIR = 'products/warehouse_sources/sources/'
 const WAREHOUSE_SOURCE_SDK_DIR = 'sdk'
 const WAREHOUSE_SOURCE_VENDORS = 'py:warehouse-source-vendors'
-// CLASSIFICATION_AUDIT_PATH in job_input_classification.py. If the file moves,
-// it falls back to the product lane, which is the safe direction.
-const WAREHOUSE_SOURCE_CLASSIFICATION_AUDIT =
-    'products/warehouse_sources/backend/temporal/data_imports/sources/field_classification.csv'
 const REPO_INVARIANTS_DIR = 'posthog/test/repo_invariants/'
 
 // Without the product, the lane would name a target that no other PR can
@@ -1564,8 +1563,8 @@ function hasWarehouseSourceVendorLane(context) {
     return context.products.includes(WAREHOUSE_SOURCES_PRODUCT)
 }
 
-function isWarehouseSourceVendorFile(file) {
-    if (file === WAREHOUSE_SOURCE_CLASSIFICATION_AUDIT) {
+function isWarehouseSourceVendorFile(file, context) {
+    if (context.warehouseSourceRegistryFiles?.has(file)) {
         return true
     }
     if (!file.startsWith(WAREHOUSE_SOURCE_PLUGIN_DIR)) {
@@ -1575,6 +1574,24 @@ function isWarehouseSourceVendorFile(file) {
     // is collected by every vendor's tests, so it is not inside one vendor.
     const segments = file.slice(WAREHOUSE_SOURCE_PLUGIN_DIR.length).split('/')
     return segments.length >= 2 && segments[0] !== WAREHOUSE_SOURCE_SDK_DIR
+}
+
+// The generated registries that a new source, or a changed source field,
+// regenerates: the field classification audit and the two credential maps. PR
+// CI already treats them as vendor files, so the set is read from
+// VENDOR_REGISTRY_FILES in the selector rather than kept twice. Without the
+// selector the set is empty, and the files keep the product lanes, which is
+// the safe direction.
+const WAREHOUSE_SOURCE_SELECTOR = 'tools/warehouse_sources_vendor_selection.py'
+const WAREHOUSE_SOURCE_REGISTRY_BLOCK = /^VENDOR_REGISTRY_FILES = frozenset\(\s*\{([^}]*)\}/m
+
+function loadWarehouseSourceRegistryFiles(repoRoot) {
+    const selector = path.join(repoRoot, WAREHOUSE_SOURCE_SELECTOR)
+    if (!fs.existsSync(selector)) {
+        return new Set()
+    }
+    const block = fs.readFileSync(selector, 'utf8').match(WAREHOUSE_SOURCE_REGISTRY_BLOCK)
+    return new Set(block ? [...block[1].matchAll(/"([^"]+)"/g)].map((match) => match[1]) : [])
 }
 
 // The core modules that the SDK, or a conftest every vendor test collects,
@@ -2141,7 +2158,7 @@ function computeTargets(changedFiles, context) {
             continue
         }
 
-        if (isWarehouseSourceVendorFile(file) && hasWarehouseSourceVendorLane(context)) {
+        if (isWarehouseSourceVendorFile(file, context) && hasWarehouseSourceVendorLane(context)) {
             targets.add(WAREHOUSE_SOURCE_VENDORS)
             continue
         }
@@ -3105,6 +3122,7 @@ function buildContext(repoRoot) {
         tachDeclaredProducts: listTachDeclaredProducts(products, tachGraph),
         semgrepDomains: loadSemgrepDomains(repoRoot),
         warehouseSourceSdkImports: loadWarehouseSourceSdkImports(repoRoot),
+        warehouseSourceRegistryFiles: loadWarehouseSourceRegistryFiles(repoRoot),
         rustInventory,
         tachGraph,
     }
@@ -3126,6 +3144,7 @@ module.exports = {
     isTripwire,
     listIsolatedProducts,
     loadContractSurfaces,
+    loadWarehouseSourceRegistryFiles,
     loadWarehouseSourceSdkImports,
     parseCrateName,
     parsePytestIgnores,

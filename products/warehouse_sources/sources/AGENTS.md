@@ -46,5 +46,6 @@ A pull request that changes only vendor directories runs the tests of those vend
 A change to `products/warehouse_sources/sources/sdk/`, a file at the top of `products/warehouse_sources/sources/` (for example `conftest.py`), `products/warehouse_sources/backend/` or any other file runs every vendor.
 `tools/warehouse_sources_vendor_selection.py` makes that choice.
 In the merge queue, a pull request whose files are all inside vendor directories (markdown aside) gets a lane of its own, so it does not queue behind core changes, and its queue run narrows the same way.
-A pull request that also touches a file outside the vendor directories, such as a shared registry under `backend/facade/`, keeps the shared lanes and usually gets the full queue run.
+The generated registries in `VENDOR_REGISTRY_FILES` of `tools/warehouse_sources_vendor_selection.py` count as vendor files too, so a new source stays in that lane.
+A pull request that also touches any other file outside the vendor directories keeps the shared lanes and usually gets the full queue run.
 Keep a vendor change inside its directory to get the short queue run.

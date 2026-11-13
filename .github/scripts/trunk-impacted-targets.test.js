@@ -30,6 +30,7 @@ const {
     isTripwire,
     listIsolatedProducts,
     loadContractSurfaces,
+    loadWarehouseSourceRegistryFiles,
     loadWarehouseSourceSdkImports,
     parseCrateName,
     parsePytestIgnores,
@@ -1927,7 +1928,12 @@ test('the cascade names direct importers and stops before the next hop', () => {
 // PRs again and the queue runs the full backend suite for it.
 test('a warehouse source vendor claims only the vendor lane, which every vendor reader shares', () => {
     const vendorLane = 'py:warehouse-source-vendors'
-    const context = { ...CONTEXT, products: [...CONTEXT.products, 'warehouse_sources'] }
+    const registry = 'products/warehouse_sources/backend/facade/credential_kinds.py'
+    const context = {
+        ...CONTEXT,
+        products: [...CONTEXT.products, 'warehouse_sources'],
+        warehouseSourceRegistryFiles: new Set([registry]),
+    }
     const vendorDir = 'products/warehouse_sources/sources/acme'
     assert.deepEqual(
         computeTargets(
@@ -1936,7 +1942,7 @@ test('a warehouse source vendor claims only the vendor lane, which every vendor 
                 `${vendorDir}/icon.png`,
                 `${vendorDir}/tests/test_acme.py`,
                 `${vendorDir}/README.md`,
-                'products/warehouse_sources/backend/temporal/data_imports/sources/field_classification.csv',
+                registry,
             ],
             context
         ),
@@ -2007,6 +2013,13 @@ test('a warehouse source vendor claims only the vendor lane, which every vendor 
         ])
     } finally {
         fs.rmSync(root, { recursive: true, force: true })
+    }
+
+    // The registry set comes from the selector, which ci-scripts.yml checks out.
+    const registries = loadWarehouseSourceRegistryFiles(REPO_ROOT)
+    assert.ok(registries.size > 0)
+    for (const file of registries) {
+        assert.ok(fs.existsSync(path.join(REPO_ROOT, file)), file)
     }
 
     assert.equal(computeTargets([`${vendorDir}/source.py`], CONTEXT).includes(vendorLane), false)
