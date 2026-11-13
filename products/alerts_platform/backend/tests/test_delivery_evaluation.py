@@ -29,7 +29,13 @@ from products.alerts_platform.backend.delivery.legacy_webhook import (
 )
 from products.alerts_platform.backend.delivery.message import AlertMessage
 from products.alerts_platform.backend.delivery.thread_store import ThreadBusy
-from products.alerts_platform.backend.delivery.transport import DeliveryError, DestinationMisconfigured, MessageHandle
+from products.alerts_platform.backend.delivery.transport import (
+    DeliveryError,
+    DestinationMisconfigured,
+    DestinationRefused,
+    MessageHandle,
+    RefusedEverywhere,
+)
 from products.alerts_platform.backend.facade.api import create_alert_destinations
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
@@ -126,6 +132,20 @@ class RefusingTransport(RecordingTransport):
 
     def deliver(self, **kwargs: Any) -> MessageHandle | None:
         raise DeliveryError("The webhook destination refused the message with status 410.")
+
+
+class OwnerRefusingTransport(RecordingTransport):
+    provider = "teams"
+
+    def deliver(self, **kwargs: Any) -> MessageHandle | None:
+        raise DestinationRefused("Slack refused the message: not_in_channel. The PostHog app is not in this channel.")
+
+
+class TimingOutTransport(RecordingTransport):
+    provider = "webhook"
+
+    def deliver(self, **kwargs: Any) -> MessageHandle | None:
+        raise DeliveryError("The webhook destination could not be reached: ConnectTimeout")
 
 
 class HeldTransport(RecordingTransport):
@@ -527,6 +547,26 @@ class TestDeliverEvaluation(APIBaseTest):
                 transports={DestinationType.WEBHOOK: RefusingTransport, DestinationType.TEAMS: HeldTransport},
             )
 
+        assert [channel for channel, _ in RecordingTransport.sends] == ["C-1"]
+
+    @parameterized.expand(
+        [
+            ("every_failure_is_a_refusal_the_owner_must_fix", OwnerRefusingTransport, True),
+            ("a_refusal_beside_a_timeout_is_retried", TimingOutTransport, False),
+        ]
+    )
+    def test_a_delivery_is_retried_only_when_a_retry_can_get_through(
+        self, _name: str, webhook_transport: type[RecordingTransport], permanent: bool
+    ) -> None:
+        with pytest.raises(DeliveryError) as raised:
+            self._run(
+                _announcement(_transition(AlertEventKind.FIRING)),
+                {FIRING_EVENT: [_group(destination) for destination in (WEBHOOK, TEAMS, SLACK)]},
+                transports={DestinationType.WEBHOOK: webhook_transport, DestinationType.TEAMS: OwnerRefusingTransport},
+            )
+
+        assert isinstance(raised.value, RefusedEverywhere) is permanent
+        assert "not_in_channel" in str(raised.value)
         assert [channel for channel, _ in RecordingTransport.sends] == ["C-1"]
 
     def test_a_destination_that_is_not_fully_enabled_receives_nothing(self) -> None:
