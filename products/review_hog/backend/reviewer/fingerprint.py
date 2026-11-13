@@ -45,9 +45,6 @@ from products.review_hog.backend.reviewer.constants import (
     FLASH_WHOLE_PR_TURNS,
     ONESHOT_MODEL,
     ONESHOT_REASONING_EFFORT,
-    PERFORMANCE_LENS_EXTENSIONS,
-    PERFORMANCE_LENS_IGNORED_EXTENSIONS,
-    PERFORMANCE_LENS_PATH_WORDS,
     ReviewArm,
     resolve_review_arm,
     review_arm_for_mode,
@@ -290,11 +287,6 @@ class TurnFingerprint:
                         "lens_chunk_max_lines": FLASH_LENS_CHUNK_MAX_LINES,
                         "lens_max_chunks": FLASH_LENS_MAX_CHUNKS,
                         "prompt_diff_max_chars": FLASH_PROMPT_DIFF_MAX_CHARS,
-                    },
-                    "performance_lens_gate": {
-                        "path_words": sorted(PERFORMANCE_LENS_PATH_WORDS),
-                        "extensions": sorted(PERFORMANCE_LENS_EXTENSIONS),
-                        "ignored_extensions": sorted(PERFORMANCE_LENS_IGNORED_EXTENSIONS),
                     },
                     "prompts": cls._single_agent_prompt_hashes(),
                 }

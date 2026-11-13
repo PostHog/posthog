@@ -64,7 +64,6 @@ from products.review_hog.backend.reviewer.constants import (
     FLASH_LENSES,
     FLASH_WHOLE_PR_TURNS,
     NON_RETRYABLE_UNIT_FAILURE_CATEGORIES,
-    PERFORMANCE_LENS_NAME,
     REVIEW_MODE_FLASH,
     REVIEW_MODE_FULL,
     RUN_LIMIT_FAILURE_CATEGORIES,
@@ -232,7 +231,6 @@ from products.review_hog.backend.reviewer.tools.split_pr_into_chunks import (
     CHUNKING_SYSTEM_PROMPT,
     count_reviewable_additions,
     generate_chunking_prompt,
-    performance_lens_parts,
     plan_deterministic_chunks,
     plan_lens_chunks,
     reconcile_chunks,
@@ -1754,11 +1752,6 @@ async def lens_review_activity(input: LensReviewInput) -> bool | None:
     Never None, for the same reason as `single_agent_review_activity`.
     """
     lens = DEVEX_LENS if input.lens == DEVEX_LENS_NAME else FLASH_LENSES[input.lens]
-    if input.lens == PERFORMANCE_LENS_NAME and not await database_sync_to_async(
-        _performance_lens_reviews, thread_sensitive=False
-    )(input):
-        logger.info("Lens part %s touches no performance surface; skipping the performance lens", input.chunk_id)
-        return False
     return await _run_single_agent_session(
         input,
         arms=single_agent_arms(input.arm_set),
@@ -1771,31 +1764,9 @@ async def lens_review_activity(input: LensReviewInput) -> bool | None:
     )
 
 
-def _performance_lens_reviews(input: LensReviewInput) -> bool:
-    """Whether the performance lens reviews this lens part, or on a delta turn, whether it reviews the delta at all.
-
-    The workflow starts every lens session, so the decision lives here and a replay keeps the same commands.
-    """
-    snapshot = load_pr_snapshot(
-        team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha, review_design=input.review_design
-    )
-    if snapshot is None:
-        return True
-    parts = performance_lens_parts(plan_lens_chunks(snapshot.pr_files))
-    return bool(parts) if input.delta_since_head_sha is not None else input.chunk_id in parts
-
-
 def _coordinator_units(input: CoordinatorReviewInput, done: set[tuple[int, int]]) -> list[CoordinatorUnit]:
     """The review units of this turn that have no persisted result yet, each with its full session prompt."""
     units: list[CoordinatorUnit] = []
-    snapshot = load_pr_snapshot(
-        team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha, review_design=input.review_design
-    )
-    performance_parts = (
-        set(performance_lens_parts(plan_lens_chunks(snapshot.pr_files)))
-        if snapshot is not None
-        else set(range(1, input.lens_chunk_count + 1))
-    )
     if (SINGLE_AGENT_PASS_NUMBER, SINGLE_AGENT_CHUNK_ID) not in done:
         units.append(
             CoordinatorUnit(
@@ -1810,8 +1781,6 @@ def _coordinator_units(input: CoordinatorReviewInput, done: set[tuple[int, int]]
         guidelines = load_prompt_file(lens_prompt_path(lens.prompt_file))
         for chunk_id in range(1, input.lens_chunk_count + 1):
             if (lens.pass_number, chunk_id) in done:
-                continue
-            if name == PERFORMANCE_LENS_NAME and chunk_id not in performance_parts:
                 continue
             units.append(
                 CoordinatorUnit(
@@ -2065,7 +2034,6 @@ async def dedup_activity(input: SandboxStageInput) -> DedupResult:
                 reviewable_lines=lens_plan.reviewable_lines,
                 changed_since=changed_since,
                 devex_lens=input.devex_lens,
-                performance_lens_parts=len(performance_lens_parts(lens_plan)),
             )
         else:
             # Flash posts what it finds whatever other comments say; only Full checks the PR's comments.
@@ -2487,7 +2455,6 @@ def _flash_event_properties(turn: FlashTurnStats | None, sessions: FlashSessionS
                 "flash_changed_lines": turn.changed_lines,
                 "flash_must_fix_on_change": turn.must_fix_on_change,
                 "flash_must_fix_off_change": turn.must_fix_off_change,
-                "flash_performance_lens_parts": turn.performance_lens_parts,
             }
         )
     if sessions is not None:

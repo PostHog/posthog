@@ -373,7 +373,6 @@ class FlashTurnStats:
     changed_lines: int | None = None
     must_fix_on_change: int | None = None
     must_fix_off_change: int | None = None
-    performance_lens_parts: int | None = None
 
 
 def flash_turn_stats(
@@ -383,7 +382,6 @@ def flash_turn_stats(
     reviewable_lines: int,
     changed_since: "ChangedSinceReview | None" = None,
     devex_lens: bool = False,
-    performance_lens_parts: int | None = None,
 ) -> FlashTurnStats:
     """Count a turn's findings per session and per drop reason.
 
@@ -421,7 +419,6 @@ def flash_turn_stats(
         changed_lines=changed_lines,
         must_fix_on_change=must_fix_on_change,
         must_fix_off_change=must_fix_off_change,
-        performance_lens_parts=performance_lens_parts,
     )
 
 

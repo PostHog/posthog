@@ -306,12 +306,6 @@ sessions, all on the PR's arm set (below) and all returning `SingleAgentReview`:
   and image assets, and `max_migration.txt`. One session runs per lens and part, so a turn opens at most 9 sessions, under one
   `MAX_CONCURRENT_SANDBOXES` semaphore. A lens session gets `FLASH_LENS_SESSION_TIMEOUT` (10 minutes, retry
   included) instead of the sandbox timeout. A failed or timed-out lens session costs only its own findings.
-  The performance and reliability lens reviews only the parts with a file on its surface (`performance_lens_parts`): a
-  non-test file whose path has a word from `PERFORMANCE_LENS_PATH_WORDS` (queries, ClickHouse, migrations, caching,
-  Temporal, Celery tasks, ingestion, CDP, queues, warehouse syncs, infrastructure) or an extension from
-  `PERFORMANCE_LENS_EXTENSIONS`. UI and prose files (`PERFORMANCE_LENS_IGNORED_EXTENSIONS`) never count.
-  On a delta turn it runs when any part qualifies. The workflow still starts every lens activity, and the activity
-  returns before its sandbox, so the decision needs no workflow patch. The coordinator leaves those sub-agents out.
 - **Follow-up prompts name the changed lines.** On a follow-up turn that reviews the whole PR, every session's prompt
   lists the lines changed since the last reviewed head and says which levels the `old_code` drop discards elsewhere
   (P2 and P3 on an automatic turn, P3 on a requested one).

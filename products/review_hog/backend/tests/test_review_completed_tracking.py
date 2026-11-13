@@ -255,7 +255,6 @@ class TestTrackReviewCompleted(BaseTest):
             changed_lines=40,
             must_fix_on_change=1,
             must_fix_off_change=2,
-            performance_lens_parts=1,
         )
         sessions = FlashSessionStats(lens_failures=1, lens_timeouts=1, slowest_session_seconds=412.5, arm_fallbacks=2)
         trial = SingleAgentArms(main=replace(SINGLE_AGENT_FLASH_ARM, model="gpt-6-luna"), lens=SINGLE_AGENT_FLASH_ARM)
@@ -292,7 +291,6 @@ class TestTrackReviewCompleted(BaseTest):
             "flash_changed_lines": 40,
             "flash_must_fix_on_change": 1,
             "flash_must_fix_off_change": 2,
-            "flash_performance_lens_parts": 1,
             "flash_lens_failures": 1,
             "flash_lens_timeouts": 1,
             "flash_slowest_session_seconds": 412.5,

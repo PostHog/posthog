@@ -16,7 +16,6 @@ from products.review_hog.backend.reviewer.models.github_meta import PRComment, P
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import Chunk, ChunksList, FileInfo
 from products.review_hog.backend.reviewer.tools.split_pr_into_chunks import (
     generate_chunking_prompt,
-    performance_lens_parts,
     plan_deterministic_chunks,
     plan_lens_chunks,
     reconcile_chunks,
@@ -237,47 +236,6 @@ class TestPlanLensChunks:
 
         assert plan.chunks == expected_chunks
         assert plan.capped is expected_capped
-
-    @pytest.mark.parametrize(
-        "pr_files,expected_parts",
-        [
-            pytest.param([_file("posthog/hogql/printer.py", 40)], [1], id="hogql"),
-            pytest.param([_file("posthog/hogql_queries/insights/trends.py", 40)], [1], id="query_runner"),
-            pytest.param([_file("posthog/clickhouse/client/execute.py", 40)], [1], id="clickhouse"),
-            pytest.param([_file("products/x/backend/migrations/0012_add_index.py", 40)], [1], id="migration"),
-            pytest.param([_file("posthog/temporal/export/activities.py", 40)], [1], id="temporal"),
-            pytest.param([_file("products/x/backend/tasks/sync.py", 40)], [1], id="celery_tasks"),
-            pytest.param([_file("posthog/caching/insight_cache.py", 40)], [1], id="caching"),
-            pytest.param([_file("nodejs/src/ingestion/event-pipeline/runner.ts", 40)], [1], id="ingestion"),
-            pytest.param([_file("rust/capture/src/router.rs", 40)], [1], id="rust"),
-            pytest.param([_file("livestream/main.go", 40)], [1], id="go"),
-            pytest.param([_file("Dockerfile.node", 5)], [1], id="dockerfile"),
-            pytest.param(
-                [_file("products/warehouse_sources/sources/openrouter/openrouter.py", 40)], [1], id="warehouse_source"
-            ),
-            pytest.param([_file("nodejs/src/cdp/services/hog-executor.service.ts", 40)], [1], id="cdp"),
-            pytest.param([_file("products/signals/backend/implementation_pr_cache.py", 40)], [1], id="cache_module"),
-            pytest.param([_file("frontend/src/scenes/data-warehouse/Sources.tsx", 40)], [], id="ui_under_a_hot_word"),
-            pytest.param([_file("frontend/src/queries/nodes/DataTable.tsx", 40)], [], id="query_ui"),
-            pytest.param([_file("products/x/backend/api.py", 40)], [], id="plain_api_view"),
-            pytest.param([_file("frontend/src/scenes/Insight.tsx", 40)], [], id="frontend"),
-            pytest.param([_file("docs/internal/guide.md", 40)], [], id="docs"),
-            pytest.param([_file("posthog/temporal/tests/test_export.py", 40)], [], id="test_of_hot_code"),
-            pytest.param([_file("nodejs/src/ingestion/runner.test.ts", 40)], [], id="jest_test_of_hot_code"),
-            pytest.param([_file("posthog/migrations/max_migration.txt", 1)], [], id="not_reviewable"),
-            pytest.param(
-                [_file("frontend/src/a.tsx", 500), _file("posthog/hogql/b.py", 500)],
-                [2],
-                id="only_the_part_with_hot_code",
-            ),
-        ],
-    )
-    def test_performance_lens_reviews_only_parts_with_hot_or_infrastructure_code(
-        self, pr_files: list[PRFile], expected_parts: list[int]
-    ) -> None:
-        # A rule that loses a hot-path pattern stops reviewing that code for performance on every PR, and one
-        # that matches tests or frontend files spends a lens session where it found little.
-        assert performance_lens_parts(plan_lens_chunks(pr_files)) == expected_parts
 
     def test_generate_chunking_prompt_missing_schema(
         self,

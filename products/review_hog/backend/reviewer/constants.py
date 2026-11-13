@@ -210,46 +210,6 @@ FLASH_LENS_SESSION_TIMEOUT = timedelta(minutes=10)
 FLASH_PROMPT_DIFF_MAX_CHARS = 800_000
 
 
-PERFORMANCE_LENS_NAME = "performance-reliability"
-PERFORMANCE_LENS_PATH_WORDS: frozenset[str] = frozenset(
-    {
-        "cache",
-        "caching",
-        "cdp",
-        "celery",
-        "clickhouse",
-        "consumer",
-        "consumers",
-        "database",
-        "dockerfile",
-        "helm",
-        "hogql",
-        "ingestion",
-        "kafka",
-        "migration",
-        "migrations",
-        "queries",
-        "query",
-        "queue",
-        "queues",
-        "redis",
-        "rust",
-        "sql",
-        "tasks",
-        "temporal",
-        "terraform",
-        "warehouse",
-        "worker",
-        "workers",
-    }
-)
-PERFORMANCE_LENS_EXTENSIONS: frozenset[str] = frozenset({".go", ".rs", ".sql"})
-# UI and prose files: a frontend scene under a `queries` or `data-warehouse` folder runs no query or sync itself.
-PERFORMANCE_LENS_IGNORED_EXTENSIONS: frozenset[str] = frozenset(
-    {".css", ".html", ".jsx", ".less", ".md", ".mdx", ".scss", ".tsx"}
-)
-
-
 @frozen
 class FlashLens:
     """One focused review that runs next to the main single-agent session, once per lens part."""
@@ -261,7 +221,7 @@ class FlashLens:
 
 
 FLASH_LENSES: dict[str, FlashLens] = {
-    PERFORMANCE_LENS_NAME: FlashLens(
+    "performance-reliability": FlashLens(
         pass_number=2001,
         prompt_file="lens_performance_reliability.md",
         source="flash-lens-performance-reliability",
