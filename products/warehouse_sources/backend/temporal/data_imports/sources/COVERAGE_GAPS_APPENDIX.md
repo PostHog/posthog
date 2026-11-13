@@ -12731,15 +12731,15 @@ Today (5): `asset_transcriptions`, `indexes`, `knowledge_store_item_tags`, `task
 
 Diffed against: <https://docs.twelvelabs.io/openapi.json>
 
-- [ ] `assets (GET /assets)` — the current top-level media object; videos are only reachable per-index, so assets is the only account-wide inventory (high)
-- [ ] `indexed-assets (GET /indexes/{index-id}/indexed-assets)` — join table linking assets to indexes and carrying per-index indexing status (high)
-- [ ] `analyze tasks (GET /analyze/tasks)` — history of async analysis jobs with status/duration — the usage and cost signal (high)
+- [x] `assets (GET /assets)` — the current top-level media object; videos are only reachable per-index, so assets is the only account-wide inventory (high)
+- [x] `indexed-assets (GET /indexes/{index-id}/indexed-assets)` — join table linking assets to indexes and carrying per-index indexing status (high)
+- [x] `analyze tasks (GET /analyze/tasks)` — history of async analysis jobs with status/duration — the usage and cost signal (high)
 - [ ] `analyze batches + results (GET /analyze/batches, /analyze/batches/{batch_id}/results)` — batch job records and their per-item outputs (medium)
 - [ ] `embed tasks (GET /embed/tasks and /embed-v2/tasks)` — embedding job history, parallel to the indexing tasks already synced (medium)
 - [ ] `entity-collections and their entities (GET /entity-collections, /entity-collections/{id}/entities)` — lookup tables that resolve entity ids appearing on assets (medium)
 - [ ] `asset entities (GET /assets/{asset_id}/entities)` — asset-to-entity mapping for face/object analytics (medium)
 - [x] `asset transcriptions (GET /assets/{asset_id}/transcription)` — per-asset speech transcription with status and timestamped sentences and speaker turns (medium)
-- [ ] `knowledge-stores, item-collections, items (GET /knowledge-stores, .../item-collections, .../items)` — the retrieval corpus objects; items resolve ids used by search (medium)
+- [x] `knowledge-stores, item-collections, items (GET /knowledge-stores, .../item-collections, .../items)` — the retrieval corpus objects; items resolve ids used by search (medium)
 - [ ] `connection imports (GET /connections/{connection_id}/imports)` — per-import job records for bulk ingestion runs (low)
 - [x] `knowledge store item tags (GET /knowledge-stores/{knowledge_store_id}/items/{item_id}/tags)` — moment and range tags with custom metadata on knowledge store video items (medium)
 
