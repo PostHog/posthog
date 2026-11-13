@@ -46,6 +46,7 @@ from products.review_hog.backend.reviewer.constants import (
     ONESHOT_MODEL,
     ONESHOT_REASONING_EFFORT,
     PERFORMANCE_LENS_EXTENSIONS,
+    PERFORMANCE_LENS_IGNORED_EXTENSIONS,
     PERFORMANCE_LENS_PATH_WORDS,
     ReviewArm,
     resolve_review_arm,
@@ -293,6 +294,7 @@ class TurnFingerprint:
                     "performance_lens_gate": {
                         "path_words": sorted(PERFORMANCE_LENS_PATH_WORDS),
                         "extensions": sorted(PERFORMANCE_LENS_EXTENSIONS),
+                        "ignored_extensions": sorted(PERFORMANCE_LENS_IGNORED_EXTENSIONS),
                     },
                     "prompts": cls._single_agent_prompt_hashes(),
                 }

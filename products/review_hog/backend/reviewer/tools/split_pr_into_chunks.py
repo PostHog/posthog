@@ -12,6 +12,7 @@ from products.review_hog.backend.reviewer.constants import (
     FLASH_LENS_CHUNK_MAX_LINES,
     FLASH_LENS_MAX_CHUNKS,
     PERFORMANCE_LENS_EXTENSIONS,
+    PERFORMANCE_LENS_IGNORED_EXTENSIONS,
     PERFORMANCE_LENS_PATH_WORDS,
     SINGLE_CHUNK_GATE_ADDITIONS,
 )
@@ -195,7 +196,10 @@ def touches_performance_surface(path: str) -> bool:
     if _TEST_PATH.search(path) or not is_reviewable_path(path):
         return False
     lowered = path.lower()
-    if posixpath.splitext(lowered)[1] in PERFORMANCE_LENS_EXTENSIONS:
+    extension = posixpath.splitext(lowered)[1]
+    if extension in PERFORMANCE_LENS_IGNORED_EXTENSIONS:
+        return False
+    if extension in PERFORMANCE_LENS_EXTENSIONS:
         return True
     return not PERFORMANCE_LENS_PATH_WORDS.isdisjoint(_PATH_WORD_SEPARATORS.split(lowered))
 

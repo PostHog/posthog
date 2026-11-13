@@ -252,6 +252,13 @@ class TestPlanLensChunks:
             pytest.param([_file("rust/capture/src/router.rs", 40)], [1], id="rust"),
             pytest.param([_file("livestream/main.go", 40)], [1], id="go"),
             pytest.param([_file("Dockerfile.node", 5)], [1], id="dockerfile"),
+            pytest.param(
+                [_file("products/warehouse_sources/sources/openrouter/openrouter.py", 40)], [1], id="warehouse_source"
+            ),
+            pytest.param([_file("nodejs/src/cdp/services/hog-executor.service.ts", 40)], [1], id="cdp"),
+            pytest.param([_file("products/signals/backend/implementation_pr_cache.py", 40)], [1], id="cache_module"),
+            pytest.param([_file("frontend/src/scenes/data-warehouse/Sources.tsx", 40)], [], id="ui_under_a_hot_word"),
+            pytest.param([_file("frontend/src/queries/nodes/DataTable.tsx", 40)], [], id="query_ui"),
             pytest.param([_file("products/x/backend/api.py", 40)], [], id="plain_api_view"),
             pytest.param([_file("frontend/src/scenes/Insight.tsx", 40)], [], id="frontend"),
             pytest.param([_file("docs/internal/guide.md", 40)], [], id="docs"),

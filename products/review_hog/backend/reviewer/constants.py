@@ -215,6 +215,7 @@ PERFORMANCE_LENS_PATH_WORDS: frozenset[str] = frozenset(
     {
         "cache",
         "caching",
+        "cdp",
         "celery",
         "clickhouse",
         "consumer",
@@ -237,11 +238,16 @@ PERFORMANCE_LENS_PATH_WORDS: frozenset[str] = frozenset(
         "tasks",
         "temporal",
         "terraform",
+        "warehouse",
         "worker",
         "workers",
     }
 )
 PERFORMANCE_LENS_EXTENSIONS: frozenset[str] = frozenset({".go", ".rs", ".sql"})
+# UI and prose files: a frontend scene under a `queries` or `data-warehouse` folder runs no query or sync itself.
+PERFORMANCE_LENS_IGNORED_EXTENSIONS: frozenset[str] = frozenset(
+    {".css", ".html", ".jsx", ".less", ".md", ".mdx", ".scss", ".tsx"}
+)
 
 
 @frozen
@@ -656,6 +662,7 @@ OUTCOME_JUDGE_REASONING_EFFORT = "high"
 # The judge's stated reason is persisted with the outcome so a classification can be explained later.
 # It is asked for a sentence or two; this only trims a malfunctioning one before it lands in the row.
 OUTCOME_JUDGE_REASONING_MAX_CHARS = 2_000
+OUTCOME_REPLY_EXCERPT_MAX_CHARS = 280
 # A post-review commit counts as touching a finding when it changes lines within this many lines of
 # the finding's range — absorbs small drift (an import added above, a line renumbered) without
 # matching an unrelated edit elsewhere in the same file. The judge is the real arbiter; this only
