@@ -1,6 +1,6 @@
 import re
-from collections.abc import Iterator
-from datetime import UTC, datetime
+from collections.abc import Callable, Iterator
+from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
 
 from requests import Session
@@ -22,6 +22,7 @@ from products.warehouse_sources.sources.twitter.settings import (
     BASE_URL,
     EARLIEST_START_TIME,
     TWITTER_ENDPOINTS,
+    USAGE_MAX_DAYS,
     TwitterEndpointConfig,
 )
 
@@ -41,10 +42,18 @@ _RETRY_BUDGET_SECONDS = _RETRY_AFTER_MAX_SECONDS + 60
 # Smallest `max_results` every paged endpoint accepts: the post timelines require at least 5, the
 # user and list endpoints at least 1. Used for the permission probes, which only need the status.
 _PROBE_PAGE_SIZE = 5
+# Recent search takes at least 10 results per page.
+_SEARCH_PROBE_PAGE_SIZE = 10
+
+_MISSING_SEARCH_QUERY_MESSAGE = "Add a search query to the source settings to sync this table."
 
 
 class TwitterUserNotFoundError(Exception):
     """The configured handle resolves to no X account."""
+
+
+class TwitterSearchQueryMissingError(Exception):
+    """A search table is synced on a source that has no search query."""
 
 
 @frozen
@@ -70,12 +79,7 @@ def _session(bearer_token: str) -> Session:
     )
 
 
-def to_rfc3339(value: Any) -> str:
-    """Format an incremental watermark as the second-granularity UTC instant X expects.
-
-    The watermark arrives as a ``datetime`` from the warehouse and as a string on the first
-    incremental run (the endpoint's ``initial_value``), so both shapes are accepted.
-    """
+def _to_utc(value: Any) -> datetime:
     if isinstance(value, datetime):
         moment = value
     else:
@@ -84,7 +88,64 @@ def to_rfc3339(value: Any) -> str:
     if moment.tzinfo is None:
         moment = moment.replace(tzinfo=UTC)
 
-    return moment.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return moment.astimezone(UTC)
+
+
+def to_rfc3339(value: Any) -> str:
+    """Format an incremental watermark as the second-granularity UTC instant X expects.
+
+    The watermark arrives as a ``datetime`` from the warehouse and as a string on the first
+    incremental run (the endpoint's ``initial_value``), so both shapes are accepted.
+    """
+    return _to_utc(value).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _start_time_converter(max_start_age: timedelta | None) -> Callable[[Any], str]:
+    if max_start_age is None:
+        return to_rfc3339
+
+    def convert(value: Any) -> str:
+        # X rejects the whole request when `start_time` is older than the endpoint allows, so an
+        # old watermark (or the first run's floor) is raised to the oldest instant it accepts.
+        return to_rfc3339(max(_to_utc(value), datetime.now(UTC) - max_start_age))
+
+    return convert
+
+
+def usage_days(last_value: Any) -> int:
+    """Return the `days` range that covers every day since the watermark."""
+    if last_value is None:
+        return USAGE_MAX_DAYS
+    days_since = (datetime.now(UTC).date() - _to_utc(last_value).date()).days
+    # The watermark day is read again, because its count grows until the day ends. One more day of
+    # overlap covers X not documenting whether `days` counts today.
+    return min(max(days_since + 2, 1), USAGE_MAX_DAYS)
+
+
+def _usage_count(value: Any) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def usage_rows(data: dict[str, Any]) -> list[dict[str, Any]]:
+    """Flatten the usage report into one row per client app per day."""
+    project_id = data.get("project_id") or (data.get("daily_project_usage") or {}).get("project_id") or ""
+    rows: list[dict[str, Any]] = []
+    for app in data.get("daily_client_app_usage") or []:
+        # The id is part of the primary key, so a missing one is stored as "" rather than null.
+        client_app_id = str(app.get("client_app_id") or "")
+        for entry in app.get("usage") or []:
+            rows.append(
+                {
+                    "project_id": str(project_id),
+                    "client_app_id": client_app_id,
+                    "date": entry.get("date"),
+                    "usage": _usage_count(entry.get("usage")),
+                }
+            )
+    return rows
 
 
 def resolve_user_id(bearer_token: str, username: str) -> str:
@@ -142,7 +203,19 @@ def validate_credentials(bearer_token: str, username: str) -> tuple[bool, str | 
     return True, None
 
 
-def endpoint_permissions(bearer_token: str, username: str, endpoints: list[str]) -> dict[str, str | None]:
+def _probe_params(config: TwitterEndpointConfig, username: str, search_query: str) -> dict[str, Any]:
+    if config.needs_search_query:
+        return {"query": search_query, "max_results": _SEARCH_PROBE_PAGE_SIZE}
+    if config.name == "ApiUsage":
+        return {"days": 1}
+    if not config.needs_user_id:
+        return {"usernames": normalize_username(username)}
+    return {"max_results": _PROBE_PAGE_SIZE}
+
+
+def endpoint_permissions(
+    bearer_token: str, username: str, endpoints: list[str], search_query: str | None = None
+) -> dict[str, str | None]:
     """Report which tables this token's X app can actually read.
 
     X gates endpoints per app rather than per scope, so a token that lists posts fine still 403s on
@@ -158,6 +231,10 @@ def endpoint_permissions(bearer_token: str, username: str, endpoints: list[str])
         if config is None:
             continue
 
+        if config.needs_search_query and not (search_query or "").strip():
+            results[name] = _MISSING_SEARCH_QUERY_MESSAGE
+            continue
+
         if config.needs_user_id and user_id is None:
             try:
                 user_id = resolve_user_id(bearer_token, username)
@@ -167,7 +244,7 @@ def endpoint_permissions(bearer_token: str, username: str, endpoints: list[str])
                 return {}
 
         path = config.path.format(user_id=user_id) if config.needs_user_id else config.path
-        params = {"usernames": normalize_username(username)} if name == "Profile" else {"max_results": _PROBE_PAGE_SIZE}
+        params = _probe_params(config, username, (search_query or "").strip())
 
         try:
             response = session.get(f"{BASE_URL}{path}", params=params, timeout=_REQUEST_TIMEOUT)
@@ -192,11 +269,15 @@ def get_resource(
     username: str,
     user_id: str | None,
     should_use_incremental_field: bool,
+    search_query: str | None = None,
 ) -> EndpointResource:
     path = endpoint_config.path.format(user_id=user_id) if endpoint_config.needs_user_id else endpoint_config.path
 
     params: dict[str, Any] = dict(endpoint_config.extra_params)
-    if endpoint_config.needs_user_id:
+    if endpoint_config.needs_search_query:
+        params["query"] = search_query
+        params["max_results"] = endpoint_config.page_size
+    elif endpoint_config.needs_user_id:
         params["max_results"] = endpoint_config.page_size
     else:
         params["usernames"] = username
@@ -205,9 +286,9 @@ def get_resource(
         "path": path,
         "params": params,
         "data_selector": "data",
-        "paginator": SinglePagePaginator()
-        if not endpoint_config.needs_user_id
-        else JSONResponseCursorPaginator(cursor_path="meta.next_token", cursor_param="pagination_token"),
+        "paginator": JSONResponseCursorPaginator(cursor_path="meta.next_token", cursor_param="pagination_token")
+        if endpoint_config.paginated
+        else SinglePagePaginator(),
     }
 
     if should_use_incremental_field and endpoint_config.start_time_param:
@@ -215,7 +296,7 @@ def get_resource(
             "cursor_path": "created_at",
             "start_param": endpoint_config.start_time_param,
             "initial_value": EARLIEST_START_TIME,
-            "convert": to_rfc3339,
+            "convert": _start_time_converter(endpoint_config.max_start_age),
         }
 
     return {
@@ -238,7 +319,11 @@ def _iter_pages(
     resumable_source_manager: ResumableSourceManager[TwitterResumeConfig],
     db_incremental_field_last_value: Optional[Any],
     should_use_incremental_field: bool,
+    search_query: str | None = None,
 ) -> Iterator[Any]:
+    if endpoint_config.needs_search_query and not search_query:
+        raise TwitterSearchQueryMissingError(f"{_MISSING_SEARCH_QUERY_MESSAGE} Table: {endpoint_config.name}")
+
     # Resolved here rather than in `twitter_source` so the handle lookup happens on the pipeline's
     # iterator thread with the rest of the endpoint's requests, not while the activity is still
     # assembling the response.
@@ -256,7 +341,7 @@ def _iter_pages(
             "retry_after_max_seconds": _RETRY_AFTER_MAX_SECONDS,
             "retry_budget_seconds": _RETRY_BUDGET_SECONDS,
         },
-        "resources": [get_resource(endpoint_config, username, user_id, should_use_incremental_field)],
+        "resources": [get_resource(endpoint_config, username, user_id, should_use_incremental_field, search_query)],
     }
 
     initial_paginator_state: Optional[dict[str, Any]] = None
@@ -279,6 +364,26 @@ def _iter_pages(
     )
 
 
+def _iter_usage(
+    bearer_token: str,
+    endpoint_config: TwitterEndpointConfig,
+    db_incremental_field_last_value: Optional[Any],
+    should_use_incremental_field: bool,
+) -> Iterator[list[dict[str, Any]]]:
+    days = usage_days(db_incremental_field_last_value) if should_use_incremental_field else USAGE_MAX_DAYS
+    response = _session(bearer_token).get(
+        f"{BASE_URL}{endpoint_config.path}",
+        params={**endpoint_config.extra_params, "days": days},
+        timeout=_REQUEST_TIMEOUT,
+        allow_redirects=False,
+    )
+    response.raise_for_status()
+
+    rows = usage_rows(response.json().get("data") or {})
+    if rows:
+        yield rows
+
+
 def twitter_source(
     bearer_token: str,
     username: str,
@@ -288,12 +393,20 @@ def twitter_source(
     resumable_source_manager: ResumableSourceManager[TwitterResumeConfig],
     db_incremental_field_last_value: Optional[Any],
     should_use_incremental_field: bool = False,
+    search_query: str | None = None,
 ) -> SourceResponse:
     endpoint_config = schema_for_resource(TWITTER_ENDPOINTS, endpoint)
 
-    return SourceResponse(
-        name=endpoint,
-        items=lambda: _iter_pages(
+    items: Callable[[], Iterator[Any]]
+    if endpoint_config.name == "ApiUsage":
+        items = lambda: _iter_usage(
+            bearer_token=bearer_token,
+            endpoint_config=endpoint_config,
+            db_incremental_field_last_value=db_incremental_field_last_value,
+            should_use_incremental_field=should_use_incremental_field,
+        )
+    else:
+        items = lambda: _iter_pages(
             bearer_token=bearer_token,
             username=username,
             endpoint_config=endpoint_config,
@@ -302,8 +415,13 @@ def twitter_source(
             resumable_source_manager=resumable_source_manager,
             db_incremental_field_last_value=db_incremental_field_last_value,
             should_use_incremental_field=should_use_incremental_field,
-        ),
-        primary_keys=[endpoint_config.primary_key],
+            search_query=(search_query or "").strip() or None,
+        )
+
+    return SourceResponse(
+        name=endpoint,
+        items=items,
+        primary_keys=list(endpoint_config.primary_keys),
         sort_mode=endpoint_config.sort_mode,
         partition_count=1,
         partition_size=1,
