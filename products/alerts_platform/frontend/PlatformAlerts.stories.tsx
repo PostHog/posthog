@@ -135,6 +135,13 @@ const GROUPED_CONFIGURATION: PlatformAlertConfigurationApi = {
     ],
 }
 
+const ROUTED_CONFIGURATION: PlatformAlertConfigurationApi = {
+    ...CONFIGURATION,
+    id: '0192a5b0-0000-7000-8000-000000000004',
+    labels: { team: 'infra', severity: 'critical' },
+    annotations: { runbook: 'https://example.com/runbooks/api-errors' },
+}
+
 const RECEIVERS: AlertReceiverApi[] = [
     {
         id: '0192a5b0-0000-7000-8000-000000000401',
@@ -201,6 +208,7 @@ const meta: Meta = {
                 },
                 [`/api/projects/:team_id/platform_alerts/${CONFIGURATION.id}/`]: CONFIGURATION,
                 [`/api/projects/:team_id/platform_alerts/${GROUPED_CONFIGURATION.id}/`]: GROUPED_CONFIGURATION,
+                [`/api/projects/:team_id/platform_alerts/${ROUTED_CONFIGURATION.id}/`]: ROUTED_CONFIGURATION,
                 '/api/projects/:team_id/platform_alert_receivers/': RECEIVERS,
                 '/api/projects/:team_id/platform_alert_routes/': ROUTES,
             },
@@ -266,7 +274,7 @@ export const Routing: Story = {
 
 export const DetailWithRouting: Story = {
     parameters: {
-        pageUrl: urls.platformAlert(CONFIGURATION.id),
+        pageUrl: urls.platformAlert(ROUTED_CONFIGURATION.id),
         featureFlags: [FEATURE_FLAGS.PLATFORM_ALERTS, FEATURE_FLAGS.PLATFORM_ALERTS_ROUTING],
         testOptions: { snapshotBrowsers: [] },
     },
