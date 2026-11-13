@@ -147,16 +147,20 @@ import {
 import {
     type DashboardSection,
     type SectionLayouts,
+    type TileGroupMoveDirection,
+    type TileGroupMoveDirections,
     type TileGroupMoveOptions,
     getCollapsedTileGroupKeys,
     getDashboardSections,
     getDashboardTabs,
     getEmptyTileGroupKeys,
     getLayoutAfterSectionChange,
+    getLayoutAfterTileGroupMove,
     getLayoutAfterTileMove,
     getSectionGroupKey,
     getSectionLayouts,
     getTileGroupLabel,
+    getTileGroupMoveDirections,
     getTileGroupMoveOptions,
     UNGROUPED_TILES_TAB_KEY,
     getTileGroupSectionKey,
@@ -931,6 +935,7 @@ export interface dashboardLogicValues {
     tileDisplayOptionsSavingIds: number[]
     tileGroupDisplay: TileGroupDisplay
     tileGroupKeys: Map<number, string>
+    tileGroupMoveDirections: Record<string, TileGroupMoveDirections>
     tileGroupMoveOptions: Record<number, TileGroupMoveOptions>
     tileGroupSectionLayouts: SectionLayouts[]
     tileGroupSections: DashboardSection[]
@@ -1187,6 +1192,13 @@ export interface dashboardLogicActions {
     }
     loadingDashboardItemsStarted: (action: DashboardLoadAction) => {
         action: DashboardLoadAction
+    }
+    moveTileGroup: (
+        groupKey: string,
+        direction: TileGroupMoveDirection
+    ) => {
+        direction: TileGroupMoveDirection
+        groupKey: string
     }
     moveTileToSection: (
         tileId: number,
@@ -2063,6 +2075,12 @@ export interface dashboardLogicMeta {
             tileGroupSections: DashboardSection[],
             canEditDashboard: boolean
         ) => Record<number, TileGroupMoveOptions>
+        tileGroupMoveDirections: (
+            tileGroupSections: DashboardSection[],
+            tileGroupDisplay: TileGroupDisplay,
+            canEditLayout: boolean,
+            dashboardStreaming: boolean
+        ) => Record<string, TileGroupMoveDirections>
         refreshMetrics: (
             refreshStatus: Record<string, RefreshStatus>,
             refreshTilesTotal: number | null
@@ -2328,6 +2346,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         setRevealedTileGroup: (revealedTileGroup: RevealedTileGroup | null) => ({ revealedTileGroup }),
         /** A band grid reports its own layout, which joins the other bands into one dashboard layout. */
         updateTileGroupSectionLayout: (layouts: ResponsiveLayouts) => ({ layouts }),
+        moveTileGroup: (groupKey: string, direction: TileGroupMoveDirection) => ({ groupKey, direction }),
         /** A null section takes the tile out of its group, and a null cell puts it below the target's tiles. */
         moveTileToSection: (
             tileId: number,
@@ -4640,6 +4659,20 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 canEditDashboard ? getTileGroupMoveOptions(tileGroupSections) : {},
             { resultEqualityCheck: objectsEqual },
         ],
+        tileGroupMoveDirections: [
+            (s) => [s.tileGroupSections, s.tileGroupDisplay, s.canEditLayout, s.dashboardStreaming],
+            (
+                tileGroupSections: DashboardSection[],
+                tileGroupDisplay: TileGroupDisplay,
+                canEditLayout: boolean,
+                dashboardStreaming: boolean
+            ): Record<string, TileGroupMoveDirections> =>
+                // A group can still miss tiles while they stream in, and a move would then save only part of it.
+                canEditLayout && !dashboardStreaming
+                    ? getTileGroupMoveDirections(tileGroupSections, tileGroupDisplay)
+                    : {},
+            { resultEqualityCheck: objectsEqual },
+        ],
         refreshMetrics: [
             (s) => [s.refreshStatus, s.refreshTilesTotal],
             (refreshStatus: Record<string, RefreshStatus>, refreshTilesTotal: number | null) => {
@@ -5022,6 +5055,29 @@ export const dashboardLogic = kea<dashboardLogicType>([
             if (dashboardLayout) {
                 actions.stageLayouts({ sm: dashboardLayout })
             }
+        },
+        moveTileGroup: ({ groupKey, direction }) => {
+            if (!Object.hasOwn(values.tileGroupMoveDirections, groupKey)) {
+                return
+            }
+            const layout = getLayoutAfterTileGroupMove({
+                layout: values.layouts.sm ?? [],
+                sections: values.tileGroupSections,
+                groupKey,
+                direction,
+                groupDisplay: values.tileGroupDisplay,
+                compactor: getDashboardGridCompactor(values.dashboard?.customization?.layout_compaction),
+            })
+            if (!layout) {
+                return
+            }
+            // With no tab in the URL the first tab is open, so name the open tab before the order changes.
+            const openTab = values.activeTileGroupTab
+            if (openTab && openTab !== UNGROUPED_TILES_TAB_KEY) {
+                const { pathname, searchParams, hashParams } = router.values.currentLocation
+                router.actions.replace(pathname, { ...searchParams, tab: getTileGroupSectionKey(openTab) }, hashParams)
+            }
+            actions.stageLayouts({ sm: layout })
         },
         moveTileToSection: async ({ tileId, sectionKey, cell, method }) => {
             const capture = ({ sourceGroupKey, groupKey }: TileMove): void => {
