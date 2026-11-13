@@ -1,5 +1,3 @@
-import { useState } from 'react'
-
 import { QuillRunSurfaceInputs } from '../../../components/quill/QuillRunSurfaceInputs'
 import { QuillTaskComposerSkeleton } from '../../../components/quill/QuillTaskComposerSkeleton'
 import { RunLogSkeleton } from '../../../components/RunLogSkeleton'
@@ -7,7 +5,6 @@ import { useThreadSkin } from '../../../hooks/useThreadSkin'
 
 export function TaskRunLoadingSkeleton(): JSX.Element {
     const skin = useThreadSkin()
-    const [inputsHeight, setInputsHeight] = useState(0)
     if (skin === 'lemon') {
         return <RunLogSkeleton />
     }
@@ -18,8 +15,6 @@ export function TaskRunLoadingSkeleton(): JSX.Element {
                 approval={null}
                 showApproval={false}
                 composer={<QuillTaskComposerSkeleton />}
-                height={inputsHeight}
-                onHeightChange={setInputsHeight}
             />
         </div>
     )
