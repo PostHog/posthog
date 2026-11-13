@@ -80,7 +80,6 @@ function ButtonTileCardInternal(
             className={clsx(
                 'DashboardTileCard ButtonTileCard rounded flex flex-col',
                 !isTransparent && 'bg-surface-primary border',
-                isTransparent && showResizeHandles && 'border border-dashed border-border',
                 className
             )}
             data-attr="button-tile-card"
