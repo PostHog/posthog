@@ -11,6 +11,7 @@ import { urls } from 'scenes/urls'
 
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { useMocks } from '~/mocks/jest'
+import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 import { panelLayoutLogic } from '../panelLayoutLogic'
@@ -622,6 +623,48 @@ describe('projectTreeDataLogic', () => {
         }).toFinishAllListeners()
 
         expect(error).toHaveBeenCalledWith('Error moving item: Error: nope')
+    })
+
+    it.each([
+        {
+            change: 'deleted',
+            apply: (entry: FileSystemEntry): void => logic.actions.deleteSavedItem(entry),
+            serverAfter: [] as FileSystemEntry[],
+            expectedPaths: [] as string[],
+        },
+        {
+            change: 'moved',
+            apply: (entry: FileSystemEntry): void => logic.actions.movedItem(entry, entry.path, 'Archive/Flow'),
+            serverAfter: [{ id: 'file1', ref: 'flow1', type: 'hog_flow', path: 'Archive/Flow' }] as FileSystemEntry[],
+            expectedPaths: ['Archive/Flow'],
+        },
+    ])('shows a file $change while its save refresh is in flight only where it now is', async (testCase) => {
+        const file = { id: 'file1', ref: 'flow1', type: 'hog_flow', path: 'Reports/Flow' } as FileSystemEntry
+        logic.actions.loadFolderSuccess('Reports', [file], false, 0)
+        let releaseStaleRefresh!: () => void
+        jest.mocked(api.fileSystem.list).mockImplementationOnce(
+            () =>
+                new Promise((resolve) => {
+                    releaseStaleRefresh = () =>
+                        resolve({ count: 1, users: [], results: [{ ...file, path: 'Reports/Flow two' }] })
+                })
+        )
+        jest.mocked(api.fileSystem.list).mockResolvedValue({
+            count: testCase.serverAfter.length,
+            users: [],
+            results: testCase.serverAfter,
+        })
+
+        logic.actions.syncTypeAndRef('hog_flow', 'flow1', true)
+        testCase.apply(file)
+        releaseStaleRefresh()
+        await expectLogic(logic).toFinishAllListeners()
+
+        const shownPaths = Object.values(logic.values.folders)
+            .flat()
+            .filter((entry) => entry.id === 'file1')
+            .map((entry) => entry.path)
+        expect(shownPaths).toEqual(testCase.expectedPaths)
     })
 
     it('deleteSavedItem does not crash when the parent folder is not loaded (lazy store)', () => {

@@ -678,6 +678,33 @@ export type projectTreeDataLogicType = MakeLogicType<
     projectTreeDataLogicMeta
 >
 
+function withoutRowsThatLeftTheirPath(results: FileSystemEntry[], rowsThatLeft: FileSystemEntry[]): FileSystemEntry[] {
+    return results.filter(
+        (entry) =>
+            !rowsThatLeft.some((row) =>
+                row.type === 'folder' ? isPathUnder(entry.path, row.path) : entry.id === row.id
+            )
+    )
+}
+
+function keepInFlightRefreshesFromRestoring(
+    cache: Record<string, any>,
+    rowAtItsOldPath: FileSystemEntry,
+    { refreshAgain }: { refreshAgain: boolean }
+): void {
+    if (!cache.itemRequests?.size) {
+        return
+    }
+    cache.rowsThatLeftTheirPath ??= []
+    cache.rowsThatLeftTheirPath.push(rowAtItsOldPath)
+    if (refreshAgain) {
+        cache.outdatedItemRequests ??= new Set<string>()
+        for (const requestKey of cache.itemRequests.keys()) {
+            cache.outdatedItemRequests.add(requestKey)
+        }
+    }
+}
+
 export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
     path(['layout', 'panel-layout', 'ProjectTree', 'projectTreeDataLogic']),
     connect(() => ({
@@ -1782,6 +1809,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
     }),
     listeners(({ actions, values, cache }) => ({
         movedItem: ({ item }) => {
+            keepInFlightRefreshesFromRestoring(cache, item, { refreshAgain: true })
             if (item.type === 'folder') {
                 // Matching paths can belong to folders in other environments that did not move.
                 actions.loadShortcuts()
@@ -1913,8 +1941,8 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                 return
             }
             let request: Promise<void> | null = null
-            cache.treeDeletions ??= []
-            const deletionsBefore: number = cache.treeDeletions.length
+            cache.rowsThatLeftTheirPath ??= []
+            const rowsThatLeftBefore: number = cache.rowsThatLeftTheirPath.length
             request = (async () => {
                 const items = await api.fileSystem.list({ ...refTypeParams(type), ref })
                 if (cache.itemRequests.get(requestKey) !== request) {
@@ -1923,13 +1951,9 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                 if (items.users?.length > 0) {
                     actions.addLoadedUsers(items.users)
                 }
-                // A tree delete that lands while this read is in flight removes rows the response still holds.
-                const deletedSince: FileSystemEntry[] = cache.treeDeletions.slice(deletionsBefore)
-                const results = items.results.filter(
-                    (entry) =>
-                        !deletedSince.some((deleted) =>
-                            deleted.type === 'folder' ? isPathUnder(entry.path, deleted.path) : entry.id === deleted.id
-                        )
+                const results = withoutRowsThatLeftTheirPath(
+                    items.results,
+                    cache.rowsThatLeftTheirPath.slice(rowsThatLeftBefore)
                 )
                 actions.addLoadedResults({ ...items, results } as any as SearchResults)
             })()
@@ -1944,15 +1968,12 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     }
                 }
                 if (cache.itemRequests.size === 0) {
-                    cache.treeDeletions = []
+                    cache.rowsThatLeftTheirPath = []
                 }
             }
         },
         deleteSavedItem: ({ savedItem }) => {
-            if (cache.itemRequests?.size) {
-                cache.treeDeletions ??= []
-                cache.treeDeletions.push(savedItem)
-            }
+            keepInFlightRefreshesFromRestoring(cache, savedItem, { refreshAgain: false })
         },
         deleteTypeAndRef: ({ type, ref }) => {
             const requestKey = JSON.stringify([type, ref])

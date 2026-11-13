@@ -4,7 +4,7 @@ import uuid as uuid_mod
 import hashlib
 import dataclasses
 from collections.abc import Callable, Mapping
-from contextlib import nullcontext
+from contextlib import AbstractContextManager, nullcontext
 from copy import deepcopy
 from datetime import datetime, timedelta
 from time import monotonic
@@ -6063,6 +6063,13 @@ class HogFlowViewSet(
         except Exception as e:
             logger.warning("Failed to capture workflow usage event", event=event, error=str(e))
 
+    def _folder_flag_answered_before_the_save_locks(
+        self, creator: User | None, validated_data: dict[str, Any]
+    ) -> AbstractContextManager[None]:
+        if creator is None or "_create_in_folder" not in validated_data:
+            return nullcontext()
+        return resolved_workflows_list_v2(self.team, [creator])
+
     def perform_create(self, serializer):
         if self._is_mcp_request(self.request) and serializer.validated_data.get("status") == HogFlowState.ACTIVE:
             raise exceptions.ValidationError(
@@ -6070,13 +6077,8 @@ class HogFlowViewSet(
                 "Create as draft, test with workflows-test-run, then enable with workflows-enable."
             )
 
-        # Filing into a requested folder asks the flag service, so it has to answer before the save takes its locks.
-        creator = self.request.user if self.request.user.is_authenticated else None
-        with (
-            resolved_workflows_list_v2(self.team, [cast(User, creator)])
-            if creator is not None and "_create_in_folder" in serializer.validated_data
-            else nullcontext()
-        ):
+        creator = cast(User, self.request.user) if self.request.user.is_authenticated else None
+        with self._folder_flag_answered_before_the_save_locks(creator, serializer.validated_data):
             result = create_workflow(
                 team_id=self.team_id,
                 user_id=self._actor_id(),
@@ -6137,14 +6139,9 @@ class HogFlowViewSet(
             # existing raw-API automation is unaffected.
             route_to_draft = bool(set(self.request.data.keys()) & set(DRAFT_CONTENT_FIELDS))
 
-        # Filing into a requested folder asks the flag service, so it has to answer before the save takes its locks.
         creator = serializer.instance.created_by
         try:
-            with (
-                resolved_workflows_list_v2(self.team, [creator])
-                if creator is not None and "_create_in_folder" in serializer.validated_data
-                else nullcontext()
-            ):
+            with self._folder_flag_answered_before_the_save_locks(creator, serializer.validated_data):
                 result = update_workflow(
                     team_id=self.team_id,
                     user_id=self._actor_id(),
