@@ -526,6 +526,18 @@ class EndpointExecutionService(PydanticModelMixin):
         Assumes the caller has resolved the version (or established that none was
         requested explicitly) and parsed limit/offset.
         """
+        posthoganalytics.tag("product", Product.ENDPOINTS)
+        posthoganalytics.tag("team_id", self.team.pk)
+        posthoganalytics.tag("endpoint_id", str(endpoint.id))
+        posthoganalytics.tag("endpoint_name", endpoint.name)
+        posthoganalytics.tag(
+            "$groups",
+            {
+                "organization": str(self.team.organization_id),
+                "project": str(self.team.uuid),
+            },
+        )
+
         if version_obj is None:
             return Response(
                 {"error": "No version found for this endpoint"},
