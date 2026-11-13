@@ -1,14 +1,20 @@
 import path from 'path'
 import { parseArgs } from 'util'
 
-import { CardError, LoadedCard, load } from './cards'
-import { createEnvironment } from './environment/environment'
+import { seedBacklog } from './backlog/backlog'
+import { CardError, LoadedCard, load, readProfile } from './cards'
+import { createEnvironment, defaultStateDir } from './environment/environment'
+import { roleSpecs, secretsOf } from './environment/roles'
+import { cyclotronUrlOf } from './environment/stack'
 import { Runner, createRunner } from './runner/runner'
 import { EXIT_CODE, exitCodeOf } from './runner/status'
 import { credentialsOf } from './scorecard/write'
 
 const CARDS_DIR = path.join(__dirname, 'cards')
-const USAGE = 'Usage: pnpm --dir nodejs exec tsx tests/scenarios/main.ts run <card id or path>... [--profile <file>]'
+const USAGE = [
+    'Usage: pnpm --dir nodejs exec tsx tests/scenarios/main.ts run <card id or path>... [--profile <file>]',
+    '       pnpm --dir nodejs exec tsx tests/scenarios/main.ts seed-backlog --profile <file>',
+].join('\n')
 
 function cardPathOf(card: string): string {
     return card.endsWith('.yaml') || card.includes('/') ? path.resolve(card) : path.join(CARDS_DIR, `${card}.yaml`)
@@ -39,6 +45,9 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
         options: { profile: { type: 'string' } },
     })
     const [command, ...cards] = positionals
+    if (command === 'seed-backlog' && cards.length === 0 && values.profile !== undefined) {
+        return seedBacklogOf(values.profile, env)
+    }
     if (command !== 'run' || cards.length === 0) {
         process.stderr.write(`${USAGE}\n`)
         return EXIT_CODE.invalid
@@ -53,6 +62,36 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
     process.once('SIGINT', () => interrupt.abort())
     process.once('SIGTERM', () => interrupt.abort())
     return runCards(createRunner(createEnvironment(), env), checked.loaded, interrupt.signal)
+}
+
+async function seedBacklogOf(profilePath: string, env: NodeJS.ProcessEnv): Promise<number> {
+    const read = readProfile(profilePath)
+    if ('problems' in read) {
+        process.stderr.write(`${new CardError(profilePath, read.problems).message}\n`)
+        return EXIT_CODE.invalid
+    }
+    const { backlog, settings } = read.profile
+    if (backlog === undefined) {
+        process.stderr.write(`${profilePath} has no backlog to seed\n`)
+        return EXIT_CODE.invalid
+    }
+    const stateDir = defaultStateDir(env)
+    const [spec] = roleSpecs(env, { url: '' }, secretsOf(env), stateDir, settings)
+    const { queues, bytes, manifest } = await seedBacklog(backlog, cyclotronUrlOf(spec), stateDir)
+    for (const { queue, target, live } of queues) {
+        process.stdout.write(`${queue}: ${live} live rows of ${target}\n`)
+    }
+    process.stdout.write(`bytes: table ${bytes.table}, indexes ${bytes.indexes}, toast ${bytes.toast}\n`)
+    const outside = queues.filter(({ withinTolerance }) => !withinTolerance)
+    for (const { queue, target, live } of outside) {
+        const share = Number((backlog.tolerance * 100).toFixed(2))
+        process.stderr.write(`${queue}: ${live} live rows, outside ${share}% of the ${target} the profile asks for\n`)
+    }
+    if (manifest === undefined) {
+        return EXIT_CODE.invalid
+    }
+    process.stdout.write(`manifest: ${manifest}\n`)
+    return EXIT_CODE.passed
 }
 
 export async function runCards(runner: Runner, cards: LoadedCard[], interrupt: AbortSignal): Promise<number> {

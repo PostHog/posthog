@@ -3,6 +3,7 @@ import { SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2'
 import { EmailTrackingCodeSigner } from '~/cdp/services/messaging/helpers/tracking-code'
 import { internalFetch } from '~/common/utils/request'
 
+import type { ResidentBacklog } from '../backlog/backlog'
 import { ProviderEdge, TruthRecord, UNIT_EMAIL_DOMAIN, startProviderEdge } from '../provider-edge'
 import { atLeastOnce } from './invariants'
 import { JournalEntry, Judge, createJudge } from './judge'
@@ -18,6 +19,7 @@ describe('judge', () => {
     let unfinishedJobs: number
     let clockMs: number
     let probeTakesMs: number
+    let resident: ResidentBacklog | undefined
     let judge: Judge
 
     const judgeOf = (): Judge =>
@@ -30,6 +32,7 @@ describe('judge', () => {
                 },
             },
             fetchRetries: 3,
+            residentBacklog: () => Promise.resolve(resident!),
             pollMs: 10,
             now: () => clockMs,
         })
@@ -45,6 +48,7 @@ describe('judge', () => {
         unfinishedJobs = 0
         clockMs = 0
         probeTakesMs = 10
+        resident = undefined
         judge = judgeOf()
         await judge.open(SEED)
     })
@@ -342,6 +346,56 @@ describe('judge', () => {
         )
 
         expect(result).toMatchObject({ name: 'refused_at_intake', ...expected })
+    })
+
+    it.each<[string, ResidentBacklog | undefined, object]>([
+        [
+            'every seeded row is still there',
+            {
+                seeded: [{ teamId: 15_000_000, status: 'available', rows: 4 }],
+                found: [{ teamId: 15_000_000, status: 'available', rows: 4 }],
+            },
+            { passed: true, observed: 0 },
+        ],
+        [
+            'a row was lost',
+            {
+                seeded: [
+                    { teamId: 15_000_000, status: 'available', rows: 4 },
+                    { teamId: 15_000_001, status: 'available', rows: 4 },
+                ],
+                found: [
+                    { teamId: 15_000_000, status: 'available', rows: 4 },
+                    { teamId: 15_000_001, status: 'available', rows: 3 },
+                ],
+            },
+            { passed: false, observed: 1, violation: 'team 15000001 available: expected 4 rows, found 3' },
+        ],
+        [
+            'a parked row woke and completed',
+            {
+                seeded: [{ teamId: 15_000_000, status: 'available', rows: 4 }],
+                found: [
+                    { teamId: 15_000_000, status: 'available', rows: 3 },
+                    { teamId: 15_000_000, status: 'completed', rows: 1 },
+                ],
+            },
+            { passed: false, observed: 2, violation: 'team 15000000 available: expected 4 rows, found 3' },
+        ],
+        [
+            'no backlog was seeded',
+            { found: [] },
+            {
+                passed: false,
+                violation: 'no resident backlog was seeded; run seed-backlog with this profile first',
+            },
+        ],
+    ])('resident_backlog_intact when %s', async (_story, backlog, expected) => {
+        resident = backlog
+
+        const [result] = await judge.check([{ name: 'resident_backlog_intact', params: {} }], {})
+
+        expect(result).toMatchObject({ name: 'resident_backlog_intact', ...expected })
     })
 
     it.each<[string, () => Judge]>([

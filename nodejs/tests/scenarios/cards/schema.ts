@@ -57,6 +57,29 @@ export const Card = z
     .strict()
 export type Card = z.infer<typeof Card>
 
+export const BacklogQueue = z.enum(['hogflow', 'email'])
+
+const StateBytes = z
+    .object({
+        p50: z.number().int().min(1),
+        p90: z.number().int().min(1),
+        p99: z.number().int().min(1),
+    })
+    .strict()
+    .refine(({ p50, p90, p99 }) => p50 <= p90 && p90 <= p99, 'p50, p90 and p99 must not decrease')
+
+export const Backlog = z
+    .object({
+        teams: z.number().int().min(1),
+        jobs: z.partialRecord(BacklogQueue, z.number().int().min(1)),
+        stateBytes: StateBytes,
+        compressibility: z.number().min(0).max(1),
+        parkFor: Duration,
+        tolerance: z.number().min(0).max(1),
+    })
+    .strict()
+export type Backlog = z.infer<typeof Backlog>
+
 export const Profile = z
     .object({
         name: z.string(),
@@ -69,6 +92,7 @@ export const Profile = z
                 path: ['cdp-api'],
             })
             .default({}),
+        backlog: Backlog.optional(),
     })
     .strict()
 export type Profile = z.infer<typeof Profile>

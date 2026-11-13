@@ -98,7 +98,7 @@ export async function withPostgres<T>(
 export type ScratchSchema = { url: string; create(): Promise<void>; drop(): Promise<void> }
 
 export function scratchSchema(connectionString: string, schema: string, tables: string[]): ScratchSchema {
-    const searchPath = encodeURIComponent(`-c search_path=${schema}`)
+    const searchPath = encodeURIComponent(`-c search_path=${schema},public`)
     return {
         url: `${connectionString}${connectionString.includes('?') ? '&' : '?'}options=${searchPath}`,
         create: () =>
@@ -216,9 +216,14 @@ export function postgresServersOf(spec: RoleSpec, postgresUrl: string): string[]
     return urls.filter((url, i) => urls.findIndex((other) => serverOf(other) === serverOf(url)) === i)
 }
 
+export const RESIDENT_TEAMS_FROM = 15_000_000
+
 export async function deleteUnfinishedJobs(cyclotronUrl: string): Promise<void> {
     await withPostgres(
-        (client) => client.query("DELETE FROM cyclotron_jobs WHERE status IN ('available', 'running')"),
+        (client) =>
+            client.query("DELETE FROM cyclotron_jobs WHERE status IN ('available', 'running') AND team_id < $1", [
+                RESIDENT_TEAMS_FROM,
+            ]),
         cyclotronUrl
     )
 }

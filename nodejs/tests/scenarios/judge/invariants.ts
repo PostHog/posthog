@@ -2,11 +2,17 @@ import { z } from 'zod'
 
 import { RETRIABLE_STATUS_CODES } from '~/cdp/utils/cdp-fetch'
 
+import type { ResidentBacklog } from '../backlog/backlog'
 import type { Definition } from '../cards/definitions'
 import type { TruthRecord } from '../provider-edge'
 import type { InvariantResult, JournalEntry } from './judge'
 
-export type JudgeEvidence = { journal: readonly JournalEntry[]; truth: readonly TruthRecord[]; fetchRetries: number }
+export type JudgeEvidence = {
+    journal: readonly JournalEntry[]
+    truth: readonly TruthRecord[]
+    fetchRetries: number
+    resident?: ResidentBacklog
+}
 
 export type InvariantDefinition = Definition & {
     check(evidence: JudgeEvidence, gate: number | undefined): Omit<InvariantResult, 'name'>
@@ -124,4 +130,33 @@ export const refusedAtIntake: InvariantDefinition = {
     },
 }
 
-export const INVARIANTS: InvariantDefinition[] = [atLeastOnce, duplicateSends, refusedAtIntake]
+export const residentBacklogIntact: InvariantDefinition = {
+    name: 'resident_backlog_intact',
+    params: z.object({}).strict(),
+    check: ({ resident }) => {
+        if (resident?.seeded === undefined) {
+            return {
+                passed: false,
+                observed: 0,
+                violation: 'no resident backlog was seeded; run seed-backlog with this profile first',
+                unitIds: [],
+            }
+        }
+        const keyOf = ({ teamId, status }: { teamId: number; status: string }): string => `team ${teamId} ${status}`
+        const seeded = new Map(resident.seeded.map((row) => [keyOf(row), row.rows]))
+        const found = new Map(resident.found.map((row) => [keyOf(row), row.rows]))
+        const changed = [...new Set([...seeded.keys(), ...found.keys()])]
+            .sort()
+            .map((key) => ({ key, expected: seeded.get(key) ?? 0, actual: found.get(key) ?? 0 }))
+            .filter(({ expected, actual }) => expected !== actual)
+        const [first] = changed
+        return {
+            passed: changed.length === 0,
+            observed: changed.reduce((sum, { expected, actual }) => sum + Math.abs(expected - actual), 0),
+            violation: first && `${first.key}: expected ${first.expected} rows, found ${first.actual}`,
+            unitIds: [],
+        }
+    },
+}
+
+export const INVARIANTS: InvariantDefinition[] = [atLeastOnce, duplicateSends, refusedAtIntake, residentBacklogIntact]
