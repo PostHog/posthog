@@ -566,13 +566,15 @@ def update_configuration(
     cadence: PlatformAlertUpsert | None = None,
     rescheduled: bool = False,
     source_checked: bool = False,
+    check_interval_minutes: int | None = None,
 ) -> PlatformAlertConfigurationView | None:
     """Applies an edit to a configuration the platform owns, or None when the caller cannot read it.
     With `snooze_changed`, `snooze_until` becomes the whole alert's mute, and None clears it.
 
     For an alert with no source row, `cadence` and `rescheduled` write its schedule as
     `update_owned_copy` writes a copy's. Its kind's `native_edit_guard` refuses what only the
-    source's API may change, unless `source_checked` says the source's API made the edit.
+    source's API may change, unless `source_checked` says the source's API made the edit. Such an
+    alert can instead take `check_interval_minutes`, one of the cadences its kind offers a create.
 
     Raises `PlatformAlertNotEditable` for a configuration its source owns, and
     `InvalidPlatformAlertEdit` for an edit its source kind rejects.
@@ -587,6 +589,7 @@ def update_configuration(
         cadence=cadence,
         rescheduled=rescheduled,
         source_checked=source_checked,
+        check_interval_minutes=check_interval_minutes,
     )
 
 

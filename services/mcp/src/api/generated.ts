@@ -72554,6 +72554,11 @@ export namespace Schemas {
       labels?: MetricsPlatformAlertConfigurationCreateLabels;
       /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
       annotations?: MetricsPlatformAlertConfigurationCreateAnnotations;
+      /**
+         * Minutes between scheduled checks. One of: 1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30, 60. Defaults to 1 on a create. An edit that leaves it out keeps the stored value.
+         * @minimum 1
+         */
+      check_interval_minutes?: number;
     }
 
     /**
@@ -72617,6 +72622,11 @@ export namespace Schemas {
       labels?: MetricsPlatformAlertConfigurationEditLabels;
       /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
       annotations?: MetricsPlatformAlertConfigurationEditAnnotations;
+      /**
+         * Minutes between scheduled checks. One of: 1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30, 60. Defaults to 1 on a create. An edit that leaves it out keeps the stored value.
+         * @minimum 1
+         */
+      check_interval_minutes?: number;
     }
 
     export interface MetricsRecordingRule {
@@ -91485,6 +91495,11 @@ export namespace Schemas {
       labels?: PatchedMetricsPlatformAlertConfigurationEditLabels;
       /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
       annotations?: PatchedMetricsPlatformAlertConfigurationEditAnnotations;
+      /**
+         * Minutes between scheduled checks. One of: 1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30, 60. Defaults to 1 on a create. An edit that leaves it out keeps the stored value.
+         * @minimum 1
+         */
+      check_interval_minutes?: number;
     }
 
     export interface PatchedMetricsRecordingRuleUpdate {

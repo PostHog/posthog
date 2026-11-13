@@ -2352,6 +2352,13 @@ export const PlatformAlertsCreateBody = () => zod.union([
                 .describe(
                     'Context for whoever responds, such as {\"runbook_url\": \"https:\/\/...\"}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https:\/\/.'
                 ),
+            check_interval_minutes: zod
+                .number()
+                .min(1)
+                .optional()
+                .describe(
+                    'Minutes between scheduled checks. One of: 1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30, 60. Defaults to 1 on a create. An edit that leaves it out keeps the stored value.'
+                ),
         })
         .describe('The settings of a new alert. Every one but source_config has a default, which is stored.'),
     zod
@@ -7144,6 +7151,13 @@ export const PlatformAlertsPartialUpdateBody = () => zod.union([
                 .optional()
                 .describe(
                     'Context for whoever responds, such as {\"runbook_url\": \"https:\/\/...\"}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https:\/\/.'
+                ),
+            check_interval_minutes: zod
+                .number()
+                .min(1)
+                .optional()
+                .describe(
+                    'Minutes between scheduled checks. One of: 1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30, 60. Defaults to 1 on a create. An edit that leaves it out keeps the stored value.'
                 ),
         })
         .describe('The settings an edit can change. Each source kind subclasses it with a typed `source_config`.'),
