@@ -17,7 +17,12 @@ from posthog.models.user import User
 from products.access_control.backend.models.access_control import AccessControl
 from products.alerts_platform.backend.facade import testing as platform_testing
 from products.alerts_platform.backend.facade.api import create_configuration
-from products.alerts_platform.backend.facade.contracts import Grouping, PlatformAlertConfigurationEdit, SourceKind
+from products.alerts_platform.backend.facade.contracts import (
+    APPEARANCE_GROUPING,
+    Grouping,
+    PlatformAlertConfigurationEdit,
+    SourceKind,
+)
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
@@ -191,6 +196,27 @@ class TestLogsAlertWithNoLogsRow(APIBaseTest):
         }
 
         assert seen[without_row] == seen[with_row]
+
+    def test_a_new_pattern_alert_is_neither_listed_nor_read_as_a_logs_alert(self, *_: object) -> None:
+        threshold_id = self._create_without_logs_row()
+        with team_scope(self.team.id):
+            pattern = platform_testing.create_configuration(
+                team_id=self.team.id,
+                name="New patterns",
+                enabled=True,
+                source_kind=SourceKind.LOGS.value,
+                alert_kind="appearance",
+                source_config={"filters": []},
+                grouping=APPEARANCE_GROUPING.to_stored(),
+                check_interval_minutes=1,
+                owner=PlatformAlertOwner.PLATFORM,
+                created_by=self.user,
+            )
+
+        listed = self.client.get(self.base_url)
+        assert listed.status_code == status.HTTP_200_OK, listed.json()
+        assert [alert["id"] for alert in listed.json()["results"]] == [threshold_id]
+        assert self.client.get(f"{self.base_url}{pattern.id}/").status_code == status.HTTP_404_NOT_FOUND
 
     def test_a_list_page_interleaves_both_kinds_of_alert_newest_first(self, *_: object) -> None:
         created = []
