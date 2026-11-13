@@ -1,4 +1,5 @@
 import os
+import sys
 import time
 import logging
 import warnings
@@ -224,21 +225,43 @@ def reset_clickhouse_tables():
     run_clickhouse_statement_in_parallel(list(CREATE_DATA_QUERIES()))
 
 
-def _create_test_clickhouse_database(keepdb: bool) -> None:
+def _create_clickhouse_database(keepdb: bool) -> None:
     # The native client connects to the "system" database, because the test database can be missing.
     # It also stays clear of tests that mock the requests library, which the HTTP client of infi uses.
+    with default_client() as client:
+        if not keepdb:
+            client.execute(f"DROP DATABASE IF EXISTS `{settings.CLICKHOUSE_DATABASE}`")
+        client.execute(f"CREATE DATABASE IF NOT EXISTS `{settings.CLICKHOUSE_DATABASE}`")
+
+
+def _start_local_clickhouse() -> bool:
+    """Start the stopped ClickHouse container of the local dev stack.
+
+    `hogli watch` stops an unused ClickHouse, so a local test run starts it again on demand. The same
+    call arms the watcher, which stops ClickHouse again once nothing uses it.
+    """
+    if is_ci():
+        return False
     try:
-        with default_client() as client:
-            if not keepdb:
-                client.execute(f"DROP DATABASE IF EXISTS `{settings.CLICKHOUSE_DATABASE}`")
-            client.execute(f"CREATE DATABASE IF NOT EXISTS `{settings.CLICKHOUSE_DATABASE}`")
+        result = subprocess.run(
+            [sys.executable, "-P", "-m", "hogli", "watch", "--ensure", "clickhouse"], timeout=120, check=False
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return result.returncode == 0
+
+
+def _create_test_clickhouse_database(keepdb: bool) -> None:
+    try:
+        _create_clickhouse_database(keepdb)
     except (NetworkError, SocketTimeoutError) as error:
-        raise RuntimeError(
-            f"This test needs ClickHouse, but ClickHouse at {settings.CLICKHOUSE_HOST} is not reachable. "
-            "Start it with `hogli up -d`, or start only ClickHouse with "
-            "`docker compose -f docker-compose.dev.yml up -d clickhouse`. "
-            "Tests that do not use ClickHouse run without it."
-        ) from error
+        if not _start_local_clickhouse():
+            raise RuntimeError(
+                f"This test needs ClickHouse, but ClickHouse at {settings.CLICKHOUSE_HOST} is not reachable. "
+                "Start it with `hogli watch --ensure clickhouse` or `hogli up -d`. "
+                "Tests that do not use ClickHouse run without it."
+            ) from error
+        _create_clickhouse_database(keepdb)
 
     create_clickhouse_tables()
 

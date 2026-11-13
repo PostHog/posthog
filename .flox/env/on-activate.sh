@@ -382,14 +382,19 @@ if [[ -d "$UV_PROJECT_ENVIRONMENT/bin" ]]; then
   ln -sf "$FLOX_ENV_PROJECT/bin/hogli" "$UV_PROJECT_ENVIRONMENT/bin/hogli"
 fi
 
-# ── Stale worktree cleanup ──────────────────────────────────────────
-# Agent tools create worktrees faster than anyone removes them.
-# POSTHOG_WORKTREES_AUTOCLEAN=0 opts out. hogli writes the lock file on each real run.
-if [[ "${POSTHOG_WORKTREES_AUTOCLEAN:-1}" != "0" ]] && [[ -z "${CI:-}" ]] && [[ -x "$UV_PROJECT_ENVIRONMENT/bin/python" ]] \
-  && [[ -z "$(find "$HOME/.config/posthog/worktrees-clean.lock" -size +0c -mmin -1440 2>/dev/null)" ]]; then
-  "$UV_PROJECT_ENVIRONMENT/bin/python" -P -m hogli worktrees:clean --unattended >>"$FLOX_ENV_CACHE/worktrees-clean.log" 2>&1 &
+# ── Background housekeeping (hogli watch) ───────────────────────────
+# Runs the daily stale worktree cleanup and stops an unused local ClickHouse.
+# One watcher runs per machine, so skip the spawn when the pid in its lock file is alive.
+# POSTHOG_WATCH=0 opts out of all of it; POSTHOG_WORKTREES_AUTOCLEAN=0 and
+# POSTHOG_CLICKHOUSE_IDLE_STOP_MINUTES=0 turn off one job each.
+_WATCH_PID="$(cat "$HOME/.config/posthog/watch.lock" 2>/dev/null)"
+if [[ "${POSTHOG_WATCH:-1}" != "0" ]] && [[ -z "${CI:-}" ]] && [[ -x "$UV_PROJECT_ENVIRONMENT/bin/python" ]] \
+  && ! { [[ -n "$_WATCH_PID" ]] && kill -0 "$_WATCH_PID" 2>/dev/null; }; then
+  mkdir -p "$HOME/.cache/posthog"
+  "$UV_PROJECT_ENVIRONMENT/bin/python" -P -m hogli watch >>"$HOME/.cache/posthog/watch.log" 2>&1 &
   disown
 fi
+unset _WATCH_PID
 
 # Install shell completions for hogli
 HOGLI_COMPLETION_DIR="$FLOX_ENV_CACHE/completions"
