@@ -85,7 +85,6 @@ from products.replay_vision.backend.temporal.sweep_types import (
     CheckScannerBudgetInputs,
     FindScannerCandidatesInputs,
     FindScannerCandidatesOutput,
-    InFlightApplyCounts,
     SweepScannerInputs,
     SweepScannerTickOutput,
 )
@@ -1708,49 +1707,26 @@ def test_sweep_tick_gates_the_candidate_query(gate: str) -> None:
         assert MockQuery.call_args.kwargs["candidate_limit"] == 10
 
 
+_SCANNER_SCHEDULED_CAP = MAX_IN_FLIGHT_APPLIES_PER_SCANNER - ON_DEMAND_RESERVED_SCANNER_SLOTS
+_TEAM_SCHEDULED_CAP = MAX_IN_FLIGHT_APPLIES_PER_TEAM - ON_DEMAND_RESERVED_TEAM_SLOTS
+
+
 @pytest.mark.parametrize(
-    "in_flight, expected_headroom",
+    "scanner_in_flight, team_in_flight, expected_headroom",
     [
-        (InFlightApplyCounts(scanner=MAX_IN_FLIGHT_APPLIES_PER_SCANNER, team=0), None),  # scanner cap → throttled
-        (InFlightApplyCounts(scanner=MAX_IN_FLIGHT_APPLIES_PER_SCANNER + 10, team=0), None),  # over → throttled
-        (InFlightApplyCounts(scanner=0, team=MAX_IN_FLIGHT_APPLIES_PER_TEAM), None),  # team cap → throttled
-        (
-            # At the reserved scanner ceiling the sweep throttles even though on-demand still admits.
-            InFlightApplyCounts(scanner=MAX_IN_FLIGHT_APPLIES_PER_SCANNER - ON_DEMAND_RESERVED_SCANNER_SLOTS, team=0),
-            None,
-        ),
-        (
-            # Same for the reserved team ceiling.
-            InFlightApplyCounts(scanner=0, team=MAX_IN_FLIGHT_APPLIES_PER_TEAM - ON_DEMAND_RESERVED_TEAM_SLOTS),
-            None,
-        ),
-        (
-            # Partial scanner headroom below the reserved ceiling.
-            InFlightApplyCounts(
-                scanner=MAX_IN_FLIGHT_APPLIES_PER_SCANNER - ON_DEMAND_RESERVED_SCANNER_SLOTS - 10, team=0
-            ),
-            10,
-        ),
-        (
-            # Team headroom smaller than scanner headroom → team cap binds.
-            InFlightApplyCounts(scanner=0, team=MAX_IN_FLIGHT_APPLIES_PER_TEAM - ON_DEMAND_RESERVED_TEAM_SLOTS - 5),
-            5,
-        ),
-        (
-            # Idle → full scheduled headroom, i.e. the scanner cap minus the on-demand reserve.
-            InFlightApplyCounts(scanner=0, team=0),
-            MAX_IN_FLIGHT_APPLIES_PER_SCANNER - ON_DEMAND_RESERVED_SCANNER_SLOTS,
-        ),
+        pytest.param(MAX_IN_FLIGHT_APPLIES_PER_SCANNER + 10, 0, 0, id="over_the_scanner_cap"),
+        pytest.param(0, MAX_IN_FLIGHT_APPLIES_PER_TEAM, 0, id="at_the_team_cap"),
+        pytest.param(_SCANNER_SCHEDULED_CAP, 0, 0, id="at_the_scanner_on_demand_reserve"),
+        pytest.param(0, _TEAM_SCHEDULED_CAP, 0, id="at_the_team_on_demand_reserve"),
+        pytest.param(_SCANNER_SCHEDULED_CAP - 10, 0, 10, id="partial_scanner_headroom"),
+        pytest.param(0, _TEAM_SCHEDULED_CAP - 5, 5, id="team_cap_binds"),
+        pytest.param(0, 0, _SCANNER_SCHEDULED_CAP, id="idle"),
     ],
 )
 def test_in_flight_headroom_takes_the_tighter_cap_minus_the_on_demand_reserve(
-    in_flight: InFlightApplyCounts, expected_headroom: int | None
+    scanner_in_flight: int, team_in_flight: int, expected_headroom: int
 ) -> None:
-    headroom = in_flight_headroom(in_flight.scanner, in_flight.team)
-    if expected_headroom is None:
-        assert headroom <= 0
-    else:
-        assert headroom == expected_headroom
+    assert max(0, in_flight_headroom(scanner_in_flight, team_in_flight)) == expected_headroom
 
 
 # SweepScannerWorkflow (mocked-Temporal)
