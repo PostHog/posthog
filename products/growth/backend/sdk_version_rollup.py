@@ -19,10 +19,8 @@ from products.growth.backend.sdk_health import sort_sdk_version_entries
 
 MAX_VERSIONS_PER_TEAM_LIB_DAY = 100
 
-# The Dagster job that runs this fill runs only on Cloud. There, every team's flag calls are in flag_evaluations,
-# whatever its flag evaluations mode, and an organization on FLAG_EVALUATIONS_ONLY has none in events.
-# flag_evaluations has no $lib column, so the fill reads both keys from the JSON with the expression that events
-# uses to materialize them.
+# The Dagster job runs only on Cloud, which copies every team's flag calls to flag_evaluations on every mode.
+# flag_evaluations has no $lib column, so the fill reads the JSON with the expression that materializes it on events.
 _FLAG_EVALUATIONS_LIB = trim_quotes_expr("JSONExtractRaw(properties, '$lib')")
 _FLAG_EVALUATIONS_LIB_VERSION = trim_quotes_expr("JSONExtractRaw(properties, '$lib_version')")
 
