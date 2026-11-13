@@ -13,6 +13,7 @@ import { FeaturePreviewSceneGate } from '~/layout/scenes/components/FeaturePrevi
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { TodayPeoplePinButton } from '~/layout/today/TodayPeoplePinButton'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { AccountLogo } from '../../components/Accounts/AccountLogo'
@@ -22,6 +23,7 @@ import { AccountDetailActions } from './AccountDetailActions'
 import { AccountDetailNavigation } from './AccountDetailNavigation'
 import { AccountExternalId } from './AccountExternalId'
 import { AccountPresence } from './AccountPresence'
+import { AccountProductActivitySetup } from './AccountProductActivitySetup'
 import { AccountSidebar } from './AccountSidebar'
 import { AccountStatusTags } from './AccountStatusTags'
 import { AccountViewEditorModal } from './AccountViewEditorModal'
@@ -105,6 +107,7 @@ function CustomerAnalyticsAccountSceneContent(): JSX.Element {
     return (
         <SceneContent className="h-full min-h-0" data-attr="customer-analytics-account-scene">
             <SceneTitleSection
+                nameAction={<TodayPeoplePinButton />}
                 name={account.name}
                 nameSuffix={<AccountStatusTags account={account} />}
                 resourceType={{
@@ -120,6 +123,7 @@ function CustomerAnalyticsAccountSceneContent(): JSX.Element {
                 }
             />
             {account.external_id ? <AccountExternalId externalId={account.external_id} /> : null}
+            {projectId ? <AccountProductActivitySetup projectId={projectId} /> : null}
             <SceneDivider />
             <div className="@container/account-detail flex flex-1 min-h-0 overflow-y-auto -mt-4 -mr-4 [scrollbar-gutter:stable] @min-[60rem]:-ml-4 @min-[60rem]:[scrollbar-gutter:auto]">
                 <div className="flex min-h-full w-full flex-col gap-4 @min-[60rem]/account-detail:h-full @min-[60rem]/account-detail:min-h-0 @min-[60rem]/account-detail:flex-row">

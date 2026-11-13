@@ -20,6 +20,17 @@ Both typed queries and SQL support visualizations. Save supported dashboard anal
 
 {schema_discovery}
 
+### Preserve SQL editor filters
+
+When SQL editor context includes `current_query_node.source.filters`, pass that object as `filters` to `execute-sql`.
+Preserve the date range, property and cohort filters, and `filterTestAccounts` unless the user asks to change them.
+Use `{filters}` in the `WHERE` clause of each relevant source scan, including scans inside CTEs.
+A placeholder on the final aggregate does not filter the underlying scans.
+Do not replace these controls with hardcoded dates or guessed test-account exclusions.
+Date-only placeholders do not apply property or test-account filters.
+To change a filter, update the structured `filters` argument and keep the placeholders; pass `{}` to clear filters.
+Raw SQL (`sendRawQuery`) cannot apply structured filters. Explain this limitation before presenting results from a raw query.
+
 ### Common pitfalls
 
 - **For `system.*` entities, `information_schema` stores the fully-qualified `table_name`:** `table_name = 'system.insights'` works alone. The bare name works only with a schema filter: `table_schema = 'system' AND table_name = 'insights'`. A bare `table_name = 'insights'` alone returns zero rows.
