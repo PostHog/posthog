@@ -17,7 +17,7 @@ Keep the email in the app's code unless the user chose a PostHog template. First
 | Loops                     | `transactionalId`, `email`, `dataVariables`                                 | Provider              |
 | Customer.io transactional | `transactional_message_id`, `to`, `identifiers`, `message_data`             | Provider              |
 
-Every row becomes the same PostHog send. The fields are in the skill's **Send from code** section.
+Every row becomes the same PostHog send. Its fields are in the skill's **Send forms**, under **Send from code**.
 
 ## Move the content
 
