@@ -587,6 +587,10 @@ def test_the_decision_reads_named_pages_and_trusts_only_quoted_sentences(
 
     assert (report.needs_docs, report.page_urls, report.low_confidence) == expected
     assert all(OUTDATED_SENTENCE in request["messages"][0]["content"] for request in judge_requests)
+    assert (f'- {FLAGS_PAGES[0]} (update): "{DIFF_QUOTE}"' in report.evidence) == (FLAGS_PAGES[0] in report.page_urls)
+    assert (f'- outdated: "{OUTDATED_SENTENCE}"' in report.evidence) == (
+        variant == Variant.JUDGE and OUTDATED_SENTENCE in judged_sentences
+    )
 
 
 def test_a_check_past_its_deadline_stops_before_a_model_call() -> None:
