@@ -483,13 +483,24 @@ def _scan_candidates(limit: int) -> tuple[dict[UUID, str | None], dict[UUID, Lat
     return stored, latest_runs(stored)
 
 
-def collect_status_mismatches(*, limit: int = 10_000) -> list[StatusMismatch]:
+@frozen
+class _TaskStatusMismatch:
+    task_id: UUID
+    stored_status: str | None
+    derived_status: str
+
+
+def _mismatches(limit: int) -> list[_TaskStatusMismatch]:
     stored, runs = _scan_candidates(limit)
-    counts = Counter(
-        (status, derived)
+    return [
+        _TaskStatusMismatch(task_id=task_id, stored_status=status, derived_status=derived)
         for task_id, status in stored.items()
         if status != Task.Status.DONE and status != (derived := derive_task_status(runs.get(task_id)).status)
-    )
+    ]
+
+
+def collect_status_mismatches(*, limit: int = 10_000) -> list[StatusMismatch]:
+    counts = Counter((mismatch.stored_status, mismatch.derived_status) for mismatch in _mismatches(limit))
     return [
         StatusMismatch(stored_status=status, derived_status=derived, count=count)
         for (status, derived), count in sorted(counts.items(), key=lambda item: (item[0][0] or "", item[0][1]))
@@ -499,21 +510,15 @@ def collect_status_mismatches(*, limit: int = 10_000) -> list[StatusMismatch]:
 def repair_status_mismatches(
     *, scan_limit: int = 10_000, max_repairs: int = MAX_REPAIRS_PER_PASS
 ) -> list[StatusMismatch]:
-    stored, runs = _scan_candidates(scan_limit)
-    mismatched = [
-        (task_id, status, derived)
-        for task_id, status in stored.items()
-        if status != (derived := derive_task_status(runs.get(task_id)).status)
-    ]
     counts: Counter[tuple[str | None, str]] = Counter()
-    for task_id, status, derived in mismatched[:max_repairs]:
+    for mismatch in _mismatches(scan_limit)[:max_repairs]:
         try:
-            repaired = sync_task_status(task_id, changed_by=STATUS_REPAIR_ACTOR)
+            repaired = sync_task_status(mismatch.task_id, changed_by=STATUS_REPAIR_ACTOR)
         except Exception:
-            logger.exception("task_status_repair_failed", task_id=str(task_id))
+            logger.exception("task_status_repair_failed", task_id=str(mismatch.task_id))
             continue
         if repaired:
-            counts[(status, derived)] += 1
+            counts[(mismatch.stored_status, mismatch.derived_status)] += 1
     return [
         StatusMismatch(stored_status=status, derived_status=derived, count=count)
         for (status, derived), count in sorted(counts.items(), key=lambda item: (item[0][0] or "", item[0][1]))
