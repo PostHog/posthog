@@ -2751,6 +2751,20 @@ describe('CDP API', () => {
                 expect(producedTo('cdp_intake_')).toEqual([])
             })
 
+            it('replays a keyed retry and refuses a reused key before the consumer claims the first send', async () => {
+                const headers = authorized()
+                const keyed = { ...body, idempotency_key: `key-${new UUIDT().toString()}` }
+                const first = await send(hogFlow.id, headers, keyed)
+
+                const retry = await send(hogFlow.id, headers, keyed)
+                const reused = await send(hogFlow.id, headers, { ...keyed, to: 'other@example.com' })
+
+                expect(retry.body).toMatchObject({ invocation_id: first.body.invocation_id, replayed: true })
+                expect(reused.status).toEqual(422)
+                expect(reused.body).toEqual({ error: 'idempotency_key_reused' })
+                expect(producedTo('cdp_intake_transactional_email')).toHaveLength(1)
+            })
+
             it('produces a keyed send when its claim lookup does not answer in time', async () => {
                 jest.spyOn(api['hogflowQueue'], 'findIdempotencyKey').mockReturnValue(new Promise(() => {}))
 

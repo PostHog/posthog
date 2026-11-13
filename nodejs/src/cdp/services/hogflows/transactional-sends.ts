@@ -320,16 +320,14 @@ export class TransactionalSends {
             : { kind: 'transactional-email', invocation }
         // Async mode answers on the broker's ack and leaves the claim, the insert and the rows to the intake consumer.
         const isAsync = this.deps.runIntake.modeOf(team.id) === 'async'
-        // The Valkey lease only guards a synchronous insert; in async mode the consumer's claim deduplicates.
-        const leasesKey = idempotencyKey && !isAsync
         const leaseToken = randomUUID()
         const releaseKey = async (): Promise<void> => {
-            if (leasesKey) {
+            if (idempotencyKey) {
                 stages.start('idempotency')
                 await idempotencyKeys.release(team.id, idempotencyKey, leaseToken)
             }
         }
-        if (leasesKey) {
+        if (idempotencyKey) {
             stages.start('idempotency')
             const reservation = await idempotencyKeys.reserve(team.id, idempotencyKey, fingerprint, leaseToken)
             switch (reservation.status) {
@@ -428,6 +426,24 @@ export class TransactionalSends {
             if (isAsync) {
                 stages.start('intake_produce')
                 const produced = await this.deps.runIntake.produce(run)
+                if (produced !== 'accepted') {
+                    await releaseKey()
+                } else if (idempotencyKey) {
+                    // Recorded as a synchronous insert records it, so before the consumer claims the run a reused key
+                    // is refused and a retry replays its attachment totals.
+                    stages.start('idempotency')
+                    await idempotencyKeys.markQueued(
+                        team.id,
+                        idempotencyKey,
+                        fingerprint,
+                        invocation.id,
+                        leaseToken,
+                        attachmentTotals,
+                        scheduledAt?.toISOString(),
+                        scheduledAt ? new Date(Date.now() + MAX_SCHEDULE_AHEAD_MS + CLOCK_SKEW_MARGIN_MS) : undefined,
+                        senderKind
+                    )
+                }
                 return producedResult(produced, invocation.id, scheduledAt, attachmentTotals)
             }
             stages.start('queue_insert')
