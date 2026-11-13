@@ -8,6 +8,7 @@ from posthog.schema import MarketingAnalyticsRecommendationResolution
 
 from products.marketing_analytics.backend.hogql_queries.marketing_recommendations import (
     SEARCH_CONSOLE_PERFORMANCE_URL,
+    SEARCH_CONSOLE_URL,
     CampaignStats,
     KeywordTracking,
     OrganicQueryStats,
@@ -113,6 +114,9 @@ class TestMarketingRecommendations(SimpleTestCase):
             assert rules[0].impact == 6000
             assert rules[0].cpa is not None
             assert (rules[0].cpa.value, rules[0].cpa.benchmark) == (100, 200)
+            steps = rules[0].steps or []
+            assert [step.copyValue for step in steps if step.copyValue][-1] == "300.00"
+            assert all(step.linkText and step.linkText in step.text for step in steps if step.url)
 
     @parameterized.expand(
         [
@@ -159,6 +163,8 @@ class TestMarketingRecommendations(SimpleTestCase):
             "worstCampaign": 600.0,
         }
         assert reason_benchmark in rec.reason
+        assert rec.steps
+        assert all(step.linkText and step.linkText in step.text for step in rec.steps if step.url)
 
     @parameterized.expand(
         [
@@ -445,12 +451,26 @@ class TestMarketingRecommendations(SimpleTestCase):
                 "striking_distance",
                 f"{SEARCH_CONSOLE_PERFORMANCE_URL}?resource_id=sc-domain%3Aexample.com",
             ),
+            (
+                "several_properties_open_the_last_one_viewed",
+                8.0,
+                False,
+                "striking_distance",
+                SEARCH_CONSOLE_URL,
+                ("sc-domain:example.com", "https://example.com/"),
+            ),
             ("ranks_beyond_page_one", 30.0, True, "content_gap", "https://example.com/funnels"),
             ("does_not_rank", None, True, "content_gap", None),
         ]
     )
     def test_organic_steps_start_from_the_page_that_ranks(
-        self, _name: str, position: float | None, has_pages: bool, rule: str, first_url: str | None
+        self,
+        _name: str,
+        position: float | None,
+        has_pages: bool,
+        rule: str,
+        first_url: str | None,
+        site_urls: tuple[str, ...] = ("sc-domain:example.com",),
     ) -> None:
         terms = (
             _term("funnel analysis", "c1", cost=100, conversions=5),
@@ -466,7 +486,8 @@ class TestMarketingRecommendations(SimpleTestCase):
             RankingPage(query="funnel analysis", page="https://example.com/funnels", impressions=1700),
         )
 
-        recs = recommend(_inputs((_campaign(),), terms, organic, ranking_pages=pages if has_pages else ()))
+        inputs = _inputs((_campaign(),), terms, organic, ranking_pages=pages if has_pages else ())
+        recs = recommend(replace(inputs, site_urls=site_urls))
 
         organic_recs = [rec for rec in recs if rec.subject == "funnel analysis" and rec.rule == rule]
         assert len(organic_recs) == 1
@@ -581,6 +602,8 @@ class TestMarketingRecommendations(SimpleTestCase):
         assert all(rec.cpa is None for rec in recs)
         leak = next(rec for rec in recs if rec.rule == "brand_leak")
         assert [step.copyValue for step in leak.steps or [] if step.copyValue] == ["PMax", "example"]
+        scale = next(rec for rec in recs if rec.rule == "scale_campaign")
+        assert "target CPA" in (scale.steps or [])[1].text
 
     @parameterized.expand(
         [
@@ -713,3 +736,4 @@ class TestMarketingRecommendations(SimpleTestCase):
         )
         if expected:
             assert [step.copyValue for step in rows[0].steps or [] if step.copyValue] == ["utm_term={keyword}"]
+            assert [step.linkText for step in rows[0].steps or []] == ["Account settings", None, "Campaigns"]
