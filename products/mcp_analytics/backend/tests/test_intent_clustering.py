@@ -1176,7 +1176,7 @@ class TestCorpusQueries(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, B
     def test_recurring_intents_count_sessions_by_their_first_intent(self) -> None:
         base = datetime.now(tz=UTC) - timedelta(hours=3)
         # Spellings the corpus normalizes together count together against the threshold.
-        for i, intent in enumerate(["nightly scout", "nightly scout", " nightly scout\n"]):
+        for i, intent in enumerate(["nightly scout", "nightly scout", " nightly scout  "]):
             self._seed_tool_call(f"scout-{i}", "execute_sql", intent=intent, timestamp=base)
             self._seed_tool_call(f"scout-{i}", "query_trends", timestamp=base + timedelta(minutes=1), is_error=i == 0)
         # Repeats inside one session, or as a later intent, don't make a text recurring.
