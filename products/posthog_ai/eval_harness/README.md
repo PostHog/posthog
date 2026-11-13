@@ -489,7 +489,9 @@ Suite listing (`--list`) and argument errors do not create transcripts.
 
 Each trial writes separate local files: `<case>.trial-<id>.jsonl`, `<case>.trial-<id>.artifacts.json`, `<case>.trial-<id>.summary.txt`, and `<case>.trial-<id>.toolchain.json`.
 The tool chain file lists every tool call in call order, with its turn, MCP server, input and output digests, timestamps, and duration.
-The case metadata carries a chain summary under `tool_chain`: call counts, distinct tools, servers, errors, and the sequence of the first answer query.
+The turn is `null` when the runner cannot split a multi-turn log into turns.
+The case metadata carries a chain summary under `tool_chain`: call counts, distinct tools, servers, errors, and the sequence of the first successful answer query.
+Discovery calls are catalog and schema lookups. Tool lookups, such as `ToolSearch` or a bare `exec` `tools` command, count as neither discovery nor answer.
 Scorers and judges read the same chain through `products.posthog_ai.eval_harness.tool_chain`.
 The harness shortens long case names in filenames to stay within 255 bytes. It keeps the complete trial ID and file extension.
 The summary includes the trial ID, the agent trace ID when available, phase durations in seconds, and the scores for that trial.

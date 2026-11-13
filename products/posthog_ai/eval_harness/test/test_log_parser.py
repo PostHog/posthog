@@ -2,110 +2,19 @@
 
 from __future__ import annotations
 
-import json
-
 import unittest
 
 from products.posthog_ai.backend.exec_commands import INFO_SYNTHETIC_PREFIX
 from products.posthog_ai.eval_harness.log_parser import EXEC_TOOL_NAME, SKILL_TOOL_NAME, LogParser, SkillCall, ToolCall
-
-
-def _notification(**params) -> dict:
-    return {
-        "type": "notification",
-        "timestamp": params.pop("ts"),
-        "notification": {
-            "jsonrpc": "2.0",
-            "method": params.pop("method", "session/update"),
-            "params": params.pop("params", {}),
-        },
-    }
-
-
-def _session_update(ts: str, update: dict) -> str:
-    return json.dumps(_notification(ts=ts, method="session/update", params={"sessionId": "s", "update": update}))
-
-
-def _prompt(ts: str, text: str = "hello") -> str:
-    return json.dumps(
-        _notification(
-            ts=ts,
-            method="session/prompt",
-            params={"sessionId": "s", "prompt": [{"type": "text", "text": text}]},
-        )
-    )
-
-
-def _end_turn(ts: str, usage: dict | None = None) -> str:
-    return json.dumps(
-        {
-            "type": "notification",
-            "timestamp": ts,
-            "notification": {
-                "jsonrpc": "2.0",
-                "result": {
-                    "stopReason": "end_turn",
-                    "usage": usage
-                    or {
-                        "inputTokens": 1,
-                        "outputTokens": 1,
-                        "cachedReadTokens": 0,
-                        "cachedWriteTokens": 0,
-                        "totalTokens": 2,
-                    },
-                },
-            },
-        }
-    )
-
-
-def _tool_call_start(ts: str, call_id: str, name: str) -> str:
-    return _session_update(
-        ts,
-        {
-            "sessionUpdate": "tool_call",
-            "toolCallId": call_id,
-            "status": "pending",
-            "rawInput": {},
-            "title": name,
-            "_meta": {"claudeCode": {"toolName": name}},
-        },
-    )
-
-
-def _tool_call_input(ts: str, call_id: str, raw_input: dict) -> str:
-    return _session_update(
-        ts,
-        {
-            "sessionUpdate": "tool_call_update",
-            "toolCallId": call_id,
-            "status": None,
-            "rawInput": raw_input,
-        },
-    )
-
-
-def _tool_call_completed(ts: str, call_id: str, output: str, status: str = "completed") -> str:
-    return _session_update(
-        ts,
-        {
-            "sessionUpdate": "tool_call_update",
-            "toolCallId": call_id,
-            "status": status,
-            "rawOutput": output,
-        },
-    )
-
-
-def _agent_text(ts: str, text: str) -> str:
-    return _session_update(
-        ts,
-        {"sessionUpdate": "agent_message", "content": {"type": "text", "text": text}},
-    )
-
-
-def _join(lines: list[str]) -> str:
-    return "\n".join(lines)
+from products.posthog_ai.eval_harness.test.acp_log_lines import (
+    agent_text_line,
+    end_turn_line,
+    join_lines,
+    prompt_line,
+    tool_call_completed_line,
+    tool_call_input_line,
+    tool_call_start_line,
+)
 
 
 def _make_tool_log(
@@ -116,14 +25,14 @@ def _make_tool_log(
     call_id: str = "t1",
 ) -> str:
     """Build a minimal one-call session: prompt → tool → final text → end_turn."""
-    return _join(
+    return join_lines(
         [
-            _prompt("2026-04-15T10:00:00.000Z"),
-            _tool_call_start("2026-04-15T10:00:01.000Z", call_id, tool_name),
-            _tool_call_input("2026-04-15T10:00:01.100Z", call_id, raw_input),
-            _tool_call_completed("2026-04-15T10:00:02.000Z", call_id, output, status=status),
-            _agent_text("2026-04-15T10:00:03.000Z", "done"),
-            _end_turn("2026-04-15T10:00:04.000Z"),
+            prompt_line("2026-04-15T10:00:00.000Z"),
+            tool_call_start_line("2026-04-15T10:00:01.000Z", call_id, tool_name),
+            tool_call_input_line("2026-04-15T10:00:01.100Z", call_id, raw_input),
+            tool_call_completed_line("2026-04-15T10:00:02.000Z", call_id, output, status=status),
+            agent_text_line("2026-04-15T10:00:03.000Z", "done"),
+            end_turn_line("2026-04-15T10:00:04.000Z"),
         ]
     )
 
@@ -151,17 +60,17 @@ class TestLogParserSkillCalls(unittest.TestCase):
         self.assertFalse(parser.was_skill_called("anything"))
 
     def test_get_skill_calls_returns_chronological_list(self):
-        raw = _join(
+        raw = join_lines(
             [
-                _prompt("2026-04-15T10:00:00.000Z"),
-                _tool_call_start("2026-04-15T10:00:01.000Z", "s1", SKILL_TOOL_NAME),
-                _tool_call_input("2026-04-15T10:00:01.100Z", "s1", {"skill": "first", "args": "a"}),
-                _tool_call_completed("2026-04-15T10:00:02.000Z", "s1", "r1"),
-                _tool_call_start("2026-04-15T10:00:03.000Z", "s2", SKILL_TOOL_NAME),
-                _tool_call_input("2026-04-15T10:00:03.100Z", "s2", {"skill": "second"}),
-                _tool_call_completed("2026-04-15T10:00:04.000Z", "s2", "r2"),
-                _agent_text("2026-04-15T10:00:05.000Z", "done"),
-                _end_turn("2026-04-15T10:00:06.000Z"),
+                prompt_line("2026-04-15T10:00:00.000Z"),
+                tool_call_start_line("2026-04-15T10:00:01.000Z", "s1", SKILL_TOOL_NAME),
+                tool_call_input_line("2026-04-15T10:00:01.100Z", "s1", {"skill": "first", "args": "a"}),
+                tool_call_completed_line("2026-04-15T10:00:02.000Z", "s1", "r1"),
+                tool_call_start_line("2026-04-15T10:00:03.000Z", "s2", SKILL_TOOL_NAME),
+                tool_call_input_line("2026-04-15T10:00:03.100Z", "s2", {"skill": "second"}),
+                tool_call_completed_line("2026-04-15T10:00:04.000Z", "s2", "r2"),
+                agent_text_line("2026-04-15T10:00:05.000Z", "done"),
+                end_turn_line("2026-04-15T10:00:06.000Z"),
             ]
         )
 
@@ -178,17 +87,17 @@ class TestLogParserSkillCalls(unittest.TestCase):
         self.assertLess(calls[0].position, calls[1].position)
 
     def test_get_skill_calls_filters_by_name(self):
-        raw = _join(
+        raw = join_lines(
             [
-                _prompt("2026-04-15T10:00:00.000Z"),
-                _tool_call_start("2026-04-15T10:00:01.000Z", "s1", SKILL_TOOL_NAME),
-                _tool_call_input("2026-04-15T10:00:01.100Z", "s1", {"skill": "first"}),
-                _tool_call_completed("2026-04-15T10:00:02.000Z", "s1", "r1"),
-                _tool_call_start("2026-04-15T10:00:03.000Z", "s2", SKILL_TOOL_NAME),
-                _tool_call_input("2026-04-15T10:00:03.100Z", "s2", {"skill": "second"}),
-                _tool_call_completed("2026-04-15T10:00:04.000Z", "s2", "r2"),
-                _agent_text("2026-04-15T10:00:05.000Z", "done"),
-                _end_turn("2026-04-15T10:00:06.000Z"),
+                prompt_line("2026-04-15T10:00:00.000Z"),
+                tool_call_start_line("2026-04-15T10:00:01.000Z", "s1", SKILL_TOOL_NAME),
+                tool_call_input_line("2026-04-15T10:00:01.100Z", "s1", {"skill": "first"}),
+                tool_call_completed_line("2026-04-15T10:00:02.000Z", "s1", "r1"),
+                tool_call_start_line("2026-04-15T10:00:03.000Z", "s2", SKILL_TOOL_NAME),
+                tool_call_input_line("2026-04-15T10:00:03.100Z", "s2", {"skill": "second"}),
+                tool_call_completed_line("2026-04-15T10:00:04.000Z", "s2", "r2"),
+                agent_text_line("2026-04-15T10:00:05.000Z", "done"),
+                end_turn_line("2026-04-15T10:00:06.000Z"),
             ]
         )
 
@@ -222,17 +131,17 @@ class TestLogParserToolCalls(unittest.TestCase):
         self.assertEqual(call.raw_name, "query-trends")
 
     def test_get_tool_calls_filters_by_normalized_name(self):
-        raw = _join(
+        raw = join_lines(
             [
-                _prompt("2026-04-15T10:00:00.000Z"),
-                _tool_call_start("2026-04-15T10:00:01.000Z", "t1", "query-trends"),
-                _tool_call_input("2026-04-15T10:00:01.100Z", "t1", {"a": 1}),
-                _tool_call_completed("2026-04-15T10:00:02.000Z", "t1", "r1"),
-                _tool_call_start("2026-04-15T10:00:03.000Z", "t2", "query-funnel"),
-                _tool_call_input("2026-04-15T10:00:03.100Z", "t2", {"b": 2}),
-                _tool_call_completed("2026-04-15T10:00:04.000Z", "t2", "r2"),
-                _agent_text("2026-04-15T10:00:05.000Z", "done"),
-                _end_turn("2026-04-15T10:00:06.000Z"),
+                prompt_line("2026-04-15T10:00:00.000Z"),
+                tool_call_start_line("2026-04-15T10:00:01.000Z", "t1", "query-trends"),
+                tool_call_input_line("2026-04-15T10:00:01.100Z", "t1", {"a": 1}),
+                tool_call_completed_line("2026-04-15T10:00:02.000Z", "t1", "r1"),
+                tool_call_start_line("2026-04-15T10:00:03.000Z", "t2", "query-funnel"),
+                tool_call_input_line("2026-04-15T10:00:03.100Z", "t2", {"b": 2}),
+                tool_call_completed_line("2026-04-15T10:00:04.000Z", "t2", "r2"),
+                agent_text_line("2026-04-15T10:00:05.000Z", "done"),
+                end_turn_line("2026-04-15T10:00:06.000Z"),
             ]
         )
         parser = LogParser(raw, initial_prompt="hi")
@@ -258,13 +167,13 @@ class TestLogParserToolCalls(unittest.TestCase):
         """When tool_call starts but no completion update arrives, the parser
         emits a ``tool_use`` block with no matching ``tool_result``. We surface
         it as ``is_error=True`` so downstream filters can drop it."""
-        raw = _join(
+        raw = join_lines(
             [
-                _prompt("2026-04-15T10:00:00.000Z"),
-                _tool_call_start("2026-04-15T10:00:01.000Z", "t1", "query-trends"),
-                _tool_call_input("2026-04-15T10:00:01.100Z", "t1", {"foo": 1}),
-                _agent_text("2026-04-15T10:00:03.000Z", "done"),
-                _end_turn("2026-04-15T10:00:04.000Z"),
+                prompt_line("2026-04-15T10:00:00.000Z"),
+                tool_call_start_line("2026-04-15T10:00:01.000Z", "t1", "query-trends"),
+                tool_call_input_line("2026-04-15T10:00:01.100Z", "t1", {"foo": 1}),
+                agent_text_line("2026-04-15T10:00:03.000Z", "done"),
+                end_turn_line("2026-04-15T10:00:04.000Z"),
             ]
         )
         parser = LogParser(raw, initial_prompt="hi")
@@ -349,17 +258,17 @@ class TestLogParserToolCalls(unittest.TestCase):
         self.assertEqual(parser.get_tool_calls("exec"), [])
 
     def test_position_is_chronological(self):
-        raw = _join(
+        raw = join_lines(
             [
-                _prompt("2026-04-15T10:00:00.000Z"),
-                _tool_call_start("2026-04-15T10:00:01.000Z", "t1", "first"),
-                _tool_call_input("2026-04-15T10:00:01.100Z", "t1", {}),
-                _tool_call_completed("2026-04-15T10:00:02.000Z", "t1", "r1"),
-                _tool_call_start("2026-04-15T10:00:03.000Z", "t2", "second"),
-                _tool_call_input("2026-04-15T10:00:03.100Z", "t2", {}),
-                _tool_call_completed("2026-04-15T10:00:04.000Z", "t2", "r2"),
-                _agent_text("2026-04-15T10:00:05.000Z", "done"),
-                _end_turn("2026-04-15T10:00:06.000Z"),
+                prompt_line("2026-04-15T10:00:00.000Z"),
+                tool_call_start_line("2026-04-15T10:00:01.000Z", "t1", "first"),
+                tool_call_input_line("2026-04-15T10:00:01.100Z", "t1", {}),
+                tool_call_completed_line("2026-04-15T10:00:02.000Z", "t1", "r1"),
+                tool_call_start_line("2026-04-15T10:00:03.000Z", "t2", "second"),
+                tool_call_input_line("2026-04-15T10:00:03.100Z", "t2", {}),
+                tool_call_completed_line("2026-04-15T10:00:04.000Z", "t2", "r2"),
+                agent_text_line("2026-04-15T10:00:05.000Z", "done"),
+                end_turn_line("2026-04-15T10:00:06.000Z"),
             ]
         )
         parser = LogParser(raw, initial_prompt="hi")
@@ -371,49 +280,49 @@ class TestLogParserToolCalls(unittest.TestCase):
 
 class TestLogParserMessages(unittest.TestCase):
     def test_get_final_agent_message_returns_last_assistant_text(self):
-        raw = _join(
+        raw = join_lines(
             [
-                _prompt("2026-04-15T10:00:00.000Z"),
-                _agent_text("2026-04-15T10:00:01.000Z", "first reply"),
-                _tool_call_start("2026-04-15T10:00:02.000Z", "t1", "search"),
-                _tool_call_input("2026-04-15T10:00:02.100Z", "t1", {}),
-                _tool_call_completed("2026-04-15T10:00:03.000Z", "t1", "r"),
-                _agent_text("2026-04-15T10:00:04.000Z", "final reply"),
-                _end_turn("2026-04-15T10:00:05.000Z"),
+                prompt_line("2026-04-15T10:00:00.000Z"),
+                agent_text_line("2026-04-15T10:00:01.000Z", "first reply"),
+                tool_call_start_line("2026-04-15T10:00:02.000Z", "t1", "search"),
+                tool_call_input_line("2026-04-15T10:00:02.100Z", "t1", {}),
+                tool_call_completed_line("2026-04-15T10:00:03.000Z", "t1", "r"),
+                agent_text_line("2026-04-15T10:00:04.000Z", "final reply"),
+                end_turn_line("2026-04-15T10:00:05.000Z"),
             ]
         )
         parser = LogParser(raw, initial_prompt="hi")
         self.assertEqual(parser.get_final_agent_message(), "final reply")
 
     def test_get_final_agent_message_returns_none_when_run_ends_on_tool_use(self):
-        raw = _join(
+        raw = join_lines(
             [
-                _prompt("2026-04-15T10:00:00.000Z"),
-                _tool_call_start("2026-04-15T10:00:01.000Z", "t1", "search"),
-                _tool_call_input("2026-04-15T10:00:01.100Z", "t1", {}),
-                _tool_call_completed("2026-04-15T10:00:02.000Z", "t1", "r"),
-                _end_turn("2026-04-15T10:00:03.000Z"),
+                prompt_line("2026-04-15T10:00:00.000Z"),
+                tool_call_start_line("2026-04-15T10:00:01.000Z", "t1", "search"),
+                tool_call_input_line("2026-04-15T10:00:01.100Z", "t1", {}),
+                tool_call_completed_line("2026-04-15T10:00:02.000Z", "t1", "r"),
+                end_turn_line("2026-04-15T10:00:03.000Z"),
             ]
         )
         parser = LogParser(raw, initial_prompt="hi")
         self.assertIsNone(parser.get_final_agent_message())
 
     def test_get_user_prompt_returns_initial_prompt_when_seeded(self):
-        raw = _join(
+        raw = join_lines(
             [
-                _prompt("2026-04-15T10:00:00.000Z"),
-                _agent_text("2026-04-15T10:00:01.000Z", "ok"),
-                _end_turn("2026-04-15T10:00:02.000Z"),
+                prompt_line("2026-04-15T10:00:00.000Z"),
+                agent_text_line("2026-04-15T10:00:01.000Z", "ok"),
+                end_turn_line("2026-04-15T10:00:02.000Z"),
             ]
         )
         parser = LogParser(raw, initial_prompt="seeded prompt")
         self.assertEqual(parser.get_user_prompt(), "seeded prompt")
 
     def test_get_user_prompt_falls_back_when_no_initial_prompt(self):
-        raw = _join(
+        raw = join_lines(
             [
-                _agent_text("2026-04-15T10:00:01.000Z", "ok"),
-                _end_turn("2026-04-15T10:00:02.000Z"),
+                agent_text_line("2026-04-15T10:00:01.000Z", "ok"),
+                end_turn_line("2026-04-15T10:00:02.000Z"),
             ]
         )
         parser = LogParser(raw)
@@ -429,6 +338,7 @@ class TestLogParserModels(unittest.TestCase):
             is_error=False,
             call_id="c",
             position=0,
+            sequence=0,
             raw_name="x",
             is_exec_unwrapped=False,
         )

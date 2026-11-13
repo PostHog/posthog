@@ -737,10 +737,20 @@ class _SandboxedEvalRun(_BaseEvalRun):
                 except Exception:
                     logger.exception("Failed to emit trace events for '%s'", eval_case.name)
 
-        tool_chain = build_tool_chain(
-            {"raw_log": result.raw_log, "prompt": eval_case.prompt, "turn_logs": result.turn_logs}
-        )
-        hooks.metadata["tool_chain"] = summarize_tool_chain(tool_chain)
+        tool_chain: list[dict[str, Any]] | None = None
+        try:
+            steps = build_tool_chain(
+                {
+                    "raw_log": result.raw_log,
+                    "prompt": eval_case.prompt,
+                    "turn_logs": result.turn_logs,
+                    "turn_prompts": [eval_case.prompt, *eval_case.followups],
+                }
+            )
+            hooks.metadata["tool_chain"] = summarize_tool_chain(steps)
+            tool_chain = [step.model_dump() for step in steps]
+        except Exception:
+            logger.exception("Failed to build the tool chain for '%s'", eval_case.name)
 
         try:
             write_case_logs(
@@ -754,7 +764,7 @@ class _SandboxedEvalRun(_BaseEvalRun):
                 token_usage=self.case_trace_meta.get(trial_id, {}).get("token_usage"),
                 trial_id=hooks.metadata.get("trial_id"),
                 trace_id=result.trace_id,
-                tool_chain=[step.model_dump() for step in tool_chain],
+                tool_chain=tool_chain,
             )
         except Exception:
             logger.exception("Failed to write local eval logs for '%s'", eval_case.name)

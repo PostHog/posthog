@@ -18,9 +18,13 @@ def _slugify(name: str) -> str:
     return slug or "unnamed"
 
 
+# Every file name that write_case_logs builds ends in one of these.
+CASE_LOG_SUFFIXES = (".jsonl", ".artifacts.json", ".summary.txt", ".toolchain.json")
+
+
 def _case_log_slug(case_name: str, trial_id: str | None) -> str:
     trial_suffix = f".trial-{_slugify(trial_id)}" if trial_id else ""
-    case_name_limit = 255 - len(trial_suffix) - len(".toolchain.json")
+    case_name_limit = 255 - len(trial_suffix) - max(len(suffix) for suffix in CASE_LOG_SUFFIXES)
     return _slugify(case_name)[:case_name_limit] + trial_suffix
 
 

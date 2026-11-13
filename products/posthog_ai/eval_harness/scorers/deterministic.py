@@ -2,29 +2,9 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
-from products.posthog_ai.eval_harness.log_parser import LogParser, is_schema_discovery_call
+from products.posthog_ai.eval_harness.log_parser import LogParser, is_answer_query_tool, is_schema_discovery_call
 
 from .contract import Score, Scorer
-
-QUERY_TOOL_PREFIX = "query-"
-"""Prefix marking a typed query runner. The MCP server treats every ``query-*``
-tool as a typed runner (see the ``query-run`` fallback in ``tools/exec.ts``),
-so new runners are covered without an enumerated list going stale."""
-
-EXECUTE_SQL_TOOL = "execute-sql"
-
-
-def is_answer_query_tool(name: str) -> bool:
-    """True when a tool produces a query result that can answer the user's question.
-
-    The typed ``query-*`` runners (trends, funnel, retention, stickiness,
-    lifecycle, paths, web analytics, llm-trace, and their ``-actors``
-    variants) and arbitrary ``execute-sql`` are the answer-producing tools.
-    Discovery, schema, and skill calls (``ToolSearch``, ``read-data-schema``,
-    bare ``exec``) are intermediary: they run constantly in a healthy run and
-    never count as the answer.
-    """
-    return name == EXECUTE_SQL_TOOL or name.startswith(QUERY_TOOL_PREFIX)
 
 
 class ExitCodeZero(Scorer):

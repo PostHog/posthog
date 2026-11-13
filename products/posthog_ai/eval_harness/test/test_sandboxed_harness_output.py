@@ -49,7 +49,13 @@ from products.posthog_ai.eval_harness.harness.trial_stats import ScorerTrialStat
 from products.posthog_ai.eval_harness.offline_results import OfflineEvalSuite
 from products.posthog_ai.eval_harness.one_shot import OneShotEval
 from products.posthog_ai.eval_harness.scorers import ExitCodeZero
+from products.posthog_ai.eval_harness.test.acp_log_lines import (
+    join_lines,
+    tool_call_completed_line,
+    tool_call_start_line,
+)
 from products.posthog_ai.eval_harness.test.offline_api import OfflineServer
+from products.posthog_ai.eval_harness.tool_chain import ToolChainStep
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext
 
 
@@ -828,8 +834,15 @@ async def test_sandboxed_trials_keep_separate_logs_and_trace_roots(
     class ProductArtifacts(AgentArtifacts):
         report_id: str
 
+    def build_tool_chain(output: dict[str, object]) -> list[ToolChainStep]:
+        if "call-1" in str(output["raw_log"]):
+            raise AttributeError("malformed tool_call line")
+        return real_build_tool_chain(output)
+
+    real_build_tool_chain = base.build_tool_chain
     monkeypatch.delenv("EXPORT_EVAL_RESULTS", raising=False)
     monkeypatch.setattr(base, "build_case_dir", lambda *_: tmp_path)
+    monkeypatch.setattr(base, "build_tool_chain", build_tool_chain)
     ctx = MagicMock(posthog_client=None, reporter=ProgressReporter(total_suites=1))
     ctx.trials = 3
     run = base._SandboxedEvalRun("trials", [], [], ctx)
@@ -839,18 +852,24 @@ async def test_sandboxed_trials_keep_separate_logs_and_trace_roots(
         trial_id = f"trial-{index}"
         hooks = NullCaseHooks()
         hooks.metadata["trial_id"] = trial_id
-        raw_log = json.dumps(
-            {
-                "notification": {
-                    "method": "session/update",
-                    "params": {
-                        "update": {
-                            "sessionUpdate": "agent_message_chunk",
-                            "content": {"type": "text", "text": str(index)},
+        raw_log = join_lines(
+            [
+                json.dumps(
+                    {
+                        "notification": {
+                            "method": "session/update",
+                            "params": {
+                                "update": {
+                                    "sessionUpdate": "agent_message_chunk",
+                                    "content": {"type": "text", "text": str(index)},
+                                }
+                            },
                         }
-                    },
-                }
-            }
+                    }
+                ),
+                tool_call_start_line("2026-04-15T10:00:01.000Z", f"call-{index}", "mcp__posthog__execute-sql"),
+                tool_call_completed_line("2026-04-15T10:00:02.000Z", f"call-{index}", "42"),
+            ]
         )
         output = await run._post_process(
             SandboxedEvalCase(name="same-case", prompt="Run the task"),
@@ -877,6 +896,9 @@ async def test_sandboxed_trials_keep_separate_logs_and_trace_roots(
         assert artifacts["report_id"] == f"report-{index}"
         summary = (tmp_path / f"same-case.trial-trial-{index}.summary.txt").read_text()
         assert f"trace_id: trace-{index}" in summary
+        tool_chain = json.loads((tmp_path / f"same-case.trial-trial-{index}.toolchain.json").read_text())
+        # A chain that fails to build must not stop the other case logs from reaching disk.
+        assert [step["name"] for step in tool_chain] == ([] if index == 1 else ["execute-sql"])
         assert json.loads(summary.split("=== scores ===\n")[1]) == {"score": index / 2}
     roots = [
         call.kwargs["properties"]

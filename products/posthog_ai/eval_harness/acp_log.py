@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 
@@ -39,13 +39,9 @@ class SpanDescriptor:
     timestamp: str = ""
 
 
-@dataclass(frozen=False)
+@dataclass(frozen=True)
 class ToolTiming:
-    """When one tool call started and finished, and where it sits in the run's call order."""
-
-    sequence: int
-    """Zero-based order of the ``tool_call`` line across the whole log. Parallel calls in one
-    assistant message get distinct values, unlike the message position."""
+    """When one tool call started and finished."""
 
     started_at: str = ""
     """Timestamp of the ``tool_call`` line."""
@@ -324,7 +320,7 @@ class AcpLogParser:
         tool_call_id = update.get("toolCallId", str(uuid.uuid4()))
         raw_input = update.get("rawInput", {})
         if tool_call_id not in self._result.tool_timings:
-            self._result.tool_timings[tool_call_id] = ToolTiming(sequence=len(self._result.tool_timings), started_at=ts)
+            self._result.tool_timings[tool_call_id] = ToolTiming(started_at=ts)
 
         self._current_output.append(
             {
@@ -368,7 +364,7 @@ class AcpLogParser:
         self._pending_tool_results.append(tool_result)
         timing = self._result.tool_timings.get(tool_call_id)
         if timing is not None and ts:
-            timing.ended_at = ts
+            self._result.tool_timings[tool_call_id] = replace(timing, ended_at=ts)
         if ts:
             self._last_tool_result_ts = ts
 
