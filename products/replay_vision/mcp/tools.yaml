@@ -578,11 +578,10 @@ tools:
             `scale`; summarizers optionally set `length`; experiment scanners need `experiment_id` and optionally set
             `variants` (null watches every variant), `balance_variants` and `length`. Unknown `scanner_config` keys are
             rejected. `query` is a `RecordingsQuery` shape that defines which sessions the scanner watches — `date_from`
-            and `date_to` are ignored (the schedule controls time). `sampling_mode` is a quality pre-filter over matched
-            sessions (`focused` / `balanced` / `comprehensive`, default `comprehensive`) and `sampling_rate` is a 0..1
-            random downsample applied after it (default 1.0). `model` chooses the LLM and sets the credit price of every
-            observation. Names must be unique within the team. Before creating a broad scanner (a permissive `query`,
-            loose `sampling_mode`, and/or high `sampling_rate`), first call `vision-scanners-estimate` to project its
+            and `date_to` are ignored (the schedule controls time). `sampling_rate` is a 0..1 random downsample of the
+            matched sessions (default 1.0). `model` chooses the LLM and sets the credit price of every
+            observation. Names must be unique within the team. Before creating a broad scanner (a permissive `query`
+            and/or high `sampling_rate`), first call `vision-scanners-estimate` to project its
             monthly credit spend and `vision-quota-get` to check the org's remaining budget — an enabled scanner sweeps
             matching recordings as often as every 5 minutes, and creation itself does not check quota, so a too-broad
             scanner can exhaust the budget on its first sweeps. Set `credit_limit` to cap what this one scanner can
@@ -670,8 +669,8 @@ tools:
             which becomes the scanner's `credit_limit`. Pass exactly one of the two, and never guess a budget. Check
             `vision-quota-get` first and skip the free choice when `credits_used` has reached `free_monthly_credits`.
             Nothing is saved. Returns `name`, `description`, `scanner_type`, `scanner_config`, `query`, a `rationale`
-            addressed to the person, the chosen `model`, and the `free_only` and `credit_limit` to save. `sampling_mode`
-            and `sampling_rate` are solved to fit the budget, and come back null only when the cost estimate failed. A
+            addressed to the person, the chosen `model`, and the `free_only` and `credit_limit` to save.
+            `sampling_rate` is solved to fit the budget, and comes back null only when the cost estimate failed. A
             draft that watches an experiment comes back as an `experiment` scanner; pass `experiment_id` to draft one on
             a launched experiment the person picked. Pass `query` when the person already chose which recordings to
             watch: the draft starts from that filter and can only narrow it, and returns what it added in
@@ -709,8 +708,8 @@ tools:
         description: >
             Preview how many observations a proposed scanner would generate, and what they would cost, before saving it.
             Send a `query` (`RecordingsQuery` shape; `date_from`/`date_to` are ignored, because the estimate counts a
-            recent window, `window_days` in the response, and scales it to 30 days) plus the proposed `sampling_rate`,
-            `sampling_mode` and `model`, and `scanner_id` when re-estimating an existing scanner so its own projection
+            recent window, `window_days` in the response, and scales it to 30 days) plus the proposed `sampling_rate`
+            and `model`, and `scanner_id` when re-estimating an existing scanner so its own projection
             isn't double-counted. For an experiment scanner, pass `experiment` with the same `experiment_id` and
             `variants` you will save, so the estimate counts only exposed sessions. Returns
             `matched_sessions_in_window`, the `window_days` it was measured over, `estimated_observations_per_month`,
@@ -829,7 +828,7 @@ tools:
         title: List replay vision scanners
         description: >
             List all replay vision scanners in the current project. A scanner watches a slice of session recordings
-            (defined by its `query`, `sampling_mode` and `sampling_rate`) and runs one of four LLM analyses against each
+            (defined by its `query` and `sampling_rate`) and runs one of four LLM analyses against each
             matching session: `monitor` (open-ended observations), `classifier` (tag from a fixed label set), `scorer`
             (numeric rubric), or `summarizer` (free-text summary, embedded for downstream search). Each scanner returns
             its current configuration, enabled state, sampling settings, `last_swept_at` timestamp, and its credit
@@ -1084,11 +1083,11 @@ tools:
         description: >
             Partially update a replay vision scanner by ID. Send only the fields you want to change, except `query`: it
             replaces the stored filter as a whole, so read it with `vision-scanners-get` and send it back in full with
-            your changes. Common changes: toggle `enabled` to pause/resume scanning, adjust `sampling_rate` or
-            `sampling_mode`, tweak the `scanner_config` prompt or tags, or refine the `query` to watch a different slice
+            your changes. Common changes: toggle `enabled` to pause/resume scanning, adjust `sampling_rate`,
+            tweak the `scanner_config` prompt or tags, or refine the `query` to watch a different slice
             of sessions. `scanner_type` is locked after creation — to change it, delete and recreate. Editing any config
             field bumps `scanner_version`; existing observations keep a snapshot of the previous config for
-            reproducibility. If you widen the `query`, raise `sampling_rate`, loosen `sampling_mode`, or move to a
+            reproducibility. If you widen the `query`, raise `sampling_rate`, or move to a
             pricier `model`, re-check projected spend with `vision-scanners-estimate` and remaining budget with
             `vision-quota-get` first — the scanner resumes sweeping as often as every 5 minutes at the new, broader
             scope.
