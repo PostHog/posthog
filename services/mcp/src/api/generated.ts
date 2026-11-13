@@ -71617,6 +71617,40 @@ export namespace Schemas {
       Retention: 'retention',
     } as const;
 
+    /**
+     * * `metric_runs` - Metric runs
+     * * `conversations` - Conversations
+     * * `adjusted_runs` - Adjusted runs
+     * * `topics` - Topics
+     * * `table_sources` - Table sources
+     * * `uncovered` - Uncovered
+     */
+    export type UsageSectionEnum = typeof UsageSectionEnum[keyof typeof UsageSectionEnum];
+
+
+    export const UsageSectionEnum = {
+      MetricRuns: 'metric_runs',
+      Conversations: 'conversations',
+      AdjustedRuns: 'adjusted_runs',
+      Topics: 'topics',
+      TableSources: 'table_sources',
+      Uncovered: 'uncovered',
+    } as const;
+
+    export interface SectionFailure {
+      /** The payload section whose step failed.
+       *
+       * * `metric_runs` - Metric runs
+       * * `conversations` - Conversations
+       * * `adjusted_runs` - Adjusted runs
+       * * `topics` - Topics
+       * * `table_sources` - Table sources
+       * * `uncovered` - Uncovered */
+      section: UsageSectionEnum;
+      /** Why the scan step failed. */
+      reason: string;
+    }
+
     export interface MetricUsage {
       /** ID of the catalog metric. */
       metric_id: string;
@@ -71635,6 +71669,8 @@ export namespace Schemas {
       runs: MetricRunCounts | null;
       /** Agent queries that re-derived the metric. is_scout marks the ones a scout ran. */
       adjusted_runs: AdjustedRun[];
+      /** Failed sections that these numbers read, so a missing count is not a zero. */
+      failed_sections: SectionFailure[];
     }
 
     /**
@@ -122622,6 +122658,8 @@ export namespace Schemas {
          * @nullable
          */
       proposed_metrics: ProposedMetric[] | null;
+      /** Sections whose scan step failed. Each one stays null, and the others keep their results. */
+      failed_sections: SectionFailure[];
     }
 
     export interface UsageSnapshot {
