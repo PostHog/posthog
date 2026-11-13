@@ -120,7 +120,6 @@ from posthog.schema_enums import (
     EntityType as EntityType,
     ErrorTrackingIssueAssigneeType as ErrorTrackingIssueAssigneeType,
     ErrorTrackingIssueStatus as ErrorTrackingIssueStatus,
-    ErrorTrackingIssueTagFilterValue as ErrorTrackingIssueTagFilterValue,
     ErrorTrackingOrderBy as ErrorTrackingOrderBy,
     ErrorTrackingQueryIssueSeverity as ErrorTrackingQueryIssueSeverity,
     ErrorTrackingReleasesOrderBy as ErrorTrackingReleasesOrderBy,
@@ -1658,14 +1657,21 @@ class ErrorTrackingIssueTag(BaseModel):
     source: str | None = Field(
         default=None,
         description=(
-            "The tagger that wrote the answer: `jev` for AI, `manual` for a person."
+            "The tagger that applied the tag: `jev` for AI, `manual` for a person."
             " Issue detail sets it, list results send null."
         ),
     )
-    value: bool | None = Field(
-        ...,
-        description=("The answer: true for yes, false for no, null when the tagger was unsure."),
+
+
+class ErrorTrackingIssueTagFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
     )
+    applied: bool = Field(
+        ...,
+        description=("True matches the issues the tag is applied to. False matches every other issue."),
+    )
+    key: str = Field(..., description="Key of the tag definition.")
 
 
 class Person(BaseModel):
@@ -5795,17 +5801,6 @@ class ErrorTrackingIssueRelease(BaseModel):
     namespace: str | None = None
     total: int
     version: str | None = None
-
-
-class ErrorTrackingIssueTagFilter(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    key: str = Field(..., description="Key of the tag definition.")
-    value: ErrorTrackingIssueTagFilterValue = Field(
-        ...,
-        description=("The answer to match. `unknown` matches issues where the tagger was unsure or never answered."),
-    )
 
 
 class ErrorTrackingPendingFingerprintIssueStateUpdate(BaseModel):
@@ -19215,8 +19210,8 @@ class ErrorTrackingIssue(BaseModel):
     tags: list[ErrorTrackingIssueTag] | None = Field(
         default=None,
         description=(
-            "The issue's answers to its enabled tags, on issue list results and issue"
-            " detail. Null or absent when the project has no enabled tag."
+            "The enabled tags that are applied to the issue, on issue list results and"
+            " issue detail. Null or absent when the project has no enabled tag."
         ),
     )
 
@@ -19355,8 +19350,8 @@ class ErrorTrackingRelationalIssue(BaseModel):
     tags: list[ErrorTrackingIssueTag] | None = Field(
         default=None,
         description=(
-            "The issue's answers to its enabled tags, on issue list results and issue"
-            " detail. Null or absent when the project has no enabled tag."
+            "The enabled tags that are applied to the issue, on issue list results and"
+            " issue detail. Null or absent when the project has no enabled tag."
         ),
     )
 
@@ -31995,8 +31990,8 @@ class ErrorTrackingCorrelatedIssue(BaseModel):
     tags: list[ErrorTrackingIssueTag] | None = Field(
         default=None,
         description=(
-            "The issue's answers to its enabled tags, on issue list results and issue"
-            " detail. Null or absent when the project has no enabled tag."
+            "The enabled tags that are applied to the issue, on issue list results and"
+            " issue detail. Null or absent when the project has no enabled tag."
         ),
     )
 
@@ -35947,7 +35942,7 @@ class ErrorTrackingQuery(BaseModel):
     issueTag: ErrorTrackingIssueTagFilter | None = Field(
         default=None,
         description=(
-            "Filter by the answer to one issue tag. Ignored when issue tags or this tag are off for the project."
+            "Filter by whether one issue tag is applied. Ignored when issue tags or this tag are off for the project."
         ),
     )
     kind: Literal["ErrorTrackingQuery"] = "ErrorTrackingQuery"

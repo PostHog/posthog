@@ -10221,10 +10221,8 @@ export namespace Schemas {
       key: string;
       /** Short name of the tag. */
       label: string;
-      /** The tagger that wrote the answer: `jev` for AI, `manual` for a person. Issue detail sets it, list results send null. */
+      /** The tagger that applied the tag: `jev` for AI, `manual` for a person. Issue detail sets it, list results send null. */
       source?: string | null;
-      /** The answer: true for yes, false for no, null when the tagger was unsure. */
-      value: boolean | null;
     }
 
     export interface ErrorTrackingIssue {
@@ -10244,7 +10242,7 @@ export namespace Schemas {
       severity?: ErrorTrackingQueryIssueSeverity | null;
       source?: string | null;
       status: ErrorTrackingIssueStatus;
-      /** The issue's answers to its enabled tags, on issue list results and issue detail. Null or absent when the project has no enabled tag. */
+      /** The enabled tags that are applied to the issue, on issue list results and issue detail. Null or absent when the project has no enabled tag. */
       tags?: ErrorTrackingIssueTag[] | null;
     }
 
@@ -10298,7 +10296,7 @@ export namespace Schemas {
       population: Population;
       severity?: ErrorTrackingQueryIssueSeverity | null;
       status: ErrorTrackingIssueStatus;
-      /** The issue's answers to its enabled tags, on issue list results and issue detail. Null or absent when the project has no enabled tag. */
+      /** The enabled tags that are applied to the issue, on issue list results and issue detail. Null or absent when the project has no enabled tag. */
       tags?: ErrorTrackingIssueTag[] | null;
     }
 
@@ -11507,20 +11505,11 @@ export namespace Schemas {
       webQueryModifiers?: WebAnalyticsQueryModifiers | null;
     }
 
-    export type ErrorTrackingIssueTagFilterValue = typeof ErrorTrackingIssueTagFilterValue[keyof typeof ErrorTrackingIssueTagFilterValue];
-
-
-    export const ErrorTrackingIssueTagFilterValue = {
-      Yes: 'yes',
-      No: 'no',
-      Unknown: 'unknown',
-    } as const;
-
     export interface ErrorTrackingIssueTagFilter {
+      /** True matches the issues the tag is applied to. False matches every other issue. */
+      applied: boolean;
       /** Key of the tag definition. */
       key: string;
-      /** The answer to match. `unknown` matches issues where the tagger was unsure or never answered. */
-      value: ErrorTrackingIssueTagFilterValue;
     }
 
     export type ErrorTrackingOrderBy = typeof ErrorTrackingOrderBy[keyof typeof ErrorTrackingOrderBy];
@@ -11598,7 +11587,7 @@ export namespace Schemas {
       groupTypeIndex?: number | null;
       /** Filter to a specific error tracking issue by ID. */
       issueId?: string | null;
-      /** Filter by the answer to one issue tag. Ignored when issue tags or this tag are off for the project. */
+      /** Filter by whether one issue tag is applied. Ignored when issue tags or this tag are off for the project. */
       issueTag?: ErrorTrackingIssueTagFilter | null;
       kind?: 'ErrorTrackingQuery';
       limit?: number | null;
@@ -41994,12 +41983,7 @@ export namespace Schemas {
       label: string;
       /** What the tag means, for a tooltip. */
       description: string;
-      /**
-         * The answer: true for yes, false for no, null when the tagger was unsure.
-         * @nullable
-         */
-      value: boolean | null;
-      /** The tagger that wrote the answer: `jev` for AI, `manual` for a person. */
+      /** The tagger that applied the tag: `jev` for AI, `manual` for a person. */
       source: string;
     }
 
@@ -42020,7 +42004,7 @@ export namespace Schemas {
       assignee: ErrorTrackingIssueAssigneeRead | null;
       external_issues: ErrorTrackingExternalReferenceResult[];
       cohort: ErrorTrackingIssueCohortRead | null;
-      /** The issue's answers to its enabled tags. Only issue detail returns it, and only while the project has an enabled tag. */
+      /** The enabled tags that are applied to the issue. Only issue detail returns it, and only while the project has an enabled tag. */
       tags?: ErrorTrackingIssueTagRead[];
     }
 

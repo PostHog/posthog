@@ -962,12 +962,7 @@ export interface ErrorTrackingIssueTagReadApi {
     label: string
     /** What the tag means, for a tooltip. */
     description: string
-    /**
-     * The answer: true for yes, false for no, null when the tagger was unsure.
-     * @nullable
-     */
-    value: boolean | null
-    /** The tagger that wrote the answer: `jev` for AI, `manual` for a person. */
+    /** The tagger that applied the tag: `jev` for AI, `manual` for a person. */
     source: string
 }
 
@@ -988,7 +983,7 @@ export interface ErrorTrackingIssueReadApi {
     assignee: ErrorTrackingIssueAssigneeReadApi | null
     external_issues: ErrorTrackingExternalReferenceResultApi[]
     cohort: ErrorTrackingIssueCohortReadApi | null
-    /** The issue's answers to its enabled tags. Only issue detail returns it, and only while the project has an enabled tag. */
+    /** The enabled tags that are applied to the issue. Only issue detail returns it, and only while the project has an enabled tag. */
     tags?: ErrorTrackingIssueTagReadApi[]
 }
 
