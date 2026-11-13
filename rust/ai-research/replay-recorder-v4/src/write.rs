@@ -307,7 +307,7 @@ pub fn session_keyed_frames(sealed: &[SealedBlock]) -> u64 {
     pairs.len() as u64
 }
 
-/// The flush's new images by team and key month, each once.
+/// The flush's new images by team month, each once.
 pub fn new_images(sealed: &mut [SealedBlock]) -> BTreeMap<(i64, String), Vec<Arc<Image>>> {
     let mut images: BTreeMap<(i64, String), Vec<Arc<Image>>> = BTreeMap::new();
     let mut seen: HashSet<String> = HashSet::new();
@@ -360,8 +360,8 @@ fn seal_pack(
     Ok((pack, rows))
 }
 
-/// Seals the images of each team and key month under that team month key into one pack and stores the packs
-/// concurrently. Returns the image index rows of the stored packs.
+/// Seals each team month's images under its team month key into one pack and stores the packs concurrently. Returns the
+/// image index rows of the stored packs.
 #[allow(clippy::too_many_arguments)]
 pub async fn write_images(
     images: BTreeMap<(i64, String), Vec<Arc<Image>>>,

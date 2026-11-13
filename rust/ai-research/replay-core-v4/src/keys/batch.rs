@@ -41,7 +41,6 @@ pub enum DropCause {
     /// The session's key row, or the team month key it is sealed under, is stored but gives no key: the seal does not
     /// open, KMS refuses the wrapped key, or the row is malformed or expired. The row stays, so no new key replaces it.
     KeyUnusable,
-    /// The session ID is not a UUIDv7, so it holds no start month for a key.
     NoStartMonth,
 }
 
@@ -60,8 +59,7 @@ impl DropCause {
 #[derive(Clone, PartialEq, Eq)]
 pub struct SessionKey {
     pub key: [u8; 32],
-    /// The month the key row names, whose team month key also seals the session's images. The row expires five months
-    /// after that month.
+    /// The key row's month. Its team month key also seals the session's images, and the row expires five months later.
     pub key_month: String,
 }
 
@@ -123,9 +121,8 @@ impl<T: KeyTable, W: KeyWrapper> KeyStore<T, W> {
     }
 
     /// Resolves a key for every session, storing the new ones. Call it before sealing anything for the flush: a key
-    /// that is not stored yet cannot open what it sealed if this process dies. A new session key belongs to the month
-    /// the session started in, as in v3, so that one team month key seals a session's blocks and images whatever day
-    /// they are written.
+    /// that is not stored yet cannot open what it sealed if this process dies. A new key takes its session's start
+    /// month, as in v3, so that one team month key seals the session's blocks and images whatever day they are written.
     pub async fn keys_for_flush(&self, sessions: &[SessionId]) -> Result<FlushKeys, KeyError> {
         let mut flush = FlushKeys::default();
         let mut started = Vec::with_capacity(sessions.len());
@@ -250,7 +247,6 @@ impl<T: KeyTable, W: KeyWrapper> KeyStore<T, W> {
         Ok(flush)
     }
 
-    /// The team key of a month: the stored one, or a new one stored now.
     async fn team_month_or_new(
         &self,
         team: i64,

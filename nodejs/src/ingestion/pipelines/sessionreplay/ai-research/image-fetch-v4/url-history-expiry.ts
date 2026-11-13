@@ -14,8 +14,8 @@ const MONTH_GRACE_DAYS = 8
 
 /**
  * When the history entry of a reference may go. A v4 reference carries the month its session started in, and most
- * sessions stop writing soon after they start. Its entry stays 8 more days for sessions that still write and jobs that
- * are still on their way, and a later job finds no entry and fetches the image again.
+ * sessions stop writing soon after. Its entry stays 8 more days for jobs that are still on their way, and a later
+ * job finds no entry and fetches the image again.
  * A public font reference has no month, so every team's jobs share its entry until its next fetch.
  */
 export function urlHistoryStorageExpiresAtMs(ref: string, nextFetchAtMs: number): number {

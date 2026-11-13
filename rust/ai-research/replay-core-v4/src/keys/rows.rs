@@ -13,9 +13,8 @@ use crate::session;
 
 /// v3 spreads a team's sessions over 32 partitions so one large team cannot overload one partition. v4 keeps this.
 pub const SESSION_SHARDS: u32 = 32;
-/// A session's key month is the month it started in, and the recorder admits its messages for at most
-/// [`MAX_AGE_DAYS`](crate::session::MAX_AGE_DAYS) after its start. Raw objects live 90 days and fetched images 98, so
-/// five months covers them and leaves room to raise that window a little.
+/// A session's key month is its start month, and it writes at most 14 days past that month. Raw
+/// objects live 90 days and fetched images 98, so five months covers them and leaves room to raise that window a little.
 const ROW_LIFETIME_MONTHS: u32 = 5;
 /// The attributes that hold key material. A deletion removes all of them.
 pub const KEY_MATERIAL: [&str; 3] = ["wrapped_key", "sealed_key", "key_nonce"];
