@@ -126,7 +126,6 @@ def run_step(team_id: int, run_id: UUID, step: str, attempt: int) -> None:
     claim = _claim_step(team_id, run_id, step, attempt)
     if claim.completed:
         return
-    _check_required_steps(provider, run, step)
 
     context = ImportContext(
         team_id=team_id,
@@ -136,6 +135,7 @@ def run_step(team_id: int, run_id: UUID, step: str, attempt: int) -> None:
         steps=tuple(run.steps),
     )
     try:
+        _check_required_steps(provider, run, step)
         for page in provider.run_step(step, context, claim.checkpoint):
             _save_page(team_id, run_id, step, attempt, page)
             if page.checkpoint is None:
