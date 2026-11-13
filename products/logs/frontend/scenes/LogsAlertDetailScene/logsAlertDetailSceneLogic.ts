@@ -104,10 +104,10 @@ export interface logsAlertDetailSceneLogicActions {
     submitAlertFormSuccess: (alertForm: LogsAlertFormType) => {
         alertForm: LogsAlertFormType
     } // logsAlertFormLogic
+    loadAlerts: (_?: any) => any // logsAlertingLogic
     destinationsChanged: () => {
         value: true
     } // platformAlertDestinationsLogic
-    loadAlerts: (_?: any) => any // logsAlertingLogic
     applyEnabledChange: (enabled: boolean) => {
         enabled: boolean
     }
