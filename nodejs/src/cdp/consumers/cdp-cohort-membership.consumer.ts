@@ -42,9 +42,9 @@ function membershipClusterId(): string {
     return String(getKafkaConfigFromEnv('CONSUMER')['metadata.broker.list'] ?? 'kafka:9092')
 }
 
-const offFormatVersions = new Counter({
-    name: 'cdp_cohort_membership_off_format_versions',
-    help: 'Membership changes whose version stamp broke the producer contract and was degraded to versionless',
+const versionlessChanges = new Counter({
+    name: 'cdp_cohort_membership_versionless_changes',
+    help: 'Membership changes accepted as versionless because their version stamp was missing or broke the producer contract',
 })
 
 // `origin` is a loose string, not an enum: nothing branches on it, and rejecting a value the
@@ -60,6 +60,15 @@ export const CohortMembershipChangeSchema = z.object({
 })
 
 export type CohortMembershipChange = z.infer<typeof CohortMembershipChangeSchema>
+
+/**
+ * Control records share the topic with membership changes, and a string `type` tells them apart
+ * because no change carries one. The Node readers skip every type, so a new kind of control record
+ * needs no Node change first.
+ */
+export function isCohortMembershipControlRecord(message: unknown): boolean {
+    return typeof message === 'object' && message !== null && typeof (message as { type?: unknown }).type === 'string'
+}
 
 /** How far the consumer has applied a partition, in the same units as a Kafka high watermark. */
 type PartitionProgress = {
@@ -496,6 +505,9 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase<CdpCohortMember
                 }
 
                 const parsedMessage = parseJSON(messageValue)
+                if (isCohortMembershipControlRecord(parsedMessage)) {
+                    continue
+                }
 
                 // Validate using Zod schema
                 const validationResult = CohortMembershipChangeSchema.safeParse(parsedMessage)
@@ -521,13 +533,17 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase<CdpCohortMember
                     cohortMembershipChange.last_updated &&
                     !PRODUCER_VERSION_FORMAT.test(cohortMembershipChange.last_updated)
                 ) {
-                    offFormatVersions.inc()
                     logger.warn('Dropping an off-format membership version', {
                         last_updated: cohortMembershipChange.last_updated,
                         team_id: cohortMembershipChange.team_id,
                         cohort_id: cohortMembershipChange.cohort_id,
                     })
                     cohortMembershipChange.last_updated = undefined
+                }
+                // The producer always sets a version, so a missing one breaks its contract as
+                // much as an off-format one.
+                if (cohortMembershipChange.last_updated === undefined) {
+                    versionlessChanges.inc()
                 }
 
                 cohortMembershipChanges.push(cohortMembershipChange)
@@ -545,6 +561,8 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase<CdpCohortMember
 
     private async handleBatch(messages: Message[]): Promise<void> {
         const cohortMembershipChanges = this._parseAndValidateBatch(messages)
+        // Taken from every message, skipped control records included, so a partition whose newest
+        // message is a control record still reaches the watermark the sweep gate waits for.
         const progress = this.config.COHORT_MEMBERSHIP_VERSION_WRITES_ENABLED
             ? partitionProgressFromMessages(messages)
             : []

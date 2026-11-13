@@ -936,6 +936,14 @@ def capture_task_status_shadow_metrics() -> None:
                 mismatches_gauge.labels(stored_status=row.stored_status, derived_status=row.derived_status).set(
                     row.count
                 )
+            repaired_gauge = Gauge(
+                "posthog_tasks_status_shadow_repaired",
+                "Tasks whose stored status was repaired from their latest run in the last pass.",
+                registry=registry,
+                labelnames=["stored_status", "derived_status"],
+            )
+            for row in tasks_facade.repair_task_status_mismatches():
+                repaired_gauge.labels(stored_status=row.stored_status, derived_status=row.derived_status).set(row.count)
     except OperationalError as err:
         logger.warning("capture_task_status_shadow_metrics_transient_db_error", exception=err)
     except Exception as err:

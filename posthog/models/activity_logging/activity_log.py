@@ -216,16 +216,6 @@ class ActivityLog(UUIDTModel):
         ]
         indexes = [
             models.Index(fields=["team_id", "scope", "item_id"]),
-            models.Index(
-                fields=["organization_id", "scope", "-created_at"],
-                name="idx_alog_org_scope_created_at",
-                condition=models.Q(detail__isnull=False) & models.Q(detail__jsonb_typeof="object"),
-            ),
-            models.Index(
-                fields=["organization_id"],
-                name="idx_alog_org_detail_exists",
-                condition=models.Q(detail__isnull=False) & models.Q(detail__jsonb_typeof="object"),
-            ),
             # Serves whole-column containment (`detail @> ...`), the only detail lookup an index
             # can answer. Key-path lookups and the `detail::text` search are not GIN-servable
             # under any opclass. `jsonb_path_ops` stores one hash per root-to-leaf path, so it is
@@ -258,9 +248,10 @@ class ActivityLog(UUIDTModel):
             ),
             # Advanced activity logs default list ordering. The org- and team-scoped list
             # endpoints order by -created_at with no scope filter, so the scope-led indexes
-            # above can't serve the sort, and the org indexes above are partial on a detail
-            # predicate the list query never carries. These full indexes let the LIMITed
-            # ordered scan walk created_at directly instead of sorting the whole partition.
+            # above can't serve the sort. These full indexes let the LIMITed ordered scan walk
+            # created_at directly instead of sorting the whole partition. No index is partial on
+            # a `detail` predicate: no reader filters on `jsonb_typeof(detail)`, so the planner
+            # could never pick one, and each would only add write cost to every insert.
             models.Index(
                 fields=["organization_id", "-created_at"],
                 name="idx_alog_org_created_at",
@@ -583,6 +574,10 @@ replay_scanner_machine_fields = [
     "sweep_read_bytes_by_hour",
     "fast_read_bytes_by_hour",
     "deep_read_bytes_by_hour",
+    "sweep_throttle_factor",
+    "last_found_candidates_at",
+    "sweep_paused_until",
+    "sweep_pause_reason",
     "estimated_monthly_observations",
     "estimated_at",
     "estimate_attempted_at",
@@ -626,6 +621,16 @@ platform_alert_runtime_fields = [
 # Fields that prevent activity signal triggering entirely when only these fields change
 signal_exclusions: dict[ActivityScope, list[str]] = {
     "DataQualityCheckSchedule": ["next_run_at", "last_run_at", "last_suite_run", "updated_at"],
+    # Written by the runner on every run, not by a person editing the check.
+    "DataQualityCheck": [
+        "last_run_at",
+        "last_status",
+        "subject_name",
+        "subject_status",
+        "failing_since",
+        "last_succeeded_at",
+        "updated_at",
+    ],
     "AlertConfiguration": [
         "last_checked_at",
         "next_check_at",
@@ -794,8 +799,15 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "alerts",
     ],
     "VisionAlertConfiguration": [*vision_alert_machine_fields, "events", "matches"],
-    # The reverse relations hold runtime state per group and per notification thread.
-    "PlatformAlertConfiguration": [*platform_alert_runtime_fields, "alerts", "threads", "delivery_paths"],
+    # The reverse relations read through team-scoped managers, which fail a save outside a request.
+    "PlatformAlertConfiguration": [
+        *platform_alert_runtime_fields,
+        "alerts",
+        "threads",
+        "delivery_paths",
+        "delivery_holds",
+        "destinations",
+    ],
     "DataQualityCheckSchedule": ["subject_type", "subject_uuid", "next_run_at", "last_run_at", "last_suite_run"],
     # The pointer names the tagged object, which a row never changes, and content_type and team
     # are model objects the diff cannot serialize.
@@ -831,6 +843,8 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "last_status",
         "subject_name",
         "subject_status",
+        "failing_since",
+        "last_succeeded_at",
         # Subject FKs are immutable after create and not JSON-serializable for the change detail.
         "metric",
         "saved_query",

@@ -90,12 +90,7 @@ export const manifest: ProductManifest = {
                     flag: FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT,
                 },
                 {
-                    name: 'Bots',
-                    href: urls.webAnalyticsBotAnalytics(),
-                    flag: FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT,
-                },
-                {
-                    name: 'Search & AI',
+                    name: 'AI traffic',
                     href: urls.webAnalyticsPagePerformance(),
                     flag: FEATURE_FLAGS.WEB_ANALYTICS_PAGE_PERFORMANCE,
                 },

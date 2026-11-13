@@ -4,8 +4,7 @@ import { IconPin, IconPinFilled } from '@posthog/icons'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { analyticsPinnedLogic, pinKey } from 'scenes/analytics/analyticsPinnedLogic'
-import { fileSystemBaseType, fileSystemEntryName, isAnalyticsType } from 'scenes/analytics/analyticsUtils'
+import { analyticsPinnedLogic, pinKey, scenePinTarget } from 'scenes/analytics/analyticsPinnedLogic'
 
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { SceneMenuBarItem } from '~/layout/scenes/components/SceneMenuBar'
@@ -19,23 +18,15 @@ export function SceneMenuBarPinItem({ dataAttrKey }: { dataAttrKey: string }): J
     const { projectTreeRefEntry } = useValues(projectTreeDataLogic)
     const { pinnedShortcutIds, shortcutDataLoading } = useValues(analyticsPinnedLogic)
     const { togglePinned } = useActions(analyticsPinnedLogic)
-    const type = fileSystemBaseType(projectTreeRefEntry?.type)
-    if (!featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV] || !projectTreeRefEntry?.ref || !isAnalyticsType(type)) {
+    const target = scenePinTarget(projectTreeRefEntry)
+    if (!featureFlags[FEATURE_FLAGS.TODAY_RAIL_NAV] || !target) {
         return null
     }
-    const ref = projectTreeRefEntry.ref
-    const pinned = pinnedShortcutIds.has(pinKey(type, ref))
+    const pinned = pinnedShortcutIds.has(pinKey(target.type, target.ref))
     return (
         <SceneMenuBarItem
             disabled={shortcutDataLoading}
-            onClick={() =>
-                togglePinned({
-                    type,
-                    ref,
-                    name: fileSystemEntryName(projectTreeRefEntry),
-                    href: projectTreeRefEntry.href,
-                })
-            }
+            onClick={() => togglePinned(target)}
             data-attr={pinned ? `${dataAttrKey}-menubar-unpin` : `${dataAttrKey}-menubar-pin`}
         >
             {pinned ? <IconPinFilled /> : <IconPin />}

@@ -389,6 +389,15 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
 
     class Meta:
         db_table = "posthog_externaldataschema"
+        indexes = [
+            # Serves the staff list of schemas PostHog stopped itself, newest first. Only those rows carry
+            # a stamp, so the partial index stays small.
+            models.Index(
+                fields=["-auto_disabled_at"],
+                name="idx_extschema_auto_disabled",
+                condition=models.Q(auto_disabled_at__isnull=False),
+            ),
+        ]
 
     def _sync_teardown_kind(self, update_fields: Iterable[str] | None) -> str | None:
         """Which stop-syncing transition this save performs, read from the DB before writing.
@@ -1916,11 +1925,17 @@ def update_should_sync(
     )
 
     schema = ExternalDataSchema.objects.select_related("source").get(id=schema_id, team_id=team_id)
+    if should_sync and schema.deleted:
+        raise ValueError(f"Schema {schema_id} is deleted, so its syncing cannot be turned on")
     schema.should_sync = should_sync
     # Turning syncing back on says the source is worth trying again, so the next run starts on
     # the full retry cap and the normal cadence.
     if should_sync:
         schema.clear_failure_streak()
+    elif not disable_error_message:
+        # Only a disable with an error message is PostHog stopping the schema. Any other disable is a
+        # decision to keep it off, so an earlier stop must not leave it eligible for a staff re-enable.
+        schema.auto_disabled_at = None
     with sync_disable_context(error_message=disable_error_message, exclude_workflow_id=disable_exclude_workflow_id):
         schema.save()
 

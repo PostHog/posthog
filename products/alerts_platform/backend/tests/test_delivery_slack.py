@@ -67,6 +67,7 @@ class TestSlackBlocks(SimpleTestCase):
                 headline="API errors could not be checked",
                 details=(MessageDetail(label="Error", value="no column <!channel> in <http://x|table>"),),
                 context=("Services: <!channel>",),
+                rule_details=(MessageDetail(label="description", value="<!here> down"),),
             ),
             project=MessageLink(label="Prod <!channel>", url="https://app.example.com/project/2"),
         )
@@ -75,7 +76,9 @@ class TestSlackBlocks(SimpleTestCase):
         body = blocks[1]["text"]["text"]
         context, project = (element["text"] for element in blocks[2]["elements"])
 
-        assert "<!channel>" not in body + context + project
+        assert "<!" not in body + context + project
+        assert "*description:* &lt;!here&gt; down" in body
+        assert blocks[1]["text"]["verbatim"] is True
         assert "&lt;!channel&gt;" in body
         assert context == "Services: &lt;!channel&gt;"
         assert project == "Project: <https://app.example.com/project/2|Prod &lt;!channel&gt;>"
@@ -344,7 +347,7 @@ class TestSourceRendererKeepsGroupLimitNotice(SimpleTestCase):
             ("blocks_without_an_action_row", True, True),
         ]
     )
-    def test_untracked_groups_detail_survives_any_renderer_shape(
+    def test_rule_metadata_and_group_limit_survive_any_renderer_shape(
         self, _name: str, blocks_only: bool, without_actions: bool
     ) -> None:
         rendered: list[dict[str, Any]] = [{"type": "divider"}]
@@ -356,12 +359,21 @@ class TestSourceRendererKeepsGroupLimitNotice(SimpleTestCase):
             else SlackMessageContent(text="Alert", blocks=[], attachments=[{"blocks": rendered}])
         )
         message = replace(
-            MESSAGE, details=(MessageDetail(label=UNTRACKED_GROUPS_LABEL, value="2 more groups not tracked"),)
+            MESSAGE,
+            details=(
+                MessageDetail(label="Value", value="300"),
+                MessageDetail(label=UNTRACKED_GROUPS_LABEL, value="2 more groups not tracked"),
+            ),
+            rule_details=(MessageDetail(label="team", value="payments"),),
         )
         with patch("products.alerts_platform.backend.delivery.slack.slack_renderer_for") as renderer:
             renderer.return_value.return_value = content
             result = content_for(team_id=1, message=message)
         blocks = result.blocks if blocks_only else result.attachments[0]["blocks"]
         assert "2 more groups not tracked" in str(blocks)
+        assert "*team:* payments" in str(blocks)
+        notice = next(block for block in blocks if "*team:* payments" in block.get("text", {}).get("text", ""))
+        assert notice["text"]["verbatim"] is True
+        assert "*Value:*" not in str(blocks)
         # Above the buttons when there are buttons, so the notice is never read as one of them.
         assert blocks[-1]["type"] == ("section" if without_actions else "actions")

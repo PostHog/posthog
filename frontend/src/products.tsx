@@ -148,6 +148,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/cross-project-dashboards/:id': ['CrossProjectDashboard', 'crossProjectDashboard'],
     '/customer_analytics/dashboard': ['CustomerAnalytics', 'customerAnalyticsDashboard'],
     '/customer_analytics/accounts': ['CustomerAnalytics', 'customerAnalyticsAccounts'],
+    '/customer_analytics/product-activity': ['CustomerAnalytics', 'customerAnalyticsProductActivity'],
     '/customer_analytics/accounts/by-external-id/*': ['CustomerAnalyticsAccount', 'customerAnalyticsAccount'],
     '/customer_analytics/accounts/:accountId': ['CustomerAnalyticsAccount', 'customerAnalyticsAccount'],
     '/customer_analytics/accounts/:accountId/:tab': ['CustomerAnalyticsAccount', 'customerAnalyticsAccount'],
@@ -1541,6 +1542,7 @@ export const productUrls = {
     customerAnalytics: (): string => '/customer_analytics',
     customerAnalyticsDashboard: (): string => '/customer_analytics/dashboard',
     customerAnalyticsAccounts: (): string => '/customer_analytics/accounts',
+    customerAnalyticsProductActivity: (): string => '/customer_analytics/product-activity',
     customerAnalyticsAccount: (accountId: string, tab?: string): string =>
         `/customer_analytics/accounts/${accountId}${tab ? `/${encodeURIComponent(tab)}` : ''}`,
     customerAnalyticsAccountByExternalId: (externalId: string, tab?: string): string =>
@@ -2440,7 +2442,6 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
         type: 'insight',
         iconType: 'business_intelligence',
         href: `${urls.businessIntelligenceNew()}#q=`,
-        flag: FEATURE_FLAGS.SQL_EDITOR_BI_MODE,
         sceneKeys: ['BusinessIntelligence', 'BusinessIntelligenceHome'],
     },
 ]
@@ -2574,7 +2575,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         href: urls.businessIntelligence(),
         searchKeywords: ['bi', 'pivot table', 'chart builder'],
         tags: ['beta'],
-        flag: FEATURE_FLAGS.SQL_EDITOR_BI_MODE,
         sceneKey: 'BusinessIntelligence',
         sceneKeys: ['BusinessIntelligenceHome', 'BusinessIntelligence'],
     },
@@ -3546,12 +3546,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
                 flag: FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT,
             },
             {
-                name: 'Bots',
-                href: urls.webAnalyticsBotAnalytics(),
-                flag: FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT,
-            },
-            {
-                name: 'Search & AI',
+                name: 'AI traffic',
                 href: urls.webAnalyticsPagePerformance(),
                 flag: FEATURE_FLAGS.WEB_ANALYTICS_PAGE_PERFORMANCE,
             },

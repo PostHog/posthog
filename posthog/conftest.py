@@ -589,14 +589,12 @@ def mock_code_based_verifier(request, mocker):
     Mock the CodeBasedVerifier.should_send_code_based_verification method to return False for all tests.
     Can be disabled by using @pytest.mark.disable_mock_code_based_verifier decorator.
     """
-    from posthog.helpers.two_factor_session import CodeBasedVerificationCheckResult
-
     if "disable_mock_code_based_verifier" in request.keywords:
         return
 
     mocker.patch(
         "posthog.helpers.two_factor_session.CodeBasedVerifier.should_send_code_based_verification",
-        return_value=CodeBasedVerificationCheckResult(should_send=False),
+        return_value=False,
     )
 
 
