@@ -1887,7 +1887,9 @@ describe('Hog Executor', () => {
                     aws_sigv4: sigv4Refs,
                     ...signers,
                 })
-                invocation.hogFunction.encrypted_inputs = { signing_secret: { value: 'a-shared-secret' } } as any
+                invocation.hogFunction.encrypted_inputs = {
+                    signing_secret: { value: 'test-hmac-secret-0123456789abcdef' },
+                } as any
                 seedAwsCredentialInputs(invocation)
 
                 const result = await executor.executeFetch(invocation)
@@ -2081,15 +2083,14 @@ describe('Hog Executor', () => {
         })
 
         describe('hmac_sha256', () => {
-            const SECRET = 'a-shared-secret'
+            const SECRET = 'test-hmac-secret-0123456789abcdef'
             const BODY = '{"test": 2432232314}'
             const SIGNING_REFS = {
                 secret_input: 'signing_secret',
                 webhook_id: '4f6c9f2a-5b1e-4f5b-9d3c-2a7e8c1d0b64',
             }
 
-            const BODY_SIGNATURE = 'sha256=5cab16ccc366a42e4b49eff91105aa48fafac08a4ee1ffa945fc0a8fed768342'
-            const EMPTY_BODY_SIGNATURE = 'sha256=720474031dc9df8ead6276881ad787e5ee041cf4c6566b066f2a47cade245dca'
+            const BODY_SIGNATURE = 'sha256=406a8ef03a0e13a9b1bac8ac4c32597904520eeb30aa89f154676c085ccf3d3c'
 
             type ReceivedRequest = { id: unknown; signature: unknown; body: string }
 
@@ -2123,16 +2124,13 @@ describe('Hog Executor', () => {
                 return invocation
             }
 
-            it.each([
-                ['POST', BODY, BODY_SIGNATURE],
-                ['GET', '', EMPTY_BODY_SIGNATURE],
-            ])('signs the bytes a %s request sends', async (method, sentBody, signature) => {
+            it('signs the bytes the request sends', async () => {
                 const received = receiveRequests()
 
-                const result = await executor.executeFetch(await createSignedInvocation(method))
+                const result = await executor.executeFetch(await createSignedInvocation())
 
                 expect(result.error).toBeUndefined()
-                expect(received).toEqual([{ id: SIGNING_REFS.webhook_id, signature, body: sentBody }])
+                expect(received).toEqual([{ id: SIGNING_REFS.webhook_id, signature: BODY_SIGNATURE, body: BODY }])
             })
 
             it('signs every attempt of one delivery with the same delivery id', async () => {
@@ -2146,15 +2144,22 @@ describe('Hog Executor', () => {
                 expect(received.map(({ signature }) => signature)).toEqual([BODY_SIGNATURE, BODY_SIGNATURE])
             })
 
-            it('refuses to send an unsigned request when the secret input is missing', async () => {
-                const invocation = await createSignedInvocation()
-                invocation.hogFunction.encrypted_inputs = {} as any
+            it.each([
+                ['the secret input is missing', 'POST', undefined, 'signing_secret'],
+                ['the secret is shorter than 24 bytes', 'POST', 'x'.repeat(23), 'at least 24'],
+                ['a GET request sends no body', 'GET', SECRET, 'sends none'],
+                ['a HEAD request sends no body', 'HEAD', SECRET, 'sends none'],
+            ])('refuses to send when %s', async (_case, method, secret, reason) => {
+                const invocation = await createSignedInvocation(method)
+                invocation.hogFunction.encrypted_inputs = (
+                    secret === undefined ? {} : { signing_secret: { value: secret } }
+                ) as any
 
                 const result = await executor.executeFetch(invocation)
 
                 expect(mockRequest).not.toHaveBeenCalled()
                 expect(result.error.message).toContain('HMAC-SHA256 signing failed')
-                expect(result.error.message).toContain('signing_secret')
+                expect(result.error.message).toContain(reason)
             })
         })
 
