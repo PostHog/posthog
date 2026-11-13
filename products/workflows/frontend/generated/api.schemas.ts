@@ -1124,13 +1124,31 @@ export interface DesignOperationApi {
     index?: number
 }
 
+/**
+ * * `sandbox` - sandbox
+ * * `own` - own
+ */
+export type EmailStepSenderEnumApi = (typeof EmailStepSenderEnumApi)[keyof typeof EmailStepSenderEnumApi]
+
+export const EmailStepSenderEnumApi = {
+    Sandbox: 'sandbox',
+    Own: 'own',
+} as const
+
 export interface PatchedHogFlowActionEmailUpdateApi {
     /** Optimistic concurrency: the updated_at (or draft_updated_at) last loaded. If the stored workflow is newer, the patch is rejected with 409 instead of clobbering a concurrent edit. */
     base_updated_at?: string
     /** Ordered design edits applied atomically to this step's email design - the same operations as the email template patch. The result is re-rendered to HTML server-side, so the sent email always matches the patched design. */
     operations?: DesignOperationApi[]
-    /** Partial email fields deep-merged into the step's email (a null leaf deletes the key): subject, preheader, text, to, from, replyTo, cc, bcc. The sender is from: {integrationId, email?, name?}, where email and name are optional templated overrides resolved per invocation; the address must resolve to the selected sender's verified domain or the send fails. The design is edited via operations, and html is always re-rendered from it. */
+    /** Partial email fields deep-merged into the step's email (a null leaf deletes the key): subject, preheader, text, to, from, replyTo, cc, bcc. The sender is from: {integrationId, email?, name?}, where email and name are optional templated overrides resolved per invocation; the address must resolve to the selected sender's verified domain or the send fails. A sandbox step (type email_sandbox) takes only subject, preheader, text and to. The design is edited via operations, and html is always re-rendered from it. */
     email_patch?: unknown
+    /** Switch the step's sender. 'sandbox' moves it to PostHog's sandbox sender, which sends only to verified members of the organization and needs no verified domain; it is set up for the project on first use. 'own' moves a sandbox step back to one of the project's verified senders, named in email_patch.from.integrationId. The step keeps its id, recipient, content and category.
+     *
+     * * `sandbox` - sandbox
+     * * `own` - own */
+    sender?: EmailStepSenderEnumApi
+    /** With sender 'sandbox': drop the settings the sandbox sender can't keep (custom from address or name, several senders, replyTo, cc, bcc, turned-off tracking, UTM tags). Without it, the switch is refused and the error lists them, so confirm with the user before setting it. */
+    drop_own_sender_settings?: boolean
 }
 
 export interface MessageAssetApi {
@@ -2902,12 +2920,17 @@ export interface CustomerioSenderIdentityApi {
 }
 
 export interface CustomerioSegmentApi {
-    /** The segment's id. */
+    /**
+     * The segment's id.
+     * @maxLength 200
+     */
     id: string
     /** The segment's name. */
     name: string
     /** The segment's type: `dynamic`, or `static` for a hand-made list. */
     type: string
+    /** The segment's rules: the `conditions` object from `GET /v1/environments/{environment_id}/segments/{segment_id}`. Never its members. With rules, a real import turns a dynamic segment the automations check into a realtime cohort when every rule has an exact cohort condition, and uses that cohort. */
+    conditions?: unknown
 }
 
 export interface WorkflowImportRequestApi {
@@ -2925,7 +2948,7 @@ export interface WorkflowImportRequestApi {
     layouts?: WorkflowImportRequestApiLayouts
     /** Customer.io sender identities, from `GET /v1/environments/{environment_id}/identities?type=email`. Each email gets the PostHog sender with the same address. */
     sender_identities?: CustomerioSenderIdentityApi[]
-    /** Customer.io segment ids, names and types, without members, so the notes can name each segment and flag static ones. */
+    /** Customer.io segments, without members: ids, names and types, so the notes can name each segment and flag static ones, and the rules of each segment the automations check, so the import can turn it into a realtime cohort. */
     segments?: CustomerioSegmentApi[]
     /** When true, translate and check the automations but save nothing, to preview the import. */
     dry_run?: boolean
@@ -3007,11 +3030,53 @@ export interface WorkflowImportResultApi {
     validation_errors: string[]
 }
 
+/**
+ * * `created` - Created
+ * * `reused` - Reused
+ * * `would_create` - Would create
+ * * `not_converted` - Not converted
+ */
+export type WorkflowImportSegmentCohortStatusEnumApi =
+    (typeof WorkflowImportSegmentCohortStatusEnumApi)[keyof typeof WorkflowImportSegmentCohortStatusEnumApi]
+
+export const WorkflowImportSegmentCohortStatusEnumApi = {
+    Created: 'created',
+    Reused: 'reused',
+    WouldCreate: 'would_create',
+    NotConverted: 'not_converted',
+} as const
+
+export interface WorkflowImportSegmentCohortApi {
+    /** The Customer.io segment's id. */
+    segment_id: string
+    /** The segment's name. */
+    segment_name: string
+    /** `created`: the import made a realtime cohort from the segment's rules. `reused`: an earlier import made it. `would_create`: a real import makes one, in a preview. `not_converted`: no cohort is used, see `reason`.
+     *
+     * * `created` - Created
+     * * `reused` - Reused
+     * * `would_create` - Would create
+     * * `not_converted` - Not converted */
+    status: WorkflowImportSegmentCohortStatusEnumApi
+    /**
+     * The cohort's id, when there is one.
+     * @nullable
+     */
+    cohort_id: number | null
+    /**
+     * Why the segment was not turned into a cohort.
+     * @nullable
+     */
+    reason: string | null
+}
+
 export interface WorkflowImportResponseApi {
     /** One result per automation, in request order. */
     results: WorkflowImportResultApi[]
     /** True when PostHog read message content from Customer.io with the project's stored App API key. */
     content_fetched: boolean
+    /** One entry per dynamic segment the automations check that was passed with its rules and had no cohort in segment_cohorts. */
+    segment_cohorts: WorkflowImportSegmentCohortApi[]
 }
 
 export interface WorkflowImportRecordApi {

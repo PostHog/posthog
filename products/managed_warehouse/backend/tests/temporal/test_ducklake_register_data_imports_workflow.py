@@ -25,6 +25,7 @@ from trino.exceptions import TrinoUserError
 
 from posthog.sync import database_sync_to_async
 
+from products.managed_warehouse.backend.duckgres_availability import DuckgresOrganizationStatus
 from products.managed_warehouse.backend.facade.contracts import ManagedWarehouseSourceJobStatus
 from products.managed_warehouse.backend.models import ManagedWarehouseSourceJob, ManagedWarehouseSourceLifecycle
 from products.managed_warehouse.backend.temporal import (
@@ -52,6 +53,13 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSchema,
     ExternalDataSource,
 )
+
+
+@pytest.fixture(autouse=True)
+def _duckgres_probe_unknown(monkeypatch):
+    monkeypatch.setattr(
+        registration_module, "probe_duckgres_organization", lambda server: DuckgresOrganizationStatus.UNKNOWN
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -119,22 +127,33 @@ async def test_registration_gate_accepts_either_managed_warehouse_flag(
 @pytest.mark.asyncio
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "server_provisioned, trino_flag, expected",
-    [(True, False, True), (True, None, True), (False, False, False), (False, None, None)],
+    "server_provisioned, trino_flag, override, probe, expected",
+    [
+        (True, False, None, DuckgresOrganizationStatus.UNKNOWN, True),
+        (True, None, None, DuckgresOrganizationStatus.UNKNOWN, True),
+        (True, False, None, DuckgresOrganizationStatus.AVAILABLE, True),
+        (True, False, False, DuckgresOrganizationStatus.REFUSED, True),
+        (False, False, None, DuckgresOrganizationStatus.UNKNOWN, False),
+        (False, None, None, DuckgresOrganizationStatus.UNKNOWN, None),
+    ],
 )
 async def test_registration_gate_requires_provisioned_duckgres_server_and_retries_an_unanswered_flag(
-    monkeypatch, ateam, server_provisioned, trino_flag, expected
+    monkeypatch, ateam, server_provisioned, trino_flag, override, probe, expected
 ):
+    monkeypatch.setattr(registration_module, "probe_duckgres_organization", lambda server: probe)
     monkeypatch.setattr(registration_module, "feature_enabled_or_false", lambda *args, **kwargs: True)
     monkeypatch.setattr(registration_module, "data_imports_trino_flag", lambda organization_id: trino_flag)
     monkeypatch.setattr(registration_module, "is_dev_mode", lambda: False)
+    monkeypatch.setattr(registration_module, "get_trino_target_readiness", MagicMock(side_effect=AssertionError))
     monkeypatch.setattr(
         registration_module,
         "get_duckgres_server_by_team_org",
         lambda team_id: MagicMock() if server_provisioned else None,
     )
 
-    gate = ducklake_register_data_imports_gate_activity(DuckLakeRegisterDataImportsGateInputs(team_id=ateam.id))
+    gate = ducklake_register_data_imports_gate_activity(
+        DuckLakeRegisterDataImportsGateInputs(team_id=ateam.id, register_through_trino=override)
+    )
 
     if expected is None:
         with pytest.raises(ApplicationError, match="gave no answer") as error:
@@ -2037,10 +2056,18 @@ def test_trino_cleanup_activity_dispatches_on_the_engine(trino_canary: bool, mon
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("readiness_state", ["ready", "not_ready", "lookup_failed"])
-@pytest.mark.parametrize("server_provisioned", [True, False])
-@pytest.mark.parametrize("flag_enabled, override", [(True, None), (False, True)])
+@pytest.mark.parametrize(
+    "server_provisioned, flag_enabled, override, probe",
+    [
+        (True, True, None, DuckgresOrganizationStatus.UNKNOWN),
+        (False, True, None, DuckgresOrganizationStatus.UNKNOWN),
+        (True, False, True, DuckgresOrganizationStatus.UNKNOWN),
+        (False, False, True, DuckgresOrganizationStatus.UNKNOWN),
+        (True, False, None, DuckgresOrganizationStatus.REFUSED),
+    ],
+)
 async def test_registration_gate_requires_a_ready_trino_target_and_ignores_the_duckgres_server(
-    monkeypatch, server_provisioned, readiness_state, flag_enabled, override
+    monkeypatch, server_provisioned, readiness_state, flag_enabled, override, probe
 ) -> None:
     team = MagicMock(organization_id=uuid.UUID(int=9))
     monkeypatch.setattr(registration_module.Team.objects, "only", lambda *fields: MagicMock(get=lambda id: team))
@@ -2055,6 +2082,7 @@ async def test_registration_gate_requires_a_ready_trino_target_and_ignores_the_d
         "get_duckgres_server_by_team_org",
         lambda team_id: MagicMock() if server_provisioned else None,
     )
+    monkeypatch.setattr(registration_module, "probe_duckgres_organization", lambda server: probe)
     readiness = MagicMock(
         return_value=TrinoTargetReadiness(
             catalog_name="tenant_catalog" if readiness_state == "ready" else None,
@@ -2329,14 +2357,41 @@ async def test_workflow_mints_time_stamped_staging_names_for_trino(monkeypatch) 
 
 
 @pytest.mark.parametrize(
-    "_name, trino_flag, dev_mode, server, override, expected",
+    "_name, trino_flag, dev_mode, server, override, probe, expected",
     [
-        ("trino", True, False, None, None, ENGINE_TRINO),
-        ("duckgres_with_a_server", False, False, MagicMock(), None, ENGINE_DUCKGRES),
-        ("duckgres_in_dev_mode_without_a_server", False, True, None, None, ENGINE_DUCKGRES),
-        ("unconfirmed_without_a_server", False, False, None, None, None),
-        ("override_trino_without_flag_or_server", False, False, None, True, ENGINE_TRINO),
-        ("override_duckgres_with_flag_and_server", True, False, MagicMock(), False, ENGINE_DUCKGRES),
+        ("trino", True, False, None, None, "unknown", (ENGINE_TRINO, "flag")),
+        ("duckgres_with_a_server", False, False, MagicMock(), None, "unknown", (ENGINE_DUCKGRES, "default")),
+        (
+            "duckgres_with_a_server_that_has_the_org",
+            False,
+            False,
+            MagicMock(),
+            None,
+            "available",
+            (ENGINE_DUCKGRES, "default"),
+        ),
+        ("duckgres_in_dev_mode_without_a_server", False, True, None, None, "unknown", (ENGINE_DUCKGRES, "default")),
+        ("duckgres_refuses_the_org", False, False, MagicMock(), None, "refused", (ENGINE_TRINO, "duckgres_refusal")),
+        ("unconfirmed_without_a_server", False, False, None, None, "unknown", None),
+        ("override_trino_without_flag_or_server", False, False, None, True, "unknown", (ENGINE_TRINO, "override")),
+        (
+            "override_duckgres_with_flag_and_server",
+            True,
+            False,
+            MagicMock(),
+            False,
+            "unknown",
+            (ENGINE_DUCKGRES, "override"),
+        ),
+        (
+            "override_duckgres_when_duckgres_refuses",
+            False,
+            False,
+            MagicMock(),
+            False,
+            "refused",
+            (ENGINE_DUCKGRES, "override"),
+        ),
     ],
 )
 @pytest.mark.asyncio
@@ -2346,36 +2401,46 @@ async def test_registration_engine_retries_instead_of_falling_back_for_an_org_wi
     dev_mode: bool,
     server: Any,
     override: bool | None,
-    expected: str | None,
+    probe: str,
+    expected: tuple[str, str] | None,
     monkeypatch,
 ) -> None:
     monkeypatch.setattr(registration_module, "data_imports_through_trino", lambda organization_id: trino_flag)
     monkeypatch.setattr(registration_module, "is_dev_mode", lambda: dev_mode)
     monkeypatch.setattr(registration_module, "get_duckgres_server_by_team_org", lambda team_id: server)
+    monkeypatch.setattr(
+        registration_module, "probe_duckgres_organization", lambda server: DuckgresOrganizationStatus(probe)
+    )
 
     if expected is None:
         with pytest.raises(ApplicationError, match="could not be confirmed") as error:
             await registration_module._registration_engine_for_team(1, "org", override)
         assert error.value.non_retryable is False
     else:
-        assert await registration_module._registration_engine_for_team(1, "org", override) == expected
+        choice = await registration_module._registration_engine_for_team(1, "org", override)
+        assert (choice.engine, choice.source) == expected
 
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "register_through_trino, use_trino_canary, expected_engine, expected_canary",
+    "register_through_trino, use_trino_canary, expected_engine, expected_canary, trino_flag, probe",
     [
-        (None, False, ENGINE_TRINO, False),
-        (None, True, ENGINE_TRINO, True),
-        (True, True, ENGINE_TRINO, True),
-        (False, True, ENGINE_DUCKGRES, False),
+        (None, False, ENGINE_TRINO, False, True, DuckgresOrganizationStatus.UNKNOWN),
+        (None, True, ENGINE_TRINO, True, True, DuckgresOrganizationStatus.UNKNOWN),
+        (True, True, ENGINE_TRINO, True, True, DuckgresOrganizationStatus.UNKNOWN),
+        (False, True, ENGINE_DUCKGRES, False, True, DuckgresOrganizationStatus.UNKNOWN),
+        (None, False, ENGINE_TRINO, False, False, DuckgresOrganizationStatus.REFUSED),
+        (None, False, ENGINE_DUCKGRES, False, False, DuckgresOrganizationStatus.UNKNOWN),
     ],
 )
 async def test_prepare_registration_stamps_the_engine_and_canary_and_lands_trino_under_the_data_path(
-    monkeypatch, ateam, register_through_trino, use_trino_canary, expected_engine, expected_canary
+    monkeypatch, ateam, register_through_trino, use_trino_canary, expected_engine, expected_canary, trino_flag, probe
 ):
-    monkeypatch.setattr(registration_module, "data_imports_through_trino", lambda organization_id: True)
+    monkeypatch.setattr(registration_module, "data_imports_through_trino", lambda organization_id: trino_flag)
+    monkeypatch.setattr(registration_module, "is_dev_mode", lambda: False)
+    monkeypatch.setattr(registration_module, "get_duckgres_server_by_team_org", lambda team_id: MagicMock())
+    monkeypatch.setattr(registration_module, "probe_duckgres_organization", lambda server: probe)
     monkeypatch.setattr(registration_module, "_resolve_data_imports_landing_uri", lambda **kwargs: "s3://duckgres/path")
     monkeypatch.setattr(registration_module, "get_control_plane_data_path", lambda organization_id: "s3://bucket/lake/")
     credential = await database_sync_to_async(DataWarehouseCredential.objects.create)(

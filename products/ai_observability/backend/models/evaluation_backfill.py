@@ -49,6 +49,11 @@ class EvaluationBackfill(TeamScopedRootMixin, UUIDModel):
     total_count = models.PositiveIntegerField(
         help_text="Units matched at creation. Units that land in the window later can take the run past it."
     )
+    max_units = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text="Most units the run evaluates, also when units land in the window later. Null means no cap.",
+    )
     dispatched_count = models.PositiveIntegerField(default=0)
     completed_count = models.PositiveIntegerField(
         null=True, blank=True, default=None, help_text="Evaluations that finished with a verdict. Null for legacy runs."

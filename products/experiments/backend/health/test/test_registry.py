@@ -19,6 +19,8 @@ from products.experiments.backend.facade.contracts import (
 from products.experiments.backend.health import registry
 from products.experiments.backend.health.checks.filtered_exposures import reads_share_kept_by_test_account_filter
 from products.experiments.backend.health.context import (
+    ConditionSetTraffic,
+    ExperimentOnFlag,
     ExposureEvents,
     ExposureTotals,
     FlagHistoryNotCheckedReason,
@@ -27,6 +29,7 @@ from products.experiments.backend.health.context import (
     FlagState,
     HealthContext,
     LatestCalculation,
+    MetricCompiles,
     MetricEvents,
     MetricWindow,
     ReachableCondition,
@@ -552,6 +555,164 @@ class TestEvaluate(TestCase):
                 Status.NOT_APPLICABLE,
                 {},
             ),
+            (
+                "stale_experiment_reads_when_the_daily_calculation_ends",
+                Key.STALE_EXPERIMENT,
+                {"hours_since_start": 72, "daily_calculation_ends_at": datetime(2026, 11, 30, 9, 0, tzinfo=UTC)},
+                Status.PASSED,
+                {Value.SINCE_START_HOURS: 72, Value.DAILY_CALCULATION_ENDS_AT: "2026-11-30T09:00:00+00:00"},
+            ),
+            (
+                "new_flag_reads_its_last_call_before_launch",
+                Key.NEW_FLAG_NO_TRAFFIC,
+                {**DRAFT, "flag_called": True, "flag_last_called_at": datetime(2026, 11, 11, 10, 42, tzinfo=UTC)},
+                Status.PASSED,
+                {Value.FLAG_LAST_CALLED_AT: "2026-11-11T10:42:00+00:00"},
+            ),
+            (
+                "flag_state_after_the_end_reads_the_last_call",
+                Key.FLAG_STATE,
+                {
+                    **ENDED,
+                    "ended_at": datetime(2026, 11, 1, tzinfo=UTC),
+                    "flag": replace(
+                        UNEVEN_FLAG, release_groups=(FlagReleaseGroup(rollout_percentage=100, property_count=0),)
+                    ),
+                    "flag_called_after_end": True,
+                    "flag_last_called_at": datetime(2026, 11, 11, 10, 42, tzinfo=UTC),
+                },
+                Status.FINDING,
+                {
+                    Value.FLAG_ACTIVE: True,
+                    Value.FLAG_DELETED: False,
+                    Value.FLAG_ROLLED_OUT: True,
+                    Value.SHIPPED_VARIANT: None,
+                    Value.FLAG_LAST_CALLED_AT: "2026-11-11T10:42:00+00:00",
+                },
+            ),
+            (
+                "flag_state_at_a_zero_rollout_reads_the_people_assigned_outside_and_not_the_last_call",
+                Key.FLAG_STATE,
+                {
+                    "flag": replace(
+                        UNEVEN_FLAG, release_groups=(FlagReleaseGroup(rollout_percentage=0, property_count=0),)
+                    ),
+                    "condition_set_traffic": ConditionSetTraffic(
+                        since=LAUNCHED_AT,
+                        until=datetime(2026, 10, 8, tzinfo=UTC),
+                        team_timezone="UTC",
+                        people_by_set={},
+                        calls=40,
+                        remotely_evaluated_calls=0,
+                        people_assigned_outside=12,
+                    ),
+                    "flag_last_called_at": datetime(2026, 10, 8, tzinfo=UTC),
+                },
+                Status.FINDING,
+                {
+                    Value.FLAG_ACTIVE: True,
+                    Value.FLAG_DELETED: False,
+                    Value.FLAG_ROLLED_OUT: False,
+                    Value.SHIPPED_VARIANT: None,
+                    Value.ASSIGNED_OUTSIDE_COUNT: 12,
+                },
+            ),
+            (
+                "zero_exposures_on_flag_calls_reads_the_last_call",
+                Key.ZERO_EXPOSURES,
+                {
+                    "exposures": replace(NO_EXPOSURES, hours_since_launch=23.94),
+                    "flag_last_called_at": datetime(2026, 10, 1, 9, 30, tzinfo=UTC),
+                },
+                Status.NOT_APPLICABLE,
+                {
+                    Value.EXPOSED_COUNT: 0,
+                    Value.SINCE_LAUNCH_HOURS: 23.9,
+                    Value.FLAG_LAST_CALLED_AT: "2026-10-01T09:30:00+00:00",
+                },
+            ),
+            (
+                "zero_exposures_on_a_custom_event_leaves_out_the_flag_calls",
+                Key.ZERO_EXPOSURES,
+                {
+                    **_events("purchase", {"purchase": True}),
+                    "exposures": replace(NO_EXPOSURES, hours_since_launch=23.94),
+                    "flag_last_called_at": datetime(2026, 10, 1, 9, 30, tzinfo=UTC),
+                },
+                Status.NOT_APPLICABLE,
+                {Value.EXPOSED_COUNT: 0, Value.SINCE_LAUNCH_HOURS: 23.9},
+            ),
+            (
+                "shared_flag_counts_the_other_experiments_that_are_not_archived",
+                Key.FLAG_SHARED,
+                {
+                    "other_experiments_on_flag": (
+                        ExperimentOnFlag(start_date=LAUNCHED_AT, ended_at=None, archived=False),
+                        ExperimentOnFlag(start_date=None, ended_at=None, archived=False),
+                        ExperimentOnFlag(start_date=LAUNCHED_AT, ended_at=None, archived=True),
+                    )
+                },
+                Status.FINDING,
+                {Value.OTHER_RUNNING_EXPERIMENT_COUNT: 1, Value.OTHER_DRAFT_EXPERIMENT_COUNT: 1},
+            ),
+            (
+                "flag_variants_read_the_split_and_the_baseline",
+                Key.FLAG_VARIANTS_MISMATCH,
+                {"baseline_variant_key": "control"},
+                Status.PASSED,
+                {Value.FLAG_SPLIT: "control 80% / test 20%", Value.BASELINE_VARIANT: "control"},
+            ),
+            (
+                "metric_compiles_count_the_metrics_they_couldnt_check",
+                Key.METRIC_CANNOT_COMPILE,
+                {
+                    "metric_compiles": MetricCompiles(
+                        metric_count=4, failures=(), unknown_count=1, no_access_count=1, exposure_query_fails=False
+                    )
+                },
+                Status.NOT_CHECKED,
+                {Value.METRIC_COUNT: 4, Value.INVALID_METRIC_COUNT: 0, Value.UNCHECKED_METRIC_COUNT: 2},
+            ),
+            (
+                "flag_variants_without_variants_read_none",
+                Key.FLAG_VARIANTS_MISMATCH,
+                {"flag": replace(UNEVEN_FLAG, variants=())},
+                Status.FINDING,
+                {Value.FLAG_SPLIT: "None", Value.BASELINE_VARIANT: None},
+            ),
+            (
+                "metric_compiles_without_metrics_read_nothing",
+                Key.METRIC_CANNOT_COMPILE,
+                {
+                    "metric_compiles": MetricCompiles(
+                        metric_count=0, failures=(), unknown_count=0, no_access_count=0, exposure_query_fails=False
+                    )
+                },
+                Status.NOT_APPLICABLE,
+                {},
+            ),
+            (
+                "metric_calculation_without_metrics_reads_nothing",
+                Key.METRIC_CALCULATION_FAILED,
+                {
+                    "latest_calculation": LatestCalculation(
+                        metric_count=0,
+                        finished_at=LAUNCHED_AT,
+                        failures=(),
+                        completed_count=0,
+                        completed_exposures_paths=frozenset(),
+                    )
+                },
+                Status.NOT_APPLICABLE,
+                {},
+            ),
+            (
+                "exposure_criteria_read_the_custom_event",
+                Key.EXPOSURE_CRITERIA_CANNOT_MATCH,
+                _events("purchase", {"purchase": False}),
+                Status.FINDING,
+                {Value.EVENT: "purchase", Value.EVENT_RECEIVED: False},
+            ),
         ]
     )
     def test_a_check_reports_what_it_read(
@@ -572,16 +733,18 @@ class TestEvaluate(TestCase):
             (Key.TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES, {"exposures": _filtered_totals(400, 1000)}),
             (Key.ZERO_EXPOSURES, {}),
             (Key.UNSERVED_VARIANT_EXPOSURES, {"flag": UNSERVED_CONTROL_FLAG}),
+            (Key.STALE_EXPERIMENT, {}),
         ]
     )
     def test_a_rule_names_values_that_its_check_reads(self, key: Key, changes: dict[str, Any]) -> None:
-        health = evaluate(replace(RUNNING_UNEVEN_SPLIT, **changes), EXPOSURE_HEALTH_CHECKS)
+        health = evaluate(
+            replace(RUNNING_UNEVEN_SPLIT, **changes), (*EXPERIMENT_HEALTH_CHECKS, *EXPOSURE_HEALTH_CHECKS)
+        )
 
         check = next(check for check in health.checks if check.key == key)
-        assert check.rule is not None and check.rule.minimum is not None
-        self.assertEqual(
-            {check.rule.value, check.rule.minimum.value} - check.values.keys(), set(), (check.status, check.values)
-        )
+        assert check.rule is not None
+        rule_keys = {check.rule.value, *([check.rule.minimum.value] if check.rule.minimum else [])}
+        self.assertEqual(rule_keys - check.values.keys(), set(), (check.status, check.values))
 
     @parameterized.expand([(check.key.value, check) for check in EXPOSURE_HEALTH_CHECKS if check.rule])
     def test_an_exposure_rule_converts_to_the_exposure_schema(self, _name: str, check: HealthCheck) -> None:

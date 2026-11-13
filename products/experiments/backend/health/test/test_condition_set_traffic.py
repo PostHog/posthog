@@ -2,21 +2,29 @@ import time
 import threading
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, Literal
+from uuid import UUID
 
 import time_machine
-from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
+from posthog.test.base import (
+    BaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    _create_flag_evaluations,
+    flush_persons_and_events,
+)
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
 from django.utils import timezone
 
-from parameterized import parameterized
+from parameterized import param, parameterized
 
 from posthog.exceptions import ClickHouseClusterMemoryLimitExceeded, ClickHouseQueryTimeOut
+from posthog.models.instance_setting import override_instance_config
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.test.persons import create_person
+from posthog.test.persons import create_group_type_mapping, create_person
 
 from products.experiments.backend.facade.contracts import ExperimentHealthReaderAccess
 from products.experiments.backend.health.condition_set_traffic import (
@@ -53,6 +61,7 @@ TOO_FEW_PEOPLE = ConditionSetTraffic(
     people_assigned_outside=0,
 )
 _NO_VARIANT_REASONS = frozenset({"Out of rollout bound", "No matching condition set"})
+_FlagCallStore = Literal["events", "exposure_copies", "flag_evaluations"]
 _STAFF_PINNED_TO_TEST: dict[str, Any] = {
     "properties": [{"key": "email", "value": "@example.com", "operator": "icontains", "type": "person"}],
     "rollout_percentage": 100,
@@ -90,7 +99,9 @@ NO_ONE_ASSIGNED_OUTSIDE = replace(TRAFFIC, people_by_set={}, remotely_evaluated_
 ASSIGNED_OUTSIDE = replace(NO_ONE_ASSIGNED_OUTSIDE, calls=900, people_assigned_outside=300)
 
 
-def _create_running_experiment(team: Team, user: User, *, launched_at: datetime) -> Experiment:
+def _create_running_experiment(
+    team: Team, user: User, *, launched_at: datetime, aggregation_group_type_index: int | None = None
+) -> Experiment:
     flag = FeatureFlag.objects.create(
         team=team,
         created_by=user,
@@ -101,6 +112,7 @@ def _create_running_experiment(team: Team, user: User, *, launched_at: datetime)
             "multivariate": {
                 "variants": [{"key": "control", "rollout_percentage": 50}, {"key": "test", "rollout_percentage": 50}]
             },
+            "aggregation_group_type_index": aggregation_group_type_index,
         },
     )
     return Experiment.objects.create(team=team, name="Pinned share", feature_flag=flag, start_date=launched_at)
@@ -342,74 +354,85 @@ class TestLoadConditionSetTraffic(BaseTest):
 class TestQueryConditionSetTraffic(ClickhouseTestMixin, BaseTest):
     @parameterized.expand(
         [
-            (
-                "calls_of_another_flag_version_name_no_set",
-                [
-                    ("person-1", "Matched condition set 1", FLAG_VERSION, 1),
-                    ("person-2", "Matched condition set 1", 2, 1),
-                ],
-                ({1: 1}, 2, 2, 0),
-            ),
-            (
-                "calls_evaluated_outside_the_flag_service_name_no_set",
-                [
-                    ("person-1", "Matched condition set 2", FLAG_VERSION, 1),
-                    ("person-2", None, None, 1),
-                    ("person-3", "Evaluated locally", None, 1),
-                    ("person-4", None, None, 1),
-                    ("person-5", None, None, 6.99),
-                ],
-                ({2: 1}, 5, 1, 1),
-                frozenset({"person-4"}),
-            ),
-            (
-                "calls_that_return_no_variant_do_not_count",
-                [
-                    ("person-1", "Out of rollout bound", FLAG_VERSION, 1),
-                    ("person-2", "Matched condition set 2", FLAG_VERSION, 1),
-                ],
-                ({2: 1}, 1, 1, 0),
-            ),
-            (
-                "person_counts_once_under_the_latest_set",
-                [
-                    ("person-1", "Matched condition set 1", FLAG_VERSION, 2),
-                    ("person-1", "Matched condition set 2", FLAG_VERSION, 1),
-                ],
-                ({2: 1}, 2, 2, 0),
-            ),
-            (
-                "calls_outside_the_window",
-                [
-                    ("person-1", "Matched condition set 1", FLAG_VERSION, 1),
-                    ("person-2", "Matched condition set 1", FLAG_VERSION, 8),
-                ],
-                ({1: 1}, 1, 1, 0),
-            ),
+            (f"{name}_on_{events_table}_events", events_table == "native", *case)
+            for name, *case in [
+                (
+                    "calls_of_another_flag_version_name_no_set",
+                    [
+                        ("person-1", "Matched condition set 1", FLAG_VERSION, 1),
+                        ("person-2", "Matched condition set 1", 2, 1),
+                    ],
+                    ({1: 1}, 2, 2, 0),
+                ),
+                (
+                    "calls_evaluated_outside_the_flag_service_name_no_set",
+                    [
+                        ("person-1", "Matched condition set 2", FLAG_VERSION, 1),
+                        ("person-2", None, None, 1),
+                        ("person-3", "Evaluated locally", None, 1),
+                        ("person-4", None, None, 1),
+                        ("person-5", None, None, 6.99),
+                    ],
+                    ({2: 1}, 5, 1, 1),
+                    frozenset({"person-4"}),
+                ),
+                (
+                    "calls_that_return_no_variant_do_not_count",
+                    [
+                        ("person-1", "Out of rollout bound", FLAG_VERSION, 1),
+                        ("person-2", "Matched condition set 2", FLAG_VERSION, 1),
+                    ],
+                    ({2: 1}, 1, 1, 0),
+                ),
+                (
+                    "person_counts_once_under_the_latest_set",
+                    [
+                        ("person-1", "Matched condition set 1", FLAG_VERSION, 2),
+                        ("person-1", "Matched condition set 2", FLAG_VERSION, 1),
+                    ],
+                    ({2: 1}, 2, 2, 0),
+                ),
+                (
+                    "calls_outside_the_window",
+                    [
+                        ("person-1", "Matched condition set 1", FLAG_VERSION, 1),
+                        ("person-2", "Matched condition set 1", FLAG_VERSION, 8),
+                    ],
+                    ({1: 1}, 1, 1, 0),
+                ),
+            ]
+            for events_table in ("legacy", "native")
         ]
     )
     def test_query_condition_set_traffic(
         self,
         _name: str,
+        team_reads_native_events: bool,
         calls: list[tuple[str, str | None, int | None, float]],
         expected: tuple[dict[int, int], int, int, int],
         locally_evaluated: frozenset[str] = frozenset(),
     ) -> None:
         now = timezone.now()
         experiment = _create_running_experiment(self.team, self.user, launched_at=now - timedelta(days=30))
-        for distinct_id in dict.fromkeys(distinct_id for distinct_id, *_ in calls):
-            create_person(team=self.team, distinct_ids=[distinct_id])
+        people = {
+            distinct_id: create_person(team=self.team, distinct_ids=[distinct_id]).uuid
+            for distinct_id in dict.fromkeys(distinct_id for distinct_id, *_ in calls)
+        }
         for distinct_id, reason, version, days_ago in calls:
             self._call_flag(
+                self.team,
                 distinct_id,
                 reason,
                 version,
                 now - timedelta(days=days_ago),
+                # The native JSON events table holds no flag calls, so they are only in flag_evaluations.
+                store="flag_evaluations" if team_reads_native_events else "events",
+                person_id=people[distinct_id],
                 locally_evaluated=distinct_id in locally_evaluated,
             )
         flush_persons_and_events()
 
-        traffic = query_condition_set_traffic(experiment, window_start=now - timedelta(days=7), window_end=now)
+        traffic = self._scan(experiment, now, native_teams=[self.team] if team_reads_native_events else [])
 
         self.assertEqual(
             (
@@ -423,46 +446,149 @@ class TestQueryConditionSetTraffic(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            ("events", FlagEvaluationsMode.EVENTS, ({}, 0, 0)),
-            ("flag_evaluations_only", FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY, ({1: 1}, 1, 1)),
+            param(
+                "beside_a_team_that_reads_native_events",
+                FlagEvaluationsMode.EVENTS,
+                stores={"events"},
+                other_team_reads_native_events=True,
+            ),
+            param(
+                "organization_reads_flag_evaluations",
+                FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
+                stores={"events", "flag_evaluations"},
+            ),
+            param(
+                "organization_has_flag_calls_only_in_flag_evaluations",
+                FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+                stores={"flag_evaluations", "exposure_copies"},
+            ),
+            param(
+                "native_events_and_flag_calls_only_in_flag_evaluations",
+                FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+                stores={"flag_evaluations", "exposure_copies"},
+                team_reads_native_events=True,
+            ),
+            param(
+                "group_flag",
+                FlagEvaluationsMode.EVENTS,
+                stores={"events"},
+                group_key="org-a",
+            ),
+            param(
+                "group_flag_on_native_events",
+                FlagEvaluationsMode.EVENTS,
+                stores={"flag_evaluations"},
+                team_reads_native_events=True,
+                group_key="org-a",
+            ),
         ]
     )
-    def test_reads_the_exposure_copy_only_where_flag_calls_leave_events(
-        self, _name: str, mode: FlagEvaluationsMode, expected: tuple[dict[int, int], int, int]
+    def test_counts_each_call_once_wherever_ingestion_writes_it(
+        self,
+        _name: str,
+        mode: FlagEvaluationsMode,
+        *,
+        stores: set[_FlagCallStore],
+        team_reads_native_events: bool = False,
+        other_team_reads_native_events: bool = False,
+        group_key: str | None = None,
     ) -> None:
         OrganizationFeatureFlagsConfig.objects.update_or_create(
             organization=self.organization, defaults={"flag_evaluations_mode": mode}
         )
         now = timezone.now()
-        experiment = _create_running_experiment(self.team, self.user, launched_at=now - timedelta(days=30))
-        create_person(team=self.team, distinct_ids=["person-1"])
-        self._call_flag(
-            "person-1", "Matched condition set 1", FLAG_VERSION, now - timedelta(days=1), event="$experiment_exposure"
+        group_type_index = None if group_key is None else 0
+        if group_type_index is not None:
+            create_group_type_mapping(
+                team=self.team,
+                project_id=self.team.project_id,
+                group_type="organization",
+                group_type_index=group_type_index,
+                created_at=now - timedelta(days=30),
+            )
+        experiment = _create_running_experiment(
+            self.team, self.user, launched_at=now - timedelta(days=30), aggregation_group_type_index=group_type_index
         )
+        for distinct_id, reason, days_ago in [
+            ("person-1", "Matched condition set 1", 2),
+            ("person-2", "Matched condition set 2", 1),
+            ("person-3", "Out of rollout bound", 1),
+        ]:
+            person_id = create_person(team=self.team, distinct_ids=[distinct_id]).uuid
+            for store in stores:
+                self._call_flag(
+                    self.team,
+                    distinct_id,
+                    reason,
+                    FLAG_VERSION,
+                    now - timedelta(days=days_ago),
+                    store=store,
+                    person_id=person_id,
+                    group_key=group_key,
+                )
         flush_persons_and_events()
+        native_teams = [self.team] if team_reads_native_events else []
+        if other_team_reads_native_events:
+            native_teams.append(Team.objects.create(organization=self.organization, name="Reads native events"))
 
-        traffic = query_condition_set_traffic(experiment, window_start=now - timedelta(days=7), window_end=now)
+        traffic = self._scan(experiment, now, native_teams=native_teams)
 
-        self.assertEqual((dict(traffic.people_by_set), traffic.calls, traffic.remotely_evaluated_calls), expected)
+        expected_people_by_set = {1: 1, 2: 1} if group_key is None else {2: 1}
+        self.assertEqual(
+            (dict(traffic.people_by_set), traffic.calls, traffic.remotely_evaluated_calls),
+            (expected_people_by_set, 2, 2),
+        )
+
+    def _scan(self, experiment: Experiment, now: datetime, *, native_teams: list[Team]) -> ConditionSetTraffic:
+        # As on Cloud, where every catalog holds posthog.flag_evaluations. The allowlist moves single projects to the
+        # native JSON events table, and the instance-wide switch stays off, also in CI's run on the native table.
+        with (
+            self.is_cloud(True),
+            self.settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False),
+            override_instance_config(
+                "CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", ",".join(str(team.pk) for team in native_teams)
+            ),
+        ):
+            return query_condition_set_traffic(experiment, window_start=now - timedelta(days=7), window_end=now)
 
     def _call_flag(
         self,
+        team: Team,
         distinct_id: str,
         reason: str | None,
         version: int | None,
         at: datetime,
         *,
-        event: str = "$feature_flag_called",
+        store: _FlagCallStore = "events",
+        person_id: UUID | None = None,
         locally_evaluated: bool = False,
+        group_key: str | None = None,
     ) -> None:
-        properties: dict[str, Any] = {
-            "$feature_flag": FLAG_KEY,
-            "$feature_flag_response": False if reason in _NO_VARIANT_REASONS else "test",
-        }
+        response: str | bool = False if reason in _NO_VARIANT_REASONS else "test"
+        properties: dict[str, Any] = {}
         if locally_evaluated:
             properties["locally_evaluated"] = True
         if reason is not None:
             properties["$feature_flag_reason"] = reason
         if version is not None:
             properties["$feature_flag_version"] = version
-        _create_event(team=self.team, event=event, distinct_id=distinct_id, properties=properties, timestamp=at)
+        if group_key is not None:
+            properties["$group_0"] = group_key
+        if store == "flag_evaluations":
+            _create_flag_evaluations(
+                team.pk,
+                FLAG_KEY,
+                timestamp=at,
+                distinct_id=distinct_id,
+                person_id=person_id,
+                response=response,
+                properties=properties,
+            )
+            return
+        _create_event(
+            team=team,
+            event="$experiment_exposure" if store == "exposure_copies" else "$feature_flag_called",
+            distinct_id=distinct_id,
+            properties={**properties, "$feature_flag": FLAG_KEY, "$feature_flag_response": response},
+            timestamp=at,
+        )

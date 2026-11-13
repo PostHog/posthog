@@ -8,7 +8,7 @@ import operator
 from collections.abc import Callable, Collection, Mapping, Sequence
 from datetime import datetime
 from functools import reduce
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 from django.db.models import Case, Exists, Max, OuterRef, Prefetch, Q, QuerySet, Subquery, Value, When
@@ -35,6 +35,7 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformControlChangePage,
     PlatformControlHistory,
     PlatformLastCheck,
+    RuleMetadata,
 )
 from products.alerts_platform.backend.facade.enums import (
     PlatformAlertCheckStatus,
@@ -149,6 +150,29 @@ def list_configurations(
     )
 
 
+def owned_copies_by_legacy_id(
+    *, team_id: int, source_kind: str, legacy_configuration_ids: Collection[UUID]
+) -> dict[UUID, PlatformAlertConfigurationView]:
+    """The copies of the named source rows that the platform owns, by source row id, with their settings
+    and no instances (`alerts` is empty). A row with no such copy is left out."""
+    if not legacy_configuration_ids:
+        return {}
+    copies = (
+        PlatformAlertConfiguration.objects.for_team(team_id, canonical=True)
+        .filter(
+            source_kind=source_kind,
+            legacy_configuration_id__in=list(legacy_configuration_ids),
+            owner=PlatformAlertOwner.PLATFORM,
+        )
+        .prefetch_related(Prefetch("alerts", queryset=PlatformAlert.objects.unscoped().none()))
+    )
+    return {
+        legacy_id: _configuration_view(copy)
+        for copy in copies
+        if (legacy_id := copy.legacy_configuration_id) is not None
+    }
+
+
 def native_configuration_keys(
     *, team_id: int, source_kind: str, created_by_uuid: UUID | None = None
 ) -> tuple[tuple[datetime, UUID], ...]:
@@ -160,6 +184,48 @@ def native_configuration_keys(
     if created_by_uuid is not None:
         rows = rows.filter(created_by__uuid=created_by_uuid)
     return tuple(rows.order_by("-created_at", "-id").values_list("created_at", "id"))
+
+
+def team_ids_with_copies(source_kind: str) -> tuple[int, ...]:
+    """The teams with a copy of `source_kind`, in id order."""
+    return tuple(
+        PlatformAlertConfiguration.objects.unscoped()
+        .filter(source_kind=source_kind, legacy_configuration_id__isnull=False)
+        .order_by("team_id")
+        .values_list("team_id", flat=True)
+        .distinct()
+    )
+
+
+def owned_copy_ids(*, team_id: int, source_kind: str, created_by_uuid: UUID | None = None) -> tuple[UUID, ...]:
+    """The source row id of every copy of a kind the platform owns. With `created_by_uuid`, only the
+    ones that user created."""
+    rows = PlatformAlertConfiguration.objects.for_team(team_id, canonical=True).filter(
+        source_kind=source_kind, owner=PlatformAlertOwner.PLATFORM, legacy_configuration_id__isnull=False
+    )
+    if created_by_uuid is not None:
+        rows = rows.filter(created_by__uuid=created_by_uuid)
+    return tuple(cast(UUID, legacy_id) for legacy_id in rows.values_list("legacy_configuration_id", flat=True))
+
+
+def owned_copies(
+    *, team_id: int, source_kind: str, legacy_configuration_ids: Collection[UUID]
+) -> dict[UUID, PlatformAlertConfigurationView]:
+    """The copies the platform owns of these source rows, keyed by source row id, with their settings
+    and no instances. A copy its source still owns is left out, because the source's row then holds
+    its settings."""
+    if not legacy_configuration_ids:
+        return {}
+    rows = (
+        PlatformAlertConfiguration.objects.for_team(team_id, canonical=True)
+        .filter(
+            source_kind=source_kind,
+            owner=PlatformAlertOwner.PLATFORM,
+            legacy_configuration_id__in=list(legacy_configuration_ids),
+        )
+        .prefetch_related(Prefetch("alerts", queryset=PlatformAlert.objects.none()))
+    )
+    return {cast(UUID, row.legacy_configuration_id): _configuration_view(row) for row in rows}
 
 
 def native_configuration_matches(
@@ -195,6 +261,10 @@ def native_configuration_matches(
     )
 
 
+def _unmuted_at(at: datetime) -> Q:
+    return Q(snooze_until__isnull=True) | Q(snooze_until__lte=at)
+
+
 def enabled_native_configurations(
     *,
     team_ids: Collection[int],
@@ -204,16 +274,24 @@ def enabled_native_configurations(
     values: Collection[Any] = (),
     limit: int | None = None,
     firing_at: datetime | None = None,
+    errored_at: datetime | None = None,
+    owned_copies: bool = False,
 ) -> tuple[EnabledNativeConfiguration, ...]:
-    """The enabled configurations of a kind with no source row in these teams, newest first. With
+    """The enabled configurations of a kind with no source row in these teams, and with `owned_copies`
+    also the copies the platform owns, newest first. With
     `created_by_id`, only the ones that user created. With `source_config_key`, only the ones whose
     `source_config[key]` is one of `values`. With `limit`, at most that many. With `firing_at`, only
-    the ones a reader sees firing then: a group fires, the last check succeeded, and no mute holds."""
+    the ones a reader sees firing then: a group fires, the last check succeeded, and no mute holds. With
+    `errored_at`, only the ones a reader sees errored then: the last check failed, and no mute holds."""
     if not team_ids or (source_config_key is not None and not values):
         return ()
     # The caller names the teams, as a source's readers of its own rows across teams do.
+    native = Q(legacy_configuration_id__isnull=True)
     rows = PlatformAlertConfiguration.objects.unscoped().filter(
-        team_id__in=list(team_ids), source_kind=source_kind, legacy_configuration_id__isnull=True, enabled=True
+        native | Q(owner=PlatformAlertOwner.PLATFORM) if owned_copies else native,
+        team_id__in=list(team_ids),
+        source_kind=source_kind,
+        enabled=True,
     )
     if created_by_id is not None:
         rows = rows.filter(created_by_id=created_by_id)
@@ -222,13 +300,11 @@ def enabled_native_configurations(
     if firing_at is not None:
         # The composition `runtime_by_public_id` shows: a failed check status replaces the state.
         firing = PlatformAlert.objects.unscoped().filter(configuration=OuterRef("pk"), state=PlatformAlertState.FIRING)
-        rows = rows.filter(
-            Exists(firing),
-            Q(snooze_until__isnull=True) | Q(snooze_until__lte=firing_at),
-            check_status=PlatformAlertCheckStatus.OK,
-        )
+        rows = rows.filter(Exists(firing), _unmuted_at(firing_at), check_status=PlatformAlertCheckStatus.OK)
+    if errored_at is not None:
+        rows = rows.filter(_unmuted_at(errored_at)).exclude(check_status=PlatformAlertCheckStatus.OK)
     ordered = rows.order_by("-created_at", "-id").values_list(
-        "id", "team_id", "name", "created_at", "created_by_id", "source_config"
+        "id", "team_id", "name", "created_at", "created_by_id", "source_config", "legacy_configuration_id"
     )
     return tuple(
         EnabledNativeConfiguration(
@@ -238,8 +314,9 @@ def enabled_native_configurations(
             created_at=created_at,
             created_by_id=row_created_by_id,
             source_config=source_config,
+            legacy_configuration_id=legacy_configuration_id,
         )
-        for row_id, team_id, name, created_at, row_created_by_id, source_config in (
+        for row_id, team_id, name, created_at, row_created_by_id, source_config, legacy_configuration_id in (
             ordered if limit is None else ordered[:limit]
         )
     )
@@ -378,6 +455,17 @@ def alert_snapshot(team_id: int, configuration_id: str, grouping_key: str) -> Pl
     return instance_view(alert, alert.configuration) if alert is not None else None
 
 
+def rule_metadata(team_id: int, configuration_id: str) -> RuleMetadata:
+    """The labels and annotations set on a configuration, or none when it no longer exists."""
+    row = (
+        PlatformAlertConfiguration.objects.for_team(team_id)
+        .filter(id=configuration_id)
+        .values("labels", "annotations")
+        .first()
+    )
+    return RuleMetadata() if row is None else RuleMetadata(labels=row["labels"], annotations=row["annotations"])
+
+
 # A configuration's `destination_alert_id`, computed in the query.
 _PUBLIC_ID = Coalesce("legacy_configuration_id", "id")
 
@@ -423,6 +511,7 @@ def runtime_by_public_id(*, team_id: int, public_ids: Collection[UUID]) -> dict[
             "next_check_at",
             "grouping",
             "labels",
+            "annotations",
         )
     )
     return {
@@ -440,8 +529,9 @@ def runtime_by_public_id(*, team_id: int, public_ids: Collection[UUID]) -> dict[
             next_check_at=next_check_at,
             grouping=Grouping.from_stored(grouping),
             labels=labels,
+            annotations=annotations,
         )
-        for public_id, state, check_status, last_notified_at, consecutive_failures, next_check_at, grouping, labels in rows
+        for public_id, state, check_status, last_notified_at, consecutive_failures, next_check_at, grouping, labels, annotations in rows
     }
 
 

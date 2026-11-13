@@ -2,7 +2,6 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
 
-import { IconArrowLeft } from '@posthog/icons'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
@@ -38,11 +37,6 @@ export function AutoresearchNewScene(): JSX.Element {
 
     return (
         <SceneContent>
-            <div className="mb-2">
-                <LemonButton type="tertiary" size="small" icon={<IconArrowLeft />} to={urls.autoresearch()}>
-                    Back to models
-                </LemonButton>
-            </div>
             <SceneTitleSection
                 name="New model"
                 description="Pick a template or describe who to predict, what they will do, and when. Autoresearch trains models to predict it."
