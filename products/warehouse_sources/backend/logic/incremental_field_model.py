@@ -58,11 +58,8 @@ logger = structlog.get_logger(__name__)
 FEATURE_FLAG = "warehouse-incremental-field-model"
 AI_PRODUCT = "warehouse_sources"
 MODEL = DEFAULT_DECISION_MODEL
-# One model call per request. A call stays small enough to answer well inside this.
 TIMEOUT_SECONDS = 3.0
 MIN_CONFIDENCE = 0.6
-# One call asks about at most this many tables and candidate columns in total, so the prompt stays
-# small. A table with more candidates than the column limit is asked about on its own.
 MAX_TABLES_PER_CALL = 8
 MAX_COLUMNS_PER_CALL = 32
 # Callers send their own names, so the model reads at most this much of each one. Picks map back by
@@ -77,7 +74,6 @@ TEAM_BUDGET = Budget(burst=200, per_hour=1000)
 TEAM_BUDGET_KEY_PREFIX = "warehouse_incremental_field_model_rate"
 
 MODEL_PICK_NOTE = "Picked by AI from the table and column names."
-# Callers named in the usage event.
 WIZARD_PATH = "wizard"
 SYNC_FORM_PATH = "sync_form"
 ANSWERED_EVENT = "incremental field model answered"

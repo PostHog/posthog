@@ -358,9 +358,8 @@ const isTimestampType = (field: IncrementalField): boolean => {
 
 const isIdField = (field: IncrementalField): boolean => /^(id|uuid)/i.test(field.label) && field.type === 'integer'
 
-// The backend ranks database-source candidates and marks its pick. A rule pick is trusted only for the
-// kinds of field the name rules below would accept, so a recommended integer such as `score` is not a
-// cursor. A model pick read the column names, so it is trusted whatever its type.
+// A rule pick is trusted only for the field kinds the name rules accept, so a recommended `score`
+// integer is not a cursor. A model pick read the column names, so any type is trusted.
 const recommendedIncrementalField = (fields: IncrementalField[]): IncrementalField | undefined =>
     fields.find((field) => field.recommended && (field.picked_by_model || isTimestampType(field) || isIdField(field)))
 
@@ -465,14 +464,13 @@ export function defaultPollingSyncSettings(
     return { sync_type: 'full_refresh' }
 }
 
-// The backend marks the candidates it ranked, so only those go to the model. It reads at most this many.
+// The backend marks the candidates it ranked, so only those go to the model.
 const recommendationCandidates = (schema: ExternalDataSourceSyncSchema): IncrementalField[] =>
     schema.incremental_fields
         .filter((field) => field.recommended !== undefined)
         .slice(0, externalDataSourcesIncrementalFieldRecommendationsCreateBodyTablesItemIncrementalFieldsMax)
 
-// One request is one model call: up to this many candidate fields across its tables (the endpoint's
-// MAX_COLUMNS_PER_CALL), or one table on its own. Small calls answer inside the model's deadline.
+// Mirrors MAX_COLUMNS_PER_CALL on the endpoint, which rejects a request over it with a 400.
 const MAX_RECOMMENDATION_COLUMNS = 32
 // Requests in flight at once. More would arrive at the model as a burst and get rate limited.
 const MAX_PARALLEL_RECOMMENDATION_REQUESTS = 3
@@ -2101,8 +2099,6 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 cache.recommendationsFrozenFor !== discovery &&
                 values.connectorSelectionCount === selection
             const batches = packRecommendationBatches(tables)
-            // A few requests run at once, each batch's picks land as soon as it answers, and a failed
-            // batch drops only its own tables.
             const sendNext = async (): Promise<void> => {
                 // An obsolete discovery would spend the team's model budget on answers nobody reads.
                 for (let batch = batches.shift(); batch && stillApplies(); batch = batches.shift()) {
