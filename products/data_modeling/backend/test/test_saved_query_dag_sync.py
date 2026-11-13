@@ -361,6 +361,34 @@ class TestSyncSavedQueryToDag(BaseTest):
         edge = Edge.objects.filter(source=upstream_node, target=downstream_node).first()
         self.assertIsNotNone(edge)
 
+    @parameterized.expand(
+        [
+            ("read_under_models_root", "models.revenue", NodeType.VIEW),
+            # the bare name reads the table, so the table is the parent
+            ("read_by_bare_name", "revenue", NodeType.TABLE),
+        ]
+    )
+    def test_a_model_parent_survives_a_same_named_warehouse_table(self, _name: str, reference: str, parent_type: str):
+        model = DataWarehouseSavedQuery.objects.create(
+            name="revenue",
+            team=self.team,
+            query={"query": "SELECT event FROM events", "kind": "HogQLQuery"},
+            columns={"event": "String"},
+        )
+        sync_saved_query_to_dag(model)
+        # the API refuses this collision when the model is created, so the table arrives afterwards
+        DataWarehouseTable.objects.create(team=self.team, name="revenue", format="Parquet")
+        child = DataWarehouseSavedQuery.objects.create(
+            name="revenue_by_event",
+            team=self.team,
+            query={"query": f"SELECT * FROM {reference}", "kind": "HogQLQuery"},
+        )
+
+        child_node = sync_saved_query_to_dag(child)
+
+        sources = [(edge.source.type, edge.source.saved_query_id) for edge in Edge.objects.filter(target=child_node)]
+        self.assertEqual(sources, [(parent_type, model.id if parent_type == NodeType.VIEW else None)])
+
     def test_sync_rolls_back_its_node_when_a_parent_view_has_no_node(self):
         DataWarehouseSavedQuery.objects.create(
             name="upstream_view",

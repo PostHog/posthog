@@ -132,11 +132,13 @@ def _gather_lineage(team: Team, saved_query: DataWarehouseSavedQuery, query_str:
     descriptions: dict[str, str] = {}
 
     # Parent saved queries (other views this one reads from) → their view-level description.
+    # Parent extraction names an authored view `models.<stored name>`, so its row is matched on the stored name.
+    qualified_names = {name.removeprefix("models."): name for name in parent_names if name.startswith("models.")}
     parent_views = {
-        sq.id: sq.name
-        for sq in DataWarehouseSavedQuery.objects.filter(team=team, deleted=False, name__in=parent_names).only(
-            "id", "name"
-        )
+        sq.id: qualified_names.get(sq.name, sq.name)
+        for sq in DataWarehouseSavedQuery.objects.filter(
+            team=team, deleted=False, name__in=parent_names | qualified_names.keys()
+        ).only("id", "name")
     }
     if parent_views:
         for annotation in DataWarehouseSavedQueryColumnAnnotation.objects.for_team(team.id).filter(

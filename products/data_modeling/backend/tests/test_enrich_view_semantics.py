@@ -103,6 +103,27 @@ class TestEnrichViewSemanticsSync:
         assert mock_llm.call_count == 1
         assert result["status"] == "done"
 
+    def test_a_parent_view_brings_its_description_into_the_prompt(self):
+        team = _team()
+        parent = _saved_query(team, name="accounts", columns=_columns("id"), query="SELECT 1 AS id")
+        DataWarehouseSavedQueryColumnAnnotation.objects.for_team(team.pk).create(
+            team=team,
+            saved_query=parent,
+            column_name="",
+            description="Paying accounts",
+            description_source=_SOURCE.USER_EDITED,
+        )
+        sq = _saved_query(team, columns=_columns("id"), query="SELECT id FROM accounts")
+        generated = {"view_description": "v", "columns": {"id": "i"}}
+
+        with (
+            patch.object(enrich, "get_team_business_context", return_value=""),
+            patch.object(enrich, "generate_json_completion", return_value=(generated, _USAGE)) as mock_llm,
+        ):
+            enrich_view_semantics_sync(team.pk, str(sq.id))
+
+        assert "— Paying accounts" in mock_llm.call_args.kwargs["prompt"]
+
     def test_a_reply_without_a_view_description_does_not_spend_another_batch(self):
         """The view description is asked for once. Re-asking carries the same definition, so a reply
         that omitted it will omit it again, and looping on that would burn the budget."""
