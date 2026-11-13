@@ -9,6 +9,7 @@ import { Message } from 'node-rdkafka'
 import { register } from 'prom-client'
 import supertest from 'supertest'
 import express from 'ultimate-express'
+import { v5 as uuidv5 } from 'uuid'
 
 import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
 import {
@@ -36,6 +37,7 @@ import { parseJSON } from '~/common/utils/json-parse'
 import { UUIDT } from '~/common/utils/utils'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { waitForExpect } from '~/tests/helpers/expectations'
+import { pinDate } from '~/tests/helpers/pin-date'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
 
 import { Hub, Team } from '../../../types'
@@ -51,7 +53,11 @@ import {
     resolveEmailEngagementDistinctId,
 } from './email-tracking.service'
 import { SesWebhookHandler } from './helpers/ses'
-import { EmailTrackingCodeSigner, TRACKING_CODE_HEADER_NAME } from './helpers/tracking-code'
+import {
+    EmailTrackingCodeSigner,
+    MESSAGE_CREATED_HEADER_NAME,
+    TRACKING_CODE_HEADER_NAME,
+} from './helpers/tracking-code'
 
 describe('EmailTrackingService', () => {
     let hub: Hub
@@ -776,6 +782,9 @@ describe('EmailTrackingService', () => {
                 transactionalMessageId,
                 actionId,
                 sentTags,
+                messageCreatedMs,
+                signedCreatedMs,
+                createdHeader,
                 headerCode,
                 distinctId,
                 snsMessageId = new UUIDT().toString(),
@@ -791,6 +800,12 @@ describe('EmailTrackingService', () => {
                 transactionalMessageId?: string
                 actionId?: string
                 sentTags?: Record<string, string[]>
+                // An unsigned SES tag claiming a creation time, as a forged notification could add.
+                messageCreatedMs?: string
+                // The creation time the email worker signs into its own header.
+                signedCreatedMs?: number
+                // Replaces that header's value, as a forged notification could.
+                createdHeader?: string
                 headerCode?: string
                 distinctId?: string
                 snsMessageId?: string
@@ -819,11 +834,30 @@ describe('EmailTrackingService', () => {
                         source: 'sender@posthog.com',
                         messageId: 'ses-message-id',
                         destination: [recipient],
-                        headers: [{ name: TRACKING_CODE_HEADER_NAME, value: headerCode ?? trackingCode }],
+                        headers: [
+                            { name: TRACKING_CODE_HEADER_NAME, value: headerCode ?? trackingCode },
+                            ...(createdHeader !== undefined || signedCreatedMs !== undefined
+                                ? [
+                                      {
+                                          name: MESSAGE_CREATED_HEADER_NAME,
+                                          value:
+                                              createdHeader ??
+                                              signer.messageCreatedHeaderValue(
+                                                  transactionalMessageId ?? invocationId,
+                                                  signedCreatedMs!
+                                              ),
+                                      },
+                                  ]
+                                : []),
+                        ],
                         ...(transactionalMessageId
                             ? {
                                   commonHeaders: { to: [recipient] },
-                                  tags: { ph_email_status: ['true'], ...sentTags },
+                                  tags: {
+                                      ph_email_status: ['true'],
+                                      ...sentTags,
+                                      ...(messageCreatedMs ? { ph_created_ms: [messageCreatedMs] } : {}),
+                                  },
                               }
                             : {}),
                     },
@@ -953,27 +987,110 @@ describe('EmailTrackingService', () => {
                 expect(mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_LOG_ENTRIES)).toHaveLength(0)
             })
 
-            it('records the bounced status of a transactional email', async () => {
-                const hogFlow = await insertHogFlow(
-                    hub.postgres,
-                    new FixtureHogFlowBuilder().withTeamId(team.id).build()
+            const sentAt = Date.UTC(2026, 0, 2, 3, 4, 5, 678)
+            const keyedMessageId = uuidv5('a-key', '6ba7b811-9dad-11d1-80b4-00c04fd430c8')
+            describe('dated by the message', () => {
+                beforeEach(() => pinDate(sentAt + 60 * 60 * 1000))
+                afterEach(() => jest.useRealTimers())
+
+                it.each([
+                    ['dated by its message id', new UUIDT(sentAt).toString(), undefined, undefined],
+                    ['of a keyed send, dated by its signed creation header', keyedMessageId, sentAt, undefined],
+                    [
+                        'of a keyed send, dated by its signed header though an unsigned tag claims another day',
+                        keyedMessageId,
+                        sentAt,
+                        String(sentAt - 3 * 24 * 60 * 60 * 1000),
+                    ],
+                ])(
+                    'records the bounced status of a transactional email %s',
+                    async (_desc, messageId, signedCreatedMs, messageCreatedMs) => {
+                        const hogFlow = await insertHogFlow(
+                            hub.postgres,
+                            new FixtureHogFlowBuilder().withTeamId(team.id).build()
+                        )
+
+                        await recordBounce({
+                            functionId: hogFlow.id,
+                            transactionalMessageId: messageId,
+                            signedCreatedMs,
+                            messageCreatedMs,
+                        })
+
+                        // Recording flushes the status row before the batch completes.
+                        expect(mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_EMAIL_STATUS)).toEqual([
+                            expect.objectContaining({
+                                key: messageId,
+                                value: expect.objectContaining({
+                                    team_id: team.id,
+                                    message_id: messageId,
+                                    status: 'bounced',
+                                    reason: 'hard',
+                                    created_at: '2026-01-02 03:04:05.678000',
+                                }),
+                            }),
+                        ])
+                    }
                 )
-                const messageId = new UUIDT().toString()
 
-                await recordBounce({ functionId: hogFlow.id, transactionalMessageId: messageId })
+                it.each<[string, number | undefined, string | undefined, () => string | undefined]>([
+                    ['its signed time lies in the far future', Date.UTC(2200, 0, 1), undefined, () => undefined],
+                    ['it carries only an unsigned tag', undefined, String(sentAt), () => undefined],
+                    [
+                        'its header time was changed',
+                        undefined,
+                        undefined,
+                        () =>
+                            signer
+                                .messageCreatedHeaderValue(keyedMessageId, sentAt)
+                                .replace(String(sentAt), String(sentAt - 24 * 60 * 60 * 1000)),
+                    ],
+                    [
+                        'its header was signed for another message',
+                        undefined,
+                        undefined,
+                        () => signer.messageCreatedHeaderValue(new UUIDT(sentAt).toString(), sentAt),
+                    ],
+                ])(
+                    'records no status for a keyed send when %s',
+                    async (_desc, signedCreatedMs, messageCreatedMs, createdHeader) => {
+                        const hogFlow = await insertHogFlow(
+                            hub.postgres,
+                            new FixtureHogFlowBuilder().withTeamId(team.id).build()
+                        )
 
-                // Recording flushes the status row before the batch completes.
-                expect(mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_EMAIL_STATUS)).toEqual([
-                    expect.objectContaining({
-                        key: messageId,
-                        value: expect.objectContaining({
-                            team_id: team.id,
-                            message_id: messageId,
-                            status: 'bounced',
-                            reason: 'hard',
-                        }),
-                    }),
-                ])
+                        await recordBounce({
+                            functionId: hogFlow.id,
+                            transactionalMessageId: keyedMessageId,
+                            signedCreatedMs,
+                            messageCreatedMs,
+                            createdHeader: createdHeader(),
+                        })
+
+                        expect(mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_EMAIL_STATUS)).toEqual([])
+                    }
+                )
+            })
+
+            describe('after a keyed message has expired', () => {
+                beforeEach(() => pinDate(sentAt + 40 * 24 * 60 * 60 * 1000))
+                afterEach(() => jest.useRealTimers())
+
+                it('records no fresh-dated status for it, whatever its tag claims', async () => {
+                    const hogFlow = await insertHogFlow(
+                        hub.postgres,
+                        new FixtureHogFlowBuilder().withTeamId(team.id).build()
+                    )
+
+                    await recordBounce({
+                        functionId: hogFlow.id,
+                        transactionalMessageId: keyedMessageId,
+                        signedCreatedMs: sentAt,
+                        messageCreatedMs: String(Date.now()),
+                    })
+
+                    expect(mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_EMAIL_STATUS)).toEqual([])
+                })
             })
 
             it.each<[string, Record<string, unknown>, Record<string, string[]>, boolean, Record<string, string>]>([
