@@ -3126,8 +3126,10 @@ class Theme(StrEnum):
 class SlackIntegrationScope(StrEnum):
     APP_MENTIONS_READ = "app_mentions:read"
     ASSISTANT_WRITE = "assistant:write"
+    CANVASES_READ = "canvases:read"
     CANVASES_WRITE = "canvases:write"
     CHANNELS_HISTORY = "channels:history"
+    CHANNELS_JOIN = "channels:join"
     CHANNELS_MANAGE = "channels:manage"
     CHANNELS_READ = "channels:read"
     CHAT_WRITE = "chat:write"
@@ -3149,9 +3151,9 @@ class SlackIntegrationScope(StrEnum):
     USERS_READ_EMAIL = "users:read.email"
 
 
+# Add the Slack scopes that wait on Slack app review to SlackIntegrationScopeInReview in frontend/src/types.ts.
 class SlackIntegrationScopeInReview(StrEnum):
-    CANVASES_READ = "canvases:read"
-    CHANNELS_JOIN = "channels:join"
+    pass
 
 
 class SlashCommandName(StrEnum):
