@@ -26,8 +26,8 @@ const STATUS_TOP = (HEADER_ROW_HEIGHT + TITLE_HEIGHT) / 2
 const STATUS_BOTTOM = HEADER_TOP + STATUS_TOP + STATUS_HEIGHT
 /** Design-frame offset where a tab's content starts at rest, with or without a status line. */
 export const TABS_HEADER_BOTTOM = HEADER_ROW_BOTTOM + 12
-/** The fade below the row reaches past the first row's top, so rows dissolve under the header instead of being cut. */
-const HEADER_FADE = 28
+/** End the fade above the resting search field so its border and outer focus ring stay clear. */
+const HEADER_FADE = 8
 const SOLID = HEADER_ROW_BOTTOM / (HEADER_ROW_BOTTOM + HEADER_FADE)
 // The chrome grows by the status line, so the line stays over the solid part and the fade starts below it.
 const STATUS_PADDING = STATUS_BOTTOM - HEADER_ROW_BOTTOM + HEADER_FADE
