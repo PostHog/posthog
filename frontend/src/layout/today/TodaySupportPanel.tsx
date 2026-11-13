@@ -1,7 +1,18 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 
-import { IconExternal, IconFeatures, IconHelmet, IconMap } from '@posthog/icons'
-import { Button, Heading, Skeleton, Text, cn } from '@posthog/quill'
+import { IconExternal, IconFeatures, IconHelmet, IconInfo, IconMap } from '@posthog/icons'
+import {
+    Button,
+    Heading,
+    Item,
+    ItemContent,
+    ItemDescription,
+    ItemMedia,
+    ItemTitle,
+    Skeleton,
+    Text,
+    cn,
+} from '@posthog/quill'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
@@ -111,14 +122,15 @@ export function TodaySupportPanel(): JSX.Element {
                                 </Heading>
                                 <TodaySupportStatusAlert />
                                 {featureFlags[FEATURE_FLAGS.SUPPORT_MESSAGE_OVERRIDE] && (
-                                    <div className="flex flex-col gap-1 rounded-md border border-border p-3">
-                                        <Text size="xs" weight="semibold">
-                                            {SUPPORT_MESSAGE_OVERRIDE_TITLE}
-                                        </Text>
-                                        <Text size="xs" variant="muted">
-                                            {SUPPORT_MESSAGE_OVERRIDE_BODY}
-                                        </Text>
-                                    </div>
+                                    <Item variant="outline" tone="info">
+                                        <ItemMedia variant="icon">
+                                            <IconInfo />
+                                        </ItemMedia>
+                                        <ItemContent>
+                                            <ItemTitle>{SUPPORT_MESSAGE_OVERRIDE_TITLE}</ItemTitle>
+                                            <ItemDescription>{SUPPORT_MESSAGE_OVERRIDE_BODY}</ItemDescription>
+                                        </ItemContent>
+                                    </Item>
                                 )}
                                 <Text size="xs" variant="muted">
                                     {canCreateTicket
