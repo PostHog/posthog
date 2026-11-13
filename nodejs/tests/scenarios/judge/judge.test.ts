@@ -382,51 +382,83 @@ describe('judge', () => {
         backlog: BACKLOG,
         rows,
     })
+    const group = (
+        rows: number,
+        changed: Partial<ResidentBacklog['found'][number]> = {}
+    ): ResidentBacklog['found'][number] => ({
+        teamId: TEAM,
+        queue: 'hogflow',
+        status: 'available',
+        rows,
+        transitions: 0,
+        stateBytes: rows * 100,
+        ...changed,
+    })
 
     it.each<[string, ResidentBacklog | undefined, object]>([
         [
             'every seeded row is still there',
-            {
-                profile: RESIDENT,
-                seeded: seededFor('resident', [{ teamId: TEAM, status: 'available', rows: 4 }]),
-                found: [{ teamId: TEAM, status: 'available', rows: 4 }],
-            },
+            { profile: RESIDENT, seeded: seededFor('resident', [group(4)]), found: [group(4)] },
             { passed: true, observed: 0 },
         ],
         [
             'a row was lost',
             {
                 profile: RESIDENT,
-                seeded: seededFor('resident', [
-                    { teamId: TEAM, status: 'available', rows: 4 },
-                    { teamId: TEAM + 1, status: 'available', rows: 4 },
-                ]),
-                found: [
-                    { teamId: TEAM, status: 'available', rows: 4 },
-                    { teamId: TEAM + 1, status: 'available', rows: 3 },
-                ],
+                seeded: seededFor('resident', [group(4), group(4, { teamId: TEAM + 1 })]),
+                found: [group(4), group(3, { teamId: TEAM + 1 })],
             },
-            { passed: false, observed: 1, violation: 'team 2100000001 available: expected 4 rows, found 3' },
+            { passed: false, observed: 1, violation: 'team 2100000001 hogflow available: expected 4 rows, found 3' },
         ],
         [
             'a parked row woke and completed',
             {
                 profile: RESIDENT,
-                seeded: seededFor('resident', [{ teamId: TEAM, status: 'available', rows: 4 }]),
-                found: [
-                    { teamId: TEAM, status: 'available', rows: 3 },
-                    { teamId: TEAM, status: 'completed', rows: 1 },
-                ],
+                seeded: seededFor('resident', [group(4)]),
+                found: [group(3), group(1, { status: 'completed', transitions: 2 })],
             },
-            { passed: false, observed: 2, violation: 'team 2100000000 available: expected 4 rows, found 3' },
+            { passed: false, observed: 3, violation: 'team 2100000000 hogflow available: expected 4 rows, found 3' },
+        ],
+        [
+            'a worker took a parked row and parked it again',
+            {
+                profile: RESIDENT,
+                seeded: seededFor('resident', [group(4)]),
+                found: [group(4, { transitions: 2 })],
+            },
+            {
+                passed: false,
+                observed: 2,
+                violation:
+                    'team 2100000000 hogflow available: the rows changed in place, expected 0 transitions and 400 state bytes, found 2 and 400',
+            },
+        ],
+        [
+            "a row's state was cut short",
+            {
+                profile: RESIDENT,
+                seeded: seededFor('resident', [group(4)]),
+                found: [group(4, { stateBytes: 310 })],
+            },
+            {
+                passed: false,
+                observed: 1,
+                violation:
+                    'team 2100000000 hogflow available: the rows changed in place, expected 0 transitions and 400 state bytes, found 0 and 310',
+            },
+        ],
+        [
+            'a row moved to another queue',
+            {
+                profile: RESIDENT,
+                seeded: seededFor('resident', [group(4)]),
+                found: [group(3), group(1, { queue: 'email' })],
+            },
+            { passed: false, observed: 2, violation: 'team 2100000000 email available: expected 0 rows, found 1' },
         ],
         [
             'the backlog was seeded for another profile',
-            {
-                profile: RESIDENT,
-                seeded: seededFor('synthetic', [{ teamId: TEAM, status: 'available', rows: 4 }]),
-                found: [{ teamId: TEAM, status: 'available', rows: 4 }],
-            },
+            { profile: RESIDENT, seeded: seededFor('synthetic', [group(4)]), found: [group(4)] },
             {
                 passed: false,
                 violation:
@@ -437,8 +469,8 @@ describe('judge', () => {
             'the profile changed its backlog since the seed',
             {
                 profile: { name: 'resident', backlog: { ...BACKLOG, jobs: { hogflow: 8 } } },
-                seeded: seededFor('resident', [{ teamId: TEAM, status: 'available', rows: 4 }]),
-                found: [{ teamId: TEAM, status: 'available', rows: 4 }],
+                seeded: seededFor('resident', [group(4)]),
+                found: [group(4)],
             },
             {
                 passed: false,

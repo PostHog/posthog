@@ -98,12 +98,13 @@ describe('seed-backlog', () => {
         })
     })
 
-    it('writes a manifest of the profile, its backlog and the rows per team and status, with the table, index and TOAST bytes', async () => {
+    it('writes a manifest of the profile, its backlog and the rows, transitions and state bytes per team, queue and status, with the table, index and TOAST bytes', async () => {
         expect(await seed()).toBe(EXIT_CODE.passed)
 
-        const counted = await query<{ teamId: number; status: string; rows: number }>(
-            `SELECT team_id AS "teamId", status::text AS status, count(*)::int AS rows
-             FROM cyclotron_jobs GROUP BY 1, 2 ORDER BY 1, 2`
+        const counted = await query(
+            `SELECT team_id AS "teamId", queue_name AS queue, status::text AS status, count(*)::int AS rows,
+                    sum(transition_count)::int AS transitions, sum(length(state))::bigint::float8 AS "stateBytes"
+             FROM cyclotron_jobs GROUP BY 1, 2, 3 ORDER BY 1, 2, 3`
         )
         const manifest = parseJSON(readFileSync(manifestPath(), 'utf8')) as {
             profile: string
