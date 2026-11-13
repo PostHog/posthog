@@ -68,6 +68,8 @@ export const scene: SceneExport = {
     logic: analyticsListLogic,
 }
 
+const rowHoverGroup = (): string => 'group/row'
+
 export function AnalyticsList(): JSX.Element {
     const analyticsEnabled = useFeatureFlag('TODAY_RAIL_NAV')
     // The page ships behind the Today navigation, so without the flag `/analytics/all` stays a missing page.
@@ -260,6 +262,7 @@ function AnalyticsListContent(): JSX.Element {
                             }}
                             className="flex min-h-0 flex-col [--quill-table-sticky-bg:var(--card)]"
                             empty={EMPTY_COLLECTION}
+                            rowClassName={rowHoverGroup}
                         />
                     </Card>
                 )}
