@@ -262,12 +262,8 @@ class BulkSchemaSaveError(APIException):
             status.HTTP_400_BAD_REQUEST if only_validation_errors else status.HTTP_503_SERVICE_UNAVAILABLE
         )
         reasons = "; ".join(f"{name} ({reason})" for name, reason in failures.values())
-        super().__init__(
-            detail=(
-                f"These schemas in the batch could not be saved: {reasons}. "
-                "Any other schemas in the batch were saved successfully — retry the ones listed here."
-            )
-        )
+        # Each reason carries its own next step: retrying a webhook-only or missing table fails the same way.
+        super().__init__(detail=f"These schemas weren't saved: {reasons}. The other schemas in the batch were saved.")
 
 
 class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase):
@@ -662,7 +658,7 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
             if discovered_schema.webhook_only:
                 failures[str(schema.id)] = (
                     schema.name,
-                    "can only be synced via webhooks; set up the webhook sync method instead",
+                    "can only be synced via webhooks; pick the Webhook sync method for it",
                 )
                 continue
             for key, value in build_default_sync_settings(discovered_schema).items():
@@ -776,7 +772,7 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
                     )
                 else:
                     only_validation_errors = False
-                    reason = "a database error occurred while saving"
+                    reason = "a temporary error on our side; try again"
                     base.capture_exception(e)
                     base.logger.exception(
                         "bulk_update_schemas failed to persist schema",
