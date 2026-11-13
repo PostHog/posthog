@@ -90,6 +90,8 @@ export type AnalyticsListScope = 'all' | 'mine'
 export interface FolderContents {
     /** The folder these rows belong to, so a failed or slow load never shows another folder's rows. */
     folder: string
+    /** The search the server filtered these rows by. */
+    search: string
     hasMore: boolean
     entries: FileSystemEntry[]
     users: UserBasicType[]
@@ -500,6 +502,7 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
                     breakpoint()
                     return {
                         folder,
+                        search: values.filters.search,
                         entries: response.results,
                         users: response.users,
                         hasMore: !!response.next,
@@ -806,6 +809,7 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
                 has_more: hasMore,
                 mode: values.mode,
                 scope: values.scope,
+                filters_active: values.filtersActive,
             })
             cache.visitStartedAt = undefined
         }
@@ -859,13 +863,22 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
             },
             loadList: () => {
                 cache.visitStartedAt = performance.now()
-                cache.visitCached = values.mode === 'feed' ? values.currentFeed.initialized : !!values.folderContents
                 if (values.mode === 'feed') {
+                    cache.visitCached = values.currentFeed.initialized
                     actions.refreshFeed(values.feedQuery)
                     syncShownQuery()
-                } else {
-                    actions.loadFolderContents()
+                    return
                 }
+                // Only rows read for this folder and search count as shown at once. Any other rows are replaced when
+                // the read lands, so that visit is not cached.
+                const loaded = values.folderContents
+                const shown =
+                    loaded?.folder === values.filters.folder && loaded.search === values.filters.search ? loaded : null
+                cache.visitCached = !!shown
+                if (shown) {
+                    reportListLoaded(shown.entries.length, shown.hasMore)
+                }
+                actions.loadFolderContents()
             },
             loadMore: () => {
                 if (!values.hasMore) {
@@ -1012,7 +1025,7 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
             clearFilters: toUrl,
         }
     }),
-    urlToAction(({ actions, values, cache }) => {
+    urlToAction(({ actions, values }) => {
         const listPaths = [urls.analyticsList(), urls.analyticsMine()]
         // The router only writes a URL that differs from the current one, so our own write is the one location
         // change that moves the URL within this scene while the scope and filters stay as they are.
@@ -1039,9 +1052,6 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
                 return
             }
             if (filtersChanged) {
-                // A cold open with filters is a visit too, so it reports `views list loaded` like a plain one.
-                cache.visitStartedAt = performance.now()
-                cache.visitCached = false
                 actions.setFiltersFromUrl(filters)
             } else if (scopeChanged || !isOwnUrlWrite(previous)) {
                 // A visit shows the last loaded rows at once and reads again, so a new item shows up on return.
