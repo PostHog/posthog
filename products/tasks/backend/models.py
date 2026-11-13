@@ -3611,10 +3611,10 @@ class TaskRun(models.Model):
             return round((self.completed_at - self.created_at).total_seconds(), 1)
         return 0.0
 
-    def _save_terminal_status(self, update_fields: list[str]) -> bool:
-        """Save a terminal status and return whether this write moved the row out of a live status.
-
-        Reads the status under the row lock that the run PATCH and the status activity also take,
+    def _save_terminal_status(
+        self, update_fields: list[str], *, expected_status: str | None = None
+    ) -> Literal["moved", "repeated", "refused"]:
+        """Reads the status under the row lock that the run PATCH and the status activity also take,
         so a concurrent terminal write cannot make two writers each report the transition.
         """
         with transaction.atomic():
@@ -3623,10 +3623,30 @@ class TaskRun(models.Model):
             stored_status = (
                 TaskRun.objects.select_for_update().filter(pk=self.pk).values_list("status", flat=True).first()
             )
+            if stored_status is None:
+                return "refused"
+            if expected_status is None:
+                refused = stored_status != self.status and stored_status in {
+                    self.Status.COMPLETED,
+                    self.Status.FAILED,
+                    self.Status.CANCELLED,
+                }
+            else:
+                refused = stored_status != expected_status
+            if refused:
+                logger.info(
+                    "task_run.terminal_overwrite_skipped",
+                    task_run_id=str(self.id),
+                    stored_status=stored_status,
+                    expected_status=expected_status,
+                    new_status=self.status,
+                )
+                self.refresh_from_db(fields=update_fields)
+                return "refused"
             self.save(update_fields=update_fields)
-        return stored_status not in {self.Status.COMPLETED, self.Status.FAILED, self.Status.CANCELLED}
+        return "repeated" if stored_status == self.status else "moved"
 
-    def mark_completed(self, *, notify: bool = True, analytics_properties: dict | None = None) -> None:
+    def mark_completed(self, *, notify: bool = True, analytics_properties: dict | None = None) -> bool:
         """Mark the progress as completed.
 
         ``notify=False`` skips the push notification — for janitor-style finalization of a run
@@ -3636,18 +3656,21 @@ class TaskRun(models.Model):
         """
         self.status = self.Status.COMPLETED
         self.completed_at = django_timezone.now()
-        if self._save_terminal_status(["status", "completed_at"]):
+        write = self._save_terminal_status(["status", "completed_at"])
+        if write == "refused":
+            return False
+        if write == "moved":
             observe_task_run_terminal(self, error_type=None, termination_reason=None)
         self.publish_stream_state_event()
         self.capture_event(
             "task_run_completed",
             {"duration_seconds": self._duration_seconds(), **(analytics_properties or {})},
         )
-        if not notify:
-            return
-        from products.tasks.backend.push_dispatcher import notify_task_run_completed
+        if notify:
+            from products.tasks.backend.push_dispatcher import notify_task_run_completed
 
-        notify_task_run_completed(self)
+            notify_task_run_completed(self)
+        return True
 
     def track_structured_result(self):
         """Track a structured result event with properties from the run output."""
@@ -3663,12 +3686,15 @@ class TaskRun(models.Model):
                 error=str(e),
             )
 
-    def mark_failed(self, error: str, error_type: str | None = None) -> None:
+    def mark_failed(self, error: str, error_type: str | None = None, *, expected_status: str | None = None) -> bool:
         """Mark the progress as failed with an error message."""
         self.status = self.Status.FAILED
         self.error_message = error
         self.completed_at = django_timezone.now()
-        if self._save_terminal_status(["status", "error_message", "completed_at"]):
+        write = self._save_terminal_status(["status", "error_message", "completed_at"], expected_status=expected_status)
+        if write == "refused":
+            return False
+        if write == "moved":
             observe_task_run_terminal(self, error_type=error_type, termination_reason=None)
         self.publish_stream_state_event()
         self.capture_event(
@@ -3683,6 +3709,7 @@ class TaskRun(models.Model):
         from products.tasks.backend.push_dispatcher import notify_task_run_failed
 
         notify_task_run_failed(self)
+        return True
 
     def build_stream_state_event(self) -> dict[str, Any]:
         # Workflow tasks are team-readable, but their summaries can contain private trigger context.
