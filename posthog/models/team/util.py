@@ -128,7 +128,6 @@ def _delete_misc_small_tables_for_teams(team_ids: list[int]) -> None:
     _delete_retired_session_summaries_for_teams(team_ids)
     _delete_retired_loops_for_teams(team_ids)
     _delete_retired_warehouse_source_inputs_backups_for_teams(team_ids)
-    _delete_retired_user_interviews_for_teams(team_ids)
 
 
 def _delete_llm_evaluations_for_teams(team_ids: list[int]) -> None:
@@ -386,6 +385,10 @@ def delete_team_records(team_ids: list[int]) -> None:
     from posthog.models.team import Team
 
     from products.workflows.backend.facade.batch_jobs import delete_batch_jobs_for_teams
+
+    # Here, not in the misc small tables step: a deletion already past that step when this
+    # shipped would skip it, and the Team cascade no longer reaches these tables.
+    _delete_retired_user_interviews_for_teams(team_ids)
 
     with transaction.atomic():
         # nosemgrep: hot-parent-row-select-for-update -- Team deletion must block concurrent child inserts.
