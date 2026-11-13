@@ -59,8 +59,6 @@ def workflows_list_v2_enabled(team: "Team", user: "User") -> bool:
 def creator_files_workflow_rows(
     team_id: int, creator_id: int | None, team_and_creator: Callable[[], tuple["Team", "User | None"]]
 ) -> bool:
-    """Whether a workflow or email template files new tree rows: only when its creator has `workflows-list-v2`.
-    `team_and_creator` loads the related rows, and runs only when no resolved answer is in scope."""
     if creator_id is None:
         return False
     resolved = resolved_workflows_list_v2_answer(team_id, creator_id)

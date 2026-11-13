@@ -1809,13 +1809,22 @@ describe('workflowLogic auto-save', () => {
             type: 'hog_flow',
             ref: WORKFLOW_ID,
         })
+        let storedName: string
+
         beforeEach(async () => {
+            storedName = workflow.name
             useMocks({
                 get: {
                     '/api/environments/:team_id/file_system/': ({ request }) =>
                         new URL(request.url).searchParams.get('ref') === WORKFLOW_ID
-                            ? [200, { results: [treeEntry('Renamed')], count: 1 }]
+                            ? [200, { results: [treeEntry(storedName)], count: 1 }]
                             : [200, { results: [], count: 0 }],
+                },
+                patch: {
+                    '/api/environments/:team_id/hog_flows/:id/': async ({ request }) => {
+                        storedName = ((await request.json()) as { name: string }).name
+                        return [200, { ...workflow, name: storedName }]
+                    },
                 },
             })
             initKeaTests()
