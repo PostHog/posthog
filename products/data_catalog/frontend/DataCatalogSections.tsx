@@ -32,6 +32,9 @@ import { DataCatalogTab, dataCatalogSceneLogic } from './dataCatalogSceneLogic'
 import { CatalogDataQualitySection } from './dataQuality/CatalogDataQualitySection'
 import { CatalogMetricsSection } from './metrics/CatalogMetricsSection'
 import { CatalogRelationshipsSection } from './relationships/CatalogRelationshipsSection'
+import { CatalogSuggestionsBinding } from './suggestions/CatalogSuggestionsBinding'
+import { CatalogSuggestionsCountBadge } from './suggestions/CatalogSuggestionsCountBadge'
+import { CatalogSuggestionsSection } from './suggestions/CatalogSuggestionsSection'
 import { CatalogTablesSection } from './tables/CatalogTablesSection'
 import { WarehouseAccessGate } from './WarehouseAccessGate'
 
@@ -41,6 +44,7 @@ const OVERFLOW_BREAKPOINTS: { showTab: string; hideMoreButton: string }[] = [
     { showTab: 'hidden @lg:flex', hideMoreButton: '@lg:hidden' },
     { showTab: 'hidden @xl:flex', hideMoreButton: '@xl:hidden' },
     { showTab: 'hidden @2xl:flex', hideMoreButton: '@2xl:hidden' },
+    { showTab: 'hidden @3xl:flex', hideMoreButton: '@3xl:hidden' },
 ]
 
 const SECTION_LABELS: Record<DataCatalogTab, string> = {
@@ -52,9 +56,10 @@ const SECTION_LABELS: Record<DataCatalogTab, string> = {
     'data-quality': 'Data quality',
     certifications: 'Certifications',
     usage: 'Usage',
+    suggestions: 'Suggestions',
 }
 
-const WAREHOUSE_SECTIONS: DataCatalogTab[] = ['tables', 'lineage', 'data-quality', 'usage']
+const WAREHOUSE_SECTIONS: DataCatalogTab[] = ['tables', 'lineage', 'data-quality', 'usage', 'suggestions']
 
 const FAILURE_SECTIONS: DataCatalogTab[] = ['overview', 'data-quality']
 
@@ -66,6 +71,7 @@ const SECTION_CONTENT: Partial<Record<DataCatalogTab, () => JSX.Element>> = {
     relationships: CatalogRelationshipsSection,
     'data-quality': CatalogDataQualitySection,
     usage: CatalogUsageSection,
+    suggestions: CatalogSuggestionsSection,
 }
 
 function SectionCount({ tab, count }: { tab: DataCatalogTab; count: number | undefined }): JSX.Element | null {
@@ -114,84 +120,88 @@ export function DataCatalogSections(): JSX.Element {
     }
 
     return (
-        <SceneContent>
-            <SceneTitleSection
-                name="Data catalog"
-                description="Check the health of your tables and views, see how they connect, and manage metrics."
-                resourceType={{ type: 'data_warehouse' }}
-                actions={<SceneActions />}
-            />
-            <Tabs value={activeTab} onValueChange={(tab: DataCatalogTab) => openSection(tab)} data-quill>
-                <div className="@container flex flex-wrap items-center gap-2 border-b border-border">
-                    <TabsList variant="line" aria-label="Data catalog sections">
-                        {VISIBLE_SECTIONS.map((tab) => (
-                            <TabsTrigger key={tab} value={tab} data-attr={`data-catalog-section-${tab}`}>
-                                {SECTION_LABELS[tab]}
-                                <SectionCount tab={tab} count={tabCounts[tab]} />
-                            </TabsTrigger>
-                        ))}
-                        {moreSections.map((tab, index) => (
-                            <TabsTrigger
-                                key={tab}
-                                value={tab}
-                                className={tab === activeTab ? undefined : OVERFLOW_BREAKPOINTS[index]?.showTab}
-                                data-attr={`data-catalog-section-${tab}`}
-                            >
-                                {SECTION_LABELS[tab]}
-                                <SectionCount tab={tab} count={tabCounts[tab]} />
-                            </TabsTrigger>
-                        ))}
-                    </TabsList>
-                    {lastInactiveMoreIndex >= 0 && (
-                        <DropdownMenu>
-                            <DropdownMenuTrigger
-                                render={
-                                    <Button
-                                        variant="default"
-                                        size="sm"
-                                        className={OVERFLOW_BREAKPOINTS[lastInactiveMoreIndex]?.hideMoreButton}
-                                        data-attr="data-catalog-section-more"
-                                    />
-                                }
-                            >
-                                More
-                                <IconChevronDown />
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="start">
-                                {inactiveMoreSections.map((tab) => (
-                                    <DropdownMenuItem
-                                        key={tab}
-                                        onClick={() => openSection(tab)}
-                                        data-attr={`data-catalog-section-${tab}`}
-                                    >
-                                        {SECTION_LABELS[tab]}
-                                        <SectionCount tab={tab} count={tabCounts[tab]} />
-                                    </DropdownMenuItem>
-                                ))}
-                            </DropdownMenuContent>
-                        </DropdownMenu>
-                    )}
-                </div>
-                {availableTabs.map((tab) => {
-                    const Content = SECTION_CONTENT[tab]
-                    if (!Content) {
-                        return null
-                    }
-                    const keepMounted = tab === 'lineage' && lineageVisited
-                    return (
-                        <TabsContent key={tab} value={tab} keepMounted={keepMounted} className="pt-4 pb-8">
-                            {(tab === activeTab || keepMounted) &&
-                                (WAREHOUSE_SECTIONS.includes(tab) ? (
-                                    <WarehouseAccessGate>
+        <CatalogSuggestionsBinding>
+            <SceneContent>
+                <SceneTitleSection
+                    name="Data catalog"
+                    description="Check the health of your tables and views, see how they connect, and manage metrics."
+                    resourceType={{ type: 'data_warehouse' }}
+                    actions={<SceneActions />}
+                />
+                <Tabs value={activeTab} onValueChange={(tab: DataCatalogTab) => openSection(tab)} data-quill>
+                    <div className="@container flex flex-wrap items-center gap-2 border-b border-border">
+                        <TabsList variant="line" aria-label="Data catalog sections">
+                            {VISIBLE_SECTIONS.map((tab) => (
+                                <TabsTrigger key={tab} value={tab} data-attr={`data-catalog-section-${tab}`}>
+                                    {SECTION_LABELS[tab]}
+                                    <SectionCount tab={tab} count={tabCounts[tab]} />
+                                </TabsTrigger>
+                            ))}
+                            {moreSections.map((tab, index) => (
+                                <TabsTrigger
+                                    key={tab}
+                                    value={tab}
+                                    className={tab === activeTab ? undefined : OVERFLOW_BREAKPOINTS[index]?.showTab}
+                                    data-attr={`data-catalog-section-${tab}`}
+                                >
+                                    {SECTION_LABELS[tab]}
+                                    <SectionCount tab={tab} count={tabCounts[tab]} />
+                                    {tab === 'suggestions' && <CatalogSuggestionsCountBadge />}
+                                </TabsTrigger>
+                            ))}
+                        </TabsList>
+                        {lastInactiveMoreIndex >= 0 && (
+                            <DropdownMenu>
+                                <DropdownMenuTrigger
+                                    render={
+                                        <Button
+                                            variant="default"
+                                            size="sm"
+                                            className={OVERFLOW_BREAKPOINTS[lastInactiveMoreIndex]?.hideMoreButton}
+                                            data-attr="data-catalog-section-more"
+                                        />
+                                    }
+                                >
+                                    More
+                                    <IconChevronDown />
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="start">
+                                    {inactiveMoreSections.map((tab) => (
+                                        <DropdownMenuItem
+                                            key={tab}
+                                            onClick={() => openSection(tab)}
+                                            data-attr={`data-catalog-section-${tab}`}
+                                        >
+                                            {SECTION_LABELS[tab]}
+                                            <SectionCount tab={tab} count={tabCounts[tab]} />
+                                            {tab === 'suggestions' && <CatalogSuggestionsCountBadge />}
+                                        </DropdownMenuItem>
+                                    ))}
+                                </DropdownMenuContent>
+                            </DropdownMenu>
+                        )}
+                    </div>
+                    {availableTabs.map((tab) => {
+                        const Content = SECTION_CONTENT[tab]
+                        if (!Content) {
+                            return null
+                        }
+                        const keepMounted = tab === 'lineage' && lineageVisited
+                        return (
+                            <TabsContent key={tab} value={tab} keepMounted={keepMounted} className="pt-4 pb-8">
+                                {(tab === activeTab || keepMounted) &&
+                                    (WAREHOUSE_SECTIONS.includes(tab) ? (
+                                        <WarehouseAccessGate>
+                                            <Content />
+                                        </WarehouseAccessGate>
+                                    ) : (
                                         <Content />
-                                    </WarehouseAccessGate>
-                                ) : (
-                                    <Content />
-                                ))}
-                        </TabsContent>
-                    )
-                })}
-            </Tabs>
-        </SceneContent>
+                                    ))}
+                            </TabsContent>
+                        )
+                    })}
+                </Tabs>
+            </SceneContent>
+        </CatalogSuggestionsBinding>
     )
 }
