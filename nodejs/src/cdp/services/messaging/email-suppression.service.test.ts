@@ -1037,6 +1037,7 @@ describe('EmailSuppressionService', () => {
         }
 
         const countedWhileLocked = async (
+            table: string,
             write: (svc: EmailSuppressionService) => Promise<unknown>
         ): Promise<Record<string, number>> => {
             const impatientUrl = new URL(hub.DATABASE_URL)
@@ -1050,7 +1051,7 @@ describe('EmailSuppressionService', () => {
             const before = await droppedWrites()
             try {
                 await holder.query('BEGIN')
-                await holder.query('LOCK TABLE posthog_messagesuppression, posthog_emailhardbounce IN EXCLUSIVE MODE')
+                await holder.query(`LOCK TABLE ${table} IN EXCLUSIVE MODE`)
 
                 await write(enforcing(impatient))
             } finally {
@@ -1065,56 +1066,54 @@ describe('EmailSuppressionService', () => {
             )
         }
 
-        const REFUSED_WRITES: [string, Record<string, number>, ((email: string) => Promise<void>) | null, Write][] = [
+        const TEAM_LIST = 'posthog_messagesuppression'
+        const GLOBAL_LIST = 'posthog_emailhardbounce'
+
+        const REFUSED_WRITES: [string, string, ((email: string) => Promise<void>) | null, Write][] = [
             [
                 'transient_bounce',
-                { transient_bounce: 1 },
+                TEAM_LIST,
                 null,
                 (svc, email, options) => svc.recordTransientBounces(team.id, [email], undefined, undefined, options),
             ],
             [
                 'hard_bounce',
-                { hard_bounce: 1 },
+                TEAM_LIST,
                 null,
                 (svc, email, options) => svc.recordHardBounces(team.id, [email], undefined, options),
             ],
             [
                 'global_hard_bounce',
-                { global_hard_bounce: 1 },
+                GLOBAL_LIST,
                 null,
                 (svc, email, options) => svc.recordGlobalHardBounces([email], undefined, options),
             ],
             [
                 'complaint',
-                { complaint: 1 },
+                TEAM_LIST,
                 null,
                 (svc, email, options) => svc.recordComplaints(team.id, [email], undefined, options),
             ],
             [
                 'delivery_reset',
-                { delivery_reset: 1 },
+                TEAM_LIST,
                 null,
                 (svc, email, options) => svc.recordDeliveries(team.id, [email], new Date().toISOString(), options),
             ],
             [
                 'global_hard_bounce_clear',
-                { delivery_reset: 1, global_hard_bounce_clear: 1 },
+                GLOBAL_LIST,
                 bounceForAnotherTeam,
                 (svc, email, options) =>
                     svc.recordDeliveries(team.id, [email], new Date().toISOString(), { clearGlobal: true, ...options }),
             ],
             [
                 'global_hard_bounce_copy',
-                { global_hard_bounce_copy: 1 },
+                TEAM_LIST,
                 bounceForAnotherTeam,
                 (svc, email) => svc.isSuppressed(team.id, email),
             ],
-            [
-                'global_hard_bounce_release',
-                { global_hard_bounce_release: 1 },
-                copyThenLapse,
-                (svc, email) => svc.isSuppressed(team.id, email),
-            ],
+            ['global_hard_bounce_release', TEAM_LIST, copyThenLapse, (svc, email) => svc.isSuppressed(team.id, email)],
         ]
 
         it('exports every operation at zero when the service loads', async () => {
@@ -1129,21 +1128,21 @@ describe('EmailSuppressionService', () => {
 
         it.each(REFUSED_WRITES)(
             'counts a dropped %s write and still returns',
-            async (operation, expected, setup, write) => {
+            async (operation, lockedTable, setup, write) => {
                 const email = `refused-${operation}-${team.id}@example.com`
                 await setup?.(email)
 
-                expect(await countedWhileLocked((svc) => write(svc, email))).toEqual(expected)
+                expect(await countedWhileLocked(lockedTable, (svc) => write(svc, email))).toEqual({ [operation]: 1 })
             }
         )
 
         it.each(REFUSED_WRITES.slice(0, 6))(
             'leaves a %s write the caller sees fail uncounted',
-            async (operation, _expected, setup, write) => {
+            async (operation, lockedTable, setup, write) => {
                 const email = `rethrown-${operation}-${team.id}@example.com`
                 await setup?.(email)
 
-                const moved = await countedWhileLocked((svc) =>
+                const moved = await countedWhileLocked(lockedTable, (svc) =>
                     expect(write(svc, email, { throwOnFailure: true })).rejects.toThrow()
                 )
 
