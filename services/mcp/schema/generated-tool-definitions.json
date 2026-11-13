@@ -7042,7 +7042,7 @@
         }
     },
     "external-data-schemas-list": {
-        "description": "List all table schemas across all data warehouse sources. Each schema represents one table linked to an external source. A migrated table with pending_self_managed_table=true and should_sync=false still reads its original bucket. Its first sync imports the table. Read the syncing-migrated-self-managed-tables skill before you turn syncing on. Returns the schema name, sync status, sync frequency, incremental field configuration, last_synced_at, and latest error. Use this to see which tables are actively syncing and their health. To check one table's freshness, pass `search` with the table/schema name to narrow to that schema. Column definitions are omitted here — use external-data-schemas-retrieve for a single schema's columns. When a table stopped syncing, check `incremental_sync_blocked`: it names why the last run could not merge on the table's primary key, and the table is disabled until that is resolved. A retry with nothing changed fails the same way; a later run that succeeds, or fails for another reason, clears it. That field's description lists the resolutions, which are applied with 'external-data-schemas-partial-update'. By default (`compact: true`) each row has only id, name, source_id, should_sync, sync_type, status, last_synced_at and a truncated latest_error; pass `compact: false` for the full sync configuration, including `incremental_sync_blocked`.",
+        "description": "List all table schemas across all data warehouse sources. Each schema represents one table linked to an external source. A migrated table with pending_self_managed_table=true and should_sync=false still reads its original bucket. Its first sync imports the table. Read the syncing-migrated-self-managed-tables skill before you turn syncing on. Returns the schema name, sync status, sync frequency, incremental field configuration, last_synced_at, and latest error. Use this to see which tables are actively syncing and their health. To check one table's freshness, pass `search` with the table/schema name to narrow to that schema. Column definitions are omitted here — use external-data-schemas-retrieve for a single schema's columns. When a table stopped syncing, check `incremental_sync_blocked`: it names why the last run could not merge on the table's primary key, and the table is disabled until that is resolved. A retry with nothing changed fails the same way; a later run that succeeds, or fails for another reason, clears it. That field's description lists the resolutions, which are applied with 'external-data-schemas-partial-update'. By default (`compact: true`) each row has only id, name, source_id, should_sync, sync_type, status, last_synced_at and a truncated latest_error; pass `compact: false` for the full sync configuration, including `incremental_sync_blocked`. `live_query_enabled` marks a table that is queryable live without syncing; synced tables are queryable live too, unless `live_query_unavailable_reason` on the full row says otherwise.",
         "category": "Warehouse sources",
         "feature": "warehouse_sources",
         "summary": "List data warehouse table schemas (imported tables)",
@@ -7102,7 +7102,7 @@
         }
     },
     "external-data-schemas-retrieve": {
-        "description": "Get a single table schema by ID. Returns full details including sync status, sync frequency, incremental field, primary key columns, latest error, `incremental_sync_blocked`, and the associated source and table metadata. Read `incremental_sync_blocked` before diagnosing a table that stopped syncing: it names why the last run could not merge on the primary key, and its description lists the resolutions.",
+        "description": "Get a single table schema by ID. Returns full details including sync status, sync frequency, incremental field, primary key columns, latest error, `incremental_sync_blocked`, and the associated source and table metadata. Read `incremental_sync_blocked` before diagnosing a table that stopped syncing: it names why the last run could not merge on the primary key, and its description lists the resolutions. For live queries, read `live_query_enabled`, `live_query_unavailable_reason`, and `source.direct_query_enabled`, which is true when the source serves live queries.",
         "category": "Warehouse sources",
         "feature": "warehouse_sources",
         "summary": "Get data warehouse table schema",
@@ -9492,8 +9492,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        },
-        "feature_flag": "workflows-push-token-import-mcp"
+        }
     },
     "integrations-users-retrieve": {
         "description": "List the Slack workspace members a Slack integration can send direct messages to. Slack-only — non-Slack integration ids return an error (400 if the integration is otherwise visible, 404 if it isn't). Returns each member's id (e.g. U0123ABC), name (handle without the leading @), and display_name; bots, deactivated accounts, and Slackbot are excluded. Supports `search` (fuzzy match on display name and handle, plus id-contains), `limit`, `offset`, and a `user_id` query parameter for a direct lookup. Results are cached for 1 hour (no force-refresh exposed via MCP). Use this to find member ids when configuring a scout's Slack DM destination — pass them as `output_destinations.slack.users` entries (`member_id|@display-name`) via scout-config-update or scout-create. Requires the Slack integration's id; use integrations-list (filter by kind=slack) to find it.",
@@ -18404,8 +18403,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        },
-        "feature_flag": "workflows-customerio-import"
+        }
     },
     "workflows-import-notes": {
         "description": "What importing a workflow from Customer.io changed or left out, step by step. Returns an empty response for a workflow that was not imported.",
@@ -18420,8 +18418,7 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
-        },
-        "feature_flag": "workflows-customerio-import"
+        }
     },
     "workflows-list": {
         "description": "List all workflows in the project. Returns workflows with their name, description, status (draft/active/archived), version, trigger configuration, tags, and timestamps. Pass search=<text> to find a workflow by its name, description or a tag, or, when none of those match, by a step name or the subject, preheader or body text of an email it sends (live or pending draft), and read its id. Most workflows-* tools take that value as 'id'; workflows-blast-radius, workflows-run-batch and workflows-schedule-create take it as 'workflow_id'. Pass tags='[\"growth\"]' (a JSON-encoded list) to return only workflows that carry at least one of those tags.",

@@ -3262,7 +3262,7 @@ export namespace Schemas {
       optimizeProjections?: boolean | null;
       /** HogQL parser backend; absent → `rust_py_with_cpp_shadow` (rust-py is primary, cpp runs as a sampled shadow). `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip. */
       parserMode?: ParserMode | null;
-      /** Push an `id IN (SELECT person_id FROM <left table> WHERE …)` predicate into the joined persons subquery, so the latest-version lookup only reads persons that the outer query's left-table filters can reach. Applies only to a persons join from the query's own FROM table. */
+      /** Push an `id IN (SELECT person_id FROM <left table> WHERE …)` predicate into the joined persons subquery, so the latest-version lookup only reads persons that the outer query's left-table filters can reach. Applies only to a persons join from the query's own FROM table. Unset, it applies to a persons join from `posthog.flag_evaluations` or from the union of events and flag_evaluations, and to no other join. */
       personIdPushdown?: boolean | null;
       personsArgMaxVersion?: PersonsArgMaxVersion | null;
       personsJoinMode?: PersonsJoinMode | null;
@@ -51834,6 +51834,7 @@ export namespace Schemas {
       readonly id?: string;
       readonly source_type?: string;
       readonly access_method?: string;
+      readonly direct_query_enabled?: boolean;
       readonly supports_column_selection?: boolean;
       readonly supports_row_filters?: boolean;
       readonly requires_exact_column_metadata?: boolean;
@@ -63779,8 +63780,8 @@ export namespace Schemas {
 
     export interface IncrementalFieldRecommendationsRequest {
       /**
-         * Tables from database_schema to get a recommended incremental field for.
-         * @maxItems 128
+         * Tables from database_schema to get a recommended incremental field for. One request is one model call: up to 8 tables with up to 32 candidate fields in total, or a single table of any size.
+         * @maxItems 8
          */
       tables: IncrementalFieldTable[];
     }
@@ -85001,7 +85002,7 @@ export namespace Schemas {
       refresh_interval_seconds: number;
       /** Query time materializing saves in a month, in seconds. */
       saves_seconds_per_month: number;
-      /** Bytes materializing saves from scanning in a month. */
+      /** Bytes materializing saves from scanning in a month. Negative when its refreshes scan more than its reads would. */
       saves_bytes_per_month: number;
       /**
          * How old the view's data can be today, in seconds. Null when its sources are live.
@@ -85036,6 +85037,8 @@ export namespace Schemas {
          * @nullable
          */
       read_seconds?: number | null;
+      /** True when measuring the view's cost hit the time limit. The cost and every saving are then lower bounds. */
+      measurement_capped?: boolean;
     }
 
     export interface WarehouseSuggestionUnmaterializePayload {
@@ -89322,6 +89325,7 @@ export namespace Schemas {
       readonly id?: string;
       readonly source_type?: string;
       readonly access_method?: string;
+      readonly direct_query_enabled?: boolean;
       readonly supports_column_selection?: boolean;
       readonly supports_row_filters?: boolean;
       readonly requires_exact_column_metadata?: boolean;
@@ -113766,9 +113770,9 @@ export namespace Schemas {
       new_work_paused: boolean;
       /** Enabled scouts across this project's environments. */
       enabled_scouts: number;
-      /** Maximum enabled scouts during the trial. */
+      /** Maximum enabled scouts allowed for the project. */
       scout_limit: number;
-      /** On activation, all but the three oldest enabled scouts pause. */
+      /** Number of scouts paused when the trial starts. */
       scouts_to_pause: number;
       /** What happens to new work after the trial.
        *

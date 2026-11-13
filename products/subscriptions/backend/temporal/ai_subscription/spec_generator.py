@@ -1,5 +1,10 @@
 import re
-from collections.abc import Sequence
+import uuid
+import atexit
+import threading
+from collections.abc import Iterator, Sequence
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta, tzinfo
 from typing import Optional, Union
@@ -8,6 +13,8 @@ from django.db.models import BigIntegerField, F, IntegerField, Q
 from django.db.models.functions import Coalesce
 
 import structlog
+import posthoganalytics
+from langchain_core.runnables import RunnableConfig
 from pydantic import ValidationError
 
 from posthog.schema import CachedTeamTaxonomyQueryResponse, SubscriptionAIPromptMaxLength, TeamTaxonomyQuery
@@ -18,11 +25,15 @@ from posthog.hogql.functions import find_hogql_function
 from posthog.hogql.parser import parse_select
 from posthog.hogql.visitor import TraversingVisitor
 
+from posthog import event_usage
+from posthog.cloud_utils import is_cloud
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team, User
 from posthog.models.group_type_mapping import get_group_types_for_project
+from posthog.ph_client import get_client
 from posthog.security.llm_prompt_sanitization import sanitize_core_memory_text, sanitize_user_text
+from posthog.utils import get_instance_region
 
 from products.event_definitions.backend.models import EventDefinition, EventProperty, PropertyDefinition
 from products.posthog_ai.backend.models.assistant import CoreMemory
@@ -45,8 +56,9 @@ from products.subscriptions.backend.temporal.ai_subscription.schemas import (
     RelevantEvents,
 )
 
-from ee.hogai.llm import MaxChatOpenAI
-from ee.hogai.utils.feature_flags import is_core_memory_disabled
+from ee.hogai.core.ai_event_truncation import ai_event_truncator
+from ee.hogai.llm import MaxCallbackHandler, MaxChatOpenAI
+from ee.hogai.utils.feature_flags import is_core_memory_disabled, is_privacy_mode_enabled
 
 logger = structlog.get_logger(__name__)
 
@@ -109,6 +121,73 @@ DEFAULT_PLANNER_MODEL = "gpt-4.1"
 DEFAULT_SYNTHESIS_MODEL = "gpt-4.1"
 _PLANNER_LLM_TIMEOUT_SECONDS = 90.0
 _EVENT_SELECTION_LLM_TIMEOUT_SECONDS = 30.0
+AI_SUBSCRIPTION_AI_PRODUCT = "subscriptions"
+
+_regional_analytics_clients: dict[str, posthoganalytics.Client] = {}
+_regional_analytics_clients_lock = threading.Lock()
+_report_run_session_id: ContextVar[Optional[str]] = ContextVar("ai_subscription_report_run_session_id", default=None)
+
+
+def _ai_subscription_analytics_client() -> Optional[posthoganalytics.Client]:
+    # The default client always captures to the US project, but AI credit billing reads each region's own
+    # internal project, so cloud generations must go to the deployment region's project to be billed.
+    if not is_cloud():
+        return posthoganalytics.default_client
+    region = get_instance_region()
+    if region is None:
+        return None
+    client = _regional_analytics_clients.get(region)
+    if client is None:
+        with _regional_analytics_clients_lock:
+            client = _regional_analytics_clients.get(region)
+            if client is None:
+                client = get_client(region, before_send=ai_event_truncator)
+                if client is None:
+                    return None
+                atexit.register(client.flush)
+                _regional_analytics_clients[region] = client
+    return client
+
+
+@contextmanager
+def ai_subscription_llm_trace() -> Iterator[None]:
+    # Every LLM call made inside this block shares one $ai_session_id, so LLM analytics groups one report
+    # run (event selection, planning, query fixes and synthesis). Each call keeps its own trace ID: AI credit
+    # billing joins generations to $ai_trace rows by trace ID, and each call emits its own $ai_trace.
+    token = _report_run_session_id.set(str(uuid.uuid4()))
+    try:
+        yield
+    finally:
+        _report_run_session_id.reset(token)
+
+
+def ai_subscription_llm_tracing(
+    *, team: Team, user: User, stage: str, trace_correlation_id: Optional[Union[int, str]]
+) -> tuple[dict[str, Union[str, int]], RunnableConfig]:
+    properties: dict[str, Union[str, int]] = {
+        "ai_product": AI_SUBSCRIPTION_AI_PRODUCT,
+        "feature": "ai_subscription",
+        "stage": stage,
+    }
+    if trace_correlation_id is not None:
+        properties["subscription_id"] = trace_correlation_id
+    if (session_id := _report_run_session_id.get()) is not None:
+        properties["$ai_session_id"] = session_id
+    client = _ai_subscription_analytics_client()
+    if client is None:
+        return properties, {}
+    # MaxChatOpenAI only puts these properties in langchain metadata. Without a PostHog callback
+    # handler no $ai_generation event is captured, so the call is neither reported nor billed.
+    handler = MaxCallbackHandler(
+        client,
+        distinct_id=str(user.distinct_id),
+        trace_id=str(uuid.uuid4()),
+        properties={**properties, "team_id": team.id},
+        privacy_mode=is_privacy_mode_enabled(team),
+        # AI credit billing only counts generations whose instance group matches the region URL.
+        groups=event_usage.groups(team=team),
+    )
+    return properties, {"callbacks": [handler]}
 
 
 class StoredPlanInvalidError(Exception):
@@ -517,9 +596,9 @@ def _llm_selected_events(
 ) -> list[str]:
     # The model picks relevant events from the project's vocabulary (vs lexical matching). Any failure
     # degrades to no picks rather than breaking generation — deterministic pins still survive.
-    posthog_properties: dict[str, Union[str, int]] = {"feature": "ai_subscription", "stage": "event_selection"}
-    if trace_correlation_id is not None:
-        posthog_properties["subscription_id"] = trace_correlation_id
+    posthog_properties, llm_config = ai_subscription_llm_tracing(
+        team=team, user=user, stage="event_selection", trace_correlation_id=trace_correlation_id
+    )
     llm = MaxChatOpenAI(
         model=DEFAULT_PLANNER_MODEL,
         timeout=_EVENT_SELECTION_LLM_TIMEOUT_SECONDS,
@@ -535,7 +614,7 @@ def _llm_selected_events(
     )
 
     try:
-        result = llm.invoke([("system", rendered_prompt)])
+        result = llm.invoke([("system", rendered_prompt)], config=llm_config)
     except Exception:
         logger.warning("ai_subscription.event_selection_failed", team_id=team.id, exc_info=True)
         return []
@@ -716,9 +795,9 @@ def generate_query_plan(
 ) -> QueryPlan:
     # `user is None` is enforced at the public entry point (`generate_ai_report`)
     # which is the only caller path into here. Don't repeat the check.
-    posthog_properties: dict[str, Union[str, int]] = {"feature": "ai_subscription", "stage": "plan"}
-    if trace_correlation_id is not None:
-        posthog_properties["subscription_id"] = trace_correlation_id
+    posthog_properties, llm_config = ai_subscription_llm_tracing(
+        team=team, user=user, stage="plan", trace_correlation_id=trace_correlation_id
+    )
     llm = MaxChatOpenAI(
         model=DEFAULT_PLANNER_MODEL,
         timeout=_PLANNER_LLM_TIMEOUT_SECONDS,
@@ -741,7 +820,7 @@ def generate_query_plan(
         },
     )
 
-    result = llm.invoke([("system", rendered_prompt)])
+    result = llm.invoke([("system", rendered_prompt)], config=llm_config)
     if not isinstance(result, QueryPlan):
         raise PromptRejectedError("Planner returned a malformed plan.")
     return result

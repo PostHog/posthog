@@ -26,11 +26,13 @@ import type {
 
 import {
     buildCreateSourcePayload,
+    defaultPollingSyncSettings,
     buildKeaFormDefaultFromSourceDetails,
     getDatabaseSchemaPayload,
     getErrorsForFields,
     isPrefixRequired,
     mergeRestoredSourceFormValues,
+    packRecommendationBatches,
     resolveConnectErrorMessage,
     shouldHydrateSourceFromUrl,
     sourceWizardLogic,
@@ -1973,13 +1975,30 @@ describe('sourceWizardLogic', () => {
             }
         )
 
-        it('asks for recommendations in batches the endpoint accepts', async () => {
+        it.each(['Postgres', 'Supabase'])('uses a model pick of any cursor type on %s', (connectorName) => {
+            const seqNo: IncrementalField = {
+                field: 'seq_no',
+                field_type: 'integer',
+                label: 'seq_no',
+                type: 'integer',
+                recommended: true,
+                picked_by_model: true,
+            }
+            const schema = apiSchema('public.orders', {
+                incremental_fields: [seqNo, { ...createdAt, recommended: false }],
+                primary_key_columns: ['id'],
+            })
+
+            expect(defaultPollingSyncSettings(schema, connectorName).incremental_field).toBe('seq_no')
+        })
+
+        it('asks for every table, one small model call per request', async () => {
             const fields = [
                 { ...createdAt, recommended: true },
                 { ...eventTs, recommended: false },
             ]
             jest.spyOn(api.externalDataSources, 'database_schema').mockResolvedValue(
-                Array.from({ length: 129 }, (_, n) => apiSchema(`public.t${n}`, { incremental_fields: fields }))
+                Array.from({ length: 20 }, (_, n) => apiSchema(`public.t${n}`, { incremental_fields: fields }))
             )
             const recommend = jest
                 .mocked(externalDataSourcesIncrementalFieldRecommendationsCreate)
@@ -1989,10 +2008,33 @@ describe('sourceWizardLogic', () => {
             const { unmount } = await mountAndLoadSchemas(postgresSource)
 
             try {
-                expect(recommend.mock.calls.map(([, body]) => body.tables.length)).toEqual([128, 1])
+                expect(recommend.mock.calls.map(([, body]) => body.tables.length)).toEqual([8, 8, 4])
             } finally {
                 unmount()
             }
+        })
+
+        it.each([
+            { name: 'narrow tables fill a request up to eight', counts: [2, 2, 2, 2, 2, 2, 2, 2, 2], expected: [8, 1] },
+            { name: 'wide tables fill it up to the column limit', counts: [16, 16, 1], expected: [2, 1] },
+            {
+                name: 'a table that would cross the limit starts a new request',
+                counts: [10, 10, 10, 10],
+                expected: [3, 1],
+            },
+        ])('packs recommendation requests: $name', ({ counts, expected }) => {
+            const tables = counts.map((count, n) =>
+                apiSchema(`public.t${n}`, {
+                    incremental_fields: Array.from({ length: count }, (_, i) => ({
+                        ...createdAt,
+                        field: `c${i}`,
+                        label: `c${i}`,
+                        recommended: i === 0,
+                    })),
+                })
+            )
+
+            expect(packRecommendationBatches(tables).map((batch) => batch.length)).toEqual(expected)
         })
 
         it.each([
@@ -2013,18 +2055,13 @@ describe('sourceWizardLogic', () => {
                 { ...eventTs, recommended: false },
             ]
             jest.spyOn(api.externalDataSources, 'database_schema').mockResolvedValue(
-                Array.from({ length: 129 }, (_, n) => apiSchema(`public.t${n}`, { incremental_fields: fields }))
+                Array.from({ length: 40 }, (_, n) => apiSchema(`public.t${n}`, { incremental_fields: fields }))
             )
-            let resolveFirst: (value: RecommendationsResponse) => void = () => {}
+            const pending: ((value: RecommendationsResponse) => void)[] = []
             const recommend = jest
                 .mocked(externalDataSourcesIncrementalFieldRecommendationsCreate)
                 .mockReset()
-                .mockReturnValueOnce(
-                    new Promise((resolve) => {
-                        resolveFirst = resolve
-                    })
-                )
-                .mockResolvedValue({ tables: [] } as unknown as RecommendationsResponse)
+                .mockImplementation(() => new Promise((resolve) => pending.push(resolve)))
             const rejections: unknown[] = []
             const onRejection = (error: unknown): void => {
                 rejections.push(error)
@@ -2040,10 +2077,11 @@ describe('sourceWizardLogic', () => {
                     'loadIncrementalFieldRecommendations',
                 ])
                 interrupt(logic, unmount)
-                resolveFirst({ tables: [] } as unknown as RecommendationsResponse)
+                pending.forEach((resolve) => resolve({ tables: [] } as unknown as RecommendationsResponse))
                 await new Promise((resolve) => setImmediate(resolve))
 
-                expect(recommend).toHaveBeenCalledTimes(1)
+                // Only the requests already in flight went out; 40 tables would need five.
+                expect(recommend).toHaveBeenCalledTimes(3)
                 expect(rejections).toEqual([])
             } finally {
                 process.off('unhandledRejection', onRejection)
@@ -2059,7 +2097,7 @@ describe('sourceWizardLogic', () => {
                 { ...modelPick, recommended: false, picked_by_model: undefined },
             ]
             jest.spyOn(api.externalDataSources, 'database_schema').mockResolvedValue(
-                Array.from({ length: 129 }, (_, n) => apiSchema(`public.t${n}`, { incremental_fields: fields }))
+                Array.from({ length: 9 }, (_, n) => apiSchema(`public.t${n}`, { incremental_fields: fields }))
             )
             let rejectSecond: (error: Error) => void = () => {}
             jest.mocked(externalDataSourcesIncrementalFieldRecommendationsCreate)
@@ -2090,7 +2128,7 @@ describe('sourceWizardLogic', () => {
 
                 await expectLogic(logic, () => rejectSecond(new Error('gateway timeout'))).toFinishAllListeners()
                 expect(field(logic, 'public.t0')).toBe('fecha_actualizacion')
-                expect(field(logic, 'public.t128')).toBe('created_at')
+                expect(field(logic, 'public.t8')).toBe('created_at')
             } finally {
                 unmount()
             }

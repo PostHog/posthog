@@ -2,19 +2,23 @@ import type { Layout } from 'react-grid-layout'
 
 import { pluralize } from 'lib/utils/strings'
 
-import type { DashboardTile } from '~/types'
+import type { DashboardTile, TileGroupDisplay } from '~/types'
 
 import { DashboardGridCompaction, getDashboardGridCompactor } from './dashboardCustomization'
 import {
+    type DashboardSection,
     getCollapsedTileGroupKeys,
     getDashboardSections,
     getDashboardTabs,
     getLayoutAfterSectionChange,
+    getLayoutAfterTileGroupMove,
     getLayoutAfterTileMove,
     getSectionLayouts,
+    getTileGroupMoveDirections,
     getTileGroupMoveOptions,
     hasSectionLayoutChanged,
     stackSectionLayouts,
+    type TileGroupMoveDirection,
 } from './dashboardTileSections'
 import type { DashboardTileGroupApi } from './generated/api.schemas'
 
@@ -52,6 +56,14 @@ interface TileMoveCase {
     emptyGroupKeys?: string[]
     expectedSections: string[]
     expectedTile?: Partial<Layout[number]>
+}
+
+interface TileGroupMoveCase {
+    name: string
+    groupKey: string
+    direction: TileGroupMoveDirection
+    groupDisplay: TileGroupDisplay
+    expected: string[]
 }
 
 interface CollapsedCase {
@@ -148,14 +160,26 @@ describe('dashboardTileSections', () => {
         ).toEqual(expected)
     })
 
-    it('keeps section keys when tiles reorder inside their bands', () => {
-        const tiles = [tile(1), tile(2), tile(3, 'plans'), tile(4), tile(5)]
-        const sectionKeys = (layout: Layout): string[] =>
-            getDashboardSections({ tiles, layout, groups: undefined }).map((section) => section.key)
+    it.each<{ name: string; tiles: DashboardTile[]; before: Layout; after: Layout }>([
+        {
+            name: 'tiles reorder inside their bands',
+            tiles: [tile(1), tile(2), tile(3, 'plans'), tile(4), tile(5)],
+            before: [box(1, 0, 0), box(2, 6, 0), box(3, 0, 2), box(4, 0, 4), box(5, 6, 4)],
+            after: [box(2, 0, 0), box(1, 6, 0), box(3, 0, 2), box(5, 0, 4), box(4, 6, 4)],
+        },
+        {
+            name: 'a group moves past a band',
+            tiles: [tile(1, 'plans'), tile(2), tile(3, 'ops'), tile(4)],
+            before: [box(1, 0, 0), box(2, 0, 2), box(3, 0, 4), box(4, 0, 6)],
+            after: [box(2, 0, 0), box(1, 0, 2), box(3, 0, 4), box(4, 0, 6)],
+        },
+    ])('keeps the keys of the bands outside any group when $name', ({ tiles, before, after }) => {
+        const bandKeys = (layout: Layout): string[] =>
+            getDashboardSections({ tiles, layout, groups: undefined }).flatMap((section) =>
+                section.kind === 'tiles' ? [`${section.key}: ${section.tiles.map((t) => t.id).sort()}`] : []
+            )
 
-        expect(sectionKeys([box(1, 0, 0), box(2, 6, 0), box(3, 0, 2), box(4, 0, 4), box(5, 6, 4)])).toEqual(
-            sectionKeys([box(2, 0, 0), box(1, 6, 0), box(3, 0, 2), box(5, 0, 4), box(4, 6, 4)])
-        )
+        expect(bandKeys(after)).toEqual(bandKeys(before))
     })
 
     it.each([
@@ -344,6 +368,136 @@ describe('dashboardTileSections', () => {
             2: { targets: [plans], canTakeOut: true },
             3: { targets: [plans], canTakeOut: true },
             4: { targets: [plans, ops], canTakeOut: false },
+        })
+    })
+
+    describe('moving a tile group', () => {
+        // Bands: tiles 1 | plans 2,3 | tiles 4 | ops 5 | empty group "new".
+        const tiles = [tile(1), tile(2, 'plans'), tile(3, 'plans'), tile(4), tile(5, 'ops')]
+        const layout = [box(1, 0, 0), box(2, 0, 2), box(3, 6, 2, 6, 3), box(4, 0, 5), box(5, 0, 7)]
+        const bands = getDashboardSections({ tiles, layout, groups: undefined, emptyGroupKeys: ['new'] })
+        const sectionsShown = (groupDisplay: TileGroupDisplay): DashboardSection[] =>
+            groupDisplay === 'tabs' ? getDashboardTabs(bands) : bands
+
+        it.each<TileGroupMoveCase>([
+            {
+                name: 'up past the tiles above it',
+                groupKey: 'plans',
+                direction: 'up',
+                groupDisplay: 'sections',
+                expected: ['plans(): 2,3', 'tiles: 1,4', 'ops(): 5'],
+            },
+            {
+                name: 'down past the tiles below it',
+                groupKey: 'plans',
+                direction: 'down',
+                groupDisplay: 'sections',
+                expected: ['tiles: 1,4', 'plans(): 2,3', 'ops(): 5'],
+            },
+            {
+                name: 'down past the next group in tabs',
+                groupKey: 'plans',
+                direction: 'down',
+                groupDisplay: 'tabs',
+                expected: ['tiles: 1,4', 'ops(): 5', 'plans(): 2,3'],
+            },
+        ])('getLayoutAfterTileGroupMove moves a group $name', ({ groupKey, direction, groupDisplay, expected }) => {
+            const moved = getLayoutAfterTileGroupMove({
+                layout,
+                sections: sectionsShown(groupDisplay),
+                groupKey,
+                direction,
+                groupDisplay,
+                compactor: getDashboardGridCompactor(DashboardGridCompaction.Vertical),
+            })
+
+            expect(moved && sectionSummary(tiles, moved)).toEqual(expected)
+        })
+
+        it.each([
+            {
+                name: 'the band that moves',
+                tiles,
+                layout,
+                direction: 'up' as const,
+                groupDisplay: 'sections' as const,
+                compaction: DashboardGridCompaction.Vertical,
+                expected: [box(2, 0, 0, 6, 2), box(3, 6, 0, 6, 3)],
+            },
+            {
+                // Free placement keeps the rows between tiles 1 and 4 empty in their tab.
+                name: 'the tab of tiles outside any group, when the groups differ in height',
+                tiles: [tile(1), tile(2, 'plans'), tile(4), tile(5, 'ops')],
+                layout: [box(1, 0, 0), box(2, 0, 2), box(4, 0, 4), box(5, 0, 6, 6, 5)],
+                direction: 'down' as const,
+                groupDisplay: 'tabs' as const,
+                compaction: DashboardGridCompaction.Stable,
+                expected: [box(1, 0, 0), box(4, 0, 4)],
+            },
+        ])(
+            'getLayoutAfterTileGroupMove keeps each tile in its place inside $name',
+            ({ tiles, layout, direction, groupDisplay, compaction, expected }) => {
+                const sections = getDashboardSections({ tiles, layout, groups: undefined })
+                const moved = getLayoutAfterTileGroupMove({
+                    layout,
+                    sections: groupDisplay === 'tabs' ? getDashboardTabs(sections) : sections,
+                    groupKey: 'plans',
+                    direction,
+                    groupDisplay,
+                    compactor: getDashboardGridCompactor(compaction),
+                })
+
+                const expectedIds = new Set(expected.map((item) => item.i))
+                expect(moved?.filter((item) => expectedIds.has(item.i))).toMatchObject(expected)
+            }
+        )
+
+        const oneGroup = getDashboardSections({
+            tiles: [tile(1), tile(2, 'plans')],
+            layout: [box(1, 0, 0), box(2, 0, 2)],
+            groups: undefined,
+        })
+
+        it.each<{
+            name: string
+            sections: DashboardSection[]
+            groupDisplay: TileGroupDisplay
+            expected: ReturnType<typeof getTileGroupMoveDirections>
+        }>([
+            {
+                name: 'the ends of the order in sections',
+                sections: bands,
+                groupDisplay: 'sections',
+                expected: {
+                    plans: { canMoveUp: true, canMoveDown: true },
+                    ops: { canMoveUp: true, canMoveDown: false },
+                    new: { canMoveUp: false, canMoveDown: false },
+                },
+            },
+            {
+                name: 'the ends of the order in tabs',
+                sections: getDashboardTabs(bands),
+                groupDisplay: 'tabs',
+                expected: {
+                    plans: { canMoveUp: false, canMoveDown: true },
+                    ops: { canMoveUp: true, canMoveDown: false },
+                    new: { canMoveUp: false, canMoveDown: false },
+                },
+            },
+            {
+                name: 'a lone group in sections, which can still pass the tiles above it',
+                sections: oneGroup,
+                groupDisplay: 'sections',
+                expected: { plans: { canMoveUp: true, canMoveDown: false } },
+            },
+            {
+                name: 'nothing for a lone group in tabs, which has no other group to trade places with',
+                sections: getDashboardTabs(oneGroup),
+                groupDisplay: 'tabs',
+                expected: {},
+            },
+        ])('getTileGroupMoveDirections gives $name', ({ sections, groupDisplay, expected }) => {
+            expect(getTileGroupMoveDirections(sections, groupDisplay)).toEqual(expected)
         })
     })
 })
