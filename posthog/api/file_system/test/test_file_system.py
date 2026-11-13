@@ -894,8 +894,13 @@ class TestFileSystemAPI(APIBaseTest):
         for sql in lookups:
             self.assertIn(""""posthog_filesystem"."path" = 'SomeFolder/File1'""", sql)
 
-    def test_folder_counts_counts_the_files_directly_in_each_folder(self) -> None:
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_folder_counts_counts_the_files_directly_in_each_folder(self, mock_flag: MagicMock) -> None:
         for path, file_type, shortcut in [
+            ("Unfiled", "folder", False),
+            ("Unfiled/Insights", "folder", False),
+            ("Unfiled/Insights/Old signups", "insight", False),
+            ("Unfiled/Notes", "notebook", False),
             ("Reports", "folder", False),
             ("Reports/Overview", "insight", False),
             ("Reports/Notes", "notebook", False),
@@ -932,6 +937,16 @@ class TestFileSystemAPI(APIBaseTest):
                 {"folder": "Reports/Weekly", "count": 1},
             ],
         )
+
+    @patch("posthoganalytics.feature_enabled", return_value=False)
+    def test_folder_counts_is_not_found_without_the_workflows_list(self, mock_flag: MagicMock) -> None:
+        FileSystem.objects.create(
+            team=self.team, path="Reports/Overview", type="insight", depth=2, created_by=self.user
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/file_system/folder_counts/")
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND, response.content)
 
     def test_list_by_parent_and_depth(self):
         """

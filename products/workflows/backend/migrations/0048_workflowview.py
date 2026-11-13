@@ -9,7 +9,7 @@ import posthog.uuidt
 class Migration(migrations.Migration):
     dependencies = [
         ("posthog", "1424_workload_trust_policy"),
-        ("workflows", "0046_hogflow_disabled_from_active"),
+        ("workflows", "0047_hogflowbatchjob_max_audience_size"),
     ]
 
     operations = [

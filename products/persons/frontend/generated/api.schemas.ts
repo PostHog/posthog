@@ -2128,6 +2128,7 @@ export interface ResultCustomizationByValueApi {
     color?: DataColorTokenApi | null
     customColor?: string | null
     hidden?: boolean | null
+    label?: string | null
 }
 
 export interface ResultCustomizationByPositionApi {

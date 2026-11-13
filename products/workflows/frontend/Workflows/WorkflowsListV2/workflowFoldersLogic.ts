@@ -628,6 +628,7 @@ function relevantFolderPaths(
             (entry) =>
                 entry.type === 'folder' &&
                 !entry.shortcut &&
+                entry.path !== 'Unfiled' &&
                 !entry.path.startsWith('Unfiled/') &&
                 !foldersWithFiles.has(entry.path) &&
                 isRelevantEmptyFolder(entry.path)

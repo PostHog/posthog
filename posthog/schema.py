@@ -207,6 +207,7 @@ from posthog.schema_enums import (
     MarketingAnalyticsRecommendationImpactDirection as MarketingAnalyticsRecommendationImpactDirection,
     MarketingAnalyticsRecommendationImpactType as MarketingAnalyticsRecommendationImpactType,
     MarketingAnalyticsRecommendationLevel as MarketingAnalyticsRecommendationLevel,
+    MarketingAnalyticsRecommendationResolutionState as MarketingAnalyticsRecommendationResolutionState,
     MarketingAnalyticsRecommendationRule as MarketingAnalyticsRecommendationRule,
     MarketingAnalyticsRecommendationsDataGapKind as MarketingAnalyticsRecommendationsDataGapKind,
     MarketingAnalyticsRecommendationsSourceType as MarketingAnalyticsRecommendationsSourceType,
@@ -1744,6 +1745,33 @@ class ErrorTrackingIssueImpactToolOutput(BaseModel):
         extra="forbid",
     )
     events: list[str]
+
+
+class ErrorTrackingIssueTag(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: str = Field(..., description="What the tag means, for a tooltip.")
+    key: str = Field(..., description="Key of the tag definition.")
+    label: str = Field(..., description="Short name of the tag.")
+    source: str | None = Field(
+        default=None,
+        description=(
+            "The tagger that applied the tag: `jev` for AI, `manual` for a person."
+            " Issue detail sets it, list results send null."
+        ),
+    )
+
+
+class ErrorTrackingIssueTagFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    applied: bool = Field(
+        ...,
+        description=("True matches the issues the tag is applied to. False matches every other issue."),
+    )
+    key: str = Field(..., description="Key of the tag definition.")
 
 
 class Person(BaseModel):
@@ -3429,6 +3457,7 @@ class ResultCustomizationByValue(BaseModel):
     color: DataColorToken | None = None
     customColor: str | None = None
     hidden: bool | None = None
+    label: str | None = None
 
 
 class RetentionValue(BaseModel):
@@ -7290,6 +7319,23 @@ class MarketingAnalyticsRecommendationIdentity(BaseModel):
         description=(
             "The search term, or the budget id for a budget recommendation. Empty when"
             " the campaign id names the subject."
+        ),
+    )
+
+
+class MarketingAnalyticsRecommendationResolution(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: str = Field(
+        ...,
+        description=("The resolution id. Delete it through the resolutions API to show the recommendation again."),
+    )
+    resolution: MarketingAnalyticsRecommendationResolutionState
+    resolved_at: str = Field(
+        ...,
+        description=(
+            "When someone last dismissed the recommendation or marked it as applied, as an ISO 8601 timestamp."
         ),
     )
 
@@ -19710,6 +19756,13 @@ class ErrorTrackingIssue(BaseModel):
     severity: ErrorTrackingQueryIssueSeverity | None = None
     source: str | None = None
     status: ErrorTrackingIssueStatus
+    tags: list[ErrorTrackingIssueTag] | None = Field(
+        default=None,
+        description=(
+            "The enabled tags that are applied to the issue, on issue list results and"
+            " issue detail. Null or absent when the project has no enabled tag."
+        ),
+    )
 
 
 class ErrorTrackingIssueEventsQueryResponse(BaseModel):
@@ -19843,6 +19896,13 @@ class ErrorTrackingRelationalIssue(BaseModel):
     name: str | None = None
     severity: ErrorTrackingQueryIssueSeverity | None = None
     status: ErrorTrackingIssueStatus
+    tags: list[ErrorTrackingIssueTag] | None = Field(
+        default=None,
+        description=(
+            "The enabled tags that are applied to the issue, on issue list results and"
+            " issue detail. Null or absent when the project has no enabled tag."
+        ),
+    )
 
 
 class ErrorTrackingReleasesQueryResponse(BaseModel):
@@ -22354,6 +22414,13 @@ class MarketingAnalyticsRecommendation(BaseModel):
     )
     level: MarketingAnalyticsRecommendationLevel
     reason: str
+    resolution: MarketingAnalyticsRecommendationResolution | None = Field(
+        default=None,
+        description=(
+            "Set only when the query includes resolved recommendations and someone"
+            " dismissed this one or marked it as applied."
+        ),
+    )
     rule: MarketingAnalyticsRecommendationRule
     steps: list[MarketingAnalyticsRecommendationStep] | None = Field(
         default=None,
@@ -32784,6 +32851,13 @@ class ErrorTrackingCorrelatedIssue(BaseModel):
     population: Population
     severity: ErrorTrackingQueryIssueSeverity | None = None
     status: ErrorTrackingIssueStatus
+    tags: list[ErrorTrackingIssueTag] | None = Field(
+        default=None,
+        description=(
+            "The enabled tags that are applied to the issue, on issue list results and"
+            " issue detail. Null or absent when the project has no enabled tag."
+        ),
+    )
 
 
 class ErrorTrackingFingerprintProjectionQuery(BaseModel):
@@ -34205,6 +34279,13 @@ class MarketingAnalyticsRecommendationsQuery(BaseModel):
         ),
     )
     dateRange: DateRange | None = None
+    includeResolved: bool | None = Field(
+        default=False,
+        description=(
+            "Also return recommendations that someone in the project dismissed or"
+            " marked as applied, with their `resolution`."
+        ),
+    )
     kind: Literal["MarketingAnalyticsRecommendationsQuery"] = "MarketingAnalyticsRecommendationsQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     response: MarketingAnalyticsRecommendationsQueryResponse | None = None
@@ -36924,6 +37005,12 @@ class ErrorTrackingQuery(BaseModel):
     groupKey: str | None = None
     groupTypeIndex: int | None = None
     issueId: str | None = Field(default=None, description="Filter to a specific error tracking issue by ID.")
+    issueTag: ErrorTrackingIssueTagFilter | None = Field(
+        default=None,
+        description=(
+            "Filter by whether one issue tag is applied. Ignored when issue tags or this tag are off for the project."
+        ),
+    )
     kind: Literal["ErrorTrackingQuery"] = "ErrorTrackingQuery"
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")

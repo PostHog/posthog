@@ -26,8 +26,8 @@ import { QuillSuggestionItem } from './QuillSuggestionItem'
 import { suggestedDashboardsLogic } from './suggestedDashboardsLogic'
 
 export function QuillSuggestedDashboardsMenu(): JSX.Element | null {
-    const { suggestions, openingId, newSuggestionCount } = useValues(suggestedDashboardsLogic)
-    const { openSuggestion, menuOpened } = useActions(suggestedDashboardsLogic)
+    const { visibleSuggestions: suggestions, openingId, newSuggestionCount } = useValues(suggestedDashboardsLogic)
+    const { openSuggestion, dismissSuggestion, menuOpened } = useActions(suggestedDashboardsLogic)
     const { user } = useValues(userLogic)
 
     const disabledReason =
@@ -63,6 +63,7 @@ export function QuillSuggestedDashboardsMenu(): JSX.Element | null {
                                 suggestion={suggestion}
                                 openingId={openingId}
                                 openSuggestion={openSuggestion}
+                                dismissSuggestion={dismissSuggestion}
                                 disabledReason={disabledReason}
                             />
                         ))}
