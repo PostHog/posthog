@@ -18,6 +18,7 @@ from products.knowledge_writer.backend.facade.contracts import MergeCheckReport
 from products.knowledge_writer.backend.facade.enums import DocsChangeKind, DocsRequestSource
 from products.knowledge_writer.backend.feature_flags import AGENT_LAUNCH_FLAG, OPEN_PULL_REQUESTS_FLAG
 from products.knowledge_writer.backend.logic import caps, intake
+from products.knowledge_writer.backend.logic.docs_pages import MAX_PAGE_KEY_SEGMENTS, linked_page_paths
 from products.knowledge_writer.backend.logic.launch import WRITER_IDLE_TIMEOUT_SECONDS
 from products.knowledge_writer.backend.logic.pull_requests import (
     COMPARE_FILE_LIMIT,
@@ -892,3 +893,9 @@ def test_two_requests_that_both_saw_the_failed_run_start_one_rerun(team, writer_
 
     assert (first.status, second.status) == ("started", "duplicate")
     assert TaskRun.objects.filter(task_id=started.task_id).count() == 2
+
+
+def test_a_long_slash_token_links_at_most_the_deepest_page_key_suffixes() -> None:
+    assert linked_page_paths("/docs/" + "a/" * 5_000 + "retention") == {
+        "/".join(["a"] * depth + ["retention"]) for depth in range(MAX_PAGE_KEY_SEGMENTS)
+    }

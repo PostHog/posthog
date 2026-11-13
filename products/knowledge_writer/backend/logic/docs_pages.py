@@ -4,6 +4,7 @@ DOCS_SOURCE_EXTENSIONS = (".md", ".mdx")
 INDEX_FILE_STEMS = frozenset({"index", "readme"})
 ROUTE_GROUP_SEGMENT_PATTERN = re.compile(r"^\(.*\)$")
 PAGE_PATH_TOKEN_PATTERN = re.compile(r"[A-Za-z0-9_.\-/]+")
+MAX_PAGE_KEY_SEGMENTS = 10
 
 
 def page_segments(source_path: str) -> list[str]:
@@ -29,7 +30,7 @@ def docs_page_key(path: str, docs_folder: str) -> str | None:
 def linked_page_paths(text: str) -> set[str]:
     linked: set[str] = set()
     for token in PAGE_PATH_TOKEN_PATTERN.findall(text):
-        segments = route_segments(without_docs_extension(token))
+        segments = route_segments(without_docs_extension(token))[-MAX_PAGE_KEY_SEGMENTS:]
         linked.update("/".join(segments[start:]) for start in range(len(segments)))
     return linked
 
