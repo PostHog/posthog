@@ -6,6 +6,7 @@ import {
     loginQuery,
     posthogPath,
     resolveCredentials,
+    workloadExchangeHost,
     type CredentialOptions,
     type Credentials,
 } from '@/posthog/credentials'
@@ -14,7 +15,7 @@ import { parseProjectId } from '@/posthog/ids'
 import { KeySession } from '@/posthog/key-session'
 import { chooseLogin, type LoginQuery } from '@/posthog/login/choose'
 import { canStepUp } from '@/posthog/scope-challenge'
-import { fallbackHost, readSettings, type HogSettings } from '@/posthog/settings'
+import { fallbackHost, readSettings } from '@/posthog/settings'
 
 import type { Mode } from './agent'
 import type { CommandTree } from './command'
@@ -24,6 +25,16 @@ import type { Prompts } from './prompts'
 import type { Runtime } from './runtime'
 import { SKILL_COMMANDS } from './skill-commands'
 import { Telemetry } from './telemetry'
+
+// An invalid HOG_PROJECT_ID, or a posthog.json host a CI job can't use, fails the command once it needs
+// credentials. Until then, picking the catalog host treats it as missing.
+function orUndefined<T>(read: () => T): T | undefined {
+    try {
+        return read()
+    } catch {
+        return undefined
+    }
+}
 
 // What a command's `run` gets besides its own arguments and options. It has no output on
 // purpose: `run` returns data, and the command's `human` and `agent` views print it.
@@ -154,24 +165,20 @@ export class Context {
         if (fromEnv) {
             return fromEnv.key.host
         }
+        const workloadHost = orUndefined(() => workloadExchangeHost(this.runtime, options))
+        if (workloadHost) {
+            return workloadHost
+        }
         const settings = await readSettings(this.runtime).catch(() => undefined)
         // A login is for one path on its origin, and calls go there even when posthog.json names
         // another path on the same origin.
-        const loginHost = settings && this.storedLoginHost(settings, options)
+        const loginHost =
+            settings && orUndefined(() => chooseLogin(settings, loginQuery(this.runtime, options)).record?.host)
         if (loginHost) {
             return loginHost
         }
         // posthog.json comes with the repository, so on its own it only picks a Cloud region.
         return options.host ?? cloudRegion(options.configHost) ?? (settings && fallbackHost(settings))
-    }
-
-    // Undefined when HOG_PROJECT_ID is not a project ID, which fails the command once it needs credentials.
-    private storedLoginHost(settings: HogSettings, options: CredentialOptions): Host | undefined {
-        try {
-            return chooseLogin(settings, loginQuery(this.runtime, options)).record?.host
-        } catch {
-            return undefined
-        }
     }
 
     // The PostHog agent skills, saved in ~/.posthog/skills for when a download fails. Without a home
