@@ -420,6 +420,8 @@ class TestPlatformAlertAPI(APIBaseTest):
                 {"evaluation_periods": 2, "datapoints_to_alarm": 3},
                 "datapoints_to_alarm",
             ),
+            # Metrics alerts allow a longer window than the API publishes for every kind.
+            ("window_past_the_kinds_cap", {"evaluation_periods": 11, "datapoints_to_alarm": 11}, "evaluation_periods"),
             ("source_kind_changed", {"source_kind": "insight"}, "source_kind"),
             ("cooldown_past_the_column", {"cooldown_minutes": 2_147_483_648}, "cooldown_minutes"),
             ("grouping_without_mode", {"grouping": {"keys": ["service_name"]}}, "grouping__mode"),

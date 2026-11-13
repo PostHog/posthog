@@ -127,8 +127,10 @@ DEFAULT_MAX_INSTANCES: Final = 100
 MAX_INSTANCES_CEILING: Final = 100
 # The largest value a Postgres `integer` column holds, which bounds every stored count and duration.
 MAX_STORED_INTEGER: Final = 2_147_483_647
-# The most recent checks an N-of-M decision can look back over.
+# The most recent checks an N-of-M decision can look back over, unless the kind sets its own.
 MAX_EVALUATION_PERIODS: Final = 10
+# The largest window any kind allows. The API publishes it, and each kind enforces its own.
+MAX_SOURCE_EVALUATION_PERIODS: Final = 60
 
 
 @frozen
@@ -1391,6 +1393,8 @@ class SourceConfigSpec:
     # A new kind names its own flag, so it opens on its own schedule while the others stay generally
     # available.
     rollout_flag: str | None = None
+    # The most recent checks an alert of the kind may look back over, up to `MAX_SOURCE_EVALUATION_PERIODS`.
+    max_evaluation_periods: int = MAX_EVALUATION_PERIODS
     # A PostHog feature flag that opens every API action on this kind in place of `platform-alerts`.
     # The source product can then release its alerts on its own flag, while `platform-alerts` keeps
     # the other kinds and the platform's own pages closed.

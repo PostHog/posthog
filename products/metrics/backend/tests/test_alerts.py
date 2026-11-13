@@ -74,10 +74,16 @@ class TestMetricsAlertCreate(APIBaseTest):
         super().setUp()
         self.enterContext(patch("posthoganalytics.feature_enabled", return_value=True))
 
-    def _create(self, source_config: dict[str, object]) -> Any:
+    def _create(self, source_config: dict[str, object], **fields: object) -> Any:
         return self.client.post(
             f"/api/projects/{self.team.id}/platform_alerts/",
-            {"source_kind": "metrics", "name": "Consumer lag", "enabled": True, "source_config": source_config},
+            {
+                "source_kind": "metrics",
+                "name": "Consumer lag",
+                "enabled": True,
+                "source_config": source_config,
+                **fields,
+            },
             format="json",
         )
 
@@ -87,6 +93,18 @@ class TestMetricsAlertCreate(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         assert response.json()["source_kind"] == "metrics"
         assert response.json()["check_interval_minutes"] == 1
+
+    @parameterized.expand([("an_hour", 60, status.HTTP_201_CREATED), ("past_an_hour", 61, status.HTTP_400_BAD_REQUEST)])
+    def test_a_metrics_alert_can_look_back_over_an_hour_of_checks(
+        self, _name: str, periods: int, expected: int
+    ) -> None:
+        response = self._create(
+            {"query": _QUERY, "condition": {"operator": "gt", "threshold": 1000}},
+            evaluation_periods=periods,
+            datapoints_to_alarm=periods,
+        )
+
+        assert response.status_code == expected, response.json()
 
     def test_a_project_without_the_metrics_rollout_flag_cannot_create_one(self) -> None:
         self.enterContext(
