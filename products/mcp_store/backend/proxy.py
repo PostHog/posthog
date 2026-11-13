@@ -11,6 +11,7 @@ import httpx
 import structlog
 
 from posthog.api.streaming import sse_streaming_response
+from posthog.models.utils import OAUTH_ACCESS_TOKEN_PREFIX, PERSONAL_API_KEY_PREFIX
 from posthog.security.pinned_httpx import pinned_client
 from posthog.security.pinned_requests import SSRFBlockedError
 from posthog.security.url_validation import is_url_allowed
@@ -18,6 +19,7 @@ from posthog.settings import SERVER_GATEWAY_INTERFACE
 
 from ee.hogai.utils.asgi import SyncIterableToAsync
 
+from .borrowed_credential import BorrowedCredentialRefused, confine_borrowed_credential
 from .models import MCPAuditEvent, MCPGatewayServer, MCPServerInstallation, MCPServerInstallationTool
 from .oauth import TokenRefreshError, TokenRefreshRejectedError, is_token_expiring, refresh_installation_token
 from .oauth_credentials import oauth_credentials_source_is_allowed
@@ -118,7 +120,23 @@ def send_mcp_request_with_same_origin_redirect(
     return client.send(redirected_request, stream=stream), redirect_url
 
 
-def build_upstream_auth_headers(installation: MCPServerInstallation) -> dict[str, str]:
+def build_upstream_auth_headers(installation: MCPServerInstallation, *, borrowed: bool = False) -> dict[str, str]:
+    """`borrowed` marks a caller other than the credential's owner. A PostHog credential is then narrowed to the
+    installation's project, and BorrowedCredentialRefused is raised when it cannot be."""
+    headers = _owner_auth_headers(installation)
+    if not borrowed or "Authorization" not in headers:
+        return headers
+    confined = confine_borrowed_credential(headers["Authorization"].removeprefix("Bearer "), installation.team_id)
+    if confined is None:
+        return headers
+    return {"Authorization": f"Bearer {confined}"}
+
+
+def is_borrowed_by(installation: MCPServerInstallation, caller: GatewayCaller | None) -> bool:
+    return caller is None or caller.kind != "member" or caller.user_id != installation.user_id
+
+
+def _owner_auth_headers(installation: MCPServerInstallation) -> dict[str, str]:
     if installation.template and not oauth_credentials_source_is_allowed(
         installation.template.oauth_credentials_source, installation.team_id
     ):
@@ -530,14 +548,8 @@ def _write_audit_events(
         logger.exception("Failed to write MCP gateway audit events", installation_id=str(installation.id))
 
 
-_PROXY_OWNED_HEADERS = frozenset(
-    {
-        "x-posthog-mcp-mode",
-        "x-posthog-mcp-store",
-        "x-posthog-project-id",
-        "x-posthog-organization-id",
-    }
-)
+_PROXY_OWNED_HEADERS = frozenset({"x-posthog-mcp-mode", "x-posthog-mcp-store"})
+_BORROWED_PROXY_OWNED_HEADERS = _PROXY_OWNED_HEADERS | {"x-posthog-project-id", "x-posthog-organization-id"}
 
 
 def proxy_mcp_request(
@@ -614,22 +626,29 @@ def proxy_mcp_request(
             status=413,
         )
 
-    auth_headers = build_upstream_auth_headers(installation)
+    borrowed = is_borrowed_by(installation, caller)
+    try:
+        auth_headers = build_upstream_auth_headers(installation, borrowed=borrowed)
+    except BorrowedCredentialRefused as exc:
+        return HttpResponse(json.dumps({"error": str(exc)}), content_type="application/json", status=403)
     headers = {
         "Content-Type": "application/json",
         "Accept": "application/json, text/event-stream",
         **auth_headers,
     }
 
+    owned_headers = _BORROWED_PROXY_OWNED_HEADERS if borrowed else _PROXY_OWNED_HEADERS
     for header_name in request.headers:
-        if header_name.lower().startswith("x-posthog-") and header_name.lower() not in _PROXY_OWNED_HEADERS:
+        if header_name.lower().startswith("x-posthog-") and header_name.lower() not in owned_headers:
             headers[header_name] = request.headers[header_name]
 
     # Store policy must see leaf tools, and shared credentials must not expand nested connectors.
     headers["x-posthog-mcp-mode"] = "tools"
     headers["x-posthog-mcp-store"] = "true"
-    # The credential may belong to another member, so the caller must not pick which project it acts in.
-    headers["x-posthog-project-id"] = str(installation.team_id)
+    if borrowed and auth_headers.get("Authorization", "").startswith(
+        (f"Bearer {OAUTH_ACCESS_TOKEN_PREFIX}", f"Bearer {PERSONAL_API_KEY_PREFIX}")
+    ):
+        headers["x-posthog-project-id"] = str(installation.team_id)
 
     mcp_session_id = request.headers.get("mcp-session-id")
     if mcp_session_id:
