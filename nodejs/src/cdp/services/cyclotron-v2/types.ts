@@ -45,6 +45,15 @@ export const CyclotronV2JobInitSchema = z.object({
 
 export type CyclotronV2JobInit = z.infer<typeof CyclotronV2JobInitSchema>
 
+export type CyclotronV2IdempotentJobInit = {
+    job: CyclotronV2JobInit & { id: string }
+    fingerprint: string
+}
+
+export type CyclotronV2IdempotentOutcome = 'created' | 'replayed' | 'mismatch'
+
+export type CyclotronV2IdempotentClaim = { outcome: CyclotronV2IdempotentOutcome; storedFingerprint?: string }
+
 export const CyclotronV2RescheduleOptionsSchema = z.object({
     scheduledAt: z.date().optional(),
     state: z.instanceof(Buffer).nullish(),
@@ -121,6 +130,7 @@ export type CyclotronV2ManagerConfig = {
     pool: CyclotronV2PoolConfig
     depthLimit?: number
     depthCheckIntervalMs?: number
+    idempotencyKeyLookupTimeoutMs?: number
     // Knobs for rescheduleParkedJobs — see that method for semantics.
     rescheduleFloorSeconds?: number
     rescheduleWakeRatePerSecond?: number

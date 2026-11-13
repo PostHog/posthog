@@ -12,6 +12,10 @@ DEFER_KNOWLEDGE_GAPS_UNTIL_RESOLUTION_PATCH = "defer-knowledge-gaps-until-resolu
 BLOCKER_AWARE_LOOP_PATCH = "blocker-aware-loop-2026-09"
 # Histories without this marker treat blocked_on_customer as findings, not a clarifying question.
 TIERED_CLARIFY_PATCH = "tiered-clarify-2026-09"
+# Histories without this marker retry every knowledge blocker and send an answerable draft
+# that has no clarifying question to findings.
+GROUNDING_AWARE_GATE_PATCH = "grounding-aware-gate-2026-11"
+MAX_THREAT_TYPE_CHARS = 100
 MAX_CLARIFICATION_ROUNDS = 1
 MAX_CLARIFYING_QUESTION_CHARS = 500
 

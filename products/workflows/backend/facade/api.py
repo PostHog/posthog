@@ -239,14 +239,18 @@ def _team_workflows(team_id: int, workflow_ids: Iterable[str] | None) -> QuerySe
 
 
 def get_viewable_workflow_ids(
-    *, team_id: int, user_access_control: UserAccessControl, workflow_ids: Iterable[str] | None = None
+    *,
+    team_id: int,
+    user_access_control: UserAccessControl,
+    workflow_ids: Iterable[str] | None = None,
+    tag_name: str | None = None,
 ) -> set[str]:
     """The ids, as strings, of the team's workflows the reader may view."""
+    workflows = _team_workflows(team_id, workflow_ids)
+    if tag_name is not None:
+        workflows = workflows.filter(tagged_items__tag__name=tag_name)
     return {
-        str(pk)
-        for pk in user_access_control.filter_queryset_by_access_level(
-            _team_workflows(team_id, workflow_ids)
-        ).values_list("id", flat=True)
+        str(pk) for pk in user_access_control.filter_queryset_by_access_level(workflows).values_list("id", flat=True)
     }
 
 
@@ -446,6 +450,7 @@ def create_ses_email_domain(
     mail_from_subdomain: str,
     team_id: int,
     org_team_ids: Iterable[int] | None = None,
+    unverified_claimant_team_ids: Iterable[int] = (),
     keep_existing_mail_from: bool = False,
 ) -> None:
     from products.workflows.backend import providers  # noqa: PLC0415
@@ -455,6 +460,7 @@ def create_ses_email_domain(
         mail_from_subdomain=mail_from_subdomain,
         team_id=team_id,
         org_team_ids=org_team_ids,
+        unverified_claimant_team_ids=unverified_claimant_team_ids,
         keep_existing_mail_from=keep_existing_mail_from,
     )
 
@@ -485,6 +491,38 @@ def get_ses_email_domain_status(domain: str, *, mail_from_subdomain: str, team_i
     return providers.SESProvider().get_email_domain_status(
         domain, mail_from_subdomain=mail_from_subdomain, team_id=team_id
     )
+
+
+def email_domain_check_with_organization_proof(check: EmailDomainCheck, *, domain: str, token: str) -> EmailDomainCheck:
+    """The check, with the record that proves this organization owns a domain another organization also claims."""
+    from products.workflows.backend.services.email_domain_proof import with_organization_proof  # noqa: PLC0415
+
+    return with_organization_proof(check, domain=domain, token=token)
+
+
+def email_domain_organization_proof_published(domain: str, *, token: str) -> bool:
+    from products.workflows.backend.services.email_domain_proof import organization_proof_published  # noqa: PLC0415
+
+    return organization_proof_published(domain, token)
+
+
+def email_domain_organization_proof_record(domain: str, *, token: str) -> EmailDomainDnsRecord:
+    from products.workflows.backend.services.email_domain_proof import organization_proof_record  # noqa: PLC0415
+
+    record = organization_proof_record(domain, token)
+    return {
+        "type": "verification",
+        "recordType": "TXT",
+        "recordHostname": record.hostname,
+        "recordValue": record.value,
+        "status": "pending",
+    }
+
+
+def remove_ses_tenant_associations(domain: str, *, team_ids: Iterable[int]) -> None:
+    from products.workflows.backend import providers  # noqa: PLC0415
+
+    providers.SESProvider().remove_tenant_associations(domain, team_ids=team_ids)
 
 
 def get_maildev_email_domain_status(domain: str, *, mail_from_subdomain: str) -> EmailDomainCheck:

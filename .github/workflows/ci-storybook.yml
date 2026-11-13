@@ -19,9 +19,13 @@ on:
     push:
         branches:
             - master
+    schedule:
+        # Nightly webkit and firefox run against master. It runs before the 04:00 UTC timing
+        # refresh in ci-storybook-update-test-timing.yml, which reads its JUnit artifacts.
+        - cron: '27 2 * * *'
 
 concurrency:
-    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    group: ${{ github.workflow }}-${{ github.event_name == 'schedule' && 'schedule:nightly' || github.head_ref || github.ref }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
@@ -43,9 +47,11 @@ env:
     # on GitHub-hosted runners, which are free for this public repository, so the extra shards
     # cost queue slots rather than money.
     #
-    # WEBKIT_SHARDS stays at 8: those shards run on 2-CPU Depot runners that bill per minute.
+    # WEBKIT_SHARDS and FIREFOX_SHARDS stay at 8: those shards run on 2-CPU Depot runners that
+    # bill per minute, once a night.
     CHROMIUM_SHARDS: 40
     WEBKIT_SHARDS: 8
+    FIREFOX_SHARDS: 8
 
 jobs:
     # Learning mode: nothing reads these outputs, so a recommendation cannot change what runs.
@@ -106,6 +112,7 @@ jobs:
             frontend: >-
                 ${{
                     github.event_name == 'push'
+                    || github.event_name == 'schedule'
                     || (steps.filter.outputs.frontend == 'true'
                         && steps.exclude.outputs.outside_node_product_workspaces == 'true'
                         && fromJSON(steps.filter.outputs.frontend_count || '0')
@@ -145,7 +152,7 @@ jobs:
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
             - uses: ./.github/actions/paths-filter
               id: filter
-              if: github.event_name != 'push' # Run all tests on master push
+              if: github.event_name == 'pull_request' # Master pushes and the nightly run test everything
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
                   filters: |
@@ -217,45 +224,36 @@ jobs:
             # above is inline YAML — paths-filter takes one or the other. The exclude-only
             # filter is true only when some changed file lives OUTSIDE every excluded dir.
             - name: Derive Node-only product workspace exclusions
-              if: github.event_name != 'push'
+              if: github.event_name == 'pull_request'
               run: bin/frontend-exclude-filter > "$RUNNER_TEMP/frontend-exclude.yml"
             - uses: ./.github/actions/paths-filter
               id: exclude
-              if: github.event_name != 'push'
+              if: github.event_name == 'pull_request'
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
                   filters: ${{ runner.temp }}/frontend-exclude.yml
 
             # Build the visual-regression matrix.
-            # WebKit runs wherever a break can still be stopped: on master pushes, and on the
-            # merge-queue run that gates the merge. No story opts into webkit snapshots (see
-            # common/storybook/.storybook/test-runner.ts), so webkit adds render-error coverage
-            # only. That coverage is worth a batched queue run, because a webkit-only break then
-            # fails the queue instead of master. It is not worth every push of every frontend PR,
-            # so author PRs stay chromium-only. Flake verification still renders changed stories in webkit.
+            # Pull requests, merge-queue runs and master pushes run chromium. WebKit and Firefox
+            # run only in the nightly scheduled run. No story opts into snapshots outside chromium
+            # (see common/storybook/.storybook/test-runner.ts), so those browsers add
+            # render-error coverage only, and in the queue webkit failed more often on flakes than
+            # on real breaks. Flake verification still renders a PR's changed stories in webkit
+            # before it merges.
             - name: Build matrix
               id: matrix
-              env:
-                  MERGE_QUEUE: >-
-                      ${{
-                          github.event_name == 'pull_request'
-                          && github.event.pull_request.head.repo.full_name == github.repository
-                          && startsWith(github.head_ref, 'trunk-merge/')
-                      }}
               run: |
                   shards() {
                     jq -cn --arg browser "$1" --argjson count "$2" \
                       '[range(1; $count + 1) | {browser: $browser, shard_count: $count, shard: .}]'
                   }
 
-                  CHROMIUM=$(shards chromium "$CHROMIUM_SHARDS")
-                  if [ "${{ github.event_name }}" = "pull_request" ] && [ "$MERGE_QUEUE" != "true" ]; then
-                    MATRIX=$(jq -cn --argjson c "$CHROMIUM" '{include: $c}')
+                  if [ "${{ github.event_name }}" = "schedule" ]; then
+                    SHARDS=$(jq -cn --argjson w "$(shards webkit "$WEBKIT_SHARDS")" --argjson f "$(shards firefox "$FIREFOX_SHARDS")" '$w + $f')
                   else
-                    WEBKIT=$(shards webkit "$WEBKIT_SHARDS")
-                    MATRIX=$(jq -cn --argjson c "$CHROMIUM" --argjson w "$WEBKIT" '{include: ($c + $w)}')
+                    SHARDS=$(shards chromium "$CHROMIUM_SHARDS")
                   fi
-                  echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
+                  echo "matrix=$(jq -cn --argjson s "$SHARDS" '{include: $s}')" >> "$GITHUB_OUTPUT"
 
     build-storybook:
         name: Build Storybook (depot-ubuntu-24.04)
@@ -625,7 +623,7 @@ jobs:
 
     visual-regression:
         name: Visual regression tests - ${{ matrix.browser }} (${{ matrix.shard }}/${{ matrix.shard_count }})
-        runs-on: ${{ matrix.browser == 'webkit' && 'depot-ubuntu-24.04' || 'ubuntu-24.04' }}
+        runs-on: ${{ matrix.browser == 'chromium' && 'ubuntu-24.04' || 'depot-ubuntu-24.04' }}
         needs: [changes, build-storybook, vr-setup, select-stories]
         # A status function is required because select-stories is skipped on forced-full
         # PRs and master pushes. !cancelled() rather than always() so a superseded run's
@@ -644,8 +642,8 @@ jobs:
             # Shard counts and worker config (maxWorkers in common/storybook/package.json)
             # are tuned for runner CPU — consult #team-devex before changing.
             # PRs may use chromium shards running only affected story files.
-            # Forced-full PRs fall back to changes.outputs.matrix (full chromium),
-            # while master pushes and merge-queue runs add webkit.
+            # Forced-full PRs, merge-queue runs and master pushes fall back to
+            # changes.outputs.matrix (full chromium); the nightly run uses it for webkit and firefox.
             matrix: ${{ fromJson(needs.select-stories.outputs.matrix || needs.changes.outputs.matrix) }}
         env:
             NODE_OPTIONS: --max-old-space-size=16384
@@ -969,7 +967,7 @@ jobs:
             # skips, so nothing uploads and no known flakes are quarantined. TRUNK_QUARANTINE_ENABLED
             # splits the two — it defaults off, so set it to 'true' to let the verdict step below mask
             # known flakes; otherwise any real failure reds the job (quarantining needs upload on too).
-            # chromium and webkit run the same stories, so each browser uploads under its own Trunk
+            # every browser runs the same stories, so each browser uploads under its own Trunk
             # variant — one test id for both browsers would make a browser-specific failure look
             # like a flake.
             - name: Quarantine gate
