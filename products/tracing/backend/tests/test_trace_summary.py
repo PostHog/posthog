@@ -132,6 +132,14 @@ class TestTraceSummary(TestCase):
         serialize = next(e for e in self.summary["top_self_time"] if e["span_id"] == "serialize")
         self.assertEqual(len(serialize["name"]), MAX_NAME_CHARS)
 
+    def test_long_service_names_are_truncated_everywhere(self):
+        spans = _spans(
+            [("root", "", "GET /insights", "web", 0, 100, 0)]
+            + [(f"q{i}", "root", "query", "s" * 5000, 10 * i, 10, 2) for i in range(2)]
+        )
+        summary = summarize_trace(spans)
+        self.assertLess(len(json.dumps(summary)), 3000)
+
     def test_limit_caps_every_list(self):
         summary = summarize_trace(_fixture_spans(), limit=1)
         self.assertEqual(

@@ -50,7 +50,7 @@ def _span_ref(span: dict, *, root_service: str | None = None, with_id: bool = Tr
     ref["name"] = _truncate(span["name"], MAX_NAME_CHARS)
     # Most spans share the root's service; naming it once in `root` saves bytes on every entry.
     if span["service_name"] != root_service:
-        ref["service"] = span["service_name"]
+        ref["service"] = _truncate(span["service_name"], MAX_NAME_CHARS)
     ref["duration_ms"] = _ms(span["duration_nano"])
     ref["self_ms"] = _ms(span.get("self_time_nano", span["duration_nano"]))
     if span["status_code"] == STATUS_ERROR:
@@ -180,7 +180,11 @@ def summarize_trace(spans: list[dict], *, limit: int = DEFAULT_SUMMARY_LIMIT, tr
     services: dict[str, int] = defaultdict(int)
     for span in spans:
         services[span["service_name"]] += 1
-    top_services = dict(sorted(services.items(), key=lambda item: -item[1])[:MAX_SERVICES])
+    # Service names are not length-limited at ingestion, so every place they appear is bounded.
+    top_services = {
+        _truncate(service, MAX_NAME_CHARS): count
+        for service, count in sorted(services.items(), key=lambda item: -item[1])[:MAX_SERVICES]
+    }
 
     by_self_time = sorted(spans, key=lambda s: -s.get("self_time_nano", s["duration_nano"]))[:limit]
 
@@ -193,7 +197,7 @@ def summarize_trace(spans: list[dict], *, limit: int = DEFAULT_SUMMARY_LIMIT, tr
             continue
         group: dict[str, Any] = {"name": _truncate(name, MAX_NAME_CHARS)}
         if service != root["service_name"]:
-            group["service"] = service
+            group["service"] = _truncate(service, MAX_NAME_CHARS)
         group["count"] = len(members)
         group["total_ms"] = _ms(sum(m["duration_nano"] for m in members))
         group["max_ms"] = _ms(max(m["duration_nano"] for m in members))
