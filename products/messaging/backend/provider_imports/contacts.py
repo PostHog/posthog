@@ -1,6 +1,7 @@
 """Contact steps every provider import shares: each list of contacts becomes people and fills a cohort."""
 
 import re
+import json
 from collections.abc import Iterable, Mapping
 from typing import Any
 
@@ -9,8 +10,8 @@ from posthog.dataclasses import frozen
 from products.messaging.backend.provider_imports.base import (
     ImportContext,
     ImportItem,
-    ImportStepError,
     ImportStepSpec,
+    ImportTooLarge,
     SavedPage,
 )
 from products.messaging.backend.provider_imports.emails import exact_email
@@ -84,14 +85,14 @@ class ContactCollector:
             return None
         self._memberships += 1
         if self._memberships > MAX_CONTACT_MEMBERSHIPS:
-            raise ImportStepError(TOO_MANY_CONTACTS_MESSAGE)
+            raise ImportTooLarge(TOO_MANY_CONTACTS_MESSAGE)
         row = self._rows.get(address.lower())
         if row is None:
             row = self._rows[address.lower()] = {"email": address}
             self._bytes += _row_bytes(row)
         self._bytes += _add_properties(row, properties)
         if self._bytes > MAX_CONTACT_BYTES:
-            raise ImportStepError(TOO_MANY_CONTACTS_MESSAGE)
+            raise ImportTooLarge(TOO_MANY_CONTACTS_MESSAGE)
         return row
 
     @property
@@ -102,8 +103,8 @@ class ContactCollector:
 def _add_properties(row: dict[str, str], properties: Mapping[str, Any]) -> int:
     """Adds the properties the row lacks while it stays within the people import's row limit, and returns the bytes
     added."""
-    size = _row_bytes(row)
-    added = 0
+    before = _row_bytes(row)
+    size = before
     for key, value in properties.items():
         name = str(key).strip()
         text = _property_text(value)
@@ -115,22 +116,18 @@ def _add_properties(row: dict[str, str], properties: Mapping[str, Any]) -> int:
             or _loose_name(name) in _IDENTITY_NAMES
         ):
             continue
-        cost = _field_bytes(name, text)
-        if size + cost > MAX_PEOPLE_IMPORT_ROW_BYTES:
-            continue
         row[name] = text
-        size += cost
-        added += cost
-    return added
+        grown = _row_bytes(row)
+        if grown > MAX_PEOPLE_IMPORT_ROW_BYTES:
+            del row[name]
+        else:
+            size = grown
+    return size - before
 
 
 def _row_bytes(row: Mapping[str, str]) -> int:
-    return sum(_field_bytes(name, value) for name, value in row.items())
-
-
-def _field_bytes(name: str, value: str) -> int:
-    # The quotes, colon, comma and space a field adds when the people import writes the row as JSON.
-    return len(name.encode()) + len(value.encode()) + 6
+    # Measured the way the people import measures a row, so an accented value counts the bytes its escapes take.
+    return len(json.dumps(row).encode())
 
 
 def save_contact_lists(context: ImportContext, everyone: ContactList, lists: Iterable[ContactList]) -> SavedPage:
