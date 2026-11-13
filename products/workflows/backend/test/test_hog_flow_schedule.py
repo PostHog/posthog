@@ -757,8 +757,8 @@ class TestProcessDueScheduleTriggers(APIBaseTest):
             ("cdp_api_without_the_batch_route", 404, True),
             ("batch_over_the_insert_size", 400, True),
             ("token_from_another_signing_key", 401, True),
-            ("queue_insert_failed", 500, True),
-            ("gateway_timed_out_after_queueing", 504, False),
+            ("cdp_api_without_its_signing_key", 503, True),
+            ("queue_insert_may_have_committed", 500, False),
             ("last_occurrence_of_the_schedule", 404, True, True),
         ]
     )

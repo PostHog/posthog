@@ -28,8 +28,6 @@ logger = structlog.get_logger(__name__)
 WRITABLE_SCHEDULE_FIELDS = frozenset({"rrule", "starts_at", "timezone", "variables"})
 SCHEDULED_RUNS_PER_DISPATCH = 100
 SCHEDULED_RUN_BYTES_PER_DISPATCH = 4 * 1024 * 1024
-# A gateway can answer these after the CDP API queued the batch, so their runs stay claimed rather than run twice.
-GATEWAY_ERRORS_AFTER_QUEUEING = frozenset({502, 504})
 
 
 @frozen
@@ -172,7 +170,8 @@ class _ScheduledRunDispatch:
             response = create_hog_flow_scheduled_invocations(
                 [{"team_id": run.team_id, "hog_flow_id": run.hog_flow_id, "variables": run.variables} for run in chunk]
             )
-            if not response.ok and response.status_code not in GATEWAY_ERRORS_AFTER_QUEUEING:
+            # These come before anything is queued; a 500 or a gateway timeout can follow a committed insert.
+            if 400 <= response.status_code < 500 or response.status_code == 503:
                 _return_to_due(chunk)
             response.raise_for_status()
             outcomes = list(zip(chunk, [result["status"] for result in response.json()["results"]], strict=True))
@@ -198,12 +197,18 @@ class _ScheduledRunDispatch:
 
 def _return_to_due(chunk: list[ScheduledRun]) -> None:
     for run in chunk:
-        HogFlowSchedule.objects.filter(
+        returned = HogFlowSchedule.objects.filter(
             id=run.schedule_id,
             team_id=run.team_id,
             status=HogFlowScheduleStatus.ACTIVE if run.next_run_at else HogFlowScheduleStatus.COMPLETED,
             next_run_at=run.next_run_at,
         ).update(status=HogFlowScheduleStatus.ACTIVE, next_run_at=run.claimed_run_at, updated_at=timezone.now())
+        if not returned:
+            logger.warning(
+                "A refused scheduled run could not return to due, its schedule moved on",
+                schedule_id=run.schedule_id,
+                claimed_run_at=run.claimed_run_at,
+            )
 
 
 def _scheduled_run(schedule: HogFlowSchedule, hog_flow: HogFlow, claimed_run_at: datetime | None) -> ScheduledRun:
