@@ -182,7 +182,7 @@ Blueshift,api_key region,,,,,blueshift
 Bluesky,actor,,,,,bluesky
 Bluetally,api_key tenant_id,,,,,bluetally
 BolRetailer,client_id client_secret,,,,,bol-retailer
-BoldDesk,,,,,,bolddesk
+BoldDesk,domain api_key,,,,,bolddesk
 BoldSign,api_key region,,,,,bold-sign
 Boulevard,,,,,,boulevard
 Box,,,,,,box
