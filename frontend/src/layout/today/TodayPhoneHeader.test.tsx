@@ -1,9 +1,11 @@
 import { render } from '@testing-library/react'
+import { router } from 'kea-router'
 
 import { initKeaTests } from '~/test/init'
 
 import { TodayPhoneHeader } from './TodayPhoneHeader'
 import { todayShellLogic } from './todayShellLogic'
+import { TodaySidebarFooter } from './TodaySidebarFooter'
 
 describe('TodayPhoneHeader', () => {
     beforeEach(() => {
@@ -13,14 +15,21 @@ describe('TodayPhoneHeader', () => {
     })
 
     test.each([
-        ['home', true],
-        ['analytics', false],
-    ] as const)('on the %s pane, shows the project menu: %s', (pane, projectMenu) => {
-        todayShellLogic.actions.clickRailPane(pane)
+        ['/project/1/home', true],
+        ['/project/1/home/reports/abc', false],
+        ['/project/1/insights', false],
+    ])('on %s, mounts one project menu, in the header: %s', (pathname, inHeader) => {
+        router.actions.push(pathname)
 
-        const { container, unmount } = render(<TodayPhoneHeader />)
+        const { container, unmount } = render(
+            <>
+                <TodayPhoneHeader />
+                <TodaySidebarFooter />
+            </>
+        )
 
-        expect(!!container.querySelector('[data-attr="today-top-bar-project-menu"]')).toBe(projectMenu)
+        expect(container.querySelectorAll('[data-attr="today-top-bar-project-menu"]')).toHaveLength(1)
+        expect(!!container.querySelector('.TodayPhoneHeader [data-attr="today-top-bar-project-menu"]')).toBe(inHeader)
         unmount()
     })
 })

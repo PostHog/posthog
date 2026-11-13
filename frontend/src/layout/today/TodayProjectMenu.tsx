@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconGear, IconPlusSmall } from '@posthog/icons'
+import { IconChevronDown, IconGear, IconPlusSmall } from '@posthog/icons'
 import { Button } from '@posthog/quill'
 
 import { newAccountMenuLogic } from 'lib/components/Account/newAccountMenuLogic'
@@ -30,31 +30,36 @@ function nameBesideLogo(name: string, mediaId: string | null | undefined): strin
 }
 
 /** The project switcher shortcut opens this menu too. */
-export function TodayProjectMenu(): JSX.Element {
+export function TodayProjectMenu({ placement = 'top-bar' }: { placement?: 'top-bar' | 'phone-header' }): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { currentProject } = useValues(projectLogic)
     const { isProjectSwitcherOpen, projectSearchValue, projectGroups } = useValues(newAccountMenuLogic)
     const { openProjectSwitcher, closeProjectSwitcher, setProjectSearchValue } = useActions(newAccountMenuLogic)
     const { projectMenuActions } = useValues(todayProjectMenuLogic)
     const { runProjectMenuAction, switchProject } = useActions(todayProjectMenuLogic)
+    const asTitle = placement === 'phone-header'
 
     return (
         <TodaySwitcherMenu
             trigger={
-                <Button className="min-w-0 gap-1.5 px-1.5" data-attr="today-top-bar-project-menu">
+                <Button
+                    className={asTitle ? 'min-w-0 shrink gap-1.5 px-1.5 text-base font-bold' : 'min-w-0 gap-1.5 px-1.5'}
+                    data-attr="today-top-bar-project-menu"
+                >
                     {currentTeam && (
                         <TodayLogo
                             name={currentTeam.name}
                             mediaId={currentProject?.logo_media_id}
                             colorSeed={null}
-                            size="trigger"
+                            size={asTitle ? 'title' : 'trigger'}
                         />
                     )}
-                    <span className="max-w-48 min-w-0 truncate">
+                    <span className={asTitle ? 'min-w-0 truncate' : 'max-w-48 min-w-0 truncate'}>
                         {currentTeam
                             ? nameBesideLogo(currentTeam.name, currentProject?.logo_media_id)
                             : 'Select project'}
                     </span>
+                    {asTitle && <IconChevronDown className="-ms-1 size-5 shrink-0 text-muted-foreground" />}
                 </Button>
             }
             open={isProjectSwitcherOpen}
