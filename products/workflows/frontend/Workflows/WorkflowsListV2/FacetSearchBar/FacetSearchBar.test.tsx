@@ -51,6 +51,9 @@ function Harness({ initial }: { initial: FacetSearchValue }): JSX.Element {
                 placeholder="Search"
                 dataAttr="test-search"
             />
+            <button type="button" onClick={() => setValue({ filters: [], text: '' })}>
+                Clear filters
+            </button>
             <div data-attr="query">{serializeFacetQuery(value.filters)}</div>
             <div data-attr="text">{value.text}</div>
         </div>
@@ -319,6 +322,17 @@ describe('FacetSearchBar', () => {
         expect(screen.getByRole('combobox')).toHaveAttribute('aria-expanded', 'false')
         expect(screen.getByRole('combobox')).not.toHaveAttribute('aria-controls')
         expect(screen.getByRole('combobox')).not.toHaveAttribute('aria-activedescendant')
+    })
+
+    it('drops a half-typed filter when the parent clears the filters', () => {
+        setup({ filters: [{ facet: 'status', value: 'draft', negated: false }], text: '' })
+        clickInput()
+        typeText('status:arch')
+        fireEvent.click(screen.getByText('Clear filters'))
+        expect(input()).toHaveValue('')
+
+        press('Enter')
+        expect(shown('query')).toEqual('')
     })
 
     it('keeps focus in the input after a pill is removed with the keyboard', () => {
