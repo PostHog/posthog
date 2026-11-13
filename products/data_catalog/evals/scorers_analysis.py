@@ -19,7 +19,6 @@ from products.posthog_ai.eval_harness.scorers import (
     GRADED_ALIGNMENT_CHOICE_SCORES,
     JUDGE_MODEL,
     JudgedScorer,
-    call_order,
     expected_spec,
     parser_for,
 )
@@ -46,16 +45,13 @@ def _call_text(call: ToolCall) -> str:
 
 def _data_calls(parser: LogParser) -> list[ToolCall]:
     """Successful SQL and typed query calls in call order, without information_schema lookups."""
-    return sorted(
-        (
-            call
-            for call in parser.get_tool_calls()
-            if not call.is_error
-            and (call.name == _EXECUTE_SQL or call.name.startswith(_TYPED_QUERY_PREFIX))
-            and not is_schema_discovery_call(call)
-        ),
-        key=call_order,
-    )
+    return [
+        call
+        for call in parser.get_tool_calls()
+        if not call.is_error
+        and (call.name == _EXECUTE_SQL or call.name.startswith(_TYPED_QUERY_PREFIX))
+        and not is_schema_discovery_call(call)
+    ]
 
 
 class EvidenceQueried(Scorer):

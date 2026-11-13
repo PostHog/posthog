@@ -1275,7 +1275,8 @@ Grade how well the agent's process and answer match the expected behavior. Judge
 how the agent found and checked its sources, and the final answer for what it told the user."""
 
 
-_PRESENTATION_TOOLS = frozenset({"show_actions", "task_summary_update"})
+# render-ui shows a chart after the written analysis, so the text before it is still the answer.
+_PRESENTATION_TOOLS = frozenset({"render-ui", "show_actions", "task_summary_update"})
 
 
 def final_answer(output: dict[str, Any] | None) -> str:

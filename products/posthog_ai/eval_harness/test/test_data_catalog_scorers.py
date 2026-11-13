@@ -1043,6 +1043,17 @@ def _answer_log(steps: list[tuple[str, str]]) -> str:
             [],
         ),
         (
+            "note_after_render_ui",
+            [
+                ("tool", "execute-sql"),
+                ("text", "Signups spiked from the campaign."),
+                ("tool", "mcp__posthog__render-ui"),
+                ("text", "The chart above shows the spike."),
+            ],
+            ["Signups spiked from the campaign.", "The chart above shows the spike."],
+            [],
+        ),
+        (
             "narration_before_last_query",
             [
                 ("text", "Checking signups next."),
