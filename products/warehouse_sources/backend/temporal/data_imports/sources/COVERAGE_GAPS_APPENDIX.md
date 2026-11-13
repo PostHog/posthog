@@ -12675,10 +12675,10 @@ Today (7): `audit_logs`, `database_usage`, `databases`, `groups`, `invites`, `in
 
 Diffed against: <https://docs.turso.tech/api-reference/openapi.json>
 
-- [ ] `Database instances (GET /v1/organizations/{organizationSlug}/databases/{databaseName}/instances)` — resolve instance UUIDs in database usage into primary or replica roles, regions, names, and hostnames (high)
-- [ ] `Locations (GET /v1/locations)` — resolve region codes in databases and groups into named geographic locations (high)
-- [ ] `Organization usage (GET /v1/organizations/{organizationSlug}/usage)` — measure billing cycle consumption, including storage and synchronized bytes, across the organization (high)
-- [ ] `Database stats (GET /v1/organizations/{organizationSlug}/databases/{databaseName}/stats)` — find expensive queries using execution counts and rows read or written (high)
+- [x] `Database instances (GET /v1/organizations/{organizationSlug}/databases/{databaseName}/instances)` — resolve instance UUIDs in database usage into primary or replica roles, regions, names, and hostnames (high) → `database_instances` (full refresh, fan-out over `databases`)
+- [x] `Locations (GET /v1/locations)` — resolve region codes in databases and groups into named geographic locations (high) → `locations` (full refresh)
+- [x] `Organization usage (GET /v1/organizations/{organizationSlug}/usage)` — measure billing cycle consumption, including storage and synchronized bytes, across the organization (high) → `organization_usage` (full refresh)
+- [x] `Database stats (GET /v1/organizations/{organizationSlug}/databases/{databaseName}/stats)` — find expensive queries using execution counts and rows read or written (high) → `database_stats` (full refresh, fan-out over `databases`; the API returns rows read and written per query, not execution counts)
 - [ ] `Current subscription (GET /v1/organizations/{organizationSlug}/subscription)` — connect invoices and consumption to the active plan and billing schedule (medium)
 - [ ] `Plans (GET /v1/organizations/{organizationSlug}/plans)` — compare usage against plan quotas to assess capacity and potential upgrades (medium)
 
