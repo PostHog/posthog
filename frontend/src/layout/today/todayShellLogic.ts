@@ -19,10 +19,12 @@ import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { getNavProductPages, navProductHrefForPath } from '~/layout/panel-layout/navbar/tabs/navProductItems'
 import { FileSystemImport } from '~/queries/schema/schema-general'
 
+import { isErrorTrackingIssuePath, monitorProductForPath } from './todayMonitor'
+import { todayMonitorRecentsLogic } from './todayMonitorRecentsLogic'
 import { isPeopleDetailPath, isPeopleListPath } from './todayPeople'
 import { todayPeopleRecentsLogic } from './todayPeopleRecentsLogic'
 
-export type TodayRailPane = 'home' | 'spaces' | 'analytics' | 'people' | 'release' | 'products' | 'settings'
+export type TodayRailPane = 'home' | 'spaces' | 'analytics' | 'monitor' | 'people' | 'release' | 'products' | 'settings'
 
 /** What the shell shows: the page, the pane picked on the rail, and whether its sidebar is open. */
 export interface TodayView {
@@ -60,7 +62,15 @@ export function todayNewChatUrl(effectivePhaiView: PhaiViewMode): string {
     return effectivePhaiView === 'new' ? urls.taskNewSession() : urls.ai()
 }
 
-export const TODAY_RAIL_PANES: TodayRailPane[] = ['home', 'spaces', 'analytics', 'people', 'release', 'products']
+export const TODAY_RAIL_PANES: TodayRailPane[] = [
+    'home',
+    'spaces',
+    'analytics',
+    'monitor',
+    'people',
+    'release',
+    'products',
+]
 
 /** The page a rail pick opens. Without one, a pick only opens the sidebar and the open page stays. */
 const RAIL_PANE_HOMES: Partial<
@@ -69,6 +79,7 @@ const RAIL_PANE_HOMES: Partial<
     home: () => urls.projectHomepage(),
     spaces: todayNewChatUrl,
     analytics: () => urls.analyticsList(),
+    monitor: () => urls.errorTracking(),
     // Not urls.customerAnalytics(): that redirect opens the Accounts page when customer-analytics-csp is on.
     people: (_, featureFlags) =>
         featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS] ? urls.customerAnalyticsDashboard() : urls.persons(),
@@ -133,6 +144,10 @@ export function railPaneForPath(pathname: string): TodayRailPane | null {
     ) {
         return 'analytics'
     }
+    // Without monitor-area, the shell shows these pages under Products, where they were before Monitor.
+    if (monitorProductForPath(path)) {
+        return 'monitor'
+    }
     if (isUnderPath(path, '/settings') || settingsSectionSceneForPath(path)) {
         return 'settings'
     }
@@ -178,12 +193,13 @@ function productsPaneKeepsPath(path: string, routePane: TodayRailPane | null): b
 
 /**
  * Whether an open Analytics pane stays open on this page: a product By PostHog lists, the SQL editor its sidebar links
- * to, or a person, group or cohort, so a drill-in from an insight does not switch the rail. Each of these opens its
- * own pane when Analytics is not showing.
+ * to, a person, group or cohort, or an error tracking issue, so a drill-in from an insight or a replay does not switch
+ * the rail. Each of these opens its own pane when Analytics is not showing.
  */
 function analyticsPaneKeepsPath(path: string, routePane: TodayRailPane | null): boolean {
     return (
         (routePane === 'people' && isPeopleDetailPath(path)) ||
+        isErrorTrackingIssuePath(path) ||
         !!byPostHogItemForPath(path) ||
         isUnderPath(path, urls.sqlEditor())
     )
@@ -401,7 +417,7 @@ export const todayShellLogic = kea<todayShellLogicType>([
             ['mobileLayout'],
         ],
         actions: [router, ['locationChanged']],
-        logic: [todayPeopleRecentsLogic],
+        logic: [todayPeopleRecentsLogic, todayMonitorRecentsLogic],
     })),
     actions({
         rememberSceneUrl: (location: { pathname: string; search: string; hash: string }) => ({ location }),
@@ -486,7 +502,11 @@ export const todayShellLogic = kea<todayShellLogicType>([
                 featureFlags: FeatureFlagsSet
             ): TodayRailPane => {
                 const pane = pickedPane ?? routePane ?? 'home'
-                return pane === 'release' && !featureFlags[FEATURE_FLAGS.RELEASES_AREA] ? 'home' : pane
+                if (pane === 'release' && !featureFlags[FEATURE_FLAGS.RELEASES_AREA]) {
+                    return 'home'
+                }
+                // Without monitor-area, the Products pane still lists the Monitor products.
+                return pane === 'monitor' && !featureFlags[FEATURE_FLAGS.MONITOR_AREA] ? 'products' : pane
             },
         ],
         paneHasSidebar: [(s) => [s.activePane], (activePane: TodayRailPane): boolean => activePane !== 'home'],
@@ -531,7 +551,11 @@ export const todayShellLogic = kea<todayShellLogicType>([
         railPanes: [
             (s) => [s.featureFlags],
             (featureFlags: FeatureFlagsSet): TodayRailPane[] =>
-                TODAY_RAIL_PANES.filter((pane) => pane !== 'release' || !!featureFlags[FEATURE_FLAGS.RELEASES_AREA]),
+                TODAY_RAIL_PANES.filter(
+                    (pane) =>
+                        (pane !== 'release' || !!featureFlags[FEATURE_FLAGS.RELEASES_AREA]) &&
+                        (pane !== 'monitor' || !!featureFlags[FEATURE_FLAGS.MONITOR_AREA])
+                ),
         ],
         // The People pane links every People page and tab, so those pages hide their tabs and name while it is open.
         peoplePaneLinksTabs: [

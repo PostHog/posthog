@@ -1831,6 +1831,7 @@ export const productUrls = {
     legalDocumentNew: (type: 'BAA' | 'DPA'): string => `/legal/new/${type.toLowerCase()}`,
     organizationLegalDocuments: (): string => '/organization/legal',
     logs: (activeTab?: LogsSceneActiveTab): string => (activeTab ? `/logs?activeTab=${activeTab}` : '/logs'),
+    logsSavedView: (shortId: string): string => combineUrl('/logs', { savedView: shortId }).url,
     logsAlertDetail: (id: string, tab?: string): string =>
         tab ? `/logs/alerts/${id}?tab=${tab}` : `/logs/alerts/${id}`,
     logsAlertNotificationDetail: (alertId: string, hogFunctionId: string): string =>

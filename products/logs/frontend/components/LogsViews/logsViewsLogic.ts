@@ -16,7 +16,7 @@ import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsVi
 import { LogsViewApi, LogsViewApiFilters } from 'products/logs/frontend/generated/api.schemas'
 import { DEFAULT_ACTIVE_TAB, logsSceneLogic } from 'products/logs/frontend/logsSceneLogic'
 
-import type { LogsSceneActiveTab } from '../../logsSceneLogic'
+import type { LogsOpenSavedView, LogsSceneActiveTab } from '../../logsSceneLogic'
 import type { LogsViewerFilters } from '../LogsViewer/config/types'
 
 export type LogsView = LogsViewApi
@@ -38,6 +38,9 @@ export interface logsViewsLogicValues {
 export interface logsViewsLogicActions {
     setActiveTab: (activeTab: LogsSceneActiveTab) => {
         activeTab: LogsSceneActiveTab
+    } // logsSceneLogic
+    setOpenSavedView: (view: LogsOpenSavedView | null) => {
+        view: LogsOpenSavedView | null
     } // logsSceneLogic
     setColumns: (columns: LogsColumnConfig[]) => {
         columns: LogsColumnConfig[]
@@ -132,7 +135,7 @@ export const logsViewsLogic = kea<logsViewsLogicType>([
             logsViewerConfigLogic({ id: props.id }),
             ['setColumns'],
             logsSceneLogic(),
-            ['setActiveTab'],
+            ['setActiveTab', 'setOpenSavedView'],
         ],
     })),
 
@@ -194,6 +197,8 @@ export const logsViewsLogic = kea<logsViewsLogicType>([
             actions.setColumns(view.columns ?? DEFAULT_LOGS_COLUMNS)
             actions.setFilters(view.filters || {})
             actions.setActiveTab(DEFAULT_ACTIVE_TAB)
+            // The scene writes the view into the link, so it can be shared, pinned, or listed in Recents.
+            actions.setOpenSavedView(view)
         },
         createViewFailure: () => {
             lemonToast.error('Failed to save view')

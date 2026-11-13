@@ -25,6 +25,12 @@ describe('logsSceneLogic', () => {
 
     beforeEach(async () => {
         useMocks({
+            get: {
+                '/api/projects/:team_id/logs/views/:short_id/': ({ params }) =>
+                    params.short_id === 'abc123'
+                        ? [200, { short_id: 'abc123', name: 'Checkout timeouts', filters: { searchTerm: 'timeout' } }]
+                        : [404, {}],
+            },
             post: {
                 '/api/environments/:team_id/logs/query/': () => [200, { results: [], maxExportableLogs: 5000 }],
                 '/api/environments/:team_id/logs/sparkline/': () => [200, []],
@@ -254,6 +260,30 @@ describe('logsSceneLogic', () => {
 
             expect(logic.values.activeTab).toEqual('viewer')
             expect(router.values.searchParams).not.toHaveProperty('activeTab')
+        })
+    })
+
+    describe('savedView link', () => {
+        it('opens the saved view, keeps it in the link, and drops it when the link no longer names it', async () => {
+            await expectLogic(logic, () => {
+                router.actions.push('/logs', { savedView: 'abc123' })
+            }).toFinishAllListeners()
+
+            expect(logic.values.filters.searchTerm).toEqual('timeout')
+            expect(router.values.searchParams).toHaveProperty('savedView', 'abc123')
+            expect(logic.values.todayMonitorRecent).toEqual({
+                type: 'logs_view',
+                name: 'Checkout timeouts',
+                href: '/logs?savedView=abc123',
+            })
+
+            // The scene ignores URL changes until its own URL write has settled, which takes one macrotask.
+            await new Promise((resolve) => setTimeout(resolve, 0))
+            await expectLogic(logic, () => {
+                router.actions.push('/logs')
+            }).toFinishAllListeners()
+
+            expect(logic.values.todayMonitorRecent).toBeNull()
         })
     })
 

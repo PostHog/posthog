@@ -35,6 +35,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
+import { TODAY_MONITOR_RECENT_KEY, TodayMonitorRecent } from '~/layout/today/todayMonitor'
 import {
     DateRange,
     ErrorTrackingIssue,
@@ -94,6 +95,7 @@ export interface errorTrackingIssueSceneLogicValues {
     linkedReportsLoading: boolean // linkedReportsLogic
     aggregations: ErrorTrackingIssueAggregations | undefined
     breadcrumbs: Breadcrumb[]
+    todayMonitorRecent: TodayMonitorRecent | null
     eventsQuery: EventsQuery
     eventsQueryKey: string
     firstSeen: Dayjs | null
@@ -643,6 +645,7 @@ export interface errorTrackingIssueSceneLogicMeta {
             filterGroup: UniversalFiltersGroup,
             searchQuery: string
         ) => Breadcrumb[]
+        todayMonitorRecent: (issue: ErrorTrackingRelationalIssue | null) => TodayMonitorRecent | null
         sidePanelContext: (id: string) => SidePanelSceneContext
         issueId: (id: string) => string
         issueIdValid: (id: string) => boolean
@@ -988,6 +991,18 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                     },
                 ]
             },
+        ],
+
+        [TODAY_MONITOR_RECENT_KEY]: [
+            (s) => [s.issue],
+            (issue: ErrorTrackingRelationalIssue | null): TodayMonitorRecent | null =>
+                issue
+                    ? {
+                          type: 'error_tracking_issue',
+                          name: issue.name || 'Issue',
+                          href: urls.errorTrackingIssue(issue.id),
+                      }
+                    : null,
         ],
 
         [SIDE_PANEL_CONTEXT_KEY]: [

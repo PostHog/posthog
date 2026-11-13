@@ -33,6 +33,11 @@ const TodayAnalyticsSidebar = lazyWithRetry(() =>
         default: m.TodayAnalyticsSidebar,
     }))
 )
+const TodayMonitorSidebar = lazyWithRetry(() =>
+    import('products/today/frontend/monitor/TodayMonitorSidebar').then((m) => ({
+        default: m.TodayMonitorSidebar,
+    }))
+)
 const TodayPeopleSidebar = lazyWithRetry(() =>
     import('./TodayPeopleSidebar').then((m) => ({ default: m.TodayPeopleSidebar }))
 )
@@ -105,6 +110,10 @@ export function TodayShell({ className }: { className?: string }): JSX.Element {
             ) : activePane === 'analytics' ? (
                 <TodayPreviewCardProvider disabled={phoneLayout}>
                     <TodayAnalyticsSidebar />
+                </TodayPreviewCardProvider>
+            ) : activePane === 'monitor' ? (
+                <TodayPreviewCardProvider disabled={phoneLayout}>
+                    <TodayMonitorSidebar />
                 </TodayPreviewCardProvider>
             ) : activePane === 'people' ? (
                 <TodayPreviewCardProvider disabled={phoneLayout}>

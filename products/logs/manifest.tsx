@@ -87,6 +87,8 @@ export const manifest: ProductManifest = {
     },
     urls: {
         logs: (activeTab?: LogsSceneActiveTab): string => (activeTab ? `/logs?activeTab=${activeTab}` : '/logs'),
+        // pinned: the `savedView` search param, which pins and recents of saved views link with.
+        logsSavedView: (shortId: string): string => combineUrl('/logs', { savedView: shortId }).url,
         logsAlertDetail: (id: string, tab?: string): string =>
             tab ? `/logs/alerts/${id}?tab=${tab}` : `/logs/alerts/${id}`,
         logsAlertNotificationDetail: (alertId: string, hogFunctionId: string): string =>

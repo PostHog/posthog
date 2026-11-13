@@ -54,6 +54,14 @@ describe('todayShellLogic', () => {
         ['/organization/billing/overview', 'settings'],
         ['/organization/legal/new/dpa', 'settings'],
         ['/project/1/exports', 'settings'],
+        ['/project/1/error-tracking', 'monitor'],
+        ['/project/1/error-tracking/0190-issue', 'monitor'],
+        ['/project/1/logs', 'monitor'],
+        ['/project/1/tracing', 'monitor'],
+        ['/project/1/application-observability', 'products'],
+        ['/project/1/ai-observability/traces', 'monitor'],
+        ['/project/1/ai-evals/taggers', 'monitor'],
+        ['/project/1/prompt-management/prompts', 'monitor'],
         ['/project/1/airplane', null],
         ['/project/1/homework', null],
     ])('puts %s under %s', (pathname, pane) => {
@@ -85,6 +93,7 @@ describe('todayShellLogic', () => {
         ['/project/1/persons/0190-uuid', 'analytics'],
         ['/project/1/groups/0/acme', 'analytics'],
         ['/project/1/cohorts/5', 'analytics'],
+        ['/project/1/error-tracking/0190-issue', 'analytics'],
         ['/project/1/persons', 'people'],
         ['/project/1/groups/0', 'people'],
         ['/project/1/cohorts', 'people'],
@@ -163,6 +172,24 @@ describe('todayShellLogic', () => {
         router.actions.push('/project/1/airplane')
         logic.actions.pickPane(pane)
         expect(removeProjectIdIfPresent(router.values.location.pathname)).toBe(pathname)
+        expect(logic.values.activePane).toBe(pane)
+    })
+
+    test.each([
+        [true, 'monitor', ['home', 'spaces', 'analytics', 'monitor', 'people', 'products']],
+        [false, 'products', ['home', 'spaces', 'analytics', 'people', 'products']],
+    ] as const)('with monitor-area %s, Monitor pages show the %s pane', (enabled, pane, railPanes) => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.MONITOR_AREA]: enabled })
+        const logic = todayShellLogic()
+        logic.mount()
+
+        router.actions.push('/project/1/airplane')
+        logic.actions.pickPane('monitor')
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toBe('/error-tracking')
+        expect(logic.values.activePane).toBe(pane)
+        expect(logic.values.railPanes).toEqual(railPanes)
+
+        router.actions.push('/project/1/logs')
         expect(logic.values.activePane).toBe(pane)
     })
 
