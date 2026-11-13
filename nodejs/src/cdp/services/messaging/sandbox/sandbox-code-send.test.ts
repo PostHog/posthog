@@ -748,7 +748,8 @@ describe('a transactional email sent from code on the sandbox sender', () => {
         expect(queued[0].state?.idempotencyKey).toEqual(
             expect.objectContaining({
                 senderKind: 'email_sandbox',
-                fingerprint: { current: expect.any(String), previousShape: expect.any(String) },
+                fingerprint: expect.any(String),
+                currentFingerprint: expect.any(String),
             })
         )
     })

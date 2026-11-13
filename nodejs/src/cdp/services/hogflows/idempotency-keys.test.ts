@@ -109,7 +109,12 @@ describe('IdempotencyKeys', () => {
         await keys.replayUntilDayAfter(
             1,
             'run-1',
-            { hash: IdempotencyKeys.hash(key), fingerprint, senderKind: 'email_sandbox' },
+            {
+                hash: IdempotencyKeys.hash(key),
+                fingerprint: 'request-a-before',
+                currentFingerprint: 'request-a',
+                senderKind: 'email_sandbox',
+            },
             new Date(Date.now() + 30 * 24 * HOUR_MS)
         )
 

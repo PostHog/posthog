@@ -26,7 +26,7 @@ import { createHogFlowInvocation } from './hogflow-executor.service'
 import type { HogFlowManagerService } from './hogflow-manager.service'
 import { checkHogFlowQuotaLimits } from './hogflow-quota-limiting'
 import { TRANSACTIONAL_EMAIL_EVENT } from './hogflow-sensitivity'
-import { FingerprintWithPreviousShape, IdempotencyKeys, SenderKind } from './idempotency-keys'
+import { FingerprintWithPreviousShape, IdempotencyKeys, SenderKind, storedFingerprint } from './idempotency-keys'
 import {
     AcceptedSend,
     TransactionalEmailRequest,
@@ -242,7 +242,7 @@ export class TransactionalSends {
             if (idempotencyKey) {
                 invocation.state.idempotencyKey = {
                     hash: IdempotencyKeys.hash(idempotencyKey),
-                    fingerprint,
+                    ...storedFingerprint(fingerprint),
                     ...(senderKind ? { senderKind } : {}),
                     replayFields: attachmentTotals,
                     ...(scheduledAt && { scheduledAt: scheduledAt.toISOString() }),

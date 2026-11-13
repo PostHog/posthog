@@ -498,7 +498,8 @@ export type MessageOptOutRecord = {
 
 export type QueuedIdempotencyKey = {
     hash: string
-    fingerprint: string | { current: string; previousShape: string }
+    fingerprint: string
+    currentFingerprint?: string
     senderKind?: 'email_sandbox'
     scheduledAt?: string
     replayFields?: Record<string, number>

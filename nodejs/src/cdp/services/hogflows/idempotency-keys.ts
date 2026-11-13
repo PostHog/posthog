@@ -147,7 +147,7 @@ type StoredKey = {
     replayFields?: ReplayFields
 }
 
-const storedFingerprint = (fingerprint: Fingerprint): Pick<StoredKey, 'fingerprint' | 'currentFingerprint'> =>
+export const storedFingerprint = (fingerprint: Fingerprint): Pick<StoredKey, 'fingerprint' | 'currentFingerprint'> =>
     typeof fingerprint === 'string'
         ? { fingerprint }
         : { fingerprint: fingerprint.previousShape, currentFingerprint: fingerprint.current }
@@ -371,7 +371,7 @@ export class IdempotencyKeys {
     async replayUntilDayAfter(
         teamId: number,
         invocationId: string,
-        { hash, fingerprint, senderKind, scheduledAt, replayFields }: QueuedIdempotencyKey,
+        { hash, fingerprint, currentFingerprint, senderKind, scheduledAt, replayFields }: QueuedIdempotencyKey,
         latestDueAt: Date
     ): Promise<boolean> {
         const expiresAt = latestDueAt.getTime() + QUEUED_TTL_SECONDS * 1000
@@ -388,7 +388,8 @@ export class IdempotencyKeys {
                 {
                     redisKey: this.redisKeyOf(teamId, hash),
                     value: {
-                        ...storedFingerprint(fingerprint),
+                        fingerprint,
+                        ...(currentFingerprint && { currentFingerprint }),
                         invocationId,
                         queued: true,
                         ...(senderKind ? { senderKind } : {}),
