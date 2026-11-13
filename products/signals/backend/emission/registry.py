@@ -161,10 +161,13 @@ def get_signal_source_identity(source_type: str, schema_name: str) -> tuple[str,
 def _register_all_emitters() -> None:
     # Tier-3 feedback / reviews
     from products.signals.backend.emission.aha_ideas import AHA_CONFIG
-    from products.signals.backend.emission.ahrefs_site_audit_issues import AHREFS_SITE_AUDIT_ISSUES_CONFIG
+    from products.signals.backend.emission.airbrake_groups import AIRBRAKE_CONFIG
+    from products.signals.backend.emission.amazon_cloudwatch_alarm_history import AMAZON_CLOUDWATCH_ALARM_HISTORY_CONFIG
     from products.signals.backend.emission.appfigures_reviews import APPFIGURES_CONFIG
     from products.signals.backend.emission.appfollow_reviews import APPFOLLOW_CONFIG
+    from products.signals.backend.emission.appsignal_anomaly_incidents import APPSIGNAL_ANOMALY_CONFIG
     from products.signals.backend.emission.appsignal_exception_incidents import APPSIGNAL_CONFIG
+    from products.signals.backend.emission.appsignal_performance_incidents import APPSIGNAL_PERFORMANCE_CONFIG
     from products.signals.backend.emission.asana_tasks import ASANA_CONFIG
     from products.signals.backend.emission.asknicely_responses import ASKNICELY_CONFIG
     from products.signals.backend.emission.aws_guardduty_findings import AWS_GUARDDUTY_CONFIG
@@ -177,9 +180,6 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.bettermode_posts import BETTERMODE_CONFIG
     from products.signals.backend.emission.betterstack_incidents import BETTERSTACK_CONFIG
     from products.signals.backend.emission.bigeye_issues import BIGEYE_CONFIG
-    from products.signals.backend.emission.bing_webmaster_tools_crawl_issues import (
-        BING_WEBMASTER_TOOLS_CRAWL_ISSUES_CONFIG,
-    )
     from products.signals.backend.emission.bugherd_tasks import BUGHERD_CONFIG
     from products.signals.backend.emission.bugsnag_errors import BUGSNAG_CONFIG
     from products.signals.backend.emission.canny_posts import CANNY_CONFIG
@@ -236,12 +236,19 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.lacework_alerts import LACEWORK_CONFIG
     from products.signals.backend.emission.langsmith_feedback import LANGSMITH_CONFIG
     from products.signals.backend.emission.linear_issues import LINEAR_ISSUES_CONFIG
+    from products.signals.backend.emission.logicmonitor_alerts import LOGICMONITOR_ALERTS_CONFIG
     from products.signals.backend.emission.microsoft_defender_cloud_apps_alerts import (
         MICROSOFT_DEFENDER_CLOUD_APPS_CONFIG,
     )
     from products.signals.backend.emission.mintlify_feedback import MINTLIFY_CONFIG
     from products.signals.backend.emission.monday_items import MONDAY_CONFIG
     from products.signals.backend.emission.monte_carlo_alerts import MONTE_CARLO_CONFIG
+    from products.signals.backend.emission.mux_errors import MUX_ERRORS_CONFIG
+    from products.signals.backend.emission.newrelic_alert_issues import NEWRELIC_ALERT_ISSUES_CONFIG
+    from products.signals.backend.emission.newrelic_errors import (
+        NEWRELIC_JAVASCRIPT_ERRORS_CONFIG,
+        NEWRELIC_TRANSACTION_ERRORS_CONFIG,
+    )
     from products.signals.backend.emission.okendo_reviews import OKENDO_CONFIG
     from products.signals.backend.emission.opsgenie_alerts import OPSGENIE_CONFIG
     from products.signals.backend.emission.orca_security_alerts import ORCA_SECURITY_CONFIG
@@ -260,9 +267,6 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.roark_issues import ROARK_CONFIG
     from products.signals.backend.emission.rollbar_items import ROLLBAR_CONFIG
     from products.signals.backend.emission.semgrep_sast_findings import SEMGREP_CONFIG
-    from products.signals.backend.emission.semrush_site_audit_issue_details import (
-        SEMRUSH_SITE_AUDIT_ISSUE_DETAILS_CONFIG,
-    )
     from products.signals.backend.emission.sentry_issues import SENTRY_CONFIG
     from products.signals.backend.emission.servicenow_incidents import SERVICENOW_CONFIG
     from products.signals.backend.emission.shortcut_stories import SHORTCUT_CONFIG
@@ -368,14 +372,6 @@ def _register_all_emitters() -> None:
     register_signal_source(
         ExternalDataSourceType.GOOGLESEARCHCONSOLE, "search_analytics_by_query_page", GOOGLE_SEARCH_CONSOLE_CONFIG
     )
-    # SEO site audits (record kind: search_opportunity)
-    register_signal_source(
-        ExternalDataSourceType.BINGWEBMASTERTOOLS, "crawl_issues", BING_WEBMASTER_TOOLS_CRAWL_ISSUES_CONFIG
-    )
-    register_signal_source(ExternalDataSourceType.AHREFS, "site_audit_issues", AHREFS_SITE_AUDIT_ISSUES_CONFIG)
-    register_signal_source(
-        ExternalDataSourceType.SEMRUSH, "site_audit_issue_details", SEMRUSH_SITE_AUDIT_ISSUE_DETAILS_CONFIG
-    )
     # Incident management / on-call (record kind: incident)
     register_signal_source(ExternalDataSourceType.PAGERDUTY, "incidents", PAGERDUTY_CONFIG)
     register_signal_source(ExternalDataSourceType.OPSGENIE, "alerts", OPSGENIE_CONFIG)
@@ -457,6 +453,19 @@ def _register_all_emitters() -> None:
     register_signal_source(ExternalDataSourceType.AZUREAPPLICATIONINSIGHTS, "exceptions", AZURE_EXCEPTIONS_CONFIG)
     register_signal_source(ExternalDataSourceType.APPSIGNAL, "exception_incidents", APPSIGNAL_CONFIG)
     register_signal_source(ExternalDataSourceType.CURSOR, "bugbot_reviews", CURSOR_CONFIG)
+    # Monitoring alerts and error tracking. New Relic and AppSignal keep one record kind per product,
+    # so one inbox toggle covers every table of the product.
+    register_signal_source(ExternalDataSourceType.NEWRELIC, "alert_issues", NEWRELIC_ALERT_ISSUES_CONFIG)
+    register_signal_source(ExternalDataSourceType.NEWRELIC, "javascript_errors", NEWRELIC_JAVASCRIPT_ERRORS_CONFIG)
+    register_signal_source(ExternalDataSourceType.NEWRELIC, "transaction_errors", NEWRELIC_TRANSACTION_ERRORS_CONFIG)
+    register_signal_source(ExternalDataSourceType.APPSIGNAL, "performance_incidents", APPSIGNAL_PERFORMANCE_CONFIG)
+    register_signal_source(ExternalDataSourceType.APPSIGNAL, "anomaly_incidents", APPSIGNAL_ANOMALY_CONFIG)
+    register_signal_source(
+        ExternalDataSourceType.AMAZONCLOUDWATCH, "alarm_history", AMAZON_CLOUDWATCH_ALARM_HISTORY_CONFIG
+    )
+    register_signal_source(ExternalDataSourceType.LOGICMONITOR, "alerts", LOGICMONITOR_ALERTS_CONFIG)
+    register_signal_source(ExternalDataSourceType.AIRBRAKE, "groups", AIRBRAKE_CONFIG)
+    register_signal_source(ExternalDataSourceType.MUX, "errors", MUX_ERRORS_CONFIG)
 
 
 _register_all_emitters()
