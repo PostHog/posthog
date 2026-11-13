@@ -38,7 +38,7 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceKind,
     UnknownPlatformAlertGroup,
 )
-from products.alerts_platform.backend.facade.enums import PlatformAlertOwner, PlatformAlertState
+from products.alerts_platform.backend.facade.enums import PlatformAlertKind, PlatformAlertOwner, PlatformAlertState
 from products.alerts_platform.backend.facade.scheduling import validate_and_normalize_schedule_restriction
 from products.alerts_platform.backend.logic import (
     control_plane,
@@ -75,8 +75,9 @@ def _validated(
     edit: PlatformAlertConfigurationEdit,
     *,
     team_id: int,
+    alert_kind: PlatformAlertKind | str = PlatformAlertKind.THRESHOLD,
 ) -> PlatformAlertConfigurationEdit:
-    spec = source_configs.spec(source_kind)
+    spec = source_configs.spec(source_kind, alert_kind)
     if spec is None:
         raise PlatformAlertNotEditable(f"{source_kind} alerts cannot be edited through this API.")
     for name, value in (
@@ -141,16 +142,23 @@ def _admit(
     current: PlatformAlertConfigurationEdit | None,
     edit: PlatformAlertConfigurationEdit,
     check_interval_minutes: int | None,
+    alert_kind: PlatformAlertKind | str = PlatformAlertKind.THRESHOLD,
 ) -> None:
     """Runs the source's admission for a write, in the caller's transaction."""
-    spec = source_configs.spec(source_kind)
+    spec = source_configs.spec(source_kind, alert_kind)
     if spec is None:
         return
     cap = spec.native.max_per_team if spec.native is not None and current is None else None
     if spec.admit is None and cap is None:
         return
     hold_cap_lock(team_id, source_kind)
-    if cap is not None and platform_reads.count_configurations(team_id=team_id, source_kind=source_kind.value) >= cap:
+    if (
+        cap is not None
+        and platform_reads.count_configurations(
+            team_id=team_id, source_kind=source_kind.value, alert_kind=PlatformAlertKind(alert_kind)
+        )
+        >= cap
+    ):
         raise PlatformAlertCreateRefused(
             f"This project has reached the limit of {cap} alerts of this type. Delete one to add another."
         )
@@ -185,10 +193,10 @@ def update_configuration(
         id=configuration_id, source_kind__in=list(source_kinds)
     )
     with transaction.atomic():
-        found = readable.values_list("source_kind", "legacy_configuration_id").first()
+        found = readable.values_list("source_kind", "legacy_configuration_id", "alert_kind").first()
         if found is None:
             return None
-        source_kind, legacy_configuration_id = found
+        source_kind, legacy_configuration_id, alert_kind = found
         if snooze_changed and legacy_configuration_id is not None:
             # The source row keeps the snooze too, and no mirror carries one, so the two would disagree.
             raise InvalidPlatformAlertEdit("snooze_until", f"Snooze this alert in the {source_kind} product.")
@@ -197,7 +205,7 @@ def update_configuration(
             raise InvalidPlatformAlertEdit(
                 "check_interval_minutes", f"Schedule this alert in the {source_kind} product."
             )
-        spec = source_configs.spec(SourceKind(source_kind))
+        spec = source_configs.spec(SourceKind(source_kind), alert_kind)
         mirror = spec.mirror if spec is not None else None
         write_source = (
             mirror(team_id=team_id, legacy_configuration_id=legacy_configuration_id)
@@ -258,6 +266,7 @@ def create_configuration(
     source_kind: SourceKind,
     edit: PlatformAlertConfigurationEdit,
     created_by_id: int | None,
+    alert_kind: PlatformAlertKind = PlatformAlertKind.THRESHOLD,
     natively: bool | None = None,
 ) -> PlatformAlertConfigurationView:
     """Creates an alert the platform owns: itself for a native kind, and otherwise through the hook
@@ -266,10 +275,10 @@ def create_configuration(
     Raises `PlatformAlertNotEditable` for a kind the API cannot create, `InvalidPlatformAlertEdit` for
     settings its source kind rejects, and `PlatformAlertCreateRefused` when the source refuses.
     """
-    spec = source_configs.spec(source_kind)
+    spec = source_configs.spec(source_kind, alert_kind)
     if spec is None or not spec.creatable:
-        raise PlatformAlertNotEditable(f"{source_kind} alerts cannot be created through this API.")
-    validated = _validated(source_kind, None, edit, team_id=team_id)
+        raise PlatformAlertNotEditable(f"{source_kind} {alert_kind} alerts cannot be created through this API.")
+    validated = _validated(source_kind, None, edit, team_id=team_id, alert_kind=alert_kind)
     if spec.native is not None and (spec.creates_natively(team_id) if natively is None else natively):
         check_interval_minutes = _native_check_interval(spec.native, validated)
         recurrence_unit = (spec.native.check_intervals or {}).get(check_interval_minutes)
@@ -278,6 +287,7 @@ def create_configuration(
                 team_id=team_id,
                 source_kind=source_kind,
                 current=None,
+                alert_kind=alert_kind,
                 edit=validated,
                 check_interval_minutes=check_interval_minutes,
             )
@@ -292,6 +302,7 @@ def create_configuration(
                 else PlatformAlertOwner.SOURCE,
                 created_by_id=created_by_id,
                 now=django_timezone.now(),
+                alert_kind=alert_kind,
             )
     else:
         if spec.create is None:
@@ -489,15 +500,15 @@ def delete_configuration(*, team_id: int, source_kinds: Sequence[str], configura
     found = (
         PlatformAlertConfiguration.objects.for_team(team_id, canonical=True)
         .filter(id=configuration_id, source_kind__in=list(source_kinds))
-        .values_list("source_kind", "legacy_configuration_id", "owner")
+        .values_list("source_kind", "legacy_configuration_id", "owner", "alert_kind")
         .first()
     )
     if found is None:
         return False
-    source_kind, legacy_configuration_id, owner = found
+    source_kind, legacy_configuration_id, owner, alert_kind = found
     if owner != PlatformAlertOwner.PLATFORM:
         raise PlatformAlertNotEditable(f"This alert is managed by the {source_kind} product. Delete it there.")
-    spec = source_configs.spec(SourceKind(source_kind))
+    spec = source_configs.spec(SourceKind(source_kind), alert_kind)
     if spec is not None and spec.native is not None and legacy_configuration_id is None:
         delete_owned_configuration(team_id=team_id, configuration_id=configuration_id)
     elif spec is not None and spec.delete is not None and legacy_configuration_id is not None:
@@ -551,7 +562,7 @@ def _remove_owned_destinations(team_id: int, locked: Sequence[PlatformAlertConfi
     """
     owned = [configuration for configuration in locked if configuration.owner == PlatformAlertOwner.PLATFORM]
     for configuration in owned:
-        spec = source_configs.spec(SourceKind(configuration.source_kind))
+        spec = source_configs.spec(SourceKind(configuration.source_kind), configuration.alert_kind)
         remove = None if spec is None or spec.native is None else spec.native.remove_destinations
         if remove is not None:
             remove(team_id=team_id, alert_id=configuration.destination_alert_id)
@@ -741,7 +752,7 @@ def _record_change(
     snooze_until: datetime | None,
     now: datetime,
 ) -> None:
-    spec = source_configs.spec(SourceKind(configuration.source_kind))
+    spec = source_configs.spec(SourceKind(configuration.source_kind), configuration.alert_kind)
     kept = spec.kept_source_config_keys if spec is not None else frozenset()
     # Compared as `_apply` compares them for `ending_reason`, so a row and an ended firing agree.
     kind = control_plane.change_kind(
@@ -786,11 +797,15 @@ def _apply(
             f"This alert is managed by the {configuration.source_kind} product. Edit it there."
         )
     source_kind = SourceKind(configuration.source_kind)
-    spec = source_configs.spec(source_kind)
+    spec = source_configs.spec(source_kind, configuration.alert_kind)
     kept = spec.kept_source_config_keys if spec is not None else frozenset()
     current = edit_of(configuration)
     edit = _validated(
-        source_kind, current, _with_kept_keys(change(current), current, kept), team_id=configuration.team_id
+        source_kind,
+        current,
+        _with_kept_keys(change(current), current, kept),
+        team_id=configuration.team_id,
+        alert_kind=configuration.alert_kind,
     )
     if guard is not None:
         guard(
@@ -803,6 +818,7 @@ def _apply(
         _admit(
             team_id=configuration.team_id,
             source_kind=source_kind,
+            alert_kind=configuration.alert_kind,
             current=current,
             edit=edit,
             check_interval_minutes=interval,

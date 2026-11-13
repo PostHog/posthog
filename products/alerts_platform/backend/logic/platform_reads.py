@@ -39,6 +39,7 @@ from products.alerts_platform.backend.facade.contracts import (
 )
 from products.alerts_platform.backend.facade.enums import (
     PlatformAlertCheckStatus,
+    PlatformAlertKind,
     PlatformAlertOwner,
     PlatformAlertState,
 )
@@ -77,6 +78,7 @@ def _configuration_view(configuration: PlatformAlertConfiguration) -> PlatformAl
         name=configuration.name,
         enabled=configuration.enabled,
         source_kind=configuration.source_kind,
+        alert_kind=configuration.alert_kind,
         source_config=configuration.source_config,
         check_interval_minutes=configuration.check_interval_minutes,
         recurrence_unit=configuration.recurrence_unit,
@@ -176,10 +178,12 @@ def owned_copies_by_legacy_id(
 def native_configuration_keys(
     *, team_id: int, source_kind: str, created_by_uuid: UUID | None = None
 ) -> tuple[tuple[datetime, UUID], ...]:
-    """`(created_at, id)` of every configuration of a kind with no source row, newest first, without
-    loading the rest of each row. With `created_by_uuid`, only the ones that user created."""
+    """`(created_at, id)` of every threshold configuration of a kind with no source row, newest first,
+    without loading the rest of each row. With `created_by_uuid`, only the ones that user created.
+
+    A source's own API reads these as its alerts, and an appearance alert has no shape there."""
     rows = PlatformAlertConfiguration.objects.for_team(team_id, canonical=True).filter(
-        source_kind=source_kind, legacy_configuration_id__isnull=True
+        source_kind=source_kind, legacy_configuration_id__isnull=True, alert_kind=PlatformAlertKind.THRESHOLD
     )
     if created_by_uuid is not None:
         rows = rows.filter(created_by__uuid=created_by_uuid)
@@ -231,10 +235,10 @@ def owned_copies(
 def native_configuration_matches(
     *, team_id: int, source_kind: str, search: str | None = None
 ) -> tuple[NativeConfigurationMatch, ...]:
-    """Every configuration of a kind with no source row, or with `search` only the ones whose name
-    matches it, both tiers included. A source decides the tiers across its own rows and these."""
+    """Every threshold configuration of a kind with no source row, or with `search` only the ones whose
+    name matches it, both tiers included. A source decides the tiers across its own rows and these."""
     rows = PlatformAlertConfiguration.objects.for_team(team_id, canonical=True).filter(
-        source_kind=source_kind, legacy_configuration_id__isnull=True
+        source_kind=source_kind, legacy_configuration_id__isnull=True, alert_kind=PlatformAlertKind.THRESHOLD
     )
     if not search:
         return tuple(
@@ -292,6 +296,7 @@ def enabled_native_configurations(
         team_id__in=list(team_ids),
         source_kind=source_kind,
         enabled=True,
+        alert_kind=PlatformAlertKind.THRESHOLD,
     )
     if created_by_id is not None:
         rows = rows.filter(created_by_id=created_by_id)
@@ -410,12 +415,14 @@ def count_configurations(
     check_interval_minutes: int | None = None,
     exclude_id: UUID | None = None,
     source_config_contains: Mapping[str, Any] | None = None,
+    alert_kind: PlatformAlertKind = PlatformAlertKind.THRESHOLD,
 ) -> int:
     """How many alerts of a kind a team has on the platform, whoever owns them. With `native_only`, only
     the ones with no source row. With `exclude_id`, the alert an edit is checked for is left out. With
-    `source_config_contains`, only the ones whose `source_config` holds that object."""
+    `source_config_contains`, only the ones whose `source_config` holds that object. Only `alert_kind`
+    alerts count, so a source's caps never count another kind's alerts."""
     configurations = PlatformAlertConfiguration.objects.for_team(team_id, canonical=True).filter(
-        source_kind=source_kind
+        source_kind=source_kind, alert_kind=alert_kind
     )
     if exclude_id is not None:
         configurations = configurations.exclude(id=exclude_id)

@@ -1,3 +1,4 @@
+from .occurrence import PlatformOccurrence, PlatformOccurrenceCursor
 from .platform_alert import (
     AlertDestination,
     AlertReceiver,
@@ -18,4 +19,6 @@ __all__ = [
     "PlatformAlertDeliveryHold",
     "PlatformAlertDeliveryPath",
     "PlatformAlertThread",
+    "PlatformOccurrence",
+    "PlatformOccurrenceCursor",
 ]

@@ -200,6 +200,17 @@ export const PlatformAlertConfigurationSourceKindEnumApi = {
 } as const
 
 /**
+ * * `threshold` - Threshold
+ * * `appearance` - Appearance
+ */
+export type PlatformAlertKindEnumApi = (typeof PlatformAlertKindEnumApi)[keyof typeof PlatformAlertKindEnumApi]
+
+export const PlatformAlertKindEnumApi = {
+    Threshold: 'threshold',
+    Appearance: 'appearance',
+} as const
+
+/**
  * * `day` - Day
  * * `week` - Week
  * * `month` - Month
@@ -470,6 +481,11 @@ export interface PlatformAlertConfigurationApi {
      * * `metrics` - Metrics
      * * `traces` - Traces */
     readonly source_kind: PlatformAlertConfigurationSourceKindEnumApi
+    /** How the alert's checks decide. threshold compares a value with a bound. appearance announces each new, or returning, identity once, such as a new log pattern.
+     *
+     * * `threshold` - Threshold
+     * * `appearance` - Appearance */
+    readonly alert_kind: PlatformAlertKindEnumApi
     /** Source-specific settings. The shape depends on source_kind. The bound the alert is evaluated against is under the condition key. */
     readonly source_config: PlatformAlertConfigurationApiSourceConfig
     /** Minutes between scheduled checks. Applies when recurrence_unit is null. */

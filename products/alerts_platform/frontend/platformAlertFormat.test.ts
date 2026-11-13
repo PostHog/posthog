@@ -27,6 +27,7 @@ function makeConfiguration(overrides: Partial<PlatformAlertConfigurationApi> = {
         state_timeline: [],
         destination_types: [],
         source_kind: 'logs',
+        alert_kind: 'threshold',
         source_config: {},
         check_interval_minutes: 1,
         recurrence_unit: null,

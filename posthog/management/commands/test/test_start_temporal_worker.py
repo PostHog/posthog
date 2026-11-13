@@ -33,6 +33,8 @@ from products.alerts_platform.backend.facade.temporal import (
     DELIVERY_WORKFLOWS,
     EVALUATION_ACTIVITIES,
     EVALUATION_WORKFLOWS,
+    REGISTRAR_ACTIVITIES,
+    REGISTRAR_WORKFLOWS,
     SHARED_ORCHESTRATION_ACTIVITIES,
     SHARED_ORCHESTRATION_WORKFLOWS,
 )
@@ -86,6 +88,7 @@ def test_aggregation_runs_on_its_own_queue_and_the_billing_queue() -> None:
             WAREHOUSE_ALERT_EVALUATION_ACTIVITIES,
         ),
         ("alerts-platform-delivery-task-queue", DELIVERY_WORKFLOWS, DELIVERY_ACTIVITIES),
+        ("alerts-platform-registrar-task-queue", REGISTRAR_WORKFLOWS, REGISTRAR_ACTIVITIES),
         (settings.SELF_DRIVING_TASK_QUEUE, [InboxRankingScoringWorkflow], [score_inbox_reports_activity]),
         (settings.GENERAL_PURPOSE_TASK_QUEUE, METRICS_WORKFLOWS, METRICS_ACTIVITIES),
     ],
