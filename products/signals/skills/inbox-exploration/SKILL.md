@@ -139,9 +139,11 @@ Two sets of fields answer two different questions:
 - **Routing: who should read the report.** `suggested_reviewers` and `is_suggested_reviewer`.
   A suggested reviewer has not accepted the report and is not working on it.
 - **Claims: who is working on the report.** `work_state` and `assignee`.
-  `work_state: unclaimed` with `assignee: null` means that nobody has claimed the report, so it is free to take, whoever its suggested reviewers are.
+  `work_state: unclaimed` means no active claim and no pull request in progress, so the report is free to take, whoever its suggested reviewers are.
   `working` means an active claim, and `in_review` means a draft, open, or unknown-state pull request.
   `done` means the report is resolved, closed, or in monitoring.
+  `assignee: null` alone does not mean free: a report stays `in_review` when its holder released the claim and left a pull request.
+  A report with `status: suppressed`, which the `dismissed`, `held_back`, and `all` views return, can be `unclaimed`, but it is not free: it cannot be claimed until it is restored.
 
 `inbox-reports-search` results do not carry the claim fields, so read a match with `inbox-reports-retrieve` before you decide.
 To list only the free reports, pass `unclaimed: true` to `inbox-reports-list`.
@@ -314,8 +316,8 @@ For each report, the response includes:
 - `pull_requests` — if a PR has been opened against this report
 - `work_state` — `unclaimed`, `working`, `in_review`, or `done`
 - `assignee` — who claimed the report (a user, an internal task, or an external agent), or `null`
-  when nobody has. Say so when you list a report someone else claimed, so it doesn't read as free
-  work. A report with no claim is free to take, also when it has suggested reviewers
+  when nobody holds a claim. Say so when you list a report someone else claimed, so it doesn't read as free
+  work. A null `assignee` alone does not make a report free: its `work_state` must be `unclaimed`
 - `_posthogUrl` — clickable deep-link to the report; **always include this in your response**
 
 Group the results so the user can scan quickly. **Lead with reports where
@@ -378,7 +380,7 @@ inbox-reports-list
 - A match: read it with `inbox-reports-retrieve` before you read code.
   Use the research as a starting point, and verify it against the code.
   A match is research, not a sign that someone is fixing the problem: `work_state` and `assignee` say whether someone is.
-- The report is unclaimed: the fix is free to take. Claim the report before you change code.
+- The report's `work_state` is `unclaimed` and the report is not dismissed: the fix is free to take. Claim the report before you change code.
 - Someone else claimed the report: say who holds it and since when (`assignee.claimed_at`), and do not duplicate the work.
 - The report has an open pull request: continue that work. Do not open a second pull request.
 - The report is resolved or dismissed: read why before you reopen the question.

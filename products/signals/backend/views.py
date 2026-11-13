@@ -1891,8 +1891,9 @@ _REPORT_LIST_PARAMETERS = [
         required=False,
         description=(
             "Filter by whether the report has no active claim and no draft, open, or unknown PR. "
-            "True returns the reports that are free to work on. Suggested reviewers do not count as a claim. "
-            "Resolved reports are never unclaimed."
+            "True returns the reports with no work in progress. Suggested reviewers do not count as a claim. "
+            "Resolved reports are never unclaimed. A suppressed report can be unclaimed, but it cannot be claimed "
+            "until it is restored."
         ),
     ),
     OpenApiParameter(
