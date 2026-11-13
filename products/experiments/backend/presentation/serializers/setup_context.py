@@ -521,6 +521,7 @@ class ExperimentSetupPreviousExperimentSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Rollout percentage of the flag's first release condition, read from the flag as it stands now.",
     )
+    # nosemgrep: choices-need-a-class -- moved unchanged from presentation/serializers.py
     multiple_variant_handling = serializers.ChoiceField(
         choices=[handling.value for handling in MultipleVariantHandling],
         help_text="How users seen in several variants are analyzed, with the default resolved.",

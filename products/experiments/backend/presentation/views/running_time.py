@@ -105,6 +105,7 @@ class ExperimentRunningTimeMixin(TeamAndOrgViewSetMixin):
                 metric_type, baseline_value, mde, number_of_variants, variance
             )
 
+        # nosemgrep: api-response-must-match-schema -- moved unchanged from presentation/views.py
         return Response(
             {
                 "baseline_value": baseline_value,

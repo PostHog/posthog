@@ -4,6 +4,7 @@ from rest_framework import serializers
 
 
 class EndExperimentSerializer(serializers.Serializer):
+    # nosemgrep: choices-need-a-class -- moved unchanged from presentation/serializers.py
     conclusion = serializers.ChoiceField(
         choices=["won", "lost", "inconclusive", "stopped_early", "invalid"],
         required=False,
@@ -59,6 +60,7 @@ class EndExperimentSerializer(serializers.Serializer):
 
 class ExperimentFlagCleanupTaskSerializer(serializers.Serializer):
     task_id = serializers.UUIDField(help_text="ID of the flag-cleanup Desktop task.")
+    # nosemgrep: choices-need-a-class -- moved unchanged from presentation/serializers.py
     run_status = serializers.ChoiceField(
         choices=["not_started", "queued", "in_progress", "completed", "failed", "cancelled"],
         help_text="Status of the task's latest run.",
@@ -83,6 +85,7 @@ class ExperimentFlagCleanupTargetSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Repository a flag-cleanup pull request would be opened in, or null when none can be determined.",
     )
+    # nosemgrep: choices-need-a-class -- moved unchanged from presentation/serializers.py
     source = serializers.ChoiceField(  # type: ignore[assignment]  # field named `source` shadows DRF Field.source
         choices=["explicit", "team_default", "single_repo", "ambiguous", "no_integration"],
         help_text=(

@@ -538,6 +538,7 @@ class EnterpriseExperimentsViewSet(
             },
         )
         cohort_data = CohortSerializer(cohort, context={"request": request, "team": self.team}).data
+        # nosemgrep: api-response-must-match-schema -- moved unchanged from presentation/views.py
         return Response({"cohort": cohort_data}, status=201)
 
     @action(methods=["GET"], detail=False, url_path="stats", required_scopes=["experiment:read"])

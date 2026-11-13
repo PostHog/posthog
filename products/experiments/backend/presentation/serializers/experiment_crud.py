@@ -165,6 +165,7 @@ class ExperimentBaseSerializer(
             "`parameters.excluded_variants`."
         ),
     )
+    # nosemgrep: choices-need-a-class -- moved unchanged from presentation/serializers.py
     conclusion = serializers.ChoiceField(
         choices=["won", "lost", "inconclusive", "stopped_early", "invalid"],
         required=False,
@@ -183,6 +184,7 @@ class ExperimentBaseSerializer(
         default=False,
         help_text="Whether the experiment is archived.",
     )
+    # nosemgrep: choices-need-a-class -- moved unchanged from presentation/serializers.py
     type = serializers.ChoiceField(
         choices=["web", "product"],
         required=False,

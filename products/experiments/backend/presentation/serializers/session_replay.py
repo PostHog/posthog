@@ -25,6 +25,7 @@ from products.experiments.backend.session_event_deltas import (
 class ExperimentSessionMetricSourceHitSerializer(serializers.Serializer):
     """One event/action source of a metric with at least one matching event in a session recording."""
 
+    # nosemgrep: choices-need-a-class -- moved unchanged from presentation/serializers.py
     source_role = serializers.ChoiceField(
         source="role",
         choices=[role.value for role in MetricSourceRole],
@@ -493,6 +494,7 @@ class ExperimentSessionEventDeltaResponseSerializer(serializers.Serializer):
             "attributes such users to the variant they saw first."
         )
     )
+    # nosemgrep: choices-need-a-class -- moved unchanged from presentation/serializers.py
     multiple_variant_handling = serializers.ChoiceField(
         choices=[handling.value for handling in MultipleVariantHandling],
         help_text=(

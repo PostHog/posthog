@@ -18,6 +18,7 @@ class MetricRecalculationResultSerializer(serializers.Serializer):
     )
 
     metric_uuid = serializers.CharField(read_only=True, help_text="UUID of the metric this result belongs to")
+    # nosemgrep: choices-need-a-class -- moved unchanged from presentation/serializers.py
     status = serializers.ChoiceField(
         choices=["pending", "completed", "failed"],
         read_only=True,
@@ -226,6 +227,7 @@ class ExperimentMetricsRecalculationLatestSerializer(ExperimentMetricsRecalculat
         allow_null=True,
         help_text="Run currently executing for this experiment, if any; poll it by id for live progress",
     )
+    # nosemgrep: choices-need-a-class -- moved unchanged from presentation/serializers.py
     result_source = serializers.ChoiceField(
         choices=["recalculation", "timeseries_fallback"],
         required=False,
