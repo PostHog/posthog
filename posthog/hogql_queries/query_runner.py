@@ -119,7 +119,6 @@ from posthog.schema import (
     StickinessQueryResponse,
     SuggestedQuestionsQuery,
     TeamTaxonomyQuery,
-    TraceNeighborsQuery,
     TraceQuery,
     TracesQuery,
     TrendsQuery,
@@ -1617,17 +1616,6 @@ def get_query_runner(
 
         return TraceQueryRunner(
             query=cast(TraceQuery | dict[str, Any], query),
-            team=team,
-            timings=timings,
-            limit_context=limit_context,
-            modifiers=modifiers,
-            user=user,
-        )
-    if kind == "TraceNeighborsQuery":
-        from .ai.trace_neighbors_query_runner import TraceNeighborsQueryRunner
-
-        return TraceNeighborsQueryRunner(
-            query=cast(TraceNeighborsQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,
