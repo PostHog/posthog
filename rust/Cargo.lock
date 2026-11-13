@@ -2391,6 +2391,7 @@ dependencies = [
  "common-continuous-profiling",
  "common-kafka",
  "common-metrics",
+ "common-redis",
  "envconfig",
  "flate2",
  "health",
