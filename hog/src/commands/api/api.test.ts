@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import { z } from 'zod'
 
 import type {
     ApiCatalogDroppedTool,
@@ -9,7 +10,7 @@ import type {
     ApiToolSummary,
 } from '@posthog/mcp/src/cli/library-types'
 
-import { runHog, TEST_CREDENTIALS, type HogRun } from '@/testing'
+import { readJson, runHog, TEST_CREDENTIALS, type HogRun } from '@/testing'
 
 const tool = (
     name: string,
@@ -405,6 +406,11 @@ function catalogLibrary(dropped: ApiCatalogDroppedTool[] = []): {
 const catalogRequests = (result: HogRun, url = CATALOG_URL): number =>
     result.requests.filter((r) => r.url === url).length
 
+const CacheFileSchema = z.object({ hosts: z.record(z.string(), z.record(z.string(), z.unknown())) })
+
+const savedEntry = (files: Record<string, string>): Record<string, unknown> | undefined =>
+    readJson(files[CACHE] ?? '{"hosts":{}}', CacheFileSchema).hosts[US]
+
 describe('hog api tool catalog', () => {
     test('downloads the catalog once a day and runs the tools it describes', async () => {
         const library = catalogLibrary()
@@ -470,10 +476,7 @@ describe('hog api tool catalog', () => {
 
         expect(sent).toEqual(['"v1"'])
         expect(library.received()).toMatchObject({ build: 'abc123', tools: [{ name: 'flag-list' }] })
-        expect(JSON.parse(revalidated.files[CACHE] ?? '{}').hosts[US]).toEqual({
-            ...JSON.parse(files[CACHE]!).hosts[US],
-            fetchedAt: NOW,
-        })
+        expect(savedEntry(revalidated.files)).toEqual({ ...savedEntry(files), fetchedAt: NOW })
         expect(catalogRequests(again)).toBe(0)
     })
 
@@ -717,7 +720,7 @@ describe('hog api tool catalog', () => {
 
             expect(result.exitCode).toBe(1)
             expect(result.error().code).toBe(code)
-            expect(JSON.parse(result.files[CACHE] ?? '{}').hosts[US].catalog).toEqual(catalog(['flag-list']))
+            expect(savedEntry(result.files)?.catalog).toEqual(catalog(['flag-list']))
         })
     })
 })
