@@ -224,6 +224,9 @@ services:
             # Seconds a replaced worker gets to finish its requests. Without a limit, one connection
             # that never closes stops granian from replacing or restarting any worker.
             GRANIAN_WORKERS_KILL_TIMEOUT: ${GRANIAN_WORKERS_KILL_TIMEOUT:-60}
+            # The workers take connections from one listen socket. With a socket for each worker,
+            # the connections that wait in a replaced worker's queue are reset.
+            POSTHOG_GRANIAN_SHARED_SOCKET: ${POSTHOG_GRANIAN_SHARED_SOCKET:-true}
             # See the same setting on feature-flags.
             FLAGS_BILLING_COUNTERS_ENABLED: 'false'
             SITE_URL: https://$DOMAIN

@@ -915,7 +915,13 @@ class TestCreateTaskWarmReuse(APIBaseTest):
         if legacy_billing:
             TaskRun.update_state_atomic(run.id, remove_keys=["billing_product"])
 
-        with patch(f"{FACADE}.signal_task_run_user_message", return_value=True) as mock_signal:
+        with (
+            patch(f"{FACADE}.signal_task_run_user_message", return_value=True) as mock_signal,
+            patch(
+                "products.signals.backend.facade.github_optional.pilot_repository_integration_id",
+                return_value=self.integration.id,
+            ),
+        ):
             dto = self._create_report_task(report, relationship=relationship, code_access_allowed=code_access_allowed)
 
         assert str(dto.id) != str(warm_task.id)

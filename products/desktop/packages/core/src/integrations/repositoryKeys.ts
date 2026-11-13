@@ -34,6 +34,8 @@ export const integrationKeys = {
     ] as const,
   branches: (integrationId?: number, repo?: string | null, search?: string) =>
     [...integrationKeys.all, "branches", integrationId, repo, search] as const,
+  gitlabProjects: (integrationId?: number, search?: string) =>
+    [...integrationKeys.all, "gitlab-projects", integrationId, search] as const,
 };
 
 export const userGithubIntegrationKeys = {

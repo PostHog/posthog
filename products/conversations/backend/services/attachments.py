@@ -32,6 +32,10 @@ _REHOSTED_MEDIA_URL_RE = re.compile(
 )
 
 
+class AttachmentStorageError(Exception):
+    """Raised instead of returning None when object storage rejects a write and the caller opted in."""
+
+
 def sanitize_attachment_filename(name: str | None) -> str:
     """Strip potentially dangerous characters from an inbound attachment filename.
 
@@ -71,12 +75,20 @@ def save_file_to_uploaded_media(
     content: bytes,
     *,
     validate_images: bool = True,
+    raise_on_storage_error: bool = False,
 ) -> str | None:
     """Persist a file to object storage via UploadedMedia.
 
     Returns the absolute URL on success, None on failure.
     """
-    uploaded_media = save_uploaded_media(team, file_name, content_type, content, validate_images=validate_images)
+    uploaded_media = save_uploaded_media(
+        team,
+        file_name,
+        content_type,
+        content,
+        validate_images=validate_images,
+        raise_on_storage_error=raise_on_storage_error,
+    )
     return uploaded_media.get_absolute_url() if uploaded_media else None
 
 
@@ -87,11 +99,14 @@ def save_uploaded_media(
     content: bytes,
     *,
     validate_images: bool = True,
+    raise_on_storage_error: bool = False,
 ) -> UploadedMedia | None:
     """Persist a file to object storage via UploadedMedia, or return None on failure.
 
     Unless validate_images is False, stores the type that resolve_attachment_content_type
-    returns, and rejects bytes that it finds invalid.
+    returns, and rejects bytes that it finds invalid. With raise_on_storage_error, a failed
+    object storage write raises AttachmentStorageError instead, so a caller that can retry
+    (a historical import) does not lose the file.
     """
     if not settings.OBJECT_STORAGE_ENABLED:
         logger.warning("conversations_attachment_no_object_storage", team_id=team.id)
@@ -122,6 +137,8 @@ def save_uploaded_media(
             error=str(e),
         )
         uploaded_media.delete()
+        if raise_on_storage_error:
+            raise AttachmentStorageError("Object storage rejected the attachment") from None
         return None
 
     logger.info(

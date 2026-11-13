@@ -44,6 +44,7 @@ DEV_STACK_IMAGE_BAKE_FEATURE_FLAG = "tasks-dev-stack-image-bake"
 HOGLAND_SANDBOX_FEATURE_FLAG = "tasks-hogland-sandbox"
 HOGLAND_HOTPLUG_GOLDEN_FEATURE_FLAG = "tasks-hogland-hotplug-golden"
 PI_CLOUD_RUNTIME_FEATURE_FLAG = "pi-harness"
+GITLAB_TASKS_FEATURE_FLAG = "tasks-gitlab"
 REASONING_EFFORTS = model_catalog.REASONING_EFFORTS
 PI_ACP_FEATURE_FLAG = "pi-acp"
 TASK_ANALYSIS_FEATURE_FLAG = "posthog-code-task-analysis"
@@ -240,6 +241,7 @@ DEFAULT_SANDBOX_WORKING_DIR = "/tmp/workspace"
 # that tells an agent where its checkout is must read it from here (see `sandbox_repo_path`), or a
 # prompt sends the agent to a path the clone never used.
 SANDBOX_REPOSITORIES_ROOT = f"{DEFAULT_SANDBOX_WORKING_DIR}/repos"
+GITLAB_HOST = "gitlab.com"
 # Directory resume snapshots capture a directory and re-mount it into the next sandbox. The mount
 # REPLACES the target directory in the running sandbox, so only the quiescent workspace dir is safe:
 # mounting over a live system directory (the old "/tmp" default) rips scratch space and sockets out
@@ -461,6 +463,8 @@ RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS: frozenset[str] = frozenset(
         "JWT_PUBLIC_KEY",
         "GITHUB_TOKEN",
         "GH_TOKEN",
+        "GITLAB_TOKEN",
+        "POSTHOG_GIT_PROVIDER",
         "LLM_GATEWAY_URL",
         "AI_GATEWAY_URL",
         "AI_GATEWAY_PRODUCTS",

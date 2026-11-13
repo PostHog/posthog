@@ -23,7 +23,7 @@ import { getContrastingTextClass } from '../colorUtils'
 import { conditionalFormattingColor } from '../conditionalFormatting'
 import { TableDataCell, TableRow, dataVisualizationLogic } from '../dataVisualizationLogic'
 import { ColumnScalar } from '../types'
-
+import { TableCellValue } from './TableCellValue'
 interface TableProps {
     query: VisualizationNode
     uniqueKey: string | number | undefined
@@ -487,7 +487,7 @@ export const Table = (props: TableProps): JSX.Element => {
                 const sourceColumnName = cell.sourceColumnName ?? column.name
                 const columnFormat = getColumnFormat(response, sourceColumnName)
 
-                return (
+                const content = (
                     <div className="truncate" title={getCellTitle(cell)}>
                         {renderColumn(
                             sourceColumnName,
@@ -504,6 +504,15 @@ export const Table = (props: TableProps): JSX.Element => {
                             columnFormat
                         )}
                     </div>
+                )
+                const sourceColumn = isTransposed ? sourceTabularColumns[data.rowIndex].column : column
+                const rawValue = tableResults[isTransposed ? index - 1 : data.rowIndex][sourceColumn.dataIndex]
+                return typeof rawValue === 'string' || (rawValue !== null && typeof rawValue === 'object') ? (
+                    <TableCellValue title={sourceColumnName} value={rawValue}>
+                        {content}
+                    </TableCellValue>
+                ) : (
+                    content
                 )
             },
             style: (_, data) => {

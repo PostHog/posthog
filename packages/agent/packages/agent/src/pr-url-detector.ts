@@ -1,4 +1,8 @@
 const PR_URL_REGEX = /https:\/\/github\.com\/[^/\s"]+\/[^/\s"]+\/pull\/\d+/g;
+// GitLab project paths can nest groups (`group/sub/project`), so the path has
+// two or more segments before `/-/merge_requests/`.
+const GITLAB_MR_URL_REGEX =
+  /https:\/\/gitlab\.com\/(?:[A-Za-z0-9_.][A-Za-z0-9_.-]*\/){2,}-\/merge_requests\/\d+/g;
 
 // A fixed window (not "since run start") so a PR the agent merely views on a
 // long run is too old to be mistaken for one it just created.
@@ -9,7 +13,11 @@ export function findPrUrl(text: string): string | null {
 }
 
 export function findPrUrls(text: string): string[] {
-  return [...new Set(text.match(PR_URL_REGEX) ?? [])];
+  const matches = [
+    ...text.matchAll(PR_URL_REGEX),
+    ...text.matchAll(GITLAB_MR_URL_REGEX),
+  ].sort((a, b) => (a.index ?? 0) - (b.index ?? 0));
+  return [...new Set(matches.map((m) => m[0]))];
 }
 
 // Fails closed on missing/invalid input so we never attribute on uncertainty.
@@ -45,7 +53,6 @@ export interface PrOwnershipEvidence {
   nowMs: number;
   author: string | null | undefined;
   ghLogin: string | null | undefined;
-  // `owner/name` of the repository the PR lives in, lowercased, from its URL.
   prRepository: string | null;
   headRefName: string | null | undefined;
   // True when the PR head lives in a fork. A fork's branch name is chosen by the
@@ -57,9 +64,16 @@ export interface PrOwnershipEvidence {
 
 const PR_REPOSITORY_REGEX =
   /^https:\/\/github\.com\/([^/\s"]+\/[^/\s"]+)\/pull\/\d+/;
+const GITLAB_MR_PROJECT_REGEX =
+  /^https:\/\/gitlab\.com\/((?:[A-Za-z0-9_.][A-Za-z0-9_.-]*\/)+?[A-Za-z0-9_.][A-Za-z0-9_.-]*)\/-\/merge_requests\/\d+/;
+
+export function isGitlabMergeRequestUrl(url: string): boolean {
+  return GITLAB_MR_PROJECT_REGEX.test(url);
+}
 
 export function parsePrRepository(prUrl: string): string | null {
-  const match = PR_REPOSITORY_REGEX.exec(prUrl);
+  const match =
+    PR_REPOSITORY_REGEX.exec(prUrl) ?? GITLAB_MR_PROJECT_REGEX.exec(prUrl);
   return match ? match[1].toLowerCase() : null;
 }
 
