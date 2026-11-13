@@ -8637,7 +8637,8 @@
          "posthog_identityproviderconfig"."scim_bearer_token",
          "posthog_identityproviderconfig"."id_jag_issuer_url",
          "posthog_identityproviderconfig"."id_jag_jwks_url",
-         "posthog_identityproviderconfig"."id_jag_allowed_clients"
+         "posthog_identityproviderconfig"."id_jag_allowed_clients",
+         "posthog_identityproviderconfig"."id_jag_registered_by_application_id"
   FROM "posthog_identityproviderconfig"
   WHERE "posthog_identityproviderconfig"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
   '''
@@ -9119,7 +9120,8 @@
          "posthog_identityproviderconfig"."scim_bearer_token",
          "posthog_identityproviderconfig"."id_jag_issuer_url",
          "posthog_identityproviderconfig"."id_jag_jwks_url",
-         "posthog_identityproviderconfig"."id_jag_allowed_clients"
+         "posthog_identityproviderconfig"."id_jag_allowed_clients",
+         "posthog_identityproviderconfig"."id_jag_registered_by_application_id"
   FROM "posthog_identityproviderconfig"
   WHERE "posthog_identityproviderconfig"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
   '''
@@ -28296,6 +28298,7 @@
          "posthog_oauthapplication"."is_verified",
          "posthog_oauthapplication"."is_first_party",
          "posthog_oauthapplication"."supports_step_up",
+         "posthog_oauthapplication"."can_manage_ema_issuer",
          "posthog_oauthapplication"."auth_brand",
          "posthog_oauthapplication"."scopes",
          "posthog_oauthapplication"."optional_scopes",
@@ -29066,6 +29069,7 @@
          "posthog_oauthapplication"."is_verified",
          "posthog_oauthapplication"."is_first_party",
          "posthog_oauthapplication"."supports_step_up",
+         "posthog_oauthapplication"."can_manage_ema_issuer",
          "posthog_oauthapplication"."auth_brand",
          "posthog_oauthapplication"."scopes",
          "posthog_oauthapplication"."optional_scopes",

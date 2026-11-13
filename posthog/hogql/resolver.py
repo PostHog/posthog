@@ -3204,6 +3204,7 @@ class Resolver(CloningVisitor):
             self._record_saved_query_read(database_table.id, is_user_view=type(database_table) is SavedQuery)
         elif isinstance(database_table, S3Table) and database_table.saved_query_id is not None:
             self._record_saved_query_read(database_table.saved_query_id, is_user_view=True)
+            self.context.materialized_saved_query_ids.add(database_table.saved_query_id)
         elif isinstance(database_table, S3Table) and database_table.table_id is not None:
             self.context.referenced_warehouse_table_ids.add(database_table.table_id)
             self._record_direct_read(database_table.table_id)
