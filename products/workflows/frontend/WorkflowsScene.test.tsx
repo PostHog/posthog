@@ -5,6 +5,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { Provider } from 'kea'
 import { router } from 'kea-router'
 
+import { moveToLogic } from 'lib/components/FileSystem/MoveTo/moveToLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
@@ -810,7 +811,7 @@ describe('WorkflowsScene', () => {
                 await waitFor(() => expect(submitButton()).not.toHaveAttribute('aria-disabled', 'true'))
                 fireEvent.click(submitButton())
             }
-            const submitButton = (): HTMLElement => screen.getByText('Submit').closest('button') as HTMLElement
+            const submitButton = (): HTMLElement => screen.getByText('Rename').closest('button') as HTMLElement
 
             await rename('Cards', 'Payments')
             await waitFor(() => expect(moveRequests).toHaveLength(1))
@@ -829,6 +830,22 @@ describe('WorkflowsScene', () => {
             ])
             act(() => router.actions.push(urls.workflows(), { q: 'in:Billing/Wallet' }))
             await waitFor(() => expect(shownRowNames()).toEqual(['Renewal reminder']))
+        })
+
+        it('selects what is still in the folder from the header after the selected workflow moves away', async () => {
+            const other = FIXTURE_WORKFLOWS[2]
+            files.push({ id: 'other', path: `Billing/${other.name}`, type: 'hog_flow', ref: other.id })
+            await renderFolder('Billing', other.name)
+            const unmountMoveTo = moveToLogic.mount()
+            fireEvent.click(screen.getByLabelText('Select Welcome series'))
+            fireEvent.click(await screen.findByText('Move to…'))
+            moveToLogic.actions.setFormValue('folder', 'Billing/Cards')
+            moveToLogic.actions.submitForm()
+            await waitFor(() => expect(shownRowNames()).not.toContain('Welcome series'))
+
+            fireEvent.click(screen.getByLabelText('Select all movable items'))
+            expect(await screen.findByText('1 item selected')).toBeInTheDocument()
+            unmountMoveTo()
         })
 
         it('lists a subfolder in the open folder after naming it inline', async () => {

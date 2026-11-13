@@ -51,6 +51,7 @@ export function WorkflowFolderContents(): JSX.Element {
         browserReadyLoading,
         hasActiveQuery,
         selectedFileIds,
+        selectedFiles,
         selectableFiles,
         otherProductFileCount,
         pendingFileMoveIds,
@@ -112,9 +113,9 @@ export function WorkflowFolderContents(): JSX.Element {
             <LemonCheckbox
                 aria-label="Select all movable items"
                 checked={
-                    selectedFileIds.length && selectedFileIds.length === Object.keys(selectableFiles).length
+                    selectedFiles.length && selectedFiles.length === Object.keys(selectableFiles).length
                         ? true
-                        : selectedFileIds.length
+                        : selectedFiles.length
                           ? 'indeterminate'
                           : false
                 }
@@ -190,7 +191,7 @@ export function WorkflowFolderContents(): JSX.Element {
                                     value={folderDraft?.name ?? ''}
                                     onChange={setFolderDraftName}
                                     onKeyDown={(event) => {
-                                        if (event.nativeEvent.isComposing) {
+                                        if (event.nativeEvent.isComposing || event.keyCode === 229) {
                                             return
                                         }
                                         if (event.key === 'Enter') {

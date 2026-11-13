@@ -12,8 +12,14 @@ import { folderNameError, workflowFoldersLogic } from './workflowFoldersLogic'
 import { WorkflowNewFolderButton } from './WorkflowNewFolderButton'
 
 export function WorkflowFolderActions({ path, count }: { path: string; count: number }): JSX.Element | null {
-    const { savedItems, folderPaths, takenFolderPaths, folderActionPending, folderMutationDisabledReason } =
-        useValues(workflowFoldersLogic)
+    const {
+        savedItems,
+        folderPaths,
+        takenFolderPaths,
+        folderActionPending,
+        folderChangeDisabledReason,
+        folderNamesUnavailableReason,
+    } = useValues(workflowFoldersLogic)
     const { moveFileToFolder } = useActions(workflowFoldersLogic)
     const entry = savedItems.find((item) => item.type === 'folder' && item.path === path)
     if (path === 'Unfiled') {
@@ -28,7 +34,7 @@ export function WorkflowFolderActions({ path, count }: { path: string; count: nu
         return <div className="flex justify-end items-center gap-1">{newSubfolderButton}</div>
     }
     const name = splitPath(path).at(-1) ?? path
-    const movingReason = folderMutationDisabledReason(path) ?? undefined
+    const movingReason = folderChangeDisabledReason(path) ?? undefined
     const empty = count === 0 && !folderPaths.some((folder) => folder.startsWith(`${path}/`))
     return (
         <div className="flex justify-end items-center gap-1">
@@ -38,9 +44,7 @@ export function WorkflowFolderActions({ path, count }: { path: string; count: nu
                     { label: 'Move to…', disabledReason: movingReason, onClick: () => moveFileToFolder(entry) },
                     {
                         label: 'Rename…',
-                        disabledReason:
-                            movingReason ??
-                            (takenFolderPaths ? undefined : 'Checking existing folder names. Try again in a moment.'),
+                        disabledReason: movingReason ?? folderNamesUnavailableReason ?? undefined,
                         onClick: () =>
                             LemonDialog.openForm({
                                 title: `Rename ${name}`,
@@ -55,6 +59,7 @@ export function WorkflowFolderActions({ path, count }: { path: string; count: nu
                                         folderNameError(next, parentPath(path), takenFolderPaths, path) ?? undefined,
                                 },
                                 shouldAwaitSubmit: true,
+                                primaryButtonProps: { children: 'Rename' },
                                 onSubmit: ({ name: next }) =>
                                     workflowFoldersLogic.asyncActions.renameFolder(path, next),
                             }),
@@ -76,6 +81,7 @@ export function WorkflowFolderActions({ path, count }: { path: string; count: nu
                                     </span>
                                 ),
                                 errors: {},
+                                primaryButtonProps: { children: 'Delete', status: 'danger' },
                                 onSubmit: () => workflowFoldersLogic.asyncActions.deleteFolder(path),
                             }),
                     },
