@@ -1292,7 +1292,14 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
             and len(document.args[0].args) == 1
         ):
             return None
-        access = self._lowered_property_operand(document.args[0].args[0])
+        return self._native_property(document.args[0].args[0])
+
+    def _native_property(self, operand: ast.Expr) -> _OptimizableProperty | None:
+        """The property of a native JSON column that `operand` reads by one key, or None.
+
+        A flag key is left out, because its value comes from the `$feature_flags` map.
+        """
+        access = self._lowered_property_operand(operand)
         if access is None or len(access.keys) != 1 or not isinstance(access.keys[0], str):
             return None
         field_type = _blob_field_type_of(access)
@@ -1539,19 +1546,11 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
                     ast.Constant(value=None),
                 ],
             ):
-                access = self._lowered_property_operand(operand)
-                if access is None or len(access.keys) != 1 or not isinstance(access.keys[0], str):
-                    return None
-                field_type = _blob_field_type_of(access)
-                assert field_type is not None
-                key = access.keys[0]
-                if self._is_virtual_feature_flag_property(field_type, key):
-                    return None
-                source = resolve_materialized_property_source(field_type, key, self.context)
-                if source is None or source.kind != "json_subcolumn":
+                prop = self._native_property(operand)
+                if prop is None:
                     return None
                 # Object and array text cannot match either Boolean spelling.
-                value = _json_subcolumn_access(field_type, key, source=source, is_nullable=True)
+                value = _json_subcolumn_access(prop.field_type, prop.key, source=prop.source, is_nullable=True)
                 return replace(node, args=[replace(string_read, args=[value]), *node.args[1:]])
         return None
 
@@ -1886,20 +1885,11 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
         """
         if not self.context.uses_new_events_schema():
             return None
-        access = self._lowered_property_operand(operand)
-        if access is None or len(access.keys) != 1 or not isinstance(access.keys[0], str):
+        prop = self._native_property(operand)
+        if prop is None:
             return None
-        field_type = _blob_field_type_of(access)
-        if field_type is None:
-            return None
-        key = access.keys[0]
-        if self._is_virtual_feature_flag_property(field_type, key):
-            return None
-        source = resolve_materialized_property_source(field_type, key, self.context)
-        if source is None or source.kind != "json_subcolumn":
-            return None
-        _record_property_usage(self.context, source.kind)
-        return _json_property_presence_expr(field_type, key, source=source, present=present)
+        _record_property_usage(self.context, prop.source.kind)
+        return _json_property_presence_expr(prop.field_type, prop.key, source=prop.source, present=present)
 
     def _optimize_native_json_null_compare(self, node: ast.CompareOperation) -> ast.Expr | None:
         """`properties.x IS [NOT] NULL` on the native table."""

@@ -90,8 +90,7 @@ def _json_events_property_expr(property_name: PropertyName, column_ref: str, dec
     # separator. The path prints inline with its `%` as a `\x25` escape, which passes unchanged through the
     # parameter substitution and str.format that callers run this SQL through.
     path = f"{column_ref}.{escape_clickhouse_json_path(property_name.replace('.', '%2E'))}"
-    # The cleaner stores an object or array as a string of its JSON text, so the text of the path is the value the
-    # legacy table extracts. `_json_property_text` in the HogQL resolver explains each form.
+    # `_json_property_text` in the HogQL resolver explains why the text of the path is the value in each form.
     if declared_type == "String":
         return f"ifNull(toString({path}), '')", False
     if declared_type == "LowCardinality(String)":

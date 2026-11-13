@@ -61,7 +61,6 @@ def json_member_pairs_sql(
     members = f"JSONExtractKeysAndValuesRaw(toJSONString({document_sql}))"
     if conditions:
         members = f"arrayFilter(kv -> {' and '.join(conditions)}, {members})"
-    # kv.2 is the JSON of the value, so a stored container is a quoted string whose text starts with `[` or `{`.
     is_container = "(startsWith(kv.2, '\"[') or startsWith(kv.2, '\"{')) and isValidJSON(JSONExtractString(kv.2))"
     value = f"if({is_container}, JSONExtractString(kv.2), kv.2)"
     return f"arrayMap(kv -> concat(toJSONString(kv.1), ':', {value}), {members})"
