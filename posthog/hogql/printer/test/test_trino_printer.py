@@ -848,6 +848,28 @@ def test_regex_character_classes_keep_clickhouse_meaning(pattern: str, expected:
             "TRY_CAST(truncate(",
         ),
         ("SELECT toInt(toDecimal(id, 2)) FROM users", "TRY_CAST(truncate(CAST(", "__hogql_accurate_cast_value"),
+        # ClickHouse filters on any non-zero number, but a Trino filter clause must be a boolean.
+        ("SELECT user_id FROM users WHERE id % 2", 'WHERE CAST(MOD("users"."id", 2) AS BOOLEAN)', "WHERE MOD("),
+        (
+            "SELECT user_id FROM users PREWHERE length(user_id)",
+            'WHERE CAST(length("users"."user_id") AS BOOLEAN)',
+            "WHERE length(",
+        ),
+        (
+            "SELECT user_id FROM users GROUP BY user_id HAVING count()",
+            "HAVING CAST(count(*) AS BOOLEAN)",
+            "HAVING count(*)",
+        ),
+        (
+            "SELECT users.id FROM users JOIN users AS other ON position(other.user_id, users.user_id)",
+            'ON CAST(strpos("other"."user_id", "users"."user_id") AS BOOLEAN)',
+            "ON strpos(",
+        ),
+        (
+            "SELECT user_id FROM users QUALIFY row_number() OVER (PARTITION BY user_id ORDER BY id) - 1",
+            'WHERE CAST("__hogql_trino_source_0"."__hogql_qualify_0" AS BOOLEAN)',
+            'WHERE "__hogql_trino_source_0"',
+        ),
     ],
 )
 def test_lowers_clickhouse_semantics_trino_rejects(query: str, required: str, forbidden: str) -> None:

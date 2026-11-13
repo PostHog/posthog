@@ -400,18 +400,18 @@ class BasePrinter(Visitor[str]):
             if node.window_exprs
             else None
         )
-        prewhere = self.visit(node.prewhere) if node.prewhere else None
-        where = self.visit(where) if where else None
+        prewhere = self._visit_filter_condition(node.prewhere) if node.prewhere else None
+        where_sql = self._visit_filter_condition(where) if where else None
         group_by: list[str] | None = None
         if node.group_by:
             if node.group_by_mode == "grouping_sets":
                 group_by = [self.visit(gs) for gs in node.group_by]
             else:
                 group_by = [self.visit(column) for column in node.group_by]
-        having = self.visit(node.having) if node.having else None
+        having = self._visit_filter_condition(node.having) if node.having else None
         if node.qualify is not None:
             self._assert_qualify_supported()
-        qualify = self.visit(node.qualify) if node.qualify else None
+        qualify = self._visit_filter_condition(node.qualify) if node.qualify else None
         order_by = [self.visit(column) for column in node.order_by] if node.order_by else None
 
         array_join = ""
@@ -436,7 +436,7 @@ class BasePrinter(Visitor[str]):
             f"FROM{space}{space.join(joined_tables)}" if len(joined_tables) > 0 else None,
             array_join if array_join else None,
             f"PREWHERE{space}" + prewhere if prewhere else None,
-            f"WHERE{space}" + where if where else None,
+            f"WHERE{space}" + where_sql if where_sql else None,
             (
                 self._render_group_by_all_clause()
                 if node.group_by_mode == "all"
@@ -743,7 +743,11 @@ class BasePrinter(Visitor[str]):
         return JoinExprResponse(printed_sql=" ".join(join_strings), where=extra_where)
 
     def visit_join_constraint(self, node: ast.JoinConstraint):
-        return self.visit(node.expr)
+        return self._visit_filter_condition(node.expr)
+
+    def _visit_filter_condition(self, node: ast.Expr) -> str:
+        """Print a WHERE, PREWHERE, HAVING, QUALIFY or ON condition."""
+        return self.visit(node)
 
     def visit_arithmetic_operation(self, node: ast.ArithmeticOperation):
         if node.op == ast.ArithmeticOperationOp.Add:

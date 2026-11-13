@@ -1339,6 +1339,10 @@ class TrinoPrinter(PostgresPrinter):
         rendered = self.visit(node)
         return f"CAST({rendered} AS BOOLEAN)" if self._is_numeric(node) or self._is_dynamic_property(node) else rendered
 
+    def _visit_filter_condition(self, node: ast.Expr) -> str:
+        # ClickHouse keeps rows where the condition is any non-zero number, but Trino requires a boolean.
+        return self._visit_predicate(node)
+
     def visit_and(self, node: ast.And) -> str:
         return "(" + " AND ".join(f"({self._visit_predicate(expr)})" for expr in node.exprs) + ")"
 
