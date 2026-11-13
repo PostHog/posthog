@@ -41,6 +41,9 @@ export function isRollbackReasonRequiredError(
     return error?.status === 409 && error?.code === 'rollback_reason_required'
 }
 
+/** DRF code of the 400 `_ensure_oauth_token_valid` raises (posthog/api/integration.py). Keep in sync with the backend. */
+export const INTEGRATION_TOKEN_REFRESH_FAILED_ERROR_CODE = 'integration_token_refresh_failed'
+
 /** Potentially transient failures; a gateway error does not prove that the backend did no work. */
 const TRANSIENT_GATEWAY_STATUSES: ReadonlySet<number> = new Set([502, 503, 504])
 
@@ -188,6 +191,8 @@ export function isBrowserNetworkFailure(error: unknown): boolean {
  * - 409 carrying a `change_request_id` — the approvals UI shows the change request it created.
  * - 409 carrying a `current_version` — an optimistic-concurrency conflict (experiments). The
  *   editing surface toasts, reloads the fresh state, and keeps the user's unsaved edits.
+ * - 400 `integration_token_refresh_failed`: an OAuth integration needs reconnecting, and the
+ *   loader's toast tells the user to reconnect or disconnect it.
  * - 404 `Project not found.` / `Organization not found.` — the scope in the URL is gone, so every
  *   request under it fails the same way. The scene routing takes the user off that URL, and until
  *   it does, a poll on the dead scope would otherwise file one exception per tick.
@@ -245,6 +250,9 @@ export function shouldReportApiFailure(error: unknown): boolean {
         return false
     }
     if (isRollbackReasonRequiredError(failure)) {
+        return false
+    }
+    if (status === 400 && failure.code === INTEGRATION_TOKEN_REFRESH_FAILED_ERROR_CODE) {
         return false
     }
     return !isApprovalRequiredError(failure)

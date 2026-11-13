@@ -1120,6 +1120,8 @@ export const InboxOnboardingSetupModeEnumApi = {
  * * `helpscout` - Help Scout
  * * `decagon` - Decagon
  * * `vitally` - Vitally
+ * * `intercom_tickets` - Intercom tickets
+ * * `pylon` - Pylon
  * * `usersnap` - Usersnap
  * * `typeform` - Typeform
  * * `qualtrics` - Qualtrics
@@ -1134,6 +1136,21 @@ export const InboxOnboardingSetupModeEnumApi = {
  * * `azure_application_insights` - Azure Application Insights
  * * `appsignal` - AppSignal
  * * `cursor` - Cursor
+ * * `github_dependabot` - GitHub Dependabot
+ * * `github_code_scanning` - GitHub code scanning
+ * * `github_secret_scanning` - GitHub secret scanning
+ * * `beamer` - Beamer
+ * * `beamer_nps` - Beamer NPS
+ * * `chameleon` - Chameleon
+ * * `etsy` - Etsy
+ * * `featurebase_surveys` - Featurebase surveys
+ * * `g2` - G2
+ * * `gumroad` - Gumroad
+ * * `trustpilot_product_reviews` - Trustpilot product reviews
+ * * `uservoice_nps` - UserVoice NPS
+ * * `vitally_nps` - Vitally NPS
+ * * `woocommerce` - WooCommerce
+ * * `yotpo` - Yotpo
  */
 export type SignalSourceProductEnumApi = (typeof SignalSourceProductEnumApi)[keyof typeof SignalSourceProductEnumApi]
 
@@ -1237,6 +1254,8 @@ export const SignalSourceProductEnumApi = {
     Helpscout: 'helpscout',
     Decagon: 'decagon',
     Vitally: 'vitally',
+    IntercomTickets: 'intercom_tickets',
+    Pylon: 'pylon',
     Usersnap: 'usersnap',
     Typeform: 'typeform',
     Qualtrics: 'qualtrics',
@@ -1251,6 +1270,21 @@ export const SignalSourceProductEnumApi = {
     AzureApplicationInsights: 'azure_application_insights',
     Appsignal: 'appsignal',
     Cursor: 'cursor',
+    GithubDependabot: 'github_dependabot',
+    GithubCodeScanning: 'github_code_scanning',
+    GithubSecretScanning: 'github_secret_scanning',
+    Beamer: 'beamer',
+    BeamerNps: 'beamer_nps',
+    Chameleon: 'chameleon',
+    Etsy: 'etsy',
+    FeaturebaseSurveys: 'featurebase_surveys',
+    G2: 'g2',
+    Gumroad: 'gumroad',
+    TrustpilotProductReviews: 'trustpilot_product_reviews',
+    UservoiceNps: 'uservoice_nps',
+    VitallyNps: 'vitally_nps',
+    Woocommerce: 'woocommerce',
+    Yotpo: 'yotpo',
 } as const
 
 /**
@@ -1405,6 +1439,8 @@ export interface InboxOnboardingSourceApi {
      * * `helpscout` - Help Scout
      * * `decagon` - Decagon
      * * `vitally` - Vitally
+     * * `intercom_tickets` - Intercom tickets
+     * * `pylon` - Pylon
      * * `usersnap` - Usersnap
      * * `typeform` - Typeform
      * * `qualtrics` - Qualtrics
@@ -1418,7 +1454,22 @@ export interface InboxOnboardingSourceApi {
      * * `google_play_console` - Google Play Console
      * * `azure_application_insights` - Azure Application Insights
      * * `appsignal` - AppSignal
-     * * `cursor` - Cursor */
+     * * `cursor` - Cursor
+     * * `github_dependabot` - GitHub Dependabot
+     * * `github_code_scanning` - GitHub code scanning
+     * * `github_secret_scanning` - GitHub secret scanning
+     * * `beamer` - Beamer
+     * * `beamer_nps` - Beamer NPS
+     * * `chameleon` - Chameleon
+     * * `etsy` - Etsy
+     * * `featurebase_surveys` - Featurebase surveys
+     * * `g2` - G2
+     * * `gumroad` - Gumroad
+     * * `trustpilot_product_reviews` - Trustpilot product reviews
+     * * `uservoice_nps` - UserVoice NPS
+     * * `vitally_nps` - Vitally NPS
+     * * `woocommerce` - WooCommerce
+     * * `yotpo` - Yotpo */
     source_product: SignalSourceProductEnumApi
     /** Signal type selected during setup.
      *
@@ -1613,6 +1664,35 @@ export interface PauseResponseApi {
     /** The timestamp the pipeline is paused until. */
     paused_until: string
 }
+
+/**
+ * Your own stored personal ranking, for every sort and also with scope=teammate. Read on the first page only, and never starts a build. Null on later pages and when personal ranking is off for you.
+ * @nullable
+ */
+export type PaginatedSignalReportListListApiPersonalRankingStatus = {
+    /** real: the model personalized 2 or more reports, so the ranking can reorder the list. one_report: it personalized a single report. not_personalized: the build finished without personalizing. empty: the build had no reports to rank. fallback: the build kept the default order, see fallback_reason. none: no ranking is stored. */
+    state: 'real' | 'one_report' | 'not_personalized' | 'empty' | 'fallback' | 'none'
+    /**
+     * Reports in the stored ranking. Null when state is none.
+     * @nullable
+     */
+    size: number | null
+    /**
+     * Minutes since the ranking was built. Null when state is none.
+     * @nullable
+     */
+    age_minutes: number | null
+    /**
+     * Minutes since a build or the scheduled check last confirmed the ranking's inputs. Null when state is none.
+     * @nullable
+     */
+    checked_age_minutes: number | null
+    /**
+     * Why the build kept the default order, when state is fallback. Else null.
+     * @nullable
+     */
+    fallback_reason: string | null
+} | null | null
 
 export interface ReviewerStateApi {
     /**
@@ -2766,6 +2846,11 @@ export interface PaginatedSignalReportListListApi {
      * @nullable
      */
     ranking_id?: string | null
+    /**
+     * Your own stored personal ranking, for every sort and also with scope=teammate. Read on the first page only, and never starts a build. Null on later pages and when personal ranking is off for you.
+     * @nullable
+     */
+    personal_ranking_status?: PaginatedSignalReportListListApiPersonalRankingStatus
     /** True when `count` stopped at a cap, so it is a lower bound and `next` keeps paging past it. Only a search with a full page can cap the count. */
     count_is_capped?: boolean
     /**
@@ -4272,6 +4357,8 @@ export interface SignalReportLeaveReviewersApi {
  * * `helpscout` - helpscout
  * * `decagon` - decagon
  * * `vitally` - vitally
+ * * `intercom_tickets` - intercom_tickets
+ * * `pylon` - pylon
  * * `usersnap` - usersnap
  * * `typeform` - typeform
  * * `qualtrics` - qualtrics
@@ -4286,6 +4373,21 @@ export interface SignalReportLeaveReviewersApi {
  * * `azure_application_insights` - azure_application_insights
  * * `appsignal` - appsignal
  * * `cursor` - cursor
+ * * `github_dependabot` - github_dependabot
+ * * `github_code_scanning` - github_code_scanning
+ * * `github_secret_scanning` - github_secret_scanning
+ * * `beamer` - beamer
+ * * `beamer_nps` - beamer_nps
+ * * `chameleon` - chameleon
+ * * `etsy` - etsy
+ * * `featurebase_surveys` - featurebase_surveys
+ * * `g2` - g2
+ * * `gumroad` - gumroad
+ * * `trustpilot_product_reviews` - trustpilot_product_reviews
+ * * `uservoice_nps` - uservoice_nps
+ * * `vitally_nps` - vitally_nps
+ * * `woocommerce` - woocommerce
+ * * `yotpo` - yotpo
  */
 export type SignalSourceProductApi = (typeof SignalSourceProductApi)[keyof typeof SignalSourceProductApi]
 
@@ -4389,6 +4491,8 @@ export const SignalSourceProductApi = {
     Helpscout: 'helpscout',
     Decagon: 'decagon',
     Vitally: 'vitally',
+    IntercomTickets: 'intercom_tickets',
+    Pylon: 'pylon',
     Usersnap: 'usersnap',
     Typeform: 'typeform',
     Qualtrics: 'qualtrics',
@@ -4403,6 +4507,21 @@ export const SignalSourceProductApi = {
     AzureApplicationInsights: 'azure_application_insights',
     Appsignal: 'appsignal',
     Cursor: 'cursor',
+    GithubDependabot: 'github_dependabot',
+    GithubCodeScanning: 'github_code_scanning',
+    GithubSecretScanning: 'github_secret_scanning',
+    Beamer: 'beamer',
+    BeamerNps: 'beamer_nps',
+    Chameleon: 'chameleon',
+    Etsy: 'etsy',
+    FeaturebaseSurveys: 'featurebase_surveys',
+    G2: 'g2',
+    Gumroad: 'gumroad',
+    TrustpilotProductReviews: 'trustpilot_product_reviews',
+    UservoiceNps: 'uservoice_nps',
+    VitallyNps: 'vitally_nps',
+    Woocommerce: 'woocommerce',
+    Yotpo: 'yotpo',
 } as const
 
 /**
@@ -5228,6 +5347,22 @@ export interface VitallyConversationSignalExtraApi {
     created_at: string | null
 }
 
+export interface IntercomTicketsTicketSignalExtraApi {
+    ticket_id: string | null
+    category: string | null
+    ticket_state_category: string | null
+    ticket_type_name: string | null
+    created_at: string | null
+}
+
+export interface PylonTicketSignalExtraApi {
+    number: string | null
+    state: string | null
+    type: string | null
+    link: string | null
+    created_at: string | null
+}
+
 export interface PagerdutyIncidentSignalExtraApi {
     status: string | null
     urgency: string | null
@@ -5530,6 +5665,85 @@ export interface OkendoReviewSignalExtraApi {
     date_created: string | null
 }
 
+export interface BeamerFeedbackSignalExtraApi {
+    status: string | null
+    category: string | null
+    votes_count: string | null
+    comments_count: string | null
+    date: string | null
+    permalink: string | null
+}
+
+export interface BeamerNpsFeedbackSignalExtraApi {
+    score: string | null
+    date: string | null
+}
+
+export interface ChameleonFeedbackSignalExtraApi {
+    button_text: string | null
+    survey_id: string | null
+    created_at: string | null
+}
+
+export interface FeaturebaseSurveysFeedbackSignalExtraApi {
+    survey_id: string | null
+    created_at: string | null
+}
+
+export interface UservoiceNpsFeedbackSignalExtraApi {
+    rating: string | null
+    created_at: string | null
+}
+
+export interface VitallyNpsFeedbackSignalExtraApi {
+    score: string | null
+    nps_type: string | null
+    created_at: string | null
+}
+
+export interface EtsyReviewSignalExtraApi {
+    rating: string | null
+    listing_id: string | null
+    language: string | null
+    created_timestamp: string | null
+}
+
+export interface G2ReviewSignalExtraApi {
+    star_rating: string | null
+    product_name: string | null
+    url: string | null
+    submitted_at: string | null
+}
+
+export interface GumroadReviewSignalExtraApi {
+    rating: string | null
+    product_id: string | null
+    created_at: string | null
+}
+
+export interface TrustpilotProductReviewsReviewSignalExtraApi {
+    stars: string | null
+    language: string | null
+    state: string | null
+    product_name: string | null
+    created_at: string | null
+}
+
+export interface WoocommerceReviewSignalExtraApi {
+    rating: string | null
+    status: string | null
+    verified: string | null
+    product_id: string | null
+    date_created_gmt: string | null
+}
+
+export interface YotpoReviewSignalExtraApi {
+    score: string | null
+    sku: string | null
+    deleted: string | null
+    created_at: string | null
+}
+
 export interface AwsSecurityHubScannerFindingSignalExtraApi {
     severity_label: string | null
     compliance_status: string | null
@@ -5560,6 +5774,47 @@ export interface MicrosoftDefenderCloudAppsScannerFindingSignalExtraApi {
     severity_value: string | null
     resolution_status_value: string | null
     timestamp: string | null
+}
+
+export interface GithubDependabotScannerFindingSignalExtraApi {
+    number: string | null
+    state: string | null
+    severity: string | null
+    ghsa_id: string | null
+    cve_id: string | null
+    package_ecosystem: string | null
+    package_name: string | null
+    vulnerable_version_range: string | null
+    first_patched_version: string | null
+    manifest_path: string | null
+    dependency_scope: string | null
+    html_url: string | null
+    created_at: string | null
+    repository: string | null
+}
+
+export interface GithubCodeScanningScannerFindingSignalExtraApi {
+    number: string | null
+    state: string | null
+    rule_id: string | null
+    rule_severity: string | null
+    security_severity_level: string | null
+    tool_name: string | null
+    location_path: string | null
+    location_start_line: string | null
+    html_url: string | null
+    created_at: string | null
+    repository: string | null
+}
+
+export interface GithubSecretScanningScannerFindingSignalExtraApi {
+    number: string | null
+    state: string | null
+    secret_type: string | null
+    validity: string | null
+    html_url: string | null
+    created_at: string | null
+    repository: string | null
 }
 
 export type SignalExtraApi =
@@ -5636,6 +5891,8 @@ export type SignalExtraApi =
     | HelpscoutConversationSignalExtraApi
     | DecagonConversationSignalExtraApi
     | VitallyConversationSignalExtraApi
+    | IntercomTicketsTicketSignalExtraApi
+    | PylonTicketSignalExtraApi
     | PagerdutyIncidentSignalExtraApi
     | OpsgenieAlertSignalExtraApi
     | IncidentIoIncidentSignalExtraApi
@@ -5675,10 +5932,25 @@ export type SignalExtraApi =
     | GainsightPxFeedbackSignalExtraApi
     | TrustpilotReviewSignalExtraApi
     | OkendoReviewSignalExtraApi
+    | BeamerFeedbackSignalExtraApi
+    | BeamerNpsFeedbackSignalExtraApi
+    | ChameleonFeedbackSignalExtraApi
+    | FeaturebaseSurveysFeedbackSignalExtraApi
+    | UservoiceNpsFeedbackSignalExtraApi
+    | VitallyNpsFeedbackSignalExtraApi
+    | EtsyReviewSignalExtraApi
+    | G2ReviewSignalExtraApi
+    | GumroadReviewSignalExtraApi
+    | TrustpilotProductReviewsReviewSignalExtraApi
+    | WoocommerceReviewSignalExtraApi
+    | YotpoReviewSignalExtraApi
     | AwsSecurityHubScannerFindingSignalExtraApi
     | AwsGuarddutyScannerFindingSignalExtraApi
     | AwsInspectorScannerFindingSignalExtraApi
     | MicrosoftDefenderCloudAppsScannerFindingSignalExtraApi
+    | GithubDependabotScannerFindingSignalExtraApi
+    | GithubCodeScanningScannerFindingSignalExtraApi
+    | GithubSecretScanningScannerFindingSignalExtraApi
 
 export interface SpecificityMetadataApi {
     /** Title of the PR the specificity gate evaluated. */
@@ -5824,6 +6096,8 @@ export interface SignalNodeApi {
      * * `helpscout` - helpscout
      * * `decagon` - decagon
      * * `vitally` - vitally
+     * * `intercom_tickets` - intercom_tickets
+     * * `pylon` - pylon
      * * `usersnap` - usersnap
      * * `typeform` - typeform
      * * `qualtrics` - qualtrics
@@ -5837,7 +6111,22 @@ export interface SignalNodeApi {
      * * `google_play_console` - google_play_console
      * * `azure_application_insights` - azure_application_insights
      * * `appsignal` - appsignal
-     * * `cursor` - cursor */
+     * * `cursor` - cursor
+     * * `github_dependabot` - github_dependabot
+     * * `github_code_scanning` - github_code_scanning
+     * * `github_secret_scanning` - github_secret_scanning
+     * * `beamer` - beamer
+     * * `beamer_nps` - beamer_nps
+     * * `chameleon` - chameleon
+     * * `etsy` - etsy
+     * * `featurebase_surveys` - featurebase_surveys
+     * * `g2` - g2
+     * * `gumroad` - gumroad
+     * * `trustpilot_product_reviews` - trustpilot_product_reviews
+     * * `uservoice_nps` - uservoice_nps
+     * * `vitally_nps` - vitally_nps
+     * * `woocommerce` - woocommerce
+     * * `yotpo` - yotpo */
     source_product: SignalSourceProductApi
     /** Signal type within the source product.
      *
@@ -9888,6 +10177,69 @@ export interface ProjectProfileApi {
 }
 
 /**
+ * * `authored` - Authored
+ * * `edited` - Edited
+ */
+export type ReportInvolvementEnumApi = (typeof ReportInvolvementEnumApi)[keyof typeof ReportInvolvementEnumApi]
+
+export const ReportInvolvementEnumApi = {
+    Authored: 'authored',
+    Edited: 'edited',
+} as const
+
+/**
+ * * `inbox` - Inbox
+ * * `slack` - Slack
+ */
+export type DiscussionSourceEnumApi = (typeof DiscussionSourceEnumApi)[keyof typeof DiscussionSourceEnumApi]
+
+export const DiscussionSourceEnumApi = {
+    Inbox: 'inbox',
+    Slack: 'slack',
+} as const
+
+/**
+ * One discussion a person opened on a report your scout emitted or edited.
+ */
+export interface ScoutReportDiscussionApi {
+    /** The report the discussion is about. */
+    report_id: string
+    /** The report's title, truncated. */
+    report_title: string
+    /** `authored` when your scout emitted the report, `edited` when it only edited it.
+     *
+     * * `authored` - Authored
+     * * `edited` - Edited */
+    involvement: ReportInvolvementEnumApi
+    /** `inbox` when the discussion started from Ask AI in the inbox, `slack` when it started from a reply in the report's Slack thread.
+     *
+     * * `inbox` - Inbox
+     * * `slack` - Slack */
+    source: DiscussionSourceEnumApi
+    /** The discussion task. */
+    task_id: string
+    /** When the discussion started. */
+    created_at: string
+    /** When the discussion last changed, for example when a run wrote its summary. Rows sort by it, newest first. */
+    active_at: string
+    /**
+     * Status of the discussion's latest run, for example `in_progress` or `completed`. Null before it runs.
+     * @nullable
+     */
+    status: string | null
+    /**
+     * The latest run's summary of the conversation and its outcome. Null when no run has written one yet, or when the summary could have been written by someone who may not steer scouts on this project. For a `slack` discussion, other people in the public thread can shape the summary, so it is returned when the person who started the discussion may steer scouts.
+     * @nullable
+     */
+    task_summary: string | null
+    /**
+     * For a `slack` discussion, the message that started it, in the person's own words. Null when that person may not steer scouts on this project, or started a later Slack discussion on the same report. Always null for an `inbox` discussion, because a scout note carried its question.
+     * @nullable
+     */
+    question: string | null
+}
+
+/**
  * * `default` - Default
  * * `custom` - Custom
  */
@@ -12443,6 +12795,23 @@ export type SignalsScoutProjectProfileGetParams = {
      * When true, respond with the cache metadata and the `summary` envelope only, and omit `payload` entirely. Use it when you need the emit gate and the inbox counts but not the full inventory. The full profile runs to tens of kilobytes, which a client can truncate. Costs nothing extra: the profile is read or built the same way either way.
      */
     summary_only?: boolean
+}
+
+export type SignalsScoutReportDiscussionsListParams = {
+    /**
+     * Maximum rows to return, newest first. Defaults to 20.
+     * @minimum 1
+     * @maximum 50
+     */
+    limit?: number
+    /**
+     * Narrow to discussions on one report. Returns nothing for a report your scout never emitted or edited.
+     */
+    report_id?: string
+    /**
+     * Only discussions started or updated at or after this time, so a discussion that began earlier but concluded since is included. Defaults to 14 days ago. Pass the `completed_at` of your newest completed run to read only what changed since then.
+     */
+    since?: string
 }
 
 export type SignalsScoutRunsListParams = {

@@ -20,6 +20,7 @@ import type {
     DataQualityChecksOutputSchemaRetrieveParams,
     DataQualityChecksScheduleRetrieveParams,
     DataQualityChecksSubjectsListParams,
+    DataQualityFailingCheckCountApi,
     DataQualityMetricSubjectApi,
     DataQualityOutputSchemaApi,
     DataQualityRunRequestApi,
@@ -239,6 +240,23 @@ export const dataQualityChecksCheckTypesList = async (
     options?: RequestInit
 ): Promise<DataQualityCheckTypeApi[]> => {
     return apiMutator<DataQualityCheckTypeApi[]>(getDataQualityChecksCheckTypesListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getDataQualityChecksFailingCountRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_quality_checks/failing_count/`
+}
+
+/**
+ * How many enabled checks you can see last reported a failure, across the project.
+ */
+export const dataQualityChecksFailingCountRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<DataQualityFailingCheckCountApi> => {
+    return apiMutator<DataQualityFailingCheckCountApi>(getDataQualityChecksFailingCountRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })

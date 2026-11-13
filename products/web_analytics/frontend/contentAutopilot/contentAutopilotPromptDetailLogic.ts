@@ -785,17 +785,17 @@ export const contentAutopilotPromptDetailLogic = kea<contentAutopilotPromptDetai
             return router.values.location.pathname.endsWith(path) ? undefined : [path, router.values.searchParams]
         },
         closePromptDetail: () =>
-            values.promptId === null && router.values.location.pathname.includes('/web/content-autopilot/prompts/')
+            values.promptId === null && router.values.location.pathname.includes('/web/ai-visibility/prompts/')
                 ? [urls.webAnalyticsContentAutopilot(), router.values.searchParams]
                 : undefined,
     })),
     urlToAction(({ actions, values }) => ({
-        '/web/content-autopilot/prompts/:promptId': ({ promptId }) => {
+        '/web/ai-visibility/prompts/:promptId': ({ promptId }) => {
             if (promptId && promptId !== values.promptId) {
                 actions.openPromptDetail(promptId)
             }
         },
-        '/web/content-autopilot': () => {
+        '/web/ai-visibility': () => {
             if (values.promptId) {
                 actions.closePromptDetail()
             }

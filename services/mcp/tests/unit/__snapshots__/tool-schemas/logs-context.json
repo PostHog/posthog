@@ -1,0 +1,95 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "query": {
+            "description": "The context query.",
+            "properties": {
+                "after": {
+                    "description": "`next_cursor` of a previous call with the same anchor.",
+                    "type": "string"
+                },
+                "anchor": {
+                    "description": "Exactly one anchor: a log line, a trace, or an attribute value.",
+                    "properties": {
+                        "around": {
+                            "description": "ISO 8601 time hint. Required with `attribute`, used with `traceId` only when the trace has no spans.",
+                            "format": "date-time",
+                            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+                            "type": "string"
+                        },
+                        "attribute": {
+                            "description": "Follow every log with this attribute value.",
+                            "properties": {
+                                "key": {
+                                    "description": "Log attribute key, e.g. \"workflow_run_id\".",
+                                    "type": "string"
+                                },
+                                "value": {
+                                    "description": "Exact attribute value to follow.",
+                                    "type": "string"
+                                }
+                            },
+                            "required": ["key", "value"],
+                            "type": "object"
+                        },
+                        "logUuid": {
+                            "description": "uuid of one log line. Needs `timestamp`.",
+                            "type": "string"
+                        },
+                        "timestamp": {
+                            "description": "ISO 8601 timestamp of the `logUuid` log line.",
+                            "format": "date-time",
+                            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+                            "type": "string"
+                        },
+                        "traceId": {
+                            "description": "Trace id, 32 hex characters or base64.",
+                            "type": "string"
+                        }
+                    },
+                    "type": "object"
+                },
+                "include": {
+                    "description": "\"spans\" adds spans_summary for a trace anchor.",
+                    "items": {
+                        "description": "* `spans` - Spans",
+                        "enum": ["spans"],
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "limit": {
+                    "default": 100,
+                    "description": "Maximum timeline rows.",
+                    "maximum": 500,
+                    "minimum": 1,
+                    "type": "number"
+                },
+                "padding": {
+                    "description": "Time on each side of the anchor: \"30s\", \"5m\", \"1h\" (max 6h). Default 30s for a trace, 5m otherwise.",
+                    "type": "string"
+                },
+                "serviceNames": {
+                    "description": "Restrict the timeline to these services. Default: the trace's services, the log's service, or all.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "severityLevels": {
+                    "description": "Keep only these severities in the timeline.",
+                    "items": {
+                        "description": "* `trace` - trace\n* `debug` - debug\n* `info` - info\n* `warn` - warn\n* `error` - error\n* `fatal` - fatal",
+                        "enum": ["trace", "debug", "info", "warn", "error", "fatal"],
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["anchor"],
+            "type": "object"
+        }
+    },
+    "required": ["query"],
+    "type": "object"
+}

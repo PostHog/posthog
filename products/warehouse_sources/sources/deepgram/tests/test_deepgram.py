@@ -2,6 +2,7 @@ from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
+import time_machine
 from unittest.mock import patch
 
 from parameterized import parameterized
@@ -125,23 +126,67 @@ class TestRequestsPagination:
         assert 1 in child_pages
 
 
-class TestRequestsIncremental:
-    def test_start_filter_only_on_requests(self) -> None:
-        result = _driver().run(
-            "requests",
-            [
-                _response({"projects": [{"project_id": "p1"}]}),
-                _response({"requests": []}),
-            ],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
-        )
+NOW = datetime(2026, 6, 15, 12, 30, 45, 123456, tzinfo=UTC)
+
+
+class TestRequestsWindow:
+    @parameterized.expand(
+        [
+            # Deepgram answers 400 to a requests log range older than its 90-day retention, and the
+            # first sync has no cursor, so it must still send a bounded `start`.
+            ("full_sync_starts_inside_retention", False, None, "2026-03-18T12:30:45+00:00"),
+            ("incremental_without_cursor", True, None, "2026-03-18T12:30:45+00:00"),
+            ("recent_cursor_kept", True, datetime(2026, 6, 1, 8, 0, 0, 900, tzinfo=UTC), "2026-06-01T08:00:00+00:00"),
+            ("naive_cursor_read_as_utc", True, datetime(2026, 6, 1, 8, 0, 0), "2026-06-01T08:00:00+00:00"),
+            ("iso_string_cursor", True, "2026-06-01T08:00:00+00:00", "2026-06-01T08:00:00+00:00"),
+            ("cursor_past_retention_clamped", True, datetime(2025, 1, 1, tzinfo=UTC), "2026-03-18T12:30:45+00:00"),
+            ("future_cursor_capped_at_now", True, datetime(2027, 1, 1, tzinfo=UTC), "2026-06-15T12:30:45+00:00"),
+            ("cursor_ignored_on_full_sync", False, datetime(2026, 6, 1, tzinfo=UTC), "2026-03-18T12:30:45+00:00"),
+        ]
+    )
+    def test_requests_log_sends_bounded_window(
+        self, _name: str, use_incremental: bool, cursor: Any, expected_start: str
+    ) -> None:
+        with time_machine.travel(NOW, tick=False):
+            result = _driver().run(
+                "requests",
+                [
+                    _response({"projects": [{"project_id": "p1"}]}),
+                    _response({"requests": []}),
+                ],
+                should_use_incremental_field=use_incremental,
+                db_incremental_field_last_value=cursor,
+            )
 
         assert result.raised is None
-        assert result.requests[-1].param("start") == "2026-03-04T02:58:14+00:00"
+        assert result.requests[-1].param("start") == expected_start
+        assert result.requests[-1].param("end") == "2026-06-15T12:30:45+00:00"
         assert result.requests[-1].param("limit") == str(deepgram_mod.REQUESTS_PAGE_SIZE)
-        # The parent project enumeration carries no incremental filter.
+        # The parent project enumeration carries no window.
         assert result.requests[0].param("start") is None
+        assert result.requests[0].param("end") is None
+
+    def test_resumed_run_reuses_saved_window(self) -> None:
+        saved_window = {"start": "2026-03-10T00:00:00+00:00", "end": "2026-06-08T00:00:00+00:00"}
+        resume = DeepgramResumeConfig(
+            fanout_state={"completed": [], "current": "/projects/p1/requests", "child_state": {"page": 3}},
+            requests_window=saved_window,
+        )
+        with time_machine.travel(NOW, tick=False):
+            result = _driver().run(
+                "requests",
+                [
+                    _response({"projects": [{"project_id": "p1"}]}),
+                    _response({"requests": [{"request_id": "r1"}]}),
+                ],
+                resume_state=resume,
+            )
+
+        assert result.raised is None
+        assert result.requests[-1].param("start") == saved_window["start"]
+        assert result.requests[-1].param("end") == saved_window["end"]
+        assert result.requests[-1].param("page") == "3"
+        assert all(state.requests_window == saved_window for state in result.saved_states)
 
 
 class TestResume:

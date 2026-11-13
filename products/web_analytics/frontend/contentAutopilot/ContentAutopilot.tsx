@@ -19,16 +19,7 @@ import { ContentAutopilotRankings } from './ContentAutopilotRankings'
 import { ContentAutopilotSetup } from './ContentAutopilotSetup'
 import { ContentAutopilotSiteGate } from './ContentAutopilotSiteGate'
 
-export interface ContentAutopilotBotsTab {
-    active: boolean
-    open: () => void
-    close: () => void
-    content: JSX.Element
-}
-
-type AiVisibilityTab = ContentAutopilotWorkspaceTab | 'bots'
-
-export const ContentAutopilot = ({ bots }: { bots?: ContentAutopilotBotsTab }): JSX.Element => {
+export const ContentAutopilot = (): JSX.Element => {
     // Mounted here, so a prompt's own URL opens it whatever tab was last open.
     const { promptId } = useValues(contentAutopilotPromptDetailLogic)
     const {
@@ -72,16 +63,6 @@ export const ContentAutopilot = ({ bots }: { bots?: ContentAutopilotBotsTab }): 
             secondaryButton: { children: 'Keep drafting' },
         })
     }
-    const selectTab = (tab: AiVisibilityTab): void => {
-        if (tab === 'bots') {
-            bots?.open()
-            return
-        }
-        if (bots?.active) {
-            bots.close()
-        }
-        setWorkspaceTab(tab)
-    }
 
     return (
         <div className="flex flex-col gap-4">
@@ -111,7 +92,7 @@ export const ContentAutopilot = ({ bots }: { bots?: ContentAutopilotBotsTab }): 
                             type="secondary"
                             icon={<IconGear />}
                             active={workspaceTab === 'settings'}
-                            onClick={() => selectTab('settings')}
+                            onClick={() => setWorkspaceTab('settings')}
                             tooltip="Site settings"
                             aria-label="Site settings"
                             data-attr="content-autopilot-settings"
@@ -149,9 +130,9 @@ export const ContentAutopilot = ({ bots }: { bots?: ContentAutopilotBotsTab }): 
                             <ContentAutopilotSetup />
                         </div>
                     ) : (
-                        <LemonTabs<AiVisibilityTab>
-                            activeKey={bots?.active ? 'bots' : visibleTab}
-                            onChange={selectTab}
+                        <LemonTabs<ContentAutopilotWorkspaceTab>
+                            activeKey={visibleTab}
+                            onChange={setWorkspaceTab}
                             data-attr="content-autopilot-workspace-tabs"
                             rightSlot={
                                 activeRun && draftingEnabled ? (
@@ -188,7 +169,6 @@ export const ContentAutopilot = ({ bots }: { bots?: ContentAutopilotBotsTab }): 
                                     label: 'Keywords',
                                     content: <ContentAutopilotKeywords />,
                                 },
-                                bots ? { key: 'bots', label: 'Bots', content: bots.content } : null,
                                 draftingEnabled
                                     ? {
                                           key: 'opportunities',
