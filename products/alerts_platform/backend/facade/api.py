@@ -296,9 +296,13 @@ def enabled_native_configurations(
     firing_at: datetime | None = None,
     errored_at: datetime | None = None,
     owned_copies: bool = False,
+    copies_of: Collection[UUID] | None = None,
+    natives: bool = True,
 ) -> tuple[EnabledNativeConfiguration, ...]:
     """The enabled alerts of a kind with no source row in these teams, and with `owned_copies` also the
-    copies the platform owns, newest first. With
+    copies the platform owns, newest first. With `copies_of`, also the copies of those source rows,
+    whoever owns them now: a source that split its alerts on one read of `owned_copy_keys` lists each
+    alert once, even across a handover. Without `natives`, only copies. With
     `created_by_id`, only the ones that user created. With `source_config_key`, only the ones whose
     `source_config[key]` is one of `values`. With `limit`, at most that many. With `firing_at`, only
     the ones a reader sees firing then: a group fires, the last check succeeded, and no mute holds. With
@@ -313,6 +317,8 @@ def enabled_native_configurations(
         firing_at=firing_at,
         errored_at=errored_at,
         owned_copies=owned_copies,
+        copies_of=copies_of,
+        natives=natives,
     )
 
 
