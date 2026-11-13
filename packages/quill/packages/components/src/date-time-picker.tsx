@@ -237,8 +237,8 @@ export function DateTimePicker({
                 <div className={compact ? 'order-1' : 'order-1 lg:order-none'}>
                     {/* Inputs */}
                     {!compact && (
-                        <div className="hidden lg:flex justify-center items-center px-3 pt-3 pb-1">
-                            <div className="flex items-center gap-1.5">
+                        <div className="flex justify-center items-center px-3 pt-3 pb-1">
+                            <div className="flex flex-col lg:flex-row items-center gap-1.5">
                                 {onDateTimeSettings && (
                                     <Button
                                         size="icon-xs"
