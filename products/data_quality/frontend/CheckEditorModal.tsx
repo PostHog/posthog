@@ -52,7 +52,7 @@ export function CheckEditorModal(): JSX.Element {
     const awaitingSubject = openedWithoutSubject && !subject
     const checkTypesFailedEmpty = checkTypesError && !checkTypesLoading && !checkTypes.length
     const catalogFailed = !!checkSubjectsError && !checkSubjectsLoading
-    const { loadCheckTypes, loadCheckSubjects, requestClose, setCheckFormValues, setSubject, submitCheckForm } =
+    const { loadCheckTypes, loadCheckSubjects, requestClose, setCheckType, setSubject, submitCheckForm } =
         useActions(dataQualityCheckEditorLogic)
 
     return (
@@ -186,20 +186,7 @@ export function CheckEditorModal(): JSX.Element {
                                 </div>
                             ),
                         }))}
-                        onChange={(checkType) =>
-                            // The config fields belong to the type that was selected, so they can't carry over.
-                            setCheckFormValues({
-                                checkType,
-                                columnName: '',
-                                acceptedValues: [],
-                                toSubjectUuid: '',
-                                toColumn: '',
-                                rowCountMin: null,
-                                rowCountMax: null,
-                                maxAgeMinutes: null,
-                                customSql: '',
-                            })
-                        }
+                        onChange={setCheckType}
                     />
                 </LemonField>
 
