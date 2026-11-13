@@ -13,6 +13,7 @@ from requests.exceptions import HTTPError, ProxyError, RequestException
 from products.warehouse_sources.sources.mailchimp._config import MailchimpSourceConfig
 from products.warehouse_sources.sources.mailchimp.mailchimp import (
     EVENT_TABLE_APPEND_ERROR,
+    INVALID_API_KEY_FORMAT_ERROR,
     MAX_RETRY_ATTEMPTS,
     MailchimpResumeConfig,
     MailchimpRetryableError,
@@ -38,7 +39,7 @@ from products.warehouse_sources.sources.sdk.testing import (
 
 class TestExtractDataCenter:
     def test_invalid_key_raises(self):
-        with pytest.raises(ValueError, match="Invalid Mailchimp API key format"):
+        with pytest.raises(ValueError, match="valid Mailchimp API key"):
             extract_data_center("invalidkey")
 
     @pytest.mark.parametrize(
@@ -53,7 +54,7 @@ class TestExtractDataCenter:
         ],
     )
     def test_malicious_dc_values_raise(self, malicious_key):
-        with pytest.raises(ValueError, match="Invalid Mailchimp API key format"):
+        with pytest.raises(ValueError, match="valid Mailchimp API key"):
             extract_data_center(malicious_key)
 
 
@@ -65,9 +66,18 @@ class TestValidateCredentials:
         assert network.requests_log[0].path == "/3.0/ping"
 
     def test_invalid_api_key_format_is_surfaced(self):
-        valid, error = validate_credentials("invalidkey")
-        assert valid is False
-        assert error is not None and "Invalid Mailchimp API key format" in error
+        assert validate_credentials("invalidkey") == (False, INVALID_API_KEY_FORMAT_ERROR)
+
+    @pytest.mark.parametrize(
+        "pasted_key",
+        ["key-us6 ", "key-us6\n", "\tkey-us6\r\n"],
+    )
+    def test_source_accepts_a_key_pasted_with_surrounding_whitespace(self, pasted_key: str) -> None:
+        with scripted_network([ScriptedResponse(json={})]) as network:
+            result = MailchimpSource().validate_credentials(MailchimpSourceConfig(api_key=pasted_key), team_id=1)
+
+        assert result == (True, None)
+        assert network.requests_log[0].path == "/3.0/ping"
 
     @pytest.mark.parametrize(
         "exception",
@@ -718,6 +728,14 @@ class TestSourceResponseForNewEndpoints:
         assert result.rows == [{"campaign_id": "c1", "country_code": "US", "region": ""}]
         assert result.paths == ["/3.0/reports", "/3.0/reports/c1/locations"]
 
+    def test_sync_strips_whitespace_pasted_around_the_api_key(self) -> None:
+        driver = SourceDriver(MailchimpSource(), MailchimpSourceConfig(api_key="key-us6\n"))
+
+        result = driver.run("lists", [ScriptedResponse(json={"lists": [{"id": "l1"}], "total_items": 1})])
+
+        assert result.raised is None
+        assert result.rows == [{"id": "l1"}]
+
     @pytest.mark.parametrize(
         ("endpoint", "expected_primary_keys", "expected_partition_keys", "first_response"),
         [
@@ -749,12 +767,19 @@ class TestMailchimpRetryableErrors:
         [
             ("401", "401 Client Error: Unauthorized for url: https://us15.api.mailchimp.com/3.0/lists"),
             ("403", "403 Client Error: Forbidden for url: https://us15.api.mailchimp.com/3.0/lists"),
-            ("invalid_key_format", "Invalid Mailchimp API key format. Expected format: key-dc"),
+            ("invalid_key_format", INVALID_API_KEY_FORMAT_ERROR),
         ],
     )
     def test_non_retryable_errors_do_not_match(self, name: str, observed_error: str) -> None:
         retryable_errors = MailchimpSource().get_retryable_errors()
         assert not any(key in observed_error for key in retryable_errors), observed_error
+
+    def test_invalid_key_format_during_sync_is_non_retryable(self) -> None:
+        with pytest.raises(ValueError) as exc_info:
+            extract_data_center("invalidkey")
+
+        non_retryable_errors = MailchimpSource().get_non_retryable_errors()
+        assert any(key in str(exc_info.value) for key in non_retryable_errors)
 
     @pytest.mark.parametrize(
         ("name", "observed_error"),

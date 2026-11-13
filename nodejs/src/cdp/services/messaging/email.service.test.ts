@@ -6,6 +6,7 @@ import { KafkaConsumer, Message, Metadata, TopicPartitionOffset } from 'node-rdk
 import { randomUUID } from 'node:crypto'
 import { register } from 'prom-client'
 import supertest from 'supertest'
+import { v5 as uuidv5 } from 'uuid'
 
 import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
 import {
@@ -27,6 +28,7 @@ import { EMAIL_STATUS_OUTPUT } from '~/cdp/outputs/outputs'
 import {
     CdpProducerName,
     WAREHOUSE_PRODUCER,
+    WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER,
     WARPSTREAM_CYCLOTRON_PRODUCER,
     WARPSTREAM_INGESTION_PRODUCER,
 } from '~/cdp/outputs/producers'
@@ -53,6 +55,7 @@ import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { FakeSes as TrackingFakeSes } from '~/tests/helpers/fake-ses'
 import { ensureKafkaTopics } from '~/tests/helpers/kafka'
+import { pinDate } from '~/tests/helpers/pin-date'
 import { createRecordingIngestionOutputs } from '~/tests/helpers/recording-ingestion-outputs'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
 import { INVALID_TEAM_ID_KEYS } from '~/tests/helpers/team'
@@ -64,7 +67,7 @@ import { MAX_PENDING_EMAIL_REPORTS, WorkflowsActivationReporter } from '../monit
 import { RateLimiterService } from '../rate-limiter/rate-limiter.service'
 import { AttachmentStore } from './attachment-store'
 import { selectEmailSenderIntegrationId } from './email-sender-selection'
-import { EmailStatusService } from './email-status.service'
+import { EmailStatus, EmailStatusService } from './email-status.service'
 import { EmailSuppressionService, emailSuppressionConfigFromEnv } from './email-suppression.service'
 import {
     EmailService,
@@ -77,7 +80,7 @@ import {
 } from './email.service'
 import { MailDevAPI, mailDevWebUrl } from './helpers/maildev'
 import { SesWebhookHandler } from './helpers/ses'
-import { EmailTrackingCodeSigner } from './helpers/tracking-code'
+import { EmailTrackingCodeSigner, MESSAGE_CREATED_HEADER_NAME } from './helpers/tracking-code'
 import { InFlightRegistry } from './in-flight-registry'
 import { MessageAssetsService } from './message-assets.service'
 import { MESSAGE_MAX_BYTES } from './message-estimate'
@@ -347,6 +350,7 @@ describe('EmailService', () => {
         mockFetch.mockClear()
     })
     afterEach(async () => {
+        jest.useRealTimers()
         await analytics.close()
         await ses.close()
         await closeHub(hub)
@@ -2073,6 +2077,7 @@ describe('EmailService', () => {
                         new KafkaProducerRegistry<CdpProducerName>({
                             [WARPSTREAM_INGESTION_PRODUCER]: statusProducer,
                             [WARPSTREAM_CYCLOTRON_PRODUCER]: statusProducer,
+                            [WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER]: statusProducer,
                             [WAREHOUSE_PRODUCER]: statusProducer,
                         }),
                         cdpConfig
@@ -2489,7 +2494,8 @@ describe('EmailService', () => {
             })
         })
 
-        it.each([
+        type StatusCase = [string, string, boolean, () => void, EmailStatus | null, string | null]
+        const statusCases: StatusCase[] = [
             ['a transactional email that SES accepts', TRANSACTIONAL_EMAIL_EVENT, false, sesAccepts, 'sent', ''],
             [
                 'a transactional email that SES rejects',
@@ -2543,12 +2549,27 @@ describe('EmailService', () => {
             ['a workflow email that SES accepts', '$pageview', false, sesAccepts, null, null],
             ['a workflow email that SES rejects', '$pageview', false, sesRejects, null, null],
             ['a skipped workflow email', '$pageview', false, recipientSuppressed, null, null],
-        ])('records the status of %s', async (_name, triggerEvent, isTest, setup, status, reason) => {
+        ]
+        const statusTriggerTime = '2026-01-02T03:04:05.678Z'
+        const statusIdKinds: [string, string, string][] = [
+            ['a UUIDT id', new UUIDT(Date.UTC(2026, 0, 1, 12, 0, 0, 250)).toString(), '2026-01-01 12:00:00.250000'],
+            ['a keyed id', uuidv5('a-key', '6ba7b811-9dad-11d1-80b4-00c04fd430c8'), '2026-01-02 03:04:05.678000'],
+        ]
+
+        it.each(
+            statusCases.flatMap(([name, ...rest]) =>
+                statusIdKinds.map(
+                    ([kind, id, createdAt]) => [`${name}, under ${kind}`, ...rest, id, createdAt] as const
+                )
+            )
+        )('records the status of %s', async (_name, triggerEvent, isTest, setup, status, reason, id, createdAt) => {
+            pinDate(Date.parse(statusTriggerTime) + 60 * 60 * 1000)
             const kafka = createRecordingIngestionOutputs([EMAIL_STATUS_OUTPUT])
             const emailStatusService = new EmailStatusService(kafka.outputs, { EMAIL_STATUS_ENABLED: true })
             service['emailStatusService'] = emailStatusService
-            invocation.id = new UUIDT().toString()
+            invocation.id = id
             invocation.state.globals.event.event = triggerEvent
+            invocation.state.globals.event.timestamp = statusTriggerTime
             setup()
 
             await service.executeSendEmail(invocation, isTest)
@@ -2561,10 +2582,11 @@ describe('EmailService', () => {
                     ? [
                           expect.objectContaining({
                               team_id: team.id,
-                              message_id: invocation.id,
+                              message_id: id,
                               status,
                               reason,
                               sending_domain: sendingDomain,
+                              created_at: createdAt,
                           }),
                       ]
                     : []
@@ -3390,6 +3412,39 @@ describe('EmailService', () => {
             // 256-char tag-value limit even when distinct_id is long.
             expect(sent.tags.ph_id).toEqual(expect.any(String))
             expect(sent.tags.ph_id).not.toEqual(trackingCode)
+        })
+
+        it.each([
+            [
+                'carries the signed creation time of a keyed send',
+                uuidv5('a-key', '6ba7b811-9dad-11d1-80b4-00c04fd430c8'),
+                true,
+            ],
+            ['carries no creation time for a send whose id holds its time', undefined, false],
+        ])('%s, leaving the tracking code as long as before', async (_desc, keyedId, carriesTime) => {
+            invocation.hogFunction.metadata = { message_category_type: 'transactional' }
+            invocation.state.globals.event.event = TRANSACTIONAL_EMAIL_EVENT
+            invocation.state.globals.event.timestamp = '2026-01-02T03:04:05.678Z'
+            if (keyedId) {
+                invocation.id = keyedId
+            }
+
+            const result = await service.executeSendEmail(invocation)
+
+            expect(result.error).toBeUndefined()
+            const signer = new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL)
+            const headers = ses.sent[0].headers
+            expect(signer.verifyMessageCreatedHeaderValue(invocation.id, headers[MESSAGE_CREATED_HEADER_NAME])).toEqual(
+                carriesTime ? Date.UTC(2026, 0, 2, 3, 4, 5, 678) : undefined
+            )
+            expect(headers[MESSAGE_CREATED_HEADER_NAME] !== undefined).toBe(carriesTime)
+            // The tracking code keeps master's v2 layout, so its header grows by nothing and older pods still parse it.
+            const [payload] = headers['X-PostHog-Tracking-Code'].split('.')
+            expect(Buffer.from(payload, 'base64url').toString('utf8')).toMatch(/^v2:[^:]+:/)
+            expect(signer.parse(headers['X-PostHog-Tracking-Code'])).toMatchObject({
+                invocationId: invocation.id,
+                format: 'signed',
+            })
         })
 
         describe('per-send tracking gate (tracking_enabled)', () => {

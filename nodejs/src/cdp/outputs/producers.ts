@@ -24,8 +24,16 @@ export type WarehouseProducer = typeof WAREHOUSE_PRODUCER
 export const WARPSTREAM_CYCLOTRON_PRODUCER = 'WARPSTREAM_CYCLOTRON_PRODUCER' as const
 export type WarpstreamCyclotronProducer = typeof WARPSTREAM_CYCLOTRON_PRODUCER
 
+/** The intake topics' producer, on the Warpstream Cyclotron cluster, with message limits of its own. */
+export const WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER = 'WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER' as const
+export type WarpstreamCyclotronIntakeProducer = typeof WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER
+
 /** Producer names registered by the CDP deployments. */
-export type CdpProducerName = WarpstreamIngestionProducer | WarehouseProducer | WarpstreamCyclotronProducer
+export type CdpProducerName =
+    | WarpstreamIngestionProducer
+    | WarehouseProducer
+    | WarpstreamCyclotronProducer
+    | WarpstreamCyclotronIntakeProducer
 
 /** Cluster-named env var prefix mirroring the producer it configures. */
 export const WARPSTREAM_INGESTION_PRODUCER_CONFIG_MAP = {
@@ -241,5 +249,27 @@ export function getDefaultKafkaWarpstreamCyclotronProducerEnvConfig(): KafkaWarp
         KAFKA_WARPSTREAM_CYCLOTRON_PRODUCER_METADATA_MAX_AGE_MS: '',
         KAFKA_WARPSTREAM_CYCLOTRON_PRODUCER_RETRIES: '',
         KAFKA_WARPSTREAM_CYCLOTRON_PRODUCER_MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION: '',
+    }
+}
+
+// The cyclotron producer's connection settings, so the intake producer needs no deploy config of its own. Its two
+// limits stay separate because they would change every other output on that producer.
+export const WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER_CONFIG_MAP = {
+    ...WARPSTREAM_CYCLOTRON_PRODUCER_CONFIG_MAP,
+    'message.max.bytes': 'KAFKA_WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER_MESSAGE_MAX_BYTES',
+    'message.timeout.ms': 'KAFKA_WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER_MESSAGE_TIMEOUT_MS',
+} as const satisfies Partial<Record<AllowedConfigKey, string>>
+
+export type KafkaWarpstreamCyclotronIntakeProducerEnvConfig = {
+    KAFKA_WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER_MESSAGE_MAX_BYTES: string
+    KAFKA_WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER_MESSAGE_TIMEOUT_MS: string
+}
+
+export function getDefaultKafkaWarpstreamCyclotronIntakeProducerEnvConfig(): KafkaWarpstreamCyclotronIntakeProducerEnvConfig {
+    return {
+        // The intake topics' max.message.bytes, above the encoder's cap, so every message it accepts can be produced.
+        KAFKA_WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER_MESSAGE_MAX_BYTES: '2000000',
+        // The routes' ack deadline, so a run answered with a 503 stops retrying instead of landing minutes later.
+        KAFKA_WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER_MESSAGE_TIMEOUT_MS: '3000',
     }
 }

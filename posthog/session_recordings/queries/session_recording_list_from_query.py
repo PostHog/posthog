@@ -34,7 +34,10 @@ from posthog.session_recordings.queries.sub_queries.events_subquery import (
     ReplayFiltersEventsSubQuery,
     SessionIdMatchPlan,
 )
-from posthog.session_recordings.queries.sub_queries.group_key_resolver import GroupKeyLookupBudget
+from posthog.session_recordings.queries.sub_queries.group_key_resolver import (
+    GROUP_KEY_RESOLUTION_MAX_SECONDS,
+    GroupKeyLookupBudget,
+)
 from posthog.session_recordings.queries.sub_queries.person_ids_subquery import PersonsIdCompareOperation
 from posthog.session_recordings.queries.sub_queries.person_props_subquery import PersonsPropertiesSubQuery
 from posthog.session_recordings.queries.utils import (
@@ -173,6 +176,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         project_exposure_variant: bool = False,
         # For callers that read a short page as "no more matches", so a timeout must raise, not truncate.
         throw_on_timeout: bool = False,
+        group_key_resolution_seconds: int = GROUP_KEY_RESOLUTION_MAX_SECONDS,
         **_,
     ):
         self._user = user
@@ -185,7 +189,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         self._events_timestamp_floor = events_timestamp_floor
         self._resolve_group_properties = resolve_group_properties
         # One budget for every builder this listing makes, so its group filters share one lookup allowance.
-        self._group_key_budget = GroupKeyLookupBudget()
+        self._group_key_budget = GroupKeyLookupBudget(group_key_resolution_seconds)
         self.events_subqueries_sampled = False
         self._allow_combined_event_filters = allow_combined_event_filters
         self._event_match_plan: SessionIdMatchPlan | None = None
