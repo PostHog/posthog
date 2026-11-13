@@ -36,19 +36,12 @@ import { teamLogic } from 'scenes/teamLogic'
 import type { RawDateFilterProps } from './DateFilter'
 import { DateFilterExclusionsControl } from './DateFilterExclusionsControl'
 import { dateFilterLogic } from './dateFilterLogic'
-import { RelativeRangeInput, type RelativeRangeUnit } from './RelativeRangeInput'
-import { rollingDateRangeFilterLogic } from './rollingDateRangeFilterLogic'
+import { QuillRollingDateRangeRow } from './QuillRollingDateRangeRow'
+import type { RelativeRangeUnit } from './RelativeRangeInput'
 
 const ROLLING_VALUE = 'rolling'
 const DATE_TO_NOW_VALUE = 'date-to-now'
 const FIXED_RANGE_VALUE = 'fixed-range'
-
-// A menu treats typed keys as item navigation, which would steal them from the rolling range input
-function keepKeysInField(event: React.KeyboardEvent): void {
-    if (event.key !== 'Escape') {
-        event.stopPropagation()
-    }
-}
 
 export interface QuillDateFilterMenuProps extends Pick<
     RawDateFilterProps,
@@ -135,16 +128,6 @@ export const QuillDateFilterMenu = forwardRef<HTMLButtonElement, QuillDateFilter
         fixedRangeGranularity,
     } = useValues(logic)
     const { weekStartDay } = useValues(teamLogic)
-
-    const rollingLogic = rollingDateRangeFilterLogic({
-        pageKey: key,
-        dateFrom,
-        max,
-        inUse: isRollingDateRange,
-        onChange: (fromDate) => setDate(fromDate, '', true, explicitDate),
-    })
-    const { counter, dateOption, formattedDate, startOfDateRange } = useValues(rollingLogic)
-    const { setCounter, setDateOption, select } = useActions(rollingLogic)
 
     const [dateToNowWithTime, setDateToNowWithTime] = useState(dateFromHasTimePrecision)
     const triggerRef = useRef<HTMLButtonElement>(null)
@@ -251,31 +234,16 @@ export const QuillDateFilterMenu = forwardRef<HTMLButtonElement, QuillDateFilter
                                         {optionKey === CUSTOM_OPTION_KEY ? NO_OVERRIDE_RANGE_PLACEHOLDER : optionKey}
                                     </DropdownMenuRadioItem>
                                 ))}
-                                <div className="flex items-center gap-1">
-                                    <DropdownMenuRadioItem
-                                        value={ROLLING_VALUE}
-                                        className="w-auto shrink-0"
-                                        data-attr="rolling-date-range-filter"
-                                        onClick={select}
-                                        tooltip={makeLabel?.(formattedDate, startOfDateRange)}
-                                    >
-                                        In the last
-                                    </DropdownMenuRadioItem>
-                                    <div onKeyDown={keepKeysInField}>
-                                        <RelativeRangeInput
-                                            value={{ count: counter ?? 1, unit: dateOption as RelativeRangeUnit }}
-                                            onChange={({ count, unit }) => {
-                                                if (unit !== dateOption) {
-                                                    setDateOption(unit)
-                                                } else {
-                                                    setCounter(count)
-                                                }
-                                            }}
-                                            units={allowedRollingDateOptions}
-                                            max={max ?? undefined}
-                                        />
-                                    </div>
-                                </div>
+                                <QuillRollingDateRangeRow
+                                    pageKey={key}
+                                    value={ROLLING_VALUE}
+                                    dateFrom={dateFrom}
+                                    selected={isRollingDateRange}
+                                    max={max}
+                                    units={allowedRollingDateOptions}
+                                    onChange={(fromDate) => setDate(fromDate, '', true, explicitDate)}
+                                    makeLabel={makeLabel}
+                                />
                             </ScrollArea>
                             <DropdownMenuSeparator className="-mx-2 mt-0" />
                             <DropdownMenuRadioItem value={DATE_TO_NOW_VALUE} onClick={openDateToNow}>
@@ -334,6 +302,8 @@ export const QuillDateFilterMenu = forwardRef<HTMLButtonElement, QuillDateFilter
                                 ranges={[]}
                                 showHeader={false}
                                 showTime={fixedRangeWithTime}
+                                // The picker caps at today by default; the Lemon calendar it replaces allows future dates
+                                maxDate={dayjs().add(10, 'year').toDate()}
                                 weekStartsOn={weekStartsOn}
                                 value={{
                                     start: (rangeDateFrom ?? dayjs()).toDate(),
