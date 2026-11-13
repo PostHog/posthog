@@ -30,6 +30,8 @@ const guidanceRuleSchema = z.object({
         /** Call arguments that rule the call out when they are set, such as a target outside the project. */
         excludeArgs: z.array(z.string().min(1)).optional(),
         resultEmpty: z.boolean().optional(),
+        /** Matches a call whose result carried an agent notice from this source the session has not received yet. */
+        noticeSource: z.string().min(1).optional(),
         outcome: z.enum(['any', 'success', 'error']),
         presets: z.array(z.enum(scopePresets)).min(1),
     }),
