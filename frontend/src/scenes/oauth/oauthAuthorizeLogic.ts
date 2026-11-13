@@ -267,8 +267,8 @@ export interface oauthAuthorizeLogicActions {
         scopes: string[],
         access: OAuthGrantAccess | null
     ) => {
-        scopes: string[]
         access: OAuthGrantAccess | null
+        scopes: string[]
     }
     setIsMcpResource: (isMcpResource: boolean) => {
         isMcpResource: boolean
