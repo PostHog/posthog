@@ -952,6 +952,7 @@ class TestBuildPersonalRanking(BaseTest):
         message = self.create.call_args.kwargs["messages"][1]["content"]
         assert "# Recent inbox activity" not in message
         assert build.inbox_activity is None
+        assert build.input_parts is not None
         assert "inbox_activity" not in build.input_parts["parts"]
 
     def test_configured_pools_keep_their_order_and_names(self) -> None:
