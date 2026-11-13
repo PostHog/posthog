@@ -6,7 +6,9 @@ on:
             - '**/pnpm-lock.yaml'
             - '**/uv.lock'
             - '**/Cargo.lock'
+            - '**/go.mod'
             - .github/scripts/dependency_scan.py
+            - .github/scripts/post-dependency-scan-section.mjs
             - .github/workflows/dependency-scan.yml
 
 concurrency:
@@ -21,6 +23,8 @@ jobs:
         runs-on: ubuntu-24.04
         timeout-minutes: 20
         permissions: {}
+        outputs:
+            findings: ${{ steps.scan.outputs.findings }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
@@ -37,4 +41,34 @@ jobs:
                   enable-cache: false
 
             - name: Scan added and changed packages
+              id: scan
               run: python3 -I .github/scripts/dependency_scan.py
+
+    report:
+        name: Post the scan to the CI report
+        needs: scan
+        if: github.event.pull_request.head.repo.full_name == github.repository && !startsWith(github.head_ref, 'trunk-merge/')
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        permissions:
+            contents: read
+            pull-requests: write
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  persist-credentials: false
+                  sparse-checkout: |
+                      .github/scripts/post-dependency-scan-section.mjs
+                      frontend/bin/ci-report
+                      .nvmrc
+                  sparse-checkout-cone-mode: false
+
+            - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              with:
+                  node-version-file: .nvmrc
+
+            - name: Post the scan to the CI report
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
+                  FINDINGS: ${{ needs.scan.outputs.findings }}
+              run: node .github/scripts/post-dependency-scan-section.mjs

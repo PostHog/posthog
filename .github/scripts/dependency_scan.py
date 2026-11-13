@@ -21,7 +21,12 @@ NOT_SCANNED = "not_scanned"
 
 NPM_NAME = re.compile(r"(@[A-Za-z0-9][A-Za-z0-9._~-]*/)?[A-Za-z0-9][A-Za-z0-9._~-]*")
 PLAIN_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
+GO_MODULE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._~-]*(/[A-Za-z0-9][A-Za-z0-9._~-]*)*")
 VERSION = re.compile(r"[0-9][0-9A-Za-z.+!-]*")
+GO_VERSION = re.compile(r"v[0-9][0-9A-Za-z.+-]*")
+NAME_PATTERNS = {"npm": NPM_NAME, "pypi": PLAIN_NAME, "crates": PLAIN_NAME, "go": GO_MODULE}
+VERSION_PATTERNS = {"npm": VERSION, "pypi": VERSION, "crates": VERSION, "go": GO_VERSION}
+GO_REQUIREMENT = re.compile(r"^\s*(?:require\s+)?(\S+)\s+(v\S+)\s*(?://.*)?$")
 PNPM_PACKAGE_KEY = re.compile(r"^\s+'?([^'\s]+)@([^@'\s]+)'?:\s*$")
 PYPI_REGISTRY = "https://pypi.org/simple"
 CRATES_REGISTRY = "registry+https://github.com/rust-lang/crates.io-index"
@@ -30,11 +35,13 @@ EXCLUDED_RULES: dict[str, tuple[str, ...]] = {
     "npm": ("bundled_binary", "metadata_mismatch", "potentially_compromised_email_domain"),
     "pypi": ("bundled_binary", "repository_integrity_mismatch", "potentially_compromised_email_domain"),
     "crates": (),
+    "go": (),
 }
 SCANNER_SELF_CHECK = (
     ("npm", "is-stream", "3.0.0"),
     ("pypi", "idna", "3.10"),
     ("crates", "itoa", "1.0.15"),
+    ("go", "github.com/google/uuid", "v1.6.0"),
 )
 
 
@@ -50,8 +57,10 @@ class Package:
 
     @property
     def scannable(self) -> bool:
-        name_pattern = NPM_NAME if self.ecosystem == "npm" else PLAIN_NAME
-        return bool(name_pattern.fullmatch(self.name) and VERSION.fullmatch(self.version))
+        return bool(
+            NAME_PATTERNS[self.ecosystem].fullmatch(self.name)
+            and VERSION_PATTERNS[self.ecosystem].fullmatch(self.version)
+        )
 
 
 @dataclass(frozen=True)
@@ -89,10 +98,25 @@ def cargo_packages(lockfile: str) -> set[Package]:
     }
 
 
+def go_packages(manifest: str) -> set[Package]:
+    packages: set[Package] = set()
+    in_require_block = False
+    for line in manifest.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("require ("):
+            in_require_block = True
+        elif stripped == ")":
+            in_require_block = False
+        elif (in_require_block or stripped.startswith("require ")) and (match := GO_REQUIREMENT.match(line)):
+            packages.add(Package("go", match[1], match[2]))
+    return packages
+
+
 LOCKFILE_READERS: dict[str, Callable[[str], set[Package]]] = {
     "pnpm-lock.yaml": pnpm_packages,
     "uv.lock": uv_packages,
     "Cargo.lock": cargo_packages,
+    "go.mod": go_packages,
 }
 
 
@@ -177,6 +201,28 @@ def summary(findings: list[Finding], skipped: list[Package]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def findings_output(findings: list[Finding], skipped: list[Package]) -> str:
+    flagged = sorted(
+        (finding for finding in findings if finding.label != CLEAN_LABEL), key=lambda finding: -finding.score
+    )
+    return json.dumps(
+        {
+            "scanned": len(findings),
+            "skipped": len(skipped),
+            "flagged": [
+                {
+                    "ecosystem": finding.package.ecosystem,
+                    "package": finding.package.spec,
+                    "label": finding.label,
+                    "score": finding.score,
+                    "rules": list(finding.rules),
+                }
+                for finding in flagged
+            ],
+        }
+    )
+
+
 def main() -> int:
     base, head = os.environ.get("BASE_REF", "HEAD^1"), os.environ.get("HEAD_REF", "HEAD")
     added: set[Package] = set()
@@ -198,6 +244,9 @@ def main() -> int:
     if summary_path := os.environ.get("GITHUB_STEP_SUMMARY"):
         with open(summary_path, "a") as handle:
             handle.write(report)
+    if output_path := os.environ.get("GITHUB_OUTPUT"):
+        with open(output_path, "a") as handle:
+            handle.write(f"findings={findings_output(findings, skipped)}\n")
     scanner_is_broken = bool(findings) and all(finding.label == NOT_SCANNED for finding in findings)
     return 1 if scanner_is_broken else 0
 

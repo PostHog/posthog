@@ -97,6 +97,24 @@ source = "git+https://example.com/from-git.git#abc"
 """
 )
 
+GO_BASE = """module example.com/service
+
+go 1.24
+
+require (
+\texample.com/kept v1.0.0
+\texample.com/bumped v1.2.0 // indirect
+)
+
+replace example.com/kept => ../kept
+"""
+GO_HEAD = (
+    GO_BASE.replace("bumped v1.2.0", "bumped v1.3.0").replace(
+        "\texample.com/kept v1.0.0\n", "\texample.com/kept v1.0.0\n\texample.com/added/v2 v2.0.1\n"
+    )
+    + "\nrequire example.com/single v0.0.0-20260101000000-abcdefabcdef\n"
+)
+
 
 @pytest.mark.parametrize(
     "filename,base,head,expected",
@@ -114,6 +132,16 @@ source = "git+https://example.com/from-git.git#abc"
         ("pnpm-lock.yaml", "", PNPM_BASE, {("npm", "@scope/kept", "1.0.0"), ("npm", "left-pad", "1.3.0")}),
         ("uv.lock", UV_BASE, UV_HEAD, {("pypi", "bumped", "2.1.0")}),
         ("Cargo.lock", CARGO_BASE, CARGO_HEAD, {("crates", "added", "0.4.2")}),
+        (
+            "go.mod",
+            GO_BASE,
+            GO_HEAD,
+            {
+                ("go", "example.com/bumped", "v1.3.0"),
+                ("go", "example.com/added/v2", "v2.0.1"),
+                ("go", "example.com/single", "v0.0.0-20260101000000-abcdefabcdef"),
+            },
+        ),
     ],
 )
 def test_added_packages_are_the_registry_releases_new_to_the_head_lockfile(filename, base, head, expected):
@@ -129,6 +157,9 @@ def test_added_packages_are_the_registry_releases_new_to_the_head_lockfile(filen
         ("npm", "JSONStream", "1.3.5", True),
         ("pypi", "typing-extensions", "4.12.2.post1", True),
         ("crates", "serde_json", "1.0.0+build.1", True),
+        ("go", "golang.org/x/net", "v0.48.0", True),
+        ("go", "example.com/-flag/module", "v1.0.0", False),
+        ("go", "example.com/module", "1.0.0", False),
         ("npm", "tarball-dep", "https://example.com/tarball-dep.tgz", False),
         ("npm", "--no-sandbox", "1.0.0", False),
         ("pypi", "name", "--no-sandbox", False),
