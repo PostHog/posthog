@@ -43,14 +43,14 @@ Each run is stored as a `ReviewRun` row with its evidence bundle.
 Runs are listed in the Stamphog runs page in the PostHog app (`/stamphog/runs`), and the same data is available through the stamphog API and its MCP tools (review runs, repo configs, digest runs).
 Retrieving one run also returns the reviewer's reasoning, the same text stamphog posts on GitHub.
 
-A project member can also ask for a review directly, by creating a review run (`POST review_runs/`, or the `stamphog-review-runs-create` MCP tool), and then poll the run for its verdict.
+A project member can also ask for a review directly, by creating a review run (`POST code_review/approvals/runs/`, or the `code-review-approvals-runs-create` MCP tool), and then poll the run for its verdict.
 The request replaces the trigger label, so it works in label mode.
 Every other rule still applies: drafts, closed PRs, bot-authored PRs, PRs from outside the repository, and PRs whose author lacks write access are refused.
 
 A repository can also let a clean PostHog Review run start a review, with the `review_on_clean_external_review` switch on the repo config API (off by default, `manager` level to change, reset when a placeholder row binds).
 The switch only makes sense in label mode, and only in a repository where PostHog Review runs automatic reviews when a PR opens or is marked ready.
 The API refuses it in `all` mode, because every PR gets a visible review there already, and a save that sets `review_mode` to `all` turns it off.
-Agents change it, and the other repo settings, with the `stamphog-repo-configs-update` MCP tool (`PATCH repo_configs/{id}/`). For reviewers only when stamphog does not approve, turn the switch on before setting `routing_mode` to `fallback`.
+Agents change it, and the other repo settings, with the `code-review-approvals-repositories-update` MCP tool (`PATCH code_review/approvals/repositories/{id}/`). For reviewers only when stamphog does not approve, turn the switch on before setting `routing_mode` to `fallback`.
 Such a run is silent: it has the `reviewhog_clean` trigger, and only an approval reaches the PR.
 Any other verdict, and a failure, is stored on the run and nothing is written to GitHub: no review, no label change, no failure notice, no 👀.
 A stored verdict that was not posted has an empty `verdict_posted_at`.
@@ -68,7 +68,7 @@ The `stamphog_review_timings` event marks a reused verdict with `stamphog_verdic
 
 1. Install the Stamphog GitHub App on your GitHub organization.
 2. Open Stamphog in the PostHog app and connect GitHub. The callback records the repositories you can reach with your own GitHub account. It adds none of them yet.
-3. Add each repository you want reviewed from the **Add a repository** search (`POST repo_configs/add_repository`). Adding a repository turns its reviews on in label-triggered mode. The search lists the repositories you can add, from `GET repo_configs/available_repositories`.
+3. Add each repository you want reviewed from the **Add a repository** search (`POST code_review/approvals/repositories/add_repository`). Adding a repository turns its reviews on in label-triggered mode. The search lists the repositories you can add, from `GET repo_configs/available_repositories`.
 4. Expand the repository's row to change the **review mode**: "Label-triggered" (the default) reviews only PRs carrying the trigger label, "All PRs" reviews every pull request. Set the trigger label name next to the mode.
 5. Turn on **Include in the digest** if you want the daily Slack digest of merged PRs. The project needs a connected Slack integration first, or the digest run stops silently before posting.
 
@@ -77,7 +77,7 @@ Each member who connects adds the repositories they can reach, and connecting ag
 Repositories removed from the installation on GitHub leave the list on their own.
 A repository added to the installation later shows up after a member connects again, because only a member's own GitHub account can prove they can reach it.
 
-Adding a repository, turning reviews back on, and the digest toggle need the `editor` level on the `stamphog` resource.
+Adding a repository, turning reviews back on, and the digest toggle need the `editor` level on the `code_review_approval` resource.
 Turning reviews off, removing a repository, and changing the review mode or trigger label need `manager`.
 So an editor can turn reviews back on for a repository a manager paused.
 New repositories start in label-triggered mode, so an editor can turn reviews on without a manager, and widening them to every PR stays a manager decision.
@@ -217,8 +217,8 @@ A comment names the cut owners and why.
 `routing_fork_labels` maps a team slug to a label name. On a fork PR, a kept team with an entry gets that label instead of a review request, so an outside author cannot ping it.
 
 `routing_mode` is set under "Reviewer requests" in the repository's row on the Stamphog page, or with `routing_mode` on the repo config API. Both directions take the `manager` level, like `review_mode`. A placeholder row resets it to `off` when it binds to an installation, like the other review policy fields.
-The page offers the setting only when the default branch has a root `owners.yaml` (`GET repo_configs/{id}/owners_file/`, at most one GitHub call per repository every 10 minutes, at a priority the egress limiter can shed), and keeps it in view while it is on, so it can be turned off.
-Set `routing_fork_labels` with `routing_fork_labels` on the repo config API, for example `PATCH repo_configs/{id}/` with `{"routing_fork_labels": {"team-alpha": "team/alpha"}}`. The value replaces the whole map, and `{}` removes every label. It takes the `manager` level like `routing_mode`, because it decides who gets asked on a fork PR, and a placeholder row resets it to `{}` when it binds.
+The page offers the setting only when the default branch has a root `owners.yaml` (`GET code_review/approvals/repositories/{id}/owners_file/`, at most one GitHub call per repository every 10 minutes, at a priority the egress limiter can shed), and keeps it in view while it is on, so it can be turned off.
+Set `routing_fork_labels` with `routing_fork_labels` on the repo config API, for example `PATCH code_review/approvals/repositories/{id}/` with `{"routing_fork_labels": {"team-alpha": "team/alpha"}}`. The value replaces the whole map, and `{}` removes every label. It takes the `manager` level like `routing_mode`, because it decides who gets asked on a fork PR, and a placeholder row resets it to `{}` when it binds.
 
 Routing only adds review requests, so a second assigner that requests every owner leaves the cut nothing to remove.
 In PostHog/posthog, `.github/workflows/auto-assign-reviewers.yml` stops when the repository variable `AUTO_ASSIGN_REVIEWERS_PAUSED` is `true`.
@@ -227,15 +227,15 @@ Turn routing on first, then set the variable. To roll back, delete the variable 
 The latest result is stored on `PullRequest.routing` with its mode, trigger (`opened`, `ready_for_review`, `verdict:<outcome>`, `external_review`, `approval_retracted` or `safety_net`), scope (`full` or `pinned`) and status (`waiting`, `routing`, `requested` or `done`).
 `full_routed_head`, `pinned_routed_head` (with their `_at` times) and `requested_owners` carry over to every later record, so the PR-level rules hold across pushes.
 Routing never writes `payload_updated_at` or the descriptive fields of the row, so it cannot make the review path drop a delivery as stale.
-`GET pull_requests/` and `stamphog-pull-requests-list` return an allowlist of that record as `routing` (status, head, mode, trigger, scope, timestamps, the routed heads, and `claim_expired`), next to the repository's `routing_mode` now. The plan, the pins and the pending comment stay internal.
+`GET code_review/approvals/pull_requests/` and `code-review-approvals-pull-requests-list` return an allowlist of that record as `routing` (status, head, mode, trigger, scope, timestamps, the routed heads, and `claim_expired`), next to the repository's `routing_mode` now. The plan, the pins and the pending comment stay internal.
 
 Each run that makes its requests is also recorded, append-only, in `RoutingRun` with one `RoutingRunOwner` row per owner: what the run did with the owner (`outcome`), why (`reason`), the model's one-line reason when it proposed a cut, also when a guard kept the owner, and every changed file the owner owns, without patches.
 owners.yaml and the pull request both change after the run, so the run keeps its own copy of the file list, and `owners_sha` names the default-branch commit whose owners.yaml files decided the owners.
 Each file also keeps `owners_source`, the ownership file whose `owners` list named the owner for it. An owner that only an additions declaration made a candidate has none, because additions collect from every file on the walk.
 The plan decides each owner's outcome and reason. The rows are written after the `requested` record is saved, so a failed log write only logs and never makes the task request again.
-Read them with `GET routing_runs/` (filters `repository`, `pr_number`, `owner`, `outcome`, `reason`, `head_sha`, `created_after`, `created_before`) or the `stamphog-routing-runs-list` MCP tool.
+Read them with `GET code_review/approvals/reviewer_routing/` (filters `repository`, `pr_number`, `owner`, `outcome`, `reason`, `head_sha`, `created_after`, `created_before`) or the `code-review-approvals-reviewer-routing-list` MCP tool.
 `outcome` and `reason` match the same owner as `owner`, so `owner=team-devex&outcome=cut` lists the runs that cut team-devex.
-The list leaves out the file lists, because a large pull request gives every owner a long one. `GET routing_runs/{id}/` and `stamphog-routing-runs-get` return them. The model call carries `stamphog_routing_run_id`, `stamphog_repo` and `stamphog_pr_number`, which link a run to its LLM trace.
+The list leaves out the file lists, because a large pull request gives every owner a long one. `GET code_review/approvals/reviewer_routing/{id}/` and `code-review-approvals-reviewer-routing-get` return them. The model call carries `stamphog_routing_run_id`, `stamphog_repo` and `stamphog_pr_number`, which link a run to its LLM trace.
 
 Every routing run (event, verdict or safety net) takes the same steps:
 
