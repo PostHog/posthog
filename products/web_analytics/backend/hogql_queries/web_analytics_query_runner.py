@@ -98,6 +98,9 @@ SESSION_ID_SET_MAX_MATCHING_SESSIONS = 10_000_000
 # kill switch live in the flag UI. The allowlist stays as the flag-independent base.
 SESSION_ID_SET_FEATURE_FLAG_KEY = "web-analytics-session-id-set"
 
+# Turns on the sessionFilterGlobalJoin modifier for a team. A modifier set on the query itself wins.
+SESSION_FILTER_GLOBAL_JOIN_FEATURE_FLAG_KEY = "web-analytics-session-filter-global-join"
+
 # Property filter types that resolve only to PostHog's built-in tables: events, sessions, persons,
 # elements and the cohort membership tables. A person property joined in from the warehouse has its
 # own type, `data_warehouse_person_property`, so a plain person filter never reads the warehouse.
@@ -135,6 +138,23 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
     def __init__(self, *args: Any, bypass_warehouse_access_control: bool = False, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
         self.bypass_warehouse_access_control = bypass_warehouse_access_control
+
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        # Runs again after dashboard filters are applied, which can add or remove a session filter.
+        if not hasattr(self, "_session_filter_global_join_requested"):
+            self._session_filter_global_join_requested = self.modifiers.sessionFilterGlobalJoin
+        if self._session_filter_global_join_requested is not None:
+            return
+        has_session_filter = any(
+            getattr(prop, "type", None) == "session" for prop in getattr(self.query, "properties", None) or []
+        )
+        enabled = has_session_filter and evaluate_team_rollout_flag(
+            self.team,
+            SESSION_FILTER_GLOBAL_JOIN_FEATURE_FLAG_KEY,
+            "web_analytics_session_filter_global_join_flag_failed",
+        )
+        self.modifiers.sessionFilterGlobalJoin = True if enabled else None
 
     def record_lazy_precompute_computed_at(self, computed_at: datetime) -> None:
         if self.lazy_precompute_computed_at is None or computed_at < self.lazy_precompute_computed_at:
