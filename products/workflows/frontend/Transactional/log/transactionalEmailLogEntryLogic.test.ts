@@ -59,7 +59,8 @@ describe('transactionalEmailLogEntryLogic', () => {
             get: {
                 [`${LOG}:id/`]: ({ params }) =>
                     serve('detail', () => (sends[params.id as string] ? [200, sends[params.id as string]] : [404, {}])),
-                [`${LOG}:id/activity/`]: () => serve('activity', () => [200, ACTIVITY]),
+                [`${LOG}:id/activity/`]: ({ params }) =>
+                    serve('activity', () => (sends[params.id as string] ? [200, ACTIVITY] : [404, {}])),
                 [LOG]: ({ request }) => {
                     otherEmailsSearch = new URL(request.url).searchParams.get('search')
                     return serve('others', () => [200, { has_more: false, results: OTHERS }])
