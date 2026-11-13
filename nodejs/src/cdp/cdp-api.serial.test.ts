@@ -2183,20 +2183,31 @@ describe('CDP API', () => {
             expect(hogflowQueue.queued).toEqual([])
         })
 
-        it('refuses a batch larger than one queue insert and queues nothing', async () => {
-            const hogflowQueue = createInMemoryJobQueue()
-            api['hogflowQueue'] = hogflowQueue
+        it.each([100, 20])(
+            'refuses a batch larger than one queue insert of %i runs and queues nothing',
+            async (insertBatchSize) => {
+                const hogflowQueue = createInMemoryJobQueue()
+                api['hogflowQueue'] = hogflowQueue
+                const defaultInsertBatchSize = hub.CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE
+                hub.CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE = insertBatchSize
+                try {
+                    const res = await supertest(app)
+                        .post('/api/hog_flows/scheduled_invocations')
+                        .set({ Authorization: `Bearer ${mintScheduledRunsToken([team.id])}` })
+                        .send({
+                            runs: Array.from({ length: insertBatchSize + 1 }, () => ({
+                                team_id: team.id,
+                                hog_flow_id: scheduleHogFlow.id,
+                            })),
+                        })
 
-            const res = await supertest(app)
-                .post('/api/hog_flows/scheduled_invocations')
-                .set({ Authorization: `Bearer ${mintScheduledRunsToken([team.id])}` })
-                .send({
-                    runs: Array.from({ length: 101 }, () => ({ team_id: team.id, hog_flow_id: scheduleHogFlow.id })),
-                })
-
-            expect(res.status).toEqual(400)
-            expect(hogflowQueue.queued).toEqual([])
-        })
+                    expect(res.status).toEqual(400)
+                    expect(hogflowQueue.queued).toEqual([])
+                } finally {
+                    hub.CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE = defaultInsertBatchSize
+                }
+            }
+        )
     })
 
     describe('hogflow in-flight count', () => {
