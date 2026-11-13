@@ -5,7 +5,7 @@ from typing import Any
 from urllib.parse import urlparse
 from uuid import uuid4
 
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_person, flush_persons_and_events
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase, override_settings
@@ -50,8 +50,10 @@ from products.messaging.backend.tests.fake_sendgrid import (
     FakeSendGridState,
     _Handler,
 )
+from products.messaging.backend.tests.people_import_recorder import PeopleImportRecorder
 
-ALL_STEPS = [spec.key for spec in SendGridImportProvider.steps]
+# Contact steps write people, so they have their own tests with ClickHouse.
+ALL_STEPS = [spec.key for spec in SendGridImportProvider.steps if spec.key not in ("contacts", "new_people")]
 RENDERS = json.loads((Path(__file__).parent / "fixtures" / "sendgrid_template_renders.json").read_text())
 _CLIENT = "products.messaging.backend.services.sendgrid_client"
 
@@ -535,15 +537,72 @@ class TestSendGridImport(BaseTest):
     def test_next_page_links_never_receive_the_key(self) -> None:
         self.state.next_url_host = "https://evil.example.com"
         self.state.account["lists"] = [{"id": str(i), "name": f"L{i}", "contact_count": 0} for i in range(1500)]
-        with patch(f"{_CLIENT}.requests.get", wraps=requests.get) as get:
+        with patch(f"{_CLIENT}.requests.request", wraps=requests.request) as request:
             self._run(["lists"])
 
-        hosts = {urlparse(call.args[0]).hostname for call in get.call_args_list}
+        hosts = {urlparse(call.args[1]).hostname for call in request.call_args_list}
         assert hosts == {"127.0.0.1"}
         assert [r["query"].get("page_token") for r in self.state.requests if r["path"] == "/v3/marketing/lists"] == [
             None,
             "1000",
         ]
+
+
+class TestSendGridContacts(ClickhouseTestMixin, BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.state = FakeSendGridState()
+        server = FakeSendGridServer(self.state, "global")
+        server.start()
+        self.addCleanup(server.shutdown)
+        settings_override = override_settings(MESSAGING_SENDGRID_API_URL=server.url)
+        settings_override.enable()
+        self.addCleanup(settings_override.disable)
+        patches: list[tuple[str, dict[str, Any]]] = [
+            (f"{_CLIENT}.time.sleep", {}),
+            ("products.messaging.backend.provider_imports.sendgrid.time.sleep", {}),
+            (f"{_CLIENT}.REQUESTS_PER_SECOND", {"new": 100000}),
+            ("products.messaging.backend.provider_imports.runs.start_provider_import_workflow", {}),
+        ]
+        for target, kwargs in patches:
+            patcher = patch(target, **kwargs)
+            self.addCleanup(patcher.stop)
+            patcher.start()
+        self.people = PeopleImportRecorder(self)
+
+    def test_contacts_come_from_exports_and_fill_a_cohort_per_list(self) -> None:
+        _create_person(team=self.team, distinct_ids=["user-tess"], properties={"email": "tester@example.com"})
+        flush_persons_and_events()
+
+        run = runs.start_run(self.team.id, "sendgrid", ["contacts", "new_people"], FULL_KEY, self.user.id)
+        for step in run.steps:
+            runs.run_step(self.team.id, run.id, step, attempt=1)
+        runs.finish_run(self.team.id, run.id)
+        run.refresh_from_db()
+
+        assert run.status == "completed"
+        assert self.people.imports == [
+            ("send SendGrid contacts", ["reader@example.com", "user-tess", "nolist@example.com"]),
+            ("fill Newsletter (from SendGrid)", ["reader@example.com", "user-tess"]),
+            ("fill Bêta testeurs (from SendGrid)", ["user-tess"]),
+        ]
+        # An empty column is left out, so it can't wipe a name the person already has.
+        assert self.people.properties["user-tess"] == {"email": "Tester@Example.com", "first_name": "Tess"}
+        assert run.progress["contacts"]["counts"] == {
+            "people": 3,
+            "new_people": 2,
+            "skipped_new_people": 0,
+            "dropped": 0,
+        }
+        exports = [r["body"] for r in self.state.requests if r.get("method") == "POST"]
+        assert exports == [
+            {"file_type": "csv"},
+            {"list_ids": ["11111111-0000-4000-8000-000000000001"], "file_type": "csv"},
+            {"list_ids": ["11111111-0000-4000-8000-000000000002"], "file_type": "csv"},
+        ]
+        downloads = [r for r in self.state.requests if r["path"].startswith("/__exports/")]
+        assert len(downloads) == 3
+        assert all(not r["authorization"] for r in downloads)
 
 
 class TestSendGridTemplateConversion(SimpleTestCase):

@@ -5,7 +5,10 @@ keeps it until it ends. SendGrid documents only stats for its automations, so th
 people. A send to any address reads the blocking rules this import fills, so PostHog doesn't need them.
 """
 
+import io
+import csv
 import json
+import time
 import hashlib
 from bisect import bisect_right
 from collections import Counter
@@ -14,6 +17,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from functools import partial
 from typing import Any
+from urllib.parse import quote
 
 from django.utils import timezone
 
@@ -34,11 +38,20 @@ from products.messaging.backend.provider_imports.base import (
     ImportPage,
     ImportProvider,
     ImportProviderUnavailable,
+    ImportStepError,
     ImportStepSpec,
     ImportTooLarge,
     SavedPage,
     StepCheckpoint,
     UnknownImportStep,
+)
+from products.messaging.backend.provider_imports.contacts import (
+    CONTACT_COUNT_LABELS,
+    ContactList,
+    contact_row,
+    new_people_page,
+    new_people_step,
+    save_contact_lists,
 )
 from products.messaging.backend.provider_imports.emails import exact_email, normalized_email
 from products.messaging.backend.provider_imports.liquid_text import literal_liquid
@@ -63,6 +76,7 @@ from products.messaging.backend.services.sendgrid_client import (
     SendGridScopeMissing,
     connect,
 )
+from products.workflows.backend.facade.people_import import MAX_SOURCE_NAME_LENGTH
 
 CREDENTIAL_CHECK_TIMEOUT_SECONDS = 10
 MISSING_KEY_MESSAGE = "Enter your SendGrid API key. PostHog doesn't keep it between imports."
@@ -77,6 +91,9 @@ IMPORT_TAG = "imported-from-sendgrid"
 MAIL_FROM_DEFAULT = "feedback"
 OPT_OUT_PAGE_SIZE = 500
 MAX_SAMPLE_DATA_LENGTH = 2000
+EXPORT_POLL_SECONDS = 5
+# SendGrid prepares most exports within a minute.
+EXPORT_TIMEOUT_SECONDS = 30 * 60
 
 # A step's scopes, as SendGrid enforces them. A tuple means any one of them is enough. SendGrid refuses the suppression
 # lists and group members to a key with only the per-list scopes its docs name, so these need suppression.read. Verified
@@ -92,6 +109,7 @@ STEP_SCOPES: dict[str, tuple[tuple[str, ...], ...]] = {
     # A Single Send built from a design reads that design.
     "single_sends": (("marketing.read",), ("design_library.read",)),
     "lists": (("marketing.read",),),
+    "contacts": (("marketing.read",),),
     "domains": (("whitelabel.read",),),
 }
 SUPPRESSION_LISTS: tuple[tuple[str, str, SuppressionSource, str], ...] = (
@@ -213,11 +231,22 @@ class SendGridImportProvider(ImportProvider):
             key="lists",
             label="Contact lists",
             description=(
-                "Lists your contact lists and how many people are on them, so you know what to rebuild. Contacts don't "
-                "become people in PostHog. Needs marketing.read, which SendGrid also lets write to your marketing data."
+                "Lists your contact lists and how many people are on them. Needs marketing.read, which SendGrid also "
+                "lets write to your marketing data."
             ),
             count_labels=(("lists", "Lists"), ("contacts", "Contacts in your account")),
         ),
+        ImportStepSpec(
+            key="contacts",
+            label="Contacts",
+            description=(
+                "Matches each contact to a person in PostHog by email and sets their first and last name. Fills a "
+                "cohort with all your contacts and one with each list's contacts. Each person updated counts as one "
+                "event. Needs marketing.read."
+            ),
+            count_labels=CONTACT_COUNT_LABELS,
+        ),
+        new_people_step("SendGrid"),
         ImportStepSpec(
             key="senders",
             label="Verified senders",
@@ -279,6 +308,10 @@ class SendGridImportProvider(ImportProvider):
                     yield from _fetch_single_sends(client, context, resume, fingerprint)
                 case "lists":
                     yield from _fetch_lists(client, context)
+                case "contacts":
+                    yield from _fetch_contacts(client, context)
+                case "new_people":
+                    yield ImportPage(processed=0, save=new_people_page)
                 case "senders":
                     yield from _fetch_senders(client, context, resume, fingerprint)
                 case "domains":
@@ -915,11 +948,77 @@ def _save_lists(lists: list[dict[str, Any]], contacts: int) -> SavedPage:
                 label=str(row.get("name") or row.get("id")),
                 status="listed",
                 url="/cohorts",
-                notes=(f"{row.get('contact_count') or 0} contacts. Rebuild this list as a cohort of your users.",),
+                notes=(f"{row.get('contact_count') or 0} contacts. Import Contacts to fill a cohort with them.",),
             )
             for row in lists
         ),
     )
+
+
+def _fetch_contacts(client: SendGridClient, context: ImportContext) -> Iterator[ImportPage]:
+    # SendGrid only hands over a whole list as an export, so every list's cohort fills in one go after all are read.
+    lists = [row for page in client.token_pages("/v3/marketing/lists", None, 1000) for row in page.data]
+    everyone = _exported_rows(client, {})
+    contact_lists = []
+    for row in lists:
+        if not isinstance(row, dict) or not row.get("id"):
+            continue
+        list_id = str(row["id"])
+        name = str(row.get("name") or list_id)
+        contact_lists.append(
+            ContactList(
+                cohort_name=f"{name[:MAX_SOURCE_NAME_LENGTH]} (from SendGrid)",
+                cohort_description=f"Imported from SendGrid list {list_id}.",
+                source=f'the SendGrid list "{name}"',
+                rows=_exported_rows(client, {"list_ids": [list_id]}),
+            )
+        )
+    yield ImportPage(
+        processed=len(everyone),
+        save=partial(
+            save_contact_lists,
+            context,
+            ContactList(
+                cohort_name="SendGrid contacts",
+                cohort_description="Imported from SendGrid contacts.",
+                source="your SendGrid contacts",
+                rows=everyone,
+            ),
+            contact_lists,
+        ),
+    )
+
+
+def _exported_rows(client: SendGridClient, export: dict[str, Any]) -> tuple[dict[str, str], ...]:
+    started = client.post("/v3/marketing/contacts/exports", {**export, "file_type": "csv"})
+    export_id = started.get("id") if isinstance(started, dict) else None
+    if not isinstance(export_id, str) or not export_id:
+        raise SendGridAPIError("SendGrid didn't start the contact export.")
+    deadline = time.monotonic() + EXPORT_TIMEOUT_SECONDS
+    while True:
+        status = client.get(f"/v3/marketing/contacts/exports/{quote(export_id)}")
+        state = status.get("status") if isinstance(status, dict) else None
+        if state == "ready":
+            break
+        if state == "failure":
+            raise ImportStepError(f"SendGrid couldn't export your contacts: {str(status.get('message'))[:200]}")
+        if time.monotonic() > deadline:
+            raise ImportProviderUnavailable("SendGrid took too long to export your contacts. Import again later.")
+        time.sleep(EXPORT_POLL_SECONDS)
+    urls = status.get("urls")
+    if not isinstance(urls, list):
+        raise SendGridAPIError("SendGrid sent an export without download links.")
+    rows: list[dict[str, str]] = []
+    for url in urls:
+        text = client.download(str(url)).decode("utf-8-sig", errors="replace")
+        for record in csv.DictReader(io.StringIO(text)):
+            fields = {str(key).strip().lower(): value for key, value in record.items() if key}
+            row = contact_row(
+                fields.get("email"), {"first_name": fields.get("first_name"), "last_name": fields.get("last_name")}
+            )
+            if row:
+                rows.append(row)
+    return tuple(rows)
 
 
 def _fetch_senders(

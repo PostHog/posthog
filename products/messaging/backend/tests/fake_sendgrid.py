@@ -5,10 +5,14 @@ MESSAGING_SENDGRID_API_URL and MESSAGING_SENDGRID_EU_API_URL at it:
 
     python products/messaging/backend/tests/fake_sendgrid.py --port 8791 --eu-port 8792
 
-`POST /__control` sets failures and rate limits, and `GET /__requests` returns what it received.
+`POST /__control` sets failures and rate limits, and `GET /__requests` returns what it received. A contact export is
+pending on its first status check and ready on the next, and its file is served without the key, as S3 would.
 """
 
+import io
 import re
+import csv
+import gzip
 import json
 import time
 import argparse
@@ -78,6 +82,7 @@ class FakeSendGridState:
             **{key: [] for key in ("templates", "designs", "single_sends", "lists", "verified_senders", "domains")},
             "group_suppressions": {},
             "contact_count": {"contact_count": 0, "billable_count": 0},
+            "contacts": [],
         }
         self.empty_account: dict[str, Any] = deepcopy(self.second_account)
         self.requests: list[dict[str, Any]] = []
@@ -89,6 +94,8 @@ class FakeSendGridState:
         self.rate_limits: dict[str, tuple[int, int]] = {}
         self._windows: dict[str, tuple[float, int]] = {}
         self.next_url_host = "https://api.sendgrid.com"
+        # Export id -> (contacts it holds, status checks so far).
+        self.exports: dict[str, tuple[list[dict[str, Any]], int]] = {}
         self.lock = threading.Lock()
 
     def account_for(self, key: str) -> dict[str, Any]:
@@ -117,6 +124,8 @@ class _Handler(BaseHTTPRequestHandler):
         pass
 
     def do_POST(self) -> None:
+        if self.path == "/v3/marketing/contacts/exports":
+            return self._start_export()
         if self.path != "/__control":
             return self._send(404, {"errors": [{"message": "not found"}]})
         body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
@@ -139,12 +148,101 @@ class _Handler(BaseHTTPRequestHandler):
                 )
         self._send(200, {"ok": True})
 
+    def _start_export(self) -> None:
+        body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
+        state = self.server.state
+        authorization = self.headers.get("Authorization", "")
+        with state.lock:
+            state.requests.append(
+                {
+                    "region": self.server.region,
+                    "method": "POST",
+                    "path": self.path,
+                    "query": {},
+                    "body": body,
+                    "accept": self.headers.get("Accept"),
+                    "authorization": authorization,
+                }
+            )
+            status = self._forced_status(self.path)
+        if status:
+            return self._send(status, {"errors": [{"field": None, "message": "injected"}]})
+        key = authorization.removeprefix("Bearer ")
+        if key not in _SCOPES_BY_KEY or (self.server.region == "eu") != (key == EU_KEY):
+            return self._send(401, {"errors": [{"field": None, "message": "authorization required"}]})
+        if "marketing.read" not in _SCOPES_BY_KEY[key]:
+            return self._send(403, {"errors": [{"field": None, "message": "access forbidden"}]})
+        list_ids = body.get("list_ids") or []
+        contacts = [
+            contact
+            for contact in state.account_for(key)["contacts"]
+            if not list_ids or set(list_ids) & set(contact["list_ids"])
+        ]
+        with state.lock:
+            export_id = f"export-{len(state.exports) + 1}"
+            state.exports[export_id] = (contacts, 0)
+        self._send(202, {"id": export_id, "_metadata": {"self": f"https://api.sendgrid.com{self.path}/{export_id}"}})
+
+    def _export_status(self, export_id: str) -> tuple[int, Any, dict[str, str]]:
+        state = self.server.state
+        if export_id not in state.exports:
+            return 404, {"errors": [{"message": "not found"}]}, {}
+        contacts, checks = state.exports[export_id]
+        state.exports[export_id] = (contacts, checks + 1)
+        if checks == 0:
+            return 200, {"id": export_id, "status": "pending"}, {}
+        return (
+            200,
+            {
+                "id": export_id,
+                "status": "ready",
+                "urls": [f"{self.server.url}/__exports/{export_id}.csv.gz"],
+                "contact_count": len(contacts),
+            },
+            {},
+        )
+
+    def _send_export_file(self, export_id: str) -> None:
+        contacts, _ = self.server.state.exports[export_id]
+        rows = io.StringIO()
+        # Real exports name their columns in capitals and add the account's other fields.
+        writer = csv.DictWriter(rows, fieldnames=["EMAIL", "FIRST_NAME", "LAST_NAME", "CITY", "CONTACT_ID"])
+        writer.writeheader()
+        for contact in contacts:
+            writer.writerow(
+                {
+                    "EMAIL": contact["email"],
+                    "FIRST_NAME": contact["first_name"],
+                    "LAST_NAME": contact["last_name"],
+                    "CITY": "",
+                    "CONTACT_ID": contact["id"],
+                }
+            )
+        payload = gzip.compress(rows.getvalue().encode())
+        self.send_response(200)
+        self.send_header("Content-Type", "application/gzip")
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
+
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
         state = self.server.state
         if parsed.path == "/__requests":
             with state.lock:
                 return self._send(200, state.requests)
+        if match := re.fullmatch(r"/__exports/([^/]+)\.csv\.gz", parsed.path):
+            with state.lock:
+                state.requests.append(
+                    {
+                        "region": self.server.region,
+                        "path": parsed.path,
+                        "query": {},
+                        "accept": None,
+                        "authorization": self.headers.get("Authorization", ""),
+                    }
+                )
+            return self._send_export_file(match.group(1))
         query = {key: values[-1] for key, values in parse_qs(parsed.query).items()}
         authorization = self.headers.get("Authorization", "")
         with state.lock:
@@ -212,6 +310,9 @@ class _Handler(BaseHTTPRequestHandler):
             return self._one(account["single_sends"], match.group(1))
         if path == "/v3/marketing/lists":
             return self._token_list(account["lists"], query, path, 1000)
+        if match := re.fullmatch(r"/v3/marketing/contacts/exports/([^/]+)", path):
+            with self.server.state.lock:
+                return self._export_status(match.group(1))
         if path == "/v3/marketing/contacts/count":
             return 200, account["contact_count"], {}
         if path == "/v3/verified_senders":

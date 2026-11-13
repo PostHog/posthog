@@ -6,6 +6,7 @@ this honors SendGrid's rate limit headers here rather than going through `postho
 
 import json
 import time
+import zlib
 from collections.abc import Iterator
 from typing import Any
 from urllib.parse import parse_qs, urlparse
@@ -31,6 +32,11 @@ RELATIVE_RESET_LIMIT_SECONDS = 86_400
 DEFAULT_TIMEOUT_SECONDS = 30
 MAX_RESPONSE_BYTES = 100 * 1024 * 1024
 RESPONSE_CHUNK_BYTES = 1024 * 1024
+# A contact export holds a few hundred bytes per contact, so this fits a few hundred thousand contacts.
+MAX_DOWNLOAD_BYTES = 200 * 1024 * 1024
+DOWNLOAD_CHUNK_BYTES = 1024 * 1024
+DOWNLOAD_TOO_LARGE_MESSAGE = "SendGrid's contact export is too large to import in one go."
+GZIP_MAGIC = b"\x1f\x8b"
 USER_AGENT = "posthog-messaging-import/1.0"
 
 
@@ -124,15 +130,48 @@ class SendGridClient:
             token = next_token
 
     def get(self, path: str, params: dict[str, Any] | None = None) -> Any:
+        return self._request("GET", path, params=params)
+
+    def post(self, path: str, body: dict[str, Any]) -> Any:
+        """Only for calls that start a read, such as a contact export. The import never changes the account."""
+        return self._request("POST", path, body=body)
+
+    def download(self, url: str) -> bytes:
+        """A file SendGrid links to, such as a contact export on S3. The key never goes with it, and a gzipped file
+        comes back unpacked."""
+        parsed = urlparse(url)
+        # SendGrid's links are https. The same host as the API is allowed too, for a local stand-in of SendGrid.
+        if parsed.scheme != "https" and not url.startswith(f"{self._base_url}/"):
+            raise SendGridAPIError("SendGrid sent a download link PostHog won't follow.")
+        try:
+            with requests.get(url, timeout=self._timeout, allow_redirects=False, stream=True) as response:
+                if not response.ok:
+                    raise SendGridAPIError(f"SendGrid's file returned HTTP {response.status_code}.")
+                content = _read_capped(response.iter_content(DOWNLOAD_CHUNK_BYTES))
+        except requests.RequestException as e:
+            raise SendGridAPIError(f"Couldn't download SendGrid's file ({type(e).__name__}).") from None
+        if not content.startswith(GZIP_MAGIC):
+            return content
+        unpacker = zlib.decompressobj(wbits=zlib.MAX_WBITS | 16)
+        unpacked = unpacker.decompress(content, MAX_DOWNLOAD_BYTES + 1)
+        if len(unpacked) > MAX_DOWNLOAD_BYTES or unpacker.unconsumed_tail:
+            raise SendGridAPIError(DOWNLOAD_TOO_LARGE_MESSAGE)
+        return unpacked
+
+    def _request(
+        self, method: str, path: str, params: dict[str, Any] | None = None, body: dict[str, Any] | None = None
+    ) -> Any:
         waits = 0
         # A client that doesn't wait out a rate limit, like the key check, doesn't retry either.
         retries_left = MAX_TRANSIENT_RETRIES if self._max_rate_limit_waits else 0
         while True:
             self._pace()
             try:
-                response = requests.get(
+                response = requests.request(
+                    method,
                     f"{self._base_url}{path}",
                     params=params,
+                    json=body,
                     headers={
                         "Authorization": f"Bearer {self._api_key}",
                         "Accept": "application/json",
@@ -197,6 +236,15 @@ def connect(
     except SendGridKeyRejected:
         eu_client = SendGridClient(api_key, settings.MESSAGING_SENDGRID_EU_API_URL, timeout, max_rate_limit_waits)
         return eu_client, eu_client.scopes()
+
+
+def _read_capped(chunks: Iterator[bytes]) -> bytes:
+    content = bytearray()
+    for chunk in chunks:
+        content += chunk
+        if len(content) > MAX_DOWNLOAD_BYTES:
+            raise SendGridAPIError(DOWNLOAD_TOO_LARGE_MESSAGE)
+    return bytes(content)
 
 
 def _next_page_token(body: dict[str, Any]) -> str | None:

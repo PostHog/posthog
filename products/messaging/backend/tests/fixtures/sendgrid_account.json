@@ -160,5 +160,10 @@
   "domains": [
     {"id": 1, "user_id": 9, "subdomain": "em1234", "domain": "example.com", "username": "acme", "ips": [], "custom_spf": false, "default": true, "legacy": false, "automatic_security": true, "valid": true, "dns": {"mail_cname": {"valid": true, "type": "cname", "host": "em1234.example.com", "data": "u1.wl.sendgrid.net"}, "dkim1": {"valid": true, "type": "cname", "host": "s1._domainkey.example.com", "data": "s1.domainkey.u1.wl.sendgrid.net"}, "dkim2": {"valid": true, "type": "cname", "host": "s2._domainkey.example.com", "data": "s2.domainkey.u1.wl.sendgrid.net"}}},
     {"id": 2, "user_id": 9, "subdomain": "feedback", "domain": "mail.example.org", "username": "acme", "ips": [], "custom_spf": true, "default": false, "legacy": false, "automatic_security": false, "valid": false, "dns": {"mail_server": {"valid": false, "type": "mx", "host": "feedback.mail.example.org", "data": "mx.sendgrid.net"}, "subdomain_spf": {"valid": false, "type": "txt", "host": "feedback.mail.example.org", "data": "v=spf1 include:sendgrid.net ~all"}}}
+  ],
+  "contacts": [
+    {"id": "5c000000-0000-4000-8000-000000000001", "email": "reader@example.com", "first_name": "Rea", "last_name": "Der", "list_ids": ["11111111-0000-4000-8000-000000000001"]},
+    {"id": "5c000000-0000-4000-8000-000000000002", "email": "Tester@Example.com", "first_name": "Tess", "last_name": "", "list_ids": ["11111111-0000-4000-8000-000000000001", "11111111-0000-4000-8000-000000000002"]},
+    {"id": "5c000000-0000-4000-8000-000000000003", "email": "nolist@example.com", "first_name": "", "last_name": "", "list_ids": []}
   ]
 }
