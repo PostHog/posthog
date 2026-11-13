@@ -39,7 +39,6 @@ import { DashboardQuerySharingDebug } from 'products/dashboards/frontend/Dashboa
 import { DashboardRetentionBanner } from 'products/dashboards/frontend/DashboardRetentionBanner'
 import { dashboardSubscribeNudgeLogic } from 'products/dashboards/frontend/dashboardSubscribeNudgeLogic'
 import { DashboardWarehouseSyncBanner } from 'products/dashboards/frontend/DashboardWarehouseSyncBanner'
-import { dashboardWidthLogic } from 'products/dashboards/frontend/dashboardWidthLogic'
 import { EmptyDashboardComponent } from 'products/dashboards/frontend/EmptyDashboardComponent'
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 import { SubscriptionSummaries } from 'products/subscriptions/frontend/components/SubscriptionSummaries/SubscriptionSummaries'
@@ -163,9 +162,6 @@ function DashboardScene({
     const { id: dashboardId } = useMountedLogic(dashboardLogic).props
     useMountedLogic(dashboardPerformanceLogic({ dashboardId, placement }))
     const { currentTeamId } = useValues(teamLogic)
-    const { fullWidth } = useValues(dashboardWidthLogic)
-    const constrainWidth =
-        !fullWidth && placement === DashboardPlacement.Dashboard && dashboardMode !== DashboardMode.Fullscreen
     const { reportDashboardViewed, cancelDashboardRefresh, retryDashboardLoad } = useActions(dashboardLogic)
     const { addInsightToDashboardModalVisible } = useValues(addInsightToDashboardLogic)
     const { hideAddInsightToDashboardModal } = useActions(addInsightToDashboardLogic)
@@ -215,7 +211,10 @@ function DashboardScene({
     }
 
     return (
-        <SceneContent className={cn('dashboard', compact && 'gap-y-2', constrainWidth && 'dashboard--constrained')}>
+        <SceneContent
+            className={cn('dashboard', compact && 'gap-y-2')}
+            fullWidth={dashboardMode === DashboardMode.Fullscreen}
+        >
             {placement == DashboardPlacement.Dashboard && (
                 <DashboardHeader
                     loading={!dashboard && !dashboardFailedToLoad}

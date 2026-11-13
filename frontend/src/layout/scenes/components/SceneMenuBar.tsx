@@ -1,7 +1,17 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
-import { Children, ComponentProps, ReactNode, useContext, useEffect } from 'react'
+import {
+    Children,
+    ComponentProps,
+    ReactNode,
+    createContext,
+    useCallback,
+    useContext,
+    useEffect,
+    useLayoutEffect,
+    useState,
+} from 'react'
 import { createPortal } from 'react-dom'
 
 import { IconExternal, IconGear, IconSidePanel, IconSparkles } from '@posthog/icons'
@@ -34,6 +44,7 @@ import { sceneLogic } from 'scenes/sceneLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
+import { sceneWidthLogic } from '~/layout/scenes/sceneWidthLogic'
 import { todayShellLogic } from '~/layout/today/todayShellLogic'
 import { SidePanelTab } from '~/types'
 
@@ -60,6 +71,9 @@ function captureSceneMenuBar(event: string, properties: Record<string, unknown> 
  */
 const PADDED_LAYOUTS = new Set(['app', 'app-container', 'app-full-scene-height'])
 
+// A scene's own View menu registers here, so the bar adds "Full width" to it instead of rendering a second View menu.
+const SceneViewMenuRegistrationContext = createContext<(() => () => void) | null>(null)
+
 type SceneMenuBarProps = {
     children?: ReactNode
     className?: string
@@ -74,6 +88,12 @@ export function SceneMenuBar({ children, className }: SceneMenuBarProps): JSX.El
     // Under the Today layout the menus sit in the title row after the scene name. A scene without a title keeps the bar.
     const slot = todayRailEnabled ? titleSlot : null
     useFillSceneMenuBarSlot(!!slot)
+
+    const [sceneViewMenuCount, setSceneViewMenuCount] = useState(0)
+    const registerSceneViewMenu = useCallback(() => {
+        setSceneViewMenuCount((count) => count + 1)
+        return () => setSceneViewMenuCount((count) => count - 1)
+    }, [])
 
     // A skipped product empty state parks its "isn't receiving data yet" reminder here so it
     // sits just below the bar. Null for every other scene, so nothing extra renders.
@@ -112,7 +132,14 @@ export function SceneMenuBar({ children, className }: SceneMenuBarProps): JSX.El
                   hover-to-switch between menus.
                 */}
             <Menubar className="gap-0 border-0">
-                {children}
+                <SceneViewMenuRegistrationContext.Provider value={registerSceneViewMenu}>
+                    {children}
+                </SceneViewMenuRegistrationContext.Provider>
+                {sceneViewMenuCount === 0 && (
+                    <SceneMenuBarMenu label="View" dataAttr="scene-menu-bar-view">
+                        <SceneMenuBarFullWidthItem />
+                    </SceneMenuBarMenu>
+                )}
                 {todayRailEnabled && <SceneMenuBarHelpMenu />}
             </Menubar>
 
@@ -128,6 +155,25 @@ export function SceneMenuBar({ children, className }: SceneMenuBarProps): JSX.El
             {slot ? createPortal(bar, slot) : bar}
             {setupReminder}
         </>
+    )
+}
+
+function SceneMenuBarFullWidthItem(): JSX.Element | null {
+    const { activeSceneId, isSceneFullWidth } = useValues(sceneWidthLogic)
+    const { toggleSceneFullWidth } = useActions(sceneWidthLogic)
+
+    if (!activeSceneId) {
+        return null
+    }
+
+    return (
+        <SceneMenuBarCheckboxItem
+            checked={isSceneFullWidth}
+            onCheckedChange={() => toggleSceneFullWidth(activeSceneId)}
+            data-attr="scene-menu-bar-full-width"
+        >
+            Full width
+        </SceneMenuBarCheckboxItem>
     )
 }
 
@@ -298,7 +344,22 @@ export function SceneMenuBarMenu({
     contentClassName,
     disabled,
 }: SceneMenuBarMenuProps): JSX.Element {
-    const isDisabled = disabled || hasNoRenderableChildren(children)
+    const registerSceneViewMenu = useContext(SceneViewMenuRegistrationContext)
+    const hostsFullWidthItem = label === 'View' && registerSceneViewMenu !== null
+    useLayoutEffect(
+        () => (hostsFullWidthItem && registerSceneViewMenu ? registerSceneViewMenu() : undefined),
+        [hostsFullWidthItem, registerSceneViewMenu]
+    )
+    const menuChildren = hostsFullWidthItem ? (
+        <>
+            {children}
+            <SceneMenuBarSeparator />
+            <SceneMenuBarFullWidthItem />
+        </>
+    ) : (
+        children
+    )
+    const isDisabled = disabled || hasNoRenderableChildren(menuChildren)
     return (
         <MenubarMenu
             onOpenChange={(open: boolean) => {
@@ -320,7 +381,7 @@ export function SceneMenuBarMenu({
                     contentClassName
                 )}
             >
-                {children}
+                {menuChildren}
             </MenubarContent>
         </MenubarMenu>
     )

@@ -63,7 +63,6 @@ import { DashboardAddTileSubMenu } from './DashboardAddTileSubMenu'
 import { DashboardCustomizeSubMenu } from './DashboardCustomizeSubMenu'
 import { dashboardInsightColorsModalLogic } from './dashboardInsightColorsModalLogic'
 import { dashboardTemplateModalLogic } from './dashboards/templates/dashboardTemplateModalLogic'
-import { dashboardWidthLogic } from './dashboardWidthLogic'
 import { deleteDashboardLogic } from './deleteDashboardLogic'
 import { duplicateDashboardLogic } from './duplicateDashboardLogic'
 
@@ -109,8 +108,6 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
     const { showDeleteDashboardModal } = useActions(deleteDashboardLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const { instanceId: metalyticsInstanceId } = useValues(metalyticsLogic)
-    const { fullWidth } = useValues(dashboardWidthLogic)
-    const { toggleFullWidth } = useActions(dashboardWidthLogic)
 
     const { user } = useValues(userLogic)
     const { canCopyToProject } = useValues(interProjectCopyLogic)
@@ -404,13 +401,6 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
                             data-attr={`${RESOURCE_TYPE}-menubar-fullscreen`}
                         >
                             Fullscreen
-                        </SceneMenuBarCheckboxItem>
-                        <SceneMenuBarCheckboxItem
-                            checked={fullWidth}
-                            onCheckedChange={() => toggleFullWidth()}
-                            data-attr={`${RESOURCE_TYPE}-menubar-full-width`}
-                        >
-                            Full width
                         </SceneMenuBarCheckboxItem>
                     </SceneMenuBarMenu>
                 )}

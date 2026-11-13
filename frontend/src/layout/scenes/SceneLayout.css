@@ -9,3 +9,9 @@
     container-name: unset;
     container-type: unset;
 }
+
+.scene-content--narrow > :not(header, .scene-menu-bar) {
+    width: 100%;
+    max-width: 1600px;
+    margin-inline: auto;
+}
