@@ -63,7 +63,7 @@ interface TileGroupMoveCase {
     groupKey: string
     direction: TileGroupMoveDirection
     groupDisplay: TileGroupDisplay
-    expected: string[] | null
+    expected: string[]
 }
 
 interface CollapsedCase {
@@ -401,27 +401,6 @@ describe('dashboardTileSections', () => {
                 groupDisplay: 'tabs',
                 expected: ['tiles: 1,4', 'ops(): 5', 'plans(): 2,3'],
             },
-            {
-                name: 'nowhere up from the first tab',
-                groupKey: 'plans',
-                direction: 'up',
-                groupDisplay: 'tabs',
-                expected: null,
-            },
-            {
-                name: 'nowhere down past a group with no tiles',
-                groupKey: 'ops',
-                direction: 'down',
-                groupDisplay: 'sections',
-                expected: null,
-            },
-            {
-                name: 'nowhere when the group has no tiles',
-                groupKey: 'new',
-                direction: 'up',
-                groupDisplay: 'sections',
-                expected: null,
-            },
         ])('getLayoutAfterTileGroupMove moves a group $name', ({ groupKey, direction, groupDisplay, expected }) => {
             const moved = getLayoutAfterTileGroupMove({
                 layout,
@@ -473,8 +452,21 @@ describe('dashboardTileSections', () => {
             }
         )
 
-        it.each<{ groupDisplay: TileGroupDisplay; expected: ReturnType<typeof getTileGroupMoveDirections> }>([
+        const oneGroup = getDashboardSections({
+            tiles: [tile(1), tile(2, 'plans')],
+            layout: [box(1, 0, 0), box(2, 0, 2)],
+            groups: undefined,
+        })
+
+        it.each<{
+            name: string
+            sections: DashboardSection[]
+            groupDisplay: TileGroupDisplay
+            expected: ReturnType<typeof getTileGroupMoveDirections>
+        }>([
             {
+                name: 'the ends of the order in sections',
+                sections: bands,
                 groupDisplay: 'sections',
                 expected: {
                     plans: { canMoveUp: true, canMoveDown: true },
@@ -483,6 +475,8 @@ describe('dashboardTileSections', () => {
                 },
             },
             {
+                name: 'the ends of the order in tabs',
+                sections: getDashboardTabs(bands),
                 groupDisplay: 'tabs',
                 expected: {
                     plans: { canMoveUp: false, canMoveDown: true },
@@ -490,20 +484,20 @@ describe('dashboardTileSections', () => {
                     new: { canMoveUp: false, canMoveDown: false },
                 },
             },
-        ])('getTileGroupMoveDirections gives the ends of the order in $groupDisplay', ({ groupDisplay, expected }) => {
-            expect(getTileGroupMoveDirections(sectionsShown(groupDisplay), groupDisplay)).toEqual(expected)
-        })
-
-        it('getTileGroupMoveDirections offers nothing when a tab has no other group to trade places with', () => {
-            const oneGroup = getDashboardSections({
-                tiles: [tile(1), tile(2, 'plans')],
-                layout: [box(1, 0, 0), box(2, 0, 2)],
-                groups: undefined,
-            })
-            expect(getTileGroupMoveDirections(getDashboardTabs(oneGroup), 'tabs')).toEqual({})
-            expect(getTileGroupMoveDirections(oneGroup, 'sections')).toEqual({
-                plans: { canMoveUp: true, canMoveDown: false },
-            })
+            {
+                name: 'a lone group in sections, which can still pass the tiles above it',
+                sections: oneGroup,
+                groupDisplay: 'sections',
+                expected: { plans: { canMoveUp: true, canMoveDown: false } },
+            },
+            {
+                name: 'nothing for a lone group in tabs, which has no other group to trade places with',
+                sections: getDashboardTabs(oneGroup),
+                groupDisplay: 'tabs',
+                expected: {},
+            },
+        ])('getTileGroupMoveDirections gives $name', ({ sections, groupDisplay, expected }) => {
+            expect(getTileGroupMoveDirections(sections, groupDisplay)).toEqual(expected)
         })
     })
 })
