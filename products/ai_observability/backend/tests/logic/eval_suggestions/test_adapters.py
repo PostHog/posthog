@@ -313,6 +313,12 @@ class TestAdaptedChecks:
                 ],
                 None,
             ),
+            (
+                "bulk_dump_of_addresses_nobody_gave",
+                adapters.sensitive_data(),
+                [_answer(" ".join(f"user{i}@acme.io" for i in range(60)))],
+                False,
+            ),
             ("number_input", adapters.sensitive_data(), [_answer("Ask jane.doe@acme.io", **{"$ai_input": 42})], False),
             ("empty_input", adapters.sensitive_data(), [_answer("Ask jane.doe@acme.io", **{"$ai_input": []})], False),
             (
