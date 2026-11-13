@@ -37,7 +37,15 @@ class WorkloadCollector(TraversingVisitor):
         if len(self.workloads) == 1:
             return next(iter(self.workloads))
 
-        raise QueryError(
+        message = (
             f"Cannot query tables from different clusters in the same query. "
-            f"Found tables requiring clusters: {', '.join(sorted(w.value.capitalize() for w in self.workloads))}"
+            f"Found tables requiring clusters: {', '.join(sorted(w.value.capitalize() for w in self.workloads))}."
         )
+        # SQL editor users and owners of auto-disabled SQL alerts read this verbatim, so name the fix.
+        if {Workload.LOGS, Workload.METRICS} <= self.workloads:
+            message += (
+                " posthog.metrics is stored apart from logs and posthog.trace_spans, so one query can't read both."
+                " Split it into two queries: query posthog.metrics first, then copy the value you need,"
+                " such as a trace_id, into a second query over logs or posthog.trace_spans."
+            )
+        raise QueryError(message)

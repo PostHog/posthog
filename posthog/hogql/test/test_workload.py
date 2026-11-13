@@ -122,8 +122,14 @@ class TestExecuteHogQLQueryWorkload(BaseTest):
 
         assert sync_execute.call_args.kwargs["workload"] == expected
 
-    def test_metrics_joined_with_logs_is_refused(self) -> None:
-        query = parse_select("SELECT 1 FROM posthog.metrics AS m JOIN logs AS l ON m.trace_id = l.trace_id")
+    @parameterized.expand([("logs", "logs"), ("spans", "posthog.trace_spans")])
+    def test_metrics_joined_with_logs_is_refused_with_a_fix(self, _name: str, other_table: str) -> None:
+        query = parse_select(f"SELECT 1 FROM posthog.metrics AS m JOIN {other_table} AS o ON m.trace_id = o.trace_id")
 
-        with pytest.raises(QueryError, match="Cannot query tables from different clusters"):
+        with pytest.raises(QueryError) as exc_info:
             execute_hogql_query(query=query, team=self.team, workload=Workload.METRICS)
+
+        message = str(exc_info.value)
+        assert message.startswith("Cannot query tables from different clusters in the same query.")
+        assert "Split it into two queries" in message
+        assert "posthog.metrics" in message
