@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 31 enabled ops
+ * PostHog API - MCP 32 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -622,6 +622,90 @@ export const AeoPromptsBulkImportBody = () => zod.object({
         .min(1)
         .max(aeoPromptsBulkImportBodyPromptsMax)
         .describe('Prompts to add or update, at most 2000 per request.'),
+})
+
+/**
+ * Lists the answered web-search checks across the whole prompt set that cited one URL, cited a page on one domain, or ran one web search, over the last 'days' days (default 30) in the project's timezone, newest first, one page at a time. Pass exactly one of url, domain or search. Each row has the prompt as it ran, whether the answer cited or mentioned the project, the URLs it cited and the searches it ran. Use it to see which prompts and answers sit behind a domain, page or search from the overview or the rankings, with the same 'days' and 'branded' values.
+ * @summary List the answers behind a cited page, site or search
+ */
+export const AeoPromptsCitationsParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const aeoPromptsCitationsQueryBrandedDefault = `all`
+export const aeoPromptsCitationsQueryDaysDefault = 30
+export const aeoPromptsCitationsQueryDaysMax = 90
+
+export const aeoPromptsCitationsQueryDomainMax = 253
+
+export const aeoPromptsCitationsQueryEngineMax = 64
+
+export const aeoPromptsCitationsQueryIncludeAnswerTextDefault = false
+export const aeoPromptsCitationsQueryLimitMax = 100
+
+export const aeoPromptsCitationsQuerySearchMax = 1000
+
+export const aeoPromptsCitationsQueryUrlMax = 2048
+
+export const AeoPromptsCitationsQueryParams = () => zod.object({
+    branded: zod
+        .enum(['all', 'branded', 'non_branded'])
+        .default(aeoPromptsCitationsQueryBrandedDefault)
+        .describe(
+            "Which answers to list, by the prompt as it ran: 'all' (default), 'branded' (the prompt names the brand) or 'non_branded'. Pass the value the overview or rankings used so the list matches their counts. A prompt is branded when its text names the brand: the registrable name of a target domain as a word, case ignored, so 'example' and 'example.com' both name example.com. Branded prompts almost always get answers that mention the brand.\n\n\* `all` - All\n\* `branded` - Branded\n\* `non_branded` - Non-branded"
+        ),
+    days: zod
+        .number()
+        .min(1)
+        .max(aeoPromptsCitationsQueryDaysMax)
+        .default(aeoPromptsCitationsQueryDaysDefault)
+        .describe("Length of the window in days, ending today in the project's timezone. Default 30, at most 90."),
+    domain: zod
+        .string()
+        .min(1)
+        .max(aeoPromptsCitationsQueryDomainMax)
+        .optional()
+        .describe(
+            "List the answers that cited a page on this domain or one of its subdomains, case ignored. Takes a host from the overview's top_domains (docs.example.com) or a domain from the rankings (example.com)."
+        ),
+    engine: zod
+        .string()
+        .min(1)
+        .max(aeoPromptsCitationsQueryEngineMax)
+        .optional()
+        .describe("Only list answers from this answer engine, for example 'claude-web-search'."),
+    include_answer_text: zod
+        .boolean()
+        .default(aeoPromptsCitationsQueryIncludeAnswerTextDefault)
+        .describe(
+            "Set to true to return each engine's answer in answer_text. Left out by default to keep pages small."
+        ),
+    limit: zod
+        .number()
+        .max(aeoPromptsCitationsQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    search: zod
+        .string()
+        .min(1)
+        .max(aeoPromptsCitationsQuerySearchMax)
+        .optional()
+        .describe(
+            "List the answers whose engine ran this web search. Case and repeated spaces are ignored, as in the overview's top_searches."
+        ),
+    url: zod
+        .string()
+        .min(1)
+        .max(aeoPromptsCitationsQueryUrlMax)
+        .optional()
+        .describe(
+            "List the answers that cited this exact URL, as it appears in cited_urls or the rankings' top_pages."
+        ),
 })
 
 /**
