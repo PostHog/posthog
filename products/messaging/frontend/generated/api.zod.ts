@@ -742,6 +742,7 @@ export const messagingTemplatesCreateBodyDraftContentOneTemplatingDefault = `liq
 export const messagingTemplatesCreateBodyDraftContentOneEmailOneFromOneEmailMax = 254
 
 export const MessagingTemplatesCreateBody = /* @__PURE__ */ zod.object({
+    _create_in_folder: zod.string().optional().describe('Project folder for the new email template.'),
     name: zod
         .string()
         .max(messagingTemplatesCreateBodyNameMax)
@@ -998,6 +999,7 @@ export const messagingTemplatesUpdateBodyDraftContentOneTemplatingDefault = `liq
 export const messagingTemplatesUpdateBodyDraftContentOneEmailOneFromOneEmailMax = 254
 
 export const MessagingTemplatesUpdateBody = /* @__PURE__ */ zod.object({
+    _create_in_folder: zod.string().optional().describe('Project folder for the new email template.'),
     name: zod
         .string()
         .max(messagingTemplatesUpdateBodyNameMax)
@@ -1254,6 +1256,7 @@ export const messagingTemplatesPartialUpdateBodyDraftContentOneTemplatingDefault
 export const messagingTemplatesPartialUpdateBodyDraftContentOneEmailOneFromOneEmailMax = 254
 
 export const MessagingTemplatesPartialUpdateBody = /* @__PURE__ */ zod.object({
+    _create_in_folder: zod.string().optional().describe('Project folder for the new email template.'),
     name: zod
         .string()
         .max(messagingTemplatesPartialUpdateBodyNameMax)
