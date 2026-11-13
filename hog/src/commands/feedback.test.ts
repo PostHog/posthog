@@ -171,6 +171,7 @@ describe('hog feedback', () => {
 
         expect(result.exitCode).toBe(2)
         expect(result.error().code).toBe(code)
+        expect(result.error().feedback).toBeUndefined()
         expect(feedbackEvents(result)).toEqual([])
     })
 

@@ -619,7 +619,7 @@ describe('hog setup', () => {
 
         const result = await machine.run(['setup', 'next', ...ONE_PRODUCT], { env })
 
-        expect(result.exitCode).toBe(1)
+        expect(result.exitCode).toBe(3)
         expect(result.error()).toMatchObject({ code: 'not_in_ci', hint: expect.stringContaining('hog ci setup') })
         expect(result.requests).toEqual([])
         expect(machine.files).toEqual(before)
@@ -628,7 +628,7 @@ describe('hog setup', () => {
     test('an agent in a CI sandbox still runs setup, because it hands the login to a person', async () => {
         const result = await world().run(['setup', 'next', ...ONE_PRODUCT], { env: { CI: 'true' } })
 
-        expect(result.exitCode).toBe(0)
+        expect(result.exitCode).toBe(3)
         expect(result.json()).toMatchObject({ step: 'login' })
     })
 

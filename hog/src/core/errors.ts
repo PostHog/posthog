@@ -24,10 +24,19 @@ export class HogError extends Error {
     withHint(hint: string): HogError {
         return new HogError(this.code, this.message, hint, this.exitCode, this.details, this.serverDetail)
     }
+
+    withMessage(message: string): HogError {
+        return new HogError(this.code, message, this.hint, this.exitCode, this.details, this.serverDetail)
+    }
 }
 
 export function wrapFailure(code: string, context: string, cause: unknown, hint?: string): HogError {
     const message = cause instanceof Error ? cause.message : String(cause)
+    // A cause with its own exit code, such as a revoked login that needs a person, keeps its code, hint,
+    // details and exit code, because they say what has to happen next. The context only goes in front.
+    if (cause instanceof HogError && cause.exitCode !== EXIT_FAILURE) {
+        return cause.withMessage(`${context}: ${message}`)
+    }
     const serverDetail = cause instanceof HogError ? cause.serverDetail : undefined
     return new HogError(code, `${context}: ${message}`, hint, EXIT_FAILURE, undefined, serverDetail)
 }

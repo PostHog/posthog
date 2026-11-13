@@ -1,6 +1,6 @@
 import { clearPending, refuseInCi, runApproval, waitIdentity, type PendingResult } from '@/core/approval'
 import type { Context } from '@/core/context'
-import { HogError } from '@/core/errors'
+import { EXIT_NEEDS_PERSON, HogError } from '@/core/errors'
 import type { AccessKey } from '@/posthog/access-key'
 import { stepUpRequired } from '@/posthog/api'
 import type { LoginTarget } from '@/posthog/credential-store/item-name'
@@ -32,7 +32,8 @@ export async function finishStepUp(ctx: Context, approved: OAuthLogin, expected:
         throw new HogError(
             'step_up_other_project',
             `You approved the scopes for project ${approved.projectId}, but hog asked for them for project ${expected.projectId}, so hog didn't save them.`,
-            `Run the same \`hog auth add\` command again and pick project ${expected.projectId} on the approval page.`
+            `Run the same \`hog auth add\` command again and pick project ${expected.projectId} on the approval page.`,
+            EXIT_NEEDS_PERSON
         )
     }
 
@@ -53,7 +54,8 @@ function personalKeyCantGainScopes(scopes: readonly string[]): HogError {
     return new HogError(
         'step_up_unavailable',
         "hog can't add scopes to a personal API key. You set a key's scopes in PostHog.",
-        `${addToKeyHint(scopes)} Or run \`hog auth login\` to log in through the browser, so hog can add scopes.`
+        `${addToKeyHint(scopes)} Or run \`hog auth login\` to log in through the browser, so hog can add scopes.`,
+        EXIT_NEEDS_PERSON
     )
 }
 

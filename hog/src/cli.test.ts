@@ -53,14 +53,29 @@ describe('hog', () => {
     })
 
     test.each([
-        ['an unknown command', ['nope'], 'unknown_command'],
-        ['a missing argument', ['query', 'check'], 'usage_error'],
-        ['a query run without a query or --wait', ['query', 'run'], 'query_required'],
-        ['an invalid --output', ['query', 'run', 'select 1', '-o', 'yaml'], 'usage_error'],
-    ])('%s is a usage error, reported as JSON to agents', async (_name, argv, code) => {
+        ['an unknown command', ['nope'], 'unknown_command', 'hog feedback "<what happened>"'],
+        [
+            'a missing argument',
+            ['query', 'check'],
+            'usage_error',
+            'hog feedback --area "hog query check" "<what happened>"',
+        ],
+        [
+            'a query run without a query or --wait',
+            ['query', 'run'],
+            'query_required',
+            'hog feedback --area "hog query run" "<what happened>"',
+        ],
+        [
+            'an invalid --output',
+            ['et', 'upload', 'secret-path', '-o', 'yaml'],
+            'usage_error',
+            'hog feedback --area "hog error-tracking upload" "<what happened>"',
+        ],
+    ])('%s is a usage error, reported as JSON to agents', async (_name, argv, code, feedback) => {
         const result = await runHog(argv, { env: { CLAUDECODE: '1' } })
         expect(result.exitCode).toBe(2)
-        expect(result.error()).toMatchObject({ code })
+        expect(result.error()).toMatchObject({ code, feedback })
     })
 
     test.each([
@@ -77,7 +92,7 @@ describe('hog', () => {
     test('a person sees errors as text', async () => {
         const result = await runHog(['qury'], { stdoutIsTTY: true, env: { NO_COLOR: '1' } })
         expect(result.stderr).toBe(
-            "Error: Unknown command 'qury'\n(Did you mean query?)\nRun `hog --help` to see the available commands.\n"
+            'Error: Unknown command \'qury\'\n(Did you mean query?)\nRun `hog --help` to see the available commands.\nSend feedback about this to the PostHog team: hog feedback "<what happened>"\n'
         )
     })
 

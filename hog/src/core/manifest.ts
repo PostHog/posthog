@@ -1,4 +1,5 @@
 import { optionFlags, type CommandTree, type OptionSpec } from './command'
+import { EXIT_FAILURE, EXIT_NEEDS_PERSON, EXIT_PENDING, EXIT_SUCCESS, EXIT_USAGE } from './errors'
 import { GLOBAL_OPTIONS } from './globals'
 import { kebabCase } from './text'
 
@@ -25,6 +26,29 @@ export interface ManifestEntry {
     // The posthog-cli command to run instead, for commands hog doesn't have yet.
     use?: string
 }
+
+export interface ExitCodeEntry {
+    code: number
+    meaning: string
+}
+
+export const EXIT_CODES: readonly ExitCodeEntry[] = [
+    { code: EXIT_SUCCESS, meaning: 'The command worked' },
+    {
+        code: EXIT_FAILURE,
+        meaning: 'The command failed, or a check found problems, such as drift in `hog endpoints diff`',
+    },
+    { code: EXIT_USAGE, meaning: 'A usage error, such as an unknown command or a missing or invalid option' },
+    {
+        code: EXIT_NEEDS_PERSON,
+        meaning:
+            'A person has to act before the command can go on, such as logging in, approving in the browser or answering a question. The hint or the output says what',
+    },
+    {
+        code: EXIT_PENDING,
+        meaning: 'The work started and is still running. The output names the `--wait` command that resumes it',
+    },
+]
 
 function describeOptions(options: Readonly<Record<string, OptionSpec>>): OptionEntry[] {
     return Object.entries(options).map(([name, spec]) => ({

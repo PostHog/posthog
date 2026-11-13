@@ -98,7 +98,7 @@ describe('hog auth login', () => {
             respond: deviceFlow(0),
         })
 
-        expect(result.exitCode).toBe(0)
+        expect(result.exitCode).toBe(3)
         expect(result.json()).toMatchObject({
             status: 'pending',
             code: 'BCDF-GHJK',
@@ -155,7 +155,7 @@ describe('hog auth login', () => {
             respond: deviceFlow(0),
         })
 
-        expect(result.exitCode).toBe(0)
+        expect(result.exitCode).toBe(3)
         expect(result.requests.map((request) => request.url)).toEqual([`${loginHost}/oauth/device-authorization/`])
     })
 
@@ -181,8 +181,8 @@ describe('hog auth login', () => {
     })
 
     test.each([
-        ['an agent without a region', ['auth', 'login'], { CLAUDECODE: '1' }, {}, 2, 'region_required'],
-        ['a CI job', ['auth', 'login', '--region', 'us'], { CI: 'true' }, {}, 1, 'login_needs_a_person'],
+        ['an agent without a region', ['auth', 'login'], { CLAUDECODE: '1' }, {}, 3, 'region_required'],
+        ['a CI job', ['auth', 'login', '--region', 'us'], { CI: 'true' }, {}, 3, 'login_needs_a_person'],
         ['--wait with no login started', ['auth', 'login', '--wait'], { CLAUDECODE: '1' }, {}, 1, 'no_pending_login'],
         [
             '--read-only with --wait',
@@ -316,12 +316,14 @@ describe('hog auth login', () => {
             { status: 400, body: { error: 'expired_token' } },
             { code: 'login_expired' },
             false,
+            3,
         ],
         [
             'stops when the person denies it and forgets it',
             { status: 400, body: { error: 'access_denied' } },
             { code: 'login_rejected' },
             false,
+            3,
         ],
         [
             "stops with PostHog's reason when it refuses the client, and forgets it",
@@ -331,20 +333,22 @@ describe('hog auth login', () => {
             },
             { code: 'login_unavailable', message: expect.stringContaining("hasn't verified this app") },
             false,
+            1,
         ],
         [
             'retries a server that keeps failing, then keeps the login to resume',
             { status: 503, body: 'Service Unavailable' },
             { code: 'login_interrupted' },
             true,
+            1,
         ],
-    ])('--wait %s', async (_name, final, expected, keepsPending) => {
+    ])('--wait %s', async (_name, final, expected, keepsPending, exitCode) => {
         const result = await runHog(['auth', 'login', '--wait'], {
             env: { CLAUDECODE: '1' },
             files: { [PENDING_FILE]: PENDING },
             respond: deviceFlow(1, final),
         })
-        expect(result.exitCode).toBe(1)
+        expect(result.exitCode).toBe(exitCode)
         expect(result.error()).toMatchObject(expected)
         expect(result.files[PENDING_FILE] !== undefined).toBe(keepsPending)
         expect(result.keychain).toEqual({})
@@ -1539,6 +1543,7 @@ describe('hog auth login', () => {
                     : { status: 404, body: { detail: 'Not found.' } },
         })
 
+        expect(result.exitCode).toBe(3)
         expect(result.error()).toMatchObject({
             code: 'step_up_required',
             command: `hog auth add --host ${EU} ${scopes}`,
@@ -1572,9 +1577,27 @@ describe('hog auth login', () => {
                     : flow(url),
         })
 
-        expect(result.exitCode).toBe(1)
+        expect(result.exitCode).toBe(3)
         expect(
             result.requests.filter((request) => request.method === 'POST' && !request.url.includes('/oauth/'))
         ).toEqual([])
+    })
+
+    test('a login revoked before its token expires stops a release lookup with the login hint', async () => {
+        const result = await runHog(['et', 'release', '--release-name', 'shop', '--release-version', '1.0.0'], {
+            env: { CLAUDECODE: '1' },
+            ...OAUTH_LOGIN,
+            respond: (url) =>
+                url.endsWith('/oauth/token/')
+                    ? { status: 400, body: { error: 'invalid_grant' } }
+                    : { status: 401, body: { detail: 'Invalid token.' } },
+        })
+
+        expect(result.exitCode).toBe(3)
+        expect(result.error()).toMatchObject({
+            code: 'session_expired',
+            message: "hog couldn't look up the release: Your hog login expired or was revoked.",
+            hint: 'Run `hog auth login` to log in again.',
+        })
     })
 })

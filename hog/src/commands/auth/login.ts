@@ -1,9 +1,16 @@
 import { dirname } from 'node:path'
 
-import { printPending, refuseInCi, resumeApproval, runApproval, type PendingResult } from '@/core/approval'
+import {
+    approvalExitCode,
+    printPending,
+    refuseInCi,
+    resumeApproval,
+    runApproval,
+    type PendingResult,
+} from '@/core/approval'
 import { defineCommand } from '@/core/command'
 import type { Context } from '@/core/context'
-import { EXIT_USAGE, HogError } from '@/core/errors'
+import { EXIT_NEEDS_PERSON, EXIT_USAGE, HogError } from '@/core/errors'
 import { escapeControls } from '@/core/output'
 import type { Prompts } from '@/core/prompts'
 import { validationError } from '@/core/schema'
@@ -105,7 +112,7 @@ export default defineCommand({
                     'region_required',
                     "hog doesn't know where your PostHog account is hosted.",
                     'Ask the user whether their PostHog address starts with us.posthog.com or eu.posthog.com. Then run `hog auth login --region us` or `hog auth login --region eu`. For self-hosted PostHog, pass `--host`.',
-                    EXIT_USAGE
+                    EXIT_NEEDS_PERSON
                 )
             }
             const choice = await prompts.select(
@@ -192,4 +199,6 @@ export default defineCommand({
             notes,
         })
     },
+
+    exitCode: (result) => approvalExitCode(result),
 })

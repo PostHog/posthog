@@ -1,7 +1,7 @@
 import { join } from 'node:path'
 
 import { detectWorkloadProvider, type WorkloadProvider } from '@/ci/providers/registry'
-import { EXIT_USAGE, HogError } from '@/core/errors'
+import { EXIT_NEEDS_PERSON, EXIT_USAGE, HogError } from '@/core/errors'
 import type { Env, Runtime } from '@/core/runtime'
 import type { StoreChoice } from '@/posthog/credential-store/types'
 import { chooseLogin, ProjectMismatch, type LoginChoice, type LoginQuery } from '@/posthog/login/choose'
@@ -208,7 +208,8 @@ export async function resolveCredentials(runtime: Runtime, options: CredentialOp
                 throw new HogError(
                     'not_authenticated',
                     `hog couldn't find HOG_PERSONAL_API_KEY and a project ID in the environment, posthog.json or ${dotenvFile}.`,
-                    `Add HOG_PERSONAL_API_KEY to the file, or remove --dotenv-file. ${PROJECT_SETTINGS_HINT}.`
+                    `Add HOG_PERSONAL_API_KEY to the file, or remove --dotenv-file. ${PROJECT_SETTINGS_HINT}.`,
+                    EXIT_NEEDS_PERSON
                 )
             }
             return { key: keyFrom(fromFile), source: 'dotenv-file', path: dotenvFile, storage: null }
@@ -234,7 +235,8 @@ export async function resolveCredentials(runtime: Runtime, options: CredentialOp
                 throw new HogError(
                     'not_authenticated',
                     "hog couldn't find PostHog credentials or a home folder to read them from.",
-                    `${error.hint} Or set HOG_PERSONAL_API_KEY to skip logging in. ${PROJECT_SETTINGS_HINT}.`
+                    `${error.hint} Or set HOG_PERSONAL_API_KEY to skip logging in. ${PROJECT_SETTINGS_HINT}.`,
+                    EXIT_NEEDS_PERSON
                 )
             }
             throw error
@@ -278,7 +280,8 @@ export async function resolveCredentials(runtime: Runtime, options: CredentialOp
     throw new HogError(
         'not_authenticated',
         "hog couldn't find PostHog credentials.",
-        notAuthenticatedHint(workloadProvider, workloadProjectId)
+        notAuthenticatedHint(workloadProvider, workloadProjectId),
+        EXIT_NEEDS_PERSON
     )
 }
 

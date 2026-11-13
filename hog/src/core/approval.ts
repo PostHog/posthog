@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { ApiError } from '@/posthog/api'
 
 import type { Context } from './context'
-import { HogError } from './errors'
+import { EXIT_NEEDS_PERSON, EXIT_SUCCESS, HogError } from './errors'
 import { parseJsonOrUndefined } from './json'
 import { escapeControls, type Output } from './output'
 import { hogFile } from './paths'
@@ -204,7 +204,8 @@ async function waitFor<Pending extends PendingApproval, Value>(
             throw new HogError(
                 `${errorCode(flow.noun)}_still_pending`,
                 `The ${flow.noun} is still waiting for approval.`,
-                `Run \`${flow.resume}\` again later. The link stays the same.`
+                `Run \`${flow.resume}\` again later. The link stays the same.`,
+                EXIT_NEEDS_PERSON
             )
         }
         await runtime.sleep(intervalSeconds * 1000)
@@ -249,7 +250,8 @@ async function waitFor<Pending extends PendingApproval, Value>(
                     new HogError(
                         `${errorCode(flow.noun)}_rejected`,
                         `The ${flow.noun} was rejected in the browser.`,
-                        `Run \`${flow.restart?.(pending) ?? flow.command}\` to start again.`
+                        `Run \`${flow.restart?.(pending) ?? flow.command}\` to start again.`,
+                        EXIT_NEEDS_PERSON
                     )
                 )
             case 'expired':
@@ -292,7 +294,8 @@ function expired<Pending extends PendingApproval>(
     return new HogError(
         `${errorCode(flow.noun)}_expired`,
         `The ${flow.noun} request expired before it was approved.`,
-        `Run \`${flow.restart?.(pending) ?? flow.command}\` to start a new one.`
+        `Run \`${flow.restart?.(pending) ?? flow.command}\` to start a new one.`,
+        EXIT_NEEDS_PERSON
     )
 }
 
@@ -339,12 +342,17 @@ export function refuseInCi(ctx: Context, command: string, hint: string): void {
         throw new HogError(
             'login_needs_a_person',
             `${command} needs someone to approve it in a browser, so it can't run in CI.`,
-            hint
+            hint,
+            EXIT_NEEDS_PERSON
         )
     }
 }
 
 export type PendingResult = Extract<ApprovalResult<never>, { status: 'pending' }>
+
+export function approvalExitCode(result: { status: string }): number {
+    return result.status === 'pending' ? EXIT_NEEDS_PERSON : EXIT_SUCCESS
+}
 
 // Starts a command that waits for a person. At a terminal it shows the link, opens the browser when it
 // can, and waits; Ctrl-C keeps the pending item for `--wait`. Agents and scripts get the link and the

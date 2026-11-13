@@ -121,8 +121,24 @@ An agent or a pipe outside CI waits up to a minute, then gets `{"status":"runnin
 `hog query run --wait <query-id>` waits for that query again.
 
 Errors go to stderr, as JSON with a stable `code` in JSON mode.
-Exit codes are 0 on success, 1 when a command fails or reports a problem, 2 for usage errors, and 4 when work is still running, like a slow query.
-`--no-fail` turns 1 into 0, and leaves 2 and 4 alone.
+Each error also names the `hog feedback` command to report it, as a last line for a person and as `feedback` in the JSON. posthog-cli's errors don't.
+
+## Exit codes
+
+posthog-cli exits with 1 for every failure, and with 0 when a check such as `exp endpoints diff` finds a problem.
+hog gives each outcome its own code, so a script can tell them apart without reading stderr:
+
+| What happened                                                                                              | posthog-cli | hog |
+| ---------------------------------------------------------------------------------------------------------- | ----------- | --- |
+| The command worked                                                                                         | 0           | 0   |
+| The command failed                                                                                         | 1           | 1   |
+| A check found problems: errors in `query check`, drift in `endpoints diff`, a stale SDK in `schema status` | 0           | 1   |
+| A usage error                                                                                              | 2           | 2   |
+| A person has to act: log in, approve in the browser, add a scope, or answer a question                     | 1           | 3   |
+| The work started and is still running. The output names the `--wait` command that resumes it               | Not used    | 4   |
+
+`--no-fail` turns every failure into 0 in both CLIs. In hog that covers 1, 3 and 4. A usage error keeps code 2 in both.
+A pipeline that reads exit code 1 as "not logged in" reads 3 with hog.
 
 ## posthog.json
 

@@ -115,7 +115,7 @@ describe('hog ci setup', () => {
             }
         )
 
-        expect(run.exitCode).toBe(0)
+        expect(run.exitCode).toBe(3)
         expect(run.requests.find((request) => request.url === REQUESTS)?.body).toEqual({
             name: 'Acme/Web on Fake CI',
             issuer: 'https://ci.example.com',
@@ -156,7 +156,7 @@ describe('hog ci setup', () => {
             respond: policyApi({ canApprove, pendingPolls: 1 }),
         })
 
-        expect(run.exitCode).toBe(0)
+        expect(run.exitCode).toBe(canApprove ? 0 : 3)
         expect(run.stdout).toContain(shown)
         expect(run.stdout).toContain('the job also needs HOG_HOST=https://ph.example.com')
         expect(run.requests.filter((request) => request.url === `${REQUESTS}req-1/`)).toHaveLength(polls)
@@ -199,7 +199,7 @@ describe('hog ci setup', () => {
         const api = policyApi({ final: lastStatus })
         const run = await setup(args([...presets].reverse()), { files: first.files, respond: api })
 
-        expect(run.exitCode).toBe(0)
+        expect(run.exitCode).toBe(3)
         expect(run.requests.filter((request) => request.url === REQUESTS && request.method === 'POST')).toHaveLength(
             created - 1
         )
@@ -322,7 +322,7 @@ describe('hog ci setup', () => {
             respond: policyApi(),
         })
 
-        expect(run.exitCode).toBe(0)
+        expect(run.exitCode).toBe(3)
         expect(
             (run.requests.find((request) => request.url === REQUESTS)?.body as { conditions?: unknown } | undefined)
                 ?.conditions
@@ -381,7 +381,7 @@ describe('hog ci setup', () => {
             respond: policyApi(),
         })
 
-        expect(run.exitCode).toBe(0)
+        expect(run.exitCode).toBe(3)
         expect(JSON.stringify(run.requests)).not.toContain('secret')
         expect(run.requests.find((request) => request.url.includes('resolve_subject'))?.url).toContain(
             'subject_name=acme%2Fweb'
