@@ -140,7 +140,6 @@ export function TodaySwitcherMenu({
                 ref={popupRef}
                 anchor={triggerRef}
                 align="start"
-                // A tap keeps focus off the search field, so the phone keyboard stays closed until the person asks for it.
                 initialFocus={(openType: string) => (openType === 'touch' ? false : searchRef.current)}
                 className="[&_[data-slot=combobox-input-group-wrapper]]:border-b-0"
                 // quill caps the popup at 24rem, so the cap moves out to the widest the user can drag it.
