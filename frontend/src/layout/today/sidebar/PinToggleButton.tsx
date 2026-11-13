@@ -1,22 +1,22 @@
-import { useActions, useValues } from 'kea'
-
 import { IconPin, IconPinFilled } from '@posthog/icons'
 import { Button, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
-import { PinTarget, analyticsPinnedLogic, pinKey } from './analyticsPinnedLogic'
-
-export function AnalyticsPinButton({
-    target,
+/** The pin control after an object's name or on its sidebar row. Every pane's pins look and read the same. */
+export function PinToggleButton({
+    pinned,
+    name,
+    busy,
+    onToggle,
     size = 'icon-xs',
     dataAttr,
 }: {
-    target: PinTarget
+    pinned: boolean
+    name: string
+    busy: boolean
+    onToggle: () => void
     size?: 'icon' | 'icon-sm' | 'icon-xs'
     dataAttr: string
 }): JSX.Element {
-    const { pinnedShortcutIds, shortcutDataLoading } = useValues(analyticsPinnedLogic)
-    const { togglePinned } = useActions(analyticsPinnedLogic)
-    const pinned = pinnedShortcutIds.has(pinKey(target.type, target.ref))
     const label = pinned ? 'Unpin from sidebar' : 'Pin to sidebar'
     return (
         <Tooltip>
@@ -25,17 +25,17 @@ export function AnalyticsPinButton({
                 render={
                     <Button
                         size={size}
-                        aria-label={`${label}: ${target.name}`}
+                        aria-label={`${label}: ${name}`}
                         aria-pressed={pinned}
-                        disabled={shortcutDataLoading}
-                        onClick={() => togglePinned(target)}
+                        disabled={busy}
+                        onClick={onToggle}
                         data-attr={dataAttr}
                     />
                 }
             >
                 {pinned ? <IconPinFilled /> : <IconPin />}
             </TooltipTrigger>
-            <TooltipContent>{shortcutDataLoading ? 'Updating pinned items' : label}</TooltipContent>
+            <TooltipContent>{busy ? 'Updating pinned items' : label}</TooltipContent>
         </Tooltip>
     )
 }
