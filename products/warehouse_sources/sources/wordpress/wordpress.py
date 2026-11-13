@@ -381,7 +381,9 @@ def get_rows(
             page_url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS, allow_redirects=False
         )
 
-        if response.status_code == 429 or response.status_code >= 500:
+        # 408 is a transient request timeout on WordPress's side; retry it like 429/5xx rather
+        # than letting it fall through to raise_for_status() as a non-retryable HTTPError.
+        if response.status_code in (408, 429) or response.status_code >= 500:
             retry_after = _parse_retry_after(response) if response.status_code == 429 else None
             raise WordpressRetryableError(
                 f"WordPress API error (retryable): status={response.status_code}, url={page_url}",
