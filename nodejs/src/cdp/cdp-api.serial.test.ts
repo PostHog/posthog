@@ -2185,7 +2185,7 @@ describe('CDP API', () => {
         })
 
         it.each([100, 20])(
-            'queues a batch of 100 runs in one insert and refuses 101 whatever the queue insert size (%i)',
+            'queues a batch of 100 runs and refuses 101 whatever the queue insert size (%i)',
             async (insertBatchSize) => {
                 const hogflowQueue = createInMemoryJobQueue()
                 api['hogflowQueue'] = hogflowQueue
@@ -2206,12 +2206,52 @@ describe('CDP API', () => {
                     const accepted = await post(100)
                     expect(accepted.status).toEqual(200)
                     expect(hogflowQueue.queued).toHaveLength(100)
-                    expect(hogflowQueue.queueInvocations).toHaveBeenCalledWith(hogflowQueue.queued, { oneInsert: true })
                 } finally {
                     hub.CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE = defaultInsertBatchSize
                 }
             }
         )
+
+        it('queues a batch of 100 runs in one insert when the queue inserts 20 rows at a time', async () => {
+            const queue = new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, {
+                ...hub,
+                CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE: 20,
+            })
+            const cyclotron = new Pool({ connectionString: hub.CYCLOTRON_NODE_DATABASE_URL })
+            await queue.startAsProducer()
+            api['hogflowQueue'] = queue
+            const pool = queue['manager']!['pool']
+            const query = pool.query.bind(pool) as (...args: unknown[]) => Promise<unknown>
+            let inserts = 0
+            const failAfterFirstInsert = jest
+                .spyOn(pool, 'query')
+                .mockImplementation(((...args: unknown[]) =>
+                    String(args[0]).includes('INSERT INTO cyclotron_jobs') && inserts++ > 0
+                        ? Promise.reject(new Error('db down'))
+                        : query(...args)) as typeof pool.query)
+            try {
+                const res = await supertest(app)
+                    .post('/api/hog_flows/scheduled_invocations')
+                    .set({ Authorization: `Bearer ${mintScheduledRunsToken([team.id])}` })
+                    .send({
+                        runs: Array.from({ length: 100 }, () => ({
+                            team_id: team.id,
+                            hog_flow_id: scheduleHogFlow.id,
+                        })),
+                    })
+                const { rows } = await cyclotron.query(
+                    'SELECT count(*)::int AS queued FROM cyclotron_jobs WHERE function_id = $1',
+                    [scheduleHogFlow.id]
+                )
+
+                expect(res.status).toEqual(200)
+                expect(rows[0].queued).toEqual(100)
+            } finally {
+                failAfterFirstInsert.mockRestore()
+                await queue.stopProducer()
+                await cyclotron.end()
+            }
+        })
 
         it.each([
             [
