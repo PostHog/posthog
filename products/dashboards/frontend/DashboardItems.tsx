@@ -45,7 +45,7 @@ import { getDashboardTileSpacingGap } from 'products/dashboards/frontend/dashboa
 import { type LayoutGesturePerformance, LayoutGestureMonitor } from 'products/dashboards/frontend/dashboardPerformance'
 import { getGroupTitlesByTileId, hasTileDecorations } from 'products/dashboards/frontend/dashboardTileGroups'
 import { type DashboardSection, getSectionGroupKey } from 'products/dashboards/frontend/dashboardTileSections'
-import { useClickToMoveTile } from 'products/dashboards/frontend/useClickToMoveTile'
+import { useCarryTile } from 'products/dashboards/frontend/useCarryTile'
 import { useDashboardContainerWidth } from 'products/dashboards/frontend/useDashboardContainerWidth'
 import { TAKE_OUT_DROP_ZONE_KEY, useTileGroupDrag } from 'products/dashboards/frontend/useTileGroupDrag'
 
@@ -298,12 +298,13 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         canEditLayout ? 'dashboard-layout-editable dashboard-drop-space-end' : 'dashboard-layout-static'
     )
 
-    const { gridCompactor, handleLayoutChange, startInteraction, finishInteraction } = useDashboardLayoutInteraction({
-        enabled: canEditLayout,
-        layoutCompaction: dashboard?.customization?.layout_compaction,
-        // Each band grid reports only its own tiles.
-        updateLayouts: showBands ? updateTileGroupSectionLayout : stageLayouts,
-    })
+    const { gridCompactor, handleLayoutChange, startInteraction, finishInteraction, cancelInteraction } =
+        useDashboardLayoutInteraction({
+            enabled: canEditLayout,
+            layoutCompaction: dashboard?.customization?.layout_compaction,
+            // Each band grid reports only its own tiles.
+            updateLayouts: showBands ? updateTileGroupSectionLayout : stageLayouts,
+        })
     const canEditTileGroups = canEditDashboard && isEditablePlacement
     const onCopyGroupToDashboard = canEditTileGroups ? copyGroupToDashboard : undefined
     const onChangeGroupDisplay = canEditTileGroups ? changeTileGroupDisplay : undefined
@@ -415,12 +416,18 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         restoreLayout: (layout) => stageLayouts({ sm: layout }),
     })
     const boundedStrategy = useMemo(() => sidewaysBoundedStrategy(gridWidth), [gridWidth])
-    const { tileMoveInputRef, carryHeldDrag } = useClickToMoveTile({
+    const { tileCarryInputRef, carryHeld } = useCarryTile({
         containerRef: containerRef as RefObject<HTMLElement>,
         enabled: dragConfig.enabled,
         handleSelector: dragConfig.handle,
         cancelSelector: dragConfig.cancel,
         onCarryingChange: setCarryingTile,
+        // A canceled move returns by releasing at the pick-up point. A resize cannot, so the grid restores its layout.
+        onCarryCanceled: (kind) => {
+            if (kind === 'resize') {
+                cancelInteraction()
+            }
+        },
     })
 
     const resizeConfig = useMemo(
@@ -548,7 +555,8 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             _oldItem: LayoutItem | null,
             newItem: LayoutItem | null,
             _placeholder: LayoutItem | null,
-            event: Event
+            event: Event,
+            resizeHandle: HTMLElement | null
         ) => {
             event.preventDefault()
             if (!newItem) {
@@ -557,23 +565,25 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             setLayoutGestureActive(true)
             startInteraction(layout, newItem, 'resize')
             startLayoutGesture()
+            carryHeld(resizeHandle, 'resize')
         },
-        [startInteraction, setLayoutGestureActive, startLayoutGesture]
+        [startInteraction, setLayoutGestureActive, startLayoutGesture, carryHeld]
     )
 
     const handleResizeStop = useCallback(() => {
         const releasedAt = performance.now()
         setLayoutGestureActive(false)
         finishInteraction()
+        const input = tileCarryInputRef.current
         const dashboardId = dashboard?.id
         finishLayoutGesture(
-            dashboardId
+            dashboardId && input !== 'canceled'
                 ? (gesturePerformance) =>
-                      reportDashboardTileRepositioned(dashboardId, 'resized', 'drag', gesturePerformance)
+                      reportDashboardTileRepositioned(dashboardId, 'resized', input, gesturePerformance)
                 : null,
             releasedAt
         )
-    }, [dashboard?.id, finishInteraction, finishLayoutGesture, setLayoutGestureActive])
+    }, [dashboard?.id, finishInteraction, finishLayoutGesture, setLayoutGestureActive, tileCarryInputRef])
 
     // Toggled on the DOM rather than in state, so a drag does not re-render every tile.
     const setTileDragActive = useCallback(
@@ -635,14 +645,14 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             startLayoutGesture()
             startTileDrag(newItem, element)
             startAutoScroll()
-            carryHeldDrag(element)
+            carryHeld(element, 'move')
         },
         [
             startInteraction,
             startLayoutGesture,
             startTileDrag,
             startAutoScroll,
-            carryHeldDrag,
+            carryHeld,
             setLayoutGestureActive,
             setTileDragActive,
             showDragPreview,
@@ -694,7 +704,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             setLayoutGestureActive(false)
             hideDragPreviews()
             setTileDragActive(false, element)
-            const input = tileMoveInputRef.current
+            const input = tileCarryInputRef.current
             const dashboardId = dashboard?.id
             finishLayoutGesture(
                 dashboardId && input !== 'canceled'
@@ -711,7 +721,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             finishTileDrag,
             setLayoutGestureActive,
             stopAutoScroll,
-            tileMoveInputRef,
+            tileCarryInputRef,
             hideDragPreviews,
             setTileDragActive,
         ]
@@ -1033,7 +1043,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                     </ReactGridLayout>
                 </div>
             )}
-            <TileMoveHint />
+            <TileCarryHint />
             {dashboardStreaming && (
                 <div className="mt-4 flex items-center justify-center">
                     <div className="flex items-center gap-2 text-muted">
@@ -1048,7 +1058,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
 
 // Reads carryingTile itself, so a carry starting or ending re-renders only this pill and not every tile in the grid.
 // The portal keeps the pill out of the grid's subtree, where inserting a node restyles every tile.
-function TileMoveHint(): JSX.Element | null {
+function TileCarryHint(): JSX.Element | null {
     const { carryingTile } = useValues(dashboardLogic)
     if (!carryingTile) {
         return null
@@ -1059,7 +1069,7 @@ function TileMoveHint(): JSX.Element | null {
             role="status"
             className="pointer-events-none fixed bottom-6 left-1/2 z-top flex -translate-x-1/2 items-center gap-2 rounded-full border bg-surface-primary px-3 py-1 text-sm shadow"
         >
-            <span>Click to drop the tile</span>
+            <span>{carryingTile === 'resize' ? 'Click to set the size' : 'Click to drop the tile'}</span>
             <span className="text-secondary">· Esc to cancel</span>
         </div>,
         document.body

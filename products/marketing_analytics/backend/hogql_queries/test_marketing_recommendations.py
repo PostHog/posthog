@@ -439,6 +439,32 @@ class TestMarketingRecommendations(SimpleTestCase):
         assert leak.action == 'Add "example" as a negative keyword'
         assert [step.copyValue for step in leak.steps or [] if step.copyValue] == ["Generic", negatives]
 
+    def test_brand_leaking_in_several_campaigns_gets_one_shared_negative_list(self) -> None:
+        campaigns = (
+            _campaign(id="a", name="Alpha", cost=2000, conversions=20),
+            _campaign(id="b", name="Beta", cost=2000, conversions=20),
+            _campaign(id="pmax", name="PMax", channel_type="PERFORMANCE_MAX", cost=1000, conversions=10),
+        )
+        terms = (
+            _term("example pricing", "a", cost=300, conversions=1),
+            _term("product analytics", "a", cost=1700, conversions=19),
+            _term("example login", "b", cost=500, conversions=1),
+            _term("session replay", "b", cost=1500, conversions=19),
+            _term("example", "pmax", cost=200, conversions=1),
+            _term("project planning software", "pmax", cost=800, conversions=9),
+        )
+
+        leaks = [rec for rec in recommend(_inputs(campaigns, terms)) if rec.rule == "brand_leak"]
+
+        assert sorted((rec.level, rec.subject, rec.action) for rec in leaks) == [
+            ("account", "2 non-brand campaigns", 'Add "example" to a shared negative keyword list'),
+            ("campaign", "PMax", 'Add a brand exclusion for "example"'),
+        ]
+        shared = next(rec for rec in leaks if rec.level == "account")
+        assert [step.copyValue for step in shared.steps or [] if step.copyValue] == ['"example"', "Beta\nAlpha"]
+        assert (shared.identity.campaign_id, shared.identity.subject) == ("", "example")
+        validate_identity(shared.identity)
+
     def test_review_campaign_steps_start_with_the_searches_that_waste_spend(self) -> None:
         good = _campaign(id="c1", name="Good", cost=1000, conversions=10)
         costly = _campaign(id="c2", name="Costly", cost=2000, conversions=2)
