@@ -1,23 +1,30 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useLayoutEffect, useRef } from 'react'
+import { Suspense, useLayoutEffect, useRef } from 'react'
 
 import { Text } from '@posthog/quill'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 import { organizationLogic } from 'scenes/organizationLogic'
+
+import { QuillTaskComposerSkeleton } from 'products/posthog_ai/frontend/api/composer'
 
 import { TodayExplore } from './TodayExplore'
 import { TodayFirstEventWatcher } from './TodayFirstEventWatcher'
 import { TodayForYou } from './TodayForYou'
 import { todayHighlightsLogic } from './todayHighlightsLogic'
-import { TodayHomeClassicComposer } from './TodayHomeClassicComposer'
 import { TodayHomeComposer } from './TodayHomeComposer'
 import { reportIdFromPath, todayLogic } from './todayLogic'
 import { TodayPromoBanner } from './TodayPromoBanner'
 import { TodayPulseSection } from './TodayPulseSection'
 import { TodayRecents } from './TodayRecents'
 import { TodaySampleBanner } from './TodaySampleBanner'
+
+// Its pickers bring in the PostHog AI 1.0 context and mode logic, so only people on 1.0 load them.
+const TodayHomeClassicComposer = lazyWithRetry(() =>
+    import('./TodayHomeClassicComposer').then((m) => ({ default: m.TodayHomeClassicComposer }))
+)
 
 const DATE_FORMAT = new Intl.DateTimeFormat(undefined, { weekday: 'long', day: 'numeric', month: 'long' })
 
@@ -115,7 +122,19 @@ export function TodayHomePage(): JSX.Element {
                     </Text>
                 </div>
                 <TodayMetaLine />
-                {!homeComposer ? null : postHogAiTasks ? <TodayHomeComposer /> : <TodayHomeClassicComposer />}
+                {!homeComposer ? null : postHogAiTasks ? (
+                    <TodayHomeComposer />
+                ) : (
+                    <Suspense
+                        fallback={
+                            <div className="TodayHome__composer">
+                                <QuillTaskComposerSkeleton />
+                            </div>
+                        }
+                    >
+                        <TodayHomeClassicComposer />
+                    </Suspense>
+                )}
             </section>
             <div className="TodayHome__body">
                 {isNewProject ? <TodayFirstEventWatcher /> : <TodayPulseSection />}

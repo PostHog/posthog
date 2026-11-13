@@ -83,10 +83,10 @@ import { isPiTaskRuntime } from 'products/posthog_ai/frontend/types/taskTypes'
 import type { PermissionRequestRecord } from '../../../../products/posthog_ai/frontend/types/streamTypes'
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
 import type { BillingType } from '../../types'
+import { agentModeFromParam } from './agentModeParam'
 import {
     EnhancedToolCall,
     MESSAGE_TOO_LONG,
-    MODE_DEFINITIONS,
     TOOL_DEFINITIONS,
     ToolRegistration,
     getToolDefinition,
@@ -266,9 +266,11 @@ export interface maxThreadLogicActions {
     askMax: (
         prompt: string | null,
         addToThread?: boolean | undefined,
-        uiContext?: Partial<MaxUIContext> | undefined
+        uiContext?: Partial<MaxUIContext> | undefined,
+        agentMode?: AgentMode | null | undefined
     ) => {
         addToThread: boolean
+        agentMode: AgentMode | null | undefined
         prompt: string | null
         uiContext: Partial<MaxUIContext> | undefined
     } // maxLogic
@@ -1993,10 +1995,13 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 actions.clearQueuedMessages()
             }
         },
-        askMax: async ({ prompt, addToThread = true, uiContext }, breakpoint) => {
+        askMax: async ({ prompt, addToThread = true, uiContext, agentMode: requestedAgentMode }, breakpoint) => {
             // Only process if this thread is the currently active one
             if (values.conversationId !== values.activeThreadKey) {
                 return
+            }
+            if (requestedAgentMode !== undefined) {
+                actions.setAgentMode(requestedAgentMode)
             }
             // Enforced here (not just hidden from the autocomplete) so typing /ticket by hand
             // can't create a ticket the support panel would refuse.
@@ -3025,29 +3030,13 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             if (typeof options === 'string' && options.startsWith('mode=')) {
                 const colonIndex = options.indexOf(':', 5)
                 const modeValue = colonIndex === -1 ? options.slice(5) : options.slice(5, colonIndex)
-                // Parse the mode value (gated modes fall back to null if their feature flags are off)
-                let parsedMode: AgentMode | null = null
-                if (modeValue === 'auto') {
-                    parsedMode = null
-                } else if (modeValue === 'research') {
-                    parsedMode = values.featureFlags[FEATURE_FLAGS.MAX_DEEP_RESEARCH] ? AgentMode.Research : null
-                } else if (modeValue === 'plan') {
-                    parsedMode = values.featureFlags[FEATURE_FLAGS.PHAI_PLAN_MODE] ? AgentMode.Plan : null
-                } else if (modeValue === 'sandbox') {
+                if (modeValue === 'sandbox') {
                     if (values.featureFlags[FEATURE_FLAGS.PHAI_SANDBOX_MODE]) {
                         actions.setIsSandboxMode(true)
                     }
-                    parsedMode = null
-                } else if ((Object.values(AgentMode) as string[]).includes(modeValue)) {
-                    const modeDef = MODE_DEFINITIONS[modeValue as keyof typeof MODE_DEFINITIONS]
-                    if (modeDef?.flag && !values.featureFlags[FEATURE_FLAGS[modeDef.flag]]) {
-                        parsedMode = null
-                    } else {
-                        parsedMode = modeValue as AgentMode
-                    }
-                }
-                if (parsedMode !== undefined) {
-                    actions.setAgentMode(parsedMode)
+                    actions.setAgentMode(null)
+                } else {
+                    actions.setAgentMode(agentModeFromParam(modeValue, values.featureFlags))
                 }
             }
         }

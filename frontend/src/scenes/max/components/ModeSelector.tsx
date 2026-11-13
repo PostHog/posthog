@@ -234,6 +234,17 @@ export interface ModeSelectorController {
     onChange: (value: ModeValue) => void
 }
 
+/** The modes that the current feature flags allow. Research mode is offered only before the first message. */
+export function useModeChoices(hasExistingMessages: boolean): ModeChoiceSection[] {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const researchEnabled = useFeatureFlag('MAX_DEEP_RESEARCH')
+    const planModeEnabled = useFeatureFlag('PHAI_PLAN_MODE')
+    return useMemo(
+        () => getModeChoices({ planModeEnabled, researchEnabled, featureFlags, hasExistingMessages }),
+        [planModeEnabled, researchEnabled, featureFlags, hasExistingMessages]
+    )
+}
+
 /**
  * The mode selector's state, shared by its lemon and quill skins: which modes are offered, which is
  * selected, why the control may be disabled, and the change handler with its telemetry.
@@ -241,21 +252,7 @@ export interface ModeSelectorController {
 export function useModeSelector(): ModeSelectorController {
     const { agentMode, contextDisabledReason, conversation, threadMessageCount } = useValues(maxThreadLogic)
     const { setAgentMode } = useActions(maxThreadLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const researchEnabled = useFeatureFlag('MAX_DEEP_RESEARCH')
-    const planModeEnabled = useFeatureFlag('PHAI_PLAN_MODE')
-
-    const hasExistingMessages = threadMessageCount > 0
-    const sections = useMemo(
-        () =>
-            getModeChoices({
-                planModeEnabled,
-                researchEnabled,
-                featureFlags,
-                hasExistingMessages,
-            }),
-        [planModeEnabled, researchEnabled, featureFlags, hasExistingMessages]
-    )
+    const sections = useModeChoices(threadMessageCount > 0)
 
     const onChange = useCallback(
         (value: ModeValue): void => {
