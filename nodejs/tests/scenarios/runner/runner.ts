@@ -24,9 +24,17 @@ import { LOAD_PRODUCER_SETTING_PREFIX, LoadedCard } from '../cards'
 import { durationMs } from '../duration'
 import { Environment, defaultStateDir } from '../environment/environment'
 import { nameOf } from '../environment/identity'
-import { RoleSpec, consumerGroupsOf, fetchRetriesOf, roleSpecs, secretsOf } from '../environment/roles'
+import {
+    RoleSpec,
+    SES_WEBHOOKS_GROUP,
+    consumerGroupsOf,
+    fetchRetriesOf,
+    roleSpecs,
+    secretsOf,
+} from '../environment/roles'
 import { cyclotronUrlOf, postgresUrlOf } from '../environment/stack'
 import { DriveSummary, SeedState, drive, seed } from '../generator/generator'
+import { watchSesFeedback } from '../generator/ses-feedback'
 import { Convergence, InvariantResult, createJudge } from '../judge/judge'
 import { Measurement, Sampled, Sampler, measure, startSampler } from '../judge/measurements'
 import { createCyclotronProbe } from '../probe/cyclotron-probe'
@@ -308,6 +316,10 @@ export function createRunner(
                     environment.roles().map(({ name, replica, metricsUrl }) => ({ role: name, replica, metricsUrl }))
                 )
                 await valves.start(card.valves, { environment, probe, teams: seeded.teamIds })
+                const sesFeedback = await watchSesFeedback({
+                    edgeUrl,
+                    lag: () => environment.groupLag(SES_WEBHOOKS_GROUP),
+                })
                 const windowOpen = new AbortController()
                 void sleep(durationMs(card.drive.for), undefined, { signal: windowOpen.signal })
                     .then(() => valves.releaseAll())
@@ -316,6 +328,7 @@ export function createRunner(
                     producer,
                     eventsTopic,
                     cdpApi,
+                    sesFeedback,
                     runId,
                 }).finally(() => windowOpen.abort())
                 await valves.releaseAll()

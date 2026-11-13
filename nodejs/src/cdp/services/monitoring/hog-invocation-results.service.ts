@@ -370,11 +370,30 @@ export class HogInvocationResultsService {
             finishedAt?: Date
         } = {}
     ): void {
+        this.queuePreparedRow(this.prepareLifecycleRow(invocation, status, opts))
+    }
+
+    /** Takes the row's version and 'running' stamp now, so a caller can queue it later yet keep the earlier version. */
+    prepareLifecycleRow(
+        invocation: CyclotronJobInvocation,
+        status: HogInvocationResultStatus,
+        opts: {
+            error?: unknown
+            errorKind?: string
+            startedAt?: Date
+            finishedAt?: Date
+        } = {}
+    ): HogInvocationResultRow | null {
         if (!this.config.HOG_INVOCATION_RESULTS_ENABLED) {
+            return null
+        }
+        return this.buildLifecycleRow(invocation, status, opts)
+    }
+
+    queuePreparedRow(row: HogInvocationResultRow | null): void {
+        if (!row) {
             return
         }
-
-        const row = this.buildLifecycleRow(invocation, status, opts)
         counterHogInvocationResultRowsProduced.labels(row.function_kind, row.status).inc()
         this.queuedRows.push(row)
         hogInvocationResultsPendingMessages.set(this.queuedRows.length)

@@ -5,7 +5,7 @@ import { RETRIABLE_STATUS_CODES } from '~/cdp/utils/cdp-fetch'
 import type { ResidentBacklog } from '../backlog/backlog'
 import type { Definition } from '../cards/definitions'
 import type { TruthRecord } from '../provider-edge'
-import type { InvariantResult, JournalEntry } from './judge'
+import type { FollowUpAnswer, InvariantResult, JournalEntry } from './judge'
 
 export type JudgeEvidence = {
     journal: readonly JournalEntry[]
@@ -159,4 +159,73 @@ export const residentBacklogIntact: InvariantDefinition = {
     },
 }
 
-export const INVARIANTS: InvariantDefinition[] = [atLeastOnce, duplicateSends, refusedAtIntake, residentBacklogIntact]
+const SUPPRESSED = { status: 422, outcome: 'recipient_suppressed' }
+
+function unsuppressedReason(followUp: FollowUpAnswer): string | undefined {
+    if ('notSent' in followUp) {
+        return `the follow-up was not sent: ${followUp.notSent}`
+    }
+    if (followUp.accepted) {
+        return 'cdp-api accepted the follow-up'
+    }
+    if ('transportError' in followUp) {
+        return `cdp-api could not be reached: ${followUp.transportError}`
+    }
+    return followUp.status === SUPPRESSED.status && followUp.outcome === SUPPRESSED.outcome
+        ? undefined
+        : `cdp-api answered the follow-up ${followUp.status}${followUp.outcome ? ` ${followUp.outcome}` : ''}`
+}
+
+export const bouncedSuppressed: InvariantDefinition = {
+    name: 'bounced_suppressed',
+    params: z.object({}).strict(),
+    check: ({ journal, truth }) => {
+        const rejectedSends = truth.filter(
+            ({ kind, fault, unitId }) => kind === 'ses.send' && fault === 'ses.reject' && unitId !== undefined
+        )
+        const bounced = new Set(rejectedSends.filter(({ status }) => isAccepted(status)).map(({ unitId }) => unitId))
+        const refusedOutright = new Set(
+            rejectedSends.filter(({ status }) => !isAccepted(status)).map(({ unitId }) => unitId)
+        )
+        const lastBounce = rejectedSends.filter(({ status }) => isAccepted(status)).at(-1)?.seq
+        const takenAfterTheFault = new Set(
+            truth
+                .filter(
+                    ({ kind, fault, status, seq }) =>
+                        lastBounce !== undefined &&
+                        kind === 'ses.send' &&
+                        fault === undefined &&
+                        isAccepted(status) &&
+                        seq > lastBounce
+                )
+                .map(({ unitId }) => unitId)
+        )
+        const unsuppressed = journal.flatMap(({ unitId, followUp }) => {
+            const skipped =
+                followUp !== undefined &&
+                'notSent' in followUp &&
+                !refusedOutright.has(unitId) &&
+                !takenAfterTheFault.has(unitId)
+            if (!bounced.has(unitId) && !skipped) {
+                return []
+            }
+            const reason = followUp ? unsuppressedReason(followUp) : 'no follow-up was offered'
+            return reason === undefined ? [] : [{ unitId, reason }]
+        })
+        const [first] = unsuppressed
+        return {
+            passed: unsuppressed.length === 0,
+            observed: unsuppressed.length,
+            violation: first && `${first.unitId}: ${first.reason}`,
+            unitIds: firstUnitIds(unsuppressed.map(({ unitId }) => unitId)),
+        }
+    },
+}
+
+export const INVARIANTS: InvariantDefinition[] = [
+    atLeastOnce,
+    duplicateSends,
+    refusedAtIntake,
+    bouncedSuppressed,
+    residentBacklogIntact,
+]
