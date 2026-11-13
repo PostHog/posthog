@@ -401,7 +401,7 @@ describe('PersonhogPersonsStore', () => {
         // resolved mapping.
         ;(store as any).cacheFetchedPerson(1, 'd1', null, 0, {
             grade: 'update',
-            generation: (store as any).generationOf(1),
+            read: (store as any).beginRead(),
         })
         const again = await bound.fetchForUpdate(1, 'd1')
         expect(again?.id).toBe('7')
@@ -433,7 +433,7 @@ describe('PersonhogPersonsStore', () => {
         ['an answer nothing raced as cached', (): void => {}, 'cached_found'],
         [
             'an answer a same-team merge overtook as stale',
-            (): void => (store as any).bumpGeneration(1),
+            (): void => (store as any).fencePurge(['1:d1'], []),
             'stale_generation',
         ],
         [
@@ -919,7 +919,7 @@ describe('PersonhogPersonsStore', () => {
             { distinctId: 'd1' },
             undefined
         )
-        ;(store as any).bumpGeneration(1)
+        ;(store as any).fencePurge(['1:d1'], [])
         release({ person, created: false })
         await creating
 
@@ -982,7 +982,7 @@ describe('PersonhogPersonsStore', () => {
             const fetching = bound.fetchForUpdate(1, 'd1')
             await called
             // A purge and a newer read replace the edge while the leader read is out.
-            ;(store as any).bumpGeneration(1)
+            ;(store as any).fencePurge(['1:d1'], [])
             ;(store as any).setDistinctIdToPersonId('1:d1', newer)
             release(null)
             await fetching
@@ -1325,7 +1325,7 @@ describe('PersonhogPersonsStore', () => {
             )
 
             const applying = bound.applyEventOps(person, ops({ $set: { folded: 'yes' } }), 'd1')
-            ;(store as any).bumpGeneration(1)
+            ;(store as any).fencePurge(['1:d1'], [])
             release({ ...person, id: '9' })
             await applying
 
@@ -1747,23 +1747,22 @@ describe('PersonhogPersonsStore', () => {
             expect(projectionCount()).toBe(0)
         })
 
-        it("a merge on another team's persons does not discard this read", async () => {
+        it.each([
+            ["a merge on another team's persons", 2, ['elsewhere'], ['2:99', '2:98'], '1:7'],
+            ['a same-team merge of other ids and persons', 1, ['elsewhere'], ['1:99', '1:98'], '1:7'],
+            ['a same-team merge of the person this id resolves to', 1, ['alias'], ['1:7', '1:98'], undefined],
+        ])('%s settling mid-read decides whether the read records', async (_case, teamId, ids, persons, expected) => {
             const bound = store.forBatch(0)
             repository.resolvePersonsByDistinctIds.mockImplementation((() => {
-                // A merge for a different person, in a different team,
-                // settles while this read is in flight. The generation guard
-                // is per team, so this read still records.
-                ;(store as any).purgeAfterMerge(2, ['elsewhere'], new Set(['2:99', '2:98']), 'merge_verdict')
+                ;(store as any).purgeAfterMerge(teamId, ids, new Set(persons), 'merge_verdict')
                 return Promise.resolve([{ teamId: 1, distinctId: 'd1', person }]) as never
             }) as never)
             repository.fetchPersonById.mockResolvedValue(person as never)
 
             await bound.fetchForUpdate(1, 'd1')
 
-            // Discarding it would make the cache useless under merge load
-            // and leave any loop that re-reads unable to make progress,
-            // which is what a process-wide counter did.
-            expect(edgeOf('1:d1')).toBe('1:7')
+            expect(edgeOf('1:d1')).toBe(expected)
+            expect((store as any).purgedDistinctKeys.size + (store as any).purgedPersonKeys.size).toBe(0)
         })
 
         it('folds onto the person the cache names, not the caller’s stale copy', async () => {
