@@ -3,7 +3,11 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/integrations/api'
-import { EmailSenderConfigSchema, EmailSenderCreateConfigSchema } from '@/schema/tool-inputs'
+import {
+    DomainConnectSenderIdSchema,
+    EmailSenderConfigSchema,
+    EmailSenderCreateConfigSchema,
+} from '@/schema/tool-inputs'
 import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
@@ -84,9 +88,7 @@ const integrationsChannelsRetrieve = (): ToolBase<
 
 const IntegrationsDomainConnectApplyUrlCreateSchema = () => {
     const IntegrationsDomainConnectApplyUrlCreateBody = orvalSchemas.IntegrationsDomainConnectApplyUrlCreateBody()
-    return IntegrationsDomainConnectApplyUrlCreateBody.extend({
-        integration_id: IntegrationsDomainConnectApplyUrlCreateBody.shape['integration_id'].nonoptional(),
-    })
+    return IntegrationsDomainConnectApplyUrlCreateBody.extend({ integration_id: DomainConnectSenderIdSchema })
 }
 
 const integrationsDomainConnectApplyUrlCreate = (): ToolBase<

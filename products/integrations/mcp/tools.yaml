@@ -85,6 +85,7 @@ tools:
             context: email
         param_overrides:
             integration_id:
+                input_schema: DomainConnectSenderIdSchema
                 required: true
         feature_flag: workflows-email-from-code
     integrations-domain-connect-check-retrieve:

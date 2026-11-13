@@ -11,7 +11,8 @@ Your job is to get from "I want to send email" to a verified sender with as litt
 
 ## Tools
 
-These tools exist only when the project has the email from code feature enabled.
+The update and both Domain Connect tools exist only when the project has the email from code feature enabled.
+Without them, publish the records by hand, and tell the person to rename the sender or change its MAIL FROM in PostHog.
 If `integrations-email-create` or `integrations-email-status-retrieve` is missing, stop and tell the person the tools are not available to them yet.
 Do not fall back to `integrations-create` or other integration tools.
 
@@ -28,6 +29,7 @@ Do not fall back to `integrations-create` or other integration tools.
 Listing, reading the status, checking and creating need project membership.
 Verifying, updating and the Domain Connect URL need project admin access, so a member can create a sender but not verify it.
 A 403 with "You don't have sufficient permissions in the project" means the person must ask a project admin; do not retry.
+A 403 with "This action is not available to API keys or OAuth tokens in this project" means the feature is off for this project: do not retry, publish the records by hand, and tell the person they can finish the step in PostHog.
 
 ## Workflow
 
