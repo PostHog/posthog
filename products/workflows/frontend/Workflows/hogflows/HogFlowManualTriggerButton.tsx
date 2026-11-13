@@ -19,6 +19,13 @@ import { RealtimeCohortCalculatingBanner } from './steps/components/RealtimeCoho
 import { isRealtimeCohortCalculating, realtimeCohortSendBlockedReason } from './steps/realtimeCohortStatus'
 import { recipientEmailProperties } from './steps/recipientEmail'
 
+function AudienceSizeErrorBanner({ reason }: { reason: string | null }): JSX.Element | null {
+    if (!reason) {
+        return null
+    }
+    return <LemonBanner type="warning">Couldn't estimate the audience size. Details: {reason}</LemonBanner>
+}
+
 const TriggerPopover = ({
     setPopoverVisible,
     props,
@@ -33,7 +40,7 @@ const TriggerPopover = ({
     const isAccountAudience =
         workflow?.trigger?.type === 'batch' && workflow.trigger.filters?.audience_type === 'accounts'
 
-    const { blastRadius, blastRadiusLoading, blastRadiusError, recipientsWithoutEmail } = useValues(
+    const { blastRadius, blastRadiusLoading, blastRadiusRejection, recipientsWithoutEmail } = useValues(
         batchTriggerLogic({
             id: props.id,
             filters: workflow?.trigger?.type === 'batch' ? workflow?.trigger?.filters : undefined,
@@ -127,11 +134,7 @@ const TriggerPopover = ({
                 />
             ))}
             <RealtimeCohortCalculatingBanner status={realtimeCohort} />
-            {workflow?.trigger?.type === 'batch' && blastRadiusError ? (
-                <LemonBanner type="warning">
-                    Couldn't estimate the audience size. Details: {blastRadiusError}
-                </LemonBanner>
-            ) : null}
+            <AudienceSizeErrorBanner reason={blastRadiusRejection} />
             <div className="flex justify-end border-t pt-3">
                 <LemonButton
                     type="primary"

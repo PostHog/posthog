@@ -24,6 +24,13 @@ import { BroadcastAudienceListModal } from '../audience/BroadcastAudienceListMod
 import { broadcastWizardLogic } from '../broadcastWizardLogic'
 import { BroadcastChannelPicker } from './BroadcastChannelPicker'
 
+function AudienceSizeErrorDetails({ reason }: { reason: string | null }): JSX.Element | null {
+    if (!reason) {
+        return null
+    }
+    return <div className="mt-1 text-muted">Details: {reason}</div>
+}
+
 function AudienceSizePreview(): JSX.Element | null {
     const { blastRadius, blastRadiusLoading, blastRadiusError, channel, channelReach } = useValues(broadcastWizardLogic)
 
@@ -37,7 +44,7 @@ function AudienceSizePreview(): JSX.Element | null {
                 <IconWarning className="text-base shrink-0" />
                 <div>
                     <div>Couldn't estimate the audience size. Check your filters and try again.</div>
-                    {blastRadiusError ? <div className="mt-1 text-muted">Details: {blastRadiusError}</div> : null}
+                    <AudienceSizeErrorDetails reason={blastRadiusError} />
                 </div>
             </div>
         )

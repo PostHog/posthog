@@ -207,7 +207,12 @@ describe('batchTriggerLogic', () => {
 
             fail = true
             logic.actions.loadBlastRadius()
-            await expectLogic(logic).toDispatchActions(['loadBlastRadiusFailure']).toMatchValues({ blastRadius: null })
+            await expectLogic(logic).toDispatchActions(['loadBlastRadiusFailure']).toFinishAllListeners()
+            await expectLogic(logic).toMatchValues({
+                blastRadius: null,
+                blastRadiusError: 'boom',
+                blastRadiusRejection: null,
+            })
             logic.unmount()
         })
 
@@ -237,7 +242,7 @@ describe('batchTriggerLogic', () => {
                 logic.mount()
                 await expectLogic(logic)
                     .toDispatchActions(['loadBlastRadiusSuccess'])
-                    .toMatchValues({ blastRadius: null, blastRadiusError: rejection })
+                    .toMatchValues({ blastRadius: null, blastRadiusError: rejection, blastRadiusRejection: rejection })
                 await act(async () => {})
                 expect({
                     toasts: Array.from(document.querySelectorAll('.Toastify__toast'), (t) => t.textContent),
