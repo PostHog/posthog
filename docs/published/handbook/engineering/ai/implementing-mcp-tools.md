@@ -163,6 +163,16 @@ The server does not capture the prompt text separately.
 This collection trial changes no tool results and adds no recommendations or elicitation.
 Evaluate intent against independently recorded abstract task goals, checking invented goals, identifying details, and appropriate uncertainty.
 
+## Self-driving activation guidance
+
+The `mcp-guidance-error-tracking-sd-activation` flag controls suggestions after successful error issue-list or issue-detail calls. Eligible external user agents receive an activation link when setup has not started. Task-bound callers, scouts, impersonated requests, and PostHog's own agents receive no suggestion. A carried session or conversation handle limits the suggestion to once per conversation. Without a carried handle, the caller receives at most one suggestion until thirty minutes of inactivity. Cache and onboarding lookups share the guidance engine's 300 ms budget; a late answer cannot reserve a new suggestion. When the flag is off, the eligible call records a `flag_off` exposure without text and the other guidance rules still run, so an empty error list still gets its setup, filter, or range hint. That call's analytics then carry the hint's rule instead of the `flag_off` exposure. The suggestion text lives in `services/mcp/src/templates/guidance/`.
+
+The read-only `self-driving-status-get` tool uses the existing onboarding API and is available independently of the guidance flag. After sharing a link, agents poll every ten seconds for up to five minutes while continuing the current task. Polling stops on completion, an error, a project change, or the deadline. Completed setup does not prove that monitoring is running or a report is ready. After completion, agents search existing reports and work logs before repeating research.
+
+Deploy the frontend activation routes and MCP changes before enabling the guidance flag. The GitHub link opens `/inbox/activate`, where the user confirms before connecting GitHub or activating an existing connection; eligible projects can also use `/inbox/activate/without-github`. Guidance uses the existing exposure analytics, and onboarding keeps its existing activation events.
+
+Onboarding events carry `onboarding_origin`: `agent` for setup entered through an agent activation link, or `app` for regular setup. This includes the server's `self-driving onboarding exposed` and `self-driving onboarding completed` events and the browser's step, activation-request, and failure events. The saved draft retains the origin through redirects, guided steps, and retries. GitHub return URLs retain the origin before the first draft is saved. Exposure stays a once-per-project event; opening an agent link later does not rewrite an earlier app exposure. Events recorded before this property existed have no origin and should remain a separate group in historical comparisons.
+
 ## Interview recruitment with URL elicitation
 
 > [!CAUTION]
@@ -830,7 +840,13 @@ client when the remaining event fits; events that remain oversized are dropped.
 Native widgets read app data, existing `structuredContent`, or a direct result object.
 They never decode TOON or JSON from result text.
 The `execute-sql` backend returns the executed query in `structured_content` alongside its formatted text.
-The MCP handler forwards that query as widget metadata, preserving resolved saved-variable definitions, `connectionId`, and `sendRawQuery`.
+The MCP handler forwards that query as widget metadata, preserving resolved saved-variable definitions, structured `filters`, `connectionId`, and `sendRawQuery`.
+For SQL editor queries, pass `current_query_node.source.filters` as the `execute-sql` tool's `filters` argument and keep `{filters}` in every relevant source scan, including CTEs.
+This applies the editor's date, property, cohort, and test-account filters to both the tool execution and the visualization query.
+The editor applies the tool's input filters alongside the suggested SQL.
+Structured filters require filter placeholders and cannot be used with `sendRawQuery`.
+Date-value placeholders only supply dates; property and test-account filters need predicate placeholders such as `{filters}`.
+SQL calls with structured filters omit arguments and results from MCP analytics payloads and tool spans, since property values can contain sensitive data.
 The widget renders it through the shared Query component in a `DataVisualizationNode`.
 The Query component fetches the results for this visualization.
 All query widgets require the executed query from the tool result. Old transcripts containing only text show the generic tool card.

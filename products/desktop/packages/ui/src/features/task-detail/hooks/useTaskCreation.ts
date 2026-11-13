@@ -9,6 +9,7 @@ import {
   TASK_SERVICE,
   type TaskService,
 } from "@posthog/core/task-detail/taskService";
+import type { WarmTaskDraft } from "@posthog/core/task-detail/warmTaskService";
 import { pendingPromptRecordFromContent } from "@posthog/core/tasks/pendingPrompts";
 import { useService, useServiceOptional } from "@posthog/di/react";
 import type { HostTrpcClient } from "@posthog/host-router/client";
@@ -38,7 +39,7 @@ import { settleFailedPromptRecord } from "@posthog/ui/features/task-detail/pendi
 import { useTaskInputPrefillStore } from "@posthog/ui/features/task-detail/stores/taskInputPrefillStore";
 import { openTask } from "@posthog/ui/router/useOpenTask";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { useConnectivity } from "../../../hooks/useConnectivity";
 import { toast } from "../../../primitives/toast";
 import { track } from "../../../shell/analytics";
@@ -80,6 +81,7 @@ import { useRemoteBranchConfirmStore } from "../stores/remoteBranchConfirmStore"
 const log = logger.scope("task-creation");
 
 interface UseTaskCreationOptions {
+  warmDraft?: WarmTaskDraft | null;
   editorRef: React.RefObject<EditorHandle | null>;
   /** Draft-store session id for the editor; cleared on successful creation. */
   sessionId: string;
@@ -209,6 +211,7 @@ async function trackTaskCreated(
 }
 
 export function useTaskCreation({
+  warmDraft,
   editorRef,
   sessionId,
   selectedDirectory,
@@ -242,6 +245,7 @@ export function useTaskCreation({
   onTaskCreatedEffect,
 }: UseTaskCreationOptions): UseTaskCreationReturn {
   const [isCreatingTask, setIsCreatingTask] = useState(false);
+  const submissionInFlight = useRef(false);
   const hostClient = useHostTRPCClient();
   const codexSubscription = useAdapterSubscription("codex");
   const claudeSubscription = useAdapterSubscription("claude");
@@ -304,7 +308,7 @@ export function useTaskCreation({
       const editor = editorRef.current;
       if (!editor) return false;
       const allowSubmit = contentOverride ? canSubmitBase : canSubmit;
-      if (!allowSubmit) return false;
+      if (!allowSubmit || submissionInFlight.current) return false;
 
       // Capture everything owned by the mounted composer before the first
       // await. Switching tabs unmounts it, but task creation must continue with
@@ -332,6 +336,12 @@ export function useTaskCreation({
 
       // Held for the whole submit, pre-flight awaits included, so a second
       // Enter lands after `canSubmitBase` has already gone false.
+      const warmSubmission = warmDraft?.beginSubmission();
+      if (warmDraft && !warmSubmission) return false;
+      let submissionSucceeded = false;
+      let submittedTaskId: string | undefined;
+
+      submissionInFlight.current = true;
       setIsCreatingTask(true);
 
       try {
@@ -598,7 +608,10 @@ export function useTaskCreation({
               useTourStore.getState().completeTour(createFirstTaskTour.id);
               // Pre-flight already ran above for cloud; skip the service's duplicate check.
             },
-            { skipCloudUsagePreflight: true },
+            {
+              skipCloudUsagePreflight: true,
+              warmSubmission: warmSubmission ?? undefined,
+            },
           );
 
           if (result.success && result.data.provisioningError) {
@@ -679,6 +692,8 @@ export function useTaskCreation({
             }
             settlePromptRecord();
           }
+          submissionSucceeded = result.success;
+          if (result.success) submittedTaskId = result.data.task.id;
           return result.success;
         } catch (error) {
           track(ANALYTICS_EVENTS.TASK_CREATION_FAILED, {
@@ -690,10 +705,13 @@ export function useTaskCreation({
           return false;
         }
       } finally {
+        warmSubmission?.finish(submissionSucceeded, submittedTaskId);
+        submissionInFlight.current = false;
         setIsCreatingTask(false);
       }
     },
     [
+      warmDraft,
       canSubmit,
       canSubmitBase,
       currentProjectId,
