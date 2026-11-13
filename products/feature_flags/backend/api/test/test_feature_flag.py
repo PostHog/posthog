@@ -9702,22 +9702,49 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("event_property", [{"key": "$browser", "type": "event", "value": ["Chrome"], "operator": "exact"}]),
-            ("hogql_expression", [{"key": "1 = 1", "type": "hogql"}]),
-            ("nested_hogql_expression", {"type": "AND", "values": [{"key": "1 = 1", "type": "hogql"}]}),
-            ("unknown_type", [{"key": "x", "type": "bogus", "value": "y", "operator": "exact"}]),
-            ("hogql_expression_with_values_key", [{"key": "1 = 1", "type": "hogql", "values": []}]),
-            ("legacy_dict_shaped_like_a_person_property", {"key": "email", "type": "person", "value": "a"}),
+            (
+                "event_property",
+                [{"key": "$browser", "type": "event", "value": ["Chrome"], "operator": "exact"}],
+                "isn't supported in release conditions",
+            ),
+            ("hogql_expression", [{"key": "1 = 1", "type": "hogql"}], "isn't supported in release conditions"),
+            (
+                "nested_hogql_expression",
+                {"type": "AND", "values": [{"key": "1 = 1", "type": "hogql"}]},
+                "isn't supported in release conditions",
+            ),
+            (
+                "unknown_type",
+                [{"key": "x", "type": "bogus", "value": "y", "operator": "exact"}],
+                "isn't supported in release conditions",
+            ),
+            (
+                "hogql_expression_with_values_key",
+                [{"key": "1 = 1", "type": "hogql", "values": []}],
+                "isn't supported in release conditions",
+            ),
+            (
+                "legacy_dict_shaped_like_a_person_property",
+                {"key": "email", "type": "person", "value": "a"},
+                "isn't supported in release conditions",
+            ),
+            ("missing_type", [{"key": "x", "value": "y"}], "needs a type"),
+            ("list_type", [{"key": "x", "type": ["person"], "value": "y"}], "needs a type"),
+            ("non_dict_item", ["not-a-property"], "needs a type"),
+            (
+                "nested_hogql_expression_with_values_key",
+                {"type": "AND", "values": [{"key": "1 = 1", "type": "hogql", "values": []}]},
+                "is not a valid PropertyOperatorType",
+            ),
         ]
     )
-    def test_user_blast_radius_endpoint_rejects_unsupported_property_types(self, _name, properties):
+    def test_user_blast_radius_endpoint_rejects_unsupported_property_types(self, _name, properties, detail_fragment):
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
             {"condition": {"properties": properties}},
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["attr"], "filters")
-        self.assertIn("isn't supported in release conditions", response.json()["detail"])
+        self.assertIn(detail_fragment, response.json()["detail"])
 
     def test_user_blast_radius_endpoint_ignores_test_account_filters(self):
         for i in range(3):
