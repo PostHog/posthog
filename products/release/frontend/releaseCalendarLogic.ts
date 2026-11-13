@@ -1,7 +1,7 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers } from 'kea'
-import posthog from 'posthog-js'
 
 import { dayjs } from 'lib/dayjs'
+import posthog from 'lib/posthog-typed'
 
 import { featureFlagsActivityRetrieve } from 'products/feature_flags/frontend/generated/api'
 import type { ActivityLogEntryApi } from 'products/feature_flags/frontend/generated/api.schemas'

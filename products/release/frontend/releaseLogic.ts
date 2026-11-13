@@ -1,11 +1,11 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
-import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import posthog from 'lib/posthog-typed'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'

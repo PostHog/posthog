@@ -1,7 +1,7 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import posthog from 'posthog-js'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import posthog from 'lib/posthog-typed'
 
 import { releasesImportAllCreate } from './generated/api'
 import type { ReleaseDTOApi } from './generated/api.schemas'

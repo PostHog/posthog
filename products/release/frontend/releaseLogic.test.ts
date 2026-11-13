@@ -2,10 +2,10 @@ import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
-import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import posthog from 'lib/posthog-typed'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -18,6 +18,10 @@ import { releaseLogic } from './releaseLogic'
 
 const EMPTY_PAGE = { results: [], count: 0, next: null }
 
+jest.mock('lib/posthog-typed', () => ({
+    __esModule: true,
+    default: { capture: jest.fn() },
+}))
 jest.mock('./generated/api', () => ({
     releasesList: jest.fn(),
     releasesCreate: jest.fn(),
@@ -69,7 +73,8 @@ describe('releaseLogic', () => {
     })
 
     it('counts a release page open once per page, not per hash change', async () => {
-        const capture = jest.spyOn(posthog, 'capture').mockImplementation()
+        const capture = jest.mocked(posthog.capture)
+        capture.mockClear()
         router.actions.push(urls.release('r1'))
         const logic = releaseLogic()
         logic.mount()
@@ -82,7 +87,6 @@ describe('releaseLogic', () => {
             ['release page opened', { release_id: 'r1' }],
             ['release page opened', { release_id: 'r2' }],
         ])
-        capture.mockRestore()
     })
 
     it.each([
@@ -101,7 +105,8 @@ describe('releaseLogic', () => {
         ['ignores broadcasts someone else pointed at the release', [['b3', 2]], null, true, []],
         ['counts no auto link when the save fails', [['b2', 1]], ['b1', 'b2'], false, []],
     ])('%s', async (_name, started, expected, saves, events) => {
-        const capture = jest.spyOn(posthog, 'capture').mockImplementation()
+        const capture = jest.mocked(posthog.capture)
+        capture.mockClear()
         userLogic.mount()
         userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, id: 1 })
         const release = {
@@ -144,6 +149,5 @@ describe('releaseLogic', () => {
             expect(mockedPartialUpdate).not.toHaveBeenCalled()
         }
         expect(capture.mock.calls.filter(([event]) => event === 'release broadcasts auto linked')).toEqual(events)
-        capture.mockRestore()
     })
 })
