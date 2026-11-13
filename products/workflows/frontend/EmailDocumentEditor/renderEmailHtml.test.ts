@@ -66,6 +66,18 @@ describe('renderEmailHtml', () => {
         const html = renderEmailHtml(doc(paragraph('{% if a %}'), paragraph('Shown'), paragraph('{% endif %}')))
 
         expect(html).toMatch(/\{% if a %\}<tr>.*Shown.*<\/tr>\{% endif %\}/s)
+        // A variable between the tags is content, so that line is sent.
+        const withVariable = renderEmailHtml(
+            doc({
+                type: 'paragraph',
+                content: [
+                    { type: 'text', text: '{% if a %}' },
+                    { type: 'variable', attrs: { expression: 'person.name', fallback: '' } },
+                    { type: 'text', text: '{% endif %}' },
+                ],
+            })
+        )
+        expect(withVariable).toContain('{{ person.name }}')
     })
 
     it('colors a spacer, ignoring a color that could break out of the attribute', () => {

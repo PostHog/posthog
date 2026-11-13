@@ -600,7 +600,8 @@ function renderBlock(node: JSONContent, parentCtx: RenderContext): string {
         case 'paragraph': {
             const text = textFromNodes(node.content)
             // A Liquid tag alone on its line (`{% for %}`, `{% endif %}`) is structure, and it must not leave a gap.
-            if (isOnlyLiquidTags(text)) {
+            // Only plain text counts: a variable between the tags is content and has to be sent.
+            if ((node.content ?? []).every((child) => child.type === 'text') && isOnlyLiquidTags(text)) {
                 return text.trim()
             }
             return blockCell(style, textBlockElement(node, ctx) ?? '')

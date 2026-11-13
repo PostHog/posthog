@@ -686,6 +686,16 @@ function convertContent(
         case 'heading': {
             const level = Math.min(3, parseInt(String(values.headingType ?? 'h1').slice(1), 10) || 1)
             const style = textStyleFrom(values, { fontSize: 22, lineHeight: 140 })
+            const headingHtml = richTextOf(values)
+            const headingLinks = new DOMParser().parseFromString(headingHtml, 'text/html').body.querySelectorAll('a')
+            if (Array.from(headingLinks).some(isUntrackedLink)) {
+                return [
+                    textAsHtmlBlock(`<h${level}>${headingHtml}</h${level}>`, {
+                        ...style,
+                        fontWeight: style.fontWeight ?? 400,
+                    }),
+                ]
+            }
             return [
                 {
                     type: 'heading',

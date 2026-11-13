@@ -126,13 +126,18 @@ describe('unlayerToEmailDocument', () => {
             name: 'in a list item',
             text: '<ul><li><a href="https://example.com/app" data-ph-no-track>the app</a></li></ul>',
         },
+        {
+            name: 'in a heading',
+            type: 'heading',
+            text: 'Open <a href="https://example.com/app" ses:no-track>the app</a>',
+        },
     ])(
         'keeps text with a link opted out of click tracking as written, $name, so the opt-out reaches the send',
-        ({ text }) => {
-            const { document } = unlayerToEmailDocument(design([content('text', { text })]))
+        ({ text, type = 'text' }) => {
+            const { document } = unlayerToEmailDocument(design([content(type, { text })]))
 
             expect(document?.doc.content?.[0]).toMatchObject({ type: 'emailHtml' })
-            expect(document?.doc.content?.[0].attrs?.html).toMatch(/clicktracking="off"|data-ph-no-track/)
+            expect(document?.doc.content?.[0].attrs?.html).toMatch(/clicktracking="off"|data-ph-no-track|ses:no-track/)
         }
     )
 
