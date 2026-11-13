@@ -1435,7 +1435,11 @@ class TestPrinter(BaseTest):
     @parameterized.expand(
         [
             (expression, properties, expected)
-            for expression in ["properties", "toJSONString(properties)"]
+            for expression in [
+                "properties",
+                "toJSONString(properties)",
+                "JSONExtractString(toJSONString(tuple(properties)), 1)",
+            ]
             for properties, expected in [
                 ({}, {}),
                 (

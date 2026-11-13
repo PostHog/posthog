@@ -179,7 +179,6 @@ class ClickHousePrinter(BasePrinter):
     DIALECT_NAME: ClassVar[HogQLDialect] = "clickhouse"
     _reads_native_events_table: bool = False
     _unmasked_blob_type: ast.FieldType | None = None
-    _inside_json_function_argument: bool = False
 
     def visit_cte(self, node: ast.CTE):
         if node.materialized is False:
@@ -261,8 +260,6 @@ class ClickHousePrinter(BasePrinter):
                         args.append(f"ifNull({self.visit(arg)}, '')")
                 else:
                     args.append(f"ifNull(toString({self.visit(arg)}), '')")
-        elif node.name == "toJSONString":
-            args = [self._visit_json_function_argument(arg) for arg in node_args]
         # ClickHouse has no Nullable(Array) or Nullable(Map), so a nullable JSON input must become '' first.
         elif self._returns_json_container(node) and self._json_input_needs_null_guard(node_args[0]):
             args = [f"ifNull({self.visit(node_args[0])}, '')", *(self.visit(arg) for arg in node_args[1:])]
@@ -690,11 +687,6 @@ class ClickHousePrinter(BasePrinter):
         resolved_field = self._events_json_document_field(type)
         if resolved_field is None:
             return None
-        # toJSONString serializes the stored column itself. A masked document is a string either way, and
-        # JSONDropKeysPool only reaches a key inside an object in the rebuilt document.
-        if self._inside_json_function_argument and not self._restricted_blob_keys(type, resolved_field.name):
-            return None
-
         prefix = field_sql.removesuffix(self._print_identifier(resolved_field.name))
         if resolved_field.name == "properties":
             temporary_properties_sql = f"{prefix}{self._print_identifier(TEMPORARY_PROPERTIES_COLUMN)}"
@@ -737,27 +729,9 @@ class ClickHousePrinter(BasePrinter):
             return None
         return self._maybe_apply_json_drop_keys(arg_type, serialized)
 
-    def _visit_json_function_argument(self, node: ast.Expr) -> str:
-        with self._json_function_argument(True):
-            return self.visit(node)
-
-    @contextmanager
-    def _json_function_argument(self, inside: bool) -> Iterator[None]:
-        previous = self._inside_json_function_argument
-        self._inside_json_function_argument = inside
-        try:
-            yield
-        finally:
-            self._inside_json_function_argument = previous
-
     def visit_property_access(self, node: ast.PropertyAccess) -> str:
         first_key = node.keys[0] if node.keys else None
-        # A key is read from the rebuilt document, also under toJSONString. The stored column holds an object as a
-        # string, and JSONDropKeysPool cannot drop a restricted key inside a string.
-        with (
-            self._without_json_drop_keys(self._unmasked_key_read_type(node.expr, first_key)),
-            self._json_function_argument(False),
-        ):
+        with self._without_json_drop_keys(self._unmasked_key_read_type(node.expr, first_key)):
             return super().visit_property_access(node)
 
     def _unmasked_key_read_type(self, document: ast.Expr, first_key: object) -> ast.FieldType | None:
