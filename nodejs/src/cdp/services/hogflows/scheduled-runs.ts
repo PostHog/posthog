@@ -16,7 +16,8 @@ import { createHogFlowInvocation } from './hogflow-executor.service'
 import type { HogFlowManagerService } from './hogflow-manager.service'
 import { shouldBlockHogFlowDueToQuota } from './hogflow-quota-limiting'
 
-const MAX_RUNS_PER_REQUEST = 500
+// One Cyclotron insert chunk (CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE), so a batch commits whole or not at all.
+const MAX_RUNS_PER_REQUEST = 100
 
 export const ScheduledRunsRequestSchema = z.object({
     runs: z

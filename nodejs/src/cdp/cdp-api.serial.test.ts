@@ -2154,31 +2154,47 @@ describe('CDP API', () => {
         })
 
         it.each([
-            ['no token', () => ({})],
+            ['no token', () => ({}), () => ({ runs: [{ team_id: team.id, hog_flow_id: scheduleHogFlow.id }] })],
+            ['no token and a malformed body', () => ({}), () => ({ runs: 'all of them' })],
             [
                 'a token signed with the wrong key',
                 () => ({ Authorization: `Bearer ${mintScheduledRunsToken([team.id], { secret: 'wrong-key' })}` }),
+                () => ({ runs: [{ team_id: team.id, hog_flow_id: scheduleHogFlow.id }] }),
             ],
             [
                 "another route's token",
                 () => ({
                     Authorization: `Bearer ${mintScheduledRunsToken([team.id], { audience: 'posthog:workflows:manual_run' })}`,
                 }),
+                () => ({ runs: [{ team_id: team.id, hog_flow_id: scheduleHogFlow.id }] }),
             ],
             [
                 'a token that leaves out a team of the batch',
                 () => ({ Authorization: `Bearer ${mintScheduledRunsToken([team.id + 1])}` }),
+                () => ({ runs: [{ team_id: team.id, hog_flow_id: scheduleHogFlow.id }] }),
             ],
-        ])('refuses a batch with %s and queues nothing', async (_desc, headers) => {
+        ])('refuses a batch with %s and queues nothing', async (_desc, headers, body) => {
+            const hogflowQueue = createInMemoryJobQueue()
+            api['hogflowQueue'] = hogflowQueue
+
+            const res = await supertest(app).post('/api/hog_flows/scheduled_invocations').set(headers()).send(body())
+
+            expect(res.status).toEqual(401)
+            expect(hogflowQueue.queued).toEqual([])
+        })
+
+        it('refuses a batch larger than one queue insert and queues nothing', async () => {
             const hogflowQueue = createInMemoryJobQueue()
             api['hogflowQueue'] = hogflowQueue
 
             const res = await supertest(app)
                 .post('/api/hog_flows/scheduled_invocations')
-                .set(headers())
-                .send({ runs: [{ team_id: team.id, hog_flow_id: scheduleHogFlow.id }] })
+                .set({ Authorization: `Bearer ${mintScheduledRunsToken([team.id])}` })
+                .send({
+                    runs: Array.from({ length: 101 }, () => ({ team_id: team.id, hog_flow_id: scheduleHogFlow.id })),
+                })
 
-            expect(res.status).toEqual(401)
+            expect(res.status).toEqual(400)
             expect(hogflowQueue.queued).toEqual([])
         })
     })
