@@ -32,13 +32,19 @@ class TestResendAutomationDrafts(BaseTest):
     def _import(self, automation: dict[str, Any], **kwargs: Any) -> Any:
         return drafts.import_resend_automation(self.team.id, self.user.id, automation, {}, **kwargs)
 
-    def test_access_rules_load_once_for_a_page_of_automations(self) -> None:
-        with patch.object(drafts, "UserAccessControl", wraps=drafts.UserAccessControl) as access:
+    def test_access_rules_and_gated_templates_load_once_for_a_page_of_automations(self) -> None:
+        with (
+            patch.object(drafts, "UserAccessControl", wraps=drafts.UserAccessControl) as access,
+            patch.object(drafts, "hidden_gated_template_ids", wraps=drafts.hidden_gated_template_ids) as gated,
+        ):
             with drafts.reuse_import_access():
-                results = [self._import(_automation(automation_id)) for automation_id in ("a1", "a2")]
+                results = [
+                    self._import(_automation(automation_id, segment=True), segments={"seg-1": "Pro"})
+                    for automation_id in ("a1", "a2")
+                ]
 
         assert [result.status for result in results] == ["created", "created"]
-        assert access.call_count == 1
+        assert (access.call_count, gated.call_count) == (1, 1)
 
     def test_an_automation_whose_draft_was_deleted_imports_again(self) -> None:
         first = self._import(_automation("a1"))
