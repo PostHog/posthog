@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
@@ -24,7 +25,9 @@ from posthog.schema import (
     TrendsQuery,
 )
 
+from posthog.hogql_queries.agent_notices import AgentNotice
 from posthog.hogql_queries.utils.result_series import get_action_names
+from posthog.hogql_queries.warehouse_suggestion_notes import NOTICE_SOURCE as WAREHOUSE_NOTICE_SOURCE
 
 from .boxplot import BoxPlotResultsFormatter
 from .funnel import FunnelResultsFormatter
@@ -81,11 +84,11 @@ WAREHOUSE_SUGGESTIONS_HEADER = (
 )
 
 
-def format_warehouse_suggestions(response: dict[str, Any]) -> str:
-    notes = response.get("warehouse_suggestions") or []
-    if not notes:
+def format_warehouse_suggestions(notices: Sequence[AgentNotice]) -> str:
+    texts = [notice["text"] for notice in notices if notice["source"] == WAREHOUSE_NOTICE_SOURCE]
+    if not texts:
         return ""
-    return "\n".join(["", "", WAREHOUSE_SUGGESTIONS_HEADER, *(f"- {note['message']}" for note in notes)])
+    return "\n".join(["", "", WAREHOUSE_SUGGESTIONS_HEADER, *(f"- {text}" for text in texts)])
 
 
 def format_query_results_for_llm(
@@ -143,8 +146,7 @@ def format_query_results_for_llm(
     if formatted is None:
         return None
     warning_prefix = format_warehouse_sync_warnings(response) + format_access_control_warnings(response)
-    result = warning_prefix + formatted if warning_prefix else formatted
-    return result + format_warehouse_suggestions(response)
+    return warning_prefix + formatted if warning_prefix else formatted
 
 
 __all__ = [

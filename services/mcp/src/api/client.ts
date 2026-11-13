@@ -19,6 +19,7 @@ import {
     ToolInputValidationError,
 } from '@/lib/errors'
 import { parseInsufficientScopeChallenge } from '@/lib/missing-scope'
+import type { ResultNotice } from '@/lib/result-notices'
 import { getSearchParamsFromRecord, sanitizeHeaders, sanitizeHeaderValue } from '@/lib/utils.js'
 import type {
     ApiEventDefinition,
@@ -185,7 +186,7 @@ export interface QueryEndpointResponse {
     // serializes the field explicitly rather than omitting it. Carries both warehouse-sync
     // warnings and object-level access control warnings.
     warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null
-    warehouse_suggestions?: Schemas.WarehouseSuggestionNote[] | null
+    agent_notices?: ResultNotice[] | null
 }
 
 export interface ApiConfig {
@@ -1746,7 +1747,7 @@ export class ApiClient {
                 columns?: unknown[] | null
                 formatted_results?: string
                 warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null
-                warehouse_suggestions?: Schemas.WarehouseSuggestionNote[] | null
+                agent_notices?: ResultNotice[] | null
                 has_next?: boolean
                 next_cursor?: string | null
             }> => {
@@ -1755,7 +1756,7 @@ export class ApiClient {
                     columns?: unknown[] | null
                     formatted_results?: string
                     warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null
-                    warehouse_suggestions?: Schemas.WarehouseSuggestionNote[] | null
+                    agent_notices?: ResultNotice[] | null
                     has_next?: boolean
                     next_cursor?: string | null
                 }>({

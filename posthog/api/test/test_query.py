@@ -54,6 +54,7 @@ from posthog.clickhouse.query_tagging import Product, QueryTags
 from posthog.errors import InternalCHQueryError
 from posthog.event_usage import EventSource
 from posthog.exceptions import APIQueriesBudgetExceeded, ClickHouseQueryTimeOut
+from posthog.hogql_queries.agent_notices import hand_off_agent_notices
 from posthog.llm.completions import OpenAICompletion
 from posthog.models import OrganizationMembership, PersonalAPIKey
 from posthog.models.utils import UUIDT, generate_random_token_personal, hash_key_value
@@ -1784,11 +1785,13 @@ class TestQueryLLMFormatting(ClickhouseTestMixin, APIBaseTest):
 
     @patch("posthog.api.query.process_query_model")
     def test_hogql_query_includes_formatted_results(self, mock_process_query_model):
-        mock_process_query_model.return_value = {
-            "results": [["sign up", 10], ["sign out", 5]],
-            "columns": ["event", "count"],
-            "is_cached": False,
-        }
+        notice = {"source": "warehouse-suggestions", "key": "s1", "text": "Materializing `orders` would save time."}
+
+        def run_query(*_args, **_kwargs):
+            hand_off_agent_notices([notice])
+            return {"results": [["sign up", 10], ["sign out", 5]], "columns": ["event", "count"], "is_cached": False}
+
+        mock_process_query_model.side_effect = run_query
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/query/",
@@ -1801,6 +1804,8 @@ class TestQueryLLMFormatting(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("formatted_results", data)
         self.assertIn("sign up", data["formatted_results"])
         self.assertIn("10", data["formatted_results"])
+        self.assertNotIn(notice["text"], data["formatted_results"])
+        self.assertEqual(data["agent_notices"], [notice])
 
     @patch("posthog.api.query.process_query_model")
     def test_no_formatted_results_without_header(self, mock_process_query_model):

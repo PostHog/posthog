@@ -58,6 +58,8 @@ export const MCP_GUIDANCE_SQL_TYPED_RUNNER_FLAG = 'mcp-guidance-sql-typed-runner
 export const MCP_GUIDANCE_ERROR_TRACKING_EMPTY_SETUP_FLAG = 'mcp-guidance-error-tracking-empty-setup'
 export const MCP_GUIDANCE_ERROR_TRACKING_EMPTY_FILTERS_FLAG = 'mcp-guidance-error-tracking-empty-filters'
 export const MCP_GUIDANCE_ERROR_TRACKING_EMPTY_RANGE_FLAG = 'mcp-guidance-error-tracking-empty-range'
+export const MCP_GUIDANCE_WAREHOUSE_SUGGESTIONS_FLAG = 'mcp-guidance-warehouse-suggestions'
+export const WAREHOUSE_SUGGESTIONS_NOTICE_SOURCE = 'warehouse-suggestions'
 
 const ERROR_TRACKING_ISSUES_LIST_TOOL = 'query-error-tracking-issues-list'
 
@@ -126,6 +128,20 @@ const SIMPLE_EVENTS_AGGREGATE = new RegExp(
 )
 
 const RULES: GuidanceRule[] = [
+    {
+        id: 'warehouse-suggestions',
+        flag: MCP_GUIDANCE_WAREHOUSE_SUGGESTIONS_FLAG,
+        trigger: { noticeSource: WAREHOUSE_SUGGESTIONS_NOTICE_SOURCE, outcome: 'success', presets: ['user'] },
+        threshold: 1,
+        maxPerSession: 3,
+        suppressIfCalled: ['warehouse-suggestions-*'],
+        requiresTool: ['warehouse-suggestions-get'],
+        text: (call) =>
+            [
+                'PostHog has open suggestions for warehouse views this call read. Mention them to the person; do not act on them unless the person asks.',
+                ...(call.resultNotices ?? []).map((notice) => `- ${notice.text}`),
+            ].join('\n'),
+    },
     {
         id: 'replay-sql-to-vision',
         flag: MCP_GUIDANCE_REPLAY_VISION_FLAG,

@@ -5,6 +5,7 @@ from typing import Any, Generic, TypeVar
 from pydantic import BaseModel, Field, JsonValue
 
 from posthog.event_usage import EventSource
+from posthog.hogql_queries.agent_notices import AgentNotice
 from posthog.models import Team, User
 
 ArgsT = TypeVar("ArgsT", bound=BaseModel)
@@ -14,6 +15,9 @@ class MCPToolResult(BaseModel):
     content: str = Field(description="Formatted tool output for the model.")
     structured_content: dict[str, JsonValue] | None = Field(
         default=None, description="Structured tool output for native widgets."
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None, description="Optional suggestions the MCP server shows through guidance, not as output."
     )
 
 

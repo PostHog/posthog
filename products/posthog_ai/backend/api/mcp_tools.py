@@ -26,6 +26,7 @@ from posthog.clickhouse.query_tagging import Feature, tags_context
 from posthog.errors import error_code_from_type
 from posthog.event_usage import get_event_source
 from posthog.exceptions_capture import exception_context
+from posthog.hogql_queries.agent_notices import collect_agent_notices
 from posthog.hogql_queries.warehouse_suggestion_notes import credential_access
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -198,7 +199,8 @@ class MCPToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 ):
                     return await tool.execute(validated_args)
 
-            result = async_to_sync(execute_tool)()
+            with collect_agent_notices() as agent_notices:
+                result = async_to_sync(execute_tool)()
         except MaxToolError as e:
             return Response(
                 {
@@ -239,6 +241,8 @@ class MCPToolsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
 
         if isinstance(result, str):
             result = MCPToolResult(content=result)
+        if agent_notices:
+            result = result.model_copy(update={"agent_notices": agent_notices})
         return Response({"success": True, **result.model_dump(exclude_none=True)})
 
 

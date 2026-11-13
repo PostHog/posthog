@@ -4,13 +4,11 @@ from time import perf_counter
 from typing import TYPE_CHECKING, Any, Optional
 
 import structlog
-from pydantic import BaseModel
-
-from posthog.schema import WarehouseSuggestionNote
 
 from posthog.caching.utils import WARMING_TRIGGER_PREFIX
 from posthog.clickhouse.query_tagging import Product, get_query_tag_value
 from posthog.dataclasses import frozen
+from posthog.hogql_queries.agent_notices import AgentNotice, hand_off_agent_notices, is_collecting_agent_notices
 from posthog.query_scan.trigger import is_analyzable_principal, is_mcp_run
 from posthog.scopes import scopes_not_covered
 
@@ -22,13 +20,14 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
-FIELD = "warehouse_suggestions"
+NOTICE_SOURCE = "warehouse-suggestions"
 ACCESS_TAG = "warehouse_suggestion_access"
 MAX_READ_VIEWS = 50
 
 
 class SkipReason(StrEnum):
     NOT_AGENT = "not_agent"
+    NOT_COLLECTED = "not_collected"
     NO_SCOPE = "no_scope"
     NO_VIEWS = "no_views"
     TOO_MANY_VIEWS = "too_many_views"
@@ -57,10 +56,12 @@ class NotesOutcome:
 
 
 def serve_warehouse_suggestions(
-    team: "Team", response: BaseModel, user: Optional["User"], saved_query_ids: Collection[str], trigger: Optional[str]
+    team: "Team", user: Optional["User"], saved_query_ids: Collection[str], trigger: Optional[str]
 ) -> NotesOutcome:
-    if FIELD not in type(response).model_fields or not is_analyzable_principal(user) or not _is_agent_run(trigger):
+    if not is_analyzable_principal(user) or not _is_agent_run(trigger):
         return NotesOutcome(skipped_reason=SkipReason.NOT_AGENT)
+    if not is_collecting_agent_notices():
+        return NotesOutcome(skipped_reason=SkipReason.NOT_COLLECTED)
     access = _tagged_credential_access()
     if access == CredentialAccess.NONE:
         return NotesOutcome(skipped_reason=SkipReason.NO_SCOPE)
@@ -77,7 +78,7 @@ def serve_warehouse_suggestions(
         )
         if notes is None:
             return NotesOutcome(skipped_reason=SkipReason.FLAG_OFF, elapsed_ms=_elapsed_ms(started))
-        setattr(response, FIELD, [_schema_note(note) for note in notes])
+        hand_off_agent_notices([_agent_notice(note) for note in notes])
     except Exception:
         logger.exception(
             "warehouse_suggestions_query_notes_failed", team_id=team.pk, saved_query_count=len(saved_query_ids)
@@ -111,15 +112,8 @@ def _tagged_credential_access() -> CredentialAccess:
     return CredentialAccess.NONE
 
 
-def _schema_note(note: "ContractNote") -> WarehouseSuggestionNote:
-    return WarehouseSuggestionNote(
-        id=str(note.id),
-        kind=note.kind.value,
-        view_name=note.view_name,
-        message=note.message,
-        url=note.url,
-        can_act=note.can_act,
-    )
+def _agent_notice(note: "ContractNote") -> AgentNotice:
+    return AgentNotice(source=NOTICE_SOURCE, key=str(note.id), text=note.message)
 
 
 def _is_agent_run(trigger: Optional[str]) -> bool:

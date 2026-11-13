@@ -650,11 +650,19 @@ export const MCPToolResponseApiErrorType = {
     Internal: 'internal',
 } as const
 
+export interface AgentNoticeApi {
+    source: string
+    key: string
+    text: string
+}
+
 export interface MCPToolResponseApi {
     /** Formatted tool output for the model. */
     content: string
     /** Structured tool output for native widgets. */
     structured_content?: MCPToolResponseApiStructuredContent
+    /** Optional suggestions the MCP server shows through guidance, not as output. */
+    agent_notices?: AgentNoticeApi[] | null
     /** Whether the tool completed successfully. */
     success: boolean
     /** Failure category for MCP analytics. */

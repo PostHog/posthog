@@ -1,4 +1,6 @@
 import type { Schemas } from '@/api/generated'
+import { WAREHOUSE_SUGGESTIONS_NOTICE_SOURCE } from '@/hono/guidance/rules'
+import { RESULT_NOTICES_KEY } from '@/lib/result-notices'
 import type { ToolHooks } from '@/tools/tool-hooks'
 import type { Context } from '@/tools/types'
 
@@ -49,7 +51,11 @@ async function afterResponse(context: Context, params: ViewGetParams, result: un
         return result
     }
     const note = openSuggestions.some((openSuggestion) => openSuggestion.can_act) ? ACTIONABLE_NOTE : READ_ONLY_NOTE
-    return { ...result, open_suggestions: openSuggestions, open_suggestions_note: note }
+    return {
+        ...result,
+        open_suggestions: openSuggestions,
+        [RESULT_NOTICES_KEY]: [{ source: WAREHOUSE_SUGGESTIONS_NOTICE_SOURCE, key: `view:${params.id}`, text: note }],
+    }
 }
 
 export default { afterResponse } satisfies ToolHooks<ViewGetParams>
