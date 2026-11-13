@@ -1360,6 +1360,20 @@ class TestGroupBy(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(time and dt.datetime.fromisoformat(time), expected_time)
         self.assertNotIn("points", by_env["prod"])
 
+    def test_instant_builder_query_caps_series_by_the_evaluated_bucket(self) -> None:
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="req",
+            points=[(self.anchor - dt.timedelta(minutes=7), 50.0)],
+            labels={"env": "staging"},
+        )
+        with patch("products.metrics.backend.facade.api.MAX_SERIES_PER_CLAUSE", 1):
+            body = self._query_via_api(
+                instant=True, interval="minute", time=(self.anchor - dt.timedelta(minutes=4)).isoformat()
+            )
+
+        self.assertEqual([(s["labels"]["env"], s["value"]) for s in body["results"]], [("dev", 10.0)])
+
     def test_summary_builder_query_reduces_each_series(self) -> None:
         body = self._query_via_api(
             interval="minute",
