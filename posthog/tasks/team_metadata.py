@@ -11,6 +11,7 @@ from django.conf import settings
 import structlog
 from celery import shared_task
 
+from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.storage.hypercache_manager import HYPERCACHE_SIGNAL_UPDATE_COUNTER
@@ -24,6 +25,10 @@ from posthog.storage.team_metadata_cache import (
 from posthog.tasks.utils import CeleryQueue
 
 logger = structlog.get_logger(__name__)
+
+# Both scheduled jobs run hourly. The verification task stops at its 40-minute hard limit.
+# The refresh task has no time limit. One hour assumes that a refresh run ends within its period.
+ROTATED_TOKEN_EVICTION_DELAY_SECONDS = 60 * 60
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
@@ -73,6 +78,32 @@ def evict_rotated_token_team_metadata_cache_task(old_token: str) -> None:
         return
 
     evict_team_metadata_cache_for_token(old_token)
+
+
+def evict_team_metadata_cache_after_token_change(old_token: str) -> None:
+    """
+    Evict a rotated token's entry now, and schedule a second eviction after the scheduled cache jobs.
+
+    A refresh or verification run that loaded the team before the rotation writes the old token's
+    entry back when it reaches the team. The delayed task deletes that entry and retries a failed delete.
+    The function captures a failure and never raises it, because the token change has already committed.
+    """
+    if not settings.FLAGS_REDIS_URL:
+        return
+
+    try:
+        evict_team_metadata_cache_for_token(old_token)
+    except Exception as e:
+        logger.exception("Failed to evict team metadata cache entry of a rotated token")
+        capture_exception(e)
+
+    try:
+        evict_rotated_token_team_metadata_cache_task.apply_async(
+            args=[old_token], countdown=ROTATED_TOKEN_EVICTION_DELAY_SECONDS
+        )
+    except Exception as e:
+        logger.exception("Failed to schedule the delayed eviction of a rotated token")
+        capture_exception(e)
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)

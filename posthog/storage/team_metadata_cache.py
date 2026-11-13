@@ -52,7 +52,6 @@ from django.utils import timezone
 import structlog
 
 from posthog.caching.flags_redis_cache import FLAGS_DEDICATED_CACHE_ALIAS
-from posthog.exceptions_capture import capture_exception
 from posthog.metrics import TOMBSTONE_COUNTER
 from posthog.models.team.team import Team
 from posthog.storage.cache_expiry_manager import (
@@ -78,9 +77,6 @@ logger = structlog.get_logger(__name__)
 
 TEAM_METADATA_CACHE_TTL = int(os.environ.get("TEAM_METADATA_CACHE_TTL", str(60 * 60 * 24 * 7)))
 TEAM_METADATA_CACHE_MISS_TTL = int(os.environ.get("TEAM_METADATA_CACHE_MISS_TTL", str(60 * 60 * 24)))
-# Both scheduled jobs run hourly. The verification task stops at its 40-minute hard limit.
-# The refresh task has no time limit. One hour assumes that a refresh run ends within its period.
-ROTATED_TOKEN_EVICTION_DELAY_SECONDS = 60 * 60
 
 # Sorted set key for tracking cache expirations
 TEAM_CACHE_EXPIRY_SORTED_SET = "team_metadata_cache_expiry"
@@ -496,34 +492,6 @@ def evict_team_metadata_cache_for_token(old_token: str) -> None:
     # NB: For unit tests, only clear Redis to avoid S3 timestamp issues with frozen time
     kinds = ["redis"] if settings.TEST else None
     team_metadata_hypercache.delete_cache_entry(old_token, kinds=kinds)
-
-
-def evict_team_metadata_cache_after_token_change(old_token: str) -> None:
-    """
-    Evict a rotated token's entry now, and schedule a second eviction after the scheduled cache jobs.
-
-    A refresh or verification run that loaded the team before the rotation writes the old token's
-    entry back when it reaches the team. The delayed task deletes that entry and retries a failed delete.
-    The function captures a failure and never raises it, because the token change has already committed.
-    """
-    from posthog.tasks.team_metadata import evict_rotated_token_team_metadata_cache_task
-
-    if not settings.FLAGS_REDIS_URL:
-        return
-
-    try:
-        evict_team_metadata_cache_for_token(old_token)
-    except Exception as e:
-        logger.exception("Failed to evict team metadata cache entry of a rotated token")
-        capture_exception(e)
-
-    try:
-        evict_rotated_token_team_metadata_cache_task.apply_async(
-            args=[old_token], countdown=ROTATED_TOKEN_EVICTION_DELAY_SECONDS
-        )
-    except Exception as e:
-        logger.exception("Failed to schedule the delayed eviction of a rotated token")
-        capture_exception(e)
 
 
 # ===================================================================

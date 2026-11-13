@@ -946,8 +946,8 @@ class Team(UUIDTClassicModel):
 
     def _persist_api_token_change(self, *, old_token: str, user: "User", is_impersonated_session: bool) -> None:
         from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
-        from posthog.storage.team_metadata_cache import evict_team_metadata_cache_after_token_change
         from posthog.tasks.remote_config import update_team_remote_config
+        from posthog.tasks.team_metadata import evict_team_metadata_cache_after_token_change
 
         self.save()
         transaction.on_commit(lambda: evict_team_metadata_cache_after_token_change(old_token))

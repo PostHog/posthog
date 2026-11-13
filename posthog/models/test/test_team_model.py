@@ -16,7 +16,8 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.team.team_caching import get_team_in_cache, set_team_in_cache
 from posthog.models.user import User
-from posthog.storage.team_metadata_cache import ROTATED_TOKEN_EVICTION_DELAY_SECONDS, team_metadata_hypercache
+from posthog.storage.team_metadata_cache import team_metadata_hypercache
+from posthog.tasks.team_metadata import ROTATED_TOKEN_EVICTION_DELAY_SECONDS
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.role import Role, RoleMembership
@@ -505,7 +506,7 @@ class TestTeamSetTokenAndSave(BaseTest):
         )
 
     @override_settings(FLAGS_REDIS_URL="redis://test:6379/0")
-    @patch("posthog.storage.team_metadata_cache.capture_exception")
+    @patch("posthog.tasks.team_metadata.capture_exception")
     @patch.object(team_metadata_hypercache, "delete_cache_entry", side_effect=ConnectionError("redis down"))
     @patch("posthog.tasks.team_metadata.evict_rotated_token_team_metadata_cache_task.apply_async")
     @patch("posthog.tasks.remote_config.update_team_remote_config.delay")
