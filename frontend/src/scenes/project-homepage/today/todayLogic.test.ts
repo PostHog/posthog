@@ -2,8 +2,10 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import { navPanelProductPushLogic } from 'lib/components/NavPanelAdvertisement/navPanelProductPushLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { recentItemsModel } from '~/models/recentItemsModel'
@@ -547,6 +549,50 @@ describe('todayLogic', () => {
             expect(products).toContain('product_analytics')
         } finally {
             window.POSTHOG_APP_CONTEXT = appContext
+        }
+    })
+
+    it.each([
+        ['the product push as a row', true, false, false, 'session_replay', null],
+        ['a broadcast as a banner in place of the product push', true, true, false, null, 'broadcast'],
+        ['the MCP card as a banner between campaigns', false, false, false, null, 'mcp_connect'],
+        ['no banner over sample reports', false, true, true, null, null],
+    ])('shows %s', async (_, hasCampaign, hasBroadcast, sampleData, pushedProduct, bannerType) => {
+        useMocks({
+            get: {
+                '/api/organizations/:organization_id/product_push_campaign/active/': () =>
+                    hasCampaign
+                        ? [200, { id: 'campaign-1', product_key: 'session_replay', product_path: 'Session replay' }]
+                        : [204],
+            },
+        })
+        jest.mocked(posthog.getFeatureFlagResult).mockReturnValue(
+            hasBroadcast
+                ? ({
+                      payload: {
+                          broadcast: 'beta',
+                          title: 'Beta',
+                          text: 'Try it.',
+                          emoji: '🧪',
+                          emojiLabel: 'test tube',
+                      },
+                  } as any)
+                : undefined
+        )
+        try {
+            await expectLogic(preflightLogic).toDispatchActions(['loadPreflightSuccess'])
+
+            const logic = todayLogic()
+            logic.mount()
+            await expectLogic(navPanelProductPushLogic).toDispatchActions(['loadActiveCampaignSuccess'])
+            if (sampleData) {
+                logic.actions.setUseSampleData(true)
+            }
+
+            expect(logic.values.forYouProductPush?.campaign.product_key ?? null).toBe(pushedProduct)
+            expect(logic.values.promoBanner?.type ?? null).toBe(bannerType)
+        } finally {
+            jest.mocked(posthog.getFeatureFlagResult).mockReset()
         }
     })
 

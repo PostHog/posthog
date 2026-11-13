@@ -18,6 +18,7 @@ import { AccessControlLevel } from '~/types'
 
 import type { WorkflowViewApi, WorkflowViewCreateApi } from '../../generated/api.schemas'
 import { FacetFilter, createFacetCounter } from './FacetSearchBar/facetQuery'
+import { workflowFoldersLogic } from './workflowFoldersLogic'
 import { DEFAULT_COLUMNS } from './workflowListLabels'
 import { FIXTURE_METRICS, FIXTURE_USERS, FIXTURE_WORKFLOWS, paginated } from './workflowsListV2Fixtures'
 import { workflowsListV2Logic } from './workflowsListV2Logic'
@@ -401,25 +402,30 @@ describe('workflowsSavedViewsLogic', () => {
     })
 
     it('counts a view that hides a folder the same way the view lists it once opened', async () => {
+        const archived = { id: 'archived', path: 'Archive/Old/Welcome', type: 'hog_flow', ref: FIXTURE_WORKFLOWS[0].id }
+        useMocks({
+            get: {
+                '/api/projects/:team_id/file_system/': ({ request }) =>
+                    new URL(request.url).searchParams.get('search') === 'type:hog_flow'
+                        ? [200, paginated([archived])]
+                        : [200, paginated([])],
+            },
+        })
         storedViews = [savedView, hidesArchive]
         router.actions.push(urls.workflows(), { view: 'all' })
         logic = workflowsSavedViewsLogic()
         logic.mount()
         await expectLogic(logic).toDispatchActions(['loadSavedViewsSuccess'])
         await workflowsListV2Logic.asyncActions.loadWorkflows()
-        projectTreeDataLogic.actions.loadFolderSuccess(
-            'Archive/Old',
-            [{ id: 'archived', path: 'Archive/Old/Welcome', type: 'hog_flow', ref: FIXTURE_WORKFLOWS[0].id }],
-            false,
-            1
-        )
-        const everyWorkflow = workflowsListV2Logic.values.filteredRows.length
+        await expectLogic(workflowFoldersLogic, () => workflowFoldersLogic.actions.loadBrowser()).toFinishAllListeners()
+        expect(workflowFoldersLogic.values.placements?.[`hog_flow::${archived.ref}`]?.path).toEqual(archived.path)
+        const everyWorkflow = workflowFoldersLogic.values.matchingRows.length
         const countOnAll = logic.values.viewCounts[hidesArchive.id]
 
         applyViewById(hidesArchive.id)
 
         expect(countOnAll).toEqual(everyWorkflow - 1)
-        expect(workflowsListV2Logic.values.filteredRows).toHaveLength(countOnAll)
+        expect(workflowFoldersLogic.values.matchingRows).toHaveLength(countOnAll)
     })
 
     it('counts the email templates a view lists beside its workflows', async () => {

@@ -28,7 +28,7 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.customer_analytics.backend.facade import api as customer_analytics_facade
 from products.customer_analytics.backend.facade.api import build_account_deeplink
 from products.customer_analytics.backend.facade.contracts import AccountRef
-from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.facade.api import search_dashboards
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.flag_status import (
     FeatureFlagStatus,
@@ -81,12 +81,6 @@ ENTITY_MAP: dict[str, EntityConfig] = {
         "extra_fields": ["name", "description", "query_metadata", "query"],
         "filters": {"deleted": False, "saved": True},
     },
-    "dashboard": {
-        "klass": Dashboard,
-        "search_fields": {"name": "A", "description": "C"},
-        "extra_fields": ["name", "description"],
-        "filters": {"deleted": False},
-    },
     "experiment": {
         "klass": Experiment,
         "search_fields": {"name": "A", "description": "C"},
@@ -126,13 +120,17 @@ The value in search_fields corresponds to the PostgreSQL weighting i.e. A, B, C 
 """
 
 
-# Actions are searched through the actions facade rather than unioned by model class, so they are not in ENTITY_MAP.
+# Actions and dashboards are searched through their products' facades rather than unioned by model class, so
+# they are not in ENTITY_MAP.
 ACTION_ENTITY = "action"
-FACADE_SEARCHES: dict[str, FacadeSearch] = {ACTION_ENTITY: search_live_actions}
+DASHBOARD_ENTITY = "dashboard"
+FACADE_SEARCHES: dict[str, FacadeSearch] = {ACTION_ENTITY: search_live_actions, DASHBOARD_ENTITY: search_dashboards}
 _UNION_ENTITY_NAMES = [*ENTITY_MAP]
-# Actions keep their place between feature flags and cohorts in the counts.
+# Dashboards keep their place after insights, and actions theirs between feature flags and cohorts, in the counts.
 COUNTED_ENTITIES = [
-    *_UNION_ENTITY_NAMES[: _UNION_ENTITY_NAMES.index("cohort")],
+    *_UNION_ENTITY_NAMES[: _UNION_ENTITY_NAMES.index("experiment")],
+    DASHBOARD_ENTITY,
+    *_UNION_ENTITY_NAMES[_UNION_ENTITY_NAMES.index("experiment") : _UNION_ENTITY_NAMES.index("cohort")],
     ACTION_ENTITY,
     *_UNION_ENTITY_NAMES[_UNION_ENTITY_NAMES.index("cohort") :],
 ]
@@ -179,7 +177,7 @@ class EntitySearchContext:
             Tuple of (results list, counts dict)
         """
         if entity_types == "all":
-            entity_types = {*ENTITY_MAP, ACTION_ENTITY, "hog_flow"}
+            entity_types = {*ENTITY_MAP, *FACADE_SEARCHES, "hog_flow"}
 
         results: list[dict] = []
         counts: dict[str, int | None] = {}

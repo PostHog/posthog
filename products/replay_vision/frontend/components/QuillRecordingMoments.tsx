@@ -23,7 +23,6 @@ import { recordingScanBlock } from '../utils/scanEligibility'
 import { QuillChapterFilmstrip } from './QuillChapterFilmstrip'
 import { QuillRecordingTimeline } from './QuillRecordingTimeline'
 import { QuillScanList } from './QuillScanList'
-import { QuillScannerPicker } from './QuillScannerPicker'
 
 const CURRENT_MOMENT_SELECTOR = '[data-current-moment]'
 const FILMSTRIP_MIN_WIDTH_PX = 840
@@ -128,9 +127,8 @@ export function QuillRecordingMoments({
     return (
         // A container, so long observation text wraps at the panel's width instead of widening it.
         <div ref={rootRef} className="@container flex flex-col flex-1 min-h-0" data-attr="vision-observations-tab">
-            <div className="flex items-center gap-2 p-2 border-b border-border bg-muted">
-                <QuillScannerPicker sessionId={sessionId} scanBlock={scanBlock} variant="outline" />
-                {timelineRows.length > 0 && (
+            {timelineRows.length > 0 && (
+                <div className="flex items-center gap-2 p-2 border-b border-border bg-muted">
                     <div className="ml-auto flex items-center gap-2">
                         <label className="flex items-center gap-1.5 text-xs">
                             <Switch
@@ -154,8 +152,8 @@ export function QuillRecordingMoments({
                             </Button>
                         </span>
                     </div>
-                )}
-            </div>
+                </div>
+            )}
             <div className="flex-1 min-h-0 overflow-y-auto" ref={timelineRef}>
                 {/* Nothing before the width is known, so posters are fetched once. */}
                 {width === undefined ? null : filmstrip ? (

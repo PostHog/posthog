@@ -42,6 +42,7 @@ export function TodayAnalyticsSidebar(): JSX.Element {
     const { fromPostHog, recentAnalytics, searchQuery, isSectionOpen } = useValues(todayAnalyticsLogic)
     const { toggleSection, setSearchQuery } = useActions(todayAnalyticsLogic)
     const { pinnedAnalytics } = useValues(analyticsPinnedLogic)
+    const { movePinned } = useActions(analyticsPinnedLogic)
     const { location, searchParams } = useValues(router)
     const path = removeProjectIdIfPresent(location.pathname)
     const listFilters =
@@ -140,6 +141,10 @@ export function TodayAnalyticsSidebar(): JSX.Element {
             sections={{ isOpen: isSectionOpen, toggle: toggleSection, dataAttrPrefix: 'analytics-section' }}
             navigation={{
                 lists,
+                reorder: {
+                    pinned: (fromIndex, toIndex) =>
+                        movePinned(pinnedAnalytics[fromIndex].shortcutId, pinnedAnalytics[toIndex].shortcutId),
+                },
                 resolve: (item) => {
                     const target = resolveSidebarTarget(item.to, item.label, item.icon)
                     return target
@@ -163,7 +168,16 @@ export function TodayAnalyticsSidebar(): JSX.Element {
                 ),
             }}
             customization={{
-                prompt: 'Help me personalize my Analytics sidebar. Show me what is in it now, then ask me what I want to see there.',
+                prompt:
+                    'Help me personalize my Analytics sidebar for my current work. Start by checking what is already there. ' +
+                    'If I give a specific change, apply it directly and ask only for missing details. Otherwise, ask what ' +
+                    'I need to open most often and which existing sections I want to keep. For a general redesign, use ' +
+                    'my recent activity summary when available, together with Pinned and Recents, to suggest a few useful ' +
+                    'destinations and briefly explain why. My stated goal takes priority over inferred interests. If ' +
+                    'recent activity is unavailable, ask what matters now. Prefer removing, reordering, ' +
+                    'and reusing existing links. Do not offer a checklist of things to add or add shortcuts that duplicate ' +
+                    'Pinned, Recents, or By PostHog. Only add live metrics if I ask for them. Keep the menu compact and ' +
+                    'use the supported navigation controls. After saving, briefly explain what changed and how to undo it.',
                 event: 'analytics sidebar customize clicked',
             }}
             dataAttrPrefix="analytics-sidebar"

@@ -9,7 +9,7 @@ import { workflowImportsCreate } from 'products/workflows/frontend/generated/api
 import { WorkflowImportResponseApi } from 'products/workflows/frontend/generated/api.schemas'
 
 import type { WorkflowImportResultApi } from '../../generated/api.schemas'
-import { workflowsListV2Logic } from '../WorkflowsListV2/workflowsListV2Logic'
+import type { WorkflowImportSegmentCohortApi } from '../../generated/api.schemas'
 import { workflowsLogic } from '../workflowsLogic'
 import { ParsedCustomerioFile, parseCustomerioFiles } from './customerioImportFile'
 
@@ -66,6 +66,7 @@ export interface customerioImportLogicActions {
             content_fetched: boolean
             dryRun: boolean
             results: WorkflowImportResultApi[]
+            segment_cohorts: WorkflowImportSegmentCohortApi[]
         } | null,
         payload?: {
             dryRun: boolean
@@ -75,6 +76,7 @@ export interface customerioImportLogicActions {
             content_fetched: boolean
             dryRun: boolean
             results: WorkflowImportResultApi[]
+            segment_cohorts: WorkflowImportSegmentCohortApi[]
         } | null
         payload?: {
             dryRun: boolean
@@ -209,7 +211,10 @@ export const customerioImportLogic = kea<customerioImportLogicType>([
         runImportSuccess: ({ results }) => {
             if (results && !results.dryRun) {
                 workflowsLogic.findMounted()?.actions.loadWorkflows()
-                workflowsListV2Logic.findMounted()?.actions.refreshWorkflows()
+                // The v2 list loads in its own chunk. When it is mounted, the chunk is already loaded.
+                void import('../WorkflowsListV2/workflowsListV2Logic').then(({ workflowsListV2Logic }) =>
+                    workflowsListV2Logic.findMounted()?.actions.refreshWorkflows()
+                )
             }
         },
         runImportFailure: ({ error }) => {

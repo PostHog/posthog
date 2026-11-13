@@ -10,18 +10,30 @@ import * as errorPng from '@posthog/brand/hoggies/png/error'
 import * as reaperPng from '@posthog/brand/hoggies/png/reaper'
 import * as stampDeniedPng from '@posthog/brand/hoggies/png/stamp-denied'
 import * as trafficControllerPng from '@posthog/brand/hoggies/png/traffic-controller'
-import { IconArchive, IconFunnels, IconInfo, IconPlusSmall, IconRefresh } from '@posthog/icons'
+import {
+    IconArchive,
+    IconClock,
+    IconFunnels,
+    IconInfo,
+    IconLineGraph,
+    IconPlusSmall,
+    IconRefresh,
+    IconWarning,
+} from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
+import { Button, Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@posthog/quill'
 
 import { CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE, TABLE_ACCESS_DENIED_ERROR_CODE } from 'lib/api-error'
 import { pngHoggie } from 'lib/brand/hoggies'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { MCPUseCaseCard } from 'lib/components/MCPHint/MCPUseCaseCard'
+import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { dayjs } from 'lib/dayjs'
 import { useInterval } from 'lib/hooks/useInterval'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
+import { useExplainEmptyInsight } from 'lib/insights/explainEmptyInsightContext'
 import { getRetryCooldown } from 'lib/insights/sharedUtils'
 import { IconChristmasOrnament, IconErrorOutline } from 'lib/lemon-ui/icons'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
@@ -60,6 +72,11 @@ import { funnelDataLogic } from 'products/product_analytics/frontend/insights/fu
 import { insightDataLogic } from '../insightDataLogic'
 import { insightVizDataLogic } from '../insightVizDataLogic'
 import { InsightErrorLayout } from './InsightErrorLayout'
+import { QuillFunnelSingleStepState } from './QuillFunnelSingleStepState'
+import { QuillInsightEmptyStateIcon } from './QuillInsightEmptyStateIcon'
+import { QuillInsightEmptyStateNextSteps } from './QuillInsightEmptyStateNextSteps'
+import { QuillQueryDebuggerButton } from './QuillQueryDebuggerButton'
+import { QuillRetryButton } from './QuillRetryButton'
 import { SampleDataState, SampleDataVariant, type SampleTableContent } from './SampleDataState'
 import { sampleDataStateLogic } from './sampleDataStateLogic'
 
@@ -94,6 +111,8 @@ export function InsightEmptyState({
     insightProps?: Pick<InsightLogicProps, 'dashboardId' | 'dashboardItemId'>
 }): JSX.Element {
     const { shouldShowSampleData } = useValues(sampleDataStateLogic)
+    const quillSurface = useQuillSurface()
+    const explainEmptyInsight = useExplainEmptyInsight()
 
     // Before a project has ingested any events, "no matching events" is misleading — every chart is
     // empty because nothing is flowing in yet. Show clearly-fake sample data instead, explaining on
@@ -122,6 +141,26 @@ export function InsightEmptyState({
 
     heading = heading ?? 'There are no matching events for this query'
     detail = detail ?? 'Try changing the date range, or pick another action, event or breakdown.'
+
+    if (quillSurface) {
+        const quillIcon = iconProp ?? (isChristmas() ? <IconChristmasOrnament /> : undefined)
+        return (
+            <Empty data-attr="insight-empty-state" className="border-none px-4 py-6">
+                {hasCustomCopy || !explainEmptyInsight ? (
+                    <EmptyHeader>
+                        <QuillInsightEmptyStateIcon icon={quillIcon ?? <IconLineGraph />} />
+                        <EmptyTitle>{heading}</EmptyTitle>
+                        {detail && <EmptyDescription>{detail}</EmptyDescription>}
+                    </EmptyHeader>
+                ) : (
+                    <QuillInsightEmptyStateNextSteps defaultDetail={detail} icon={quillIcon}>
+                        <EmptyTitle>{heading}</EmptyTitle>
+                    </QuillInsightEmptyStateNextSteps>
+                )}
+            </Empty>
+        )
+    }
+
     const icon =
         iconProp ??
         (isChristmas() ? (
@@ -192,8 +231,12 @@ function QueryIdDisplay({ queryId }: { queryId?: string | null }): JSX.Element |
 }
 
 function QueryDebuggerButton({ query }: { query?: Record<string, any> | null }): JSX.Element | null {
+    const quillSurface = useQuillSurface()
     if (!query) {
         return null
+    }
+    if (quillSurface) {
+        return <QuillQueryDebuggerButton query={query} />
     }
 
     return (
@@ -222,6 +265,10 @@ const RetryButton = ({
     loading?: boolean
     disabledReason?: string
 }): JSX.Element => {
+    const quillSurface = useQuillSurface()
+    if (quillSurface) {
+        return <QuillRetryButton onRetry={onRetry} query={query} loading={loading} disabledReason={disabledReason} />
+    }
     const sideAction = query
         ? {
               dropdown: {
@@ -612,6 +659,7 @@ export function InsightValidationError({
     placement?: DashboardPlacement | 'SavedInsightGrid'
 }): JSX.Element {
     const { openSidePanel } = useActions(sidePanelStateLogic)
+    const quillSurface = useQuillSurface()
     const debugWithAI = (): void => openSidePanel(SidePanelTab.Max, MEMORY_LIMIT_AI_PROMPT)
     // Everything that reaches this panel is a validation status, so the kind stays invalid_query
     // unless the code says otherwise: a memory failure is not a broken query definition.
@@ -663,14 +711,24 @@ export function InsightValidationError({
                 (isMemoryLimitError && !cta ? (
                     <>
                         <AIConsentPopoverWrapper onApprove={debugWithAI}>
-                            <LemonButton
-                                type="primary"
-                                size="small"
-                                onClick={debugWithAI}
-                                data-attr="insight-memory-limit-debug-with-ai"
-                            >
-                                Debug with PostHog AI
-                            </LemonButton>
+                            {quillSurface ? (
+                                <Button
+                                    variant="primary"
+                                    onClick={debugWithAI}
+                                    data-attr="insight-memory-limit-debug-with-ai"
+                                >
+                                    Debug with PostHog AI
+                                </Button>
+                            ) : (
+                                <LemonButton
+                                    type="primary"
+                                    size="small"
+                                    onClick={debugWithAI}
+                                    data-attr="insight-memory-limit-debug-with-ai"
+                                >
+                                    Debug with PostHog AI
+                                </LemonButton>
+                            )}
                         </AIConsentPopoverWrapper>
                         {defaultCta}
                     </>
@@ -736,8 +794,20 @@ const ERROR_HOGGIES: Partial<Record<InsightErrorKind, React.ComponentType<{ clas
 }
 
 function InsightErrorIllustration({ kind }: { kind: InsightErrorKind }): JSX.Element {
+    const quillSurface = useQuillSurface()
     const Hoggie = ERROR_HOGGIES[kind]
-    return Hoggie ? <Hoggie className="w-24 h-24" /> : <IconErrorOutline className="text-4xl shrink-0 text-danger" />
+    if (Hoggie) {
+        return <Hoggie className="w-24 h-24" />
+    }
+    if (quillSurface) {
+        return (
+            <QuillInsightEmptyStateIcon
+                icon={kind === 'transient' ? <IconClock /> : <IconWarning />}
+                color={kind === 'transient' ? 'var(--warning-foreground)' : 'var(--destructive-foreground)'}
+            />
+        )
+    }
+    return <IconErrorOutline className="text-4xl shrink-0 text-danger" />
 }
 
 function getInsightErrorKind(status?: number | null, code?: string | null): InsightErrorKind {
@@ -966,6 +1036,7 @@ export function FunnelSingleStepState({ actionable = true }: FunnelSingleStepSta
     const { series } = useValues(funnelDataLogic(insightProps))
     const { updateQuerySource } = useActions(funnelDataLogic(insightProps))
     const { reportInsightFilterAdded } = useActions(eventUsageLogic)
+    const quillSurface = useQuillSurface()
 
     const addFunnelStep = (): void => {
         const defaultStep: EventsNode = setLatestVersionsOnQuery({
@@ -976,6 +1047,10 @@ export function FunnelSingleStepState({ actionable = true }: FunnelSingleStepSta
         const nextSeries = [...(series ?? []), defaultStep]
         updateQuerySource({ series: nextSeries })
         reportInsightFilterAdded(nextSeries.length, GraphSeriesAddedSource.Default)
+    }
+
+    if (quillSurface) {
+        return <QuillFunnelSingleStepState actionable={actionable} onAddStep={addFunnelStep} />
     }
 
     return (

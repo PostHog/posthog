@@ -1,11 +1,11 @@
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any
 
 from django.apps import AppConfig
 
 if TYPE_CHECKING:
-    from django.db.models import Model
+    from django.db.models import Model, QuerySet
 
-    from posthog.api.file_system.deletion import DeletionContext, RestoreContext
+    from posthog.api.file_system.deletion import DeletionContext, FileChangeContext, RestoreContext
 
     from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
     from products.workflows.backend.services.template_file_guard import LinkedTemplate
@@ -18,10 +18,13 @@ class WorkflowsConfig(AppConfig):
 
     def ready(self) -> None:
         from posthog.api.file_system.deletion import (  # noqa: PLC0415
+            register_delete_lock,
+            register_file_change_check,
             register_file_system_type,
             register_post_delete_hook,
             register_pre_delete_hook,
             register_pre_restore_hook,
+            register_prepare_delete_hook,
         )
         from posthog.models.file_system.unfiled_file_saver import register_mixin_model  # noqa: PLC0415
 
@@ -58,7 +61,7 @@ class WorkflowsConfig(AppConfig):
         register_post_delete_hook("hog_flow", report_deletion)
 
         def require_linked_workflow_editor(
-            context: "DeletionContext | RestoreContext", template: "LinkedTemplate"
+            context: "DeletionContext | RestoreContext | FileChangeContext", template: "LinkedTemplate"
         ) -> None:
             from products.workflows.backend.services.template_file_guard import (  # noqa: PLC0415 — keeps access control dependencies off startup
                 require_linked_workflow_editor,
@@ -66,13 +69,37 @@ class WorkflowsConfig(AppConfig):
 
             require_linked_workflow_editor(context, template)
 
-        def lock_then_require_linked_workflow_editor(context: "DeletionContext", template: "LinkedTemplate") -> None:
+        def lock_templates_for_delete(templates: "QuerySet[Any]") -> "list[Model]":
             from products.workflows.backend.services.template_file_guard import (  # noqa: PLC0415 — keeps access control dependencies off startup
-                lock_template_for_delete,
+                lock_templates_for_delete,
             )
 
-            lock_template_for_delete(cast("Model", template))
-            require_linked_workflow_editor(context, template)
+            return lock_templates_for_delete(templates)
 
-        register_pre_delete_hook("message_template", lock_then_require_linked_workflow_editor)
+        def prepare_linked_workflows(request: Any | None, team_id: int, templates: "QuerySet[Any]") -> None:
+            from products.workflows.backend.services.template_file_guard import (  # noqa: PLC0415 — keeps access control dependencies off startup
+                prepare_linked_workflows,
+            )
+
+            prepare_linked_workflows(request, team_id, templates)
+
+        register_prepare_delete_hook("message_template", prepare_linked_workflows)
+        register_delete_lock(
+            "message_template",
+            lock_templates_for_delete,
+            fields=(
+                "id",
+                "team_id",
+                "transactional_hog_flow_id",
+                "deleted",
+                "name",
+                "created_at",
+                "created_by_id",
+                "updated_at",
+            ),
+        )
+        register_pre_delete_hook("message_template", require_linked_workflow_editor)
         register_pre_restore_hook("message_template", require_linked_workflow_editor)
+        register_file_change_check(
+            "message_template", require_linked_workflow_editor, fields=("id", "team_id", "transactional_hog_flow_id")
+        )

@@ -1,4 +1,5 @@
 import re
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Optional
 
 from django.contrib.auth.hashers import PBKDF2PasswordHasher
@@ -133,23 +134,49 @@ def find_personal_api_key(token: str) -> tuple[PersonalAPIKey, str] | None:
     return None
 
 
-def get_organization_personal_api_keys(organization: "Organization") -> QuerySet[PersonalAPIKey]:
-    """Personal API keys of org members that can access this organization or any of its projects.
+def get_organization_ids_in_key_scope(
+    key: PersonalAPIKey, team_organization_ids: Mapping[int, str]
+) -> frozenset[str] | None:
+    """Return the organizations that the key's scope lists allow, or None when the key has no scope lists.
 
-    Includes fully unscoped keys (which can reach everything the owner can), keys explicitly scoped
-    to this organization, and keys scoped to any of the organization's teams.
+    Authentication applies each non-empty list as its own limit, so a scoped team counts only when its
+    organization also passes the organization list. `team_organization_ids` maps a team to its organization.
+    A scoped team that is missing from it does not count.
     """
+    scoped_organization_ids = frozenset(key.scoped_organizations or [])
+    if not key.scoped_teams:
+        return scoped_organization_ids or None
+    return frozenset(
+        organization_id
+        for team_id in key.scoped_teams
+        if (organization_id := team_organization_ids.get(team_id)) is not None
+        and (not scoped_organization_ids or organization_id in scoped_organization_ids)
+    )
+
+
+def get_organization_personal_api_keys(organization: "Organization") -> QuerySet[PersonalAPIKey]:
+    """Return the personal API keys of org members that can authenticate to this organization or its projects.
+
+    The scope filters are the SQL form of `get_organization_ids_in_key_scope`. The other filters drop
+    expired keys, keys without scopes, keys of inactive users, and member keys that the organization blocks.
+    """
+    # organization.py imports this module, so a module-level import is circular.
+    from posthog.models.organization import OrganizationMembership
+
+    membership = Q(user__organization_membership__organization_id=organization.id)
+    if not organization.members_can_use_personal_api_keys:
+        membership &= Q(user__organization_membership__level__gte=OrganizationMembership.Level.ADMIN)
     team_ids = list(organization.teams.values_list("id", flat=True))
     return (
-        PersonalAPIKey.objects.filter(user__organization_membership__organization_id=organization.id)
+        PersonalAPIKey.objects.filter(membership, user__is_active=True)
+        .filter(Q(expires_at__isnull=True) | Q(expires_at__gt=timezone.now()))
+        .exclude(scopes=[])
         .filter(
-            Q(scoped_organizations__contains=[str(organization.id)])
-            | Q(scoped_teams__overlap=team_ids)
-            | (
-                (Q(scoped_organizations__isnull=True) | Q(scoped_organizations=[]))
-                & (Q(scoped_teams__isnull=True) | Q(scoped_teams=[]))
-            )
+            Q(scoped_organizations__isnull=True)
+            | Q(scoped_organizations=[])
+            | Q(scoped_organizations__contains=[str(organization.id)])
         )
+        .filter(Q(scoped_teams__isnull=True) | Q(scoped_teams=[]) | Q(scoped_teams__overlap=team_ids))
         .select_related("user")
         .distinct()
     )

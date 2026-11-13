@@ -33,7 +33,7 @@ def test_the_case_file_holds_cases() -> None:
 
 
 @parameterized.expand([(case["name"], case) for case in CASES])
-def test_matches_the_typescript_engine(_name: str, case: NormalizerCase) -> None:
+def test_normalizes_each_case(_name: str, case: NormalizerCase) -> None:
     normalizer = RecipeNormalizer()
     if case["call"] == "normalizeMessage":
         outcome = normalizer.normalize_message(case["input"], case["default_role"])

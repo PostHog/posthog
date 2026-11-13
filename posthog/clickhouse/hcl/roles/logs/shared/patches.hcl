@@ -119,8 +119,8 @@ database "posthog" {
 
   # The v1 metrics ingest chain (roles/logs/metrics) is declared in the local shape
   # (noshard ZK paths, posthog_single_shard reader); the cloud envs keep their
-  # per-shard logs-cluster paths for metrics1, metric_attributes and
-  # metrics_kafka_metrics, and read through the logs cluster. The v2 chain
+  # per-shard logs-cluster paths for metrics1 and metric_attributes, and read
+  # through the logs cluster. The v2 chain
   # tables (metrics2, metric_series2, metric_attributes2) stay on the
   # noshard path in every env, like metric_samples1 and metric_series1, and only
   # their readers are patched above.
@@ -142,13 +142,6 @@ database "posthog" {
   patch_table "metric_attributes" {
     engine "replicated_aggregating_merge_tree" {
       zoo_path     = "/clickhouse/tables/logs/{shard}/posthog.metric_attributes"
-      replica_name = "{replica}"
-    }
-  }
-
-  patch_table "metrics_kafka_metrics" {
-    engine "replicated_aggregating_merge_tree" {
-      zoo_path     = "/clickhouse/tables/logs/{shard}/posthog.metrics_kafka_metrics"
       replica_name = "{replica}"
     }
   }

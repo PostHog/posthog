@@ -6,6 +6,14 @@ from pydantic.dataclasses import dataclass
 
 
 @dataclass(frozen=True)
+class MetricListFilters:
+    """Filters the metric list applies, with or without a search."""
+
+    status: str | None = None
+    definition_kind: str | None = None
+
+
+@dataclass(frozen=True)
 class MetricSummary:
     id: UUID
     name: str

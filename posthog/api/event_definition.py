@@ -26,7 +26,11 @@ from posthog.accessible_teams import AccessibleTeams, CredentialScopeDenied
 from posthog.api.event_definition_generators.base import EventDefinitionGenerator
 from posthog.api.event_definition_generators.golang import GolangGenerator
 from posthog.api.event_definition_generators.python import PythonGenerator
-from posthog.api.event_definition_generators.typescript import TypeScriptGenerator
+from posthog.api.event_definition_generators.typescript import (
+    TypeScriptGenerator,
+    TypeScriptSDK,
+    TypeScriptTypesGenerator,
+)
 from posthog.api.object_media_preview import visible_previews, with_preview_media
 from posthog.api.pagination import CappedCountLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -407,6 +411,32 @@ class EventDefinitionQuerySerializer(serializers.Serializer):
 
     def validate_offset(self, value: int) -> int:
         return min(value, POSTGRES_BIGINT_MAX)
+
+
+class TypeScriptDefinitionsQuerySerializer(serializers.Serializer):
+    sdk = serializers.ChoiceField(
+        choices=TypeScriptSDK.choices,
+        default=TypeScriptSDK.POSTHOG_JS,
+        required=False,
+        help_text=(
+            "The SDK the module wraps. `posthog-js` exports a typed posthog-js instance. "
+            "`none` exports only the event types, with no imports, for any other SDK."
+        ),
+    )
+
+
+class GeneratedDefinitionsSerializer(serializers.Serializer):
+    content = serializers.CharField(help_text="The generated module, ready to write to a file.")
+    event_count = serializers.IntegerField(help_text="How many events the module types.")
+    schema_hash = serializers.CharField(
+        help_text="A hash of the event schemas and generator version. It changes when the module would change."
+    )
+    generator_version = serializers.CharField(help_text="The version of the generator that wrote the module.")
+    sdk = serializers.ChoiceField(
+        choices=TypeScriptSDK.choices,
+        required=False,
+        help_text="TypeScript only: the SDK the module wraps. Clients check it to detect a PostHog that ignores `sdk`.",
+    )
 
 
 class EventDefinitionViewSet(
@@ -1187,19 +1217,28 @@ class EventDefinitionViewSet(
         )
         return response.Response(status=status.HTTP_204_NO_CONTENT)
 
+    @extend_schema(parameters=[TypeScriptDefinitionsQuerySerializer], responses={200: GeneratedDefinitionsSerializer})
     @action(detail=False, methods=["GET"], url_path="typescript", required_scopes=["event_definition:read"])
     def typescript_definitions(self, *args, **kwargs):
-        return self._generate_definitions(TypeScriptGenerator())
+        query = TypeScriptDefinitionsQuerySerializer(data=self.request.query_params)
+        query.is_valid(raise_exception=True)
+        sdk = query.validated_data["sdk"]
+        generator = TypeScriptTypesGenerator() if sdk == TypeScriptSDK.NONE else TypeScriptGenerator()
+        return self._generate_definitions(generator, extra={"sdk": sdk})
 
+    @extend_schema(responses={200: GeneratedDefinitionsSerializer})
     @action(detail=False, methods=["GET"], url_path="golang", required_scopes=["event_definition:read"])
     def golang_definitions(self, *args, **kwargs):
         return self._generate_definitions(GolangGenerator())
 
+    @extend_schema(responses={200: GeneratedDefinitionsSerializer})
     @action(detail=False, methods=["GET"], url_path="python", required_scopes=["event_definition:read"])
     def python_definitions(self, *args, **kwargs):
         return self._generate_definitions(PythonGenerator())
 
-    def _generate_definitions(self, generator: EventDefinitionGenerator) -> response.Response:
+    def _generate_definitions(
+        self, generator: EventDefinitionGenerator, extra: dict[str, str] | None = None
+    ) -> response.Response:
         event_definitions, schema_map = generator.fetch_event_definitions_and_schemas(self.project_id)
 
         schema_hash = generator.calculate_schema_hash(event_definitions, schema_map)
@@ -1218,6 +1257,7 @@ class EventDefinitionViewSet(
                 "event_count": len(event_definitions),
                 "schema_hash": schema_hash,
                 "generator_version": generator.generator_version(),
+                **(extra or {}),
             }
         )
 

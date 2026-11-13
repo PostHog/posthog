@@ -1,5 +1,6 @@
 import { Message } from 'node-rdkafka'
 
+import { buildIntegerMatcher } from '~/common/config/matchers'
 import { KafkaConsumerInterface } from '~/common/kafka/consumer'
 import { KafkaConsumerV2 } from '~/common/kafka/consumer/consumer-v2'
 import { QuotaLimiting } from '~/common/services/quota-limiting.service'
@@ -81,6 +82,7 @@ export class MetricsPipelineConsumer {
             teamManager: deps.teamManager,
             quotaLimiting: deps.quotaLimiting,
             rateLimiter: new MetricsRateLimiterService(config, createMetricsRateLimiterRedis(config)),
+            isAggregationEnabled: buildIntegerMatcher(config.METRICS_AGGREGATION_ENABLED_TEAMS, true),
         })
     }
 

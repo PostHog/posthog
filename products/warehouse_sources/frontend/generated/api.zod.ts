@@ -794,122 +794,6 @@ export const ExternalDataSourcesCheckCdcPrerequisitesForSourceCreateBody = /* @_
     .describe('Mixin for serializers to add user access control fields')
 
 /**
- * Create, Read, Update and Delete External data Sources.
- */
-export const externalDataSourcesCreateWebhookCreateBodyPrefixMax = 100
-
-export const externalDataSourcesCreateWebhookCreateBodyDescriptionMax = 400
-
-export const externalDataSourcesCreateWebhookCreateBodyAutoSyncSchemaPatternsItemMax = 250
-
-export const externalDataSourcesCreateWebhookCreateBodyAutoSyncSchemaPatternsMax = 100
-
-export const ExternalDataSourcesCreateWebhookCreateBody = /* @__PURE__ */ zod
-    .object({
-        created_via: zod
-            .union([
-                zod
-                    .enum(['web', 'api', 'mcp', 'wizard', 'self_driving'])
-                    .describe(
-                        '\* `web` - web\n\* `api` - api\n\* `mcp` - mcp\n\* `wizard` - wizard\n\* `self_driving` - self_driving'
-                    ),
-                zod.null(),
-            ])
-            .optional()
-            .describe(
-                "How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent\/MCP tool calls, `wizard` for the setup wizard and `self_driving` for the PostHog Desktop app (both derived server-side from the caller's user agent). Ignored on update.\n\n\* `web` - web\n\* `api` - api\n\* `mcp` - mcp\n\* `wizard` - wizard\n\* `self_driving` - self_driving"
-            ),
-        client_secret: zod.string(),
-        account_id: zod.string(),
-        prefix: zod.string().max(externalDataSourcesCreateWebhookCreateBodyPrefixMax).nullish(),
-        description: zod.string().max(externalDataSourcesCreateWebhookCreateBodyDescriptionMax).nullish(),
-        direct_query_enabled: zod
-            .boolean()
-            .optional()
-            .describe(
-                'Whether this synced source is also live-queryable via direct connection. Defaults to false for new sources; ignored for pure direct-query sources.'
-            ),
-        auto_sync_new_schemas: zod
-            .boolean()
-            .optional()
-            .describe(
-                'Automatically enable syncing for schemas discovered on this source after creation, on both the scheduled discovery pass and manual schema refreshes. Defaults to false. Not supported for direct-query sources.'
-            ),
-        auto_sync_schema_patterns: zod
-            .array(
-                zod
-                    .string()
-                    .max(externalDataSourcesCreateWebhookCreateBodyAutoSyncSchemaPatternsItemMax)
-                    .describe('An fnmatch-style glob pattern, e.g. `raw_\*`.')
-            )
-            .max(externalDataSourcesCreateWebhookCreateBodyAutoSyncSchemaPatternsMax)
-            .nullish()
-            .describe(
-                'Optional fnmatch-style globs (`\*` and `?` wildcards) restricting which newly discovered schema names auto-sync, matched case-insensitively against both the qualified and bare table name. Null or empty means every new schema qualifies. Only used when `auto_sync_new_schemas` is true.'
-            ),
-        job_inputs: zod.unknown().optional(),
-    })
-    .describe('Mixin for serializers to add user access control fields')
-
-/**
- * Create, Read, Update and Delete External data Sources.
- */
-export const externalDataSourcesDeleteWebhookCreateBodyPrefixMax = 100
-
-export const externalDataSourcesDeleteWebhookCreateBodyDescriptionMax = 400
-
-export const externalDataSourcesDeleteWebhookCreateBodyAutoSyncSchemaPatternsItemMax = 250
-
-export const externalDataSourcesDeleteWebhookCreateBodyAutoSyncSchemaPatternsMax = 100
-
-export const ExternalDataSourcesDeleteWebhookCreateBody = /* @__PURE__ */ zod
-    .object({
-        created_via: zod
-            .union([
-                zod
-                    .enum(['web', 'api', 'mcp', 'wizard', 'self_driving'])
-                    .describe(
-                        '\* `web` - web\n\* `api` - api\n\* `mcp` - mcp\n\* `wizard` - wizard\n\* `self_driving` - self_driving'
-                    ),
-                zod.null(),
-            ])
-            .optional()
-            .describe(
-                "How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent\/MCP tool calls, `wizard` for the setup wizard and `self_driving` for the PostHog Desktop app (both derived server-side from the caller's user agent). Ignored on update.\n\n\* `web` - web\n\* `api` - api\n\* `mcp` - mcp\n\* `wizard` - wizard\n\* `self_driving` - self_driving"
-            ),
-        client_secret: zod.string(),
-        account_id: zod.string(),
-        prefix: zod.string().max(externalDataSourcesDeleteWebhookCreateBodyPrefixMax).nullish(),
-        description: zod.string().max(externalDataSourcesDeleteWebhookCreateBodyDescriptionMax).nullish(),
-        direct_query_enabled: zod
-            .boolean()
-            .optional()
-            .describe(
-                'Whether this synced source is also live-queryable via direct connection. Defaults to false for new sources; ignored for pure direct-query sources.'
-            ),
-        auto_sync_new_schemas: zod
-            .boolean()
-            .optional()
-            .describe(
-                'Automatically enable syncing for schemas discovered on this source after creation, on both the scheduled discovery pass and manual schema refreshes. Defaults to false. Not supported for direct-query sources.'
-            ),
-        auto_sync_schema_patterns: zod
-            .array(
-                zod
-                    .string()
-                    .max(externalDataSourcesDeleteWebhookCreateBodyAutoSyncSchemaPatternsItemMax)
-                    .describe('An fnmatch-style glob pattern, e.g. `raw_\*`.')
-            )
-            .max(externalDataSourcesDeleteWebhookCreateBodyAutoSyncSchemaPatternsMax)
-            .nullish()
-            .describe(
-                'Optional fnmatch-style globs (`\*` and `?` wildcards) restricting which newly discovered schema names auto-sync, matched case-insensitively against both the qualified and bare table name. Null or empty means every new schema qualifies. Only used when `auto_sync_new_schemas` is true.'
-            ),
-        job_inputs: zod.unknown().optional(),
-    })
-    .describe('Mixin for serializers to add user access control fields')
-
-/**
  * Read or replace the destinations every table on this source syncs to.
  *
  * A table with its own override ignores this set until the override is cleared.
@@ -1300,60 +1184,13 @@ export const ExternalDataSourcesUpdateCdcSettingsCreateBody = /* @__PURE__ */ zo
 /**
  * Create, Read, Update and Delete External data Sources.
  */
-export const externalDataSourcesUpdateWebhookInputsCreateBodyPrefixMax = 100
-
-export const externalDataSourcesUpdateWebhookInputsCreateBodyDescriptionMax = 400
-
-export const externalDataSourcesUpdateWebhookInputsCreateBodyAutoSyncSchemaPatternsItemMax = 250
-
-export const externalDataSourcesUpdateWebhookInputsCreateBodyAutoSyncSchemaPatternsMax = 100
-
-export const ExternalDataSourcesUpdateWebhookInputsCreateBody = /* @__PURE__ */ zod
-    .object({
-        created_via: zod
-            .union([
-                zod
-                    .enum(['web', 'api', 'mcp', 'wizard', 'self_driving'])
-                    .describe(
-                        '\* `web` - web\n\* `api` - api\n\* `mcp` - mcp\n\* `wizard` - wizard\n\* `self_driving` - self_driving'
-                    ),
-                zod.null(),
-            ])
-            .optional()
-            .describe(
-                "How this source was created. Defaults to `api` on create when omitted. `web` for the in-app UI, `api` for direct API callers, `mcp` for agent\/MCP tool calls, `wizard` for the setup wizard and `self_driving` for the PostHog Desktop app (both derived server-side from the caller's user agent). Ignored on update.\n\n\* `web` - web\n\* `api` - api\n\* `mcp` - mcp\n\* `wizard` - wizard\n\* `self_driving` - self_driving"
-            ),
-        client_secret: zod.string(),
-        account_id: zod.string(),
-        prefix: zod.string().max(externalDataSourcesUpdateWebhookInputsCreateBodyPrefixMax).nullish(),
-        description: zod.string().max(externalDataSourcesUpdateWebhookInputsCreateBodyDescriptionMax).nullish(),
-        direct_query_enabled: zod
-            .boolean()
-            .optional()
-            .describe(
-                'Whether this synced source is also live-queryable via direct connection. Defaults to false for new sources; ignored for pure direct-query sources.'
-            ),
-        auto_sync_new_schemas: zod
-            .boolean()
-            .optional()
-            .describe(
-                'Automatically enable syncing for schemas discovered on this source after creation, on both the scheduled discovery pass and manual schema refreshes. Defaults to false. Not supported for direct-query sources.'
-            ),
-        auto_sync_schema_patterns: zod
-            .array(
-                zod
-                    .string()
-                    .max(externalDataSourcesUpdateWebhookInputsCreateBodyAutoSyncSchemaPatternsItemMax)
-                    .describe('An fnmatch-style glob pattern, e.g. `raw_\*`.')
-            )
-            .max(externalDataSourcesUpdateWebhookInputsCreateBodyAutoSyncSchemaPatternsMax)
-            .nullish()
-            .describe(
-                'Optional fnmatch-style globs (`\*` and `?` wildcards) restricting which newly discovered schema names auto-sync, matched case-insensitively against both the qualified and bare table name. Null or empty means every new schema qualifies. Only used when `auto_sync_new_schemas` is true.'
-            ),
-        job_inputs: zod.unknown().optional(),
-    })
-    .describe('Mixin for serializers to add user access control fields')
+export const ExternalDataSourcesUpdateWebhookInputsCreateBody = /* @__PURE__ */ zod.object({
+    inputs: zod
+        .record(zod.string(), zod.string())
+        .describe(
+            'Webhook input values keyed by the source\'s declared webhook field names, for example `{\"signing_secret\": \"...\"}`. Only keys the source type declares as webhook fields are accepted, and a required field cannot be blank.'
+        ),
+})
 
 /**
  * Create the planned PostHog source for one migration item, then set its sync schedule.
@@ -1401,6 +1238,42 @@ export const ExternalDataSourcesApplyMigrationItemCreateBody = /* @__PURE__ */ z
         .describe(
             'Where the request came from: `web`, `api`, or `mcp`. Defaults to `api`.\n\n\* `web` - web\n\* `api` - api\n\* `mcp` - mcp'
         ),
+})
+
+/**
+ * Validate CDC prerequisites against a live Postgres connection.
+ *
+ * Used by the source wizard to surface ✅/❌ checks before source creation,
+ * and by the self-managed setup popup to verify user-created publications.
+ */
+export const ExternalDataSourcesCheckCdcPrerequisitesCreateBody = /* @__PURE__ */ zod.object({
+    source_type: zod
+        .string()
+        .describe("A CDC-capable source type, for example 'Postgres'. Other source types are rejected."),
+    payload: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe(
+            "Connection details as flat keys for the source_type, the same fields the create flow takes in its payload (host, port, database, user, password, schema, ssh_tunnel and so on). Discover them with 'external-data-sources-wizard'. Prefer {'credential_id': <id>} referencing connection details the user stored via the connect-link page: it is merged in server-side and is not consumed by this check, so the same id still works for source setup afterwards."
+        ),
+    cdc_management_mode: zod
+        .string()
+        .optional()
+        .describe(
+            "Who owns the replication slot and publication: 'posthog' (default, PostHog creates them) or 'self_managed' (the user created them)."
+        ),
+    tables: zod
+        .array(zod.string())
+        .optional()
+        .describe('Tables to check against the publication. Omit to check the database-level prerequisites only.'),
+    cdc_slot_name: zod
+        .string()
+        .nullish()
+        .describe("Self-managed replication slot name to check. Ignored in 'posthog' mode."),
+    cdc_publication_name: zod
+        .string()
+        .nullish()
+        .describe("Self-managed publication name to check. Ignored in 'posthog' mode."),
 })
 
 /**
@@ -1528,7 +1401,7 @@ export const ExternalDataSourcesSetupCreateBody = /* @__PURE__ */ zod.object({
         .record(zod.string(), zod.unknown())
         .optional()
         .describe(
-            "Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_\* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults."
+            "Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint). Stored credentials work once, expire after 24 hours, are deleted once the source is created, and must be stored for the same source_type. An already-connected OAuth integration can be passed via its id key instead. The key name differs per source and is listed in the wizard output as the source's OAuth field, e.g. {'hubspot_integration_id': 123}, {'google_ads_integration_id': 45} or {'meta_ads_integration_id': 67}. For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_\* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults."
         ),
     prefix: zod
         .string()

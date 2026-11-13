@@ -12,8 +12,9 @@ import { folderNameError, workflowFoldersLogic } from './workflowFoldersLogic'
 import { WorkflowNewFolderButton } from './WorkflowNewFolderButton'
 
 export function WorkflowFolderActions({ path, count }: { path: string; count: number }): JSX.Element | null {
-    const { savedItems, folderPaths, takenFolderPaths, folderBusyReason } = useValues(workflowFoldersLogic)
-    const { moveFileToFolder, renameFolder } = useActions(workflowFoldersLogic)
+    const { savedItems, folderPaths, takenFolderPaths, folderActionPending, folderMutationDisabledReason } =
+        useValues(workflowFoldersLogic)
+    const { moveFileToFolder } = useActions(workflowFoldersLogic)
     const entry = savedItems.find((item) => item.type === 'folder' && item.path === path)
     if (path === 'Unfiled') {
         return null
@@ -27,22 +28,18 @@ export function WorkflowFolderActions({ path, count }: { path: string; count: nu
         return <div className="flex justify-end items-center gap-1">{newSubfolderButton}</div>
     }
     const name = splitPath(path).at(-1) ?? path
+    const movingReason = folderMutationDisabledReason(path) ?? undefined
     const empty = count === 0 && !folderPaths.some((folder) => folder.startsWith(`${path}/`))
-    const busyReason = folderBusyReason(path) ?? undefined
     return (
         <div className="flex justify-end items-center gap-1">
             {newSubfolderButton}
             <LemonMenu
                 items={[
-                    {
-                        label: 'Move to…',
-                        disabledReason: busyReason,
-                        onClick: () => moveFileToFolder(entry),
-                    },
+                    { label: 'Move to…', disabledReason: movingReason, onClick: () => moveFileToFolder(entry) },
                     {
                         label: 'Rename…',
                         disabledReason:
-                            busyReason ??
+                            movingReason ??
                             (takenFolderPaths ? undefined : 'Checking existing folder names. Try again in a moment.'),
                         onClick: () =>
                             LemonDialog.openForm({
@@ -57,13 +54,17 @@ export function WorkflowFolderActions({ path, count }: { path: string; count: nu
                                     name: (next: string | undefined = '') =>
                                         folderNameError(next, parentPath(path), takenFolderPaths, path) ?? undefined,
                                 },
-                                onSubmit: ({ name: next }) => renameFolder(path, next),
+                                shouldAwaitSubmit: true,
+                                onSubmit: ({ name: next }) =>
+                                    workflowFoldersLogic.asyncActions.renameFolder(path, next),
                             }),
                     },
                     {
                         label: 'Delete',
                         status: 'danger',
-                        disabledReason: !empty ? 'Move what is inside this folder first' : busyReason,
+                        disabledReason: !empty
+                            ? 'Move what is inside this folder first'
+                            : (movingReason ?? (folderActionPending ? 'A folder action is in progress' : undefined)),
                         onClick: () =>
                             LemonDialog.openForm({
                                 title: `Delete ${name}?`,
@@ -84,7 +85,7 @@ export function WorkflowFolderActions({ path, count }: { path: string; count: nu
                     size="xsmall"
                     icon={<IconEllipsis />}
                     aria-label={`Actions for folder ${name}`}
-                    loading={!!busyReason}
+                    loading={folderActionPending || !!movingReason}
                 />
             </LemonMenu>
         </div>

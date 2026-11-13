@@ -1,3 +1,4 @@
+import { dayjs } from 'lib/dayjs'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 
@@ -53,7 +54,7 @@ function formatPValue(pValue: number): string {
     return `p = ${Number(pValue.toPrecision(2))}`
 }
 
-function formatHours(hours: number): string {
+export function formatHours(hours: number): string {
     return hours < 48 ? `${Math.floor(hours)} hours` : `${Math.floor(hours / 24)} days`
 }
 
@@ -106,6 +107,37 @@ function calculatedMetricsReading(values: HealthCheckValues | undefined): Health
         return null
     }
     return reading('Metrics calculated', `${formatCount(completedCount)} of ${formatCount(metricCount)}`)
+}
+
+function sampleReading(values: HealthCheckValues | undefined, units: string): HealthReading | null {
+    const samples = numberValue(values, 'sample_count')
+    const planned = numberValue(values, 'planned_sample_count')
+    if (samples === null) {
+        return null
+    }
+    return reading(
+        `${capitalizeFirstLetter(units)} so far`,
+        planned === null ? formatCount(samples) : `${formatCount(samples)} of ${formatCount(planned)} planned`
+    )
+}
+
+function timeReading(
+    label: string,
+    values: HealthCheckValues | undefined,
+    key: string,
+    asDate = false
+): HealthReading | null {
+    const time = values?.[key]
+    return typeof time === 'string' ? { label, time, asDate } : null
+}
+
+function dailyCalculationReading(values: HealthCheckValues | undefined): HealthReading | null {
+    const endsAt = values?.daily_calculation_ends_at
+    if (typeof endsAt !== 'string') {
+        return null
+    }
+    const label = dayjs(endsAt).isAfter(dayjs()) ? 'Daily calculation runs until' : 'Daily calculation stopped on'
+    return { label, time: endsAt, asDate: true }
 }
 
 function flagReading(values: HealthCheckValues | undefined): HealthReading | null {
@@ -169,6 +201,19 @@ export function healthCheckReadings(values: HealthCheckValues | undefined, units
         numberReading('Metrics whose calculation failed', values, 'failed_metric_count', formatCount),
         typeof calculatedAt === 'string' ? { label: 'Last calculated', time: calculatedAt } : null,
         flagReading(values),
+        timeReading('Last flag call', values, 'flag_last_called_at'),
+        numberReading('Running for', values, 'since_start_hours', formatHours),
+        dailyCalculationReading(values),
+        reading('Metric', typeof values?.metric_name === 'string' ? values.metric_name : null),
+        sampleReading(values, units),
+        numberReading('Release conditions that force a variant', values, 'forced_condition_count', formatCount),
+        numberReading(
+            `${capitalizeFirstLetter(units)} the release conditions served`,
+            values,
+            'matched_count',
+            formatCount
+        ),
+        timeReading('Counted since', values, 'traffic_since_at', true),
     ].filter((line): line is HealthReading => line !== null)
 }
 
@@ -191,6 +236,8 @@ function warnsWhen(rule: HealthCheckRule, units: string): string {
             return rule.warns === 'below' && threshold === 1
                 ? `No ${units} are exposed`
                 : `${comparative(rule, 'More', 'Fewer')} than ${formatCount(threshold)} ${units} are exposed`
+        case 'since_start_hours':
+            return `The experiment runs for ${comparative(rule, 'more', 'less')} than ${formatHours(threshold)}`
         default:
             return `${rule.value} is ${rule.warns} ${threshold}`
     }

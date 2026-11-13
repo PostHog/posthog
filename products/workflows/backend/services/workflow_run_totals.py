@@ -51,7 +51,7 @@ def fetch_run_totals_by_workflow(
         "before": before.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S") if before else None,
     }
     query = RUN_TOTALS_BY_SOURCE.format(before_clause="AND timestamp <= toDateTime64(%(before)s, 6)" if before else "")
-    # DEFAULT follows the caller: sync_execute sends API-key polling to the offline cluster and the app to the online one.
+    # DEFAULT follows the caller: sync_execute sends API-key polling offline and app requests online.
     rows = sync_execute(query, params, workload=Workload.DEFAULT)
     workflow_by_job = _batch_job_workflows(team_id, {source_id for source_id, _, _ in rows})
     totals: dict[str, dict[str, int]] = {}

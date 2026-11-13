@@ -67,16 +67,16 @@ from .evaluation_errors import (
     status_reason_detail_for_terminal_user_error,
     terminal_user_error_result_from_application_error,
 )
-from .evaluation_event_io import GENERATION_NOT_FOUND_RETRY_DELAY, GenerationNotFoundError, hydrate_event_reference
+from .evaluation_event_io import GenerationNotFoundError, hydrate_event_reference
 from .evaluation_llm_judge import (
     BACKFILL_ACTIVITY_RETRY_POLICY,
     NumericWithNAEvalResult,
     TransientJudgeError,
     _build_errored_trace_result,
     _build_output_limit_skip_result,
-    _execute_llm_judge_activity,
     call_llm_judge,
     get_output_type_config,
+    run_generation_llm_judge,
 )
 from .evaluation_types import GENERATION_NOT_FOUND, build_generation_not_found_result, build_skipped_evaluation_result
 from .evaluation_workflow_activities import (
@@ -1413,7 +1413,7 @@ class TestRunEvaluationWorkflow:
                 "verdict": True,
                 "reasoning": "The answer is grounded.",
                 "allows_na": False,
-                "model": "gpt-4.1-mini",
+                "model": "gpt-6-luna",
                 "provider": "openai",
             }
 
@@ -2326,7 +2326,7 @@ class TestRunEvaluationWorkflow:
             ),
         ):
             with pytest.raises(AssertionError, match="stop after hydration"):
-                _execute_llm_judge_activity(
+                run_generation_llm_judge(
                     ExecuteLLMJudgeInputs(
                         evaluation=_local_evaluation(
                             evaluation_type="llm_judge", evaluation_config={"prompt": "grade it"}
@@ -2339,15 +2339,15 @@ class TestRunEvaluationWorkflow:
 
     @pytest.mark.parametrize("live", [pytest.param(True, id="live"), pytest.param(False, id="backfill")])
     @pytest.mark.parametrize(
-        "attempt,retryable",
+        "attempt,retryable,live_delay",
         [
-            pytest.param(1, True, id="first attempt"),
-            pytest.param(2, True, id="second attempt"),
-            pytest.param(3, False, id="last attempt"),
+            pytest.param(1, True, timedelta(seconds=30), id="first attempt"),
+            pytest.param(2, True, timedelta(seconds=90), id="second attempt"),
+            pytest.param(3, False, None, id="last attempt"),
         ],
     )
     def test_a_missing_generation_gets_two_retries_before_it_fails_the_run(
-        self, attempt: int, retryable: bool, live: bool
+        self, attempt: int, retryable: bool, live_delay: timedelta | None, live: bool
     ):
         reference = {**THIN_REFERENCE, "awaiting_ingestion": True} if live else dict(THIN_REFERENCE)
         env = ActivityEnvironment()
@@ -2360,8 +2360,7 @@ class TestRunEvaluationWorkflow:
         assert raised.value.non_retryable is not retryable
         assert is_expected_activity_failure(raised.value) is (retryable or not live)
         assert isinstance(raised.value, GenerationNotFoundError) is (not retryable and not live)
-        expected_delay = GENERATION_NOT_FOUND_RETRY_DELAY if retryable and live else None
-        assert raised.value.next_retry_delay == expected_delay
+        assert raised.value.next_retry_delay == (live_delay if live else None)
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -2393,7 +2392,7 @@ class TestRunEvaluationWorkflow:
             patch("posthog.temporal.ai_observability.evaluation_llm_judge.call_llm_judge") as call_judge,
         ):
             if evaluation_type == "llm_judge":
-                result = _execute_llm_judge_activity(
+                result = run_generation_llm_judge(
                     ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=dict(THIN_REFERENCE))
                 )
             else:
@@ -2541,7 +2540,7 @@ class TestRunEvaluationWorkflow:
                 "verdict": True,
                 "reasoning": "ok",
                 "allows_na": False,
-                "model": "gpt-4.1-mini",
+                "model": "gpt-6-luna",
                 "provider": "openai",
             }
 
@@ -4140,7 +4139,7 @@ class TestEvalResultModels:
                 parsed=schema.model_validate({"reasoning": "Resolution", "categories": categories}),
                 usage=MagicMock(input_tokens=100, output_tokens=20, total_tokens=120),
             )
-            result = _execute_llm_judge_activity(
+            result = run_generation_llm_judge(
                 ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=create_mock_event_data(1))
             )
         assert result["result_type"] == "categorical"
@@ -4190,7 +4189,7 @@ class TestEvalResultModels:
                 usage=MagicMock(input_tokens=100, output_tokens=20, total_tokens=120),
             )
             inputs = ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=create_mock_event_data(1))
-            result = _execute_llm_judge_activity(inputs)
+            result = run_generation_llm_judge(inputs)
             increment_errors.assert_not_called()
         assert result["result_type"] == "numeric"
         assert "verdict" not in result

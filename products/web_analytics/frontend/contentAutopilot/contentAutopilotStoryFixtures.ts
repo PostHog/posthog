@@ -1,4 +1,8 @@
 import type {
+    AEOBrandApi,
+    AEOKeywordApi,
+    AEOKeywordModifierReportApi,
+    AEOKeywordReportApi,
     AEOPromptApi,
     AEOPromptCheckApi,
     AEOPromptSetCountsApi,
@@ -261,7 +265,9 @@ const EXAMPLE_PROMPT: AEOPromptApi = {
     latest_checks: [
         {
             engine: 'claude-web-search',
+            mode: 'web_search',
             cited: true,
+            mentioned: true,
             check_failed: false,
             target_best_position: 1,
             search_queries: [
@@ -272,7 +278,9 @@ const EXAMPLE_PROMPT: AEOPromptApi = {
         },
         {
             engine: 'openai-web-search',
+            mode: 'web_search',
             cited: false,
+            mentioned: false,
             check_failed: false,
             target_best_position: null,
             search_queries: ['best open source product analytics for startups 2026'],
@@ -280,9 +288,21 @@ const EXAMPLE_PROMPT: AEOPromptApi = {
         },
         {
             engine: 'exa-answer',
+            mode: 'web_search',
             cited: true,
+            mentioned: true,
             check_failed: false,
             target_best_position: 3,
+            search_queries: [],
+            checked_at: '2026-09-29T09:00:00Z',
+        },
+        {
+            engine: 'claude-no-search',
+            mode: 'no_search',
+            cited: false,
+            mentioned: true,
+            check_failed: false,
+            target_best_position: null,
             search_queries: [],
             checked_at: '2026-09-29T09:00:00Z',
         },
@@ -298,7 +318,9 @@ export const EXAMPLE_PROMPTS: AEOPromptApi[] = [
         latest_checks: [
             {
                 engine: 'claude-web-search',
+                mode: 'web_search',
                 cited: false,
+                mentioned: false,
                 check_failed: false,
                 target_best_position: null,
                 search_queries: ['funnel analysis without SQL breakdown by country'],
@@ -306,7 +328,9 @@ export const EXAMPLE_PROMPTS: AEOPromptApi[] = [
             },
             {
                 engine: 'openai-web-search',
+                mode: 'web_search',
                 cited: false,
+                mentioned: false,
                 check_failed: true,
                 target_best_position: null,
                 search_queries: [],
@@ -314,7 +338,9 @@ export const EXAMPLE_PROMPTS: AEOPromptApi[] = [
             },
             {
                 engine: 'gemini-google-search',
+                mode: 'web_search',
                 cited: true,
+                mentioned: true,
                 check_failed: false,
                 target_best_position: 2,
                 search_queries: [],
@@ -341,7 +367,9 @@ export const EXAMPLE_PROMPTS: AEOPromptApi[] = [
         latest_checks: [
             {
                 engine: 'exa-answer',
+                mode: 'web_search',
                 cited: false,
+                mentioned: false,
                 check_failed: false,
                 target_best_position: null,
                 search_queries: [],
@@ -360,7 +388,9 @@ export const EXAMPLE_PROMPTS: AEOPromptApi[] = [
         latest_checks: [
             {
                 engine: 'claude-web-search',
+                mode: 'web_search',
                 cited: false,
+                mentioned: false,
                 check_failed: false,
                 target_best_position: null,
                 search_queries: [],
@@ -400,6 +430,7 @@ const EXAMPLE_CHECK: AEOPromptCheckApi = {
     id: '00000000-0000-4000-8000-000000000401',
     run_id: '00000000-0000-4000-8000-000000000501',
     engine: 'claude-web-search',
+    mode: 'web_search',
     model: 'example-model-large',
     created_at: '2026-09-29T09:00:00Z',
     cited: true,
@@ -420,9 +451,24 @@ const EXAMPLE_CHECK: AEOPromptCheckApi = {
     answer_text:
         'For a small startup, a few open source product analytics tools stand out.\n\n' +
         '1. Example Analytics: event tracking, funnels and retention, with a generous free tier.\n' +
-        '2. A self-hosted option if you need to keep data on your own servers.\n\n' +
+        '2. Rival Analytics, if you mostly need dashboards and can live with a smaller free tier.\n' +
+        '3. A self-hosted option if you need to keep data on your own servers.\n\n' +
         'Pick the one that matches how much infrastructure you want to run.',
 }
+
+export const EXAMPLE_COMPETITOR_BRANDS: AEOBrandApi[] = [
+    {
+        id: '0193a6f1-0000-0000-0000-000000000001',
+        name: 'Rival Analytics',
+        domain: 'rival.example.org',
+        kind: 'competitor',
+        status: 'confirmed',
+        source: 'manual',
+        aliases: ['Rival'],
+        created_at: '2026-09-01T00:00:00Z',
+        updated_at: null,
+    },
+]
 
 export const EXAMPLE_PROMPT_CHECKS: AEOPromptCheckApi[] = [
     EXAMPLE_CHECK,
@@ -565,6 +611,28 @@ const setCounts = (
     }
 }
 
+// 30 answers per engine per day, with rates that drift around each engine's level so the lines read apart.
+const OVERVIEW_ENGINE_LEVELS: [engine: string, cited: number, mentioned: number][] = [
+    ['claude-web-search', 0.5, 0.7],
+    ['exa-answer', 0.2, 0.4],
+    ['openai-web-search', 0.46, 0.66],
+]
+
+const EXAMPLE_PROMPT_SET_DAILY: AEOPromptSetOverviewApi['daily'] = Array.from({ length: 30 }, (_, index) =>
+    OVERVIEW_ENGINE_LEVELS.map(([engine, cited, mentioned], engineIndex) => {
+        const drift = Math.sin(index / 4 + engineIndex) * 0.06
+        return {
+            date: `2026-09-${String(index + 1).padStart(2, '0')}`,
+            engine,
+            checks: 30,
+            failed: 0,
+            cited: Math.round((cited + drift) * 30),
+            mentioned: Math.round((mentioned + drift) * 30),
+            avg_position: Math.round((2.3 + engineIndex * 0.4 - drift * 5) * 10) / 10,
+        }
+    })
+).flat()
+
 export const EXAMPLE_PROMPT_SET_OVERVIEW: AEOPromptSetOverviewApi = {
     days: 30,
     window_from: '2026-09-01',
@@ -580,17 +648,18 @@ export const EXAMPLE_PROMPT_SET_OVERVIEW: AEOPromptSetOverviewApi = {
     engines: [
         {
             engine: 'claude-web-search',
-            ...setCounts({ checks: 900, failed: 10, cited: 445, mentioned: 623, prompts: 44, prompts_cited: 30 }),
+            ...setCounts({ checks: 900, failed: 10, cited: 445, mentioned: 623, prompts: 44, prompts_cited: 30 }, 2.1),
         },
         {
             engine: 'exa-answer',
-            ...setCounts({ checks: 720, failed: 20, cited: 140, mentioned: 280, prompts: 44, prompts_cited: 18 }),
+            ...setCounts({ checks: 720, failed: 20, cited: 140, mentioned: 280, prompts: 44, prompts_cited: 18 }, 3.4),
         },
         {
             engine: 'openai-web-search',
-            ...setCounts({ checks: 900, failed: 30, cited: 399, mentioned: 573, prompts: 44, prompts_cited: 28 }),
+            ...setCounts({ checks: 900, failed: 30, cited: 399, mentioned: 573, prompts: 44, prompts_cited: 28 }, 2.2),
         },
     ],
+    daily: EXAMPLE_PROMPT_SET_DAILY,
     topics: [
         {
             topic: '',
@@ -771,5 +840,199 @@ export const EXAMPLE_PROMPT_SET_RANKINGS: AEOPromptSetRankingsApi = {
             is_target: false,
         },
         { url: 'https://example.com/pricing', answers: 47, share_of_answers: 0.019, is_target: true },
+    ],
+}
+
+export const EXAMPLE_KEYWORDS: AEOKeywordApi[] = [
+    'feature flags',
+    'pricing',
+    'self-hosted',
+    'session replay',
+    'web analytics',
+].map((keyword, index) => ({
+    id: `00000000-0000-4000-8000-00000000090${index}`,
+    keyword,
+    created_at: '2026-09-20T12:00:00Z',
+}))
+
+export const EXAMPLE_KEYWORD_REPORT: AEOKeywordReportApi = {
+    days: 7,
+    window_from: '2026-09-24',
+    window_to: '2026-09-30',
+    answers: 420,
+    brand_names: ['example'],
+    keywords: [
+        {
+            keyword: 'feature flags',
+            prompts: 6,
+            prompt_checks: 84,
+            prompt_mention_rate: 0.71,
+            prompt_cited_rate: 0.48,
+            searched_checks: 61,
+            searched_rate: 0.145,
+            searched_cited_rate: 0.52,
+            answer_checks: 102,
+            answer_rate: 0.243,
+            uses_per_answer: 3.4,
+            answer_mention_rate: 0.66,
+            avg_citation_position: 2.3,
+            median_first_mention_depth: 0.18,
+        },
+        {
+            keyword: 'pricing',
+            prompts: 3,
+            prompt_checks: 42,
+            prompt_mention_rate: 0.38,
+            prompt_cited_rate: 0.14,
+            searched_checks: 133,
+            searched_rate: 0.317,
+            searched_cited_rate: 0.11,
+            answer_checks: 190,
+            answer_rate: 0.452,
+            uses_per_answer: 1.6,
+            answer_mention_rate: 0.29,
+            avg_citation_position: 4.1,
+            median_first_mention_depth: 0.62,
+        },
+        {
+            keyword: 'self-hosted',
+            prompts: 0,
+            prompt_checks: 0,
+            prompt_mention_rate: null,
+            prompt_cited_rate: null,
+            searched_checks: 38,
+            searched_rate: 0.09,
+            searched_cited_rate: 0.24,
+            answer_checks: 57,
+            answer_rate: 0.136,
+            uses_per_answer: 1.2,
+            answer_mention_rate: 0.47,
+            avg_citation_position: 3.0,
+            median_first_mention_depth: 0.41,
+        },
+        {
+            keyword: 'session replay',
+            prompts: 9,
+            prompt_checks: 126,
+            prompt_mention_rate: 0.83,
+            prompt_cited_rate: 0.61,
+            searched_checks: 97,
+            searched_rate: 0.231,
+            searched_cited_rate: 0.58,
+            answer_checks: 151,
+            answer_rate: 0.36,
+            uses_per_answer: 4.2,
+            answer_mention_rate: 0.79,
+            avg_citation_position: 1.8,
+            median_first_mention_depth: 0.09,
+        },
+        {
+            keyword: 'web analytics',
+            prompts: 4,
+            prompt_checks: 56,
+            prompt_mention_rate: 0.55,
+            prompt_cited_rate: 0.3,
+            searched_checks: 0,
+            searched_rate: 0,
+            searched_cited_rate: null,
+            answer_checks: 0,
+            answer_rate: 0,
+            uses_per_answer: null,
+            answer_mention_rate: null,
+            avg_citation_position: null,
+            median_first_mention_depth: null,
+        },
+    ],
+}
+
+export const EXAMPLE_KEYWORD_MODIFIERS: AEOKeywordModifierReportApi = {
+    days: 7,
+    window_from: '2026-09-24',
+    window_to: '2026-09-30',
+    keyword: null,
+    answers: 420,
+    baseline_cited_rate: 0.42,
+    modifiers: [
+        {
+            term: '2026',
+            kind: 'freshness',
+            answers: 118,
+            share: 0.281,
+            cited_rate: 0.19,
+            engines: [
+                { engine: 'openai-web-search', answers: 81 },
+                { engine: 'claude-web-search', answers: 37 },
+            ],
+            example_searches: ['best session replay tools 2026', 'feature flag platforms 2026 comparison'],
+        },
+        {
+            term: 'pricing',
+            kind: 'pricing',
+            answers: 96,
+            share: 0.229,
+            cited_rate: 0.22,
+            engines: [
+                { engine: 'openai-web-search', answers: 60 },
+                { engine: 'claude-web-search', answers: 36 },
+            ],
+            example_searches: ['acme analytics pricing', 'session replay pricing per session'],
+        },
+        {
+            term: 'alternatives',
+            kind: 'comparison',
+            answers: 74,
+            share: 0.176,
+            cited_rate: 0.45,
+            engines: [{ engine: 'openai-web-search', answers: 74 }],
+            example_searches: ['acme alternatives open source', 'web analytics alternatives'],
+        },
+        {
+            term: 'vs acme',
+            kind: 'comparison',
+            answers: 31,
+            share: 0.074,
+            cited_rate: 0.39,
+            engines: [{ engine: 'claude-web-search', answers: 31 }],
+            example_searches: ['example vs acme feature flags'],
+        },
+        {
+            term: 'acme',
+            kind: 'competitor',
+            answers: 52,
+            share: 0.124,
+            cited_rate: 0.27,
+            engines: [
+                { engine: 'openai-web-search', answers: 40 },
+                { engine: 'claude-web-search', answers: 12 },
+            ],
+            example_searches: ['acme session replay review'],
+        },
+        {
+            term: 'official docs',
+            kind: 'docs',
+            answers: 40,
+            share: 0.095,
+            cited_rate: 0.63,
+            engines: [{ engine: 'claude-web-search', answers: 40 }],
+            example_searches: ['feature flags official docs'],
+        },
+        {
+            term: 'site:example.com',
+            kind: 'site',
+            answers: 22,
+            share: 0.052,
+            cited_rate: 0.86,
+            engines: [{ engine: 'claude-web-search', answers: 22 }],
+            example_searches: ['site:example.com session replay privacy'],
+        },
+        {
+            term: 'self hosted',
+            kind: 'other',
+            answers: 35,
+            share: 0.083,
+            cited_rate: 0.2,
+            engines: [{ engine: 'openai-web-search', answers: 35 }],
+            example_searches: ['self hosted product analytics docker'],
+        },
     ],
 }

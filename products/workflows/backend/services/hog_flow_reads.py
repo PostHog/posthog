@@ -3,7 +3,7 @@ searched and access-filtered page of them. Each workflow is a contract with its 
 
 import re
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, Final, Optional, Protocol, cast
+from typing import TYPE_CHECKING, Any, Final, Optional, Protocol, cast
 from uuid import UUID
 
 from django.core.exceptions import ValidationError
@@ -17,7 +17,7 @@ from django_filters import BooleanFilter, CharFilter, FilterSet
 from posthog.api.tagged_item import current_tag_names
 from posthog.models import TaggedItem
 from posthog.paging import Page, PageRequest
-from posthog.queryset_paging import select_page
+from posthog.queryset_paging import select_page, select_page_without_count
 
 from products.workflows.backend.facade.contracts import (
     Workflow,
@@ -30,6 +30,8 @@ from products.workflows.backend.facade.contracts import (
     WorkflowListRow,
     WorkflowNotFound,
     WorkflowRef,
+    WorkflowReplayTarget,
+    WorkflowSummary,
 )
 from products.workflows.backend.facade.enums import HogFlowScheduleStatus, HogFlowType, WorkflowProposalStatus
 from products.workflows.backend.models.hog_flow.hog_flow import MESSAGING_ACTION_TYPES, HogFlow
@@ -236,18 +238,36 @@ def list_workflow_summaries(
     page: PageRequest,
 ) -> Page[WorkflowListRow]:
     queryset = _list_queryset(team_id, query, user_access_control, include_all_if_admin=False, summaries=True)
-    flows = _select_page_with_access(queryset, page, user_access_control)
+    # A summaries search reads every workflow's step graph, so an exact count would run that scan a second time.
+    flows = _select_page_with_access(queryset, page, user_access_control, counted=not query.search)
     template_cache: TemplateCache = {}
     return flows.map(lambda flow: _to_list_row(flow, user_access_control, template_cache))
 
 
 def _select_page_with_access(
-    queryset: QuerySet, page: PageRequest, user_access_control: "UserAccessControl | None"
+    queryset: QuerySet, page: PageRequest, user_access_control: "UserAccessControl | None", *, counted: bool = True
 ) -> Page[HogFlow]:
-    flows = select_page(queryset, page)
+    flows = select_page(queryset, page) if counted else select_page_without_count(queryset, page)
     if user_access_control is not None and flows.results:
         user_access_control.preload_object_access_controls(cast("list[models.Model]", flows.results))
     return flows
+
+
+def search_workflow_summaries(
+    *,
+    team_id: int,
+    query: WorkflowListQuery,
+    user_access_control: "UserAccessControl | None",
+    limit: int,
+    name_contains: str = "",
+) -> list[WorkflowSummary]:
+    queryset = _list_queryset(team_id, query, user_access_control, include_all_if_admin=False, summaries=False)
+    if name_contains:
+        queryset = queryset.filter(name__icontains=name_contains)
+    return [
+        WorkflowSummary(id=str(row["id"]), name=row["name"] or "", status=row["status"])
+        for row in queryset.values("id", "name", "status")[:limit]
+    ]
 
 
 def _list_queryset(
@@ -634,3 +654,31 @@ def _action_content_matches(regex_pattern: str) -> RawSQL:
     params = [regex_pattern] * (len(clauses) * len(_ACTION_SEARCH_TEXT_SQL))
     # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql (the search term is bound via params; only constant SQL and the table name from _meta are interpolated)
     return RawSQL(" OR ".join(clauses), params, output_field=models.BooleanField())
+
+
+def get_workflow_replay_targets(team_ids: list[int], workflow_ids: list[str]) -> list[WorkflowReplayTarget]:
+    """Workflows across teams, for staff tooling that replays failed runs."""
+    # nosemgrep: idor-lookup-without-team -- staff-only incident tooling that spans teams by design
+    flows = HogFlow.objects.filter(id__in=workflow_ids, team_id__in=team_ids).only(
+        "id", "team_id", "name", "status", "actions"
+    )
+    targets = []
+    for flow in flows:
+        actions = [action for action in flow.actions or [] if isinstance(action, dict)]
+        configs: list[dict[str, Any]] = [
+            config if isinstance(config := action.get("config"), dict) else {} for action in actions
+        ]
+        targets.append(
+            WorkflowReplayTarget(
+                id=str(flow.id),
+                team_id=flow.team_id,
+                name=flow.name or "",
+                status=flow.status,
+                template_ids=tuple(sorted({c["template_id"] for c in configs if c.get("template_id")})),
+                sends_sensitive_email=any(
+                    action.get("type") == "function_email" and config.get("sensitive") is True
+                    for action, config in zip(actions, configs)
+                ),
+            )
+        )
+    return targets

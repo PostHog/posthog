@@ -1,3 +1,4 @@
+import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 import { Pool } from 'pg'
 import { Counter, Gauge, Histogram } from 'prom-client'
@@ -41,7 +42,13 @@ import {
     matchesWaitUntilCondition,
     runFilterBytecode,
 } from '../services/hogflows/hogflow-utils'
-import { CyclotronPerson, HogFlowInvocationContext, HogFunctionInvocationGlobals, PinnedConversionGoal } from '../types'
+import {
+    CyclotronPerson,
+    HogFlowInvocationContext,
+    HogFunctionInvocationGlobals,
+    MinimalAppMetric,
+    PinnedConversionGoal,
+} from '../types'
 import {
     convertInternalEventToHogFunctionInvocationGlobals,
     convertToHogFunctionInvocationGlobals,
@@ -171,12 +178,43 @@ type PersonDistinctIdMove = {
 // A parked job the matcher needs to act on this batch: either resume it (stepMatched, or a
 // conversion match on an exit-on-conversion flow) and/or count its conversion once. Carries the
 // fields needed to emit the `conversion` metric without re-reading the hogflow.
+// Filter types that read the trigger event or the run's own variables. Neither changes while the run
+// waits, so a person change cannot move a term of these types.
+const PERSON_INDEPENDENT_FILTER_TYPES = new Set([
+    'event',
+    'event_metadata',
+    'meta',
+    'element',
+    'feature',
+    'session',
+    'workflow_variable',
+    'group',
+])
+
+// A person wake carries a synthetic $person_updated event with no properties and no workflow
+// variables, so anything but a pure person-property condition reads as false here and would strand
+// the wait until its ceiling. Wake the job and let the worker, which holds the run's own globals, decide.
+// A condition with no term a person change can move is left alone: the worker would only re-park it.
+function conditionNeedsRunGlobals(action: Extract<HogFlowAction, { type: 'wait_until_condition' }>): boolean {
+    const filters = action.config.condition?.filters
+    const properties = Array.isArray(filters?.properties) ? filters.properties : []
+    // An event or action selector reads the run's event, like an event property does.
+    const selectsEvent = [filters?.events, filters?.actions].some((list) => Array.isArray(list) && list.length > 0)
+    const types: (string | undefined)[] = properties.map((p: { type?: string }) => p?.type)
+    return (
+        (selectsEvent || types.some((t) => t !== 'person')) &&
+        types.some((t) => !PERSON_INDEPENDENT_FILTER_TYPES.has(t ?? ''))
+    )
+}
+
 type MatchedJob = {
     id: string
     teamId: number
     functionId: string
     parentRunId: string | null
     stepMatched: boolean
+    // The matcher could not decide this wait, so it wakes the job and lets the worker evaluate.
+    recheckMatched: boolean
     conversionMatched: boolean
     exitsOnConversion: boolean
     // Name, UUID and timestamp of the matched event, so the resume log can name it and link to it.
@@ -413,6 +451,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
 
             // Any single matching event is enough. Stop early once both flags are set.
             let stepMatched = false
+            let recheckMatched = false
             let stepMatchedEventName: string | undefined
             let stepMatchedEventUuid: string | undefined
             let stepMatchedEventTimestamp: string | undefined
@@ -422,8 +461,10 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             let conversionEventUuid: string | undefined
             for (const globals of candidateGlobals) {
                 const filterGlobals = filterGlobalsFor(globals)
-                if (!stepMatched && action?.type === 'wait_until_condition') {
-                    if (
+                if (!stepMatched && !recheckMatched && action?.type === 'wait_until_condition') {
+                    if (source === 'person' && conditionNeedsRunGlobals(action)) {
+                        recheckMatched = true
+                    } else if (
                         await matchesWaitUntilCondition(action, filterGlobals, {
                             hogFlowId: hogflow.id,
                             actionId: action.id,
@@ -451,13 +492,14 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             // collected even on measurement-only (non-exit) flows: processMatchedJobs reads the job's
             // state under FOR UPDATE to count the conversion exactly once per run (and surface it to
             // the executor for exit-on-conversion flows). The wake-vs-count-only decision is made there.
-            if (stepMatched || conversionMatched) {
+            if (stepMatched || recheckMatched || conversionMatched) {
                 matchedJobs.push({
                     id: candidate.id,
                     teamId: candidate.teamId,
                     functionId: candidate.functionId,
                     parentRunId: candidate.parentRunId,
                     stepMatched,
+                    recheckMatched,
                     conversionMatched,
                     exitsOnConversion: exitsOnConversion(hogflow),
                     eventName: stepMatchedEventName,
@@ -664,12 +706,12 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         let found
         try {
             found = await this.cyclotronPool.query(
-                `SELECT id, team_id, function_id, run_id, parent_run_id, distinct_id, person_id, flow_version, goal
+                `SELECT id, team_id, function_id, run_id, parent_run_id, distinct_id, person_id, flow_version, goal, created_at
                  FROM conversion_watchers
                  WHERE expires_at > NOW()
                    AND (team_id, distinct_id) IN (SELECT * FROM unnest($1::int[], $2::text[]))
                  UNION
-                 SELECT id, team_id, function_id, run_id, parent_run_id, distinct_id, person_id, flow_version, goal
+                 SELECT id, team_id, function_id, run_id, parent_run_id, distinct_id, person_id, flow_version, goal, created_at
                  FROM conversion_watchers
                  WHERE expires_at > NOW()
                    AND (team_id, person_id) IN (SELECT * FROM unnest($3::int[], $4::text[]))`,
@@ -739,17 +781,22 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             if (!claimedIds.has(row.id)) {
                 continue
             }
+            const conversionMetric: MinimalAppMetric = {
+                team_id: row.team_id,
+                app_source_id: row.parent_run_id ?? row.function_id,
+                instance_id: row.function_id,
+                metric_kind: 'other',
+                metric_name: 'conversion',
+                count: 1,
+                app_source_version:
+                    row.flow_version !== null ? { id: row.function_id, version: row.flow_version } : undefined,
+            }
+            this.hogFunctionMonitoringService.queueAppMetric(conversionMetric, 'hog_flow')
             this.hogFunctionMonitoringService.queueAppMetric(
                 {
-                    team_id: row.team_id,
-                    // Batch children attribute to the parent batch job, matching every other run metric.
-                    app_source_id: row.parent_run_id ?? row.function_id,
-                    instance_id: row.function_id,
-                    metric_kind: 'other',
-                    metric_name: 'conversion',
-                    count: 1,
-                    app_source_version:
-                        row.flow_version !== null ? { id: row.function_id, version: row.flow_version } : undefined,
+                    ...conversionMetric,
+                    metric_name: 'conversion_by_start',
+                    timestamp: DateTime.fromJSDate(new Date(row.created_at)),
                 },
                 'hog_flow'
             )
@@ -1550,6 +1597,16 @@ function applyMatchToState(stateBuffer: Buffer, m: MatchedJob): MatchOutcome | n
                 // we cannot tag the wake as an event match - skip the flag and continue, since the
                 // conversion handling above is independent of currentAction and may still apply.
                 logger.warn('Skipping eventMatched: no currentAction in state', { jobId: m.id })
+            }
+        }
+
+        // A wake the matcher could not decide: no eventMatched, so the worker evaluates the condition
+        // itself and re-parks when it still does not match.
+        if (m.recheckMatched && !m.stepMatched) {
+            if (updatedState.currentAction) {
+                updatedState.currentAction = { ...updatedState.currentAction, recheckWake: true }
+                changed = true
+                wake = true
             }
         }
 

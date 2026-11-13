@@ -7,7 +7,7 @@ import { MemberSelect } from 'lib/components/MemberSelect'
 import type { WarehouseSuggestionApi } from '../generated/api.schemas'
 import { warehouseSuggestionsLogic } from '../warehouseSuggestionsLogic'
 
-const EDIT_ACCESS_REASON = 'You need edit access to this view or table to assign its suggestion'
+export const EDIT_ACCESS_REASON = 'You need edit access to this view or table to assign its suggestion'
 
 export interface SuggestionAssigneeSelectProps {
     suggestionId: string

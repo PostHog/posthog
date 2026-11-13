@@ -50,6 +50,9 @@ export interface ApiToolError {
         | 'tool_error'
     message: string
     status?: number
+    /** PostHog's own reason for refusing the request. It can repeat request values, so it stays out of
+     *  `message` and the caller decides where it is safe to show. */
+    detail?: string
     /** The scope PostHog named when it refused the request. */
     missingScope?: string
 }
@@ -104,40 +107,65 @@ export interface SkillRead {
     skill: string
     /** The file in the skill. A read of the skill itself serves `SKILL.md`. */
     path: string
-    readKind: 'skill' | 'file' | 'file_search' | 'file_lines'
+    readKind: 'skill' | 'file' | 'file_lines'
 }
 
-/**
- * A `learn` command, in the parts `hog learn` takes it as. Give at most one of `search` (keywords),
- * `describe` and `lines`. Without any of them, `skill` and `paths` read files, and nothing is the overview.
- */
-export interface LearnRequest {
-    /** A skill such as `posthog:instrument-integration`, or `skills` to list every skill. */
-    skill?: string
-    /** Files in `skill`, such as `references/COMMANDMENTS.md`. With `describe`, more skills to describe. */
-    paths: readonly string[]
-    search?: string
-    describe?: boolean
+/** One read: a skill's `SKILL.md`, one file in it, or a line range of that file. */
+export interface SkillReadRequest {
+    /** A skill such as `instrument-integration` or `posthog:instrument-integration`. `catalog` lists every skill. */
+    skill: string
+    /** A file in the skill, such as `references/COMMANDMENTS.md`. Without it, the read serves `SKILL.md`. */
+    file?: string
     /** As `<start>:<end>`. */
     lines?: string
 }
 
-export type LearnOutput =
-    | { kind: 'overview'; commands: string[] }
-    | { kind: 'list'; skills: string[]; count: number; truncated: boolean }
-    | { kind: 'text'; text: string }
+/**
+ * `learning`: how to use PostHog, such as analyzing a funnel. These come from the product skills.
+ * `implementation`: how to add PostHog to code, such as an SDK for one framework. These come from context-mill.
+ */
+export type SkillKind = 'learning' | 'implementation'
 
-export interface LearnResult {
-    output: LearnOutput
+export interface CatalogSkill {
+    /** As `read` and `install` take it, such as `tracing-nodejs`. Both also take `posthog:tracing-nodejs`. */
+    name: string
+    kind: SkillKind
+    /** The first line of the skill's description. */
+    description: string
+}
+
+export interface SkillReadResult {
+    text: string
     reads: SkillRead[]
     assets: SkillAssetStatus[]
 }
 
-export interface InstallableSkill {
-    id: string
+export interface FoundSkill {
     name: string
     description: string
-    tags: string[]
+    /** Lines in the skill's files that contain the keywords. */
+    matches: { path: string; line: number; text: string }[]
+}
+
+export interface SkillSearchResult {
+    /** The best matches first. */
+    skills: FoundSkill[]
+    assets: SkillAssetStatus[]
+}
+
+/** The caller's commands, which served text names instead of the MCP `learn` command. */
+export interface SkillCommands {
+    read(skill: string, file?: string, lines?: string): string
+    search(keywords: string): string
+    list: string
+}
+
+/**
+ * The skills that one `catalog` call loaded. `install` writes from them instead of loading them
+ * again, so a batch of installs waits for one download, or one failed download.
+ */
+export interface SkillsRelease {
+    readonly assets: SkillAssetStatus[]
 }
 
 export interface InstalledSkill {
@@ -152,7 +180,6 @@ export interface SkillsError {
         | 'offline'
         | 'unknown_skill'
         | 'unknown_file'
-        | 'unknown_topic'
         | 'unavailable'
         | 'usage'
         | 'already_installed'
@@ -174,8 +201,8 @@ export interface SkillsLibraryOptions {
      * reads this folder only when the download fails, or to answer a 304. Without it, nothing is cached.
      */
     cacheDir?: string
-    /** The command that served text names, such as `hog learn`. Defaults to `learn`. */
-    learnCommand?: string
+    /** The commands that served text names. Defaults to the MCP `learn` command. */
+    commands?: SkillCommands
     fetch?: SkillsFetch
     responseTimeoutMs?: number
     downloadTimeoutMs?: number
@@ -183,13 +210,21 @@ export interface SkillsLibraryOptions {
 }
 
 export interface SkillsLibrary {
-    learn(request: LearnRequest): Promise<SkillsResult<LearnResult>>
+    read(request: SkillReadRequest): Promise<SkillsResult<SkillReadResult>>
+    /** Finds skills whose name, description or files contain the keywords. */
+    search(keywords: string): Promise<SkillsResult<SkillSearchResult>>
     /** The `posthog:instrument-*` skills. Downloads only context-mill, not the product skills. */
     instrumentSkills(): Promise<SkillsResult<{ skills: string[]; assets: SkillAssetStatus[] }>>
-    installable(): Promise<SkillsResult<{ skills: InstallableSkill[]; assets: SkillAssetStatus[] }>>
-    /** Writes a skill into `.agents/skills/<id>` under `cwd`, as `posthog-cli api skill install` does. */
+    /** Every skill `read` serves. Each one can be installed. */
+    catalog(): Promise<SkillsResult<{ skills: CatalogSkill[]; assets: SkillAssetStatus[]; release: SkillsRelease }>>
+    /**
+     * Writes a skill from `catalog` into `<skillsDir>/<id>` under `cwd`, where `id` is the name without its
+     * `posthog:` prefix. `name` may leave the prefix out. `skillsDir` defaults to `.agents/skills`. A write
+     * that would land outside `cwd`, through `..` or a symlink, fails with `install_failed`. Without
+     * `release`, the call loads the skills itself.
+     */
     install(
-        id: string,
-        options: { cwd: string; force?: boolean }
+        name: string,
+        options: { cwd: string; force?: boolean; skillsDir?: string; release?: SkillsRelease }
     ): Promise<SkillsResult<{ skill: InstalledSkill; assets: SkillAssetStatus[] }>>
 }

@@ -180,7 +180,7 @@ describe('highlightPicksLogic', () => {
             for (const position of [0, 1]) {
                 settings.actions.setWatchPanelOpenSections(['overview'])
                 logic.actions.highlightPick(logic.values.picks![position], position)
-                expect(settings.values.watchPanelOpenSections).toEqual(['overview', 'observations'])
+                expect(settings.values.watchPanelOpenSections).toEqual(['observations'])
             }
             settings.unmount()
         })

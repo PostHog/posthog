@@ -5,7 +5,7 @@ from time import sleep
 
 import pytest
 import time_machine
-from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, get_index_from_explain
+from posthog.test.base import ClickhouseDestroyTablesMixin, ClickhouseTestMixin, _create_event, get_index_from_explain
 from unittest import TestCase
 from unittest.mock import patch
 
@@ -14,17 +14,14 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.materialized_columns import TablesWithMaterializedColumns
-from posthog.conftest import create_clickhouse_tables
 from posthog.constants import GROUP_TYPES_LIMIT
 from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.models.property import PropertyName, TableColumn
 from posthog.settings import CLICKHOUSE_DATABASE
 
 from ee.clickhouse.materialized_columns.columns import (
-    MATERIALIZATION_VALID_TABLES,
     MaterializedColumn,
     MaterializedColumnDetails,
-    _clear_materialized_columns_cache,
     backfill_materialized_columns,
     drop_column,
     get_bloom_filter_index_name,
@@ -83,25 +80,7 @@ class TestMaterializedColumnDetails(TestCase):
             MaterializedColumnDetails.from_column_comment("column_materializer::column::property::enabled")
 
 
-class TestMaterializedColumns(ClickhouseTestMixin, BaseTest):
-    @classmethod
-    def setUpClass(cls) -> None:
-        cls.recreate_database()
-        super().setUpClass()
-
-    def tearDown(self):
-        self.recreate_database()
-        super().tearDown()
-
-    @staticmethod
-    def recreate_database() -> None:
-        # Dropping the database removes materialized columns behind the metadata cache's back.
-        for table in MATERIALIZATION_VALID_TABLES:
-            _clear_materialized_columns_cache(table)
-        sync_execute(f"DROP DATABASE {CLICKHOUSE_DATABASE} SYNC")
-        sync_execute(f"CREATE DATABASE {CLICKHOUSE_DATABASE}")
-        create_clickhouse_tables()
-
+class TestMaterializedColumns(ClickhouseTestMixin, ClickhouseDestroyTablesMixin):
     def test_unknown_table(self):
         assert {} == get_materialized_columns("some weird string")
 

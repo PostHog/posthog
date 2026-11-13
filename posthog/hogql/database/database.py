@@ -172,6 +172,7 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.timings import HogQLTimings
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.otel_metrics import OtelInstrumentFactory
 from posthog.ph_client import feature_enabled_or_false
@@ -259,8 +260,9 @@ class HogQLDatabaseSources:
     read_flag_calls_from_flag_evaluations: bool
     # The organization reads flag calls only from posthog.flag_evaluations, and ingestion no longer writes them to events.
     flag_calls_only_in_flag_evaluations: bool
-    # Flag calls that a mixed query reads come from events and flag_evaluations together.
-    read_flag_calls_with_union: bool
+    # The organization's hogql-flag-calls-union flag. It is read whatever the mode, because a project that reads the
+    # native JSON events table reads flag calls as mode 2 does. HogQLContext.reads_flag_calls_with_union decides.
+    flag_calls_union_enabled: bool
     # Userless internal contexts that must resolve every warehouse table/view; skips access control
     bypass_warehouse_access_control: bool
     direct_connection_metadata: dict[str, Any] | None
@@ -874,7 +876,7 @@ class Database(BaseModel):
     _connection_id: str | None = None
     _read_flag_calls_from_flag_evaluations: bool = False
     _flag_calls_only_in_flag_evaluations: bool = False
-    _read_flag_calls_with_union: bool = False
+    _flag_calls_union_enabled: bool = False
     _direct_connection_metadata: dict[str, Any] | None = None
     _direct_access_warehouse_table_names: set[str] = set()
     # Warnings about data warehouse tables (failed/paused/billing-limited/stale syncs),
@@ -915,6 +917,7 @@ class Database(BaseModel):
     _first_sync_lookup_team_id: int | None = None
     # Name -> whether the first sync failed. None until loaded.
     _tables_awaiting_first_sync: dict[str, bool] | None = None
+    _warehouse_table_models: Optional[list[DataWarehouseTable]] = None
 
     _timezone: str | None
     _week_start_day: WeekStartDay | None
@@ -943,7 +946,7 @@ class Database(BaseModel):
         self._connection_id = None
         self._read_flag_calls_from_flag_evaluations = False
         self._flag_calls_only_in_flag_evaluations = False
-        self._read_flag_calls_with_union = False
+        self._flag_calls_union_enabled = False
         self._direct_connection_metadata = None
         self._direct_access_warehouse_table_names = set()
         self._data_warehouse_sync_warnings = {}
@@ -1340,17 +1343,17 @@ class Database(BaseModel):
         return self._connection_id is not None
 
     @property
-    def read_flag_calls_from_flag_evaluations(self) -> bool:
+    def organization_reads_flag_calls_from_flag_evaluations(self) -> bool:
         # create_for(include_flag_evaluations_table=False) removes the table after _fetch_sources chose to read from it.
         return self._read_flag_calls_from_flag_evaluations and self.has_table(["posthog", "flag_evaluations"])
 
     @property
-    def flag_calls_only_in_flag_evaluations(self) -> bool:
-        return self._flag_calls_only_in_flag_evaluations and self.read_flag_calls_from_flag_evaluations
+    def organization_flag_calls_only_in_flag_evaluations(self) -> bool:
+        return self._flag_calls_only_in_flag_evaluations and self.organization_reads_flag_calls_from_flag_evaluations
 
     @property
-    def read_flag_calls_with_union(self) -> bool:
-        return self._read_flag_calls_with_union and self.read_flag_calls_from_flag_evaluations
+    def flag_calls_union_enabled(self) -> bool:
+        return self._flag_calls_union_enabled and self.has_table(["posthog", "flag_evaluations"])
 
     @staticmethod
     def _is_helper_function_table(table: object) -> bool:
@@ -1504,6 +1507,62 @@ class Database(BaseModel):
             and (uac.is_organization_admin or uac.check_access_level_for_object(expression, required_level="viewer"))
         )
 
+    def _warehouse_table_ids_for(self, include_only: set[str]) -> set[str]:
+        table_ids: set[str] = set()
+        for name in include_only:
+            try:
+                schema_table = self.get_table_node(name).get()
+            except ResolutionError:
+                continue
+            if isinstance(schema_table, S3Table) and schema_table.table_id is not None:
+                table_ids.add(str(schema_table.table_id))
+        return table_ids
+
+    def _query_warehouse_tables_to_serialize(
+        self, team_id: int, warehouse_table_names: list[str], include_only: set[str] | None
+    ) -> list[DataWarehouseTable]:
+        from products.warehouse_sources.backend.facade.models import DataWarehouseTable  # noqa: PLC0415
+
+        warehouse_tables_query = (
+            DataWarehouseTable.raw_objects.select_related("external_data_source")
+            .defer("external_data_source__job_inputs")
+            # `queryable()` drops soft-deleted tables and orphans of a soft-deleted source, so an
+            # orphan can't shadow the live table sharing its name in the SQL editor catalog.
+            .queryable()
+            .filter(team_id=team_id)
+            # The catalog is built last-write-wins per table key, so order created_at ascending to
+            # land the newest row last when two live tables share a name — matching tree resolution.
+            .order_by("external_data_source__prefix", "external_data_source__source_type", "name", "created_at")
+        )
+        if self._is_direct_query():
+            warehouse_tables_query = warehouse_tables_query.filter(external_data_source_id=self._connection_id)
+        elif warehouse_table_names:
+            warehouse_tables_query = warehouse_tables_query.filter(name__in=warehouse_table_names).exclude(
+                external_data_source__access_method=ExternalDataSourceAccessMethod.DIRECT
+            )
+        else:
+            warehouse_tables_query = warehouse_tables_query.none()
+
+        if include_only:
+            table_ids = self._warehouse_table_ids_for(include_only)
+            warehouse_tables_query = warehouse_tables_query.filter(Q(name__in=include_only) | Q(id__in=table_ids))
+
+        warehouse_tables = list(warehouse_tables_query.all())
+        _preload_active_external_data_schemas(warehouse_tables)
+        return warehouse_tables
+
+    def _built_warehouse_tables_to_serialize(
+        self, built_tables: list[DataWarehouseTable], warehouse_table_names: list[str], include_only: set[str] | None
+    ) -> list[DataWarehouseTable]:
+        names = set(warehouse_table_names)
+        table_ids = self._warehouse_table_ids_for(include_only) if include_only else set()
+        selected = [
+            table
+            for table in built_tables
+            if table.name in names and (not include_only or table.name in include_only or str(table.id) in table_ids)
+        ]
+        return sorted(selected, key=_serialization_order)
+
     def serialize(
         self,
         context: HogQLContext,
@@ -1531,7 +1590,6 @@ class Database(BaseModel):
         from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery  # noqa: PLC0415
         from products.revenue_analytics.backend.views import RevenueAnalyticsBaseView  # noqa: PLC0415
         from products.warehouse_sources.backend.facade.models import (  # noqa: PLC0415
-            DataWarehouseTable,
             ExternalDataSource,
             latest_completed_job_prefetch,
         )
@@ -1600,38 +1658,14 @@ class Database(BaseModel):
         if include_only:
             views = [name for name in views if name in include_only]
 
-        warehouse_tables_query = (
-            DataWarehouseTable.raw_objects.select_related("external_data_source")
-            .defer("external_data_source__job_inputs")
-            # `queryable()` drops soft-deleted tables and orphans of a soft-deleted source, so an
-            # orphan can't shadow the live table sharing its name in the SQL editor catalog.
-            .queryable()
-            .filter(team_id=context.team_id)
-            # The catalog is built last-write-wins per table key, so order created_at ascending to
-            # land the newest row last when two live tables share a name — matching tree resolution.
-            .order_by("external_data_source__prefix", "external_data_source__source_type", "name", "created_at")
-        )
-        if self._is_direct_query():
-            warehouse_tables_query = warehouse_tables_query.filter(external_data_source_id=self._connection_id)
-        elif warehouse_table_names:
-            warehouse_tables_query = warehouse_tables_query.filter(name__in=warehouse_table_names).exclude(
-                external_data_source__access_method=ExternalDataSourceAccessMethod.DIRECT
+        if self._warehouse_table_models is None:
+            warehouse_tables_with_data = self._query_warehouse_tables_to_serialize(
+                context.team_id, warehouse_table_names, include_only
             )
         else:
-            warehouse_tables_query = warehouse_tables_query.none()
-
-        if include_only:
-            table_ids = set()
-            for name in include_only:
-                try:
-                    schema_table = self.get_table_node(name).get()
-                except ResolutionError:
-                    continue
-                if isinstance(schema_table, S3Table) and schema_table.table_id is not None:
-                    table_ids.add(schema_table.table_id)
-            warehouse_tables_query = warehouse_tables_query.filter(Q(name__in=include_only) | Q(id__in=table_ids))
-
-        warehouse_tables_with_data = list(warehouse_tables_query.all())
+            warehouse_tables_with_data = self._built_warehouse_tables_to_serialize(
+                self._warehouse_table_models, warehouse_table_names, include_only
+            )
         prefetch_related_objects(
             warehouse_tables_with_data,
             latest_completed_job_prefetch(
@@ -1645,7 +1679,6 @@ class Database(BaseModel):
                 },
             ),
         )
-        _preload_active_external_data_schemas(warehouse_tables_with_data)
         if self._is_direct_query():
             warehouse_tables_with_data = [
                 warehouse_table
@@ -1971,6 +2004,8 @@ class Database(BaseModel):
             database = Database._build_from_sources(
                 sources, timings=timings, build_postgres_foreign_keys=build_postgres_foreign_keys
             )
+        if cache_key is None and connection_id is None:
+            database._warehouse_table_models = sources.warehouse_tables
 
         total_seconds = time.perf_counter() - build_started
         HOGQL_DATABASE_BUILD_DURATION_SECONDS.labels(phase="total").observe(total_seconds)
@@ -2043,7 +2078,7 @@ class Database(BaseModel):
             include_flag_evaluations_table=False,
             read_flag_calls_from_flag_evaluations=False,
             flag_calls_only_in_flag_evaluations=False,
-            read_flag_calls_with_union=False,
+            flag_calls_union_enabled=False,
             group_types=[],
             mcp_custom_harness_rules=(),
             saved_queries=[],
@@ -2156,7 +2191,7 @@ class Database(BaseModel):
                 read_mode = get_flag_evaluations_read_mode(team.organization_id)
             read_flag_calls_from_flag_evaluations = read_mode != FlagEvaluationsMode.EVENTS
             flag_calls_only_in_flag_evaluations = read_mode == FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY
-            read_flag_calls_with_union = read_flag_calls_from_flag_evaluations and _cached_organization_flag(
+            flag_calls_union_enabled = include_flag_evaluations_table and _cached_organization_flag(
                 "hogql-flag-calls-union", team
             )
 
@@ -2430,7 +2465,7 @@ class Database(BaseModel):
             include_flag_evaluations_table=include_flag_evaluations_table,
             read_flag_calls_from_flag_evaluations=read_flag_calls_from_flag_evaluations,
             flag_calls_only_in_flag_evaluations=flag_calls_only_in_flag_evaluations,
-            read_flag_calls_with_union=read_flag_calls_with_union,
+            flag_calls_union_enabled=flag_calls_union_enabled,
             # Managed warehouse is a built-in project datastore and has no warehouse-object ACL surface.
             # Principals that skip warehouse access control by design:
             # - synthetic users (project-wide service tokens, bypass object-level RBAC)
@@ -2487,7 +2522,7 @@ class Database(BaseModel):
             )
             database._read_flag_calls_from_flag_evaluations = sources.read_flag_calls_from_flag_evaluations
             database._flag_calls_only_in_flag_evaluations = sources.flag_calls_only_in_flag_evaluations
-            database._read_flag_calls_with_union = sources.read_flag_calls_with_union
+            database._flag_calls_union_enabled = sources.flag_calls_union_enabled
             if sources.connection_id is not None:
                 database._connection_id = sources.connection_id
                 if sources.direct_connection_metadata is not None:
@@ -2507,7 +2542,7 @@ class Database(BaseModel):
         if not sources.include_flag_evaluations_table:
             if posthog_node := database.tables.children.get("posthog"):
                 posthog_node.children.pop("flag_evaluations", None)
-        elif sources.read_flag_calls_with_union and (posthog_node := database.tables.children.get("posthog")):
+        elif sources.flag_calls_union_enabled and (posthog_node := database.tables.children.get("posthog")):
             union_table = EventsWithFlagCallsTable()
             # Assigned after construction, because pydantic copies a dict passed to the constructor. Sharing the
             # dict makes every later change to the events fields, such as the persons-on-events mode, apply here too.
@@ -3519,6 +3554,30 @@ def _attach_external_data_sources(
         source = sources_by_id.get(table.external_data_source_id)
         if source is not None:
             table.external_data_source = source
+
+
+@frozen(order=True)
+class _WarehouseTableSortKey:
+    prefix_missing: bool
+    prefix: str
+    source_type_missing: bool
+    source_type: str
+    name: str
+    created_at: datetime
+
+
+def _serialization_order(table: DataWarehouseTable) -> _WarehouseTableSortKey:
+    source = table.external_data_source
+    prefix = source.prefix if source else None
+    source_type = source.source_type if source else None
+    return _WarehouseTableSortKey(
+        prefix_missing=prefix is None,
+        prefix=prefix or "",
+        source_type_missing=source_type is None,
+        source_type=source_type or "",
+        name=table.name,
+        created_at=table.created_at,
+    )
 
 
 def _preload_active_external_data_schemas(warehouse_tables: Sequence[DataWarehouseTable]) -> None:

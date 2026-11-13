@@ -11,13 +11,17 @@ same build query, hashes the same, and shares its precompute jobs.
 from posthog.schema import ActionsNode, EventsNode, ExperimentMetricMathType
 
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.parser import parse_expr
+from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import Team
 
 from products.experiments.backend.hogql_queries.base_query_utils import event_or_action_to_filter
 from products.experiments.backend.hogql_queries.experiment_metric_values import build_value_expr
+
+METRIC_EVENTS_TABLE = "experiment_metric_events_preaggregated"
 
 
 def build_metric_events_precompute_query(
@@ -137,7 +141,7 @@ def build_precomputed_metric_events_cte(
                 {entity_id_sql} AS entity_id,
                 t.timestamp AS timestamp,
                 {value_select} AS value
-            FROM experiment_metric_events_preaggregated AS t
+            FROM {METRIC_EVENTS_TABLE} AS t
             WHERE t.job_id IN {{{job_ids_placeholder}}}
                 AND t.team_id = {{metric_events_team_id}}
                 AND t.timestamp >= {{metric_events_date_from}}
@@ -159,3 +163,25 @@ def build_precomputed_metric_events_placeholders(
         "metric_events_date_to": date_range_query.date_to_as_hogql(),
         "metric_events_conversion_window_seconds": ast.Constant(value=conversion_window_seconds),
     }
+
+
+def spread_metric_events_reads_across_replicas(query: ast.SelectQuery) -> ast.SelectQuery:
+    """
+    Lets metric-events reads use either aux replica, because their builds insert with quorum on both;
+    the outer query keeps the exposures in_order. ClickHouse does not document per-subquery
+    load_balancing (ClickHouse#63078), so a printer test guards it.
+    """
+    _MetricEventsReadBalancer().visit(query)
+    return query
+
+
+class _MetricEventsReadBalancer(TraversingVisitor):
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        if _reads_metric_events_table(node):
+            node.settings = HogQLQuerySettings(load_balancing="random")
+        super().visit_select_query(node)
+
+
+def _reads_metric_events_table(node: ast.SelectQuery) -> bool:
+    join = node.select_from
+    return join is not None and isinstance(join.table, ast.Field) and join.table.chain == [METRIC_EVENTS_TABLE]

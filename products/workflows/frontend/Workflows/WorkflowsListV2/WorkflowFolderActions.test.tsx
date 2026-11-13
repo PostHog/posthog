@@ -22,17 +22,18 @@ describe('WorkflowFolderActions', () => {
                 '/api/projects/:team_id/hog_flows/summaries/': () => [200, paginated(FIXTURE_WORKFLOWS)],
                 '/api/projects/:team_id/hog_flows/metrics/global/': () => [200, []],
                 '/api/projects/:team_id/file_system/unfiled/': () => [200, { count: 0 }],
-                '/api/projects/:team_id/file_system/': async ({ request }) => {
-                    const search = new URL(request.url).searchParams.get('search') ?? ''
-                    if (search.startsWith('-')) {
-                        await otherFilesHeld
-                        return [200, paginated([{ id: 'dashboards', path: 'Reports', type: 'folder' }])]
-                    }
-                    return [
-                        200,
-                        paginated(search === 'type:folder' ? [{ id: 'billing', path: 'Billing', type: 'folder' }] : []),
-                    ]
+                '/api/projects/:team_id/file_system/folder_counts/': async () => {
+                    await otherFilesHeld
+                    return [200, { results: [{ folder: 'Reports/Weekly', count: 1 }] }]
                 },
+                '/api/projects/:team_id/file_system/': ({ request }) => [
+                    200,
+                    paginated(
+                        new URL(request.url).searchParams.get('search') === 'type:folder'
+                            ? [{ id: 'billing', path: 'Billing', type: 'folder' }]
+                            : []
+                    ),
+                ],
             },
         })
         initKeaTests()

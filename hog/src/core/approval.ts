@@ -304,7 +304,7 @@ export function pendingResult<Pending extends PendingApproval>(
         url: pending.url,
         code,
         expiresAt: new Date(pending.expiresAt).toISOString(),
-        instructions: `Ask the person to ${approve}. Then run \`${flow.resume}\` yourself. It returns once they approve, and if it times out, run it again.`,
+        instructions: `Ask the user to ${approve}. Then run \`${flow.resume}\`. It returns once they approve. If it times out, run it again.`,
         next: flow.resume,
         ...(approver ? { approver: approver.who, approverNames: approver.names } : {}),
     }
@@ -321,12 +321,16 @@ async function withSpinner<Value>(spinner: Spinner | undefined, noun: string, wa
     }
 }
 
-// Nobody approves anything in CI. Agents pass, because they hand the link to a person.
+// Nobody is at the keyboard in CI. Agents pass, because they hand links and questions to a person.
+export function inCIWithoutAPerson(ctx: Context): boolean {
+    return !ctx.prompts && ctx.mode.agent === undefined && ctx.mode.isCI
+}
+
 export function refuseInCi(ctx: Context, command: string, hint: string): void {
-    if (!ctx.prompts && ctx.mode.agent === undefined && ctx.mode.ci) {
+    if (inCIWithoutAPerson(ctx)) {
         throw new HogError(
             'login_needs_a_person',
-            `${command} needs a person to approve it in a browser, so it does not run in CI.`,
+            `${command} needs someone to approve it in a browser, so it can't run in CI.`,
             hint
         )
     }
@@ -372,19 +376,22 @@ export async function resumeApproval<Pending extends PendingApproval, Value>(
         )
     }
     flow.checkResumable?.(pending)
-    const spinner = ctx.prompts?.spinner(`Waiting for the ${flow.noun} to be approved in the browser`)
+    const spinner = ctx.prompts?.spinner(`Waiting for you to approve the ${flow.noun} in the browser`)
     return { pending, value: await withSpinner(spinner, flow.noun, waitFor(ctx.runtime, flow, pending)) }
 }
 
-// What a person sees when an agent or a script started the request.
-export function printPending(out: Output, result: PendingResult): void {
-    out.line(
-        result.approver
-            ? `Only ${escapeControls(result.approver)}${result.approverNames?.length ? ` (${escapeControls(result.approverNames.join(', '))})` : ''} can approve it. Send them this link:`
-            : result.code
-              ? `Open this link to approve, and check that it shows the code ${out.style(escapeControls(result.code), 'bold')}:`
-              : 'Open this link to approve:'
-    )
-    out.line(`  ${escapeControls(result.url)}`)
-    out.line(`Then run ${out.style(result.next, 'bold')}.`)
+// What a person sees when an agent or a script started the request. `noun` names what waits, like `login`.
+// `after` holds the command's own notes, which follow the approval steps.
+export function printPending(out: Output, result: PendingResult, noun: string, after: readonly string[] = []): void {
+    const approve = result.approver
+        ? `Only ${escapeControls(result.approver)}${result.approverNames?.length ? ` (${escapeControls(result.approverNames.join(', '))})` : ''} can approve it. Send them this link:`
+        : result.code
+          ? `Open this link to approve, and check that it shows the code ${out.style(escapeControls(result.code), 'bold')}:`
+          : 'Open this link to approve:'
+
+    out.report({
+        status: 'partial',
+        result: `The ${noun} is waiting for approval`,
+        notes: [approve, `  ${escapeControls(result.url)}`, `Then run ${out.style(result.next, 'bold')}.`, ...after],
+    })
 }

@@ -206,7 +206,7 @@ export const urls = {
     analytics: (): string => '/analytics',
     analyticsList: (params: AnalyticsListUrlParams = {}): string => combineUrl('/analytics/all', params).url,
     analyticsMine: (params: AnalyticsListUrlParams = {}): string => combineUrl('/analytics/mine', params).url,
-    analyticsSpaces: (): string => '/analytics/spaces',
+    analyticsSpaces: (): string => '/analytics/collections',
     analyticsProductHome: (): string => '/analytics/product-analytics',
     tools: (): string => '/tools',
     ai: (chat?: string, ask?: string): string => combineUrl('/ai', { ask, chat }).url,

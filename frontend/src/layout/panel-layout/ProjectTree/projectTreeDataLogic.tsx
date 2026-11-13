@@ -47,6 +47,7 @@ import {
     isFileSystemEntryTypeEnabled,
     isGroupViewShortcut,
     isPathUnder,
+    joinPath,
     matchesRefType,
     parentPath,
     refTypeParams,
@@ -54,7 +55,6 @@ import {
     shortcutFromEntry,
     sortFilesAndFolders,
     splitPath,
-    underAnyFolder,
 } from '~/layout/panel-layout/ProjectTree/utils'
 import { FEATURE_FLAGS } from '~/lib/constants'
 import { groupsModel } from '~/models/groupsModel'
@@ -88,7 +88,7 @@ const SHORTCUTS_PERSIST_OPTIONS =
  * without this one stalled request would withhold the toast and the Undo from every item that already
  * succeeded, and leave the batch in `cache.moveBatches` for the logic's lifetime.
  */
-const MOVE_TIMEOUT_MS = 30000
+export const MOVE_TIMEOUT_MS = 30000
 /**
  * A bulk move sends one request per item. Without a limit, a selection of thousands sends them all at once, the
  * browser queues most of them, and each queued request uses up its `MOVE_TIMEOUT_MS` before it is sent. The limit
@@ -114,6 +114,19 @@ interface MoveBatch {
 }
 
 let lastMoveBatchId = 0
+
+/** `state` without the records of the dropped folders among `items` and of every folder inside them. */
+function withoutDroppedFolders<T>(state: Record<string, T>, items: FileSystemEntry[]): Record<string, T> {
+    const dropped = new Set(
+        items.filter((item) => item.type === 'folder').map((item) => joinPath(splitPath(item.path)))
+    )
+    return Object.fromEntries(
+        Object.entries(state).filter(([folder]) => {
+            const parts = splitPath(folder)
+            return !parts.some((_, index) => dropped.has(joinPath(parts.slice(0, index + 1))))
+        })
+    )
+}
 
 // Returns `shortcuts` reordered to match `orderedIds`. Any shortcut not referenced in
 // `orderedIds` is appended at the end so a partial input never silently drops items.
@@ -883,7 +896,13 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                         const verb = action.type === 'prepare-link' ? 'link' : 'move'
                         const verbing = action.type === 'prepare-link' ? 'linking' : 'moving'
                         try {
-                            const response = await api.fileSystem.count(action.item.id)
+                            // The prepare step stays pending until the count answers, and a pending folder move
+                            // blocks other changes to that folder, so a stalled count fails like a stalled move.
+                            const response = await withTimeout(
+                                api.fileSystem.count(action.item.id),
+                                MOVE_TIMEOUT_MS,
+                                `projectTreeDataLogic: counting ${action.item.type} timed out`
+                            )
                             actions.removeQueuedAction(action)
                             if (response && response.count > MOVE_ALERT_LIMIT) {
                                 const confirmMessage = `You're about to ${verb} ${response.count} items. Are you sure?`
@@ -1235,15 +1254,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                             newState[folder] = newState[folder].filter((item) => !ids.has(item.id))
                         }
                     }
-                    const underDropped = underAnyFolder(
-                        items.filter((item) => item.type === 'folder').map((item) => item.path)
-                    )
-                    for (const folder of Object.keys(newState)) {
-                        if (underDropped(folder)) {
-                            delete newState[folder]
-                        }
-                    }
-                    return newState
+                    return withoutDroppedFolders(newState, items)
                 },
                 deleteTypeAndRef: (state, { type, ref }) => {
                     const newState = { ...state }
@@ -1302,6 +1313,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     const previousOffset = forceReload ? 0 : (state[folder] ?? 0)
                     return { ...state, [folder]: previousOffset + offsetIncrease }
                 },
+                dropStaleItems: (state, { items }) => withoutDroppedFolders(state, items),
                 pruneClosedFolders: (state, { expandedFolders }) => {
                     const expandedPaths = new Set(expandedFolders.map((f) => f.replace(/^project:\/\//, '')))
                     const newState: Record<string, number> = {}
@@ -1323,6 +1335,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     [folder]: hasMore ? 'has-more' : 'loaded',
                 }),
                 loadFolderFailure: (state, { folder }) => ({ ...state, [folder]: 'error' }),
+                dropStaleItems: (state, { items }) => withoutDroppedFolders(state, items),
                 pruneClosedFolders: (state, { expandedFolders }) => {
                     const expandedPaths = new Set(expandedFolders.map((f) => f.replace(/^project:\/\//, '')))
                     const newState: Record<string, FolderState> = {}
@@ -1953,6 +1966,8 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                 return
             }
             let request: Promise<void> | null = null
+            cache.treeDeletions ??= []
+            const deletionsBefore: number = cache.treeDeletions.length
             request = (async () => {
                 const items = await api.fileSystem.list({ ...refTypeParams(type), ref })
                 if (cache.itemRequests.get(requestKey) !== request) {
@@ -1961,7 +1976,18 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                 if (items.users?.length > 0) {
                     actions.addLoadedUsers(items.users)
                 }
-                actions.addLoadedResults(items as any as SearchResults)
+                // A tree delete that lands while this read is in flight removes rows the response still holds.
+                const deletedSince: FileSystemEntry[] = cache.treeDeletions.slice(deletionsBefore)
+                const results = items.results.filter(
+                    (entry) =>
+                        !deletedSince.some((deleted) =>
+                            deleted.type === 'folder'
+                                ? isPathUnder(entry.path, deleted.path)
+                                : entry.id === deleted.id ||
+                                  (!!deleted.ref && entry.ref === deleted.ref && entry.type === deleted.type)
+                        )
+                )
+                actions.addLoadedResults({ ...items, results } as any as SearchResults)
             })()
             cache.itemRequests.set(requestKey, request)
             try {
@@ -1973,6 +1999,15 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                         actions.syncTypeAndRef(type, ref, true)
                     }
                 }
+                if (cache.itemRequests.size === 0) {
+                    cache.treeDeletions = []
+                }
+            }
+        },
+        deleteSavedItem: ({ savedItem }) => {
+            if (cache.itemRequests?.size) {
+                cache.treeDeletions ??= []
+                cache.treeDeletions.push(savedItem)
             }
         },
         deleteTypeAndRef: ({ type, ref }) => {

@@ -1,13 +1,3 @@
-"""HogQL assembly of a single PR's lifecycle over the curated query builders.
-
-Embeds the curated ``github_pull_requests`` / ``github_workflow_runs`` builders
-as subqueries (via ``_curated``) — the product runs this privately rather than
-registering a global view. The curated SELECTs already carry the derived columns
-(canonical ``state``, ``is_bot``, repo identity, ``head_sha``), so this layer only
-shapes the rows into the ``PRLifecycle`` contract; no GitHub-isms or domain rules
-live here.
-"""
-
 from datetime import datetime
 
 from posthog.hogql import ast
@@ -27,8 +17,6 @@ from products.engineering_analytics.backend.logic.queries._pr_header import pr_h
 from products.engineering_analytics.backend.logic.queries._workflow_filters import UNPAGED_SCAN_LIMIT
 from products.engineering_analytics.backend.logic.views import issue_events
 
-# The curated subqueries and the repo filter are filled with str.replace (trusted
-# constants), leaving the HogQL {value} placeholders untouched for parse_select.
 _HEADER = pr_header_query(
     """
         id, number, title, state, is_draft,
@@ -47,8 +35,7 @@ _RUNS = f"""
     LIMIT {UNPAGED_SCAN_LIMIT}
 """
 
-# pr_number alone is the key: a resolved table set is a single repo's, the same repo the
-# PR header was resolved from.
+# pr_number alone is the key, because a resolved table set belongs to the one repo the PR header came from.
 _STATE_EVENTS = f"""
     SELECT event, created_at, actor_login
     FROM __STATE_EVENTS_SOURCE__ AS se
@@ -125,11 +112,8 @@ def query_pr_lifecycle(
         run_id: int | None = None,
         ci_engine: CIEngine | None = None,
     ) -> None:
-        # Timestamps come from parseDateTimeBestEffort, which yields NULL on a malformed/missing
-        # value, so `at` can be None. Skip those events — a timeline can't place an event with no
-        # time, and `at` is non-nullable on the contract, so building one would raise. Guarding
-        # here keeps a single bad run timestamp from failing the whole PR's lifecycle (and the
-        # sort below never sees a None key).
+        # A malformed or missing source timestamp parses to NULL. The contract requires `at`, so one
+        # such event would otherwise fail the whole lifecycle.
         if at is not None:
             events.append(PRLifecycleEvent(kind=kind, at=at, detail=detail, run_id=run_id, ci_engine=ci_engine))
 

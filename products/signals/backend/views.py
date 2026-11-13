@@ -231,8 +231,13 @@ from products.signals.backend.report_merge import (
     was_merged_away,
 )
 from products.signals.backend.report_metric_access import ReportMetricAccessPolicy
-from products.signals.backend.report_metric_refresh import CURRENT_REPORT_STATUSES, refresh_report_metric_snapshots
+from products.signals.backend.report_metric_refresh import (
+    CURRENT_REPORT_STATUSES,
+    REFRESHABLE_REPORT_STATUSES,
+    refresh_report_metric_snapshots,
+)
 from products.signals.backend.report_monitoring_attempts import complete_implementation
+from products.signals.backend.report_monitoring_summary import ReportMonitoringSummary, monitoring_summaries
 from products.signals.backend.report_plan import report_plan
 from products.signals.backend.report_priority import latest_priority_rank, update_report_priority
 from products.signals.backend.report_read_state import (
@@ -979,6 +984,8 @@ class SignalReportBulkStateOutcome(models.TextChoices):
 # resolves it directly, so the archive grants it nothing it could not do on its own — and a report
 # that failed in processing can only be reached through the archive, because a dismissal is the only
 # verdict the inbox offered it.
+_REOPENABLE_STATUSES = frozenset({SignalReport.Status.MONITORING, SignalReport.Status.CLOSED})
+
 _RESOLVABLE_STATUSES_BEFORE_SUPPRESSION = frozenset(
     {
         SignalReport.Status.READY,
@@ -995,6 +1002,7 @@ class SignalReportState(models.TextChoices):
     POTENTIAL = "potential", "potential"
     RESOLVED = "resolved", "resolved"
     MONITORING = "monitoring", "monitoring"
+    READY = "ready", "ready"
 
 
 class SignalReportStateRequestSerializer(serializers.Serializer):
@@ -1002,7 +1010,7 @@ class SignalReportStateRequestSerializer(serializers.Serializer):
         choices=SignalReportState.choices,
         help_text=(
             "Target state for the report. Use 'suppressed' to dismiss the report from the inbox, "
-            "'potential' to snooze/reopen it for later review, or 'resolved' when the report is finished. "
+            "'potential' to snooze it or restore it from the archive, or 'resolved' when the report is finished. "
             "Resolving is allowed from ready, pending_input, failed, closed, or monitoring, "
             "or from a suppressed report that previously held one of those statuses or resolved. "
             "Resolving an already resolved report succeeds. Other statuses return 409 (skipped in bulk). "
@@ -1010,7 +1018,10 @@ class SignalReportStateRequestSerializer(serializers.Serializer):
             "Use 'monitoring' when implementation is complete and outcome verification is pending. "
             "Entry requires the organization rollout and snapshots this report's pending or active, unexpired checks. "
             "Without applicable checks the report resolves directly. Manual completion records caller "
-            "attribution, stops remaining follow-up checks, and does not claim automatic verification or an evidence amendment."
+            "attribution, stops remaining follow-up checks, and does not claim automatic verification or an evidence amendment. "
+            "Use 'ready' to reopen a report in monitoring or closed. It returns to ready with its research, pull requests, "
+            "and follow-up checks kept, and its Monitoring period ends. Completing implementation again starts a new period. "
+            "Reopening is refused for other statuses and for refunded reports."
         ),
     )
     dismissal_reason = serializers.ChoiceField(
@@ -3624,6 +3635,15 @@ class SignalReportViewSet(
                     channel_id=live_channel_ids.get(str(report.id)),
                 )
         claims = get_active_claims(team_id=self.team_id, report_ids=report_ids)
+        monitoring_summaries_map: dict[str, ReportMonitoringSummary] = {}
+        if self._report_monitoring_enabled:
+            with tracer.start_as_current_span("signals.reports.list.fetch_monitoring_summaries"):
+                monitoring_summaries_map = monitoring_summaries(
+                    reports,
+                    team_id=self.team_id,
+                    now=timezone.now(),
+                    may_read_values=ReportMetricAccessPolicy(request=self.request, team=self.team).may_read_snapshot,
+                )
         context = {
             **self.get_serializer_context(),
             "source_products_map": {rid: meta.source_products for rid, meta in signal_meta_map.items()},
@@ -3633,6 +3653,7 @@ class SignalReportViewSet(
                 team_id=self.team_id, report_ids=report_ids
             ),
             "first_billable_pr_run_at_map": first_billable_pr_run_at_map,
+            "monitoring_summaries_map": monitoring_summaries_map,
             "inbox_ranker": self._base_inbox_ranker,
             "personal_order": self._personal_order,
             "source_issues_map": source_issues_by_report(team_id=self.team_id, report_ids=report_ids),
@@ -3863,7 +3884,7 @@ class SignalReportViewSet(
         can't be injected.
 
         Body: {
-            "state": "suppressed" | "potential" | "resolved",
+            "state": "suppressed" | "potential" | "resolved" | "monitoring" | "ready",
             # Optional dismissal feedback (honored when state == "suppressed", "potential", or "resolved"):
             "dismissal_reason": "<canonical reason code, see SIGNAL_REPORT_DISMISSAL_REASON_CHOICES>",
             "dismissal_note": "free-form text",
@@ -4287,9 +4308,9 @@ class SignalReportViewSet(
 
     # `list` names the viewset's own action inside the class body, so the annotations use `Sequence`.
     def _refreshable_reports_in_request_order(self, requested_ids: Sequence[str]) -> Sequence[SignalReport]:
+        statuses = REFRESHABLE_REPORT_STATUSES if self._report_monitoring_enabled else CURRENT_REPORT_STATUSES
         by_id = {
-            str(report.id): report
-            for report in self.get_queryset().filter(id__in=requested_ids, status__in=CURRENT_REPORT_STATUSES)
+            str(report.id): report for report in self.get_queryset().filter(id__in=requested_ids, status__in=statuses)
         }
         return [by_id[report_id] for report_id in dict.fromkeys(requested_ids) if report_id in by_id]
 
@@ -4306,8 +4327,8 @@ class SignalReportViewSet(
             "15 minutes is served as is. Each call runs at most 40 source series inside a 20-second "
             "budget, row metrics first; the rest keep their previous snapshot until the next open. "
             "Returns snapshot-only metrics for every requested report the caller can read whose status "
-            "is ready or pending_input. A report in any other status is left out of the response, and "
-            "its saved snapshots stay as they are."
+            "is ready or pending_input, or monitoring when Monitoring is enabled. A report in any other "
+            "status is left out of the response, and its saved snapshots stay as they are."
         ),
         operation_id="signals_reports_refresh_metrics_create",
     )
@@ -4328,7 +4349,19 @@ class SignalReportViewSet(
         requested_ids = [str(report_id) for report_id in request.validated_data["report_ids"]]
         reports = self._refreshable_reports_in_request_order(requested_ids)
         policy = ReportMetricAccessPolicy(request=request, team=self.team)
-        refresh_report_metric_snapshots(team=self.team, reports=reports, policy=policy)
+        monitoring_row_metrics: dict[str, str] = {}
+        if self._report_monitoring_enabled:
+            summaries = monitoring_summaries(
+                reports, team_id=self.team_id, now=timezone.now(), may_read_values=policy.may_read_snapshot
+            )
+            monitoring_row_metrics = {
+                report_id: summary.lead_check.metric_id
+                for report_id, summary in summaries.items()
+                if summary.lead_check is not None and summary.lead_check.metric_id is not None
+            }
+        refresh_report_metric_snapshots(
+            team=self.team, reports=reports, policy=policy, row_metric_ids=monitoring_row_metrics
+        )
         # A refresh runs its queries between the read above and each compare-and-swap, and an edit
         # landing in that window wins. Read the rows back so the response carries what the edit
         # left rather than the state this request measured against.
@@ -4637,6 +4670,16 @@ class SignalReportViewSet(
                     "Manual verification requires an enabled Monitoring period.",
                 )
             is_refunded = SignalReportRefund.objects.filter(report_id=report.id).exists()
+
+            if target_status == SignalReport.Status.READY:
+                if report.effective_status not in _REOPENABLE_STATUSES:
+                    return (
+                        SignalReportBulkStateOutcome.SKIPPED,
+                        "Only a report in monitoring or closed can be reopened.",
+                    )
+                # Ready offers Create PR again, and a refunded report's next PR can never be billed.
+                if is_refunded:
+                    return SignalReportBulkStateOutcome.SKIPPED, "Refunded reports can't be reopened."
 
             # Refund guard: a refunded report can never be billed again (see billing.py), so putting
             # it back where the pipeline can pick it up again is repeatable free work. POTENTIAL is
@@ -7570,7 +7613,7 @@ class SignalUserAutonomyConfigView(APIView):
             workspace = (
                 defaults["slack_notification_integration"]
                 if integration_in_request
-                else saved_notification_integration(user)
+                else saved_notification_integration(user, request.user.current_team_id)
             )
             if wants_direct_message:
                 defaults["slack_notification_channel"] = resolve_own_direct_message_target(user, workspace)

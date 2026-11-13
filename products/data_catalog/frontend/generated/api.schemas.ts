@@ -197,6 +197,11 @@ export interface DataCatalogMetricApi {
     readonly status: string
     /** True when the definition has drifted from its linked source insight (or the insight is gone). */
     readonly is_drifted: boolean
+    /**
+     * Why the metric matched the search, best match first, e.g. 'name match', 'acronym of the name', 'all words in the description', 'some words in the description'. Null when the list has no search.
+     * @nullable
+     */
+    readonly match_reason: string | null
     /** @nullable */
     readonly approved_at: string | null
     /** User who approved this metric as canonical, or null. */
@@ -222,13 +227,6 @@ export interface DataCatalogMetricApi {
      * @maxLength 128
      */
     ai_model?: string
-    /**
-     * AI author's confidence in the proposal, 0-1.
-     * @minimum 0
-     * @maximum 1
-     * @nullable
-     */
-    confidence?: number | null
     /** Why the definition is shaped this way, in 1-3 short sentences. Name the main design decisions and trade-offs: the source table or view, a filter or exclusion, the grain, an approximation. Leave out the use case, who asked, run results, validation figures, and edit history. */
     reasoning?: string
     /** User who first created this metric. */
@@ -300,6 +298,11 @@ export interface DataCatalogMetricCreateApi {
     readonly status: string
     /** True when the definition has drifted from its linked source insight (or the insight is gone). */
     readonly is_drifted: boolean
+    /**
+     * Why the metric matched the search, best match first, e.g. 'name match', 'acronym of the name', 'all words in the description', 'some words in the description'. Null when the list has no search.
+     * @nullable
+     */
+    readonly match_reason: string | null
     /** @nullable */
     readonly approved_at: string | null
     /** User who approved this metric as canonical, or null. */
@@ -325,13 +328,6 @@ export interface DataCatalogMetricCreateApi {
      * @maxLength 128
      */
     ai_model?: string
-    /**
-     * AI author's confidence in the proposal, 0-1.
-     * @minimum 0
-     * @maximum 1
-     * @nullable
-     */
-    confidence?: number | null
     /** Why the definition is shaped this way, in 1-3 short sentences. Name the main design decisions and trade-offs: the source table or view, a filter or exclusion, the grain, an approximation. Leave out the use case, who asked, run results, validation figures, and edit history. */
     reasoning?: string
     /** User who first created this metric. */
@@ -427,6 +423,11 @@ export interface PatchedDataCatalogMetricApi {
     readonly status?: string
     /** True when the definition has drifted from its linked source insight (or the insight is gone). */
     readonly is_drifted?: boolean
+    /**
+     * Why the metric matched the search, best match first, e.g. 'name match', 'acronym of the name', 'all words in the description', 'some words in the description'. Null when the list has no search.
+     * @nullable
+     */
+    readonly match_reason?: string | null
     /** @nullable */
     readonly approved_at?: string | null
     /** User who approved this metric as canonical, or null. */
@@ -452,13 +453,6 @@ export interface PatchedDataCatalogMetricApi {
      * @maxLength 128
      */
     ai_model?: string
-    /**
-     * AI author's confidence in the proposal, 0-1.
-     * @minimum 0
-     * @maximum 1
-     * @nullable
-     */
-    confidence?: number | null
     /** Why the definition is shaped this way, in 1-3 short sentences. Name the main design decisions and trade-offs: the source table or view, a filter or exclusion, the grain, an approximation. Leave out the use case, who asked, run results, validation figures, and edit history. */
     reasoning?: string
     /** User who first created this metric. */
@@ -764,7 +758,7 @@ export type DataCatalogMetricsListParams = {
      */
     offset?: number
     /**
-     * A search term.
+     * Find metrics for a measure instead of reading the whole catalog. Send the user's words, the likely metric name, and the spelled-out form of an acronym, separated by commas, such as 'mrr, monthly recurring revenue'. Results come best match first, 10 by default, and match_reason says why each one matched. Words match by stem in the name, display name, description, and definition. Synonyms do not match unless the metric's text contains them.
      */
     search?: string
     /**

