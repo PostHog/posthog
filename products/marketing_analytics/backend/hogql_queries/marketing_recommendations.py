@@ -545,7 +545,8 @@ class _Recommender:
                 Step(
                     text="Click its budget, change it to this daily amount and save. A shared budget changes for "
                     "every campaign that uses it.",
-                    copyValue=f"{recommended:.2f}",
+                    # A whole number reads the same in every Google Ads locale and currency.
+                    copyValue=str(round(recommended)),
                 ),
                 self._check_cpa_step(benchmark),
             ),
@@ -625,6 +626,8 @@ class _Recommender:
                 self._open_campaign(campaign.name),
                 Step(text="Click its budget, raise it and save.")
                 if budget_bound
+                else Step(text="Open the campaign settings, go to Bidding, raise the target CPA and save.")
+                if campaign.target_cpa
                 else Step(
                     text="Open Keywords, filter by this campaign, and raise the bids of the keywords that convert. "
                     "Check that their ads and landing page match the search.",
@@ -652,7 +655,10 @@ class _Recommender:
             "estimated",
             steps=(
                 self._open_campaign(campaign.name),
-                Step(text="Open the campaign settings, go to Bidding, raise the target CPA and save."),
+                Step(
+                    text="Open the campaign settings, go to Bidding, and raise the target CPA or lower the target "
+                    "ROAS. Then save."
+                ),
                 Step(text="Open its asset groups and add assets to the ones with Poor or Average ad strength."),
             ),
         )
@@ -1189,13 +1195,11 @@ class _Recommender:
         campaign = self.campaigns.get(term.top_campaign_id)
         return campaign.name if campaign else None
 
-    @staticmethod
-    def _check_cpa_step(benchmark: _Benchmark) -> Step:
+    def _check_cpa_step(self, benchmark: _Benchmark) -> Step:
+        # Google Ads shows no non-brand CPA, so the check happens on these recommendations.
         return Step(
-            text=f"After two weeks, check in Campaigns that its {benchmark.compared} stays at or below "
-            f"{benchmark.label}.",
-            url=ADS_CAMPAIGNS_URL,
-            linkText="Campaigns",
+            text=f"After two weeks, come back here and check that its {benchmark.compared} stays at or below "
+            f"{self._money(benchmark.cpa)}, {benchmark.label}."
         )
 
     @staticmethod
@@ -1268,8 +1272,8 @@ class _Recommender:
         )
 
     def _search_console_url(self, url: str) -> str:
-        # Without a property Search Console shows a welcome page, not a picker, so several properties open the
-        # last one the user viewed.
+        # A page other than the root needs a property, or it shows a welcome page. The root opens the last
+        # property the user viewed.
         sites = set(self.inputs.site_urls)
         return f"{url}?resource_id={quote(sites.pop(), safe='')}" if len(sites) == 1 else SEARCH_CONSOLE_URL
 

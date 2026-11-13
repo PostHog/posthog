@@ -115,7 +115,7 @@ class TestMarketingRecommendations(SimpleTestCase):
             assert rules[0].cpa is not None
             assert (rules[0].cpa.value, rules[0].cpa.benchmark) == (100, 200)
             steps = rules[0].steps or []
-            assert [step.copyValue for step in steps if step.copyValue][-1] == "300.00"
+            assert [step.copyValue for step in steps if step.copyValue][-1] == "300"
             assert all(step.linkText and step.linkText in step.text for step in steps if step.url)
 
     @parameterized.expand(
@@ -165,6 +165,34 @@ class TestMarketingRecommendations(SimpleTestCase):
         assert reason_benchmark in rec.reason
         assert rec.steps
         assert all(step.linkText and step.linkText in step.text for step in rec.steps if step.url)
+
+    @parameterized.expand(
+        [
+            ("loses_more_to_budget", 0.3, 0.2, None, "Click its budget"),
+            ("loses_more_to_rank", 0.1, 0.4, None, "raise the bids"),
+            ("loses_more_to_rank_on_a_target_cpa", 0.1, 0.4, 100.0, "raise the target CPA"),
+        ]
+    )
+    def test_scale_campaign_step_matches_what_limits_it(
+        self, _name: str, lost_to_budget: float, lost_to_rank: float, target_cpa: float | None, expected: str
+    ) -> None:
+        campaigns = (
+            _campaign(
+                id="a",
+                name="Cheap",
+                cost=1000,
+                conversions=20,
+                lost_to_budget=lost_to_budget,
+                lost_to_rank=lost_to_rank,
+                target_cpa=target_cpa,
+            ),
+            _campaign(id="b", name="Expensive", cost=3000, conversions=5),
+            _campaign(id="c", name="Average", cost=2000, conversions=20),
+        )
+
+        rec = next(rec for rec in recommend(_inputs(campaigns)) if rec.rule == "scale_campaign")
+
+        assert expected in (rec.steps or [])[1].text
 
     @parameterized.expand(
         [
