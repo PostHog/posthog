@@ -319,6 +319,45 @@ class TestAdaptedChecks:
                 [_answer(" ".join(f"user{i}@acme.io" for i in range(60)))],
                 False,
             ),
+            (
+                "fragment_of_a_given_address",
+                adapters.sensitive_data(),
+                [
+                    _answer(
+                        "Write to connor@acme.io",
+                        **{"$ai_input": [{"role": "user", "content": "Is o'connor@acme.io right?"}]},
+                    )
+                ],
+                False,
+            ),
+            (
+                "address_cut_from_a_longer_domain",
+                adapters.sensitive_data(),
+                [
+                    _answer(
+                        "Write to victim@acme.io",
+                        **{"$ai_input": [{"role": "user", "content": "Is victim@acme.ioévil.com right?"}]},
+                    )
+                ],
+                False,
+            ),
+            (
+                "quoted_given_address_repeated",
+                adapters.sensitive_data(),
+                [
+                    _answer(
+                        "Jane is jane@acme.io.",
+                        **{"$ai_input": [{"role": "user", "content": "Find 'jane@acme.io'"}]},
+                    )
+                ],
+                True,
+            ),
+            (
+                "address_in_a_markdown_link",
+                adapters.sensitive_data(),
+                [_answer("Write to [jane@acme.io](mailto:jane@acme.io)")],
+                False,
+            ),
             ("number_input", adapters.sensitive_data(), [_answer("Ask jane.doe@acme.io", **{"$ai_input": 42})], False),
             ("empty_input", adapters.sensitive_data(), [_answer("Ask jane.doe@acme.io", **{"$ai_input": []})], False),
             (

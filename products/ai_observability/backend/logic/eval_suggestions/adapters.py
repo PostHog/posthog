@@ -260,6 +260,16 @@ return true"""
     )
 
 
+# An address starts and ends at a space or punctuation, so a fragment of a longer token, such as `connor@acme.io`
+# inside `o'connor@acme.io` or `victim@acme.io` inside `victim@acme.ioévil.com`, never counts as an address.
+_EMAIL_EDGE = "[][[:space:],;:!?()<>\"`*|/=']"
+EMAIL_PATTERN = (
+    f"(?:^|{_EMAIL_EDGE})"
+    "([A-Za-z0-9._%+-][A-Za-z0-9._%+'-]*@[A-Za-z0-9-]+(?:[.][A-Za-z0-9-]+)*[.][A-Za-z]{2,})"
+    f"(?:$|{_EMAIL_EDGE}|[.](?:$|[[:space:]]))"
+)
+
+
 def sensitive_data() -> AdaptedCheck:
     source = f"""// Fail a trace whose final assistant message contains an email address, a card number or a secret key.
 // URLs and version numbers are left out on purpose: answers link to docs and name versions all the time.
@@ -280,7 +290,7 @@ fun addresses_in(text) {{
     let remaining := 50
     while (remaining > 0) {{
         remaining := remaining - 1
-        let email := extractRegex(rest, '[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:[.][A-Za-z0-9-]+)*[.][A-Za-z]{{2,}}')
+        let email := extractRegex(rest, {hog_string(EMAIL_PATTERN)})
         if (empty(email)) {{
             remaining := 0
         }} else {{
