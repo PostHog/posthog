@@ -709,6 +709,8 @@ jobs:
         runs-on: ubuntu-24.04
         timeout-minutes: 30
         steps:
+            # The workspace packages pnpm installs for hog, and the product files build:mcp bundles or
+            # copies in (services/mcp/scripts/copy-instructions.ts). A missing one fails the build.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   ref: ${{ needs.release.outputs.release-commit }}
@@ -721,6 +723,10 @@ jobs:
                       /tools/openapi-codegen/
                       /packages/llm-normalizer/
                       /packages/quill/
+                      /products/notebooks/
+                      /products/product_analytics/mcp/
+                      /products/posthog_ai/skills/querying-posthog-data/references/guidelines.md
+                      /products/ai_observability/backend/prompts/parser_recipe_examples.yaml
                       /.github/actions/pnpm-install/
                       /.github/actions/setup-pnpm/
                       /patches/
