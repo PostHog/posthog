@@ -1,16 +1,20 @@
 import { SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2'
+import { mkdtempSync, rmSync } from 'fs'
+import os from 'os'
+import path from 'path'
 
 import { EmailTrackingCodeSigner } from '~/cdp/services/messaging/helpers/tracking-code'
 import { internalFetch } from '~/common/utils/request'
 
 import { ProviderEdge, TruthRecord, UNIT_EMAIL_DOMAIN, startProviderEdge } from '../provider-edge'
 import { atLeastOnce } from './invariants'
-import { JournalEntry, Judge, createJudge } from './judge'
+import { FollowUpAnswer, JournalEntry, Judge, createJudge } from './judge'
 
 const TRACKING_KEYS = 'scenario-tracking-key'
 const UNIT = 'run-a-1'
 const SEED = { teamIds: [7] }
 const NEVER_ABORTED = new AbortController().signal
+const NOBODY_LISTENING = 'http://127.0.0.1:1/public/m/ses_webhook'
 
 describe('judge', () => {
     let edge: ProviderEdge
@@ -19,6 +23,15 @@ describe('judge', () => {
     let clockMs: number
     let probeTakesMs: number
     let judge: Judge
+    let caDir: string
+
+    beforeAll(() => {
+        caDir = mkdtempSync(path.join(os.tmpdir(), 'judge-edge-'))
+    })
+
+    afterAll(() => {
+        rmSync(caDir, { recursive: true, force: true })
+    })
 
     const judgeOf = (): Judge =>
         createJudge({
@@ -35,7 +48,12 @@ describe('judge', () => {
         })
 
     beforeEach(async () => {
-        edge = await startProviderEdge({ port: 0, trackingKeys: TRACKING_KEYS })
+        edge = await startProviderEdge({
+            port: 0,
+            trackingKeys: TRACKING_KEYS,
+            caDir,
+            feedbackUrl: NOBODY_LISTENING,
+        })
         ses = new SESv2Client({
             endpoint: edge.url,
             region: 'us-east-1',
@@ -343,6 +361,99 @@ describe('judge', () => {
 
         expect(result).toMatchObject({ name: 'refused_at_intake', ...expected })
     })
+
+    it.each<[string, 'bounce' | 'rejected' | undefined, FollowUpAnswer | undefined, object]>([
+        [
+            'bounced, then refused as suppressed',
+            'bounce',
+            { accepted: false, status: 422, outcome: 'recipient_suppressed' },
+            { passed: true, observed: 0, unitIds: [] },
+        ],
+        [
+            'bounced, then not followed up',
+            'bounce',
+            { notSent: 'the edge recorded no SES feedback within 60s' },
+            {
+                passed: false,
+                observed: 1,
+                violation: `${UNIT}: the follow-up was not sent: the edge recorded no SES feedback within 60s`,
+                unitIds: [UNIT],
+            },
+        ],
+        [
+            'bounced, with no follow-up',
+            'bounce',
+            undefined,
+            { passed: false, observed: 1, violation: `${UNIT}: no follow-up was offered`, unitIds: [UNIT] },
+        ],
+        [
+            'bounced, then accepted again',
+            'bounce',
+            { accepted: true },
+            { passed: false, observed: 1, violation: `${UNIT}: cdp-api accepted the follow-up` },
+        ],
+        [
+            'bounced, then refused for another reason',
+            'bounce',
+            { accepted: false, status: 503 },
+            { passed: false, observed: 1, violation: `${UNIT}: cdp-api answered the follow-up 503` },
+        ],
+        ['never bounced, then accepted again', undefined, { accepted: true }, { passed: true, observed: 0 }],
+        [
+            'never bounced, then not followed up',
+            undefined,
+            { notSent: 'the edge recorded no SES feedback within 60s' },
+            {
+                passed: false,
+                observed: 1,
+                violation: `${UNIT}: the follow-up was not sent: the edge recorded no SES feedback within 60s`,
+            },
+        ],
+        [
+            'rejected rather than bounced, then not followed up',
+            'rejected',
+            { notSent: 'the edge recorded no SES feedback within 60s' },
+            { passed: true, observed: 0 },
+        ],
+    ])('bounced_suppressed for a unit %s', async (_story, rejectType, followUp, expected) => {
+        if (rejectType) {
+            await internalFetch(`${edge.url}/_faults`, {
+                method: 'POST',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ name: 'ses.reject', params: { type: rejectType }, dose: { count: 1 } }),
+            })
+        }
+        await deliver(UNIT)
+        judge.record({ ...offered(), followUp })
+
+        const [result] = await judge.check([{ name: 'bounced_suppressed', params: {} }], {})
+
+        expect(result).toMatchObject({ name: 'bounced_suppressed', ...expected })
+    })
+
+    it.each<[string, string[], object]>([
+        ['after the last bounce', ['run-a-2', UNIT], { passed: true, observed: 0 }],
+        ['before a later bounce', [UNIT, 'run-a-2'], { passed: false, observed: 1, unitIds: [UNIT] }],
+    ])(
+        'bounced_suppressed for a unit the edge took without a bounce %s, then not followed up',
+        async (_story, deliveryOrder, expected) => {
+            for (const unitId of deliveryOrder) {
+                if (unitId === 'run-a-2') {
+                    await internalFetch(`${edge.url}/_faults`, {
+                        method: 'POST',
+                        headers: { 'content-type': 'application/json' },
+                        body: JSON.stringify({ name: 'ses.reject', params: { type: 'bounce' }, dose: { count: 1 } }),
+                    })
+                }
+                await deliver(unitId)
+            }
+            judge.record({ ...offered(), followUp: { notSent: 'the edge took the first send without a bounce' } })
+
+            const [result] = await judge.check([{ name: 'bounced_suppressed', params: {} }], {})
+
+            expect(result).toMatchObject(expected)
+        }
+    )
 
     it.each<[string, () => Judge]>([
         ['reopened', () => judge],
