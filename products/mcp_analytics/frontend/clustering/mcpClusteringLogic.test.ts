@@ -120,6 +120,9 @@ const SNAPSHOT: MCPIntentClusterSnapshotApi = {
     // selectors under test here see an empty one.
     tools: [],
     tool_overlaps: [],
+    long_tail: null,
+    recurring: [],
+    intent_text_redacted: false,
     computed_with: {
         distance_threshold: 0.2,
         embedding_model: 'test',

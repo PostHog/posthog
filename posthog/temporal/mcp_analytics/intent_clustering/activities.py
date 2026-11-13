@@ -141,6 +141,13 @@ async def compute_intent_clusters_activity(inputs: IntentClusteringWorkflowInput
                 call_rows = await database_sync_to_async(intent_clustering.fetch_session_calls)(
                     team, session_ids, lookback_days=inputs.lookback_days
                 )
+                # Recurring texts (scout and cron runs) get their own ranked list and
+                # stay out of the semantic corpus, where their volume would otherwise
+                # fill the top clusters.
+                recurring = await database_sync_to_async(intent_clustering.fetch_recurring_intents)(
+                    team, lookback_days=inputs.lookback_days
+                )
+                call_rows = intent_clustering.exclude_recurring_sessions(call_rows, {r.intent_text for r in recurring})
                 # Cap dominant tools so they can't occupy the whole intent corpus.
                 cap_result = intent_clustering.cap_per_tool_call_volume(
                     call_rows, max_calls_per_tool=intent_clustering.MAX_CALLS_PER_TOOL
@@ -164,7 +171,7 @@ async def compute_intent_clusters_activity(inputs: IntentClusteringWorkflowInput
                 activity.heartbeat("fetched corpus")
 
                 if not records:
-                    await database_sync_to_async(_save_empty_blob)(snapshot, corpus_stats, window_stats)
+                    await database_sync_to_async(_save_empty_blob)(snapshot, corpus_stats, window_stats, recurring)
                     logger.info(
                         "mcpa.intent_clustering.no_intents_found",
                         team_id=inputs.team_id,
@@ -224,6 +231,7 @@ async def compute_intent_clusters_activity(inputs: IntentClusteringWorkflowInput
                     description_embeddings=description_embeddings,
                     corpus_stats=corpus_stats,
                     window_stats=window_stats,
+                    recurring=recurring,
                 )
                 await _persist_clusters(snapshot, clusters_blob)
 
@@ -254,6 +262,7 @@ def _save_empty_blob(
     snapshot: MCPIntentClusterSnapshot,
     corpus_stats: intent_clustering.CorpusStats | None = None,
     window_stats: intent_clustering.WindowStats | None = None,
+    recurring: list[intent_clustering.RecurringIntent] | None = None,
 ) -> None:
     """Synchronous helper to write an empty snapshot when the corpus is empty.
 
@@ -265,6 +274,7 @@ def _save_empty_blob(
         n_intents=0,
         corpus_stats=corpus_stats,
         window_stats=window_stats,
+        recurring=recurring,
     )
     snapshot.status = MCPIntentClusterSnapshot.Status.IDLE
     snapshot.error_message = ""
