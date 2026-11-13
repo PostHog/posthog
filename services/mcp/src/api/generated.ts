@@ -21258,6 +21258,20 @@ export namespace Schemas {
       readonly updated_at: string;
     }
 
+    export interface BeamerFeedbackSignalExtra {
+      status: string | null;
+      category: string | null;
+      votes_count: string | null;
+      comments_count: string | null;
+      date: string | null;
+      permalink: string | null;
+    }
+
+    export interface BeamerNpsFeedbackSignalExtra {
+      score: string | null;
+      date: string | null;
+    }
+
     export type EventPropFilterTypeEnum = typeof EventPropFilterTypeEnum[keyof typeof EventPropFilterTypeEnum];
 
 
@@ -26677,6 +26691,12 @@ export namespace Schemas {
        * * `certified` - certified
        * * `deprecated` - deprecated */
       proposed_status?: ProposedStatusEnum;
+    }
+
+    export interface ChameleonFeedbackSignalExtra {
+      button_text: string | null;
+      survey_id: string | null;
+      created_at: string | null;
     }
 
     /**
@@ -38696,6 +38716,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `inbox` - Inbox
+     * * `slack` - Slack
+     */
+    export type DiscussionSourceEnum = typeof DiscussionSourceEnum[keyof typeof DiscussionSourceEnum];
+
+
+    export const DiscussionSourceEnum = {
+      Inbox: 'inbox',
+      Slack: 'slack',
+    } as const;
+
+    /**
      * * `not_useful` - Not useful
      * * `not_now` - Not now
      * * `other` - Other
@@ -40267,6 +40299,7 @@ export namespace Schemas {
      * * `mail_from_mx` - MAIL FROM MX
      * * `mail_from_spf` - MAIL FROM SPF
      * * `dmarc` - DMARC
+     * * `organization` - Organization ownership
      */
     export type EmailDomainSetupRecordKindEnum = typeof EmailDomainSetupRecordKindEnum[keyof typeof EmailDomainSetupRecordKindEnum];
 
@@ -40278,6 +40311,7 @@ export namespace Schemas {
       MailFromMx: 'mail_from_mx',
       MailFromSpf: 'mail_from_spf',
       Dmarc: 'dmarc',
+      Organization: 'organization',
     } as const;
 
     /**
@@ -40372,14 +40406,15 @@ export namespace Schemas {
     }
 
     export interface EmailDomainStatusRecord {
-      /** What the record does: verification proves domain ownership, dkim signs email, spf and mail_from_spf list SES as an allowed sender, mail_from_mx routes bounces, dmarc sets the policy for unauthenticated mail.
+      /** What the record does: verification proves domain ownership, dkim signs email, spf and mail_from_spf list SES as an allowed sender, mail_from_mx routes bounces, dmarc sets the policy for unauthenticated mail, organization proves this organization owns a domain another organization also added.
        *
        * * `verification` - Domain ownership
        * * `dkim` - DKIM signing
        * * `spf` - SPF
        * * `mail_from_mx` - MAIL FROM MX
        * * `mail_from_spf` - MAIL FROM SPF
-       * * `dmarc` - DMARC */
+       * * `dmarc` - DMARC
+       * * `organization` - Organization ownership */
       kind: EmailDomainSetupRecordKindEnum;
       /** Full DNS name to create the record at, including the domain. */
       hostname: string;
@@ -44008,6 +44043,13 @@ export namespace Schemas {
       free_only_monthly_credits_left: number;
       /** Sampling rate applied to the projection. Echoed from the request. */
       sampling_rate: number;
+    }
+
+    export interface EtsyReviewSignalExtra {
+      rating: string | null;
+      listing_id: string | null;
+      language: string | null;
+      created_timestamp: string | null;
     }
 
     /**
@@ -48076,6 +48118,7 @@ export namespace Schemas {
       EditExposureCriteria: 'edit_exposure_criteria',
       AdjustDistribution: 'adjust_distribution',
       UseFirstSeenVariant: 'use_first_seen_variant',
+      MoveStartDate: 'move_start_date',
     } as const;
 
     export type ExperimentExposureHealthFindingCode = typeof ExperimentExposureHealthFindingCode[keyof typeof ExperimentExposureHealthFindingCode];
@@ -53717,6 +53760,11 @@ export namespace Schemas {
       created_at: string | null;
     }
 
+    export interface FeaturebaseSurveysFeedbackSignalExtra {
+      survey_id: string | null;
+      created_at: string | null;
+    }
+
     /**
      * * `not_a_real_problem` - Not a real problem
      * * `already_known` - Already known
@@ -54705,6 +54753,13 @@ export namespace Schemas {
       status: string | null;
       tags: unknown[];
       created_at: string | null;
+    }
+
+    export interface G2ReviewSignalExtra {
+      star_rating: string | null;
+      product_name: string | null;
+      url: string | null;
+      submitted_at: string | null;
     }
 
     export interface GainsightPxFeedbackSignalExtra {
@@ -55978,6 +56033,12 @@ export namespace Schemas {
        *
        * * `degrade_visible` - Degrade visible */
       on_overflow?: OnOverflowEnum;
+    }
+
+    export interface GumroadReviewSignalExtra {
+      rating: string | null;
+      product_id: string | null;
+      created_at: string | null;
     }
 
     /**
@@ -62746,6 +62807,18 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `app` - App
+     * * `agent` - Agent
+     */
+    export type InboxOnboardingOriginEnum = typeof InboxOnboardingOriginEnum[keyof typeof InboxOnboardingOriginEnum];
+
+
+    export const InboxOnboardingOriginEnum = {
+      App: 'app',
+      Agent: 'agent',
+    } as const;
+
+    /**
      * * `signals` - Signals
      * * `scouts` - Scouts
      * * `github` - GitHub
@@ -62890,6 +62963,18 @@ export namespace Schemas {
      * * `github_dependabot` - GitHub Dependabot
      * * `github_code_scanning` - GitHub code scanning
      * * `github_secret_scanning` - GitHub secret scanning
+     * * `beamer` - Beamer
+     * * `beamer_nps` - Beamer NPS
+     * * `chameleon` - Chameleon
+     * * `etsy` - Etsy
+     * * `featurebase_surveys` - Featurebase surveys
+     * * `g2` - G2
+     * * `gumroad` - Gumroad
+     * * `trustpilot_product_reviews` - Trustpilot product reviews
+     * * `uservoice_nps` - UserVoice NPS
+     * * `vitally_nps` - Vitally NPS
+     * * `woocommerce` - WooCommerce
+     * * `yotpo` - Yotpo
      */
     export type SignalSourceProductEnum = typeof SignalSourceProductEnum[keyof typeof SignalSourceProductEnum];
 
@@ -63013,6 +63098,18 @@ export namespace Schemas {
       GithubDependabot: 'github_dependabot',
       GithubCodeScanning: 'github_code_scanning',
       GithubSecretScanning: 'github_secret_scanning',
+      Beamer: 'beamer',
+      BeamerNps: 'beamer_nps',
+      Chameleon: 'chameleon',
+      Etsy: 'etsy',
+      FeaturebaseSurveys: 'featurebase_surveys',
+      G2: 'g2',
+      Gumroad: 'gumroad',
+      TrustpilotProductReviews: 'trustpilot_product_reviews',
+      UservoiceNps: 'uservoice_nps',
+      VitallyNps: 'vitally_nps',
+      Woocommerce: 'woocommerce',
+      Yotpo: 'yotpo',
     } as const;
 
     /**
@@ -63185,7 +63282,19 @@ export namespace Schemas {
        * * `cursor` - Cursor
        * * `github_dependabot` - GitHub Dependabot
        * * `github_code_scanning` - GitHub code scanning
-       * * `github_secret_scanning` - GitHub secret scanning */
+       * * `github_secret_scanning` - GitHub secret scanning
+       * * `beamer` - Beamer
+       * * `beamer_nps` - Beamer NPS
+       * * `chameleon` - Chameleon
+       * * `etsy` - Etsy
+       * * `featurebase_surveys` - Featurebase surveys
+       * * `g2` - G2
+       * * `gumroad` - Gumroad
+       * * `trustpilot_product_reviews` - Trustpilot product reviews
+       * * `uservoice_nps` - UserVoice NPS
+       * * `vitally_nps` - Vitally NPS
+       * * `woocommerce` - WooCommerce
+       * * `yotpo` - Yotpo */
       source_product: SignalSourceProductEnum;
       /** Signal type selected during setup.
        *
@@ -63273,6 +63382,11 @@ export namespace Schemas {
     }
 
     export interface InboxOnboardingDraft {
+      /** Where setup started: the app or a link from an agent.
+       *
+       * * `app` - App
+       * * `agent` - Agent */
+      onboarding_origin?: InboxOnboardingOriginEnum;
       /** Activate the GitHub-optional pilot. Requires project eligibility and leaves automatic implementation off.
        *
        * * `github_optional` - GitHub optional */
@@ -63313,6 +63427,14 @@ export namespace Schemas {
        * * `P3` - P3
        * * `P4` - P4 */
       implementation_priority: AutonomyPriorityEnum;
+    }
+
+    export interface InboxOnboardingExposure {
+      /** Where setup started: the app or a link from an agent.
+       *
+       * * `app` - App
+       * * `agent` - Agent */
+      onboarding_origin?: InboxOnboardingOriginEnum;
     }
 
     /**
@@ -107036,6 +107158,18 @@ export namespace Schemas {
      * * `github_dependabot` - github_dependabot
      * * `github_code_scanning` - github_code_scanning
      * * `github_secret_scanning` - github_secret_scanning
+     * * `beamer` - beamer
+     * * `beamer_nps` - beamer_nps
+     * * `chameleon` - chameleon
+     * * `etsy` - etsy
+     * * `featurebase_surveys` - featurebase_surveys
+     * * `g2` - g2
+     * * `gumroad` - gumroad
+     * * `trustpilot_product_reviews` - trustpilot_product_reviews
+     * * `uservoice_nps` - uservoice_nps
+     * * `vitally_nps` - vitally_nps
+     * * `woocommerce` - woocommerce
+     * * `yotpo` - yotpo
      */
     export type SignalSourceProduct = typeof SignalSourceProduct[keyof typeof SignalSourceProduct];
 
@@ -107159,6 +107293,18 @@ export namespace Schemas {
       GithubDependabot: 'github_dependabot',
       GithubCodeScanning: 'github_code_scanning',
       GithubSecretScanning: 'github_secret_scanning',
+      Beamer: 'beamer',
+      BeamerNps: 'beamer_nps',
+      Chameleon: 'chameleon',
+      Etsy: 'etsy',
+      FeaturebaseSurveys: 'featurebase_surveys',
+      G2: 'g2',
+      Gumroad: 'gumroad',
+      TrustpilotProductReviews: 'trustpilot_product_reviews',
+      UservoiceNps: 'uservoice_nps',
+      VitallyNps: 'vitally_nps',
+      Woocommerce: 'woocommerce',
+      Yotpo: 'yotpo',
     } as const;
 
     /**
@@ -107489,7 +107635,41 @@ export namespace Schemas {
       created_at: string | null;
     }
 
-    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | CheckFailedSignalExtra | MonitoringUnresolvedSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | AnalyticsAlertFiringSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | ClickupTaskSignalExtra | WrikeTaskSignalExtra | TrelloCardSignalExtra | BugherdTaskSignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | DatadogSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | UsersnapFeedbackSignalExtra | TypeformFeedbackSignalExtra | QualtricsFeedbackSignalExtra | SurveymonkeyFeedbackSignalExtra | FormbricksFeedbackSignalExtra | SurvicateFeedbackSignalExtra | SurveysparrowFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra | Dynamics365TicketSignalExtra | ZohoCrmTicketSignalExtra | GoogleSearchConsoleSearchOpportunitySignalExtra | HelpscoutConversationSignalExtra | DecagonConversationSignalExtra | VitallyConversationSignalExtra | IntercomTicketsTicketSignalExtra | PylonTicketSignalExtra | PagerdutyIncidentSignalExtra | OpsgenieAlertSignalExtra | IncidentIoIncidentSignalExtra | FirehydrantIncidentSignalExtra | SquadcastIncidentSignalExtra | ServicenowIncidentSignalExtra | SolarwindsServiceDeskIncidentSignalExtra | GrafanaIrmIncidentSignalExtra | XmattersIncidentSignalExtra | LaceworkScannerFindingSignalExtra | OrcaSecurityScannerFindingSignalExtra | TenableVulnerabilityManagementScannerFindingSignalExtra | BetterstackIncidentSignalExtra | AsanaIssueSignalExtra | MondayIssueSignalExtra | PlaneIssueSignalExtra | AzureDevopsIssueSignalExtra | MonteCarloAlertSignalExtra | BigeyeIssueSignalExtra | DynatraceIncidentSignalExtra | StatuspageIncidentSignalExtra | CronitorIncidentSignalExtra | InstatusIncidentSignalExtra | GooglePlayConsoleIssueSignalExtra | AzureApplicationInsightsIssueSignalExtra | AppsignalIssueSignalExtra | CursorIssueSignalExtra | TriggerDevErrorSignalExtra | ChecklyErrorGroupSignalExtra | RoarkIssueSignalExtra | SleekplanFeedbackSignalExtra | BettermodeFeedbackSignalExtra | DiscourseFeedbackSignalExtra | MintlifyFeedbackSignalExtra | LangsmithFeedbackSignalExtra | SprigFeedbackSignalExtra | GainsightPxFeedbackSignalExtra | TrustpilotReviewSignalExtra | OkendoReviewSignalExtra | AwsSecurityHubScannerFindingSignalExtra | AwsGuarddutyScannerFindingSignalExtra | AwsInspectorScannerFindingSignalExtra | MicrosoftDefenderCloudAppsScannerFindingSignalExtra | GithubDependabotScannerFindingSignalExtra | GithubCodeScanningScannerFindingSignalExtra | GithubSecretScanningScannerFindingSignalExtra;
+    export interface UservoiceNpsFeedbackSignalExtra {
+      rating: string | null;
+      created_at: string | null;
+    }
+
+    export interface VitallyNpsFeedbackSignalExtra {
+      score: string | null;
+      nps_type: string | null;
+      created_at: string | null;
+    }
+
+    export interface TrustpilotProductReviewsReviewSignalExtra {
+      stars: string | null;
+      language: string | null;
+      state: string | null;
+      product_name: string | null;
+      created_at: string | null;
+    }
+
+    export interface WoocommerceReviewSignalExtra {
+      rating: string | null;
+      status: string | null;
+      verified: string | null;
+      product_id: string | null;
+      date_created_gmt: string | null;
+    }
+
+    export interface YotpoReviewSignalExtra {
+      score: string | null;
+      sku: string | null;
+      deleted: string | null;
+      created_at: string | null;
+    }
+
+    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | CheckFailedSignalExtra | MonitoringUnresolvedSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | AnalyticsAlertFiringSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | ClickupTaskSignalExtra | WrikeTaskSignalExtra | TrelloCardSignalExtra | BugherdTaskSignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | DatadogSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | UsersnapFeedbackSignalExtra | TypeformFeedbackSignalExtra | QualtricsFeedbackSignalExtra | SurveymonkeyFeedbackSignalExtra | FormbricksFeedbackSignalExtra | SurvicateFeedbackSignalExtra | SurveysparrowFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra | Dynamics365TicketSignalExtra | ZohoCrmTicketSignalExtra | GoogleSearchConsoleSearchOpportunitySignalExtra | HelpscoutConversationSignalExtra | DecagonConversationSignalExtra | VitallyConversationSignalExtra | IntercomTicketsTicketSignalExtra | PylonTicketSignalExtra | PagerdutyIncidentSignalExtra | OpsgenieAlertSignalExtra | IncidentIoIncidentSignalExtra | FirehydrantIncidentSignalExtra | SquadcastIncidentSignalExtra | ServicenowIncidentSignalExtra | SolarwindsServiceDeskIncidentSignalExtra | GrafanaIrmIncidentSignalExtra | XmattersIncidentSignalExtra | LaceworkScannerFindingSignalExtra | OrcaSecurityScannerFindingSignalExtra | TenableVulnerabilityManagementScannerFindingSignalExtra | BetterstackIncidentSignalExtra | AsanaIssueSignalExtra | MondayIssueSignalExtra | PlaneIssueSignalExtra | AzureDevopsIssueSignalExtra | MonteCarloAlertSignalExtra | BigeyeIssueSignalExtra | DynatraceIncidentSignalExtra | StatuspageIncidentSignalExtra | CronitorIncidentSignalExtra | InstatusIncidentSignalExtra | GooglePlayConsoleIssueSignalExtra | AzureApplicationInsightsIssueSignalExtra | AppsignalIssueSignalExtra | CursorIssueSignalExtra | TriggerDevErrorSignalExtra | ChecklyErrorGroupSignalExtra | RoarkIssueSignalExtra | SleekplanFeedbackSignalExtra | BettermodeFeedbackSignalExtra | DiscourseFeedbackSignalExtra | MintlifyFeedbackSignalExtra | LangsmithFeedbackSignalExtra | SprigFeedbackSignalExtra | GainsightPxFeedbackSignalExtra | TrustpilotReviewSignalExtra | OkendoReviewSignalExtra | BeamerFeedbackSignalExtra | BeamerNpsFeedbackSignalExtra | ChameleonFeedbackSignalExtra | FeaturebaseSurveysFeedbackSignalExtra | UservoiceNpsFeedbackSignalExtra | VitallyNpsFeedbackSignalExtra | EtsyReviewSignalExtra | G2ReviewSignalExtra | GumroadReviewSignalExtra | TrustpilotProductReviewsReviewSignalExtra | WoocommerceReviewSignalExtra | YotpoReviewSignalExtra | AwsSecurityHubScannerFindingSignalExtra | AwsGuarddutyScannerFindingSignalExtra | AwsInspectorScannerFindingSignalExtra | MicrosoftDefenderCloudAppsScannerFindingSignalExtra | GithubDependabotScannerFindingSignalExtra | GithubCodeScanningScannerFindingSignalExtra | GithubSecretScanningScannerFindingSignalExtra;
 
     export type SignalMatchMetadata = MatchedMetadata | NoMatchMetadata;
 
@@ -107624,7 +107804,19 @@ export namespace Schemas {
        * * `cursor` - cursor
        * * `github_dependabot` - github_dependabot
        * * `github_code_scanning` - github_code_scanning
-       * * `github_secret_scanning` - github_secret_scanning */
+       * * `github_secret_scanning` - github_secret_scanning
+       * * `beamer` - beamer
+       * * `beamer_nps` - beamer_nps
+       * * `chameleon` - chameleon
+       * * `etsy` - etsy
+       * * `featurebase_surveys` - featurebase_surveys
+       * * `g2` - g2
+       * * `gumroad` - gumroad
+       * * `trustpilot_product_reviews` - trustpilot_product_reviews
+       * * `uservoice_nps` - uservoice_nps
+       * * `vitally_nps` - vitally_nps
+       * * `woocommerce` - woocommerce
+       * * `yotpo` - yotpo */
       source_product: SignalSourceProduct;
       /** Signal type within the source product.
        *
@@ -111753,6 +111945,11 @@ export namespace Schemas {
        * * `authored` - Authored
        * * `edited` - Edited */
       involvement: ReportInvolvementEnum;
+      /** `inbox` when the discussion started from Ask AI in the inbox, `slack` when it started from a reply in the report's Slack thread.
+       *
+       * * `inbox` - Inbox
+       * * `slack` - Slack */
+      source: DiscussionSourceEnum;
       /** The discussion task. */
       task_id: string;
       /** When the discussion started. */
@@ -111765,10 +111962,15 @@ export namespace Schemas {
          */
       status: string | null;
       /**
-         * The latest run's summary of the conversation and its outcome. Null when no run has written one yet, or when the summary could have been written by someone who may not steer scouts on this project.
+         * The latest run's summary of the conversation and its outcome. Null when no run has written one yet, or when the summary could have been written by someone who may not steer scouts on this project. For a `slack` discussion, other people in the public thread can shape the summary, so it is returned when the person who started the discussion may steer scouts.
          * @nullable
          */
       task_summary: string | null;
+      /**
+         * For a `slack` discussion, the message that started it, in the person's own words. Null when that person may not steer scouts on this project, or started a later Slack discussion on the same report. Always null for an `inbox` discussion, because a scout note carried its question.
+         * @nullable
+         */
+      question: string | null;
     }
 
     /**
@@ -118864,6 +119066,16 @@ export namespace Schemas {
          * @nullable
          */
       scheduled_at?: string | null;
+      /**
+         * Identity of this submission when targeting a warm run. Keep it unchanged on retries; a different submission may fall back to a cold task if the warm run was already claimed.
+         * @nullable
+         */
+      warm_submission_id?: string | null;
+      /**
+         * Target an unused warm run owned by this user. All sandbox settings must match except permission mode, which is acknowledged before the first message.
+         * @nullable
+         */
+      warm_run_id?: string | null;
       /** Create the first cloud run. It starts immediately unless scheduled_at is set. */
       start_run?: boolean;
       /**
@@ -119802,6 +120014,8 @@ export namespace Schemas {
     export type TaskRunCreateRequestSchema = ClaudeTaskRunCreateSchema | CodexTaskRunCreateSchema | TaskRunResumeRequestSchema;
 
     export interface TaskRunErrorResponse {
+      /** Message ID to reuse as the JSON-RPC id when retrying delivery */
+      id?: unknown;
       /** Human-readable validation error */
       detail?: string;
       /** Human-readable error message */
@@ -124499,6 +124713,8 @@ export namespace Schemas {
       task_id: string;
       /** Id of the idling warm Run. The normal create+run path reuses and activates it on submit. */
       run_id: string;
+      /** The server can negotiate the final permission mode before activating an explicitly targeted warm run. */
+      permission_mode_mutable?: boolean;
     }
 
     /**

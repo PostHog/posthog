@@ -715,7 +715,7 @@ export const getExperimentsHealthRetrieveUrl = (projectId: string, id: number) =
  * it returns an info finding with the subcode `not_checked` and the cause in
  * `reason`. A caller who can't view the linked flag's history (viewer access to the
  * flag and, with an API key, `activity_log:read`) gets that finding for every running
- * experiment, because the changes are not read. A split-change finding that tells the reader to
+ * experiment, because the changes are not read. A finding that tells the reader to
  * move the start date offers `move_start_date`, and `evidence.suggested_start_date` holds that
  * date in UTC: set the experiment's `start_date` to it. When one variant was set to 100% of the
  * split, the finding offers `end_experiment` instead.
