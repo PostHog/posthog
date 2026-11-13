@@ -21,7 +21,7 @@ from typing import IO
 
 import click
 
-from .doctor import _STOP_GRACE_SECONDS
+from .doctor import _STOP_GRACE_SECONDS, _compose_project_name
 from .worktrees import _UNATTENDED_LOCK
 
 LOCK_PATH = Path.home() / ".config" / "posthog" / "watch.lock"
@@ -64,7 +64,7 @@ class ComposeService:
 
     def __init__(self, service: str) -> None:
         self.service = service
-        self.project = os.environ.get("COMPOSE_PROJECT_NAME") or "posthog"
+        self.project = _compose_project_name()
 
     def _container(self) -> tuple[str, str] | None:
         result = _run(
@@ -131,10 +131,14 @@ def _clickhouse_query(sql: str) -> str | None:
     return body.decode().strip()
 
 
+# The process runners of `hogli start` (also detached), and the web server and Celery when run by hand.
+STACK_PROCESS_PATTERNS = (["-x", "phrocs"], ["-x", "mprocs"], ["-f", "granian"], ["-f", "run_autoreload_celery"])
+
+
 def _stack_running() -> bool:
-    """True while a `hogli start` process runner runs. Its app and workers need ClickHouse."""
-    for name in ("phrocs", "mprocs"):
-        result = _run(["pgrep", "-x", name], timeout=5)
+    """True while the dev app or its workers run. They need ClickHouse even when nobody uses them."""
+    for pattern in STACK_PROCESS_PATTERNS:
+        result = _run(["pgrep", *pattern], timeout=5)
         if result is not None and result.returncode == 0:
             return True
     return False
@@ -179,8 +183,14 @@ class ClickHouseIdleStop:
 class WorktreeCleanup:
     """Runs `worktrees:clean --unattended` once a day. That command keeps its own lock and log."""
 
+    def __init__(self) -> None:
+        self.last_attempt: float | None = None
+
     def is_due(self) -> bool:
         if os.environ.get("POSTHOG_WORKTREES_AUTOCLEAN", "1") == "0":
+            return False
+        # A run that fails before it writes its lock would otherwise look due on every tick.
+        if self.last_attempt is not None and time.time() - self.last_attempt < 24 * 60 * 60:
             return False
         try:
             last_run = _UNATTENDED_LOCK.stat()
@@ -189,6 +199,7 @@ class WorktreeCleanup:
         return last_run.st_size == 0 or time.time() - last_run.st_mtime >= 24 * 60 * 60
 
     def run(self) -> None:
+        self.last_attempt = time.time()
         _log("running worktrees:clean --unattended")
         # Its output goes to the watcher's stdout, which is the watch log.
         try:
@@ -267,6 +278,7 @@ def run_watcher() -> None:
                 return
             time.sleep(TICK_SECONDS)
     finally:
+        lock.truncate(0)
         lock.close()
 
 
@@ -283,7 +295,10 @@ def ensure_clickhouse() -> bool:
     deadline = time.monotonic() + CLICKHOUSE_READY_TIMEOUT_SECONDS
     while _clickhouse_query("SELECT 1") != "1":
         if time.monotonic() > deadline:
-            click.echo("ClickHouse did not answer within 60 s. Check `docker logs posthog-clickhouse-1`.", err=True)
+            click.echo(
+                "ClickHouse did not answer within 60 s. Check `docker compose -f docker-compose.dev.yml logs clickhouse`.",
+                err=True,
+            )
             return False
         time.sleep(0.5)
     spawn_watcher()
