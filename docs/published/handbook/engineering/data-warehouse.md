@@ -56,6 +56,11 @@ The totals cover measured runs only; missing measurements and days without measu
 The current UTC day is excluded because usage is updated daily.
 These measurements describe query work and are not billing amounts.
 
+## SQL table headers
+
+SQL and Trends table headers stay visible while scrolling inside a bounded table, including horizontal scrolling.
+On a full page, headers pin when the table fits its container and the scene is wide enough for sticky controls; wider tables keep horizontal scrolling.
+
 ## SQL editor drafts
 
 Saving a view infers its column types with LIMIT 0 on the outer SELECT branches and explicit IN subqueries.
