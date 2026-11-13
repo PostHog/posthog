@@ -25,7 +25,12 @@ import {
     CyclotronV2RescheduleOptions,
     CyclotronV2RescheduleOptionsSchema,
     CyclotronV2WorkerConfig,
+    PendingWake,
 } from './types'
+
+// Only a wake written after this dequeue counts; an older one belongs to an earlier visit to the step.
+// SET reads the pre-update row, so last_transition is still the dequeue time.
+const FRESH_PENDING_WAKE = `(pending_wake -> COALESCE($4::text, action_id) ->> 'at')::timestamptz >= last_transition`
 
 export interface RawJobRow {
     id: string
@@ -42,6 +47,7 @@ export interface RawJobRow {
     person_id: string | null
     action_id: string | null
     cancel_requested_at: string | null
+    pending_wake: PendingWake | null
     lock_id: string
 }
 
@@ -212,6 +218,7 @@ async function updateSelfInTx(
         // A cancel requested while this worker held the job must not sleep the full
         // next delay before it's observed, so it wakes immediately instead.
         `scheduled = CASE WHEN cancel_requested_at IS NOT NULL THEN LEAST($3::timestamptz, NOW()) ELSE $3::timestamptz END`,
+        `pending_wake = NULL`,
     ]
     const params: any[] = [jobId, lockId, scheduled]
     if (disposition.state !== undefined) {
@@ -470,6 +477,7 @@ export class CyclotronV2Worker {
             cancelRequestedAt: row.cancel_requested_at
                 ? DateTime.fromISO(row.cancel_requested_at, { zone: 'utc' })
                 : null,
+            pendingWake: row.pending_wake ?? null,
 
             ack: releaseWrite('ack', async () => {
                 await pool.query(
@@ -511,9 +519,16 @@ export class CyclotronV2Worker {
                     // A cancel requested while this worker held the job must not
                     // sleep the full next delay before it's observed, so it
                     // wakes immediately instead.
-                    `scheduled = CASE WHEN cancel_requested_at IS NOT NULL THEN LEAST($3::timestamptz, NOW()) ELSE $3::timestamptz END`,
+                    `scheduled = CASE WHEN cancel_requested_at IS NOT NULL OR ($5::boolean AND ${FRESH_PENDING_WAKE}) THEN LEAST($3::timestamptz, NOW()) ELSE $3::timestamptz END`,
+                    `pending_wake = CASE WHEN ${FRESH_PENDING_WAKE} THEN jsonb_build_object(COALESCE($4::text, action_id), pending_wake -> COALESCE($4::text, action_id)) ELSE NULL END`,
                 ]
-                const params: any[] = [row.id, lockId, scheduled]
+                const params: any[] = [
+                    row.id,
+                    lockId,
+                    scheduled,
+                    options?.actionId ?? null,
+                    options?.wakeOnPendingWake ?? false,
+                ]
 
                 if (options?.state !== undefined) {
                     params.push(options.state ?? null)
@@ -570,7 +585,8 @@ export class CyclotronV2Worker {
                          last_transition = NOW(), transition_count = LEAST(transition_count + 1, ${CYCLOTRON_COUNTER_MAX}),
                          scheduled = CASE WHEN cancel_requested_at IS NOT NULL THEN LEAST($3::timestamptz, NOW()) ELSE $3::timestamptz END,
                          dequeue_seq = COALESCE($4, dequeue_seq),
-                         state = COALESCE($5, state)
+                         state = COALESCE($5, state),
+                         pending_wake = NULL
                      WHERE id = $1 AND lock_id = $2`,
                     [row.id, lockId, scheduledAt, dequeueSeq, state ?? null]
                 )

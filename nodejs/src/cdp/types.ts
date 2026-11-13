@@ -13,6 +13,7 @@ import {
     PersonPropertyFilter,
     Team,
 } from '../types'
+import type { PendingWake } from './services/cyclotron-v2/types'
 import type { QueuedSend } from './services/hogflows/transactional-email'
 import type { HogErrorClass } from './utils/hog-error-classification'
 import type { RebuildableInputsSource } from './utils/rebuildable-inputs'
@@ -377,6 +378,7 @@ export type CyclotronJobInvocation = {
     // Cancellation was requested (CyclotronV2Manager.cancelJobs) while this invocation
     // was in flight. The consumer must terminate it as canceled instead of executing.
     cancelRequestedAt?: DateTime
+    pendingWake?: PendingWake
 }
 
 // The result of an execution

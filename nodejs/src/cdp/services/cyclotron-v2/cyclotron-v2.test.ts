@@ -126,6 +126,7 @@ interface RawJobRow {
     action_id: string | null
     cancel_requested_at: string | Date | null
     dequeue_seq: string | null
+    pending_wake: Record<string, unknown> | null
 }
 
 async function queryJob(id: string): Promise<RawJobRow> {
@@ -2433,6 +2434,60 @@ describe('Cyclotron V2', () => {
 
             expect((await queryJob(id)).janitor_touch_count).toBe(0)
         })
+
+        it.each([
+            {
+                written: 'during the hold, for the step it parks on',
+                key: 'wait-a',
+                at: 'clock_timestamp()',
+                opts: true,
+                due: true,
+                kept: true,
+            },
+            {
+                written: 'before the hold',
+                key: 'wait-a',
+                at: "last_transition - interval '1 second'",
+                opts: true,
+                due: false,
+                kept: false,
+            },
+            {
+                written: 'during the hold, for another step',
+                key: 'wait-b',
+                at: 'clock_timestamp()',
+                opts: true,
+                due: false,
+                kept: false,
+            },
+            {
+                written: 'during the hold, by a park that keeps its backoff',
+                key: 'wait-a',
+                at: 'clock_timestamp()',
+                opts: false,
+                due: false,
+                kept: true,
+            },
+        ])(
+            'reschedule() onto a wait with a wake recorded $written wakes it: $due',
+            async ({ key, at, opts, due, kept }) => {
+                const { id, job } = await seedAndDequeue({ actionId: 'wait-a' })
+                await assertPool.query(
+                    `UPDATE cyclotron_jobs SET pending_wake = jsonb_build_object($2::text, jsonb_build_object('kind', 'match', 'at', ${at})) WHERE id = $1`,
+                    [id, key]
+                )
+
+                await job.reschedule({
+                    actionId: 'wait-a',
+                    scheduledAt: new Date(Date.now() + 3600_000),
+                    wakeOnPendingWake: opts,
+                })
+
+                expect(await jobIsDue(id)).toBe(due)
+                const row = await queryJob(id)
+                expect(Object.keys(row.pending_wake ?? {})).toEqual(kept ? ['wait-a'] : [])
+            }
+        )
 
         it('reschedule() returns job to available', async () => {
             const { id, job } = await seedAndDequeue()

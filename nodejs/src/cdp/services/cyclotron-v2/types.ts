@@ -52,12 +52,23 @@ export type CyclotronV2IdempotentJobInit = {
 
 export type CyclotronV2IdempotentOutcome = 'created' | 'replayed' | 'mismatch'
 
+// Keyed by wait_until_condition action id. `at` is the database clock at write time.
+export type PendingWakeEntry = {
+    kind: 'match' | 'recheck'
+    at: string
+    eventName?: string
+    eventUuid?: string
+    eventTimestamp?: string
+}
+export type PendingWake = Record<string, PendingWakeEntry>
+
 export const CyclotronV2RescheduleOptionsSchema = z.object({
     scheduledAt: z.date().optional(),
     state: z.instanceof(Buffer).nullish(),
     distinctId: z.string().nullish(),
     personId: z.string().nullish(),
     actionId: z.string().nullish(),
+    wakeOnPendingWake: z.boolean().optional(),
     queueName: z.string().optional(),
     priority: z.number().int().optional(),
 })
@@ -105,6 +116,7 @@ export interface CyclotronV2DequeuedJob {
     // responsible for terminating it (cancel() plus its own telemetry) instead of
     // executing it.
     readonly cancelRequestedAt: DateTime | null
+    readonly pendingWake: PendingWake | null
 
     ack(): Promise<void>
     fail(): Promise<void>

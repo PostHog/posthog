@@ -22,6 +22,7 @@ const CLAIM_RETURNING = `RETURNING
     cyclotron_jobs.person_id,
     cyclotron_jobs.action_id,
     cyclotron_jobs.cancel_requested_at,
+    cyclotron_jobs.pending_wake,
     cyclotron_jobs.lock_id`
 
 const priorityClassesCte = (queueName: string): string => `priority_classes AS (
