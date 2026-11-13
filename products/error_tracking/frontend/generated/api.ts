@@ -52,8 +52,8 @@ import type {
     ErrorTrackingIssueSplitResponseApi,
     ErrorTrackingIssueSuccessResponseApi,
     ErrorTrackingIssueSummaryResponseApi,
+    ErrorTrackingIssueTagCorrectionApi,
     ErrorTrackingIssueTagDefinitionsResponseApi,
-    ErrorTrackingIssueTagReadApi,
     ErrorTrackingIssueValuesResponseApi,
     ErrorTrackingIssueWriteApi,
     ErrorTrackingIssuesListParams,
@@ -1195,8 +1195,8 @@ export const errorTrackingIssuesTagPartialUpdate = async (
     id: string,
     patchedErrorTrackingIssueTagWriteApi?: PatchedErrorTrackingIssueTagWriteApi,
     options?: RequestInit
-): Promise<ErrorTrackingIssueTagReadApi> => {
-    return apiMutator<ErrorTrackingIssueTagReadApi>(getErrorTrackingIssuesTagPartialUpdateUrl(projectId, id), {
+): Promise<ErrorTrackingIssueTagCorrectionApi> => {
+    return apiMutator<ErrorTrackingIssueTagCorrectionApi>(getErrorTrackingIssuesTagPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },

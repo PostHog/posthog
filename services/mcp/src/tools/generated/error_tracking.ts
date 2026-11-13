@@ -424,7 +424,7 @@ const ErrorTrackingIssuesTagPartialUpdateSchema = () => {
 
 const errorTrackingIssuesTagPartialUpdate = (): ToolBase<
     ReturnType<typeof ErrorTrackingIssuesTagPartialUpdateSchema>,
-    Schemas.ErrorTrackingIssueTagRead
+    Schemas.ErrorTrackingIssueTagCorrection
 > => ({
     name: 'error-tracking-issues-tag-partial-update',
     schema: ErrorTrackingIssuesTagPartialUpdateSchema(),
@@ -440,7 +440,7 @@ const errorTrackingIssuesTagPartialUpdate = (): ToolBase<
         if (params.applied !== undefined) {
             body['applied'] = params.applied
         }
-        const result = await context.api.request<Schemas.ErrorTrackingIssueTagRead>({
+        const result = await context.api.request<Schemas.ErrorTrackingIssueTagCorrection>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/error_tracking/issues/${encodeURIComponent(String(params.id))}/tag/`,
             body,

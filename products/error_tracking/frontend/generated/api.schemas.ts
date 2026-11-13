@@ -1191,6 +1191,19 @@ export interface PatchedErrorTrackingIssueTagWriteApi {
     applied?: boolean
 }
 
+export interface ErrorTrackingIssueTagCorrectionApi {
+    /** Key of the tag. Pass it as `issueTag.key` to filter the issue list. */
+    key: string
+    /** Short name of the tag. */
+    label: string
+    /** What the tag means, for a tooltip. */
+    description: string
+    /** The tagger that applied the tag: `jev` for AI, `manual` for a person. */
+    source: string
+    /** Whether the tag is applied to the issue after the change. */
+    applied: boolean
+}
+
 /**
  * * `set_status` - set_status
  * * `assign` - assign

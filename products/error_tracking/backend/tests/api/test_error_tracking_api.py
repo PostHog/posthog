@@ -296,8 +296,8 @@ class TestErrorTracking(APIBaseTest):
             "key": BLOCKS_CHECKOUT.key,
             "label": BLOCKS_CHECKOUT.label,
             "description": BLOCKS_CHECKOUT.description,
-            "value": False,
             "source": "manual",
+            "applied": False,
         }
         tag = ErrorTrackingIssueTag.objects.for_team(self.team.id).get(issue=issue, key=BLOCKS_CHECKOUT.key)
         assert (tag.source, tag.value, tag.set_by_id) == ("manual", False, self.user.id)

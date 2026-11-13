@@ -53,7 +53,7 @@ def correct_issue_tag(
 
     return contracts.ErrorTrackingIssueTagCorrection(
         tag=contracts.ErrorTrackingIssueTag(
-            key=key, label=definition.label, description=definition.description, value=applied, source=source
+            key=key, label=definition.label, description=definition.description, source=source
         ),
         previous_source=previous_source,
         previous_applied=previous_value is True,

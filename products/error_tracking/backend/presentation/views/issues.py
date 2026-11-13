@@ -1,3 +1,4 @@
+from dataclasses import asdict
 from typing import cast
 from uuid import UUID
 
@@ -78,6 +79,10 @@ class ErrorTrackingIssueTagReadSerializer(ErrorTrackingIssueTagDefinitionSeriali
     source = serializers.CharField(  # type: ignore[assignment]  # shadows DRF Field.source
         help_text="The tagger that applied the tag: `jev` for AI, `manual` for a person."
     )
+
+
+class ErrorTrackingIssueTagCorrectionSerializer(ErrorTrackingIssueTagReadSerializer):
+    applied = serializers.BooleanField(help_text="Whether the tag is applied to the issue after the change.")
 
 
 class ErrorTrackingIssueTagWriteSerializer(serializers.Serializer):
@@ -537,7 +542,7 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
 
     @validated_request(
         request_serializer=ErrorTrackingIssueTagWriteSerializer,
-        responses={200: OpenApiResponse(response=ErrorTrackingIssueTagReadSerializer)},
+        responses={200: OpenApiResponse(response=ErrorTrackingIssueTagCorrectionSerializer)},
     )
     @action(methods=["PATCH"], detail=True)
     def tag(self, request: ValidatedRequest, *args: object, pk: object = None, **kwargs: object) -> Response:
@@ -575,7 +580,7 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
                     "applied": applied,
                 },
             )
-        return Response(ErrorTrackingIssueTagReadSerializer(correction.tag).data)
+        return Response(ErrorTrackingIssueTagCorrectionSerializer({**asdict(correction.tag), "applied": applied}).data)
 
     @extend_schema(
         request=ErrorTrackingIssueCohortRequestSerializer,
