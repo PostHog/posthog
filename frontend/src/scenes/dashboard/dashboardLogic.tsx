@@ -7102,12 +7102,15 @@ export const dashboardLogic = kea<dashboardLogicType>([
             if (variableDefinition) {
                 const variable = { code_name: variableDefinition.code_name, variableId, value, isNull }
                 const variables = { ...values.currentDashboardSettings.variables }
-                if (
-                    dashboardVariableValuesEqual(variable, {
-                        value: variableDefinition.default_value,
-                        isNull: variableDefinition.isNull,
-                    })
-                ) {
+                // An absent draft entry means "use the saved value", so the entry can only be dropped
+                // when the choice matches what the dashboard saved. A dashboard without a saved value
+                // shows the project default. This mirrors the URL handling in actionToUrl below; an
+                // explicit pick that merely equals the default must still reach the refresh request.
+                const savedValue = values.savedDashboardSettings.variables[variableId] ?? {
+                    value: variableDefinition.default_value,
+                    isNull: variableDefinition.isNull,
+                }
+                if (dashboardVariableValuesEqual(variable, savedValue)) {
                     delete variables[variableId]
                 } else {
                     variables[variableId] = variable
