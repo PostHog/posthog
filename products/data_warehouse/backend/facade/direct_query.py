@@ -9,8 +9,13 @@ function-locally.
 """
 
 from products.data_warehouse.backend.direct_virtual_tables import (
+    LIVE_TABLE_ENGINES,
     build_direct_table_for_schema,
     eligible_direct_query_schemas,
 )
 
-__all__ = ["build_direct_table_for_schema", "eligible_direct_query_schemas"]
+__all__ = [
+    "LIVE_TABLE_ENGINES",
+    "build_direct_table_for_schema",
+    "eligible_direct_query_schemas",
+]

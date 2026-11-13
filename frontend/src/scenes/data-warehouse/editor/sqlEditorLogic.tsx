@@ -37,10 +37,8 @@ import {
 import api, { ApiConfig, ApiError } from 'lib/api'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonDialogLogic } from 'lib/lemon-ui/LemonDialog/lemonDialogLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { clearLogicReference, initModel } from 'lib/monaco/CodeEditor'
 import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
@@ -138,7 +136,6 @@ import {
 } from 'products/business_intelligence/frontend/biEditorTypes'
 import { connectionSelectorLogic } from 'products/data_warehouse/frontend/shared/logics/connectionSelectorLogic'
 
-import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 import type { DatabaseSchemaQueryResponse, Node } from '../../../queries/schema/schema-general'
 import type { DataWarehouseSavedQueryFolder, UserType } from '../../../types'
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
@@ -669,7 +666,6 @@ export interface sqlEditorLogicValues {
     databaseConnectionId: string | null // databaseTableListLogic
     databaseLoading: boolean // databaseTableListLogic
     drafts: DataWarehouseSavedQueryDraft[] // draftsLogic
-    featureFlags: FeatureFlagsSet // featureFlagLogic
     outputActiveTab: OutputTab // outputPaneLogic
     user: UserType | null // userLogic
     acceptText: string
@@ -1399,8 +1395,6 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             ['user'],
             draftsLogic,
             ['drafts'],
-            featureFlagLogic,
-            ['featureFlags'],
             connectionSelectorLogic,
             ['connectionOptions'],
             databaseTableListLogic,
@@ -2042,9 +2036,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             return resolveSaveCandidatesPure(fullText, cursorOffset, selectionText)
         }
         const getActiveBIEditorState = (): BIEditorState | undefined =>
-            props.mode === SQLEditorMode.BusinessIntelligence && values.featureFlags[FEATURE_FLAGS.SQL_EDITOR_BI_MODE]
-                ? values.activeTab?.biEditorState
-                : undefined
+            props.mode === SQLEditorMode.BusinessIntelligence ? values.activeTab?.biEditorState : undefined
 
         return {
             fixErrorsSuccess: ({ response }) => {
@@ -2544,10 +2536,13 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         ? {
                               ...values.sourceQuery.chartSettings,
                               ...biQuery.node.chartSettings,
-                              heatmap: {
-                                  ...values.sourceQuery.chartSettings?.heatmap,
-                                  ...biQuery.node.chartSettings.heatmap,
-                              },
+                              heatmap:
+                                  values.sourceQuery.chartSettings?.heatmap || biQuery.node.chartSettings.heatmap
+                                      ? {
+                                            ...values.sourceQuery.chartSettings?.heatmap,
+                                            ...biQuery.node.chartSettings.heatmap,
+                                        }
+                                      : undefined,
                           }
                         : values.sourceQuery.chartSettings,
                     source: newSource,
@@ -4043,11 +4038,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 return
             }
 
-            if (
-                props.mode !== SQLEditorMode.BusinessIntelligence &&
-                hashParams.mode === BIEditorView.BI &&
-                values.featureFlags[FEATURE_FLAGS.SQL_EDITOR_BI_MODE]
-            ) {
+            if (props.mode !== SQLEditorMode.BusinessIntelligence && hashParams.mode === BIEditorView.BI) {
                 router.actions.replace(urls.businessIntelligence(), searchParams, hashParams)
                 return
             }
@@ -4384,9 +4375,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
 
                     if (insight.query?.kind === NodeKind.BIVisualizationNode) {
                         router.actions.replace(
-                            values.featureFlags[FEATURE_FLAGS.SQL_EDITOR_BI_MODE]
-                                ? urls.businessIntelligence({ insightShortId: insight.short_id })
-                                : urls.insightView(insight.short_id),
+                            urls.businessIntelligence({ insightShortId: insight.short_id }),
                             searchParams,
                             hashParams
                         )

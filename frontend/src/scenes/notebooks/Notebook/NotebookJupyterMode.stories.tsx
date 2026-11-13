@@ -1,7 +1,6 @@
 import { Meta, StoryObj } from '@storybook/react'
 import { fireEvent, waitFor, within } from '@testing-library/dom'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -137,7 +136,6 @@ export default meta
 type Story = StoryObj<{}>
 
 export const JupyterModeOff: Story = {
-    parameters: { featureFlags: [FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS] },
     play: async ({ canvasElement }) => {
         await waitFor(
             () => {
@@ -157,7 +155,6 @@ export const JupyterModeOff: Story = {
 }
 
 export const JupyterMode: Story = {
-    parameters: { featureFlags: [FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS] },
     play: async ({ canvasElement }) => {
         await waitFor(
             () => {

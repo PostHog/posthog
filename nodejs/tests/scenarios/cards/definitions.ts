@@ -1,7 +1,8 @@
 import { z } from 'zod'
 
-import { eventEmail } from '../generator/traffic'
-import { atLeastOnce } from '../judge/invariants'
+import { TRAFFIC } from '../generator/traffic'
+import { INVARIANTS } from '../judge/invariants'
+import { MEASUREMENTS } from '../judge/measurements'
 
 export type Definition = { name: string; params: z.ZodType }
 
@@ -16,7 +17,7 @@ export type Definitions = {
 
 export const DEFINITIONS: Definitions = {
     valves: [],
-    traffic: [eventEmail],
-    invariants: [atLeastOnce],
-    measurements: [],
+    traffic: TRAFFIC,
+    invariants: INVARIANTS,
+    measurements: MEASUREMENTS,
 }

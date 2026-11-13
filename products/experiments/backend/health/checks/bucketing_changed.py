@@ -18,6 +18,7 @@ from products.experiments.backend.health.bucketing_changes import (
     BucketingNetEffect,
     bucketing_net_effect,
     describe_bucketing_value,
+    describe_flag_key,
 )
 from products.experiments.backend.health.checks.change_wording import (
     RESET_EFFECT,
@@ -109,7 +110,7 @@ def bucketing_changed_mid_run(ctx: HealthContext) -> CheckOutcome:
         )
 
     title = _KEY_TITLE if effect.shape == BucketingChangeShape.KEY_CHANGED else _TITLE
-    what_changed = [_what_changed(net, history.team_timezone) for net in effect.net_changes]
+    what_changed = [_what_changed(net, history) for net in effect.net_changes]
     if _continuity_turned_on(effect):
         # Turning persistence on keeps the variants that exposed users already have. Only a user who logs in again from
         # a new anonymous ID can get another one, and where an SDK can't apply persistence, nobody moves.
@@ -161,7 +162,7 @@ def _not_checked(history: FlagHistoryNotChecked) -> ExperimentHealthFinding | No
         at = format_change_time(effect.last.changed_at, history.team_timezone)
         what_changed = [f"{_changed_settings(effect)} changed after launch and {_was(effect)} set back on {at}."]
     else:
-        what_changed = [_what_changed(net, history.team_timezone) for net in effect.net_changes]
+        what_changed = [_what_changed(net, history) for net in effect.net_changes]
     return not_checked_finding(
         history,
         effect,
@@ -173,15 +174,13 @@ def _not_checked(history: FlagHistoryNotChecked) -> ExperimentHealthFinding | No
     )
 
 
-def _what_changed(change: BucketingChange, team_timezone: str) -> str:
-    at = format_change_time(change.changed_at, team_timezone)
-    before = describe_bucketing_value(change.setting, change.before)
-    after = describe_bucketing_value(change.setting, change.after)
+def _what_changed(change: BucketingChange, history: FlagHistory | FlagHistoryNotChecked) -> str:
+    at = format_change_time(change.changed_at, history.team_timezone)
+    before = describe_bucketing_value(change.setting, change.before, group_type_names=history.group_type_names)
+    after = describe_bucketing_value(change.setting, change.after, group_type_names=history.group_type_names)
     match change.setting:
         case BucketingSetting.KEY:
             return f"The flag key changed from {before} to {after} on {at}."
-        case BucketingSetting.AGGREGATION if change.before is not None and change.after is not None:
-            return f"The flag changed to match by another group type on {at}."
         case BucketingSetting.AGGREGATION | BucketingSetting.BUCKETING_IDENTIFIER:
             return f"The flag changed from matching by {before} to matching by {after} on {at}."
         case BucketingSetting.EXPERIENCE_CONTINUITY:
@@ -192,7 +191,7 @@ def _consequence(effect: BucketingNetEffect) -> list[str]:
     match effect.shape:
         case BucketingChangeShape.KEY_CHANGED:
             key = next(change for change in effect.net_changes if change.setting == BucketingSetting.KEY)
-            old_key = describe_bucketing_value(BucketingSetting.KEY, key.before)
+            old_key = describe_flag_key(key.before)
             return [
                 "The key is an input of the variant draw, so every user got a new one.",
                 f"Exposures under {old_key} are no longer in the results, and code that still uses {old_key} no "
@@ -236,9 +235,7 @@ def _key_state(effect: BucketingNetEffect) -> list[str]:
     if effect.shape != BucketingChangeShape.KEY_CHANGED:
         return []
     key = next(change for change in effect.net_changes if change.setting == BucketingSetting.KEY)
-    return [
-        f"Code that still uses {describe_bucketing_value(BucketingSetting.KEY, key.before)} no longer gets this flag."
-    ]
+    return [f"Code that still uses {describe_flag_key(key.before)} no longer gets this flag."]
 
 
 def _changed_settings(effect: BucketingNetEffect) -> str:
