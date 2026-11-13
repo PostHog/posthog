@@ -20,7 +20,6 @@ import { getNavProductPages, navProductHrefForPath } from '~/layout/panel-layout
 import { FileSystemImport } from '~/queries/schema/schema-general'
 
 import { isErrorTrackingIssuePath, monitorProductForPath } from './todayMonitor'
-import { todayMonitorRecentsLogic } from './todayMonitorRecentsLogic'
 import { isPeopleDetailPath, isPeopleListPath } from './todayPeople'
 import { todayPeopleRecentsLogic } from './todayPeopleRecentsLogic'
 
@@ -424,7 +423,7 @@ export const todayShellLogic = kea<todayShellLogicType>([
             ['mobileLayout'],
         ],
         actions: [router, ['locationChanged']],
-        logic: [todayPeopleRecentsLogic, todayMonitorRecentsLogic],
+        logic: [todayPeopleRecentsLogic],
     })),
     actions({
         rememberSceneUrl: (location: { pathname: string; search: string; hash: string }) => ({ location }),

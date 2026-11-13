@@ -50,7 +50,7 @@ export type todayMonitorRecentsLogicType = MakeLogicType<
     todayMonitorRecentsLogicMeta
 >
 
-/** Mounted with the shell, so an issue opened from any pane counts. */
+/** Mounted by `TodayShell`, so an issue opened from any pane counts. */
 export const todayMonitorRecentsLogic = kea<todayMonitorRecentsLogicType>([
     path(['layout', 'today', 'todayMonitorRecentsLogic']),
     connect(() => ({
