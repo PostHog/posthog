@@ -570,15 +570,41 @@ class TestSendGridContacts(ClickhouseTestMixin, BaseTest):
             patcher.start()
         self.people = PeopleImportRecorder(self)
 
+    def _run_contacts(self) -> ProviderImportRun:
+        run = runs.start_run(self.team.id, "sendgrid", ["contacts", "new_people"], FULL_KEY, self.user.id)
+        with self.captureOnCommitCallbacks(execute=True):
+            for step in run.steps:
+                try:
+                    runs.run_step(self.team.id, run.id, step, attempt=1)
+                except ImportProviderUnavailable:
+                    pass
+        runs.finish_run(self.team.id, run.id)
+        run.refresh_from_db()
+        return run
+
+    @parameterized.expand(
+        [
+            ("a_passing_server_error_is_retried", [503], False, "completed"),
+            ("a_redirect_is_not_read_as_the_file", [302], False, "failed"),
+            ("a_cut_off_file_is_not_imported", [], True, "failed"),
+        ]
+    )
+    def test_a_download_imports_only_a_whole_file(
+        self, _name: str, statuses: list[int], truncated: bool, outcome: str
+    ) -> None:
+        self.state.failures["/__exports"] = statuses
+        self.state.truncate_exports = truncated
+
+        run = self._run_contacts()
+
+        assert run.progress["contacts"]["status"] == outcome
+        assert bool(self.people.imports) is (outcome == "completed")
+
     def test_contacts_come_from_exports_and_fill_a_cohort_per_list(self) -> None:
         _create_person(team=self.team, distinct_ids=["user-tess"], properties={"email": "tester@example.com"})
         flush_persons_and_events()
 
-        run = runs.start_run(self.team.id, "sendgrid", ["contacts", "new_people"], FULL_KEY, self.user.id)
-        for step in run.steps:
-            runs.run_step(self.team.id, run.id, step, attempt=1)
-        runs.finish_run(self.team.id, run.id)
-        run.refresh_from_db()
+        run = self._run_contacts()
 
         assert run.status == "completed"
         assert self.people.imports == [
