@@ -157,30 +157,19 @@ def _inflight_slot(integration_id: int) -> Iterator[bool]:
             pass
 
 
-def _forward_through_connection(
+def _send_to_target(
     integration: IntegrationRecord,
     method: str,
-    path: str,
+    url: str,
     *,
+    headers: dict[str, str],
     query: dict[str, Any] | None = None,
-    data: Any = None,
-    mcp_origin: bool = False,
-    sandbox_origin: bool = False,
+    json_body: Any = None,
+    form: dict[str, str] | None = None,
 ) -> ForwardResult:
-    """Replay one request against the connected project, injecting the connection's token.
-
-    Pass mcp_origin=True to stamp the outbound request with the MCP user agent, so the
-    target organization applies its MCP read-only policy to a write that an MCP client
-    started through this connection. A forward that did not start from an MCP request must
-    not be marked: the target organization restricts MCP, not connections."""
-    token = _connection_access_token(integration)
-    base = posthog_connect_base_url(integration.config.get("region"))
-    headers = {"Authorization": f"Bearer {token}", CONNECTION_MARKER_HEADER: "1"}
-    if sandbox_origin:
-        headers[SANDBOX_ORIGIN_HEADER] = "1"
-    if mcp_origin:
-        headers["User-Agent"] = f"posthog-connection; {MCP_USER_AGENT_MARKER}"
-
+    """Send one request to the connected cell under the per-connection in-flight cap, with the
+    response size cap and the wall-clock deadline. Every outbound call to the target goes through
+    here, so no call can hold a worker longer or read more than a forward can."""
     raw = bytearray()
     timed_out = False
     try:
@@ -189,9 +178,10 @@ def _forward_through_connection(
                 raise Throttled(detail="Too many concurrent requests through this PostHog connection.")
             res = requests.request(
                 method,
-                f"{base}/{path}",
+                url,
                 params=query or None,
-                json=data if method in _METHODS_WITH_BODY else None,
+                json=json_body,
+                data=form,
                 headers=headers,
                 timeout=CONNECTION_FORWARD_TIMEOUT_SECONDS,
                 # A compromised/misconfigured target must not be able to 30x us into resending the
@@ -251,25 +241,54 @@ def _forward_through_connection(
     return ForwardResult(status=res.status_code, data=body)
 
 
-def _connection_scoped_team_ids(integration: IntegrationRecord) -> list[int] | None:
-    """The projects the connection's token is limited to, read by having the target introspect the
-    token itself. Self-introspection needs no extra scope. Returns None when the answer can't be
-    read, so the caller falls back to the user's current project there."""
+def _forward_through_connection(
+    integration: IntegrationRecord,
+    method: str,
+    path: str,
+    *,
+    query: dict[str, Any] | None = None,
+    data: Any = None,
+    mcp_origin: bool = False,
+    sandbox_origin: bool = False,
+) -> ForwardResult:
+    """Replay one request against the connected project, injecting the connection's token.
+
+    Pass mcp_origin=True to stamp the outbound request with the MCP user agent, so the
+    target organization applies its MCP read-only policy to a write that an MCP client
+    started through this connection. A forward that did not start from an MCP request must
+    not be marked: the target organization restricts MCP, not connections."""
     token = _connection_access_token(integration)
     base = posthog_connect_base_url(integration.config.get("region"))
-    try:
-        res = requests.request(
-            "POST",
-            f"{base}/oauth/introspect/",
-            data={"token": token},
-            headers={"Authorization": f"Bearer {token}", CONNECTION_MARKER_HEADER: "1"},
-            timeout=CONNECTION_FORWARD_TIMEOUT_SECONDS,
-            allow_redirects=False,
-        )
-        body = res.json() if res.status_code == status.HTTP_200_OK else None
-    except (requests.RequestException, ValueError):
-        return None
-    if not isinstance(body, dict) or not body.get("active"):
+    headers = {"Authorization": f"Bearer {token}", CONNECTION_MARKER_HEADER: "1"}
+    if sandbox_origin:
+        headers[SANDBOX_ORIGIN_HEADER] = "1"
+    if mcp_origin:
+        headers["User-Agent"] = f"posthog-connection; {MCP_USER_AGENT_MARKER}"
+    return _send_to_target(
+        integration,
+        method,
+        f"{base}/{path}",
+        headers=headers,
+        query=query,
+        json_body=data if method in _METHODS_WITH_BODY else None,
+    )
+
+
+def _connection_scoped_team_ids(integration: IntegrationRecord) -> list[int] | None:
+    """The projects the connection's token is limited to, read by having the target introspect the
+    token itself. Self-introspection needs no extra scope. An empty list means the token is not
+    limited to projects. None means the answer could not be read, and the caller must not guess."""
+    token = _connection_access_token(integration)
+    base = posthog_connect_base_url(integration.config.get("region"))
+    result = _send_to_target(
+        integration,
+        "POST",
+        f"{base}/oauth/introspect/",
+        headers={"Authorization": f"Bearer {token}", CONNECTION_MARKER_HEADER: "1"},
+        form={"token": token},
+    )
+    body = result.data
+    if result.status != status.HTTP_200_OK or not isinstance(body, dict) or body.get("active") is not True:
         return None
     scoped = body.get("scoped_teams")
     if not isinstance(scoped, list) or not all(type(team_id) is int for team_id in scoped):
@@ -277,9 +296,17 @@ def _connection_scoped_team_ids(integration: IntegrationRecord) -> list[int] | N
     return scoped
 
 
-def _lookup_connected_team(
+@dataclass(frozen=True, kw_only=True)
+class ConnectedProject:
+    project_id: int
+    project_name: str
+    organization_id: str
+    organization_name: str
+
+
+def _lookup_connected_project(
     integration: IntegrationRecord, team_id: int, me: dict[str, Any]
-) -> tuple[dict[str, Any], dict[str, Any]] | None:
+) -> ConnectedProject | None:
     """Find the name and organization of a project on the far side that is not the user's current
     one. The current organization's team list is free, as `api/users/@me/` already returned it. A
     project in another organization needs one more read, which the connection's scopes may not
@@ -287,7 +314,12 @@ def _lookup_connected_team(
     organization = me.get("organization") or {}
     for team in organization.get("teams") or []:
         if isinstance(team, dict) and team.get("id") == team_id:
-            return team, organization
+            return ConnectedProject(
+                project_id=team_id,
+                project_name=team.get("name") or "",
+                organization_id=str(organization.get("id") or ""),
+                organization_name=organization.get("name") or "",
+            )
 
     result = _forward_through_connection(integration, "GET", f"api/projects/{team_id}/")
     project = result.data if isinstance(result.data, dict) else {}
@@ -302,7 +334,12 @@ def _lookup_connected_team(
         ),
         "",
     )
-    return project, {"id": organization_id, "name": organization_name}
+    return ConnectedProject(
+        project_id=team_id,
+        project_name=project.get("name") or "",
+        organization_id=organization_id,
+        organization_name=organization_name,
+    )
 
 
 class PostHogConnectionForwardSerializer(serializers.Serializer):
@@ -442,8 +479,20 @@ class PostHogConnectionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # `api/users/@me/` reports the user's current project on the far side. The project picked at
         # consent can be a different one, and the token works only there.
         base_url = posthog_connect_base_url(integration.config.get("region"))
+        project = ConnectedProject(
+            project_id=team["id"],
+            project_name=team.get("name") or "",
+            organization_id=str(organization.get("id") or ""),
+            organization_name=organization.get("name") or "",
+        )
         scoped_team_ids = _connection_scoped_team_ids(integration)
-        if scoped_team_ids and team["id"] not in scoped_team_ids:
+        if scoped_team_ids is None:
+            # Fail closed and do not cache: the current project is a guess until the token's scope is known.
+            return Response(
+                {"error": "The projects this connection can use could not be read. Try again in a moment."},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+        if scoped_team_ids and project.project_id not in scoped_team_ids:
             if len(scoped_team_ids) > 1:
                 return Response(
                     {
@@ -452,7 +501,7 @@ class PostHogConnectionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     },
                     status=status.HTTP_502_BAD_GATEWAY,
                 )
-            found = _lookup_connected_team(integration, scoped_team_ids[0], me)
+            found = _lookup_connected_project(integration, scoped_team_ids[0], me)
             if found is None:
                 return Response(
                     {
@@ -461,13 +510,13 @@ class PostHogConnectionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     },
                     status=status.HTTP_502_BAD_GATEWAY,
                 )
-            team, organization = found
+            project = found
 
         payload = {
-            "project_id": team["id"],
-            "project_name": team.get("name") or "",
-            "organization_id": str(organization.get("id") or ""),
-            "organization_name": organization.get("name") or "",
+            "project_id": project.project_id,
+            "project_name": project.project_name,
+            "organization_id": project.organization_id,
+            "organization_name": project.organization_name,
             "region": (integration.config.get("region") or "").upper(),
             "base_url": base_url,
         }
