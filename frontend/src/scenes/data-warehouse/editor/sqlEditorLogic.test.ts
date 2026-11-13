@@ -3644,6 +3644,42 @@ describe('sqlEditorLogic', () => {
     })
 
     describe('AI suggestion undo', () => {
+        it('delivers an AI fix only to the requesting editor tab', async () => {
+            let finish: ((response: [number, { query: string; trace_id: string }]) => void) | undefined
+            let started!: () => void
+            const requestStarted = new Promise<void>((resolve) => {
+                started = resolve
+            })
+            useMocks({
+                post: {
+                    '/api/projects/:team_id/fix_hogql/': () =>
+                        new Promise<[number, { query: string; trace_id: string }]>((resolve) => {
+                            finish = resolve
+                            started()
+                        }),
+                },
+            })
+            logic = sqlEditorLogic({ tabId: TAB_ID, monaco: createMockMonaco(), editor: createMockEditor() })
+            logic.mount()
+            logic.actions.updateTab({ uri: { path: `tab-${TAB_ID}` }, name: 'First query' } as any)
+            logic.actions.setQueryInput('SELECT broken')
+            const other = sqlEditorLogic({ tabId: 'other-tab', monaco: createMockMonaco(), editor: createMockEditor() })
+            other.mount()
+            other.actions.updateTab({ uri: { path: 'tab-other-tab' }, name: 'Other query' } as any)
+            other.actions.setQueryInput('SELECT 2')
+            logic.actions.fixErrors('SELECT broken', 'Unknown identifier')
+            await requestStarted
+            await expectLogic(logic).toMatchValues({ fixErrorsLoading: true })
+            expect(other.values.fixErrorsLoading).toBe(false)
+            finish!([200, { query: 'SELECT 1', trace_id: 'example-trace' }])
+            await expectLogic(logic).toDispatchActions(['fixErrorsSuccess']).toFinishAllListeners()
+            expect(logic.values.suggestionPayload?.suggestedValue).toBe('SELECT 1')
+            expect(logic.values.queryInput).toBe('SELECT broken')
+            expect(other.values.suggestionPayload).toBeNull()
+            expect(other.values.queryInput).toBe('SELECT 2')
+            other.unmount()
+        })
+
         const ORIGINAL = 'SELECT 1'
         const ACCEPTED = 'SELECT 2 FROM events'
 

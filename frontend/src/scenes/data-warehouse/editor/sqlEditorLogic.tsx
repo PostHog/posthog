@@ -666,6 +666,7 @@ export interface sqlEditorLogicValues {
     databaseConnectionId: string | null // databaseTableListLogic
     databaseLoading: boolean // databaseTableListLogic
     drafts: DataWarehouseSavedQueryDraft[] // draftsLogic
+    fixErrorsLoading: boolean // fixSQLErrorsLogic
     outputActiveTab: OutputTab // outputPaneLogic
     user: UserType | null // userLogic
     acceptText: string
@@ -1401,6 +1402,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
     key((props) => props.tabId),
     connect((props: SqlEditorLogicProps) => ({
         values: [
+            fixSQLErrorsLogic({ tabId: props.tabId }),
+            ['responseLoading as fixErrorsLoading'],
             dataWarehouseViewsLogic,
             ['dataWarehouseSavedQueries', 'dataWarehouseSavedQueryFolders', 'dataWarehouseSavedQueryMapById'],
             userLogic,
@@ -1430,7 +1433,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             ],
             outputPaneLogic({ tabId: props.tabId }),
             ['setActiveTab'],
-            fixSQLErrorsLogic,
+            fixSQLErrorsLogic({ tabId: props.tabId }),
             ['fixErrors', 'fixErrorsSuccess', 'fixErrorsFailure'],
             draftsLogic,
             ['saveAsDraft', 'deleteDraft', 'saveAsDraftSuccess', 'deleteDraftSuccess'],
