@@ -61,7 +61,8 @@ export function QuillRollingDateRangeRow({
                         }
                     }}
                     units={units}
-                    max={max ?? undefined}
+                    // No max means no limit, as in the Lemon control; the input otherwise caps at 999
+                    max={max ?? Number.MAX_SAFE_INTEGER}
                 />
             </div>
         </div>
