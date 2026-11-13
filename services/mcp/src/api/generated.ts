@@ -14975,13 +14975,112 @@ export namespace Schemas {
       pagerduty_region?: PagerDutyRegionEnum;
     }
 
+    /**
+     * * `discord` - discord
+     * * `teams` - teams
+     * * `webhook` - webhook
+     */
+    export type AlertCreateUrlDestinationTypeEnum = typeof AlertCreateUrlDestinationTypeEnum[keyof typeof AlertCreateUrlDestinationTypeEnum];
+
+
+    export const AlertCreateUrlDestinationTypeEnum = {
+      Discord: 'discord',
+      Teams: 'teams',
+      Webhook: 'webhook',
+    } as const;
+
+    export interface AlertCreateUrlDestination {
+      /** Destination type: a Discord or Microsoft Teams channel, or any webhook.
+       *
+       * * `discord` - discord
+       * * `teams` - teams
+       * * `webhook` - webhook */
+      type: AlertCreateUrlDestinationTypeEnum;
+      /** The https URL to send to. Its path and query are a credential, so reads show only the host. */
+      webhook_url: string;
+    }
+
     export interface AlertDeleteDestination {
       /**
-         * Destination IDs to delete, as returned when the destination was created.
-         * @minItems 1
+         * HogFunction IDs of the destination, as returned when it was created.
          * @maxItems 100
          */
+      hog_function_ids?: string[];
+      /**
+         * Destination IDs from the destinations list, to delete with their HogFunctions.
+         * @maxItems 100
+         */
+      destination_ids?: string[];
+    }
+
+    /**
+     * * `slack` - Slack
+     * * `discord` - Discord
+     * * `webhook` - Webhook
+     * * `teams` - Microsoft Teams
+     * * `pagerduty` - PagerDuty
+     * * `email` - Email
+     * * `in_app` - In-app notification
+     */
+    export type DestinationTypeEnum = typeof DestinationTypeEnum[keyof typeof DestinationTypeEnum];
+
+
+    export const DestinationTypeEnum = {
+      Slack: 'slack',
+      Discord: 'discord',
+      Webhook: 'webhook',
+      Teams: 'teams',
+      Pagerduty: 'pagerduty',
+      Email: 'email',
+      InApp: 'in_app',
+    } as const;
+
+    export interface AlertDestinationListItem {
+      /**
+         * The destination's ID on the alerts platform. Null for a destination added before the platform kept one, which `hog_function_ids` identifies instead.
+         * @nullable
+         */
+      id: string | null;
+      /** The HogFunctions that send for the destination. Empty once they are gone. */
       hog_function_ids: string[];
+      /** Notification destination type.
+       *
+       * * `slack` - Slack
+       * * `discord` - Discord
+       * * `webhook` - Webhook
+       * * `teams` - Microsoft Teams
+       * * `pagerduty` - PagerDuty
+       * * `email` - Email
+       * * `in_app` - In-app notification */
+      type: DestinationTypeEnum;
+      /** Whether the destination sends. */
+      enabled: boolean;
+      /** Whether the destination's HogFunctions hear the firing event, which a test delivery sends. */
+      hears_firing: boolean;
+      /** Whether someone edited the destination's message, so it no longer sends the standard one. */
+      message_customized: boolean;
+      /** Slack workspace integration ID. */
+      slack_workspace_id?: number;
+      /** Slack channel ID. */
+      slack_channel_id?: string;
+      /** Slack channel name, when it was saved. */
+      slack_channel_name?: string;
+      /** Webhook URL reduced to scheme and host. The path and query carry the secret. */
+      webhook_url?: string;
+      /** PagerDuty integration key reduced to its last four characters. */
+      pagerduty_routing_key?: string;
+      /** Severity of the incidents it opens.
+       *
+       * * `critical` - critical
+       * * `error` - error
+       * * `warning` - warning
+       * * `info` - info */
+      pagerduty_severity?: PagerDutySeverityEnum;
+      /** Region of the PagerDuty account.
+       *
+       * * `us` - us
+       * * `eu` - eu */
+      pagerduty_region?: PagerDutyRegionEnum;
     }
 
     export interface AlertDestinationResponse {
@@ -38017,28 +38116,6 @@ export namespace Schemas {
       steps: DestinationConnectionTestStep[];
     }
 
-    /**
-     * * `slack` - Slack
-     * * `discord` - Discord
-     * * `webhook` - Webhook
-     * * `teams` - Microsoft Teams
-     * * `pagerduty` - PagerDuty
-     * * `email` - Email
-     * * `in_app` - In-app notification
-     */
-    export type DestinationTypeEnum = typeof DestinationTypeEnum[keyof typeof DestinationTypeEnum];
-
-
-    export const DestinationTypeEnum = {
-      Slack: 'slack',
-      Discord: 'discord',
-      Webhook: 'webhook',
-      Teams: 'teams',
-      Pagerduty: 'pagerduty',
-      Email: 'email',
-      InApp: 'in_app',
-    } as const;
-
     export interface DetectableEffectCheckpoint {
       /** The week mark, in whole weeks since launch. */
       weeks_since_launch: number;
@@ -42786,10 +42863,10 @@ export namespace Schemas {
      * * `correlation` - correlation
      * * `diagnostics` - diagnostics
      */
-    export type IncludeEnum = typeof IncludeEnum[keyof typeof IncludeEnum];
+    export type ErrorTrackingIssueEventsQueryRequestIncludeEnum = typeof ErrorTrackingIssueEventsQueryRequestIncludeEnum[keyof typeof ErrorTrackingIssueEventsQueryRequestIncludeEnum];
 
 
-    export const IncludeEnum = {
+    export const ErrorTrackingIssueEventsQueryRequestIncludeEnum = {
       Exception: 'exception',
       Stacktrace: 'stacktrace',
       CodeVariables: 'code_variables',
@@ -42831,7 +42908,7 @@ export namespace Schemas {
          */
       offset?: number;
       /** Context groups to return. Defaults to exception, environment, navigation, and correlation. Request stacktrace for frames, code_variables for captured and SDK-masked frame variables, release for release metadata, or diagnostics for ingestion errors. code_variables implies stacktrace. */
-      include?: IncludeEnum[];
+      include?: ErrorTrackingIssueEventsQueryRequestIncludeEnum[];
       /** When true, include only stack frames marked in_app. Defaults to true. */
       onlyAppFrames?: boolean;
     }
@@ -67365,6 +67442,11 @@ export namespace Schemas {
 
     export interface LogsAlertDestinationConfig {
       hog_function_ids: string[];
+      /**
+         * The destination's ID on the alerts platform. Null for a destination added before the platform kept one, which `hog_function_ids` identifies instead. A destination whose HogFunctions are gone has an empty `hog_function_ids`, and is deleted by this ID.
+         * @nullable
+         */
+      id: string | null;
       /** Notification destination type.
        *
        * * `slack` - slack
@@ -67378,6 +67460,8 @@ export namespace Schemas {
       message_customized: boolean;
       slack_workspace_id?: number;
       slack_channel_id?: string;
+      /** The Slack channel's name when the destination was added. Absent for older destinations. */
+      slack_channel_name?: string;
       /** Webhook endpoint reduced to scheme and host. The path, query and userinfo carry the secret. */
       webhook_url?: string;
       /** PagerDuty integration key reduced to its last four characters. */
@@ -67543,11 +67627,13 @@ export namespace Schemas {
     }
 
     export interface LogsAlertDeleteDestination {
+      /** HogFunction IDs to delete as one atomic destination group. */
+      hog_function_ids?: string[];
       /**
-         * HogFunction IDs to delete as one atomic destination group.
-         * @minItems 1
+         * Destination IDs, from `destinations[].id`, to delete with their HogFunctions.
+         * @maxItems 100
          */
-      hog_function_ids: string[];
+      destination_ids?: string[];
     }
 
     export interface LogsAlertDestinationResponse {
@@ -67952,6 +68038,211 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `trace` - Trace
+     * * `log` - Log
+     * * `attribute` - Attribute
+     */
+    export type LogsContextAnchorTypeEnum = typeof LogsContextAnchorTypeEnum[keyof typeof LogsContextAnchorTypeEnum];
+
+
+    export const LogsContextAnchorTypeEnum = {
+      Trace: 'trace',
+      Log: 'log',
+      Attribute: 'attribute',
+    } as const;
+
+    /**
+     * * `spans` - Spans
+     */
+    export type LogsContextIncludeEnum = typeof LogsContextIncludeEnum[keyof typeof LogsContextIncludeEnum];
+
+
+    export const LogsContextIncludeEnum = {
+      Spans: 'spans',
+    } as const;
+
+    export interface _LogsContextAttributeAnchor {
+      /** Log attribute key, e.g. "workflow_run_id". */
+      key: string;
+      /** Exact attribute value to follow. */
+      value: string;
+    }
+
+    export interface _LogsContextAnchor {
+      /** uuid of one log line. Needs `timestamp`. */
+      logUuid?: string;
+      /** ISO 8601 timestamp of the `logUuid` log line. */
+      timestamp?: string;
+      /** Trace id, 32 hex characters or base64. */
+      traceId?: string;
+      /** Follow every log with this attribute value. */
+      attribute?: _LogsContextAttributeAnchor;
+      /** ISO 8601 time hint. Required with `attribute`, used with `traceId` only when the trace has no spans. */
+      around?: string;
+    }
+
+    /**
+     * * `trace` - trace
+     * * `debug` - debug
+     * * `info` - info
+     * * `warn` - warn
+     * * `error` - error
+     * * `fatal` - fatal
+     */
+    export type LogsSeverityLevelEnum = typeof LogsSeverityLevelEnum[keyof typeof LogsSeverityLevelEnum];
+
+
+    export const LogsSeverityLevelEnum = {
+      Trace: 'trace',
+      Debug: 'debug',
+      Info: 'info',
+      Warn: 'warn',
+      Error: 'error',
+      Fatal: 'fatal',
+    } as const;
+
+    export interface _LogsContextBody {
+      /** Exactly one anchor: a log line, a trace, or an attribute value. */
+      anchor: _LogsContextAnchor;
+      /** Time on each side of the anchor: "30s", "5m", "1h" (max 6h). Default 30s for a trace, 5m otherwise. */
+      padding?: string;
+      /** Keep only these severities in the timeline. */
+      severityLevels?: LogsSeverityLevelEnum[];
+      /** Restrict the timeline to these services. Default: the trace's services, the log's service, or all. */
+      serviceNames?: string[];
+      /** "spans" adds spans_summary for a trace anchor. */
+      include?: LogsContextIncludeEnum[];
+      /**
+         * Maximum timeline rows.
+         * @minimum 1
+         * @maximum 500
+         */
+      limit?: number;
+      /** `next_cursor` of a previous call with the same anchor. */
+      after?: string;
+    }
+
+    export interface LogsContextRequest {
+      /** The context query. */
+      query: _LogsContextBody;
+    }
+
+    export interface _LogsContextAnchorSummary {
+      /** The anchor kind.
+       *
+       * * `trace` - Trace
+       * * `log` - Log
+       * * `attribute` - Attribute */
+      type: LogsContextAnchorTypeEnum;
+      /**
+         * Trace id (hex) of the anchor, when there is one.
+         * @nullable
+         */
+      trace_id: string | null;
+      /** Reference time (UTC) that `t_offset_ms` counts from. */
+      timestamp: string;
+      /**
+         * Trace start or first matching log (UTC).
+         * @nullable
+         */
+      start: string | null;
+      /**
+         * Trace end or last matching log (UTC).
+         * @nullable
+         */
+      end: string | null;
+      /**
+         * end - start in milliseconds.
+         * @nullable
+         */
+      duration_ms: number | null;
+      /** Services of the anchor. */
+      services: string[];
+    }
+
+    export interface _LogsContextCorrelationKey {
+      /** Id-like attribute of the anchor log. */
+      key: string;
+      /** Its value on the anchor log. */
+      value: string;
+      /** Logs in the window, any service, with this value. */
+      log_count: number;
+    }
+
+    export interface _LogsContextTimelineRow {
+      /** Milliseconds from the anchor reference time. */
+      t_offset_ms: number;
+      /** Log timestamp (UTC). */
+      timestamp: string;
+      /** Service that emitted the line. */
+      service: string;
+      /** Severity of the line. */
+      severity: string;
+      /** Log body, cut to 300 characters. */
+      body: string;
+      /** k=v attributes that differ from the anchor log, without noise keys. */
+      attrs: string;
+      /** Log uuid, usable with `timestamp` as a log anchor. */
+      uuid: string;
+    }
+
+    export interface _LogsContextSpan {
+      /** Span id (hex). */
+      span_id: string;
+      /** Span name. */
+      name: string;
+      /** Service of the span. */
+      service: string;
+      /** Milliseconds from the trace start. */
+      start_offset_ms: number;
+      /** Span duration in milliseconds. */
+      duration_ms: number;
+      /** Duration not covered by child spans. */
+      self_time_ms: number;
+      /** "error" or "ok". */
+      status: string;
+    }
+
+    export interface _LogsContextSpansSummary {
+      /** Spans read. */
+      span_count: number;
+      /** True when the trace has more spans than were read. */
+      truncated: boolean;
+      /** Services with spans in the trace. */
+      services: string[];
+      /** The root span, null when it never arrived. */
+      root: _LogsContextSpan | null;
+      /** Up to 10 spans with an error status. */
+      error_spans: _LogsContextSpan[];
+      /** The 5 longest spans. */
+      slowest: _LogsContextSpan[];
+    }
+
+    export interface LogsContextResponse {
+      /** Absolute UTC bounds the logs were read from. */
+      window: LogsAgentWindow;
+      /** The resolved anchor. */
+      anchor: _LogsContextAnchorSummary;
+      /** Id-like attributes of the anchor log, with counts. */
+      correlation_keys: _LogsContextCorrelationKey[];
+      /** Log lines, earliest first. */
+      timeline: _LogsContextTimelineRow[];
+      /** Set for a trace anchor with include ["spans"]. */
+      spans_summary: _LogsContextSpansSummary | null;
+      /** True when more rows exist past `limit`. */
+      truncated: boolean;
+      /**
+         * Pass as `after` for the next page.
+         * @nullable
+         */
+      next_cursor: string | null;
+      /** Prefilled follow-up calls. */
+      next: LogsAgentNextCall[];
+      /** Caveats about the window. */
+      notes: string[];
+    }
+
+    /**
      * * `severity_sampling` - Severity-based reduction
      * * `path_drop` - Path exclusion
      * * `rate_limit` - Rate limit
@@ -68213,26 +68504,6 @@ export namespace Schemas {
       dateRange?: _LogsNaturalLanguageDateRange;
     }
 
-    /**
-     * * `trace` - trace
-     * * `debug` - debug
-     * * `info` - info
-     * * `warn` - warn
-     * * `error` - error
-     * * `fatal` - fatal
-     */
-    export type SeverityLevelsEnum = typeof SeverityLevelsEnum[keyof typeof SeverityLevelsEnum];
-
-
-    export const SeverityLevelsEnum = {
-      Trace: 'trace',
-      Debug: 'debug',
-      Info: 'info',
-      Warn: 'warn',
-      Error: 'error',
-      Fatal: 'fatal',
-    } as const;
-
     export interface _LogsNaturalLanguageCandidateFilter {
       /** Attribute key, or "message" for the log body text. */
       key: string;
@@ -68252,7 +68523,7 @@ export namespace Schemas {
       /** Date range of this reading. */
       dateRange: _LogsNaturalLanguageDateRange;
       /** Severity levels to keep. Empty means all levels. */
-      severityLevels: SeverityLevelsEnum[];
+      severityLevels: LogsSeverityLevelEnum[];
       /** Services to keep. Empty means all services. */
       serviceNames: string[];
       /** Attribute and message filters, combined with AND. */
@@ -71617,6 +71888,40 @@ export namespace Schemas {
       Retention: 'retention',
     } as const;
 
+    /**
+     * * `metric_runs` - Metric runs
+     * * `conversations` - Conversations
+     * * `adjusted_runs` - Adjusted runs
+     * * `topics` - Topics
+     * * `table_sources` - Table sources
+     * * `uncovered` - Uncovered
+     */
+    export type UsageSectionEnum = typeof UsageSectionEnum[keyof typeof UsageSectionEnum];
+
+
+    export const UsageSectionEnum = {
+      MetricRuns: 'metric_runs',
+      Conversations: 'conversations',
+      AdjustedRuns: 'adjusted_runs',
+      Topics: 'topics',
+      TableSources: 'table_sources',
+      Uncovered: 'uncovered',
+    } as const;
+
+    export interface SectionFailure {
+      /** The payload section whose step failed.
+       *
+       * * `metric_runs` - Metric runs
+       * * `conversations` - Conversations
+       * * `adjusted_runs` - Adjusted runs
+       * * `topics` - Topics
+       * * `table_sources` - Table sources
+       * * `uncovered` - Uncovered */
+      section: UsageSectionEnum;
+      /** Why the scan step failed. */
+      reason: string;
+    }
+
     export interface MetricUsage {
       /** ID of the catalog metric. */
       metric_id: string;
@@ -71635,6 +71940,8 @@ export namespace Schemas {
       runs: MetricRunCounts | null;
       /** Agent queries that re-derived the metric. is_scout marks the ones a scout ran. */
       adjusted_runs: AdjustedRun[];
+      /** Failed sections that these numbers read, so a missing count is not a zero. */
+      failed_sections: SectionFailure[];
     }
 
     /**
@@ -122622,6 +122929,8 @@ export namespace Schemas {
          * @nullable
          */
       proposed_metrics: ProposedMetric[] | null;
+      /** Sections whose scan step failed. Each one stays null, and the others keep their results. */
+      failed_sections: SectionFailure[];
     }
 
     export interface UsageSnapshot {
@@ -126301,7 +126610,7 @@ export namespace Schemas {
       /** Date range for the count. Defaults to last hour. */
       dateRange?: _DateRange;
       /** Filter by log severity levels. */
-      severityLevels?: SeverityLevelsEnum[];
+      severityLevels?: LogsSeverityLevelEnum[];
       /** Filter by service names. */
       serviceNames?: string[];
       /** Full-text search term to filter log bodies. */
@@ -126329,7 +126638,7 @@ export namespace Schemas {
          */
       targetBuckets?: number;
       /** Filter by log severity levels. Applied before bucketing. */
-      severityLevels?: SeverityLevelsEnum[];
+      severityLevels?: LogsSeverityLevelEnum[];
       /** Filter by service names. Applied before bucketing. */
       serviceNames?: string[];
       /** Full-text search across log bodies. Applied before bucketing. */
@@ -126379,7 +126688,7 @@ export namespace Schemas {
       /** Date range. Defaults to last hour. */
       dateRange?: _DateRange;
       /** Filter by log severity levels (ignored when faceting on severity_text). */
-      severityLevels?: SeverityLevelsEnum[];
+      severityLevels?: LogsSeverityLevelEnum[];
       /** Filter by service names (ignored when faceting on service_name). */
       serviceNames?: string[];
       /** Full-text search term to filter log bodies. */
@@ -126420,7 +126729,7 @@ export namespace Schemas {
       /** Date range to aggregate over. Defaults to last hour. */
       dateRange?: _DateRange;
       /** Filter by log severity levels before grouping. */
-      severityLevels?: SeverityLevelsEnum[];
+      severityLevels?: LogsSeverityLevelEnum[];
       /** Restrict grouping to these service names. */
       serviceNames?: string[];
       /** Full-text search term to filter log bodies before grouping. */
@@ -126566,7 +126875,7 @@ export namespace Schemas {
       /** Date range to mine patterns from. Defaults to last hour. */
       dateRange?: _DateRange;
       /** Filter by log severity levels before mining. */
-      severityLevels?: SeverityLevelsEnum[];
+      severityLevels?: LogsSeverityLevelEnum[];
       /** Restrict mining to these service names. */
       serviceNames?: string[];
       /** Full-text search term to filter log bodies before mining. */
@@ -126583,7 +126892,7 @@ export namespace Schemas {
       /** Date range to mine patterns from. Defaults to last hour. */
       dateRange?: _DateRange;
       /** Filter by log severity levels before mining. */
-      severityLevels?: SeverityLevelsEnum[];
+      severityLevels?: LogsSeverityLevelEnum[];
       /** Restrict mining to these service names. */
       serviceNames?: string[];
       /** Full-text search term to filter log bodies before mining. */
@@ -126749,7 +127058,7 @@ export namespace Schemas {
       /** Date range for the query. Defaults to last hour. */
       dateRange?: _DateRange;
       /** Filter by log severity levels. */
-      severityLevels?: SeverityLevelsEnum[];
+      severityLevels?: LogsSeverityLevelEnum[];
       /** Filter by service names. */
       serviceNames?: string[];
       /** Order results by timestamp.
@@ -126877,7 +127186,7 @@ export namespace Schemas {
       /** Date range for the services aggregation. Defaults to last hour. */
       dateRange?: _DateRange;
       /** Filter by log severity levels. */
-      severityLevels?: SeverityLevelsEnum[];
+      severityLevels?: LogsSeverityLevelEnum[];
       /** Restrict the aggregation to these service names. */
       serviceNames?: string[];
       /** Full-text search term to filter log bodies. */
@@ -126977,7 +127286,7 @@ export namespace Schemas {
       /** Date range for the sparkline. Defaults to last hour. */
       dateRange?: _DateRange;
       /** Filter by log severity levels. */
-      severityLevels?: SeverityLevelsEnum[];
+      severityLevels?: LogsSeverityLevelEnum[];
       /** Filter by service names. */
       serviceNames?: string[];
       /** Full-text search term to filter log bodies. */

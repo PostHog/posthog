@@ -1,14 +1,16 @@
 from datetime import UTC, datetime, timedelta
-from uuid import UUID
+from uuid import UUID, uuid4
 
+import time_machine
 from posthog.test.base import APIBaseTest
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
+from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.hogql.database.models import SavedQuery
 
@@ -19,15 +21,23 @@ from products.data_catalog.backend.facade.contracts import (
     ChartSource,
     MetricRunCounts,
     ProposedMetric,
+    SectionFailure,
     TableSource,
     TopicDefinition,
     UncoveredGroup,
     UsageSnapshotPayload,
 )
-from products.data_catalog.backend.facade.enums import JudgeRelation, ShapeOutcome, UsageSnapshotStatus
+from products.data_catalog.backend.facade.enums import JudgeRelation, ShapeOutcome, UsageSection, UsageSnapshotStatus
 from products.data_catalog.backend.logic.metrics import upsert_metric
+from products.data_catalog.backend.logic.usage_scan import (
+    SCAN_START_FAILED_MESSAGE,
+    create_usage_snapshot,
+    finalize_usage_snapshot,
+    teams_due_for_scan,
+)
 from products.data_catalog.backend.logic.usage_snapshots import (
     SCAN_STOPPED_MESSAGE,
+    STALE_COMPUTING,
     UsageReader,
     _denied_tables_and_views,
     _viewable_charts,
@@ -39,6 +49,8 @@ from products.data_catalog.backend.models import Metric, UsageSnapshot
 _SNAPSHOTS = "products.data_catalog.backend.logic.usage_snapshots"
 _FLAG = "products.data_catalog.backend.logic.usage_snapshots.posthoganalytics.feature_enabled"
 _VIEWABLE = "products.data_catalog.backend.logic.usage_snapshots.viewable_insight_definitions"
+_SCAN = "products.data_catalog.backend.logic.usage_scan"
+_TEMPORAL = f"{_SCAN}.sync_connect"
 _WINDOW_END = datetime(2026, 10, 26, tzinfo=UTC)
 
 
@@ -366,7 +378,7 @@ class TestUsageSnapshotAPI(APIBaseTest):
     @parameterized.expand(
         [
             ("running_scan", timedelta(hours=1), "computing", ""),
-            ("dead_scan", timedelta(hours=14), "error", SCAN_STOPPED_MESSAGE),
+            ("dead_scan", STALE_COMPUTING + timedelta(hours=1), "error", SCAN_STOPPED_MESSAGE),
         ]
     )
     def test_list_reports_a_computing_row_past_the_scan_timeout_as_error(
@@ -399,3 +411,142 @@ class TestUsageSnapshotAPI(APIBaseTest):
             response = self.client.get(f"/api/projects/{self.team.id}/data_catalog/metrics/mrr/usage/")
 
         assert response.status_code == expected_status, response.json()
+
+    def test_a_partly_failed_scan_is_done_and_names_only_the_failures_a_metric_reads(self) -> None:
+        upsert_metric(team=self.team, user=self.user, name="mrr", description="Monthly revenue")
+        snapshot = self._snapshot(snapshot_status=UsageSnapshotStatus.COMPUTING, computed_at=None)
+        finalize_usage_snapshot(
+            self.team.id,
+            snapshot.id,
+            failed_sections=[
+                SectionFailure(section=UsageSection.ADJUSTED_RUNS, reason="The judge timed out."),
+                SectionFailure(section=UsageSection.TOPICS, reason="The embedding service is down."),
+            ],
+        )
+
+        with patch(_FLAG, return_value=True):
+            response = self.client.get(f"/api/projects/{self.team.id}/data_catalog/metrics/mrr/usage/")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["failed_sections"] == [{"section": "adjusted_runs", "reason": "The judge timed out."}]
+
+    @parameterized.expand(
+        [
+            ("no_scan_running", None, timedelta(0), True, status.HTTP_202_ACCEPTED),
+            ("scan_running", UsageSnapshotStatus.COMPUTING, timedelta(hours=1), True, status.HTTP_409_CONFLICT),
+            ("dead_scan", UsageSnapshotStatus.COMPUTING, timedelta(hours=20), True, status.HTTP_202_ACCEPTED),
+            (
+                "scan_in_the_last_hour",
+                UsageSnapshotStatus.DONE,
+                timedelta(minutes=30),
+                True,
+                status.HTTP_429_TOO_MANY_REQUESTS,
+            ),
+            ("scan_over_an_hour_ago", UsageSnapshotStatus.DONE, timedelta(hours=2), True, status.HTTP_202_ACCEPTED),
+            ("no_ai_consent", None, timedelta(0), False, status.HTTP_403_FORBIDDEN),
+            (
+                "scan_that_never_started_in_the_last_hour",
+                UsageSnapshotStatus.ERROR,
+                timedelta(minutes=30),
+                True,
+                status.HTTP_202_ACCEPTED,
+                SCAN_START_FAILED_MESSAGE,
+            ),
+        ]
+    )
+    @time_machine.travel("2026-10-26T12:00:00Z", tick=False)
+    def test_recompute_starts_one_scan_at_a_time(
+        self,
+        _name: str,
+        existing_status: UsageSnapshotStatus | None,
+        existing_age: timedelta,
+        ai_approved: bool,
+        expected_status: int,
+        existing_error: str = "",
+    ) -> None:
+        self.organization.is_ai_data_processing_approved = ai_approved
+        self.organization.save()
+        if existing_status is not None:
+            existing = self._snapshot(snapshot_status=existing_status, computed_at=None)
+            UsageSnapshot.objects.for_team(self.team.id).filter(id=existing.id).update(
+                created_at=datetime(2026, 10, 26, 12, 0, tzinfo=UTC) - existing_age, error_message=existing_error
+            )
+        temporal = MagicMock()
+        temporal.start_workflow = AsyncMock()
+
+        with patch(_FLAG, return_value=True), patch(_TEMPORAL, return_value=temporal):
+            response = self.client.post(f"/api/projects/{self.team.id}/data_catalog/usage/recompute/")
+
+        assert response.status_code == expected_status, response.json()
+        started = expected_status == status.HTTP_202_ACCEPTED
+        assert temporal.start_workflow.await_count == (1 if started else 0)
+        assert UsageSnapshot.objects.for_team(self.team.id).count() == (1 if existing_status else 0) + started
+        if started:
+            assert response.json()["status"] == UsageSnapshotStatus.COMPUTING
+        if existing_status == UsageSnapshotStatus.COMPUTING and started:
+            dead = UsageSnapshot.objects.for_team(self.team.id).get(id=existing.id)
+            assert dead.status == UsageSnapshotStatus.ERROR
+
+    @parameterized.expand(
+        [
+            ("workflow_never_started", RPCError("not found", RPCStatusCode.NOT_FOUND, b""), UsageSnapshotStatus.ERROR),
+            ("workflow_started_but_reply_lost", None, UsageSnapshotStatus.COMPUTING),
+        ]
+    )
+    def test_recompute_closes_the_row_only_when_no_workflow_started(
+        self, _name: str, describe_error: RPCError | None, expected_row_status: UsageSnapshotStatus
+    ) -> None:
+        temporal = MagicMock()
+        temporal.start_workflow = AsyncMock(side_effect=RuntimeError("connection reset by temporal-frontend:7233"))
+        temporal.get_workflow_handle.return_value.describe = AsyncMock(side_effect=describe_error)
+        self.client.raise_request_exception = False
+
+        with patch(_FLAG, return_value=True), patch(_TEMPORAL, return_value=temporal):
+            response = self.client.post(f"/api/projects/{self.team.id}/data_catalog/usage/recompute/")
+
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        row = UsageSnapshot.objects.for_team(self.team.id).get()
+        assert row.status == expected_row_status
+        assert row.error_message == ("" if describe_error is None else SCAN_START_FAILED_MESSAGE)
+
+    @parameterized.expand(
+        [
+            ("eligible", True, False, True, True, 1),
+            ("deployment_cannot_scan", False, False, True, True, 0),
+            ("only_deleted_metrics", True, True, True, True, 0),
+            ("no_ai_consent", True, False, False, True, 0),
+            ("flag_off", True, False, True, False, 0),
+            ("flag_check_fails", True, False, True, RuntimeError("flag service unavailable"), 0),
+        ]
+    )
+    def test_weekly_run_scans_each_eligible_team_once(
+        self,
+        _name: str,
+        supported: bool,
+        metrics_deleted: bool,
+        ai_approved: bool,
+        flag: bool | Exception,
+        expected_count: int,
+    ) -> None:
+        self.organization.is_ai_data_processing_approved = ai_approved
+        self.organization.save()
+        upsert_metric(team=self.team, user=self.user, name="mrr", description="Monthly revenue")
+        upsert_metric(team=self.team, user=self.user, name="arr", description="Annual revenue")
+        Metric.objects.for_team(self.team.id).update(deleted=metrics_deleted)
+        flag_result = {"side_effect": flag} if isinstance(flag, Exception) else {"return_value": flag}
+
+        with (
+            patch(f"{_SCAN}.usage_scans_supported", return_value=supported),
+            patch(f"{_SCAN}.posthoganalytics.feature_enabled", **flag_result),
+        ):
+            due = teams_due_for_scan()
+
+        assert due.count(self.team.id) == expected_count
+
+    def test_a_retried_create_returns_the_row_its_first_attempt_made(self) -> None:
+        snapshot_id = uuid4()
+        first = create_usage_snapshot(self.team.id, snapshot_id=snapshot_id)
+        second = create_usage_snapshot(self.team.id, snapshot_id=snapshot_id)
+
+        assert first.id == second.id == snapshot_id
+        assert UsageSnapshot.objects.for_team(self.team.id).count() == 1

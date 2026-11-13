@@ -639,6 +639,39 @@ export interface AdjustedRunApi {
     is_scout: boolean
 }
 
+/**
+ * * `metric_runs` - Metric runs
+ * * `conversations` - Conversations
+ * * `adjusted_runs` - Adjusted runs
+ * * `topics` - Topics
+ * * `table_sources` - Table sources
+ * * `uncovered` - Uncovered
+ */
+export type UsageSectionEnumApi = (typeof UsageSectionEnumApi)[keyof typeof UsageSectionEnumApi]
+
+export const UsageSectionEnumApi = {
+    MetricRuns: 'metric_runs',
+    Conversations: 'conversations',
+    AdjustedRuns: 'adjusted_runs',
+    Topics: 'topics',
+    TableSources: 'table_sources',
+    Uncovered: 'uncovered',
+} as const
+
+export interface SectionFailureApi {
+    /** The payload section whose step failed.
+     *
+     * * `metric_runs` - Metric runs
+     * * `conversations` - Conversations
+     * * `adjusted_runs` - Adjusted runs
+     * * `topics` - Topics
+     * * `table_sources` - Table sources
+     * * `uncovered` - Uncovered */
+    section: UsageSectionEnumApi
+    /** Why the scan step failed. */
+    reason: string
+}
+
 export interface MetricUsageApi {
     /** ID of the catalog metric. */
     metric_id: string
@@ -657,6 +690,8 @@ export interface MetricUsageApi {
     runs: MetricRunCountsApi | null
     /** Agent queries that re-derived the metric. is_scout marks the ones a scout ran. */
     adjusted_runs: AdjustedRunApi[]
+    /** Failed sections that these numbers read, so a missing count is not a zero. */
+    failed_sections: SectionFailureApi[]
 }
 
 /**
@@ -1061,6 +1096,8 @@ export interface UsageSnapshotPayloadApi {
      * @nullable
      */
     proposed_metrics: ProposedMetricApi[] | null
+    /** Sections whose scan step failed. Each one stays null, and the others keep their results. */
+    failed_sections: SectionFailureApi[]
 }
 
 export interface UsageSnapshotApi {
