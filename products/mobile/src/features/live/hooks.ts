@@ -53,7 +53,6 @@ const BACKGROUND_GRACE_MS = 2000
 const MAX_BACKOFF_MS = 5 * 60_000
 /** After this many failed stats reads in a row, users online comes from the HogQL count instead. */
 const STATS_FAILURES_BEFORE_FALLBACK = 2
-/** While a project has sent no event, Live reads the project again on focus, at most this often. */
 const PROJECT_RECHECK_MS = 60_000
 
 interface LiveProjectInfo {
@@ -462,10 +461,6 @@ export function useLiveFeed(onError: (kind: LiveErrorKind) => void): LiveFeed {
             return undefined
         }
         void recheck(PROJECT_RECHECK_MS)
-        if (!notSetUp) {
-            return undefined
-        }
-        // The first event can land while the screen stays open, so the project is read again every minute too.
         const timer = setInterval(() => void recheck(PROJECT_RECHECK_MS), PROJECT_RECHECK_MS)
         return () => clearInterval(timer)
     }, [notSetUp, unknownProject, screenActive, recheck])

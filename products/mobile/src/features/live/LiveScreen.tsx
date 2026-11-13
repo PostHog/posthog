@@ -203,10 +203,9 @@ function LiveBody({ chrome, scope, scrollTitle, toasts }: LiveBodyProps): ReactE
         )
     } else {
         const activity = snapshot.activity
-        // App only lists screens and drops referrers, which app events do not carry. The list's own form guards the
-        // read where the screens job failed and the last pages are still on screen.
+        // A failed top-list query retains rows that may differ from the current project's activity.
         const appOnly = state === 'app_only'
-        const screens = appOnly && snapshot.topPagesMode === 'screens'
+        const screens = snapshot.topPagesMode === 'screens'
         const kinds = liveBreakdownKinds(snapshot)
         const shownBreakdown = kinds.includes(breakdown) ? breakdown : kinds[0]
         content = (

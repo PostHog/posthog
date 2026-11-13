@@ -428,6 +428,27 @@ describe('useLiveFeed', () => {
         unmount()
     })
 
+    test('unknown project metadata recovers while Live stays open and stops reads for an unconfigured project', async () => {
+        const stats = mockStatsFetch()
+        liveProject({ ingested_event: false, live_events_token: 'example-live-token' }, 'none', CLOUD)
+        mockFetchProject.mockRejectedValue(new Error('offline'))
+        const { result, unmount } = await renderFeed()
+        await advance(1000)
+        expect(result.current.state).toBe('quiet')
+
+        mockFetchProject.mockResolvedValue({ ingested_event: false, live_events_token: 'example-live-token' })
+        await advance(30_000)
+        expect(result.current.state).toBe('quiet')
+
+        await advance(30_000)
+        expect(result.current.state).toBe('not_set_up')
+        const queries = mockFetchQuery.mock.calls.length
+        await advance(2 * 60_000)
+        expect(mockFetchQuery).toHaveBeenCalledTimes(queries)
+        expect(stats).not.toHaveBeenCalled()
+        unmount()
+    })
+
     test('a pull on Not set up reads the project at once and starts polling when it has an event', async () => {
         liveProject({ ingested_event: false }, 'none')
         const { result, unmount } = await renderFeed()

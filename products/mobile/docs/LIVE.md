@@ -122,11 +122,12 @@ The state comes from the project read and the last snapshot (`liveProjectState` 
 | `app_only`   | No pageviews, and screens: a Top screens list with rows, or a `$screen` event among the newest events                     | The usual cards: Pageviews 0, Top screens, no Top referrers, no Browsers segment                           |
 | `web`        | Anything else, such as server-side events without pageviews or screens, and while parts of the snapshot are missing       | The usual cards. Server-side events alone show an empty Top pages                                          |
 
-A project read that fails counts as unknown, so Live shows what the snapshot says, and reads the project again on the next focus.
+A project read that fails counts as unknown, so Live shows what the snapshot says and retries the project read every minute while the screen is visible, as well as on focus and return to the foreground.
 `ingested_event` turns true for anything the project ingests, also logs, traces and metrics. Such a project shows Quiet or its cards, not the setup card.
 
 **Top screens.** The top list job runs last in a read. It asks `screens` instead of `paths` when this read's activity has visitors and no pageviews (`livePathsMode`), or the last read's activity when this read's activity job failed. So an app project lists screens from its first read, and no read sends both forms.
 `LiveSnapshot.topPagesMode` says which form `topPages` holds, and rank badges compare rows of one form only.
+The table labels follow that retained form even when activity changes, until a query for the new form succeeds.
 
 **Quiet.** The Quiet card says "Quiet right now" and "No events in the last 30 minutes. Live keeps checking." The stats, map, chart and list cards are hidden. Polling goes on as usual, so the cards come back with the first event. The 10-second stats read waits while Quiet, because users online are not on screen, and the next 30-second read ends Quiet.
 
