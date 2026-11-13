@@ -1,7 +1,7 @@
 from uuid import UUID
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 from django.utils import timezone
@@ -856,12 +856,27 @@ class TestKnowledgeDocumentSearchAPI(APIBaseTest):
     @patch("products.business_knowledge.backend.logic.rerank_chunks")
     def test_search_rerank_param_calls_reranker(self, mock_rerank, _embed, _ff) -> None:
         self._ready_safe_source(text="Return policy details " * 60)
-        mock_rerank.side_effect = lambda _team, query, results, *, top_k, trace: list(reversed(results))
+        mock_rerank.side_effect = lambda _team, query, results, *, top_k, trace, **_budget: list(reversed(results))
 
         response = self.client.get(self.url, {"query": "return policy", "rerank": "true"})
         assert response.status_code == status.HTTP_200_OK, response.content
         mock_rerank.assert_called_once()
         assert mock_rerank.call_args.kwargs["top_k"] == 10
+
+    @patch("posthog.api.embedding_worker.generate_embedding", side_effect=Exception("unavailable"))
+    def test_search_rerank_stays_inside_the_request_deadline(self, _embed, _ff) -> None:
+        self._ready_safe_source()
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        gateway = MagicMock()
+
+        with patch("products.business_knowledge.backend.logic.build_ai_gateway_anthropic_client", return_value=gateway):
+            response = self.client.get(self.url, {"query": "lorem", "rerank": "true"})
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        budget = gateway.with_options.call_args.kwargs
+        worst_case_seconds = budget["timeout"].read * (budget["max_retries"] + 1)
+        assert worst_case_seconds <= 30
 
     @patch("posthog.api.embedding_worker.generate_embedding", side_effect=Exception("unavailable"))
     def test_search_rerank_defaults_false(self, _embed, _ff) -> None:

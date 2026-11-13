@@ -42,6 +42,7 @@ from django.db.models.fields.json import KeyTextTransform
 from django.db.models.functions import Cast, Coalesce, Substr
 from django.utils import timezone
 
+import httpx
 import structlog
 
 from posthog.api.embedding_worker import EmbeddingResponse, async_generate_embedding, generate_embedding
@@ -65,6 +66,7 @@ from .constants import (
     BK_LIBRARY_SEMANTIC_DOCUMENT_CAP,
     BK_LIBRARY_SEMANTIC_UNFILTERED_LIMIT,
     BK_QUERY_EMBEDDING_TIMEOUT,
+    BK_RERANK_MAX_RETRIES,
     BK_RERANK_MODEL,
     BK_RERANK_SNIPPET_CHARS,
     BK_RERANK_TIMEOUT,
@@ -3065,11 +3067,16 @@ def rerank_chunks(
     *,
     top_k: int,
     trace: RetrievalTrace,
+    timeout: httpx.Timeout = BK_RERANK_TIMEOUT,
+    max_retries: int = BK_RERANK_MAX_RETRIES,
 ) -> list[KnowledgeSearchResult]:
     """
     Listwise LLM rerank over BK search candidates. On any model/parse failure,
     returns the input order (RRF order from ``search_knowledge``) trimmed to
     ``top_k``.
+
+    ``timeout`` applies to each attempt, so the worst case is ``timeout`` times
+    ``max_retries + 1``. A caller with a request deadline passes a budget below it.
     """
     if not results:
         return []
@@ -3093,7 +3100,7 @@ def rerank_chunks(
             team_id=team.id,
             properties={"ai_feature": llm_telemetry.RETRIEVAL_RERANK_FEATURE, "surface": trace.surface},
         )
-        with client.with_options(timeout=BK_RERANK_TIMEOUT, max_retries=3) as bounded:
+        with client.with_options(timeout=timeout, max_retries=max_retries) as bounded:
             response = bounded.messages.create(
                 model=BK_RERANK_MODEL,
                 max_tokens=1024,
