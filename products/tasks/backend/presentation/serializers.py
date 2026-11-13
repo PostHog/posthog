@@ -693,6 +693,26 @@ class TaskSerializer(DataclassSerializer):
         required=False,
         help_text="GitLab integration for a task in a GitLab project. Null for GitHub tasks and tasks without a repository.",
     )
+    status = serializers.ChoiceField(
+        choices=tasks_facade.TaskStatus.choices,
+        allow_null=True,
+        required=False,
+        help_text=(
+            "Where the task is now. `queued` waits for a sandbox, `running` has a live run, `idle` can be woken "
+            "by a follow-up and `done` is finished. Null on older tasks that have not been filled in yet."
+        ),
+    )
+    status_reason = serializers.ChoiceField(
+        choices=tasks_facade.TaskStatusReason.choices,
+        allow_null=True,
+        required=False,
+        help_text="Why the task stopped. Set only when `status` is `idle` or `done`.",
+    )
+    status_detail = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text="Message shown next to `status_reason`, such as the error from a failed run.",
+    )
 
     class Meta:
         dataclass = TaskDetailDTO
@@ -727,6 +747,9 @@ class TaskSerializer(DataclassSerializer):
             "last_client",
             "last_client_at",
             "repository_integration",
+            "status",
+            "status_reason",
+            "status_detail",
         ]
 
 
@@ -2548,6 +2571,18 @@ class TaskSummarySerializer(DataclassSerializer):
         help_text="ID of the user who created the task, or null for system-created tasks.",
     )
     latest_run = TaskRunSummarySerializer(allow_null=True, required=False)
+    status = serializers.ChoiceField(
+        choices=tasks_facade.TaskStatus.choices,
+        allow_null=True,
+        required=False,
+        help_text="Where the task is now: queued, running, idle or done. Null on older tasks not filled in yet.",
+    )
+    status_reason = serializers.ChoiceField(
+        choices=tasks_facade.TaskStatusReason.choices,
+        allow_null=True,
+        required=False,
+        help_text="Why the task stopped. Set only when `status` is `idle` or `done`.",
+    )
 
     class Meta:
         dataclass = TaskSummaryDTO
@@ -2560,6 +2595,8 @@ class TaskSummarySerializer(DataclassSerializer):
             "updated_at",
             "origin_product",
             "latest_run",
+            "status",
+            "status_reason",
         ]
 
 
@@ -2638,6 +2675,11 @@ class TaskListQuerySerializer(serializers.Serializer):
         required=False,
         choices=[choice.value for choice in tasks_facade.TaskRunStatus],
         help_text="Filter tasks by the status of their most recent run.",
+    )
+    task_status = serializers.ChoiceField(
+        required=False,
+        choices=tasks_facade.TaskStatus.choices,
+        help_text="Filter tasks by their own status: queued, running, idle or done.",
     )
     pr_state = serializers.ChoiceField(
         required=False,

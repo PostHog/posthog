@@ -1,17 +1,16 @@
 import type { Href, ImperativeRouter } from 'expo-router'
 
-import { liveHref, webAnalyticsHref } from '@/features/views/viewRoutes'
+import { webAnalyticsHref } from '@/features/views/viewRoutes'
 import type { ViewEntry } from '@/model/views'
 
 import type { NavPin } from './navPinStore'
 
 // Errors and Sessions share their public list URLs with their tabs. Explicit groups keep a pushed list from resolving
-// to a hidden tab. Web analytics and Live keep their pushed `/views/...` routes, which deep links also open.
+// to a hidden tab. Web analytics keeps its pushed `/views/web-analytics` route, which deep links also open.
 const TAB_HREFS: Record<NavPin, Href> = {
     errors: '/(tabs)/errors',
     replay: '/(tabs)/replay',
     web_analytics: '/(tabs)/web-analytics',
-    live: '/(tabs)/live',
 }
 
 function stackHref(pin: NavPin, from: ViewEntry | undefined): Href {
@@ -22,12 +21,10 @@ function stackHref(pin: NavPin, from: ViewEntry | undefined): Href {
             return '/(stack)/replay'
         case 'web_analytics':
             return webAnalyticsHref({ from })
-        case 'live':
-            return liveHref({ from })
     }
 }
 
-/** `from` names the entry for the open event of a pushed Web analytics or Live screen. */
+/** `from` names the entry for the open event of a pushed Web analytics screen. */
 export function navTargetHref(pin: NavPin, pinned: boolean, from?: ViewEntry): Href {
     return pinned ? TAB_HREFS[pin] : stackHref(pin, from)
 }
