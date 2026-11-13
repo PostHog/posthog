@@ -26,8 +26,26 @@ say() {
 }
 
 err() {
-    printf 'hog install: %s\n' "$*" >&2
+    printf '%shog install:%s %s\n' "$err_red" "$err_reset" "$*" >&2
     exit 1
+}
+
+# Color for a person at a terminal, unless NO_COLOR asks for none (https://no-color.org). curl draws its
+# progress bar on stderr, so the bar depends on stderr being a terminal.
+setup_terminal() {
+    bold='' dim='' yellow='' green='' reset='' err_red='' err_reset='' progress=''
+    esc=$(printf '\033')
+    if [ -z "${NO_COLOR:-}" ] && [ "${TERM:-}" != dumb ]; then
+        if [ -t 1 ]; then
+            bold="${esc}[1m" dim="${esc}[2m" yellow="${esc}[33m" green="${esc}[32m" reset="${esc}[0m"
+        fi
+        if [ -t 2 ]; then
+            err_red="${esc}[1;31m" err_reset="${esc}[0m"
+        fi
+    fi
+    if [ -t 2 ]; then
+        progress=1
+    fi
 }
 
 has() {
@@ -36,16 +54,20 @@ has() {
 
 # Downloads $1 to $2. Only https leaves the machine, unless HOG_RELEASES_URL points elsewhere on purpose.
 # `--retry` covers timeouts and 5xx answers but not a 404, so a missing file falls back at once.
-# A third argument of `quiet` hides curl's error, for a download that has a fallback.
+# A third argument of `quiet` hides curl's error, for a download that has a fallback, and `progress`
+# draws curl's progress bar at a terminal.
 download() {
     case "$1" in
         https://*) proto='=https' ;;
         *) proto='=https,http,file' ;;
     esac
-    show_error=-S
-    [ "${3:-}" != quiet ] || show_error=
+    case "${3:-}" in
+        quiet) report=-s ;;
+        progress) if [ -n "$progress" ]; then report=-#; else report=-sS; fi ;;
+        *) report=-sS ;;
+    esac
     # A transfer slower than 1 KB/s for 30 seconds counts as stalled, so it retries or falls back.
-    curl --proto "$proto" --tlsv1.2 -fsL $show_error \
+    curl --proto "$proto" --tlsv1.2 -fL "$report" \
         --retry 3 --connect-timeout 10 --speed-limit 1024 --speed-time 30 \
         -o "$2" "$1"
 }
@@ -111,10 +133,18 @@ resolve_version() {
     [ -n "$version" ] || err "the release manifest names no version."
 }
 
-# Tries the release bucket first and the GitHub release second, so one origin being down doesn't stop an install.
+# Tries the release bucket first and the GitHub release second, so one origin being down doesn't stop an
+# install. After one miss, the rest of the files come from the mirror. A second argument of `progress`
+# shows a progress bar.
 fetch_release_file() {
-    download "$HOG_RELEASES_URL/v$version/$1" "$tmp/$1" quiet ||
-        download "$HOG_MIRROR_URL/hog/v$version/$1" "$tmp/$1" ||
+    if [ -z "$use_mirror" ]; then
+        if download "$HOG_RELEASES_URL/v$version/$1" "$tmp/$1" "${2:-quiet}"; then
+            return
+        fi
+        use_mirror=1
+        say "${dim}Couldn't download $1 from $HOG_RELEASES_URL, so the rest comes from the GitHub mirror.${reset}"
+    fi
+    download "$HOG_MIRROR_URL/hog/v$version/$1" "$tmp/$1" "${2:-}" ||
         err "couldn't download $1 for hog $version."
 }
 
@@ -174,6 +204,15 @@ usage() {
     say "  --dir <folder>       Where to put the binary, ~/.local/bin by default (HOG_INSTALL_DIR)"
 }
 
+# The hedgehog of the hobby installer, bin/hobby-installer/ui/hedgehog.go.
+banner() {
+    say "$yellow  \\-|-/$reset"
+    say "$yellow / ^.^ \\$reset   ${bold}hog$reset, the PostHog command line"
+    say "$yellow \\  w  /$reset   Installing hog $version for $target."
+    say "$yellow  '---'$reset"
+    say ""
+}
+
 path_hint() {
     case ":$PATH:" in
         *":$install_dir:"*) return ;;
@@ -190,6 +229,7 @@ path_hint() {
 }
 
 main() {
+    setup_terminal
     version="${HOG_VERSION:-}"
     install_dir="${HOG_INSTALL_DIR:-${HOME:?HOME must be set}/.local/bin}"
 
@@ -207,6 +247,7 @@ main() {
     has curl || err "curl is required to download hog."
     has tar || err "tar is required to unpack hog."
 
+    use_mirror=''
     tmp=$(mktemp -d)
     trap 'rm -rf "$tmp"' EXIT
     trap 'exit 1' INT TERM
@@ -215,9 +256,9 @@ main() {
     resolve_version
 
     archive="hog-$target.tar.gz"
-    say "Installing hog $version for $target."
+    banner
     fetch_release_file SHA256SUMS
-    fetch_release_file "$archive"
+    fetch_release_file "$archive" progress
     verify_checksum "$archive"
 
     mkdir -p "$tmp/unpacked"
@@ -237,7 +278,7 @@ main() {
     mv -f "$staged" "$install_dir/hog"
     write_receipt
 
-    say "Installed hog $installed to $install_dir/hog."
+    say "${green}Installed hog $installed$reset to $install_dir/hog."
 
     found=$(command -v hog 2>/dev/null || true)
     if [ -n "$found" ] && [ "$found" != "$install_dir/hog" ]; then
@@ -245,6 +286,9 @@ main() {
         say "Another hog at $found comes first on your PATH, so \`hog\` still runs that one."
     fi
     path_hint
+
+    say ""
+    say "Next, run ${bold}hog setup$reset in your project's folder to add PostHog to it."
 }
 
 main "$@"

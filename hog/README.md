@@ -9,11 +9,11 @@ It is in alpha: the first release is 0.1.0-alpha.1.
 ## Install
 
 ```bash
-curl -fsSL https://releases.posthog.com/hog/install.sh | sh        # macOS and Linux
-irm https://releases.posthog.com/hog/install.ps1 | iex              # Windows PowerShell
-brew install posthog/tap/hog                                        # Homebrew
-npm install -g @posthog/hog                                         # or pnpm add -g, bun add -g
-npx @posthog/hog setup                                              # run once without installing
+curl -fsSL https://releases.posthog.com/hog/install.sh | sh   # macOS and Linux
+irm https://releases.posthog.com/hog/install.ps1 | iex        # Windows PowerShell
+brew install posthog/tap/hog                                  # Homebrew
+npm install -g @posthog/hog                                   # or pnpm add -g, bun add -g
+npx @posthog/hog setup                                        # run once without installing
 ```
 
 - The install script picks the build for your OS, processor and C library (glibc or musl), checks it against `SHA256SUMS`, and puts `hog` in `~/.local/bin`. It tells you when that folder isn't on your `PATH`.
@@ -33,6 +33,7 @@ npx @posthog/hog setup                                              # run once w
 
 `--version <version>` installs that version instead of the latest one, except for Homebrew, which installs only the latest.
 `hog upgrade` refuses to run with `--skip-ssl-verification` or `HOG_SKIP_SSL_VERIFICATION`, because the manifest is the only check on what it installs.
+It downloads only over HTTPS, from `releases.posthog.com/hog/` (or the folder `HOG_RELEASES_URL` names) and PostHog's GitHub releases, and checks the size and checksum of each file against the manifest.
 On Windows, the running `hog.exe` can't be replaced, so hog renames it to `hog.old.exe` and the next run deletes it.
 
 hog reads the latest release from `https://releases.posthog.com/hog/latest/manifest.json` at most once a day, alongside the command it runs, and keeps the answer in hog's folder. After a failed request it waits an hour before it asks again. With TLS verification off it doesn't check at all.
@@ -42,7 +43,7 @@ hog reads the latest release from `https://releases.posthog.com/hog/latest/manif
 - `HOG_NO_UPDATE_CHECK=1` or `"cli": { "updateCheck": false }` in `posthog.json` stops every update request: no manifest, no notice and no `minimumVersion` warning. `hog setup` still checks, because setup needs the latest version.
 - `hog auth status` and `hog setup` give agents `hog: { version, latest, updateAvailable, command }`.
 - When a release has a problem bad enough to retire it, the manifest names a `minimumVersion`. Every hog below it warns on stderr on every command, for people and agents, unless update checks are off.
-- `hog setup` and `hog setup next` stop with `hog_outdated` when a newer release exists, even one patch newer, and the hint names the command for your install. They read the manifest fresh, accepting an answer up to 10 minutes old, and carry on when it can't be read.
+- `hog setup` and `hog setup next` stop with `hog_outdated` when a newer release exists, even one patch newer, and the hint names the command for your install. Homebrew, npm, pnpm and bun get a release after the manifest names it, so for those installs setup stops only once the release is a day old. They read the manifest fresh, accepting an answer up to 10 minutes old, and carry on when it can't be read.
 
 ## Commands
 
@@ -432,23 +433,25 @@ Use `minor` or `major` instead of `patch` when it fits. While the version is a p
 After the pull request merges to master, the workflow:
 
 1. Posts an approval request in the hog releases Slack channel.
-2. Waits for approval in the `hog-release` environment. The authors and mergers of the released pull requests can't approve, and a hog change merged after the run started stops it.
+2. Waits for approval in the `hog-release` environment. Nobody who authored or merged a pull request that changed hog's sources since the last release can approve: `hog/`, `services/mcp/`, the product files the MCP library bundles, `pnpm-lock.yaml` and `patches/`. The workflow's `HOG_SOURCE_PATHS` lists them.
 3. Runs `sampo release`, which bumps `hog/package.json` and writes `hog/CHANGELOG.md`, and opens a release pull request with the bump. A second App approves it, and it goes through the merge queue.
 
 Merging the release pull request runs the workflow again, which:
 
 4. Compiles every target, with the version and the release commit's date as the build date.
-5. Signs and notarizes the macOS builds in the `hog-publish` environment, which has no reviewers, admits only master, and is the only environment the release bucket trusts. A missing certificate or notarization credential fails the release.
-6. Uploads to `releases.posthog.com/hog/v<version>/`, then creates the GitHub release and the `hog/v<version>` tag, then points `hog/latest/manifest.json`, the install scripts and `Formula/hog.rb` in `PostHog/homebrew-tap` at it, and publishes the npm packages.
+5. Signs and notarizes the macOS builds in the `hog-publish` environment, which has no reviewers, admits only master, and is the only environment the release bucket trusts. A missing certificate or notarization credential fails the release. Then it uploads them to `releases.posthog.com/hog/v<version>/`.
+6. Runs the signed Apple silicon build in a job without secrets, to check that it starts.
+7. Creates the GitHub release and the `hog/v<version>` tag, then points `hog/latest/manifest.json`, the install scripts and `Formula/hog.rb` in `PostHog/homebrew-tap` at it, and publishes the npm packages. One release at a time does this step.
 
 A release takes two merges, the changeset and then the release pull request, and one approval.
 
 - Re-run the failed jobs to finish a release that stopped. Files under a version never change: once a version's upload is complete, a rerun reuses its files instead of signing again. An upload that stopped halfway starts over. GitHub, npm and the formula skip what they already have.
-- Every release is the latest, prereleases included. A rerun of an older version never moves `hog/latest/manifest.json`, npm's `latest` tag or the formula back.
+- Every release is the latest, prereleases included. A rerun of an older version never moves `hog/latest/manifest.json`, npm's `latest` tag or the formula back, and a manifest the workflow can't read stops the release instead.
+- Changesets that merge while a release pull request waits start the next release when it merges.
 - To retire a broken release, set `minimumVersion` in `release/minimum-version.json`. The next release carries it in its manifest.
-- Don't run `sampo publish` or push `hog/v*` tags by hand.
+- Don't run `sampo publish` or push `hog/v*` tags by hand. The one exception comes before the first release: the approval check starts at the tag of the version in `hog/package.json`, so a maintainer tags the commit where the first release's check starts as `hog/v0.1.0-alpha.0`.
 
 ```bash
 bun release/compile.ts --version 0.1.0-alpha.9 --target darwin-arm64   # a release build for this machine
-bun test release/                                                       # the install script and launcher tests
+bun test release/                                                      # the install script and launcher tests
 ```

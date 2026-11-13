@@ -5,6 +5,9 @@ import { HogError } from '@/core/errors'
 
 // Reads only the parts of tar and zip that release/package.ts writes, so it needs no dependency.
 
+// Far above any hog binary, so a small archive that unpacks to gigabytes fails instead of filling memory.
+export const MAX_EXTRACTED_BYTES = 1024 * 1024 * 1024
+
 function brokenArchive(reason: string): HogError {
     return new HogError(
         'invalid_release_archive',
@@ -18,8 +21,8 @@ function text(bytes: Uint8Array): string {
     return new TextDecoder().decode(end === -1 ? bytes : bytes.subarray(0, end))
 }
 
-function fromTarGz(archive: Uint8Array, name: string): Uint8Array {
-    const tar = gunzipSync(archive)
+function fromTarGz(archive: Uint8Array, name: string, maxBytes: number): Uint8Array {
+    const tar = gunzipSync(archive, { maxOutputLength: maxBytes })
     let offset = 0
     while (offset + 512 <= tar.length) {
         const header = tar.subarray(offset, offset + 512)
@@ -38,7 +41,7 @@ function fromTarGz(archive: Uint8Array, name: string): Uint8Array {
     throw brokenArchive(`it has no ${name}`)
 }
 
-function fromZip(archive: Uint8Array, name: string): Uint8Array {
+function fromZip(archive: Uint8Array, name: string, maxBytes: number): Uint8Array {
     const view = new DataView(archive.buffer, archive.byteOffset, archive.byteLength)
     let end = archive.length - 22
     while (end >= 0 && view.getUint32(end, true) !== 0x06054b50) {
@@ -70,7 +73,7 @@ function fromZip(archive: Uint8Array, name: string): Uint8Array {
                 return data
             }
             if (method === 8) {
-                return inflateRawSync(data)
+                return inflateRawSync(data, { maxOutputLength: maxBytes })
             }
             throw brokenArchive(`it uses compression method ${method}`)
         }
@@ -79,10 +82,18 @@ function fromZip(archive: Uint8Array, name: string): Uint8Array {
     throw brokenArchive(`it has no ${name}`)
 }
 
-export function extractFile(archive: Uint8Array, archiveName: string, name: string): Uint8Array {
+export function extractFile(
+    archive: Uint8Array,
+    archiveName: string,
+    name: string,
+    maxBytes: number = MAX_EXTRACTED_BYTES
+): Uint8Array {
     try {
-        return archiveName.endsWith('.zip') ? fromZip(archive, name) : fromTarGz(archive, name)
+        return archiveName.endsWith('.zip') ? fromZip(archive, name, maxBytes) : fromTarGz(archive, name, maxBytes)
     } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ERR_BUFFER_TOO_LARGE') {
+            throw brokenArchive(`it unpacks to more than ${maxBytes} bytes`)
+        }
         throw error instanceof HogError ? error : brokenArchive(error instanceof Error ? error.message : String(error))
     }
 }

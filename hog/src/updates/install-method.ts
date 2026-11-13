@@ -81,6 +81,10 @@ export async function detectInstallMethod(runtime: Runtime): Promise<InstallMeth
     return { kind: (await receiptOwns(runtime, path)) ? 'script' : 'standalone', path }
 }
 
+export function selfUpdates(method: InstallMethod): boolean {
+    return method.kind === 'script' || method.kind === 'standalone'
+}
+
 // Undefined for a project dependency and a checkout, which no single command updates.
 export function upgradeCommand(method: InstallMethod, version?: string): string | undefined {
     const spec = `${PACKAGE}@${version ?? 'latest'}`

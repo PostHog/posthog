@@ -8,7 +8,7 @@ import { parseJsonOrUndefined } from '@/core/json'
 import { hogFile } from '@/core/paths'
 import type { Runtime } from '@/core/runtime'
 
-import { detectInstallMethod, upgradeAdvice, upgradeCommand, type InstallMethod } from './install-method'
+import { detectInstallMethod, selfUpdates, upgradeAdvice, upgradeCommand, type InstallMethod } from './install-method'
 import { fetchManifest, type Manifest } from './manifest'
 import { isMeaningfullyBehind, isNewer } from './version'
 
@@ -19,6 +19,7 @@ const SETUP_MAX_AGE_MS = 10 * 60 * 1000
 const BACKGROUND_TIMEOUT_MS = 1500
 const SETUP_TIMEOUT_MS = 5000
 const RETRY_AFTER_FAILURE_MS = 60 * 60 * 1000
+const PACKAGE_MANAGER_GRACE_MS = DAY_MS
 
 export const NO_UPDATE_CHECK_ENV = ['HOG_NO_UPDATE_CHECK'] as const
 
@@ -50,8 +51,11 @@ async function readCache(runtime: Runtime): Promise<Cache | undefined> {
     }
 }
 
+// The cache only saves requests, so a missing home folder or a failed write never fails the command.
 async function saveCache(runtime: Runtime, cache: Cache): Promise<void> {
-    await runtime.writePrivateFile(hogFile(runtime, CACHE_FILE), `${JSON.stringify(cache)}\n`).catch(() => {})
+    try {
+        await runtime.writePrivateFile(hogFile(runtime, CACHE_FILE), `${JSON.stringify(cache)}\n`)
+    } catch {}
 }
 
 async function writeCache(runtime: Runtime, manifest: Manifest): Promise<Cache> {
@@ -92,6 +96,18 @@ async function latestRelease(
 
 const DAILY = { maxAgeMs: DAY_MS, timeoutMs: BACKGROUND_TIMEOUT_MS, setup: false }
 
+const dailyLookups = new WeakMap<Runtime, Promise<Latest | undefined>>()
+
+// One lookup per run, so `hog auth status` and the notice share one request and one cache write.
+function dailyRelease(runtime: Runtime): Promise<Latest | undefined> {
+    let lookup = dailyLookups.get(runtime)
+    if (!lookup) {
+        lookup = latestRelease(runtime, DAILY).catch(() => undefined)
+        dailyLookups.set(runtime, lookup)
+    }
+    return lookup
+}
+
 export async function rememberRelease(runtime: Runtime, manifest: Manifest): Promise<void> {
     await writeCache(runtime, manifest)
 }
@@ -130,8 +146,16 @@ export async function currentVersionInfo(runtime: Runtime, off: boolean): Promis
     if (!checksUpdates(runtime)) {
         return versionInfo(runtime, undefined)
     }
-    const latest = off ? (await readCache(runtime))?.latest : await latestRelease(runtime, DAILY)
+    const latest = off ? (await readCache(runtime))?.latest : await dailyRelease(runtime)
     return versionInfo(runtime, latest)
+}
+
+// npm and Homebrew get a release after the manifest names it, and a failed publish needs a person to
+// run it again. Until then their upgrade command installs the version this copy already is, so setup
+// gives them a day before it insists.
+function packageManagerMayLag(runtime: Runtime, method: InstallMethod, latest: Latest): boolean {
+    const published = Date.parse(latest.publishedAt)
+    return !selfUpdates(method) && Number.isFinite(published) && runtime.now() - published < PACKAGE_MANAGER_GRACE_MS
 }
 
 // Any newer release stops setup, even one patch. An unreachable or untrusted manifest doesn't.
@@ -147,7 +171,7 @@ export async function requireLatestForSetup(runtime: Runtime, rerun: string, tls
     })
     const method = await detectInstallMethod(runtime)
     const info = await versionInfo(runtime, latest, method)
-    if (info.updateAvailable) {
+    if (info.updateAvailable && latest && !packageManagerMayLag(runtime, method, latest)) {
         throw new HogError(
             'hog_outdated',
             `Setup needs the latest hog, ${info.latest}, and this is ${info.version}.`,
@@ -166,10 +190,7 @@ export class UpdateCheck {
         private readonly runtime: Runtime,
         off: boolean
     ) {
-        this.pending =
-            checksUpdates(runtime) && !off
-                ? latestRelease(runtime, DAILY).catch(() => undefined)
-                : Promise.resolve(undefined)
+        this.pending = checksUpdates(runtime) && !off ? dailyRelease(runtime) : Promise.resolve(undefined)
     }
 
     // A release below minimumVersion warns everyone. The notice is only for a person at a terminal.

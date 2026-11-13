@@ -13,7 +13,7 @@ import { buildManifest, sha256Sums, wrapperPackageJson } from './artifacts'
 
 const launcher = createRequire(import.meta.url)('./npm/hog.cjs') as {
     targetId: (platform: string, arch: string, musl: boolean) => string | undefined
-    libcFamily: (report: unknown) => string | undefined
+    libcFamily: (ldd: string | undefined, report: unknown) => string | undefined
     candidates: (platform: string, arch: string, libc: string | undefined) => string[]
 }
 
@@ -29,22 +29,52 @@ describe('npm launcher', () => {
         expect(launcher.targetId(platform, arch, false)).toBeUndefined()
     })
 
+    const GLIBC_LDD =
+        '#!/bin/bash\necho "ldd (GNU libc) 2.39"\n# Copyright (C) 2024 Free Software Foundation, Inc.\n# GNU C Library\n'
+    const MUSL_LDD = '#!/bin/sh\nexec /lib/ld-musl-x86_64.so.1 --list "$@"\n'
+
     test.each([
+        ['glibc, even with musl installed', GLIBC_LDD, { sharedObjects: ['/lib/ld-musl-x86_64.so.1'] }, 'glibc'],
+        ['Alpine', MUSL_LDD, {}, 'musl'],
         [
-            'glibc, even with musl installed',
-            { header: { glibcVersionRuntime: '2.39' }, sharedObjects: ['/lib/ld-musl-x86_64.so.1'] },
-            'glibc',
+            'an ldd npm does not recognize, whatever the report says',
+            '#!/bin/sh\n',
+            { header: { glibcVersionRuntime: '2.39' } },
+            undefined,
         ],
-        ['Alpine', { header: {}, sharedObjects: ['/lib/ld-musl-x86_64.so.1'] }, 'musl'],
-        ['an unknown libc', { header: {} }, undefined],
-    ])('reads the libc of %s as npm does', (_name, report, libc) => {
-        expect(launcher.libcFamily(report)).toBe(libc)
+        ['glibc without ldd', undefined, { header: { glibcVersionRuntime: '2.39' } }, 'glibc'],
+        ['musl without ldd', undefined, { header: {}, sharedObjects: ['/lib/ld-musl-x86_64.so.1'] }, 'musl'],
+        ['an unknown libc', undefined, { header: {} }, undefined],
+    ])('reads the libc of %s as npm does', (_name, ldd, report, libc) => {
+        expect(launcher.libcFamily(ldd, report)).toBe(libc)
     })
 
     test('falls back to the other libc build on Linux only', () => {
         expect(launcher.candidates('linux', 'x64', 'glibc')).toEqual(['linux-x64', 'linux-x64-musl'])
         expect(launcher.candidates('linux', 'arm64', 'musl')).toEqual(['linux-arm64-musl', 'linux-arm64'])
         expect(launcher.candidates('darwin', 'arm64', undefined)).toEqual(['darwin-arm64'])
+    })
+})
+
+const IS_LATEST = join(import.meta.dir, 'is-latest.ts')
+
+// The publishing job promotes only on "true", so anything it can't compare must fail instead of answering.
+describe('is-latest', () => {
+    test.each([
+        ['an older latest', '{"version":"0.1.0-alpha.2"}', 0, 'true'],
+        ['the same version', '{"version":"0.1.0-alpha.3"}', 0, 'true'],
+        ['a newer latest', '{"version":"0.2.0"}', 0, 'false'],
+        ['a manifest with no version', '{}', 1, ''],
+        ['a version that is not semver', '{"version":"latest"}', 1, ''],
+        ['a file that is not JSON', '<Error><Code>AccessDenied</Code></Error>', 1, ''],
+    ])('answers for %s', async (_name, manifest, exitCode, stdout) => {
+        const path = join(await mkdtemp(join(tmpdir(), 'hog-latest-')), 'manifest.json')
+        await writeFile(path, manifest)
+
+        const child = Bun.spawnSync([process.execPath, IS_LATEST, '--version', '0.1.0-alpha.3', '--current', path])
+
+        expect(child.exitCode).toBe(exitCode)
+        expect(child.stdout.toString().trim()).toBe(stdout)
     })
 })
 

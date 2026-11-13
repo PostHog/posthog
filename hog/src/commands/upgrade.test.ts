@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { readJson, runHog, type FakeRuntimeOptions } from '@/testing'
+import { extractFile } from '@/updates/archive'
 import type { Manifest } from '@/updates/manifest'
 
 const LATEST = 'https://releases.posthog.com/hog/latest/manifest.json'
@@ -49,6 +50,8 @@ function release(latest: Manifest | null, archive: Uint8Array = ARCHIVE): FakeRu
         return { status: 500, body: {} }
     }
 }
+
+const NPM_PATH = '/home/test/.nvm/versions/node/v22.0.0/lib/node_modules/@posthog/hog-linux-x64/bin/hog'
 
 const PERSON: FakeRuntimeOptions = { env: { NO_COLOR: '1' }, stdoutIsTTY: true, build: RUNNING }
 
@@ -108,6 +111,24 @@ describe('update notice', () => {
         })
 
         expect(result.error()).toMatchObject({ code: 'hog_outdated' })
+    })
+
+    test('auth status without a home folder still reports the release, from one manifest request', async () => {
+        const result = await runHog(['auth', 'status'], {
+            env: { ...AGENT, HOG_PERSONAL_API_KEY: 'phx_test', HOG_PROJECT_ID: '42' },
+            build: RUNNING,
+            noHome: true,
+            respond: (url) =>
+                url === LATEST
+                    ? { status: 200, body: manifest('0.2.0', BUILT) }
+                    : url.endsWith('/api/users/@me/')
+                      ? { status: 200, body: { email: 'test@example.com' } }
+                      : { status: 200, body: { id: 42, name: 'Test project' } },
+        })
+
+        expect(result.exitCode).toBe(0)
+        expect(result.json()).toMatchObject({ authenticated: true, hog: { latest: '0.2.0', updateAvailable: true } })
+        expect(result.requests.filter((request) => request.url === LATEST)).toHaveLength(1)
     })
 
     test('waits an hour after a failed check before it asks again', async () => {
@@ -177,11 +198,7 @@ describe('setup on an outdated hog', () => {
     test.each([
         ['a standalone binary', '/usr/local/bin/hog', 'Run `hog upgrade`, then run `hog setup` again.'],
         ['Homebrew', '/opt/homebrew/Cellar/hog/0.1.0/bin/hog', 'Run `brew upgrade hog`, then run `hog setup` again.'],
-        [
-            'npm',
-            '/home/test/.nvm/versions/node/v22.0.0/lib/node_modules/@posthog/hog-linux-x64/bin/hog',
-            'Run `npm install -g @posthog/hog@latest`, then run `hog setup` again.',
-        ],
+        ['npm', NPM_PATH, 'Run `npm install -g @posthog/hog@latest`, then run `hog setup` again.'],
         [
             'npx',
             '/home/test/.npm/_npx/1a2b/node_modules/@posthog/hog-linux-x64/bin/hog',
@@ -197,6 +214,20 @@ describe('setup on an outdated hog', () => {
 
         expect(result.exitCode).toBe(1)
         expect(result.error()).toMatchObject({ code: 'hog_outdated', latest: '0.1.0-alpha.6', hint })
+    })
+
+    test.each([
+        ['an npm install carries on, because npm may not have it yet', NPM_PATH, 0],
+        ['a standalone binary stops, because the release bucket has it', '/usr/local/bin/hog', 1],
+    ])('a release out for an hour: %s', async (_name, execPath, exitCode) => {
+        const result = await runHog(['setup'], {
+            env: AGENT,
+            build: RUNNING,
+            execPath,
+            respond: release(manifest('0.1.0-alpha.6', '2025-12-31T23:00:00Z')),
+        })
+
+        expect(result.exitCode).toBe(exitCode)
     })
 
     test('says to update once, without the notice after the error', async () => {
@@ -265,7 +296,7 @@ describe('hog upgrade', () => {
 
     test.each([
         ['/opt/homebrew/Cellar/hog/0.1.0/bin/hog', 'homebrew'],
-        ['/home/test/.nvm/versions/node/v22.0.0/lib/node_modules/@posthog/hog-linux-x64/bin/hog', 'npm-global'],
+        [NPM_PATH, 'npm-global'],
         [
             '/home/test/.local/share/pnpm/global/5/.pnpm/@posthog+hog-linux-x64@0.1.0/node_modules/@posthog/hog-linux-x64/bin/hog',
             'pnpm-global',
@@ -311,14 +342,77 @@ describe('hog upgrade', () => {
         expect(result.executables['/usr/local/bin/hog']).toEqual(BINARY)
     })
 
-    test('leaves the binary alone when the archive does not match its checksum', async () => {
-        const tampered = new Uint8Array(ARCHIVE)
-        tampered.set([tampered.at(-1)! ^ 0xff], tampered.length - 1)
+    const TAMPERED = new Uint8Array(ARCHIVE)
+    TAMPERED.set([TAMPERED.at(-1)! ^ 0xff], TAMPERED.length - 1)
+    const SIZE_OFF = {
+        artifacts: { 'linux-x64': { file: 'hog-linux-x64.tar.gz', sha256: ARCHIVE_SHA, size: ARCHIVE.length - 1 } },
+    }
 
-        const result = await runHog(['upgrade'], { env: AGENT, build: RUNNING, respond: release(NEWER, tampered) })
+    test.each([
+        ['its checksum', NEWER, TAMPERED],
+        ['its size', manifest(NEWER.version, NEWER.publishedAt, SIZE_OFF), ARCHIVE],
+    ])('leaves the binary alone when the archive does not match %s', async (_name, latest, archive) => {
+        const result = await runHog(['upgrade'], { env: AGENT, build: RUNNING, respond: release(latest, archive) })
 
         expect(result.error()).toMatchObject({ code: 'checksum_mismatch' })
         expect(result.executables).toEqual({})
+    })
+
+    const elsewhere = (baseUrl: string): Partial<Manifest> => ({ baseUrl })
+
+    test.each([
+        ['another host', elsewhere('https://releases.example.com/hog/v0.1.0-alpha.8/'), 'untrusted_release_url'],
+        ['a look-alike host', elsewhere('https://releases.posthog.com.example.com/hog/'), 'untrusted_release_url'],
+        [
+            'a path out of the release folder',
+            elsewhere('https://releases.posthog.com/hog/../x/'),
+            'untrusted_release_url',
+        ],
+        [
+            'another GitHub repository',
+            { mirrorUrl: 'https://github.com/example/posthog/releases/download/hog/v0.1.0-alpha.8/' },
+            'untrusted_release_url',
+        ],
+        [
+            'an archive larger than any build',
+            { artifacts: { 'linux-x64': { file: 'hog-linux-x64.tar.gz', sha256: ARCHIVE_SHA, size: 2 ** 40 } } },
+            'invalid_release_manifest',
+        ],
+    ])('downloads nothing when the manifest names %s', async (_name, extra, code) => {
+        const latest = manifest('0.1.0-alpha.8', '2025-12-30T00:00:00Z', extra)
+
+        const result = await runHog(['upgrade'], { env: AGENT, build: RUNNING, respond: release(latest) })
+
+        expect(result.error()).toMatchObject({ code })
+        expect(result.requests.filter((request) => request.url.endsWith('.tar.gz'))).toEqual([])
+        expect(result.executables).toEqual({})
+    })
+
+    test.each([
+        ['trusts an https release folder', 'https://hog-mirror.example.com/releases', { action: 'upgraded' }, 1],
+        ['refuses a plain http one', 'http://hog-mirror.example.com/releases', { code: 'untrusted_release_url' }, 0],
+    ])('HOG_RELEASES_URL: %s', async (_name, mirror, expected, replaced) => {
+        const latest = manifest('0.1.0-alpha.8', '2025-12-30T00:00:00Z', elsewhere(`${mirror}/v0.1.0-alpha.8/`))
+
+        const result = await runHog(['upgrade'], {
+            env: { ...AGENT, HOG_RELEASES_URL: mirror },
+            build: RUNNING,
+            respond: (url) =>
+                url === `${mirror}/latest/manifest.json`
+                    ? { status: 200, body: latest }
+                    : url === `${latest.baseUrl}hog-linux-x64.tar.gz`
+                      ? { status: 200, body: ARCHIVE }
+                      : { status: 500, body: {} },
+        })
+
+        expect(result.exitCode === 0 ? result.json() : result.error()).toMatchObject(expected)
+        expect(Object.keys(result.executables)).toHaveLength(replaced)
+    })
+
+    test('refuses an archive that unpacks to more than the limit', () => {
+        expect(() => extractFile(ARCHIVE, 'hog-linux-x64.tar.gz', 'hog', 512)).toThrow(
+            'it unpacks to more than 512 bytes'
+        )
     })
 
     test('installs the version --version names', async () => {

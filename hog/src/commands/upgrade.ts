@@ -8,8 +8,15 @@ import type { Runtime } from '@/core/runtime'
 import { parseOrThrow, type ParseFailure } from '@/core/schema'
 import { extractFile } from '@/updates/archive'
 import { rememberRelease } from '@/updates/check'
-import { detectInstallMethod, type InstallKind, type InstallMethod, upgradeCommand } from '@/updates/install-method'
+import {
+    detectInstallMethod,
+    type InstallKind,
+    type InstallMethod,
+    selfUpdates,
+    upgradeCommand,
+} from '@/updates/install-method'
 import { type Artifact, fetchManifest, type Manifest } from '@/updates/manifest'
+import { GITHUB_REPOSITORY, releasesUrl } from '@/updates/release-urls'
 import { binaryName, targetFor } from '@/updates/targets'
 import { isNewer, parseVersion } from '@/updates/version'
 
@@ -33,7 +40,7 @@ interface UpgradeResult {
 }
 
 const PACKAGE_MANAGERS: readonly InstallKind[] = ['homebrew', 'npm-global', 'pnpm-global', 'bun-global']
-const SELF_UPDATING: readonly InstallKind[] = ['script', 'standalone']
+const MAX_ARCHIVE_BYTES = 512 * 1024 * 1024
 
 const MANAGER_NAMES: Partial<Record<InstallKind, string>> = {
     homebrew: 'Homebrew',
@@ -42,12 +49,47 @@ const MANAGER_NAMES: Partial<Record<InstallKind, string>> = {
     'bun-global': 'bun',
 }
 
-async function download(runtime: Runtime, urls: string[]): Promise<Uint8Array> {
+// The checksum comes from the same manifest as the URLs, so the URLs must point at a PostHog release
+// location, or whoever wrote the manifest could serve any binary with a matching checksum.
+function trustedDownloadUrls(runtime: Runtime, manifest: Manifest, artifact: Artifact): string[] {
+    const trusted = [`${releasesUrl(runtime)}/`, `https://github.com/${GITHUB_REPOSITORY}/releases/download/`]
+        .map((prefix) => URL.parse(prefix)?.href)
+        .filter((prefix) => prefix !== undefined)
+    return [manifest.baseUrl, manifest.mirrorUrl].map((base) => {
+        const url = URL.parse(`${base}${artifact.file}`)
+        if (url?.protocol !== 'https:' || !trusted.some((prefix) => url.href.startsWith(prefix))) {
+            throw new HogError(
+                'untrusted_release_url',
+                `The release manifest points at ${escapeControls(base)}, which isn't a PostHog release location, so hog left your install as it was.`,
+                'Run `hog upgrade` again in a few minutes. If it fails again, reinstall with the install script.'
+            )
+        }
+        return url.href
+    })
+}
+
+// Stops one chunk past the expected size, so a larger body fails the size check without being held whole.
+async function readAtMost(response: Response, limit: number): Promise<Uint8Array> {
+    const chunks: Uint8Array[] = []
+    let total = 0
+    if (response.body) {
+        for await (const chunk of response.body) {
+            chunks.push(chunk)
+            total += chunk.length
+            if (total > limit) {
+                break
+            }
+        }
+    }
+    return Buffer.concat(chunks, Math.min(total, limit + 1))
+}
+
+async function download(runtime: Runtime, urls: string[], size: number): Promise<Uint8Array> {
     for (const url of urls) {
         try {
             const response = await runtime.fetch(url, { timeoutMs: 300_000, skipRateLimit: true })
             if (response.ok) {
-                return new Uint8Array(await response.arrayBuffer())
+                return await readAtMost(response, size)
             }
         } catch {}
     }
@@ -73,14 +115,19 @@ async function replaceSelf(runtime: Runtime, method: InstallMethod, manifest: Ma
         )
     }
 
-    const archive = await download(runtime, [
-        `${manifest.baseUrl}${artifact.file}`,
-        `${manifest.mirrorUrl}${artifact.file}`,
-    ])
-    if (sha256(archive) !== artifact.sha256) {
+    const urls = trustedDownloadUrls(runtime, manifest, artifact)
+    if (artifact.size > MAX_ARCHIVE_BYTES) {
+        throw new HogError(
+            'invalid_release_manifest',
+            `The release manifest says ${artifact.file} is ${artifact.size} bytes, more than any hog build, so hog left your install as it was.`,
+            'Run `hog upgrade` again in a few minutes. If it fails again, reinstall with the install script.'
+        )
+    }
+    const archive = await download(runtime, urls, artifact.size)
+    if (archive.length !== artifact.size || sha256(archive) !== artifact.sha256) {
         throw new HogError(
             'checksum_mismatch',
-            `${artifact.file} doesn't match the checksum in the release manifest, so hog left your install as it was.`,
+            `${artifact.file} doesn't match the size or checksum in the release manifest, so hog left your install as it was.`,
             'Run `hog upgrade` again. If it fails again, reinstall with the install script.'
         )
     }
@@ -163,7 +210,7 @@ export default defineCommand({
             return result('available')
         }
 
-        if (SELF_UPDATING.includes(method.kind)) {
+        if (selfUpdates(method)) {
             await replaceSelf(runtime, method, manifest)
             return result('upgraded', null)
         }
