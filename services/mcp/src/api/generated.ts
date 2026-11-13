@@ -48076,6 +48076,7 @@ export namespace Schemas {
       EditExposureCriteria: 'edit_exposure_criteria',
       AdjustDistribution: 'adjust_distribution',
       UseFirstSeenVariant: 'use_first_seen_variant',
+      MoveStartDate: 'move_start_date',
     } as const;
 
     export type ExperimentExposureHealthFindingCode = typeof ExperimentExposureHealthFindingCode[keyof typeof ExperimentExposureHealthFindingCode];

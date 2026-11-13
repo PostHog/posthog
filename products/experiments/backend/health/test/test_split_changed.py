@@ -884,6 +884,13 @@ class TestSrmAfterSplitChange(TestCase):
             "The distribution of users across variants doesn't match your current rollout percentages (p < 0.001). "
             f"{cause} The users first exposed after the day of the change match the current split (p = 1).{next_step}",
         )
+        names_start_date = "Move the start date" in next_step
+        self.assertEqual(
+            (outcome.actions, outcome.evidence.get("suggested_start_date")),
+            ((ExperimentHealthFindingActionKind.MOVE_START_DATE,), "2026-09-12T13:04:00+00:00")
+            if names_start_date
+            else ((), None),
+        )
 
     def test_leaves_out_a_split_that_changed_after_the_end(self) -> None:
         ctx = replace(

@@ -2,7 +2,7 @@ import math
 import unicodedata
 from collections.abc import Mapping
 from dataclasses import replace
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from enum import StrEnum
 from zoneinfo import ZoneInfo
 
@@ -16,12 +16,13 @@ from posthog.hogql_queries.utils.breakdowns import BREAKDOWN_NULL_STRING_LABEL, 
 
 from products.experiments.backend.facade.contracts import (
     ExperimentHealthFinding,
+    ExperimentHealthFindingActionKind,
     ExperimentHealthFindingCode,
     ExperimentHealthFindingSeverity,
     ExperimentHealthValueKey,
 )
 from products.experiments.backend.health.checks.bias_risk import multiple_variant_count
-from products.experiments.backend.health.checks.change_wording import RESET_EFFECT, suggested_start
+from products.experiments.backend.health.checks.change_wording import RESET_EFFECT, suggested_start_at
 from products.experiments.backend.health.checks.forced_variant import SOME_CONDITIONS_PINNED, set_names
 from products.experiments.backend.health.checks.split_changed import split_changed_mid_run
 from products.experiments.backend.health.context import (
@@ -45,6 +46,7 @@ from products.experiments.backend.health.skips import (
     fewer_than_two_in_split,
     not_applicable,
 )
+from products.experiments.backend.health.split_changes import format_change_time
 from products.experiments.backend.hogql_queries.experiment_exposure_query_builder import ExposureSegmentDimension
 from products.feature_flags.backend.facade.edits import SplitChange
 
@@ -240,6 +242,10 @@ def _after_split_change(
     )
     if cause is not None:
         evidence.update(cause.evidence)
+    start_at = _suggested_start_at(split_changes)
+    if start_at is not None:
+        # pinned: the start date that MOVE_START_DATE sets, in UTC.
+        evidence["suggested_start_date"] = start_at.astimezone(UTC).isoformat()
     return ExperimentHealthFinding(
         code=ExperimentHealthFindingCode.SRM,
         subcode=SPLIT_CHANGED,
@@ -254,11 +260,11 @@ def _after_split_change(
                 _changed_while_exposed(split_changes, unit),
                 *retest,
                 *(cause.sentences if cause is not None else ()),
-                *_next_step(ctx, split_changes),
+                *_next_step(ctx, split_changes, start_at),
             ]
         ),
         evidence=evidence,
-        actions=(),
+        actions=(ExperimentHealthFindingActionKind.MOVE_START_DATE,) if start_at is not None else (),
         diagnostic_ref="A2",
     )
 
@@ -275,9 +281,17 @@ def _changed_while_exposed(split_changes: "_SplitChanges", unit: str) -> str:
     )
 
 
-def _next_step(ctx: HealthContext, split_changes: "_SplitChanges") -> list[str]:
-    if split_changes.warning_title is None:
-        start_at = suggested_start(split_changes.changes[-1].changed_at, split_changes.team_timezone)
+def _suggested_start_at(split_changes: "_SplitChanges") -> datetime | None:
+    """The start date past the last change, which the finding names when the split check's finding has no steps to
+    follow."""
+    if split_changes.warning_title is not None:
+        return None
+    return suggested_start_at(split_changes.changes[-1].changed_at)
+
+
+def _next_step(ctx: HealthContext, split_changes: "_SplitChanges", suggested: datetime | None) -> list[str]:
+    if suggested is not None:
+        start_at = format_change_time(suggested, split_changes.team_timezone)
         # A reset also clears the end date and the conclusion, which would undo an ended experiment's decision.
         if ctx.has_ended:
             return [f"Move the start date to {start_at}."]
