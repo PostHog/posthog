@@ -130,6 +130,8 @@ oauth_config:
       - mpim:read
       - users:read
       - users:read.email
+      - channels:read
+      - channels:history
     user_optional:
       - search:read.private
       - search:read.im
@@ -170,7 +172,9 @@ Django must be up at that moment.
 > Sign in with Slack (OpenID Connect) flow needs `user` scopes `openid` + `email` + `profile` and
 > the second redirect URL (`/complete/slack-link/`). With the `slack-app-link-search-scopes` flag on, the
 > link asks for the `search:read.*` and `users:read*` user scopes at `oauth.v2.authorize` instead, so the
-> manifest must declare them first. Slack refuses an authorize request for an undeclared scope. Drop those if you don't want either feature
+> manifest must declare them first. Slack refuses an authorize request for an undeclared scope. When the team
+> can use the Slack MCP from the MCP store, the link also asks for `channels:read` and `channels:history`, and
+> the same token connects the person's Slack MCP. Drop those if you don't want either feature
 > locally. Neither is behind a feature flag: the App Home tab renders for every install, and the
 > identity link appears only when the install holds the `users:read` and `users:read.email` scopes.
 

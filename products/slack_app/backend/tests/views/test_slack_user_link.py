@@ -116,6 +116,10 @@ class TestAuthorizeView:
                 return_value=True,
             ),
             patch(
+                "products.slack_app.backend.views.slack_user_link.slack_mcp_user_scopes",
+                return_value=("channels:history", "search:read.public"),
+            ),
+            patch(
                 "posthog.credentials_service.instance_settings.get_instance_settings",
                 return_value={"SLACK_APP_CLIENT_ID": "cid", "SLACK_APP_CLIENT_SECRET": "csecret"},
             ),
@@ -126,7 +130,10 @@ class TestAuthorizeView:
         params = parse_qs(location.query)
         assert f"{location.scheme}://{location.netloc}{location.path}" == "https://slack.com/oauth/v2/authorize"
         assert params["team"] == [SLACK_TEAM_ID]
-        assert {"search:read.public", "search:read.im", "users:read.email"} <= set(params["user_scope"][0].split(","))
+        user_scopes = params["user_scope"][0].split(",")
+        # The Slack MCP's scopes join the request once, so the same token can connect it.
+        assert {"search:read.public", "search:read.im", "users:read.email", "channels:history"} <= set(user_scopes)
+        assert len(user_scopes) == len(set(user_scopes))
         state = CallbackState.decode(params["state"][0])
         assert state is not None and state.search_scopes is True
 
@@ -214,6 +221,10 @@ class TestCallbackView:
                 return_value=self._identity(user_scopes="search:read.public users:read" if search_scopes else ""),
             ) as exchange,
             patch("products.slack_app.backend.views.slack_user_link.start_work_focus") as work_focus,
+            patch(
+                "products.slack_app.backend.views.slack_user_link.connect_slack_mcp_from_user_token",
+                return_value=True,
+            ) as connect_slack_mcp,
             patch("posthog.models.integration.slack.WebClient"),
             patch("products.slack_app.backend.analytics.ph_background_capture") as mock_ph,
             patch("products.slack_app.backend.views.slack_user_link.request_onboarding") as mock_refresh_card,
@@ -223,6 +234,9 @@ class TestCallbackView:
         self._assert_settings_redirect_success(response)
         assert exchange.call_args.kwargs["search_scopes"] is search_scopes
         assert work_focus.called is search_scopes
+        assert connect_slack_mcp.called is search_scopes
+        if search_scopes:
+            assert connect_slack_mcp.call_args.kwargs["access_token"] == SLACK_USER_ACCESS_TOKEN
         assert mock_refresh_card.call_args.args[1] == SLACK_USER_ID
         mock_ph.return_value.alias.assert_called_once_with(
             previous_id=user.distinct_id, distinct_id=f"slack:{SLACK_TEAM_ID}:{SLACK_USER_ID}"
