@@ -50,6 +50,7 @@ CREATE TABLE IF NOT EXISTS {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{TABLE_NA
     `pattern` String,
     `pattern_version` UInt8,
     `internal_source` LowCardinality(String) DEFAULT '',
+    `signature_status` LowCardinality(String) DEFAULT '',
     INDEX idx_severity_text_set severity_text TYPE set(10) GRANULARITY 1,
     INDEX idx_attributes_str_keys mapKeys(attributes_map_str) TYPE bloom_filter(0.01) GRANULARITY 1,
     INDEX idx_attributes_str_values mapValues(attributes_map_str) TYPE bloom_filter(0.001) GRANULARITY 1,
@@ -149,7 +150,8 @@ CREATE TABLE IF NOT EXISTS {db}.writable_logs34
     `_record_count` UInt64,
     `pattern` String,
     `pattern_version` UInt8,
-    `internal_source` LowCardinality(String) DEFAULT ''
+    `internal_source` LowCardinality(String) DEFAULT '',
+    `signature_status` LowCardinality(String) DEFAULT ''
 )
 ENGINE = {Distributed(data_table=TABLE_NAME, cluster=settings.CLICKHOUSE_LOGS_WRITE_CLUSTER)}
 SETTINGS background_insert_batch = 1
@@ -299,13 +301,20 @@ SETTINGS
 # Migrations before 0361 pass `internal_source=False`, because the column does not exist yet on a
 # database that upgrades through them. 0361 adds it to every table and then rebuilds each view.
 _INTERNAL_SOURCE_TYPE = "    `internal_source` LowCardinality(String)"
+# Migrations before 0383 pass `signature_status=False` for the same reason.
+_SIGNATURE_STATUS_TYPE = "    `signature_status` LowCardinality(String)"
 
 
-def KAFKA_LOGS34_AVRO_MV_SELECT(*, internal_source: bool = True):
+def KAFKA_LOGS34_AVRO_MV_SELECT(*, internal_source: bool = True, signature_status: bool = True):
     db = settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE
     # The logs consumer removes any incoming `internal-source` header and sets it only on a batch whose signature it verified.
     internal_source_column = (
         ",\n    _headers.value[indexOf(_headers.name, 'internal-source')] AS internal_source" if internal_source else ""
+    )
+    signature_status_column = (
+        ",\n    _headers.value[indexOf(_headers.name, 'signature-status')] AS signature_status"
+        if signature_status
+        else ""
     )
     return f"""SELECT
     uuid,
@@ -331,11 +340,11 @@ def KAFKA_LOGS34_AVRO_MV_SELECT(*, internal_source: bool = True):
     toInt64OrNull(_headers.value[indexOf(_headers.name, 'bytes_uncompressed')]) / _record_count AS _bytes_uncompressed,
     toInt64OrNull(_headers.value[indexOf(_headers.name, 'bytes_compressed')]) / _record_count AS _bytes_compressed,
     ifNull(pattern, '') AS pattern,
-    toUInt8(ifNull(pattern_version, 0)) AS pattern_version{internal_source_column}
+    toUInt8(ifNull(pattern_version, 0)) AS pattern_version{internal_source_column}{signature_status_column}
 FROM {db}.{KAFKA_TABLE_NAME}"""
 
 
-def KAFKA_LOGS34_AVRO_MV(to_table: str = TABLE_NAME, *, internal_source: bool = True):
+def KAFKA_LOGS34_AVRO_MV(to_table: str = TABLE_NAME, *, internal_source: bool = True, signature_status: bool = True):
     db = settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE
     # `to_table` defaults to `logs34` so the historical migration 0280 (which creates this MV on the
     # logs nodes, where `logs34` is local) keeps working when replayed. Migrations 0305, 0359 and 0361 pass
@@ -367,9 +376,9 @@ CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.kafka_logs34_avro_mv TO {db}.{to_tab
     `_bytes_uncompressed` Nullable(Int64),
     `_bytes_compressed` Nullable(Int64),
     `pattern` String,
-    `pattern_version` UInt8{"," + chr(10) + _INTERNAL_SOURCE_TYPE if internal_source else ""}
+    `pattern_version` UInt8{"," + chr(10) + _INTERNAL_SOURCE_TYPE if internal_source else ""}{"," + chr(10) + _SIGNATURE_STATUS_TYPE if signature_status else ""}
 )
-AS {KAFKA_LOGS34_AVRO_MV_SELECT(internal_source=internal_source)}
+AS {KAFKA_LOGS34_AVRO_MV_SELECT(internal_source=internal_source, signature_status=signature_status)}
 """
 
 

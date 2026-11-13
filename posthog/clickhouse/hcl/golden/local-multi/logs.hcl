@@ -800,6 +800,10 @@ SQL
       type    = "LowCardinality(String)"
       default = "''"
     }
+    column "signature_status" {
+      type    = "LowCardinality(String)"
+      default = "''"
+    }
     index "idx_severity_text_set" {
       expr        = "severity_text"
       type        = "set(10)"
@@ -1029,6 +1033,10 @@ SQL
       type = "UInt8"
     }
     column "internal_source" {
+      type    = "LowCardinality(String)"
+      default = "''"
+    }
+    column "signature_status" {
       type    = "LowCardinality(String)"
       default = "''"
     }
