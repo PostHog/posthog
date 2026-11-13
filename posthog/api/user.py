@@ -821,13 +821,19 @@ class UserSerializer(serializers.ModelSerializer):
 
             validated_data["current_organization"] = current_organization
             if not current_team:
-                candidate_teams = current_organization.teams.all()
-                scoped_teams = get_authenticator_scoped_team_ids(
-                    getattr(self.context.get("request"), "successful_authenticator", None)
-                )
-                if scoped_teams:
-                    candidate_teams = candidate_teams.filter(id__in=scoped_teams)
-                current_team = candidate_teams.first()
+                request = self.context.get("request")
+                scoped_teams = get_authenticator_scoped_team_ids(getattr(request, "successful_authenticator", None))
+                if request is not None and scoped_teams:
+                    # A credential's team list can outlive the user's access to a team, so pick only from
+                    # teams the user still reaches, as `validate_set_current_team` does.
+                    current_team = (
+                        cast(User, request.user)
+                        .teams.filter(organization=current_organization, id__in=scoped_teams)
+                        .order_by("id")
+                        .first()
+                    )
+                else:
+                    current_team = current_organization.teams.first()
             validated_data["current_team"] = current_team
         elif current_team:
             validated_data["current_team"] = current_team

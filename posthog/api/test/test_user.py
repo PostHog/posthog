@@ -475,6 +475,20 @@ class TestUserAPI(APIBaseTest):
         assert me.status_code == 200, me.content
         assert me.json()["team"] is None
 
+    def test_switching_organization_with_a_team_scoped_key_picks_a_scoped_project(self) -> None:
+        other_organization, _, first_team = Organization.objects.bootstrap(self.user)
+        scoped_team = Team.objects.create(organization=other_organization, name="Scoped")
+        self._authenticate_with_scoped_key(scoped_teams=[self.team.id, scoped_team.id])
+
+        response = self.client.patch(
+            "/api/users/@me/", {"set_current_organization": str(other_organization.id)}, format="json"
+        )
+
+        assert response.status_code == 200, response.content
+        self.user.refresh_from_db()
+        assert self.user.current_team_id == scoped_team.id
+        assert first_team.id != scoped_team.id
+
     def test_scoped_key_of_a_staff_user_reaches_only_itself(self) -> None:
         self.user.is_staff = True
         self.user.save()
