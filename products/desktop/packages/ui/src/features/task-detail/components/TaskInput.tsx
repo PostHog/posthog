@@ -1062,7 +1062,9 @@ export function TaskInput({
         : undefined
       : effectiveReasoningLevel;
 
-  useWarmTask({
+  const warmDraft = useWarmTask({
+    sessionId,
+    signalReportId: activeReportAssociation?.reportId,
     claudeModelAccess: adapter === "claude" ? composerModelAccess : undefined,
     codexModelAccess: adapter === "codex" ? composerModelAccess : undefined,
     workspaceMode,
@@ -1079,6 +1081,8 @@ export function TaskInput({
     model: effectiveModel,
     reasoningEffort: effectiveReasoningLevel,
     permissionMode: currentExecutionMode,
+    contextWindow: currentContextWindow,
+    fastMode: currentFastMode,
     sandboxEnvironmentId: cloudIds.sandboxEnvironmentId ?? null,
     customImageId: cloudIds.customImageId ?? null,
   });
@@ -1198,6 +1202,7 @@ export function TaskInput({
     additionalDirectories,
     setAdditionalDirectories,
   } = useTaskCreation({
+    warmDraft,
     editorRef,
     sessionId,
     selectedDirectory: repoOptional ? taskFolder : selectedDirectory,

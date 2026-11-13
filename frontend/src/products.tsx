@@ -374,8 +374,8 @@ export const productRoutes: Record<string, [string, string]> = {
         'visualReviewLegacySnapshotHistory',
     ],
     '/etl': ['PipelineOverview', 'pipelineOverview'],
-    '/web/content-autopilot': ['WebAnalytics', 'webAnalyticsContentAutopilot'],
-    '/web/content-autopilot/prompts/:promptId': ['WebAnalytics', 'webAnalyticsContentAutopilotPrompt'],
+    '/web/ai-visibility': ['WebAnalytics', 'webAnalyticsContentAutopilot'],
+    '/web/ai-visibility/prompts/:promptId': ['WebAnalytics', 'webAnalyticsContentAutopilotPrompt'],
     '/heatmaps': ['Heatmaps', 'heatmaps'],
     '/heatmaps/new': ['HeatmapNew', 'heatmapNew'],
     '/heatmaps/recording': ['HeatmapRecording', 'heatmapRecording'],
@@ -622,6 +622,10 @@ export const productRedirects: Record<
         combineUrl(urls.visualReviewRuns(), searchParams, hashParams).url,
     '/visual_review/*': ({ _ }, searchParams, hashParams): string =>
         combineUrl(`/visual-review/${_}`, searchParams, hashParams).url,
+    '/web/content-autopilot': (_, searchParams) => combineUrl(urls.webAnalyticsContentAutopilot(), searchParams).url,
+    '/web/content-autopilot/prompts/:promptId': ({ promptId }, searchParams) =>
+        combineUrl(urls.webAnalyticsContentAutopilotPrompt(promptId ?? ''), searchParams).url,
+    '/web/bots': () => urls.webAnalyticsContentAutopilot(),
 }
 
 /** This const is auto-generated, as is the whole file */
@@ -1574,7 +1578,7 @@ export const productUrls = {
     sharedDashboard: (shareToken: string): string => `/shared_dashboard/${shareToken}`,
     dataCatalog: (tab?: string): string => `/data-catalog${tab ? `?tab=${tab}` : ''}`,
     dataCatalogNewMetric: (): string => '/data-catalog/new-metric',
-    dataCatalogMetric: (name: string, tab?: 'definition' | 'data-quality' | 'lineage'): string =>
+    dataCatalogMetric: (name: string, tab?: 'definition' | 'data-quality' | 'lineage' | 'usage'): string =>
         `/data-catalog/metrics/${name}${tab && tab !== 'definition' ? `?tab=${tab}` : ''}`,
     models: (tab?: ModelsSceneTab): string => (tab && tab !== 'overview' ? `/models?tab=${tab}` : '/models'),
     nodeDetail: (id: string, tab?: NodeDetailSceneTab): string => `/models/${id}${tab ? `/${tab}` : ''}`,
@@ -2069,9 +2073,8 @@ export const productUrls = {
     webAnalyticsMarketing: (): string => `/web/marketing`,
     webAnalyticsHealth: (): string => `/web/health`,
     webAnalyticsLive: (): string => `/web/live`,
-    webAnalyticsBotAnalytics: (): string => `/web/bot-analytics`,
-    webAnalyticsContentAutopilot: (): string => `/web/content-autopilot`,
-    webAnalyticsContentAutopilotPrompt: (id: string): string => `/web/content-autopilot/prompts/${id}`,
+    webAnalyticsContentAutopilot: (): string => `/web/ai-visibility`,
+    webAnalyticsContentAutopilotPrompt: (id: string): string => `/web/ai-visibility/prompts/${id}`,
     heatmaps: (params?: string): string =>
         `/heatmaps${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
     heatmapNew: (params?: string): string =>
@@ -2713,6 +2716,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         path: 'Data catalog',
         intents: [ProductKey.DATA_CATALOG],
         category: ProductItemCategory.DATA,
+        type: 'data_catalog',
         iconType: 'data_catalog',
         iconColor: ['var(--color-product-data-catalog-light)', 'var(--color-product-data-catalog-dark)'],
         href: urls.dataCatalog(),

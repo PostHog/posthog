@@ -12,11 +12,15 @@ import fs, {
     rmSync,
     writeFileSync,
 } from 'fs'
+import http from 'http'
 import { AddressInfo, Server, Socket, connect, createServer } from 'net'
 import { KafkaConsumer } from 'node-rdkafka'
 import os from 'os'
 import path from 'path'
 import { Client } from 'pg'
+import { Registry, collectDefaultMetrics } from 'prom-client'
+// eslint-disable-next-line no-restricted-imports
+import { ProxyAgent } from 'undici'
 import { stringify } from 'yaml'
 
 import { insertHogFunctionTemplate } from '~/cdp/_tests/fixtures'
@@ -27,10 +31,12 @@ import { triggersOnEvents } from '~/cdp/consumers/event-name-gate'
 import {
     CdpProducerName,
     WAREHOUSE_PRODUCER,
+    WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER,
     WARPSTREAM_CYCLOTRON_PRODUCER,
     WARPSTREAM_INGESTION_PRODUCER,
 } from '~/cdp/outputs/producers'
 import { template as emailTemplate } from '~/cdp/templates/_destinations/email/email.template'
+import { template as webhookTemplate } from '~/cdp/templates/_destinations/webhook/webhook.template'
 import { CyclotronJobInvocation } from '~/cdp/types'
 import { convertToHogFunctionInvocationGlobals } from '~/cdp/utils'
 import { defaultConfig } from '~/common/config/config'
@@ -41,6 +47,7 @@ import { PersonReadRepository } from '~/common/persons/repositories/person-repos
 import { InternalCaptureService } from '~/common/services/internal-capture'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { parseJSON } from '~/common/utils/json-parse'
+import { _fetch, fetch } from '~/common/utils/request'
 import { createKafkaTestTopicName, deleteKafkaTopics, ensureKafkaTopics } from '~/tests/helpers/kafka'
 import { Hub, PluginsServerConfig, RawClickHouseEvent } from '~/types'
 
@@ -53,6 +60,11 @@ import { ProviderEdge, TruthRecord, startProviderEdge } from '../provider-edge'
 import { FakeProjectApi, startFakeProjectApi } from '../scorecard/fake-project-api'
 import { RunResult, Runner, createRunner } from './runner'
 
+jest.mock('~/common/utils/request', () => {
+    const actual = jest.requireActual('~/common/utils/request')
+    return { ...actual, fetch: jest.fn(actual.fetch) }
+})
+
 const SMOKE_CARD = path.join(__dirname, '..', 'cards', 'smoke.yaml')
 const SMOKE = load(SMOKE_CARD)
 const PROCESS_DATABASE_URL = 'postgres://scenario:scenario@127.0.0.1:2/scenario'
@@ -62,6 +74,21 @@ const NEVER_ABORTED = new AbortController().signal
 const withSettings = (settings: Record<string, string>): LoadedCard => ({
     ...SMOKE,
     profile: { ...SMOKE.profile, settings },
+})
+
+let processMetrics: { url: string; server: http.Server }
+
+beforeAll(async () => {
+    const registry = new Registry()
+    collectDefaultMetrics({ register: registry })
+    const server = http.createServer(async (_req, res) => res.end(await registry.metrics()))
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+    processMetrics = { url: `http://127.0.0.1:${(server.address() as AddressInfo).port}/_metrics`, server }
+})
+
+afterAll(async () => {
+    processMetrics.server.closeAllConnections()
+    await new Promise<void>((resolve) => processMetrics.server.close(() => resolve()))
 })
 
 const failNextDisconnect = (): void => {
@@ -85,7 +112,7 @@ describe('runner', () => {
         up: () => Promise.resolve(),
         reset: () => Promise.resolve(duringReset()),
         edgeUrl: () => 'http://127.0.0.1:1',
-        role: (name) => ({ name, metricsUrl: '' }),
+        role: (name) => ({ name, metricsUrl: processMetrics.url }),
         dependencyHealth: () => Promise.resolve({ healthy: true, down: [] }),
         exits: () => [],
         down: () => Promise.resolve(),
@@ -415,6 +442,7 @@ const noGroups: GroupReadRepository = {
 async function startCdp(config: Partial<PluginsServerConfig>): Promise<Cdp> {
     const hub = await createHub(config)
     await insertHogFunctionTemplate(hub.postgres, emailTemplate)
+    await insertHogFunctionTemplate(hub.postgres, webhookTemplate)
     const deps: CdpConsumerBaseDeps = {
         postgres: hub.postgres,
         pubSub: hub.pubSub,
@@ -424,6 +452,7 @@ async function startCdp(config: Partial<PluginsServerConfig>): Promise<Cdp> {
         cdpProducerRegistry: new KafkaProducerRegistry<CdpProducerName>({
             [WARPSTREAM_INGESTION_PRODUCER]: discardingProducer,
             [WARPSTREAM_CYCLOTRON_PRODUCER]: discardingProducer,
+            [WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER]: discardingProducer,
             [WAREHOUSE_PRODUCER]: discardingProducer,
         }),
         internalCaptureService: new InternalCaptureService(hub),
@@ -565,6 +594,7 @@ describe('runner through seed, drive and judge', () => {
     let cacheHome: string
     let env: NodeJS.ProcessEnv
     let edge: ProviderEdge
+    let throughTheEdge: ProxyAgent
     let api: FakeProjectApi
     let roles: DeliveringRoles | undefined
     let results: RunResult[]
@@ -579,12 +609,12 @@ describe('runner through seed, drive and judge', () => {
                     ? undefined
                     : await startDeliveringRoles(
                           cdp,
-                          roleSpecs(env, edge.url, secretsOf(env), defaultStateDir(env), settings),
+                          roleSpecs(env, { url: edge.url }, secretsOf(env), defaultStateDir(env), settings),
                           delivering !== 'all'
                       )
         },
         edgeUrl: () => edge.url,
-        role: (name) => ({ name, metricsUrl: '' }),
+        role: (name) => ({ name, metricsUrl: processMetrics.url }),
         dependencyHealth: () => Promise.resolve({ healthy: true, down: [] }),
         exits: () => [],
         down: async () => {
@@ -593,14 +623,14 @@ describe('runner through seed, drive and judge', () => {
         },
     })
 
-    const shortSmoke = (): LoadedCard => {
+    const shortSmoke = (traffic = 'event_email'): LoadedCard => {
         const card = path.join(cacheHome, 'card.yaml')
         const profile = path.join(cacheHome, 'profile.yaml')
         writeFileSync(
             card,
             stringify({
                 ...SMOKE.card,
-                drive: { ...SMOKE.card.drive, for: '2s', minOffered: 0.5 },
+                drive: { ...SMOKE.card.drive, for: '2s', minOffered: 0.5, traffic: [{ name: traffic }] },
                 convergeWithin: '3s',
             })
         )
@@ -608,7 +638,7 @@ describe('runner through seed, drive and judge', () => {
             profile,
             stringify({
                 name: SMOKE.profile.name,
-                traffic: { event_email: { ratePerSecond: 2 } },
+                traffic: { [traffic]: { ratePerSecond: 2 } },
                 settings: {
                     CDP_EVENTS_CONSUMER_TOPIC: topic,
                     KAFKA_PRODUCER_METADATA_BROKER_LIST: defaultConfig.KAFKA_HOSTS,
@@ -647,7 +677,17 @@ describe('runner through seed, drive and judge', () => {
             CYCLOTRON_NODE_DATABASE_URL: cyclotronUrl,
             ...api.credentials,
         }
-        edge = await startProviderEdge({ port: 0, trackingKeys: secretsOf(env).encryptionSaltKeys })
+        edge = await startProviderEdge({
+            port: 0,
+            trackingKeys: secretsOf(env).encryptionSaltKeys,
+            caDir: path.join(cacheHome, 'edge-ca'),
+        })
+        throughTheEdge = new ProxyAgent({
+            uri: edge.url,
+            proxyTunnel: true,
+            requestTls: { ca: readFileSync(edge.caCertPath!) },
+        })
+        jest.mocked(fetch).mockImplementation((url, options) => _fetch(url, options, throughTheEdge))
         results = []
         await withPostgres((client) => client.query('DELETE FROM cyclotron_jobs'), cyclotronUrl)
     })
@@ -664,6 +704,7 @@ describe('runner through seed, drive and judge', () => {
     })
 
     const cleanUp = async (): Promise<void> => {
+        await throughTheEdge.close()
         await edge.close()
         const teams = [
             ...new Set(
@@ -694,8 +735,8 @@ describe('runner through seed, drive and judge', () => {
         await api.close()
     }
 
-    const run = async (delivering: Parameters<typeof environmentOf>[0]): Promise<RunResult> => {
-        const result = await createRunner(environmentOf(delivering), env).run(shortSmoke(), NEVER_ABORTED)
+    const run = async (delivering: Parameters<typeof environmentOf>[0], traffic?: string): Promise<RunResult> => {
+        const result = await createRunner(environmentOf(delivering), env).run(shortSmoke(traffic), NEVER_ABORTED)
         results.push(result)
         return result
     }
@@ -703,37 +744,59 @@ describe('runner through seed, drive and judge', () => {
     const deliveriesOf = (truth: TruthRecord[]): string[] =>
         truth.map(({ unitId, actionId, status }) => `${unitId}/${actionId}/${status}`).sort()
 
-    it.each<[string, Parameters<typeof environmentOf>[0], () => void, object, boolean]>([
+    it.each<[string, Parameters<typeof environmentOf>[0], string, () => void, object, string | undefined]>([
         [
             'passes when the roles deliver every unit and finish every job',
             'all',
+            'event_email',
+            () => undefined,
+            {
+                status: 'passed',
+                statusReason: 'every invariant held',
+                measurements: expect.arrayContaining([
+                    expect.objectContaining({ name: 'delivery_latency_ms', key: 'p50', unit: 'ms' }),
+                ]),
+            },
+            'email',
+        ],
+        [
+            'passes when the edge records a webhook delivery for every unit',
+            'all',
+            'event_webhook',
             () => undefined,
             { status: 'passed', statusReason: 'every invariant held' },
-            true,
+            'webhook',
         ],
         [
             'fails when a job stays unfinished after every unit was delivered',
             'all, leaving one job running',
+            'event_email',
             () => undefined,
             { status: 'failed', statusReason: 'not converged: 1 unfinished jobs, 0 units without a delivery record' },
-            true,
+            'email',
         ],
         [
             'fails with the undelivered units when no role delivers',
             'none',
+            'event_email',
             () => undefined,
             {
                 status: 'failed',
                 statusReason: expect.stringMatching(
                     /^not converged: 0 unfinished jobs, [1-9]\d* units without a delivery record; at_least_once failed: [\w-]+-\d+ email: the edge never received it$/
                 ),
-                invariants: [{ name: 'at_least_once', passed: false, observed: expect.any(Number) }],
+                invariants: [
+                    { name: 'at_least_once', passed: false, observed: expect.any(Number) },
+                    { name: 'duplicate_sends', passed: true },
+                    { name: 'refused_at_intake', passed: true },
+                ],
             },
-            false,
+            undefined,
         ],
         [
             'joins the failed verdict and the producer that did not disconnect',
             'none',
+            'event_email',
             failNextDisconnect,
             {
                 status: 'invalid',
@@ -741,14 +804,14 @@ describe('runner through seed, drive and judge', () => {
                     /^not converged: .*; at_least_once failed: .*; the load producer did not disconnect: Local: Timed out$/
                 ),
             },
-            false,
+            undefined,
         ],
     ])(
         '%s',
-        async (_story, delivering, arrange, verdict, delivered) => {
+        async (_story, delivering, traffic, arrange, verdict, deliveredBy) => {
             arrange()
 
-            const result = await run(delivering)
+            const result = await run(delivering, traffic)
 
             const offered = (evidenceOf(result, 'journal.json') as JournalEntry[]).filter(
                 ({ answer }) => answer.accepted
@@ -769,7 +832,7 @@ describe('runner through seed, drive and judge', () => {
                 }),
             ])
             expect(deliveriesOf(evidenceOf(result, 'truth.json') as TruthRecord[])).toEqual(
-                delivered ? offered.map(({ unitId }) => `${unitId}/email/200`).sort() : []
+                deliveredBy ? offered.map(({ unitId }) => `${unitId}/${deliveredBy}/200`).sort() : []
             )
             expect(offered).not.toHaveLength(0)
         },

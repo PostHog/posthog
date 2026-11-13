@@ -6,7 +6,6 @@ const LABELS: Record<NavPin, string> = {
     errors: 'Errors',
     replay: 'Sessions',
     web_analytics: 'Web analytics',
-    live: 'Live',
 }
 
 /** Where a pin change started. `undo` is the toast's Undo, which reverses the change just before it. */

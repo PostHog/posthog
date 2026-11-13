@@ -23,6 +23,7 @@ import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-gener
 export interface todayProductsLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     shortcutData: FileSystemEntry[] // projectTreeDataLogic
+    shortcutDataHasLoaded: boolean // projectTreeDataLogic
     shortcutDataLoading: boolean // projectTreeDataLogic
     location: {
         pathname: string
@@ -30,7 +31,8 @@ export interface todayProductsLogicValues {
         hash: string
     } // router
     activeHref: string | null
-    allProductsOpen: boolean
+    allProductsOpen: boolean | null
+    allProductsVisible: boolean
     pinnedProducts: FileSystemImport[]
     productCount: number
     productGroups: ProductsItemGroup[]
@@ -77,6 +79,9 @@ export interface todayProductsLogicActions {
     setStarredOpen: (open: boolean) => {
         open: boolean
     }
+    toggleAllProducts: () => {
+        value: true
+    }
     toggleStarred: (item: FileSystemImport) => {
         item: FileSystemImport
     }
@@ -103,6 +108,11 @@ export interface todayProductsLogicMeta {
             search: string
         ) => FileSystemImport[]
         starredHrefs: (shortcutData: FileSystemEntry[], products: FileSystemImport[]) => Set<string>
+        allProductsVisible: (
+            allProductsOpen: boolean | null,
+            shortcutDataHasLoaded: boolean,
+            starredHrefs: Set<string>
+        ) => boolean
     }
 }
 
@@ -129,12 +139,23 @@ export function resolveStarredProducts(
     })
 }
 
+// kea-localstorage saved the old default, false, for everyone who opened the pane, so only true there was a choice.
+const LEGACY_ALL_PRODUCTS_OPEN_KEY = 'layout.today.todayProductsLogic.allProductsOpen'
+
+function legacyAllProductsChoice(): true | null {
+    try {
+        return localStorage.getItem(LEGACY_ALL_PRODUCTS_OPEN_KEY) === 'true' ? true : null
+    } catch {
+        return null
+    }
+}
+
 export const todayProductsLogic = kea<todayProductsLogicType>([
     path(['layout', 'today', 'todayProductsLogic']),
     connect(() => ({
         values: [
             projectTreeDataLogic,
-            ['shortcutData', 'shortcutDataLoading'],
+            ['shortcutData', 'shortcutDataHasLoaded', 'shortcutDataLoading'],
             featureFlagLogic,
             ['featureFlags'],
             router,
@@ -146,6 +167,7 @@ export const todayProductsLogic = kea<todayProductsLogicType>([
         setSearch: (search: string) => ({ search }),
         setStarredOpen: (open: boolean) => ({ open }),
         setAllProductsOpen: (open: boolean) => ({ open }),
+        toggleAllProducts: true,
         toggleStarred: (item: FileSystemImport) => ({ item }),
         productOpened: (
             item: FileSystemImport,
@@ -159,12 +181,16 @@ export const todayProductsLogic = kea<todayProductsLogicType>([
             position,
         }),
     }),
-    reducers({
+    reducers(() => ({
         search: ['', { setSearch: (_, { search }) => search }],
         // pinned: storage keys for persisted state. Renaming them resets everyone's sections.
         starredOpen: [true, { persist: true }, { setStarredOpen: (_, { open }) => open }],
-        allProductsOpen: [inStorybook(), { persist: true }, { setAllProductsOpen: (_, { open }) => open }],
-    }),
+        allProductsOpen: [
+            (inStorybook() ? true : legacyAllProductsChoice()) as boolean | null,
+            { persist: true, storageKey: 'layout.today.todayProductsLogic.allProductsChoice' },
+            { setAllProductsOpen: (_, { open }) => open },
+        ],
+    })),
     selectors({
         // The same list as the Products tab of the current navigation, less Home, which is the rail's Home item. Never
         // drop a product because another rail pane also links to it: this list is where people go to find everything.
@@ -203,12 +229,23 @@ export const todayProductsLogic = kea<todayProductsLogicType>([
             (shortcuts: FileSystemEntry[], products: FileSystemImport[]): Set<string> =>
                 new Set(resolveStarredProducts(shortcuts, products).map((item) => item.href ?? '')),
         ],
+        // Closed until stars load, so a person with stars does not see the list open and then close.
+        allProductsVisible: [
+            (s) => [s.allProductsOpen, s.shortcutDataHasLoaded, s.starredHrefs],
+            (allProductsOpen: boolean | null, shortcutDataHasLoaded: boolean, starredHrefs: Set<string>): boolean =>
+                allProductsOpen ?? (shortcutDataHasLoaded && starredHrefs.size === 0),
+        ],
     }),
     listeners(({ actions, values }) => ({
         toggleStarred: ({ item }) => {
             // The star buttons are disabled while a change saves. This also stops a repeated dispatch.
             if (values.shortcutDataLoading) {
                 return
+            }
+            // The default follows the star count, so the first star would close the list under the cursor.
+            // Saving the default as a choice keeps the list as it is.
+            if (values.allProductsOpen === null) {
+                actions.setAllProductsOpen(values.allProductsVisible)
             }
             const shortcut = findProductShortcut(item, values.shortcutData)
             // pinned: analytics event name and properties. Renaming them breaks dashboards.
@@ -218,6 +255,16 @@ export const todayProductsLogic = kea<todayProductsLogicType>([
             } else {
                 actions.addShortcutItem(item as FileSystemEntry)
             }
+        },
+        toggleAllProducts: () => {
+            const open = !values.allProductsVisible
+            // pinned: analytics event name and properties. Renaming them breaks dashboards.
+            posthog.capture('today all products toggled', {
+                open,
+                starred_count: values.starredHrefs.size,
+                searching: !!values.search.trim(),
+            })
+            actions.setAllProductsOpen(open)
         },
         productOpened: ({ item, section, category, position }) => {
             // pinned: analytics event name and properties. Renaming them breaks dashboards.

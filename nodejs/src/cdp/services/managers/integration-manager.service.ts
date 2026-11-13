@@ -45,6 +45,21 @@ export class IntegrationManagerService {
         return (await this.lazyLoader.get(reference))?.integration ?? null
     }
 
+    public async getCheckingPrimaryOnMiss(id: IntegrationIdInput): Promise<IntegrationType | null> {
+        const cached = await this.get(id)
+        const reference = toIntegrationReference(id)
+        if (cached || reference === null || !this.source.loadFromPrimary) {
+            return cached
+        }
+        const record = (await this.source.loadFromPrimary([reference]))[reference]
+        if (!record) {
+            return null
+        }
+        this.reportDecryptFailures(record)
+        this.lazyLoader.markForRefresh([reference])
+        return record.integration
+    }
+
     /**
      * Keys the result by canonical reference. A legacy id gives the same key as a number or a
      * string, so callers can index with the number they hold. Invalid values have no key.
