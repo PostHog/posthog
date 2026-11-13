@@ -149,7 +149,14 @@ class TestRunIssueTaggers(BaseTest):
     def test_stores_the_jev_answer_to_cause_in_trace(self) -> None:
         issue = ErrorTrackingIssue.objects.create(team=self.team)
 
-        with patch(DECIDE, return_value=_decision({"cause_in_trace": NoulAnswer(probability=0.9)})) as decide:
+        with (
+            patch.object(
+                team_flags,
+                "feature_enabled_or_false",
+                new=lambda flag, *args, **kwargs: flag in {ISSUE_TAGS_FLAG, JEV_ISSUE_TAGS_FLAG},
+            ),
+            patch(DECIDE, return_value=_decision({"cause_in_trace": NoulAnswer(probability=0.9)})) as decide,
+        ):
             result = run_issue_taggers(self.team.id, issue.id, lambda team: EVENT_PROPERTIES)
 
         assert result == (TaggerRun(source=Source.JEV),)
