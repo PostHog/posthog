@@ -17,7 +17,7 @@ export const CardFault = z.discriminatedUnion('name', [
     z
         .object({
             name: z.literal('ses.reject'),
-            params: z.object({ type: z.literal('rejected') }).strict(),
+            params: z.object({ type: z.enum(['rejected', 'bounce']) }).strict(),
             match: RecipientMatch.optional(),
             dose: Dose,
             for: Duration.optional(),
@@ -47,6 +47,7 @@ export type SesStatusAnswer = { status: number; type: string; message: string }
 
 export type SesAnswer =
     | { kind: 'status'; answer: SesStatusAnswer }
+    | { kind: 'bounce' }
     | { kind: 'drop-connection' }
     | { kind: 'no-answer' }
     | { kind: 'stalled-body' }
@@ -74,7 +75,10 @@ const RATE_WINDOW_MS = 1000
 export function ruleOf(fault: CardFault): FaultRule {
     switch (fault.name) {
         case 'ses.reject':
-            return { ...fault, answer: { kind: 'status', answer: REJECTED } }
+            return {
+                ...fault,
+                answer: fault.params.type === 'bounce' ? { kind: 'bounce' } : { kind: 'status', answer: REJECTED },
+            }
         case 'ses.throttle':
             return { ...fault, dose: { perSecond: fault.params.rate }, answer: { kind: 'status', answer: THROTTLED } }
         case 'dest.status':
@@ -165,24 +169,24 @@ export class FaultList {
     private take(request: FaultedRequest): FaultRule | undefined {
         const now = Date.now()
         this.faults = this.faults.filter((fault) => fault.until > now)
-        const throttles: ActiveFault[] = []
-        for (const fault of this.faults) {
-            if (!matches(fault.rule, request)) {
-                continue
-            }
+        const matching = this.faults.filter((fault) => matches(fault.rule, request))
+        const throttles = matching.filter((fault) => 'perSecond' in fault.rule.dose)
+        const answering = [...throttles, ...matching.filter((fault) => !throttles.includes(fault))].find((fault) => {
             fault.matched += 1
-            if (doseTakes(fault, now)) {
-                fault.applied += 1
-                if (!this.firstApplied.has(fault.id)) {
-                    this.firstApplied.set(fault.id, now)
-                }
-                return fault.rule
-            }
-            if ('perSecond' in fault.rule.dose) {
-                throttles.push(fault)
+            return doseTakes(fault, now)
+        })
+        if (answering) {
+            answering.applied += 1
+            if (!this.firstApplied.has(answering.id)) {
+                this.firstApplied.set(answering.id, now)
             }
         }
-        countSentAgainst(throttles, now)
-        return undefined
+        if (answering === undefined || answering.rule.answer.kind === 'bounce') {
+            countSentAgainst(
+                throttles.filter((fault) => fault !== answering),
+                now
+            )
+        }
+        return answering?.rule
     }
 }
