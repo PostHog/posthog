@@ -2041,7 +2041,7 @@ export const getFileSystemFolderCountsRetrieveUrl = (
 }
 
 /**
- * Counts the files directly in each folder, so a view can tell which folders hold files without listing them.
+ * Counts the files directly in each folder outside Unfiled, so the workflows list can tell which folders hold files without listing them. Not found unless the workflows list is on for the caller.
  * @summary Count files per folder
  */
 export const fileSystemFolderCountsRetrieve = async (
