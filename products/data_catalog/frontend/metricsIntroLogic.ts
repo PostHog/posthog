@@ -155,6 +155,11 @@ export const metricsIntroLogic = kea<metricsIntroLogicType>([
             posthog.capture('data catalog metrics intro shown', { surface })
         },
         dismissIntro: () => {
+            // Showing the strip already records it as seen. Closing it records it too, so a write that
+            // failed on show cannot bring it back.
+            if (!values.seenBefore) {
+                actions.updateHasSeenProductIntroFor(METRICS_INTRO_SEEN_KEY)
+            }
             // pinned: analytics event name
             posthog.capture('data catalog metrics intro dismissed')
         },

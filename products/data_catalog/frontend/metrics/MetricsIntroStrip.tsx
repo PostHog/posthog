@@ -1,6 +1,6 @@
 import { useActions } from 'kea'
 
-import { IconArrowRight, IconInfo, IconX } from '@posthog/icons'
+import { IconInfo, IconX } from '@posthog/icons'
 import { Badge, Button, Item, ItemActions, ItemContent, ItemMedia } from '@posthog/quill'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
@@ -16,23 +16,20 @@ export function MetricsIntroStrip(): JSX.Element {
     useOnMountEffect(() => reportIntroShown('strip'))
 
     return (
-        <Item variant="muted" size="xs" className="flex-wrap" data-attr="data-catalog-metrics-intro">
+        <Item variant="outline" size="xs" className="w-fit max-w-full flex-wrap" data-attr="data-catalog-metrics-intro">
             <ItemMedia variant="icon">
                 <IconInfo />
             </ItemMedia>
             <ItemContent className="min-w-0">
-                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
-                    <span className="font-medium">How metrics work:</span>
-                    <span className="inline-flex items-center gap-1.5">
-                        <Badge variant="warning">Proposed</Badge>
-                        <span>agents use it with a warning</span>
-                    </span>
-                    <IconArrowRight aria-hidden className="size-3 shrink-0 text-muted-foreground" />
-                    <span className="inline-flex items-center gap-1.5">
-                        <Badge variant="success">Approved</Badge>
-                        <span>a teammate reviewed it, so agents use it without one</span>
-                    </span>
-                </div>
+                {/* One flowing paragraph, so it wraps like a sentence in a narrow scene instead of stacking. */}
+                <p className="m-0 text-xs">
+                    <span className="font-medium">How metrics work:</span> when a teammate asks an agent a question, the
+                    agent finds the matching metric here and computes it from its definition.{' '}
+                    <Badge variant="warning" className="align-middle">
+                        Proposed
+                    </Badge>{' '}
+                    ones carry a warning until approved.
+                </p>
             </ItemContent>
             <ItemActions>
                 <Button
