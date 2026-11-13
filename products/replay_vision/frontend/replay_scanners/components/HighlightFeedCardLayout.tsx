@@ -58,24 +58,23 @@ export const HighlightFeedCardLayout = forwardRef<HTMLElement, HighlightFeedCard
             <article
                 ref={ref}
                 className={cn(
-                    'group relative flex min-w-0 flex-col gap-3 rounded-lg border bg-surface-primary p-4',
+                    'group @container/highlight-card relative flex min-w-0 flex-col gap-3 rounded-lg border bg-surface-primary p-4',
                     titleLink && 'hover:border-accent focus-within:border-accent',
                     className
                 )}
                 data-attr={dataAttr}
             >
                 {/*
-                  One or two cards across share one line, and the person and age keep up to 45% of it, so a long email
-                  is cut before the scanner name. From three across (72rem, FEED_GRID's breakpoint, keep the two in step)
-                  the card is too narrow for both, so the person and age get their own line. pl-8 is the chip's size-6
-                  icon plus gap-2, so that line starts under the name.
+                  A narrow card puts the person and age on their own line, so neither they nor the scanner name are cut
+                  short. pl-8 is the chip's size-6 icon plus gap-2, so that line starts under the name. A wide card keeps
+                  one line, and the person and age keep up to 45% of it, so a long email is cut before the scanner name.
                 */}
-                <header className="flex min-w-0 items-center gap-x-2 @[72rem]:flex-wrap">
-                    <div className="flex min-w-0 @[72rem]:flex-1">{scanner}</div>
-                    <span className="text-xs text-muted @[72rem]:hidden" aria-hidden>
+                <header className="flex min-w-0 flex-wrap items-center gap-x-2 @[28rem]/highlight-card:flex-nowrap">
+                    <div className="flex min-w-0 flex-1 @[28rem]/highlight-card:flex-initial">{scanner}</div>
+                    <span className="hidden text-xs text-muted @[28rem]/highlight-card:inline" aria-hidden>
                         ·
                     </span>
-                    <div className="min-w-0 max-w-[45%] shrink-0 @[72rem]:order-last @[72rem]:flex @[72rem]:max-w-none @[72rem]:shrink @[72rem]:basis-full @[72rem]:pl-8">
+                    <div className="order-last flex min-w-0 basis-full pl-8 @[28rem]/highlight-card:order-none @[28rem]/highlight-card:max-w-[45%] @[28rem]/highlight-card:shrink-0 @[28rem]/highlight-card:basis-auto @[28rem]/highlight-card:pl-0">
                         {meta}
                     </div>
                     {action && <div className="relative z-10 ml-auto shrink-0">{action}</div>}

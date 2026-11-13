@@ -20,11 +20,8 @@ import { HighlightFeedHeader } from './HighlightFeedHeader'
 /**
  * Columns follow the scene's width, so cards stay a similar size and a wide window fills with them rather than empty margin.
  * A narrow window keeps two cards across, and a wide laptop window gets three.
- * HighlightFeedCardLayout's header splits onto two lines at the 72rem three-column breakpoint, so keep the two in step.
  */
 const FEED_GRID = 'grid grid-cols-1 items-start gap-4 @[44rem]:grid-cols-2 @[72rem]:grid-cols-3 @[120rem]:grid-cols-4'
-/** A single column stays card-sized rather than stretching one poster across the whole scene. */
-const FEED_WIDTH = 'mx-auto w-full max-w-3xl @[44rem]:max-w-none'
 
 const POSTER_WAIT_CAP_MS = 10000
 const SKIP_POSTER_WAIT = inStorybookTestRunner()
@@ -177,7 +174,7 @@ export function HighlightFeedTab(): JSX.Element {
     return (
         <div className="@container flex flex-col gap-4">
             {/* The empty state explains the feed on its own, and a project without scanners has nothing to filter. */}
-            {!(emptyReason === 'no-scanners' && items.length === 0) && <HighlightFeedHeader className={FEED_WIDTH} />}
+            {!(emptyReason === 'no-scanners' && items.length === 0) && <HighlightFeedHeader />}
             {/* The first render comes before the mount starts the load, and a filter change keeps the last
                 result until the new one lands, so an empty screen is only drawn from a finished load. */}
             {(feedItems === null && !feedFailed) || (feedItemsLoading && items.length === 0) || firstReveal ? (
@@ -185,7 +182,7 @@ export function HighlightFeedTab(): JSX.Element {
                     <Spinner className="text-4xl text-secondary" />
                 </div>
             ) : (
-                <div className={clsx(FEED_WIDTH, 'relative flex flex-col gap-4')}>
+                <div className="relative flex flex-col gap-4">
                     {/* The last result stays while a filter change loads, dimmed so it doesn't read as the new one. */}
                     {dimmed && (
                         <div
