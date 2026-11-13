@@ -19,8 +19,7 @@ import geoip2.database
 
 from posthog.dataclasses import frozen
 
-# The template's `geoipProperties`, in its order. The template writes every key to `$set` and `$set_once`,
-# with null for the keys the record has no value for.
+# The template's `geoipProperties`, in its order, which is the key order of `$set` and `$set_once`.
 GEOIP_KEYS: tuple[str, ...] = (
     "city_name",
     "city_confidence",
@@ -57,8 +56,7 @@ class GeoipTemplateVersion:
     remaps_private_network: bool
 
 
-# The hashes match NOOP_SOURCE_HASHES in nodejs/src/cdp/hog-transformations/geoip-noop.ts. The versions
-# differ only in the private network rule: the 2025 source maps 127.0.0.1 alone to the development IP.
+# The hashes match NOOP_SOURCE_HASHES in nodejs/src/cdp/hog-transformations/geoip-noop.ts.
 TEMPLATE_VERSIONS: tuple[GeoipTemplateVersion, ...] = (
     GeoipTemplateVersion(
         source_sha256="c60a2c9cf0d2f82812392c3c682f4223e17082f109e02fbf5467fbb0069d0770",
@@ -108,9 +106,8 @@ class MmdbGeoipLookup:
         self._reader = geoip2.database.Reader(str(path))
 
     def __call__(self, ip: str) -> GeoipRecord | None:
-        # The maxminddb reader parses forms that geoip2-node rejects, such as hexadecimal IPv4 and
-        # IPv6 scope IDs, so the address is parsed here and handed over as an object. geoip2-node also
-        # fails on an IPv6 address written with a dotted quad, unless it is IPv4-mapped.
+        # maxminddb accepts forms geoip2-node rejects: hexadecimal IPv4, IPv6 scope IDs, and IPv6 with a
+        # dotted quad unless it is IPv4-mapped. So the address is parsed here first.
         try:
             address = ipaddress.ip_address(ip)
         except ValueError:
@@ -145,8 +142,7 @@ def geoip_enrichment(
     if not record:
         return None
     if any(_is_non_object(properties.get(key)) for key in ("$set", "$set_once")):
-        # `$set ?? {}` in the template replaces only null. Setting a key on anything else fails the template,
-        # and ingestion then keeps the event unchanged.
+        # The template's `$set ?? {}` keeps a non-object, and setting a key on it fails the template.
         return None
 
     location = _location(record)
@@ -163,8 +159,7 @@ def geoip_enrichment(
 
 
 def _location(record: GeoipRecord) -> dict[str, Any]:
-    # Each `if` mirrors one `if (response.<object>)` of the template. A present object writes all of its
-    # keys, and a key the object lacks is written as null, like `names?.en` on the Hog side.
+    # Each `if` mirrors an `if (response.<object>)` of the template, which writes a missing key as null.
     location: dict[str, Any] = {}
     if city := _object_or_empty(record.get("city")):
         location["city_name"] = _english_name(city)
@@ -195,7 +190,6 @@ def _english_name(geo_object: Mapping[str, Any]) -> Any:
 
 
 def _js_number(value: Any) -> Any:
-    # JavaScript has one number type, so the template writes 13.0 as 13.
     return int(value) if isinstance(value, float) and value.is_integer() else value
 
 

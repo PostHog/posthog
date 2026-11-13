@@ -18,9 +18,8 @@ from posthog.dags.geoip_enrichment import (
 FIXTURES = Path(__file__).parent / "fixtures"
 CURRENT_VERSION = TEMPLATE_VERSIONS[-1]
 
-# Recorded from the Node template, one file per shipped version. To add a case, run the template through
-# TemplateTester (it loads the same test DB, from nodejs/tests/assets) and copy the event properties it
-# returns.
+# Recorded from the Node template through TemplateTester, which loads the same test DB from
+# nodejs/tests/assets, one file per shipped version.
 PARITY_FIXTURES = [json.loads(path.read_text()) for path in sorted(FIXTURES.glob("geoip_template_parity*.json"))]
 PARITY_CASES = [
     pytest.param(fixture["source_sha256"], case, id=f"{fixture['source_sha256'][:8]}-{case['name']}")
