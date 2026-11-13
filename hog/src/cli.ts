@@ -25,7 +25,7 @@ import { EXIT_CODES } from '@/core/manifest'
 import { Output } from '@/core/output'
 import type { Runtime } from '@/core/runtime'
 import { Telemetry } from '@/core/telemetry'
-import { kebabCase } from '@/core/text'
+import { kebabCase, shellQuote } from '@/core/text'
 import { ApiError } from '@/posthog/api'
 import { resolveCredentials } from '@/posthog/credentials'
 import { canStepUp, stepUpCommand, workloadScopesHint } from '@/posthog/scope-challenge'
@@ -72,12 +72,6 @@ function helpText(command: Command): string {
         .join('\n')
 }
 
-const SHELL_SAFE_ARG = /^[\w@%+=:,./-]+$/
-
-function shellQuote(arg: string): string {
-    return SHELL_SAFE_ARG.test(arg) ? arg : `'${arg.replaceAll("'", "'\\''")}'`
-}
-
 // posthog-cli takes --host and --dotenv-file before the subcommand only. Every other argument
 // belongs to the legacy command, including an --output that names a path there.
 const LEGACY_GLOBALS = new Set(['host', 'dotenv-file'])
@@ -107,7 +101,12 @@ function notPorted(argv: readonly string[], route: LegacyRoute): HogError {
         }
     })
     const [binary, ...subcommand] = route.legacy.use.split(' ')
-    const invocation = [binary, ...globals.map(shellQuote), ...subcommand, ...rest.map(shellQuote)].join(' ')
+    const invocation = [
+        binary,
+        ...globals.map((arg) => shellQuote(arg)),
+        ...subcommand,
+        ...rest.map((arg) => shellQuote(arg)),
+    ].join(' ')
     return new HogError('not_ported', `\`hog ${route.path}\` isn't available yet. Run this instead:\n  ${invocation}`)
 }
 

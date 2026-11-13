@@ -20,9 +20,15 @@ const ROWS = {
 const FIRST_ID = '0190f5b41d2a7000a8c13f6e2b9c7d10'
 const SECOND_ID = '0190f5b4-1d2a-7000-8a1c-3f6e2b9c7d11'
 const SECOND_QUERY = 'select 2'
-const RESULTS: Record<string, unknown> = { [FIRST_ID]: ROWS, [SECOND_ID]: { ...ROWS, results: [['second', 1]] } }
+const JOINED_ID = "nightly's:run#1"
+const JOINED_QUERY = 'select 3'
+const RESULTS: Record<string, unknown> = {
+    [FIRST_ID]: ROWS,
+    [SECOND_ID]: { ...ROWS, results: [['second', 1]] },
+    [JOINED_ID]: { ...ROWS, results: [['joined', 1]] },
+}
 
-const statusUrl = (id: string): string => `https://ph.example.com/api/environments/7/query/${id}/`
+const statusUrl = (id: string): string => `https://ph.example.com/api/environments/7/query/${encodeURIComponent(id)}/`
 type Reply = { status: number; body: unknown }
 
 const running = (id: string): Reply => ({ status: 202, body: { query_status: { id, complete: false } } })
@@ -30,9 +36,10 @@ const running = (id: string): Reply => ({ status: 202, body: { query_status: { i
 function slowQueries(polls: number, final?: Reply): (url: string, body: unknown) => Reply {
     const checks = new Map<string, number>()
     return (url: string, body: unknown) => {
-        const id = [FIRST_ID, SECOND_ID].find((candidate) => url === statusUrl(candidate))
+        const id = Object.keys(RESULTS).find((candidate) => url === statusUrl(candidate))
         if (id === undefined) {
-            return running(JSON.stringify(body).includes(SECOND_QUERY) ? SECOND_ID : FIRST_ID)
+            const text = JSON.stringify(body)
+            return running(text.includes(SECOND_QUERY) ? SECOND_ID : text.includes(JOINED_QUERY) ? JOINED_ID : FIRST_ID)
         }
 
         const count = (checks.get(id) ?? 0) + 1
@@ -159,9 +166,32 @@ describe('hog query', () => {
         expect(resumed.requests.map((request) => request.url)).toEqual([statusUrl(FIRST_ID), statusUrl(FIRST_ID)])
     })
 
+    test('run quotes an ID another caller chose in the resume command, and --wait takes it back', async () => {
+        const started = await runHog(['query', 'run', JOINED_QUERY], {
+            env: TEST_CREDENTIALS,
+            respond: slowQueries(Infinity),
+        })
+
+        expect(started.exitCode).toBe(4)
+        expect(started.json()).toMatchObject({
+            queryId: JOINED_ID,
+            next: `hog query run --wait 'nightly'\\''s:run#1'`,
+        })
+
+        const resumed = await runHog(['query', 'run', '--wait', JOINED_ID], {
+            env: TEST_CREDENTIALS,
+            respond: slowQueries(1),
+        })
+
+        expect(resumed.exitCode).toBe(0)
+        expect(resumed.json()).toMatchObject({ rows: [['joined', 1]] })
+        expect(resumed.requests.map((request) => request.url)).toEqual([statusUrl(JOINED_ID)])
+    })
+
     test.each([
         ['without an ID', ['--wait'], { code: 'usage_error', hint: expect.stringContaining('--wait <query-id>') }],
-        ['with an ID PostHog never makes', ['--wait', '../../users/@me'], { code: 'invalid_input' }],
+        ['with an ID that leaves the status path', ['--wait', '../../users/@me'], { code: 'invalid_input' }],
+        ['with an ID that holds a space', ['--wait', 'a b'], { code: 'invalid_input' }],
         ['with a query as well', ['select 1', '--wait', FIRST_ID], { code: 'query_with_wait' }],
     ])('run --wait %s is a usage error that sends nothing', async (_name, flags, error) => {
         const result = await runHog(['query', 'run', ...flags], { env: TEST_CREDENTIALS, respond: slowQueries(1) })

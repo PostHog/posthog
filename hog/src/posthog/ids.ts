@@ -25,12 +25,13 @@ export const OrganizationIdSchema = z
 
 export type OrganizationId = z.output<typeof OrganizationIdSchema>
 
-// The forms of query ID PostHog makes, as `set_query_id_on_span` in posthog/api/query.py lists them:
-// a UUID as 32 hex digits from the API, or with dashes from the web app, which a query can join.
+// PostHog makes UUIDs, but a query can join a running one whose caller set its own `client_query_id`,
+// which PostHog takes as free text of any length. The status route matches `[^/.]+`, so an ID with
+// `/` or `.` can't be polled. The length cap only keeps junk out, and is not PostHog's.
 export const QueryIdSchema = z
     .string()
-    .regex(/^(?:[0-9a-fA-F]{32}|[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12})$/, {
-        error: 'The query ID must be the `queryId` that `hog query run` returned, 32 hex digits or a UUID.',
+    .regex(/^[^\s\p{Cc}\p{Cf}/.]{1,200}$/u, {
+        error: 'The query ID must be the `queryId` that `hog query run` returned: up to 200 characters, with no spaces, control characters, `/` or `.`.',
     })
     .brand<'QueryId'>()
 

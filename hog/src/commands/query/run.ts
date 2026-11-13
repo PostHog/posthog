@@ -3,7 +3,7 @@ import { defineCommand } from '@/core/command'
 import type { Context } from '@/core/context'
 import { EXIT_PENDING, EXIT_SUCCESS, EXIT_USAGE, HogError } from '@/core/errors'
 import type { ColumnKind } from '@/core/output'
-import { plural } from '@/core/text'
+import { plural, shellQuote } from '@/core/text'
 import { ApiError } from '@/posthog/api'
 import { parseQueryId, type QueryId } from '@/posthog/ids'
 import { startHogQL, waitForQuery, type HogQLResponse, type QueryState } from '@/posthog/query'
@@ -30,7 +30,7 @@ function moreRowsHint(count: number): string {
 }
 
 function resumeCommand(id: QueryId): string {
-    return `hog query run --wait ${id}`
+    return `hog query run --wait ${shellQuote(id, /^[\w-]+$/)}`
 }
 
 // Agent shells often stop a command after about two minutes. Waiting half of that leaves time for
