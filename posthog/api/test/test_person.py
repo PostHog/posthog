@@ -1650,14 +1650,16 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     @parameterized.expand(
         [
-            ("update_property", "post", "update_property", {"key": "foo", "value": "bar"}),
-            ("delete_property", "post", "delete_property", {"$unset": "foo"}),
-            ("patch", "patch", "", {"properties": {"foo": "bar"}}),
+            ("update_property", "post", "update_property", {"key": "foo", "value": "bar"}, True, 400),
+            ("delete_property", "post", "delete_property", {"$unset": "foo"}, True, 400),
+            ("patch", "patch", "", {"properties": {"foo": "bar"}}, True, 400),
+            ("update_property_missing_person", "post", "update_property", {"key": "foo", "value": "bar"}, False, 404),
+            ("patch_missing_person", "patch", "", {"properties": {"foo": "bar"}}, False, 404),
         ]
     )
     @mock.patch("posthog.api.person.capture_internal")
     def test_property_edit_is_refused_when_a_transformation_hashes_distinct_ids(
-        self, _name, method, action, body, mock_capture
+        self, _name, method, action, body, person_exists, expected_status, mock_capture
     ) -> None:
         HogFunction.objects.create(
             team=self.team,
@@ -1674,10 +1676,13 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             immediate=True,
         )
 
-        response = getattr(self.client, method)(f"/api/person/{person.uuid}/{action}", body, format="json")
+        person_id = person.uuid if person_exists else uuid4()
 
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("hashes distinct IDs", response.json()["detail"])
+        response = getattr(self.client, method)(f"/api/person/{person_id}/{action}", body, format="json")
+
+        self.assertEqual(response.status_code, expected_status)
+        if person_exists:
+            self.assertIn("hashes distinct IDs", response.json()["detail"])
         mock_capture.assert_not_called()
 
     @mock.patch("posthog.api.person.capture_internal")
