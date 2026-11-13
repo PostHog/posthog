@@ -207,8 +207,8 @@ function buildEmailEditingContextItems(): AttachedContextItem[] {
                 `workflows-patch-action-email with design operations targeting that action; use ` +
                 `workflows-patch-graph with update_action on it for other fields. An email_sandbox step sends ` +
                 `from PostHog's sandbox sender to verified members of the organization only, so it takes no ` +
-                `from, replyTo, cc or bcc. The open editor reloads external edits live, so the user sees ` +
-                `applied changes immediately.`,
+                `from, replyTo, cc or bcc; switch a step's sender with workflows-patch-action-email's sender ` +
+                `field. The open editor reloads external edits live, so the user sees applied changes immediately.`,
         },
         {
             type: 'skill',

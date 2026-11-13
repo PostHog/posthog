@@ -409,6 +409,8 @@ interface SaveContext {
     // The form's edit version when this save was dispatched. Its response compares against it to
     // tell whether the user kept editing, including while an earlier save was still in flight.
     editVersion: number
+    // Names of the steps this save sent with errors. The form can change before the response lands.
+    stepsNeedingWork: string[]
 }
 
 // Putting the edits back adds no new content, so a queued save that already sent them stays current.
@@ -445,6 +447,7 @@ export interface workflowLogicValues {
     currentProjectId: number | null // projectLogic
     user: UserType | null // userLogic
     actionValidationErrorsById: Record<string, HogFlowActionValidationResult | null>
+    actionsWithErrors: HogFlowAction[]
     addingSchedule: boolean
     aiEmailDraft: AiEmailDraftResult | null
     aiEmailDraftApplied: boolean
@@ -3407,10 +3410,11 @@ export interface workflowLogicMeta {
             saveAttemptedActionIds: string[] | null,
             integrations: IntegrationType[] | null
         ) => Record<string, HogFlowActionValidationResult | null>
-        workflowHasActionErrors: (
+        actionsWithErrors: (
             workflow: HogFlow,
             actionValidationErrorsById: Record<string, HogFlowActionValidationResult | null>
-        ) => boolean
+        ) => HogFlowAction[]
+        workflowHasActionErrors: (actionsWithErrors: HogFlowAction[]) => boolean
         autoSaveBlockedByValidation: (workflow: HogFlow) => boolean
         keepsLocalEditsOnExternalEdit: (featureFlags: FeatureFlagsSet) => boolean
         triggerAction: (workflow: HogFlow) => TriggerAction | null
@@ -3797,6 +3801,8 @@ export const workflowLogic = kea<workflowLogicType>([
                         moveToBroadcastIds: (cache.nextSaveMovesWorkflowIds ?? []) as string[],
                         keepsFormEdits,
                         editVersion: values.workflowEditVersion,
+                        // The validation results describe the form, which this save does not send.
+                        stepsNeedingWork: keepsFormEdits ? [] : values.actionsWithErrors.map((action) => action.name),
                     }
                     saveContexts.push(saveContext)
                     cache.nextSaveMovesWorkflowIds = []
@@ -4533,14 +4539,19 @@ export const workflowLogic = kea<workflowLogicType>([
             },
         ],
 
-        workflowHasActionErrors: [
+        actionsWithErrors: [
             (s) => [s.workflow, s.actionValidationErrorsById],
             (
                 workflow: HogFlow,
                 actionValidationErrorsById: Record<string, HogFlowActionValidationResult | null>
-            ): boolean => {
-                return workflow.actions.some((action) => !(actionValidationErrorsById[action.id]?.valid ?? true))
+            ): HogFlowAction[] => {
+                return workflow.actions.filter((action) => !(actionValidationErrorsById[action.id]?.valid ?? true))
             },
+        ],
+
+        workflowHasActionErrors: [
+            (s) => [s.actionsWithErrors],
+            (actionsWithErrors: HogFlowAction[]): boolean => actionsWithErrors.length > 0,
         ],
 
         // Only a missing name blocks auto-save; the payload itself is unsaveable without one.
@@ -4747,6 +4758,20 @@ export const workflowLogic = kea<workflowLogicType>([
             if (!props.id || props.id === 'new' || values.draftActionPending) {
                 return
             }
+            // The "Draft saved" toast offers Publish too, while auto-save may still hold edits. The step
+            // check below reads the form, so it describes the staged draft only once the form is saved.
+            if (values.publishDisabledReason) {
+                lemonToast.warning(values.publishDisabledReason)
+                return
+            }
+            // Publish stays clickable with step errors, like enabling: the attempt is what reveals the
+            // per-field messages, which stay hidden until then.
+            if (values.workflowHasActionErrors) {
+                actions.markSaveAttempted(values.workflow.actions.map((action) => action.id))
+                const names = values.actionsWithErrors.map((action) => action.name).join(', ')
+                lemonToast.error(`Fix these steps before publishing: ${names}`)
+                return
+            }
             actions.setDraftActionPending('publish')
             let preview
             try {
@@ -4915,7 +4940,7 @@ export const workflowLogic = kea<workflowLogicType>([
             actions.replayDeferredResourceEdited()
             // Load schedules whatever the trigger is. A schedule outlives a switch to another trigger,
             // and a save that cannot see it creates a second one that fires next to it.
-            if (originalWorkflow.id) {
+            if (props.id && props.id !== 'new') {
                 try {
                     const schedules = await api.hogFlows.getHogFlowSchedules(originalWorkflow.id)
                     actions.setSchedules(schedules)
@@ -5016,6 +5041,8 @@ export const workflowLogic = kea<workflowLogicType>([
                     }
                 }
 
+                const stepsNeedingWork = (saveContext?.stepsNeedingWork ?? []).join(', ')
+
                 if (originalWorkflow.draft) {
                     // Saving used to deploy immediately, so the changed contract needs a loud cue at
                     // the moment of saving, not only the status bar.
@@ -5038,6 +5065,8 @@ export const workflowLogic = kea<workflowLogicType>([
                     } else {
                         lemonToast.success('Broadcast saved')
                     }
+                } else if (stepsNeedingWork) {
+                    lemonToast.warning(`Workflow saved. These steps still need work: ${stepsNeedingWork}`)
                 } else {
                     lemonToast.success('Workflow saved')
                 }

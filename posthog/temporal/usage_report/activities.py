@@ -272,7 +272,7 @@ async def aggregate_and_chunk_org_reports(inputs: AggregateInputs) -> AggregateR
                 # TODO(usage-reports-v2): re-enable PostHog product-analytics
                 # `capture_report` per organization once the billing path is validated.
                 # That call updates organization group properties (member/project/dashboard
-                # counts) used by customer.io segmentation and emits the
+                # counts) used by Workflows cohorts and emits the
                 # "organization usage report" event consumed for internal analytics.
 
                 return write_org_report_chunks(

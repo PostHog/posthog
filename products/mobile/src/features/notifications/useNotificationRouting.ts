@@ -32,7 +32,11 @@ function finishNotificationTap(identifier: string): void {
     }
 }
 
-async function openFromNotification(tap: NotificationTap, isChatOpen: () => boolean): Promise<void> {
+async function openFromNotification(
+    tap: NotificationTap,
+    isChatOpen: () => boolean,
+    coldStart: boolean
+): Promise<void> {
     const auth = useAuthStore.getState()
     if (auth.status !== 'signed_in') {
         return
@@ -104,6 +108,10 @@ async function openFromNotification(tap: NotificationTap, isChatOpen: () => bool
             if (chatOpen && isChatRoute) {
                 router.replace(href)
             } else {
+                // A cold start lands on Home, so a report opens above the inbox it belongs to and Back returns there.
+                if (coldStart && route.pathname.startsWith('/report/')) {
+                    router.navigate('/inbox')
+                }
                 router.push(href)
             }
         }
@@ -141,26 +149,33 @@ export function useNotificationRouting(): void {
         if (!navigationReady || !signedIn || !notificationsSupported()) {
             return
         }
-        const open = (tap: NotificationTap): void => {
+        const open = (tap: NotificationTap, coldStart: boolean): void => {
             void withAppReloadBlocked(() =>
-                openFromNotification(tap, () => navigation.getCurrentRoute()?.name === 'chat')
+                openFromNotification(tap, () => navigation.getCurrentRoute()?.name === 'chat', coldStart)
             ).catch(() => undefined)
         }
-        const fromResponse = (response?: Notifications.NotificationResponse): void => {
+        const fromResponse = (response: Notifications.NotificationResponse | undefined, coldStart: boolean): void => {
             const pending = getPendingNotificationTap()
             if (pending !== undefined) {
                 if (pending) {
-                    open(pending)
+                    open(pending, coldStart)
                 }
             } else if (response) {
-                open({
-                    identifier: response.notification.request.identifier,
-                    data: response.notification.request.content.data,
-                })
+                open(
+                    {
+                        identifier: response.notification.request.identifier,
+                        data: response.notification.request.content.data,
+                    },
+                    coldStart
+                )
             }
         }
-        fromResponse(Notifications.getLastNotificationResponse() ?? undefined)
-        const subscription = Notifications.addNotificationResponseReceivedListener(fromResponse)
+        // The tap that launched the app, or one that waited for sign-in, is read here; later taps arrive through the
+        // listener while the person is already on a screen.
+        fromResponse(Notifications.getLastNotificationResponse() ?? undefined, true)
+        const subscription = Notifications.addNotificationResponseReceivedListener((response) =>
+            fromResponse(response, false)
+        )
         return () => subscription.remove()
     }, [navigationReady, signedIn, navigation])
 }

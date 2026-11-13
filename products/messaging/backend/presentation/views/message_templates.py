@@ -1,3 +1,4 @@
+import re
 import time
 from collections.abc import Callable, Mapping, Sequence
 from contextlib import AbstractContextManager, nullcontext
@@ -497,6 +498,8 @@ IDEMPOTENCY_KEY_PARAMETER = OpenApiParameter(
 
 TRANSACTIONAL_EMAIL_API_FLAG = "workflows-transactional-email-api"
 FIRST_CODE_SEND_EVENT = "email first code send"
+INTEGRATION_MARKER = re.compile(r"([a-z0-9-]{1,40})/[0-9A-Za-z.+-]{1,40}", re.ASCII)
+USER_AGENT_PRODUCT = re.compile(r"([!#$%&'*+.^_`|~0-9A-Za-z-]+)(?:/|\s|\Z)", re.ASCII)
 
 
 DISTINCT_ID_HELP_TEXT = (
@@ -1131,6 +1134,7 @@ class TransactionalEmailSendMixin(RequestBodyCapMixin):
                     "authorized_by": transactional_email_authorized_by(request, TRANSACTIONAL_EMAIL_SEND_SCOPE),
                     "route": self.transactional_email_route,
                     "has_idempotency_key": request.headers.get("Idempotency-Key") is not None,
+                    "client": _sending_client(request.headers),
                     **self._body_properties(request),
                     **properties,
                 },
@@ -1592,3 +1596,11 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
 
 def _distinct_id(data: Mapping[str, Any]) -> str | None:
     return data.get("distinct_id") or (data.get("identifiers") or {}).get("distinct_id") or None
+
+
+def _sending_client(headers: Mapping[str, str]) -> str:
+    marker = INTEGRATION_MARKER.fullmatch(headers.get("X-PostHog-Integration", ""))
+    if marker:
+        return marker.group(1)
+    product = USER_AGENT_PRODUCT.match(headers.get("User-Agent", ""))
+    return product.group(1).lower() if product else "unknown"
