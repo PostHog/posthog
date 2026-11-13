@@ -41,6 +41,7 @@ import type {
     FileSystemFrequentListParams,
     FileSystemHomeFolderApi,
     FileSystemListParams,
+    FileSystemMoveRequestApi,
     FileSystemRankedSearchResponseApi,
     FileSystemSearchRetrieveParams,
     FileSystemShortcutApi,
@@ -1987,14 +1988,14 @@ export const getFileSystemMoveCreateUrl = (projectId: string, id: string) => {
 export const fileSystemMoveCreate = async (
     projectId: string,
     id: string,
-    fileSystemApi: NonReadonly<FileSystemApi>,
+    fileSystemMoveRequestApi: FileSystemMoveRequestApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getFileSystemMoveCreateUrl(projectId, id), {
+): Promise<FileSystemApi> => {
+    return apiMutator<FileSystemApi>(getFileSystemMoveCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(fileSystemApi),
+        body: JSON.stringify(fileSystemMoveRequestApi),
     })
 }
 

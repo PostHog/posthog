@@ -1,6 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { AppMetricsTimeSeriesResponse, appMetricsLogic } from 'lib/components/AppMetrics/appMetricsLogic'
+import { dayjs } from 'lib/dayjs'
 
 import { silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
@@ -16,6 +17,7 @@ import {
     buildEmailMetricRows,
     buildPushMetricRows,
     channelSentLabel,
+    conversionRateQuery,
     detectMessagingChannels,
     parseEmailLinkTotals,
     subtractSeries,
@@ -235,6 +237,7 @@ describe('buildEmailMetricRows', () => {
                 markedAsSpam: 4,
                 untracked: 7,
                 trackedSends: 93,
+                removed: false,
             },
         ])
     })
@@ -244,6 +247,18 @@ describe('buildEmailMetricRows', () => {
             a1: { email_sent: 100, email_delivered: 60, email_untracked: 90, email_bounced: 40 },
         })
         expect(row.trackedSends).toBe(10)
+    })
+
+    it('adds a removed row for totals recorded under a step the workflow no longer has', () => {
+        const rows = buildEmailMetricRows([{ id: 'current', name: 'New welcome email' }], {
+            deleted: { email_sent: 30, email_opened: 12, email_link_clicked: 4 },
+            unused: { email_sent: 0 },
+            cappedPushStep: { message_frequency_capped: 5 },
+        })
+        expect(rows).toMatchObject([
+            { id: 'current', email: 'New welcome email', sent: 0, opened: 0, linkClicked: 0, removed: false },
+            { id: 'deleted', email: 'Removed email', sent: 30, opened: 12, linkClicked: 4, removed: true },
+        ])
     })
 
     // delivered falls back to sent - bounced (clamped at 0) when it wasn't collected. Spam
@@ -675,5 +690,42 @@ describe('workflowMetricsSummaryLogic', () => {
             event: '$workflows_conversion',
             properties: [{ key: '$workflow_id', value: WORKFLOW_ID }],
         })
+    })
+})
+
+describe('conversionRateQuery', () => {
+    it.each([
+        {
+            name: 'a range after the ship date reads whole hours by run start',
+            dateFrom: '2026-11-20T10:30:00Z',
+            dateTo: '2026-11-20T12:30:00Z',
+            expected: {
+                dateFrom: '2026-11-20T10:00:00.000Z',
+                dateTo: '2026-11-20T13:00:00.000Z',
+                metricName: ['conversion_by_start'],
+            },
+        },
+        {
+            name: 'an end time already on the hour stays there',
+            dateFrom: '2026-11-20T10:00:00Z',
+            dateTo: '2026-11-20T12:00:00Z',
+            expected: {
+                dateFrom: '2026-11-20T10:00:00.000Z',
+                dateTo: '2026-11-20T12:00:00.000Z',
+                metricName: ['conversion_by_start'],
+            },
+        },
+        {
+            name: 'a range reaching back past the ship date keeps counting by conversion time',
+            dateFrom: '2026-11-12T23:30:00Z',
+            dateTo: '2026-11-20T12:30:00Z',
+            expected: {
+                dateFrom: '2026-11-12T23:30:00.000Z',
+                dateTo: '2026-11-20T12:30:00.000Z',
+                metricName: ['conversion'],
+            },
+        },
+    ])('$name', ({ dateFrom, dateTo, expected }) => {
+        expect(conversionRateQuery(dayjs.utc(dateFrom), dayjs.utc(dateTo))).toEqual(expected)
     })
 })
