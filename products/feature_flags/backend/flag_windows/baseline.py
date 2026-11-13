@@ -35,10 +35,9 @@ HOURS_PER_WEEK = WEEK // HOUR
 
 @frozen
 class HourErrors:
-    # The people (or groups) with an event in the hour. Zero also means that the team had no events then, for example
+    # The people (or groups) with any event in the hour. Zero also means that the team sent no events, for example
     # before the team existed.
     active: int
-    # The people (or groups) with a `$exception` in the hour.
     with_errors: int
 
 
@@ -114,9 +113,8 @@ def _query(actor_kinds: Sequence[int | None], origin: datetime, hours: int, week
     )
     return ast.SelectQuery(
         select=[
-            # Hours count from the origin rather than from the start of each clock hour, so that the hours line up
-            # with the window's own buckets, and the team's timezone doesn't move them. A difference in seconds would
-            # drop the fraction of the edit time and move events next to an hour boundary into the next hour.
+            # Hours count from the origin, not from clock hours, so they line up with the window's buckets in any
+            # timezone. Seconds would drop the fraction of the edit time and move events at an hour boundary.
             ast.Alias(
                 alias="hour",
                 expr=parse_expr(

@@ -303,7 +303,7 @@ def _edits_by_actor(edits: Sequence[WatchedEdit]) -> dict[int | None, list[tuple
     return by_actor
 
 
-def _join_by_actor(table: ast.SelectQuery, alias: str, actor: _Actor) -> ast.JoinExpr:
+def _join_by_actor(table: ast.SelectQuery, alias: str, actor: Actor) -> ast.JoinExpr:
     return ast.JoinExpr(
         join_type="LEFT JOIN",
         table=table,
@@ -424,7 +424,7 @@ def last_values(
     by_edit: dict[str, LastValue] = {}
     for group_type_index, watched in edits_by_actor.items():
         alias = "flag_last_values" if group_type_index is None else f"flag_last_values_{group_type_index}"
-        actor = _actor(group_type_index)
+        actor = actor_of(group_type_index)
         # Events before an edit carry the old value, so no edit reads a value from before it.
         since = max(start - LAST_VALUE_LOOKBACK, min(edit.edited_at for _, edit in watched))
         counted_actors = ast.SelectQuery(
