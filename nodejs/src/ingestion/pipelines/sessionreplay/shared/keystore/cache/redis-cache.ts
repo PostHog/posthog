@@ -21,7 +21,10 @@ export class RedisCachedKeyStore implements KeyStore {
     constructor(
         private readonly delegate: KeyStore,
         private readonly redisPool: RedisPool,
-        private readonly ttlSeconds: number = REDIS_CACHE_TTL_SECONDS
+        private readonly ttlSeconds: number = REDIS_CACHE_TTL_SECONDS,
+        // A reader that may ask about a session ingestion has not keyed yet, or before DynamoDB's eventually consistent
+        // read sees a new key, passes false: caching that miss would pin the session to cleartext for the cache lifetime.
+        private readonly cacheMissingKeys: boolean = true
     ) {}
 
     private cacheKey(sessionId: string, teamId: number): string {
@@ -95,7 +98,9 @@ export class RedisCachedKeyStore implements KeyStore {
         }
 
         const key = await this.delegate.getKey(sessionId, teamId)
-        await this.setCached(sessionId, teamId, key, 'if_absent')
+        if (this.cacheMissingKeys || key.sessionState !== 'cleartext') {
+            await this.setCached(sessionId, teamId, key, 'if_absent')
+        }
         return key
     }
 

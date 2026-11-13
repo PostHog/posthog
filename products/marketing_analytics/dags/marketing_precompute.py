@@ -30,16 +30,23 @@ The audience is `MARKETING_PRECOMPUTE_TEAM_IDS`: comma-separated team IDs, empty
 (query_log_archive). Unset, it warms the teams whose reads are precompute-only, on PostHog Cloud only: teams
 with a conversion goal and the conversion read flag on, and recently active teams with a warehouse table
 and the cost read flag on. `MARKETING_PRECOMPUTE_ACTIVE_DAYS` tunes the `auto` activity window.
+`MARKETING_PRECOMPUTE_WALL_CLOCK_BUDGET_SECONDS` bounds each run: a shard stops starting new teams and chunks
+once the budget is spent and reports the teams it never started as deferred, so a run ends on its own under
+the job's max runtime. Every team a shard starts still materializes one chunk past the budget, so a run whose
+planning spent the budget still makes progress. That chunk is the newest one reads cannot serve, so the
+expired newest chunks do not take it on every run and the backfill keeps advancing.
 """
 
 import os
 import time
 from collections.abc import Callable
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from functools import partial
 from itertools import islice
 from typing import NamedTuple
+from zoneinfo import ZoneInfo
 
 from django.db import connections
 
@@ -78,6 +85,9 @@ from products.marketing_analytics.backend.hogql_queries.marketing_analytics_base
     costs_precompute_ttl_schedule,
 )
 from products.marketing_analytics.backend.hogql_queries.marketing_analytics_config import MarketingAnalyticsConfig
+from products.marketing_analytics.backend.hogql_queries.marketing_lazy_precompute import (
+    PRECOMPUTE_ONLY_MAX_STALE_SECONDS,
+)
 from products.marketing_analytics.backend.hogql_queries.utils import convert_team_conversion_goals_to_objects
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
@@ -125,6 +135,11 @@ ACTIVE_TEAMS_QUERY_TIMEOUT_SECONDS = 60
 # concurrent INSERTs and DB connections across the run. Tunable per environment.
 TEAM_CONCURRENCY_ENV_VAR = "MARKETING_PRECOMPUTE_TEAM_CONCURRENCY"
 DEFAULT_TEAM_CONCURRENCY = 4
+
+# Per-run budget after which a shard starts no new team. Kept well under the job's 2h `dagster/max_runtime`:
+# a run Dagster kills alerts, a run that defers teams does not, and both leave the same READY chunks behind.
+WALL_CLOCK_BUDGET_ENV_VAR = "MARKETING_PRECOMPUTE_WALL_CLOCK_BUDGET_SECONDS"
+DEFAULT_WALL_CLOCK_BUDGET_SECONDS = 100 * 60
 
 # Processes the job fans teams out into. Each shard prints HogQL on its own core; the run pod requests
 # 6 CPUs, so more shards than that only contend for cores.
@@ -257,6 +272,37 @@ def get_selected_team_ids() -> list[int]:
     return sorted(goal_team_ids & active_team_ids)
 
 
+# Mutable: `materialized` flips once the team builds its first chunk, across all of its tables, and
+# `stale_refresh` holds the first stale chunk the team skipped after the deadline.
+@dataclass(frozen=False, slots=True)
+class _TeamBudget:
+    """Planning can spend the whole budget before any worker starts, so the deadline only stops a team after it has
+    built (or failed to build) one chunk. READY chunks don't count: they cost a Postgres check and add no coverage.
+
+    After the deadline, a chunk that reads can still serve stale is not built. The newest chunks have TTLs shorter
+    than the hourly schedule, so they are always expired when a run starts. If they took the one guaranteed chunk,
+    every run that starts past the deadline would rebuild the same newest chunk and the backfill would never
+    advance. The guaranteed chunk goes to the newest window that reads cannot serve. Only when the team has no
+    such window does it refresh the first stale chunk it skipped.
+    """
+
+    deadline: float
+    materialized: bool = False
+    stale_refresh: Callable[[], int] | None = None
+
+    def spent(self) -> bool:
+        return time.monotonic() >= self.deadline
+
+    def exhausted(self) -> bool:
+        return self.materialized and self.spent()
+
+    def refresh_if_nothing_built(self) -> int:
+        """Build the skipped stale chunk when no unservable chunk took the guarantee. Returns the failure count."""
+        if self.materialized or self.stale_refresh is None:
+            return 0
+        return self.stale_refresh()
+
+
 def _ensure_chunks(
     context: dagster.OpExecutionContext,
     team: Team,
@@ -267,11 +313,13 @@ def _ensure_chunks(
     end: datetime,
     chunk_days: int,
     database: Database | None = None,
+    budget: _TeamBudget | None = None,
 ) -> int:
     """Drive ensure_precomputed for one (team, table, query) across the window, one bounded chunk at a
     time. `build_insert_query` is called fresh per chunk (the executor resolves the time-window
     placeholders in place). Failures per chunk are isolated so one bad chunk doesn't poison the rest;
-    already-fresh chunks are cheap PG checks with no INSERT. Returns the failure count.
+    already-fresh chunks are cheap PG checks with no INSERT. Once `budget` is exhausted, the remaining chunks
+    are left for the next run. Returns the failure count.
     """
     table_label = table.value
     failures = 0
@@ -280,12 +328,20 @@ def _ensure_chunks(
     ensure_seconds = 0.0
     started = time.monotonic()
     for chunk_start, chunk_end in chunk_ranges(start, end, chunk_days):
+        if budget is not None and budget.exhausted():
+            context.log.info(
+                f"marketing_precompute_chunks_deferred team={team.pk} table={table_label} from={chunk_start}"
+            )
+            break
         chunks += 1
         build_started = time.monotonic()
         insert_query = build_insert_query()
         build_seconds += time.monotonic() - build_started
         if insert_query is None:
             continue  # source can't materialize this chunk (deterministic) — nothing to warm
+        # Past the deadline, the reads' stale grace makes ensure_precomputed return a servable chunk as a stale hit
+        # instead of building it (see `_TeamBudget`).
+        stale_grace = PRECOMPUTE_ONLY_MAX_STALE_SECONDS if budget is not None and budget.spent() else None
         ensure_started = time.monotonic()
         try:
             result = ensure_precomputed(
@@ -296,9 +352,12 @@ def _ensure_chunks(
                 ttl_seconds=ttl_seconds,
                 table=table,
                 database=database,
+                stale_while_revalidate_seconds=stale_grace,
             )
         except Exception:
             ensure_seconds += time.monotonic() - ensure_started
+            if budget is not None:
+                budget.materialized = True
             MARKETING_PRECOMPUTE_CHUNK_FAILED.labels(table=table_label, error_type="exception").inc()
             context.log.exception(
                 f"marketing_precompute_failed team={team.pk} table={table_label} chunk=[{chunk_start}, {chunk_end})"
@@ -306,6 +365,22 @@ def _ensure_chunks(
             failures += 1
             continue
         ensure_seconds += time.monotonic() - ensure_started
+        if budget is not None and (result.freshly_built or not result.ready):
+            budget.materialized = True
+        elif budget is not None and result.stale and budget.stale_refresh is None:
+            # Without a budget, the single chunk [chunk_start, chunk_end) is rebuilt with no stale grace.
+            budget.stale_refresh = partial(
+                _ensure_chunks,
+                context,
+                team,
+                table,
+                build_insert_query,
+                ttl_seconds,
+                chunk_start,
+                chunk_end,
+                chunk_days,
+                database,
+            )
 
         if result.ready:
             MARKETING_PRECOMPUTE_CHUNK_DONE.labels(table=table_label).inc()
@@ -332,6 +407,7 @@ def _ensure_touchpoints_for_team(
     end: datetime,
     chunk_days: int,
     database: Database | None = None,
+    budget: _TeamBudget | None = None,
 ) -> int:
     """Warm the goal-agnostic touchpoints table over [start, end] (start already reaches back past the
     attribution window). One warmed window serves every conversion goal / attribution mode.
@@ -352,6 +428,7 @@ def _ensure_touchpoints_for_team(
         end,
         chunk_days,
         database,
+        budget,
     )
 
 
@@ -365,6 +442,7 @@ def _ensure_conversions_for_team(
     end: datetime,
     chunk_days: int,
     database: Database | None = None,
+    budget: _TeamBudget | None = None,
 ) -> tuple[int, int]:
     """Warm the per-goal conversions table over [start, end] (no attribution backfill — the conversion
     event itself must fall in-range). One lazy job per precomputable goal; ineligible goals are skipped
@@ -395,6 +473,7 @@ def _ensure_conversions_for_team(
             end,
             chunk_days,
             database,
+            budget,
         )
     return goals_warmed, failures
 
@@ -428,6 +507,7 @@ def _ensure_costs_for_team(
     end: datetime,
     chunk_days: int,
     database: Database | None = None,
+    budget: _TeamBudget | None = None,
 ) -> tuple[int, int]:
     """Warm the per-source cost table at every supported grain over [start, end] (no attribution
     backfill). The database is built userless with warehouse access control bypassed — the materialization
@@ -472,6 +552,7 @@ def _ensure_costs_for_team(
                 end,
                 chunk_days,
                 database,
+                budget,
             )
     return warmed, failures
 
@@ -490,6 +571,7 @@ class _TeamWarmPlan(NamedTuple):
     attribution_window_days: int
     filter_test_accounts: bool
     warm_costs: bool
+    timezone: ZoneInfo
     database: Database | None = None
 
     @property
@@ -533,6 +615,7 @@ def _plan_team(team: Team) -> _TeamWarmPlan | None:
             attribution_window_days=ma_config.attribution_window_days or DEFAULT_ATTRIBUTION_WINDOW_DAYS,
             filter_test_accounts=bool(ma_config.filter_test_accounts),
             warm_costs=bool(config.costs_precomputation_enabled and _team_has_cost_sources(team)),
+            timezone=team.timezone_info,
         )
     except Exception:
         MARKETING_PRECOMPUTE_TEAM_FAILED.labels(stage="setup").inc()
@@ -540,7 +623,9 @@ def _plan_team(team: Team) -> _TeamWarmPlan | None:
         return None
 
 
-def _warm_team(context: dagster.OpExecutionContext, plan: _TeamWarmPlan, end: datetime) -> _WarmCounts:
+def _warm_team(
+    context: dagster.OpExecutionContext, plan: _TeamWarmPlan, end: datetime, deadline: float | None = None
+) -> _WarmCounts:
     """Warm one planned team's precomputes over the rolling window.
 
     Returns (conversion_teams, costs_teams, failures) increments. Runs in a worker thread of the op's
@@ -552,6 +637,17 @@ def _warm_team(context: dagster.OpExecutionContext, plan: _TeamWarmPlan, end: da
     # and schema introspection would be un-attributable in query_log.
     tag_queries(product=Product.MARKETING_ANALYTICS, feature=Feature.CACHE_WARMUP)
     team = plan.team
+    budget = _TeamBudget(deadline) if deadline is not None else None
+    # Reads span whole team-local days and step back in local wall-clock days, so warm the same bounds. A
+    # UTC-based range misses the UTC day that a local day crosses into, and precompute-only reads then report
+    # not-ready or fall back to live costs.
+    local_now = end.astimezone(plan.timezone)
+    local_midnight = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
+    local_day_end = local_now.replace(hour=23, minute=59, second=59, microsecond=999999).astimezone(UTC)
+
+    def days_before_today(days: int) -> datetime:
+        return (local_midnight - timedelta(days=days)).astimezone(UTC)
+
     conversion_teams = 0
     costs_teams = 0
     failures = 0
@@ -563,14 +659,21 @@ def _warm_team(context: dagster.OpExecutionContext, plan: _TeamWarmPlan, end: da
             try:
                 # Reach back far enough that a read with up to PRECOMPUTE_WINDOW_DAYS of lookback is fully
                 # covered including its touchpoints attribution backfill ([date_from - attribution_window, date_to]).
-                tp_start = end - timedelta(days=PRECOMPUTE_WINDOW_DAYS + plan.attribution_window_days)
+                tp_start = days_before_today(PRECOMPUTE_WINDOW_DAYS + plan.attribution_window_days)
                 failures += _ensure_touchpoints_for_team(
-                    context, team, plan.filter_test_accounts, tp_start, end, PRECOMPUTE_CHUNK_DAYS, plan.database
+                    context,
+                    team,
+                    plan.filter_test_accounts,
+                    tp_start,
+                    local_day_end,
+                    PRECOMPUTE_CHUNK_DAYS,
+                    plan.database,
+                    budget,
                 )
                 # Conversions need no attribution backfill — the conversion event must fall in the query range.
                 # Goals that aren't precomputable (non-Events/Actions, schema remaps, person/cohort filters) are
                 # skipped inside; a team can warm touchpoints but no conversions if no goal qualifies.
-                conv_start = end - timedelta(days=PRECOMPUTE_WINDOW_DAYS)
+                conv_start = days_before_today(PRECOMPUTE_WINDOW_DAYS)
                 _goals_warmed, conv_failures = _ensure_conversions_for_team(
                     context,
                     team,
@@ -578,9 +681,10 @@ def _warm_team(context: dagster.OpExecutionContext, plan: _TeamWarmPlan, end: da
                     plan.conversion_goals,
                     plan.filter_test_accounts,
                     conv_start,
-                    end,
+                    local_day_end,
                     PRECOMPUTE_CHUNK_DAYS,
                     plan.database,
+                    budget,
                 )
                 failures += conv_failures
                 conversion_teams += 1
@@ -591,15 +695,23 @@ def _warm_team(context: dagster.OpExecutionContext, plan: _TeamWarmPlan, end: da
 
         if plan.warm_costs:
             try:
-                costs_start = end - timedelta(days=PRECOMPUTE_WINDOW_DAYS)
+                costs_start = days_before_today(PRECOMPUTE_WINDOW_DAYS)
                 _sources_warmed, costs_failures = _ensure_costs_for_team(
-                    context, team, costs_start, end, PRECOMPUTE_CHUNK_DAYS, plan.database
+                    context, team, costs_start, local_day_end, PRECOMPUTE_CHUNK_DAYS, plan.database, budget
                 )
                 failures += costs_failures
                 costs_teams += 1  # after the block, mirroring conversion_teams: not counted if it raised
             except Exception:
                 MARKETING_PRECOMPUTE_TEAM_FAILED.labels(stage="costs").inc()
                 logger.exception("marketing_precompute_costs_failed", team_id=team.pk)
+                failures += 1
+
+        if budget is not None:
+            try:
+                failures += budget.refresh_if_nothing_built()
+            except Exception:
+                MARKETING_PRECOMPUTE_TEAM_FAILED.labels(stage="stale_refresh").inc()
+                logger.exception("marketing_precompute_stale_refresh_failed", team_id=team.pk)
                 failures += 1
     finally:
         connections.close_all()
@@ -611,7 +723,18 @@ def _warm_team(context: dagster.OpExecutionContext, plan: _TeamWarmPlan, end: da
 
 
 def _empty_result() -> dict[str, int]:
-    return {"teams": 0, "conversion_teams": 0, "costs_teams": 0, "failures": 0}
+    return {"teams": 0, "conversion_teams": 0, "costs_teams": 0, "failures": 0, "deferred": 0}
+
+
+def _wall_clock_budget_seconds() -> float:
+    return max(0.0, float(os.getenv(WALL_CLOCK_BUDGET_ENV_VAR, str(DEFAULT_WALL_CLOCK_BUDGET_SECONDS))))
+
+
+def _rotated_for_hour(plans: list[_TeamWarmPlan], end: datetime) -> list[_TeamWarmPlan]:
+    if not plans:
+        return plans
+    offset = int(end.timestamp() // 3600) % len(plans)
+    return plans[offset:] + plans[:offset]
 
 
 def _warm_teams(context: dagster.OpExecutionContext, team_ids: list[int], end: datetime) -> dict[str, int]:
@@ -624,6 +747,11 @@ def _warm_teams(context: dagster.OpExecutionContext, team_ids: list[int], end: d
     conversion goals; costs stay gated on the costs precompute flag plus the team having warehouse tables.
     Every team, and each warming block within it, is isolated — one failure never aborts the rest.
 
+    Once the wall-clock budget (`MARKETING_PRECOMPUTE_WALL_CLOCK_BUDGET_SECONDS`, counted from the start of
+    planning) is spent, no further team starts and the teams never started are returned as `deferred`. A
+    started team stops between chunks once it has materialized at least one (see `_TeamBudget`). The start team rotates by the hour of `end`, so a budget that runs out never defers the
+    same teams on every run.
+
     `conversion_teams` / `costs_teams` count teams whose block ran to completion without an unexpected
     error (its raw material present — goals / warehouse tables), symmetric to each other. They
     are not success counts: per-chunk outcomes live in `failures` and the MARKETING_PRECOMPUTE_CHUNK_*
@@ -634,6 +762,8 @@ def _warm_teams(context: dagster.OpExecutionContext, team_ids: list[int], end: d
     if not team_ids:
         return _empty_result()
 
+    started = time.monotonic()
+    deadline = started + _wall_clock_budget_seconds()
     teams_by_id = {t.pk: t for t in Team.objects.filter(pk__in=team_ids)}
     teams = [teams_by_id[team_id] for team_id in team_ids if team_id in teams_by_id]
     if len(teams) != len(team_ids):
@@ -678,10 +808,13 @@ def _warm_teams(context: dagster.OpExecutionContext, team_ids: list[int], end: d
         # A sliding window of `concurrency` teams: when one finishes, the next team's database is built
         # and submitted, so a slow team never idles the other workers and at most `concurrency`
         # databases are held in memory.
-        pending = iter(plans)
+        pending = iter(_rotated_for_hour(plans, end))
         in_flight = {
-            pool.submit(_warm_team, context, with_database(plan), end) for plan in islice(pending, concurrency)
+            pool.submit(_warm_team, context, with_database(plan), end, deadline)
+            for plan in islice(pending, concurrency)
         }
+        submitted = len(in_flight)
+        budget_reached = False
         while in_flight:
             finished, in_flight = wait(in_flight, return_when=FIRST_COMPLETED)
             for future in finished:
@@ -694,19 +827,33 @@ def _warm_teams(context: dagster.OpExecutionContext, team_ids: list[int], end: d
                     f"marketing_precompute_progress done={done}/{len(plans)} "
                     f"elapsed_s={round(time.monotonic() - warm_started)}"
                 )
+                if budget_reached:
+                    continue
+                if time.monotonic() >= deadline:
+                    # Deferred teams need nothing more: the next hourly run reselects the audience and
+                    # ensure_precomputed skips the chunks that are already READY.
+                    budget_reached = True
+                    context.log.info(
+                        f"marketing_precompute_budget_reached deferred={len(plans) - submitted} "
+                        f"elapsed_s={round(time.monotonic() - started)}"
+                    )
+                    continue
                 next_plan = next(pending, None)
                 if next_plan is not None:
-                    in_flight.add(pool.submit(_warm_team, context, with_database(next_plan), end))
+                    in_flight.add(pool.submit(_warm_team, context, with_database(next_plan), end, deadline))
+                    submitted += 1
 
+    deferred = len(plans) - submitted
     context.log.info(
         f"marketing_precompute_complete teams={len(teams)} conversion_teams={conversion_teams} "
-        f"costs_teams={costs_teams} failures={failures}"
+        f"costs_teams={costs_teams} failures={failures} deferred={deferred}"
     )
     return {
         "teams": len(teams),
         "conversion_teams": conversion_teams,
         "costs_teams": costs_teams,
         "failures": failures,
+        "deferred": deferred,
     }
 
 
@@ -760,7 +907,7 @@ def summarize_marketing_precompute_op(context: dagster.OpExecutionContext, resul
     context.log.info(
         f"marketing_precompute_summary shards={len(results)} teams={total['teams']} "
         f"conversion_teams={total['conversion_teams']} costs_teams={total['costs_teams']} "
-        f"failures={total['failures']}"
+        f"failures={total['failures']} deferred={total['deferred']}"
     )
     context.add_output_metadata(total)
     return total

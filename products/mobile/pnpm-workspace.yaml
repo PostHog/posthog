@@ -8,6 +8,17 @@ minimumReleaseAge: 10080
 blockExoticSubdeps: true
 trustPolicy: no-downgrade
 
+trustPolicyExclude:
+    # Keep the same maintenance-release exceptions as the repository workspace.
+    - semver@5.7.2 || 6.3.1
+    - undici-types@6.21.0
+    # Existing SDK 57 lockfile versions with missing publisher provenance records.
+    - ua-parser-js@0.7.41 || 1.0.41
+
+patchedDependencies:
+    '@posthog/react-native-plugin@2.12.7': patches/@posthog__react-native-plugin@2.12.7.patch
+    victory-native@42.0.1: patches/victory-native@42.0.1.patch
+
 # pnpm 10 skips dependency install scripts unless they are listed here. Skia's postinstall links its
 # prebuilt iOS and Android binaries, and `pod install` fails without them.
 onlyBuiltDependencies:

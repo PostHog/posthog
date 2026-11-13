@@ -535,6 +535,9 @@ python manage.py backfill_platform_insight_alert_configurations
 It copies every insight alert, on every cadence.
 A real-time check gets production's real-time budget: a 7-minute evaluation with one retry inside it.
 An AI detector check runs on the AI queue, whose worker holds the model credentials, with production's retries: a check whose model call reaches no verdict is retried, and only its last attempt records the error.
+A paused AI detector check, refused for a withdrawn rollout or consent or for no AI credits left, is not retried. It records an errored check and leaves the alert enabled, as production does.
+An AI detector alert runs `AI_DETECTOR_ALERT_POLICY` on both stacks, so it announces a firing once and stays quiet until a clear check ends the firing.
+Production marks each quiet firing check with `firing_not_renotified`, so the investigation safety net and the cutover do not treat it as a held notification.
 Every other check gets one 12-minute attempt.
 An AI detector check calls the model on both stacks while both run, and each call is billed to the project, so the backfill leaves AI detector alerts out.
 Pass `--include-ai-detector` to copy them, with `--team-id` or `--ids-file` for an internal project, until the insight cutover.
@@ -674,5 +677,29 @@ Retries have separate activity attempt spans.
 
 Tests verify local logging, queue-labelled SDK metrics, and trace relationships without an application database or an external collector.
 Charts rollout must separately configure all three deployments and verify Prometheus scraping and delivery to the tracing collector.
-This change does not configure deployments, dashboards, alert rules, or SLO emission.
-The `alerts-platform` SLO area remains reserved without changes to shared SLO handling or workflow inputs.
+This change does not configure deployments or dashboards.
+
+## Missed checks and the check SLO
+
+Per-path counters (`checks_skipped`, `checks_deferred`, `checks_unfinished`) only see the early returns someone thought to count.
+Two signals catch a missed check whatever held it back:
+
+- `alerts_platform_configurations_overdue{source, owner}` is pushed by the inventory every tick.
+  It counts enabled configurations that are not BROKEN and whose `next_check_at` is older than their grace.
+  The grace is twice the check interval with a 2-minute floor, or a fixed 2 hours for a calendar recurrence.
+  The same push carries `_unscheduled` (no `next_check_at`), `_oldest_due_seconds`, and `_broken`.
+- `alerts_platform_check_completion_lag_ms{source}` is recorded by `record_outcomes` after its transaction commits, once per configuration it wrote.
+  It measures wall time from the due time to the commit, for every source, so a source that records no scheduler lag of its own is still measured.
+  A replay that writes nothing adds no sample.
+
+The SLO, measured over 1 hour:
+
+- p90 completion lag is at most 60 seconds for logs, metrics, and traces, and at most 300 seconds for insight.
+- `alerts_platform_configurations_overdue{owner="platform"} == 0`.
+  Source-owned configurations are listed too, but their due times belong to the source's own stack.
+
+`checks_deferred` counts rediscovery events, not distinct late checks: a check deferred on three ticks counts three times.
+Read lateness from the overdue gauge, not from that counter.
+
+The alert rules for these signals are vmalert rules in the private PostHog/charts repo, in `alerts/specs/alerts-platform.yaml`.
+All of them are `warning`.

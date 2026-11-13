@@ -147,11 +147,11 @@ import { Sparkline } from '@posthog/quill-charts'
 ## More
 
 - Choosing a chart, the gotchas, and the docs index → [AGENTS.md](../AGENTS.md)
-- Per-chart behavior (scatter, funnel, slope, pie, proportion bar, box plot, heatmap, sankey, sparkline, metric card) → [docs/chart-types.md](./docs/chart-types.md)
+- Per-chart behavior (scatter, funnel, slope, pie, proportion bar, box plot, heatmap, sankey, gauge, flame graph, sparkline, metric card) → [docs/chart-types.md](./docs/chart-types.md)
 - Axes, ranges, multi-axis, chrome → [docs/axes.md](./docs/axes.md)
 - Bars: layouts, per-bar overrides, `minBarSize`, `trackData` → [docs/bars.md](./docs/bars.md)
 - Tooltips → [docs/tooltips.md](./docs/tooltips.md); legend → [docs/legend.md](./docs/legend.md)
 - Overlays, built-in and custom → [docs/overlays.md](./docs/overlays.md)
-- Clicks, drag-to-zoom, brush → [docs/interactions.md](./docs/interactions.md)
+- Clicks, drag-to-zoom, brush → [docs/interactions.md](./docs/interactions.md); a crosshair shared across charts (`ChartHoverSync`) → [docs/interactions.md#shared-crosshair](./docs/interactions.md#shared-crosshair)
 - Building a new chart type, library architecture, conventions → [docs/CONTRIBUTING.md](./docs/CONTRIBUTING.md)
 - Writing tests against a chart, or against code that uses one → [docs/TESTING.md](./docs/TESTING.md)

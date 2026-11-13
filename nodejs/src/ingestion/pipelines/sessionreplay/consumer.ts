@@ -38,6 +38,7 @@ import { BatchStages } from './batch-stages'
 import { SessionRecordingApiConfig, SessionRecordingConfig } from './config'
 import { KafkaOffsetManager } from './kafka/offset-manager'
 import { SessionRecordingIngesterMetrics } from './metrics'
+import { statedDecodedBytes } from './parse-message-step'
 import { SessionReplayLagReporter } from './session-replay-lag-reporter'
 import { SessionReplayPipelineFactory, SessionReplayPipelineRunner } from './session-replay-pipeline-runner'
 import { billPersistedSessions } from './session-usage-step'
@@ -324,6 +325,11 @@ export class SessionRecordingIngester {
         const batchSizeKb = messages.reduce((acc, m) => (m.value?.length ?? 0) + acc, 0) / 1024
         SessionRecordingIngesterMetrics.observeKafkaBatchSize(batchSize)
         SessionRecordingIngesterMetrics.observeKafkaBatchSizeKb(batchSizeKb)
+        if (messages.length > 0) {
+            SessionRecordingIngesterMetrics.observeKafkaBatchDecodedKb(
+                messages.reduce((acc, m) => statedDecodedBytes(m) + acc, 0) / 1024
+            )
+        }
 
         const batch = this.runner.run(messages, this.batchStages.admit(), this.committer)
         // A runner with one stage cannot overlap batches. The batch completes inside this call, which is what the consumer expects from a lane that returns no task.
@@ -370,6 +376,14 @@ export class SessionRecordingIngester {
             await this.promiseScheduler.waitForAllSettled()
         })
         await this.batchLock(async () => {
+            // The offset store refuses after a background task failed, so writing the batch would only
+            // duplicate data that the next owner replays.
+            if (this.kafkaConsumer.hasFailed()) {
+                logger.warn('⚠️', 'blob_ingester_consumer_v2 - skipping flush after a background task failed', {
+                    batchSize: this.currentBatch.size,
+                })
+                return
+            }
             logger.info('🔁', 'blob_ingester_consumer_v2 - flushing batch', { batchSize: this.currentBatch.size })
             // Usage goes out before the offsets commit, so a crash cannot lose the bill of a session with no later
             // batch. A replayed batch resends the same record, and the usage table removes the duplicate.
@@ -401,6 +415,12 @@ export class SessionRecordingIngester {
         this.stopEventIngestionRestrictionManager = started.stop
 
         const pipelineConfig: SessionReplayPipelineConfig = {
+            maxDecodedBytesPerWrite: this.config.SESSION_RECORDING_MAX_DECODED_KB_PER_WRITE * 1024,
+            messageLimits: {
+                maxWindowIdBytes: this.config.SESSION_RECORDING_MAX_WINDOW_ID_BYTES,
+                maxEventsPerMessage: this.config.SESSION_RECORDING_MAX_EVENTS_PER_MESSAGE,
+                enforce: this.config.SESSION_RECORDING_ENFORCE_MESSAGE_LIMITS,
+            },
             outputs: this.outputs,
             eventIngestionRestrictionManager: this.eventIngestionRestrictionManager,
             overflowMode: this.config.INGESTION_OVERFLOW_MODE,
@@ -443,13 +463,29 @@ export class SessionRecordingIngester {
 
         // Persist whatever is buffered and store its offsets while we still own the partitions;
         // disconnect commits them as it leaves the group.
-        await this.flushCurrentBatch()
-        await this.kafkaConsumer.disconnect()
+        let promiseResults: PromiseSettledResult<any>[]
+        let disconnectFailure: { error: unknown } | undefined
+        try {
+            await this.flushCurrentBatch()
+        } finally {
+            // The flush rejects when the consumer refuses the offset store. Without the disconnect,
+            // the partitions wait for the session timeout before another consumer takes them.
+            // A disconnect error must not skip the cleanup below or replace the flush error.
+            try {
+                await this.kafkaConsumer.disconnect()
+            } catch (error) {
+                disconnectFailure = { error }
+                logger.error('🔥', 'blob_ingester_consumer_v2 - disconnect failed', { error: String(error) })
+            }
 
-        const promiseResults = await this.promiseScheduler.waitForAllSettled()
+            promiseResults = await this.promiseScheduler.waitForAllSettled()
 
-        this.keyStore.stop()
-        await this.stopEventIngestionRestrictionManager?.()
+            this.keyStore.stop()
+            await this.stopEventIngestionRestrictionManager?.()
+        }
+        if (disconnectFailure) {
+            throw disconnectFailure.error
+        }
         // Note: Kafka producers and Redis pools are owned by the server (IngestionSessionReplayServer),
         // not by the ingester. The server handles their lifecycle in getCleanupResources().
 

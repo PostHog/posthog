@@ -17,44 +17,51 @@ const NOTHING_TO_TRIAGE = 'No reports in this view need a pull request'
 // pinned: autocapture selector. Triage usage insights filter clicks on this data-attr.
 const TRIAGE_DATA_ATTR = 'inbox-triage-mode'
 
-function triageLabel(count: number | null): string {
+export function triageLabel(count: number | null, countIsCapped: boolean, compact: boolean): string {
     if (count === null) {
-        return 'Triage mode'
+        return compact ? 'Triage' : 'Triage mode'
     }
-    return `Triage ${humanFriendlyNumber(count)} ${count === 1 ? 'report' : 'reports'}`
+    const shownCount = `${humanFriendlyNumber(count)}${countIsCapped ? '+' : ''}`
+    if (compact) {
+        return `Triage ${shownCount}`
+    }
+    return `Triage ${shownCount} ${count === 1 && !countIsCapped ? 'report' : 'reports'}`
 }
 
 /**
  * Opens triage mode from the scene header. It is an action, not a filter, so it sits apart from the
  * filter row. Triage walks the primary section with the Reports tab's filters and scope, so the
  * count comes from that same section and matches what triage will show.
+ * `compact` drops the hotkey hint for the narrow tab row. The scene binds `t` either way.
  */
-export function InboxTriageButton(): JSX.Element {
-    const { count } = useValues(reportListLogic(sectionListLogicProps(INBOX_PRIMARY_REPORT_SECTION_KEY)))
+export function InboxTriageButton({ compact = false }: { compact?: boolean }): JSX.Element {
+    const { count, countIsCapped } = useValues(reportListLogic(sectionListLogicProps(INBOX_PRIMARY_REPORT_SECTION_KEY)))
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    // Experiment: does a neutral button change how often people open triage mode?
+    const neutralStyle = useFeatureFlag('INBOX_TRIAGE_BUTTON_COLOR', 'test')
     const disabledReason = count === 0 ? NOTHING_TO_TRIAGE : undefined
-    const label = triageLabel(count)
+    const label = triageLabel(count, countIsCapped, compact)
 
     if (todayRailNav) {
         return (
             <Button
-                variant="primary"
+                variant={neutralStyle ? 'outline' : 'primary'}
                 render={<LinkPrimitive to={urls.inboxTriage()} />}
                 tooltip={TRIAGE_TOOLTIP}
                 disabledReason={disabledReason}
                 data-attr={TRIAGE_DATA_ATTR}
             >
                 {label}
-                <Kbd>T</Kbd>
+                {!compact && <Kbd>T</Kbd>}
             </Button>
         )
     }
     return (
         <LemonButton
-            type="primary"
+            type={neutralStyle ? 'secondary' : 'primary'}
             size="small"
             to={urls.inboxTriage()}
-            sideIcon={<KeyboardShortcut t />}
+            sideIcon={compact ? undefined : <KeyboardShortcut t />}
             tooltip={TRIAGE_TOOLTIP}
             disabledReason={disabledReason}
             data-attr={TRIAGE_DATA_ATTR}

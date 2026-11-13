@@ -1,7 +1,12 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
-from products.warehouse_sources.sources.sdk import DependentEndpointConfig, IncrementalField, IncrementalFieldType
+from products.warehouse_sources.sources.sdk import (
+    DependentEndpointConfig,
+    IncrementalField,
+    IncrementalFieldType,
+    SortMode,
+)
 
 # Scopes requested when validating a new connection. Scopes are fixed on the
 # developer app at creation, so the caption tells users to grant these.
@@ -27,6 +32,8 @@ class RampEndpointConfig:
     fanout: Optional[DependentEndpointConfig] = None
     page_size: int = PAGE_SIZE
     default_incremental_field: Optional[str] = None
+    sort_mode: Optional[SortMode] = "asc"
+    default_incremental_lookback_seconds: Optional[int] = None
 
 
 _VENDORS_FANOUT = DependentEndpointConfig(
@@ -48,6 +55,9 @@ RAMP_ENDPOINTS: dict[str, RampEndpointConfig] = {
         # so late state changes (pending→cleared) need an occasional full
         # refresh — the same trade-off Fivetran makes.
         incremental_param="from_date",
+        # Result ordering within a from_date window is not documented, so the
+        # pipeline defers incremental watermark commits until a run completes.
+        sort_mode="desc",
         incremental_fields=[
             {
                 "label": "user_transaction_time",
@@ -123,12 +133,68 @@ RAMP_ENDPOINTS: dict[str, RampEndpointConfig] = {
         path="/billing/statements",
         scope="billing_statements:read",
     ),
+    "locations": RampEndpointConfig(
+        name="locations",
+        path="/locations",
+        scope="locations:read",
+    ),
+    "entities": RampEndpointConfig(
+        name="entities",
+        path="/entities",
+        scope="entities:read",
+    ),
+    # Ramp does not document the list order of transfers or statements, so their incremental
+    # reads promise no sort order.
+    "transfers": RampEndpointConfig(
+        name="transfers",
+        path="/transfers",
+        scope="transfers:read",
+        partition_key="created_at",
+        # from_date filters on when the transfer occurred, but the status keeps changing while an
+        # ACH transfer settles, so incremental runs re-read the trailing week.
+        incremental_param="from_date",
+        sort_mode=None,
+        default_incremental_lookback_seconds=7 * 24 * 60 * 60,
+        incremental_fields=[
+            {
+                "label": "created_at",
+                "type": IncrementalFieldType.DateTime,
+                "field": "created_at",
+                "field_type": IncrementalFieldType.DateTime,
+            },
+        ],
+    ),
+    "statements": RampEndpointConfig(
+        name="statements",
+        path="/statements",
+        scope="statements:read",
+        partition_key="end_date",
+        # from_date filters on end_date (inclusive).
+        incremental_param="from_date",
+        sort_mode=None,
+        incremental_fields=[
+            {
+                "label": "end_date",
+                "type": IncrementalFieldType.DateTime,
+                "field": "end_date",
+                "field_type": IncrementalFieldType.DateTime,
+            },
+        ],
+        # Each statement embeds every line of its period, so a full page can be very large.
+        page_size=10,
+    ),
 }
 
 ENDPOINTS = tuple(RAMP_ENDPOINTS.keys())
 
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     name: config.incremental_fields for name, config in RAMP_ENDPOINTS.items() if config.incremental_fields
+}
+
+DEFAULT_INCREMENTAL_LOOKBACK_SECONDS: dict[str, int] = {
+    name: config.default_incremental_lookback_seconds
+    for name, config in RAMP_ENDPOINTS.items()
+    if config.default_incremental_lookback_seconds is not None
 }
 
 # Credential validation only proves TOKEN_SCOPES, so tables needing any other scope start

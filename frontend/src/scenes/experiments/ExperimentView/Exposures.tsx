@@ -15,7 +15,7 @@ import { humanFriendlyLargeNumber, humanFriendlyNumber } from 'lib/utils/numbers
 import { pluralize } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { ExperimentExposureCriteria, ExperimentExposureQueryResponse } from '~/queries/schema/schema-general'
+import { ExperimentExposureQueryResponse } from '~/queries/schema/schema-general'
 
 import { EXPERIMENT_VARIANT_MULTIPLE } from 'products/experiments/frontend/constants'
 import {
@@ -27,10 +27,9 @@ import {
 import { useHealthFindingReporting } from 'products/experiments/frontend/health/useHealthFindingReporting'
 
 import { experimentLogic } from '../experimentLogic'
-import { getActivationConfig, isDefaultExposureConfig } from '../exposureContract'
-import { filterLowMultipleVariant, getExposureConfigDisplayName, resolveMultipleVariantHandling } from '../utils'
+import { filterLowMultipleVariant, resolveMultipleVariantHandling } from '../utils'
 import { exposureCriteriaModalLogic } from './exposureCriteriaModalLogic'
-import { buildExposureSeries } from './exposuresTransforms'
+import { buildExposureSeries, getExposureCriteriaLabel } from './exposuresTransforms'
 import { VariantTag } from './VariantTag'
 
 // Below this, a load looks like any other; above it, the user has no way to tell a slow query
@@ -114,24 +113,6 @@ function ExposuresChart({ exposures }: ExposuresChartProps): JSX.Element {
     )
 }
 
-function getExposureCriteriaLabel(
-    exposureCriteria: ExperimentExposureCriteria | undefined,
-    defaultEvent: string
-): string {
-    const activationConfig = getActivationConfig(exposureCriteria)
-    if (activationConfig) {
-        return `Default (${defaultEvent}) + activation (${getExposureConfigDisplayName(activationConfig)})`
-    }
-
-    const exposureConfig = exposureCriteria?.exposure_config
-    if (!exposureConfig || isDefaultExposureConfig(exposureConfig)) {
-        return `Default (${defaultEvent})`
-    }
-
-    const displayName = getExposureConfigDisplayName(exposureConfig)
-    return `Custom (${displayName})`
-}
-
 export function Exposures(): JSX.Element {
     const {
         exposures,
@@ -180,8 +161,8 @@ export function Exposures(): JSX.Element {
     // The answer holds a series for every configured variant, with zero counts, so only the total tells.
     const hasZeroExposures = !isExperimentDraft && !exposuresLoading && exposures != null && totalExposures === 0
 
-    // With the health panel, its row reports the finding as shown. The card reports the same finding, so that opening
-    // the card's evidence counts against the panel's "shown" event and not a second one.
+    // With the health findings, the health chip reports the finding as shown. The card reports the same finding, so that
+    // opening the card's evidence counts against the chip's "shown" event and not a second one.
     const srmFinding = healthUi === 'panel' ? serverSampleRatioFinding(exposures) : undefined
     const { reportOpened: reportSrmOpened } = useHealthFindingReporting(
         hasSRM && !isExperimentDraft && !exposuresLoading

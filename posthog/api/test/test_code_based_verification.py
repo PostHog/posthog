@@ -1,38 +1,52 @@
+from collections.abc import Iterator
 from contextlib import contextmanager
 
 import pytest
 import time_machine
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
 from django_otp.plugins.otp_totp.models import TOTPDevice
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.authentication import CodeBasedVerificationSerializer
-from posthog.helpers.email_utils import ESPSuppressionResult
 from posthog.helpers.two_factor_session import CODE_MAX_ATTEMPTS
+from posthog.models.instance_setting import override_instance_config
 
 VERIFY_URL = "/api/login/code-based-verification/"
 RESEND_URL = "/api/login/code-based-verification/resend/"
 
 
-def mock_esp_not_suppressed(*args, **kwargs):
-    return ESPSuppressionResult(is_suppressed=False, from_cache=False)
-
-
 @contextmanager
 def enable_code_sending():
-    """Force the code path on (bypass the dev/ESP/email-availability short-circuits) and capture the sent code."""
+    """Force the code path on (bypass the dev/email-availability short-circuits) and capture the sent code."""
     with (
-        patch("posthog.helpers.two_factor_session.check_esp_suppression", side_effect=mock_esp_not_suppressed),
         patch("posthog.helpers.two_factor_session.is_email_available", return_value=True),
         patch("posthog.helpers.two_factor_session.is_http_email_service_available", return_value=True),
         patch("posthog.tasks.email.send_code_based_verification") as mock_send,
     ):
         yield mock_send
+
+
+@contextmanager
+def workflows_refuses_the_recipient() -> Iterator[None]:
+    refusal = MagicMock(status_code=422, text="error")
+    refusal.json.return_value = {"type": "invalid_request", "code": "recipient_suppressed"}
+    with (
+        patch("posthog.helpers.two_factor_session.is_email_available", return_value=True),
+        patch("posthog.helpers.two_factor_session.is_http_email_service_available", return_value=True),
+        override_instance_config("EMAIL_HOST", "localhost"),
+        override_settings(
+            POSTHOG_TRANSACTIONAL_EMAIL_API_KEY="phs_test",
+            POSTHOG_HOST="https://us.posthog.com",
+        ),
+        patch.dict("posthog.email.WORKFLOWS_TEMPLATE_ID_MAP", {"code_based_verification": "tmpl-1"}),
+        patch("posthog.email.requests.post", return_value=refusal),
+    ):
+        yield
 
 
 class TestCodeBasedVerificationAPI(APIBaseTest):
@@ -70,6 +84,15 @@ class TestCodeBasedVerificationAPI(APIBaseTest):
             self.client.post("/logout")
             response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
             self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    @pytest.mark.disable_mock_code_based_verifier
+    def test_login_is_refused_when_the_code_email_cannot_be_delivered(self):
+        with workflows_refuses_the_recipient():
+            response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "login_code_email_undeliverable")
+        self.assertEqual(self.client.get("/api/users/@me/").status_code, status.HTTP_401_UNAUTHORIZED)
 
     @pytest.mark.disable_mock_code_based_verifier
     def test_wrong_code_is_rejected_but_correct_code_still_works(self):
@@ -147,6 +170,18 @@ class TestCodeBasedVerificationAPI(APIBaseTest):
                 self.client.post(VERIFY_URL, {"code": first_code}).status_code, status.HTTP_400_BAD_REQUEST
             )
             self.assertEqual(self.client.post(VERIFY_URL, {"code": second_code}).status_code, status.HTTP_200_OK)
+
+    @pytest.mark.disable_mock_code_based_verifier
+    def test_resend_reports_an_undeliverable_address_instead_of_sent(self):
+        with time_machine.travel("2024-01-01T10:00:00", tick=False) as frozen:
+            with enable_code_sending() as mock_send:
+                self._trigger(mock_send)
+            frozen.move_to("2024-01-01T10:01:01")  # past the 1/min resend throttle
+            with workflows_refuses_the_recipient():
+                response = self.client.post(RESEND_URL)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "login_code_email_undeliverable")
 
     @pytest.mark.disable_mock_code_based_verifier
     def test_resend_does_not_reset_the_failed_attempt_cap(self):

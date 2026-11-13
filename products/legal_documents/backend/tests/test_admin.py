@@ -1,15 +1,13 @@
-from typing import Any, cast
+from typing import Any
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.contrib.admin import AdminSite
 from django.contrib.admin.widgets import AutocompleteSelect
-from django.contrib.messages import get_messages
 from django.contrib.messages.storage.fallback import FallbackStorage
-from django.core.exceptions import PermissionDenied, ValidationError
+from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import SimpleUploadedFile, UploadedFile
-from django.template.response import TemplateResponse
 from django.test import RequestFactory, SimpleTestCase
 from django.utils.datastructures import MultiValueDict
 
@@ -20,7 +18,6 @@ from posthog.models.organization import Organization, OrganizationMembership
 
 from products.legal_documents.backend.admin import LegalDocumentAdmin, LegalDocumentAdminForm, LegalDocumentInline
 from products.legal_documents.backend.models import LegalDocument
-from products.legal_documents.backend.storage import signed_pdf_storage_key
 
 _VALID_PDF_BYTES = b"%PDF-1.4\nfake pdf bytes for testing\n%%EOF"
 
@@ -180,78 +177,6 @@ class TestLegalDocumentAdminSave(APIBaseTest):
         self.assertFalse(form.is_valid())
         self.assertEqual(LegalDocument.objects.filter(document_type="DPA").count(), 1)
 
-    @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient")
-    @patch("products.legal_documents.backend.logic.object_storage")
-    def test_delete_model_for_signed_row_cleans_up_s3_and_skips_pandadoc(
-        self, mock_storage: Any, mock_pandadoc_cls: Any
-    ) -> None:
-        # Signed rows have a PDF in S3 (PandaDoc completion webhook stashed it,
-        # or admin uploaded it) and a completed envelope on PandaDoc that can't
-        # be voided. Helper deletes the S3 object and skips the PandaDoc call.
-        document = LegalDocument.objects.create(
-            organization=self.organization,
-            document_type="MSA",
-            company_name="Acme, Inc.",
-            company_address="1 Analytics Way",
-            representative_email="ada@acme.example",
-            status=LegalDocument.Status.SIGNED,
-            pandadoc_document_id="doc_123",
-        )
-        # Snapshot before delete: obj.delete() clears the pk on the in-memory
-        # instance, so signed_pdf_storage_key(document) would compute against
-        # id=None afterwards.
-        expected_key = signed_pdf_storage_key(document)
-        document_id = document.id
-        self.admin.delete_model(self._request(), document)
-
-        mock_storage.delete.assert_called_once_with(expected_key)
-        mock_pandadoc_cls.assert_not_called()
-        self.assertFalse(LegalDocument.objects.filter(id=document_id).exists())
-
-    @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient")
-    @patch("products.legal_documents.backend.logic.object_storage")
-    def test_delete_model_for_unsigned_row_voids_pandadoc_and_skips_s3(
-        self, mock_storage: Any, mock_pandadoc_cls: Any
-    ) -> None:
-        # Unsigned rows have an in-flight PandaDoc envelope that should be
-        # voided so the original recipient can't still complete it. No PDF
-        # exists in S3 until completion, so the S3 call is skipped.
-        document = LegalDocument.objects.create(
-            organization=self.organization,
-            document_type="DPA",
-            company_name="Acme, Inc.",
-            company_address="1 Analytics Way",
-            representative_email="ada@acme.example",
-            status=LegalDocument.Status.SUBMITTED_FOR_SIGNATURE,
-            pandadoc_document_id="doc_123",
-        )
-        document_id = document.id
-        self.admin.delete_model(self._request(), document)
-
-        mock_pandadoc_cls.return_value.void_document.assert_called_once_with(document_id="doc_123")
-        mock_storage.delete.assert_not_called()
-        self.assertFalse(LegalDocument.objects.filter(id=document_id).exists())
-
-    @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient")
-    @patch("products.legal_documents.backend.logic.object_storage")
-    def test_delete_model_skips_pandadoc_void_when_no_envelope_id(
-        self, _mock_storage: Any, mock_pandadoc_cls: Any
-    ) -> None:
-        # If the row was never bound to a PandaDoc envelope (e.g., admin-uploaded
-        # MSA, or PandaDoc create failed during the original flow) there's
-        # nothing to void — the client shouldn't even be instantiated.
-        document = LegalDocument.objects.create(
-            organization=self.organization,
-            document_type="MSA",
-            company_name="Acme, Inc.",
-            company_address="1 Analytics Way",
-            representative_email="ada@acme.example",
-            status=LegalDocument.Status.SIGNED,
-            pandadoc_document_id="",
-        )
-        self.admin.delete_model(self._request(), document)
-        mock_pandadoc_cls.assert_not_called()
-
     def test_add_form_uses_autocomplete_for_organization(self) -> None:
         # The organization FK must render an autocomplete widget, not the default
         # <select> — the latter loads every org row into the page and times out
@@ -281,220 +206,6 @@ class TestLegalDocumentAdminSave(APIBaseTest):
         # subclass returned by modelform_factory has no extra non-model fields.)
         self.assertNotIn("signed_pdf", change_form_class.base_fields)
 
-    @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient")
-    @patch("products.legal_documents.backend.logic.object_storage")
-    def test_delete_model_swallows_s3_errors(self, mock_storage: Any, _mock_pandadoc_cls: Any) -> None:
-        # If S3 cleanup fails the row should still be deleted — best-effort cleanup.
-        # PandaDocClient is patched as defense-in-depth so this test never makes
-        # a real network call if the fixture sprouts a pandadoc_document_id.
-        mock_storage.delete.side_effect = RuntimeError("s3 down")
-        document = LegalDocument.objects.create(
-            organization=self.organization,
-            document_type="MSA",
-            company_name="Acme, Inc.",
-            company_address="1 Analytics Way",
-            representative_email="ada@acme.example",
-            status=LegalDocument.Status.SIGNED,
-        )
-        document_id = document.id
-
-        self.admin.delete_model(self._request(), document)
-
-        self.assertFalse(LegalDocument.objects.filter(id=document_id).exists())
-
-    @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient")
-    @patch("products.legal_documents.backend.logic.object_storage")
-    def test_delete_queryset_fires_per_row_pandadoc_voids_and_deletes_rows(
-        self, _mock_storage: Any, mock_pandadoc_cls: Any
-    ) -> None:
-        # Bulk delete via the changelist must call the shared logic helper
-        # once per row (not queryset.delete()) so each envelope gets voided
-        # individually and each row fires its own activity-log entry.
-        other_org = type(self.organization).objects.create(name="Other Co")
-        first = LegalDocument.objects.create(
-            organization=self.organization,
-            document_type="DPA",
-            company_name="Acme, Inc.",
-            company_address="1 Analytics Way",
-            representative_email="ada@acme.example",
-            status=LegalDocument.Status.SUBMITTED_FOR_SIGNATURE,
-            pandadoc_document_id="doc_111",
-        )
-        second = LegalDocument.objects.create(
-            organization=other_org,
-            document_type="DPA",
-            company_name="Other Co",
-            company_address="Elsewhere",
-            representative_email="bob@other.example",
-            status=LegalDocument.Status.SUBMITTED_FOR_SIGNATURE,
-            pandadoc_document_id="doc_222",
-        )
-
-        queryset = LegalDocument.objects.filter(id__in=[first.id, second.id])
-        self.admin.delete_queryset(self._request(), queryset)
-
-        # Two distinct PandaDoc void calls, one per row.
-        self.assertEqual(mock_pandadoc_cls.return_value.void_document.call_count, 2)
-        called_ids = {
-            call.kwargs["document_id"] for call in mock_pandadoc_cls.return_value.void_document.call_args_list
-        }
-        self.assertEqual(called_ids, {"doc_111", "doc_222"})
-        self.assertFalse(LegalDocument.objects.filter(id__in=[first.id, second.id]).exists())
-
-    @patch("products.legal_documents.backend.logic.pandadoc_client.PandaDocClient")
-    def test_resend_signing_email_dispatches_only_for_unsent_rows(self, mock_pandadoc_cls: Any) -> None:
-        # The recovery action re-triggers the signing email for in-flight rows
-        # whose `document.draft` webhook was missed. It must skip signed rows
-        # (already complete) and rows with no PandaDoc envelope (nothing to
-        # send), and only call /send for the unsigned, enveloped row.
-        stranded = LegalDocument.objects.create(
-            organization=self.organization,
-            document_type="DPA",
-            company_name="Acme, Inc.",
-            company_address="1 Analytics Way",
-            representative_email="ada@acme.example",
-            status=LegalDocument.Status.SUBMITTED_FOR_SIGNATURE,
-            pandadoc_document_id="doc_stranded",
-        )
-        signed = LegalDocument.objects.create(
-            organization=self.organization,
-            document_type="BAA",
-            company_name="Acme, Inc.",
-            company_address="1 Analytics Way",
-            representative_email="ada@acme.example",
-            status=LegalDocument.Status.SIGNED,
-            pandadoc_document_id="doc_signed",
-        )
-        no_envelope = LegalDocument.objects.create(
-            organization=self.organization,
-            document_type="MSA",
-            company_name="Acme, Inc.",
-            company_address="1 Analytics Way",
-            representative_email="ada@acme.example",
-            status=LegalDocument.Status.SUBMITTED_FOR_SIGNATURE,
-            pandadoc_document_id="",
-        )
-
-        queryset = LegalDocument.objects.filter(id__in=[stranded.id, signed.id, no_envelope.id])
-        self.admin.resend_signing_email(self._request(), queryset)
-
-        mock_pandadoc_cls.return_value.send_document.assert_called_once()
-        self.assertEqual(mock_pandadoc_cls.return_value.send_document.call_args.kwargs["document_id"], "doc_stranded")
-
-    def _signed_document(self, **overrides: Any) -> LegalDocument:
-        fields: dict[str, Any] = {
-            "organization": self.organization,
-            "document_type": "BAA",
-            "company_name": "Acme, Inc.",
-            "company_address": "1 Analytics Way",
-            "representative_email": "ada@acme.example",
-            "status": LegalDocument.Status.SIGNED,
-            "pandadoc_document_id": "doc_123",
-        }
-        fields.update(overrides)
-        return LegalDocument.objects.create(**fields)
-
-    def _refetch_request(self, document: LegalDocument, method: str = "post") -> Any:
-        request = getattr(self.request_factory, method)(f"/admin/posthog/legaldocument/{document.id}/refetch-pdf/")
-        request.user = self.user
-        _attach_messages(request)
-        return request
-
-    @patch("products.legal_documents.backend.admin.logic.download_and_store_signed_pdf", return_value=True)
-    def test_refetch_stores_the_pandadoc_pdf_and_marks_the_row_stored(self, mock_download: Any) -> None:
-        document = self._signed_document(signed_pdf_stored=False)
-
-        response = self.admin.refetch_pdf_view(self._refetch_request(document), str(document.id))
-
-        mock_download.assert_called_once()
-        document.refresh_from_db()
-        self.assertTrue(document.signed_pdf_stored)
-        self.assertEqual(response.status_code, 302)
-
-    @patch("products.legal_documents.backend.admin.logic.download_and_store_signed_pdf", return_value=False)
-    def test_refetch_failure_leaves_the_stored_copy_alone(self, _mock_download: Any) -> None:
-        document = self._signed_document(signed_pdf_stored=True)
-        request = self._refetch_request(document)
-
-        self.admin.refetch_pdf_view(request, str(document.id))
-
-        self.assertIn("Could not refetch", " ".join(str(message) for message in get_messages(request)))
-
-    @parameterized.expand(
-        [
-            ("out_for_signature", {"status": LegalDocument.Status.SUBMITTED_FOR_SIGNATURE}),
-            ("no_envelope", {"pandadoc_document_id": ""}),
-        ]
-    )
-    @patch("products.legal_documents.backend.admin.logic.download_and_store_signed_pdf")
-    def test_refetch_never_downloads_what_pandadoc_cannot_serve(
-        self, _name: str, overrides: dict[str, Any], mock_download: Any
-    ) -> None:
-        # A PDF pulled for anything but a completed envelope would land behind
-        # the customer-facing download link as if it were the signed document.
-        document = self._signed_document(signed_pdf_stored=False, **overrides)
-
-        self.admin.refetch_pdf_view(self._refetch_request(document), str(document.id))
-
-        mock_download.assert_not_called()
-        document.refresh_from_db()
-        self.assertFalse(document.signed_pdf_stored)
-
-    @patch("products.legal_documents.backend.admin.logic.download_and_store_signed_pdf")
-    def test_refetch_rejects_a_get(self, mock_download: Any) -> None:
-        # A refetch overwrites stored bytes, so a prefetched or crawled link
-        # must not trigger one.
-        document = self._signed_document()
-
-        with self.assertRaises(PermissionDenied):
-            self.admin.refetch_pdf_view(self._refetch_request(document, method="get"), str(document.id))
-
-        mock_download.assert_not_called()
-
-    @parameterized.expand(
-        [
-            ("signed_with_envelope", {}, True),
-            ("out_for_signature", {"status": LegalDocument.Status.SUBMITTED_FOR_SIGNATURE}, False),
-            ("no_envelope", {"pandadoc_document_id": ""}, False),
-        ]
-    )
-    def test_change_view_offers_the_refetch_button_only_when_pandadoc_can_serve(
-        self, _name: str, overrides: dict[str, Any], expected: bool
-    ) -> None:
-        document = self._signed_document(**overrides)
-        request = self.request_factory.get(f"/admin/posthog/legaldocument/{document.id}/")
-        request.user = self.user
-        _attach_messages(request)
-
-        response = cast(TemplateResponse, self.admin.change_view(request, str(document.id)))
-        response.render()
-
-        self.assertEqual(b"Refetch PDF from PandaDoc" in response.content, expected)
-
-    @parameterized.expand(
-        [
-            (LegalDocument.Status.SIGNED, "cannot void a completed document"),
-            (LegalDocument.Status.SUBMITTED_FOR_SIGNATURE, "voids its PandaDoc envelope"),
-        ]
-    )
-    def test_delete_confirmation_explains_what_the_delete_does(self, status: str, expected_fragment: str) -> None:
-        document = LegalDocument.objects.create(
-            organization=self.organization,
-            document_type="BAA",
-            company_name="Acme, Inc.",
-            company_address="1 Analytics Way",
-            representative_email="ada@acme.example",
-            status=status,
-            pandadoc_document_id="doc_123",
-        )
-        request = self.request_factory.get(f"/admin/posthog/legaldocument/{document.id}/delete/")
-        request.user = self.user
-        _attach_messages(request)
-
-        self.admin.delete_view(request, str(document.id))
-
-        self.assertIn(expected_fragment, " ".join(str(message) for message in get_messages(request)))
-
 
 class TestLegalDocumentAdminPermissions(APIBaseTest):
     def setUp(self) -> None:
@@ -509,10 +220,11 @@ class TestLegalDocumentAdminPermissions(APIBaseTest):
         request.user = self.user
         return request
 
-    def test_staff_can_add_and_delete(self) -> None:
+    def test_staff_can_add_but_delete_only_in_the_console(self) -> None:
         request = self._request_for(is_staff=True)
         self.assertTrue(self.admin.has_add_permission(request))
-        self.assertTrue(self.admin.has_delete_permission(request))
+        self.assertFalse(self.admin.has_delete_permission(request))
+        self.assertNotIn("delete_selected", self.admin.get_actions(request))
 
     def test_non_staff_cannot_add_or_delete(self) -> None:
         request = self._request_for(is_staff=False)

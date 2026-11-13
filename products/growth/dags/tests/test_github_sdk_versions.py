@@ -484,6 +484,28 @@ class TestMonorepoPackageTagMatching(TestFetchSdkDataBase):
                 {"0.2.0"},
             ),
             (
+                "posthog-laravel",
+                "PostHog/posthog-php",
+                [
+                    _release("laravel-v0.2.0", "2026-08-01T00:00:00Z"),
+                    _release("laravel-v0.1.0", "2026-07-01T00:00:00Z"),
+                    _release("4.11.0", "2026-08-01T00:00:00Z"),
+                ],
+                "0.2.0",
+                {"0.2.0", "0.1.0"},
+            ),
+            (
+                "posthog-php",
+                "PostHog/posthog-php",
+                [
+                    _release("laravel-v0.2.0", "2026-08-01T00:00:00Z"),
+                    _release("4.11.0", "2026-08-01T00:00:00Z"),
+                    _release("v4.10.0", "2026-07-01T00:00:00Z"),
+                ],
+                "4.11.0",
+                {"4.11.0", "4.10.0"},
+            ),
+            (
                 "posthog-rails",
                 "PostHog/posthog-ruby",
                 [

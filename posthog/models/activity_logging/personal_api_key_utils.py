@@ -12,6 +12,7 @@ from posthog.models.activity_logging.activity_log import (
     LogActivityEntry,
     bulk_log_activity,
 )
+from posthog.models.personal_api_key import get_organization_ids_in_key_scope
 from posthog.models.team.team import Team
 from posthog.user_permissions import UserPermissions
 
@@ -32,8 +33,18 @@ def get_personal_api_key_access_locations(api_key: PersonalAPIKey) -> set[LogSco
     """Calculate where activity logs should be created for a PersonalAPIKey based on its scope."""
     if api_key.scoped_teams:
         # `organization_id` is a column on the team row, so no organization join is needed.
-        teams = Team.objects.filter(pk__in=api_key.scoped_teams).values_list("organization_id", "id")
-        return {LogScope(str(organization_id), team_id) for organization_id, team_id in teams}
+        team_organization_ids = {
+            team_id: str(organization_id)
+            for organization_id, team_id in Team.objects.filter(pk__in=api_key.scoped_teams).values_list(
+                "organization_id", "id"
+            )
+        }
+        organization_ids = get_organization_ids_in_key_scope(api_key, team_organization_ids) or frozenset()
+        return {
+            LogScope(organization_id, team_id)
+            for team_id, organization_id in team_organization_ids.items()
+            if organization_id in organization_ids
+        }
     elif api_key.scoped_organizations:
         return {LogScope(str(org_id), None) for org_id in api_key.scoped_organizations}
     else:

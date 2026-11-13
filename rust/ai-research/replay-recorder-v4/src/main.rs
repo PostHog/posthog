@@ -34,10 +34,11 @@ common_alloc::used!();
 const INDEX_QUEUE_MIB: u32 = 512;
 const INDEX_QUEUE_MESSAGES: u32 = 500_000;
 
+/// The argument that runs the v4 Parquet sink instead, so the sink ships in this image.
+const PARQUET_SINK_MODE: &str = "parquet-sink";
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let config = Config::init_from_env().expect("invalid configuration");
-    config.validate()?;
     tracing_subscriber::registry()
         .with(fmt::layer().with_target(true).with_level(true))
         .with(
@@ -46,6 +47,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .from_env_lossy(),
         )
         .init();
+    // The argument only picks which service this process runs, and grants nothing.
+    // nosemgrep: rust.lang.security.args.args
+    if std::env::args().nth(1).as_deref() == Some(PARQUET_SINK_MODE) {
+        return replay_parquet_sink_v4::run().await;
+    }
+    let config = Config::init_from_env().expect("invalid configuration");
+    config.validate()?;
     tracing::info!(topic = %config.kafka_topic, overflow_topic = %config.kafka_overflow_topic, group = %config.kafka_consumer_group, sample = config.sample_percentage, "starting replay-recorder-v4");
 
     // The consumer flushes the buffer, then the producer, on shutdown.

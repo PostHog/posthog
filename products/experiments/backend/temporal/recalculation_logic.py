@@ -44,7 +44,10 @@ from products.experiments.backend.hogql_queries.error_handling import (
 )
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.hogql_queries.utils import sanitize_non_finite
-from products.experiments.backend.metric_calculation.config import get_metric_calculation_config
+from products.experiments.backend.metric_calculation.config import (
+    get_metric_calculation_config,
+    team_experiments_configs,
+)
 from products.experiments.backend.metric_calculation.results import MetricResultStore
 from products.experiments.backend.metric_resolution import build_metric, get_metrics_for_calculation
 from products.experiments.backend.models.experiment import Experiment, ExperimentMetricsRecalculation
@@ -412,10 +415,10 @@ def _capture_results_refresh_completed(update: RecalculationProgressUpdate) -> N
             if recalc.started_at and recalc.created_at
             else None
         )
-        # Hours since the experiment launched, matching the legacy frontend definition exactly
+        # Hours since the start date, matching the legacy frontend definition exactly
         # (now - start_date, ignoring end_date) so dashboards can share the >12h filter across paths.
-        hours_since_launch = experiment.hours_since_launch
-        experiment_duration_hours = round(hours_since_launch) if hours_since_launch is not None else None
+        hours_since_start = experiment.hours_since_start
+        experiment_duration_hours = round(hours_since_start) if hours_since_start is not None else None
         # Count from the discovery list that also sets total_metrics, so saved metrics count and legacy
         # metrics that the run never calculates do not.
         roles = [metric.role for metric in get_metrics_for_calculation(experiment)]
@@ -427,6 +430,11 @@ def _capture_results_refresh_completed(update: RecalculationProgressUpdate) -> N
             distinct_id=distinct_id,
             event="experiment results refresh completed",
             properties={
+                **(
+                    {"$update_person_last_seen_at": False}
+                    if recalc.trigger == ExperimentMetricsRecalculation.Trigger.SCHEDULED
+                    else {}
+                ),
                 "experiment_id": experiment.id,
                 "team_id": team.id,
                 "recalculation_id": str(recalc.id),
@@ -614,8 +622,6 @@ def _capture_experiment_metric_event(
     threaded through the workflow + activity args so the capture path doesn't have to re-query the M2M to
     resolve it.
 
-    Every recalc trigger is user-originated (manual click, page load, stale/auto refresh), so context is
-    "ui" with mechanism "orchestrated"; `trigger` carries the finer-grained origin.
     """
     try:
         team = experiment.team
@@ -631,6 +637,11 @@ def _capture_experiment_metric_event(
                 "experiment_id": experiment.id,
                 "team_id": team.id,
                 "metric_uuid": metric_uuid,
+                **(
+                    {"$update_person_last_seen_at": False}
+                    if trigger == ExperimentMetricsRecalculation.Trigger.SCHEDULED
+                    else {}
+                ),
                 "metric_kind": (metric_dict or {}).get("metric_type"),
                 "is_primary": role == "primary",
                 "execution_mode": "recalculation",
@@ -697,6 +708,8 @@ def _calculate_experiment_metric_for_recalculation_sync(
     is_final_attempt: bool = True,
     attempt: int = 1,
     precomputation_mode: PrecomputationMode | None = None,
+    calculation_key_version: int = 1,
+    task_queue: str = "",
 ) -> MetricRecalculationResult:
     close_old_connections()
 
@@ -750,7 +763,12 @@ def _calculate_experiment_metric_for_recalculation_sync(
                 error_type="validation_error",
             )
 
-        calculation_config = get_metric_calculation_config(experiment, metric_uuid)
+        # One read of the settings serves the reuse check, the query and the write, so the result is filed under the key
+        # of the settings it was computed from.
+        team_config = team_experiments_configs([experiment.team_id])[experiment.team_id]
+        calculation_config = get_metric_calculation_config(
+            experiment, metric_uuid, team_config=team_config, key_version=calculation_key_version
+        )
         if calculation_config is None:
             return _fail(
                 recalculation_id,
@@ -839,6 +857,8 @@ def _calculate_experiment_metric_for_recalculation_sync(
                 error_event_context=None,
                 # Must fail typed inside the activity before Temporal's start_to_close kill — see models.py.
                 max_execution_time=METRIC_CALC_MAX_EXECUTION_TIME_SECONDS,
+                experiment=experiment,
+                team_experiments_config=team_config,
             )
 
             # Deferred: recalculation.py imports temporal.models, whose package __init__ imports this module.
@@ -853,7 +873,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
                 feature=Feature.CACHE_WARMUP,
                 client_query_id=client_query_id,
                 # Also covers the precompute inserts, which run inside this context.
-                ch_user=recalculation_clickhouse_user(str(experiment.team.organization_id)),
+                ch_user=recalculation_clickhouse_user(task_queue),
             ):
                 result = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
             result_dict = sanitize_non_finite(result.model_dump(mode="json"))
@@ -1049,7 +1069,11 @@ def _record_metric_out_of_time_failure_sync(failure: MetricOutOfTimeFailure) -> 
             return
 
         experiment = Experiment.objects.filter(id=failure.experiment_id, deleted=False).first()
-        calculation_config = get_metric_calculation_config(experiment, failure.metric_uuid) if experiment else None
+        calculation_config = (
+            get_metric_calculation_config(experiment, failure.metric_uuid, key_version=failure.calculation_key_version)
+            if experiment
+            else None
+        )
         if experiment is None or calculation_config is None or not experiment.start_date or state.query_to is None:
             _fail(
                 failure.recalculation_id, failure.metric_uuid, "calculation", _OUT_OF_TIME_MESSAGE, error_type="timeout"

@@ -17,7 +17,7 @@ import { alertsTakeOwnershipCreate } from 'products/alerts/frontend/generated/ap
 
 import { AlertType } from '../types'
 import { AlertLogicProps } from './alertLogic'
-import { buildAlertFilterConfig } from './alertNotifications'
+import { buildAlertDestinationCountFilterGroups } from './alertNotifications'
 
 export interface AlertsLogicProps extends AlertLogicProps {}
 
@@ -255,7 +255,7 @@ export const alertsLogic = kea<alertsLogicType>([
                     const alertIds = new Set(alerts.map((alert) => alert.id))
                     const response = await api.hogFunctions.list({
                         types: ['internal_destination'],
-                        filter_groups: alerts.map((alert) => buildAlertFilterConfig(alert.id)),
+                        filter_groups: alerts.flatMap((alert) => buildAlertDestinationCountFilterGroups(alert.id)),
                         full: true,
                         limit: 500,
                     })

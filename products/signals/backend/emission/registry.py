@@ -71,6 +71,9 @@ class SignalSourceTableConfig(BaseModel):
     # Optional ORDER BY expression (HogQL) for the fetcher's query, so the `max_records` limit keeps the
     # most important records instead of an arbitrary subset
     order_by: str | None = None
+    # A unique column that breaks ties on the partition field, so a fetch that pages through a window
+    # oldest first resumes after the exact last row instead of skipping rows that share its timestamp
+    cursor_id_field: str | None = None
     # Max records to process per sync
     max_records: int = 1000
     # Set to True when the source stores datetime values as strings (e.g. GitHub JSON fields)
@@ -198,7 +201,10 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.front_conversations import FRONT_CONFIG
     from products.signals.backend.emission.gainsight_px_survey_responses import GAINSIGHT_PX_CONFIG
     from products.signals.backend.emission.gitea_issues import GITEA_CONFIG
+    from products.signals.backend.emission.github_code_scanning_alerts import GITHUB_CODE_SCANNING_ALERTS_CONFIG
+    from products.signals.backend.emission.github_dependabot_alerts import GITHUB_DEPENDABOT_ALERTS_CONFIG
     from products.signals.backend.emission.github_issues import GITHUB_ISSUES_CONFIG
+    from products.signals.backend.emission.github_secret_scanning_alerts import GITHUB_SECRET_SCANNING_ALERTS_CONFIG
     from products.signals.backend.emission.gitlab_issues import GITLAB_CONFIG
     from products.signals.backend.emission.google_play_console_error_issues import (
         GOOGLE_PLAY_CONSOLE_ERROR_ISSUES_CONFIG,
@@ -212,6 +218,7 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.incident_io_incidents import INCIDENT_IO_CONFIG
     from products.signals.backend.emission.instatus_incidents import INSTATUS_CONFIG
     from products.signals.backend.emission.intercom_conversations import INTERCOM_CONFIG
+    from products.signals.backend.emission.intercom_tickets import INTERCOM_TICKETS_CONFIG
     from products.signals.backend.emission.jira_issues import JIRA_ISSUES_CONFIG
     from products.signals.backend.emission.judgeme_reviews_reviews import JUDGEME_REVIEWS_CONFIG
     from products.signals.backend.emission.kustomer_conversations import KUSTOMER_CONFIG
@@ -232,6 +239,7 @@ def _register_all_emitters() -> None:
     from products.signals.backend.emission.plain_threads import PLAIN_CONFIG
     from products.signals.backend.emission.plane_work_items import PLANE_CONFIG
     from products.signals.backend.emission.productboard_notes import PRODUCTBOARD_CONFIG
+    from products.signals.backend.emission.pylon_issues import PYLON_CONFIG
     from products.signals.backend.emission.qualtrics_survey_responses import QUALTRICS_CONFIG
 
     # Tier-2 security scanners
@@ -271,6 +279,11 @@ def _register_all_emitters() -> None:
 
     register_signal_source(ExternalDataSourceType.ZENDESK, "tickets", ZENDESK_TICKETS_CONFIG)
     register_signal_source(ExternalDataSourceType.GITHUB, "issues", GITHUB_ISSUES_CONFIG)
+    register_signal_source(ExternalDataSourceType.GITHUB, "dependabot_alerts", GITHUB_DEPENDABOT_ALERTS_CONFIG)
+    register_signal_source(ExternalDataSourceType.GITHUB, "code_scanning_alerts", GITHUB_CODE_SCANNING_ALERTS_CONFIG)
+    register_signal_source(
+        ExternalDataSourceType.GITHUB, "secret_scanning_alerts", GITHUB_SECRET_SCANNING_ALERTS_CONFIG
+    )
     register_signal_source(ExternalDataSourceType.LINEAR, "issues", LINEAR_ISSUES_CONFIG)
     register_signal_source(ExternalDataSourceType.JIRA, "issues", JIRA_ISSUES_CONFIG)
     register_signal_source(ExternalDataSourceType.PGANALYZE, "issues", PGANALYZE_ISSUES_CONFIG)
@@ -330,6 +343,8 @@ def _register_all_emitters() -> None:
     register_signal_source(ExternalDataSourceType.HELPSCOUT, "conversations", HELPSCOUT_CONFIG)
     register_signal_source(ExternalDataSourceType.DECAGON, "conversations", DECAGON_CONFIG)
     register_signal_source(ExternalDataSourceType.VITALLY, "Conversations", VITALLY_CONFIG)
+    register_signal_source(ExternalDataSourceType.INTERCOM, "tickets", INTERCOM_TICKETS_CONFIG)
+    register_signal_source(ExternalDataSourceType.PYLON, "issues", PYLON_CONFIG)
     # Search analytics (record kind: search_opportunity)
     register_signal_source(
         ExternalDataSourceType.GOOGLESEARCHCONSOLE, "search_analytics_by_query_page", GOOGLE_SEARCH_CONSOLE_CONFIG

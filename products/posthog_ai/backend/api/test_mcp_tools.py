@@ -509,14 +509,15 @@ class TestMCPToolsAPI(APIBaseTest):
             param(
                 "deferred_compatibility_rejection",
                 None,
-                "Function 'greatest' expects 2 arguments, found 3",
+                "Unsupported type cast to 'float64'",
                 None,
-                "Tool failed: MaxToolRetryableError: Function 'greatest' expects 2 arguments, found 3\n\n"
+                "Tool failed: MaxToolRetryableError: Unsupported type cast to 'float64'\n\n"
                 "<hogql_compatibility_hint>\n"
-                "`greatest` takes exactly 2 arguments in HogQL, unlike ClickHouse. Nest two-argument calls "
-                "instead: greatest(x1, greatest(x2, x3)).\n"
+                "HogQL casts do not take width-suffixed ClickHouse type names such as `float64`. "
+                "Accepted type names are: Int, Float, String, Boolean, Date, DateTime. "
+                "Use `CAST(x AS Float)` or `toFloat(x)`.\n"
                 "</hogql_compatibility_hint>. You may retry with adjusted inputs.",
-                query_args={"query": "SELECT greatest(1, 2, 3)", "connectionId": "example-connection"},
+                query_args={"query": "SELECT CAST(1 AS Float64)", "connectionId": "example-connection"},
             ),
             param(
                 "memory_limit",

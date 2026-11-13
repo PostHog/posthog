@@ -2,7 +2,7 @@ import { RRule } from 'rrule'
 
 import { dayjs } from 'lib/dayjs'
 
-import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
+import { AnyPropertyFilter } from '~/types'
 
 import type {
     HogFlowScheduleApi,
@@ -11,7 +11,7 @@ import type {
     UserBasicApi,
 } from 'products/workflows/frontend/generated/api.schemas'
 
-import { audienceCohortIds } from '../Broadcasts/audience/audienceList'
+import { audienceCohortIds, isCohortInclusion } from '../Broadcasts/audience/audienceList'
 import { manageDisabledReason } from '../Broadcasts/broadcastLifecycle'
 import {
     fakeUtcToReal,
@@ -82,8 +82,6 @@ export function sendAudience(
 
 export function audienceFromProperties(properties: AnyPropertyFilter[], accounts = false): SendAudience {
     // An excluded cohort says nothing about who else the audience reaches, so it counts like any other filter.
-    const isCohortInclusion = (filter: AnyPropertyFilter): boolean =>
-        filter.type === PropertyFilterType.Cohort && filter.operator !== PropertyOperator.NotIn
     return {
         cohortIds: audienceCohortIds(properties.filter(isCohortInclusion)),
         filters: properties.filter((filter) => !isCohortInclusion(filter)),
@@ -218,7 +216,8 @@ export function calendarSendsForFlow(
 }
 
 function batchJobState(status: SendCalendarBatchJobApi['status']): CalendarSendState {
-    if (status === 'completed') {
+    // A partially failed run reached part of its audience. Showing it as failed could prompt a resend to those people.
+    if (status === 'completed' || status === 'partially_failed') {
         return 'sent'
     }
     if (status === 'failed' || status === 'cancelled') {

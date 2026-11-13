@@ -26,7 +26,7 @@ export function PersonPropertyFilters({ query, setQuery }: PersonPropertyFilters
             }}
             pageKey={`PersonPropertyFilters.${id}`}
             taxonomicGroupTypes={
-                isActorsQuery(query)
+                isActorsQuery(query) && query.source?.kind !== NodeKind.AccountUsersQuery
                     ? [
                           TaxonomicFilterGroupType.PersonProperties,
                           TaxonomicFilterGroupType.Cohorts,

@@ -53,16 +53,16 @@ def card_for(message: AlertMessage) -> dict[str, Any]:
     headline = escape_markdown(message.title)
     body: list[dict[str, Any]] = [{"type": "TextBlock", "text": headline, "weight": "Bolder", "wrap": True}]
     context = escape_markdown(" | ".join(message.context))
-    if message.details:
+    details = message.all_details
+    if details:
         # An error message can carry a whole query, so it is a detail that overflows. Each detail
         # gets an equal share, so clipping the error cannot drop the failure count after it.
-        share = (TEXT_BUDGET_BYTES - _wire_size(headline) - _wire_size(context)) // len(message.details)
+        share = (TEXT_BUDGET_BYTES - _wire_size(headline) - _wire_size(context)) // len(details)
         body.append(
             {
                 "type": "FactSet",
                 "facts": [
-                    {"title": detail.label, "value": _clip(escape_markdown(detail.value), share)}
-                    for detail in message.details
+                    {"title": detail.label, "value": _clip(escape_markdown(detail.value), share)} for detail in details
                 ],
             }
         )

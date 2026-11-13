@@ -7,9 +7,11 @@ import { optOutCategoriesLogic } from './optOutCategoriesLogic'
 export const CategorySelect = ({
     onChange,
     value,
+    placeholder = 'Select message type',
 }: {
     onChange: (value: string) => void
     value?: string
+    placeholder?: string
 }): JSX.Element => {
     const { categories, categoriesLoading } = useValues(optOutCategoriesLogic())
 
@@ -43,7 +45,7 @@ export const CategorySelect = ({
                         })),
                 },
             ]}
-            placeholder="Select message type"
+            placeholder={placeholder}
         />
     )
 }

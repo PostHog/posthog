@@ -165,6 +165,7 @@ impl RedisRateLimiter {
 mod tests {
     use super::*;
     use crate::test_support::{start_redis, RedisContainer};
+
     use common_redis::RedisClient;
 
     // ===================================================================

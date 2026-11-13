@@ -99,6 +99,11 @@ async def test_data_imports_ducklake_copy_inputs_round_trip_serialization():
     assert str(decoded[0].schema_ids[0]) == str(schema_id)
 
 
+@pytest.fixture(autouse=True)
+def _trino_engine_off(monkeypatch):
+    monkeypatch.setattr(ducklake_module, "data_imports_through_trino", lambda organization_id: False)
+
+
 @pytest.mark.asyncio
 @pytest.mark.django_db
 @pytest.mark.parametrize(
@@ -1687,3 +1692,23 @@ def test_stage_gives_up_after_rebuild_wait_budget(monkeypatch):
         )
 
     assert clock.now <= ducklake_module.DELTA_REBUILD_WAIT_SECONDS + ducklake_module.DELTA_REBUILD_POLL_SECONDS
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("bootstrap", [True, False])
+async def test_ducklake_copy_data_imports_gate_refuses_trino_organizations(monkeypatch, bootstrap):
+    team = MagicMock(organization_id="org", uuid="team-uuid")
+    monkeypatch.setattr(ducklake_module.Team.objects, "only", lambda *fields: MagicMock(get=lambda id: team))
+    monkeypatch.setattr(ducklake_module, "feature_enabled_or_false", lambda *args, **kwargs: True)
+    monkeypatch.setattr(
+        "products.managed_warehouse.backend.facade.access.internal_loading_enabled", lambda organization_id: True
+    )
+    trino_on = MagicMock(return_value=True)
+    monkeypatch.setattr(ducklake_module, "data_imports_through_trino", trino_on)
+
+    result = await ducklake_copy_data_imports_gate_activity(
+        DuckLakeCopyWorkflowGateInputs(team_id=1, internal_bootstrap=bootstrap)
+    )
+
+    assert result is False
+    trino_on.assert_called_once_with("org")

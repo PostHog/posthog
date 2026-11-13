@@ -1,5 +1,7 @@
 from dataclasses import replace
+from email.message import Message
 from typing import Any, cast
+from urllib.error import HTTPError, URLError
 
 import pytest
 from posthog.test.base import APIBaseTest
@@ -9,14 +11,27 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from slack_sdk.errors import SlackApiError
+from slack_sdk.http_retry.builtin_handlers import ConnectionErrorRetryHandler
 
 from posthog.models.integration import Integration
 from posthog.slack.channels import MAX_HEADER_CHARS, MAX_SECTION_CHARS
 
 from products.alerts_platform.backend.delivery.message import UNTRACKED_GROUPS_LABEL
-from products.alerts_platform.backend.delivery.slack import SlackTransport, blocks_for, content_for
-from products.alerts_platform.backend.delivery.transport import DeliveryError, DestinationMisconfigured, MessageHandle
+from products.alerts_platform.backend.delivery.slack import (
+    SLACK_EDIT_TIMEOUT_SECONDS,
+    SLACK_SEND_TIMEOUT_SECONDS,
+    SlackTransport,
+    blocks_for,
+    content_for,
+)
+from products.alerts_platform.backend.delivery.transport import (
+    DeliveryAmbiguous,
+    DeliveryError,
+    DestinationMisconfigured,
+    MessageHandle,
+)
 from products.alerts_platform.backend.facade.contracts import (
+    SLACK_IMAGE_SLOT_BLOCK_ID,
     AlertDestinationData,
     AlertEventKind,
     MessageDetail,
@@ -24,12 +39,23 @@ from products.alerts_platform.backend.facade.contracts import (
     MessageLink,
     SlackMessageContent,
 )
+from products.alerts_platform.backend.temporal.workflows import DELIVERY_START_TO_CLOSE
 from products.alerts_platform.backend.tests.delivery_messages import ALERT_URL, alert_message, announced_transition
 
 MESSAGE = alert_message(
     headline="API errors is firing",
     details=(MessageDetail(label="Value", value="300"), MessageDetail(label="Threshold", value="above 100")),
 )
+
+
+def _raised_while_reading(answer: HTTPError) -> TimeoutError:
+    try:
+        try:
+            raise answer
+        except HTTPError:
+            raise TimeoutError("The read operation timed out")
+    except TimeoutError as error:
+        return error
 
 
 class TestSlackBlocks(SimpleTestCase):
@@ -66,6 +92,7 @@ class TestSlackBlocks(SimpleTestCase):
                 headline="API errors could not be checked",
                 details=(MessageDetail(label="Error", value="no column <!channel> in <http://x|table>"),),
                 context=("Services: <!channel>",),
+                rule_details=(MessageDetail(label="description", value="<!here> down"),),
             ),
             project=MessageLink(label="Prod <!channel>", url="https://app.example.com/project/2"),
         )
@@ -74,7 +101,9 @@ class TestSlackBlocks(SimpleTestCase):
         body = blocks[1]["text"]["text"]
         context, project = (element["text"] for element in blocks[2]["elements"])
 
-        assert "<!channel>" not in body + context + project
+        assert "<!" not in body + context + project
+        assert "*description:* &lt;!here&gt; down" in body
+        assert blocks[1]["text"]["verbatim"] is True
         assert "&lt;!channel&gt;" in body
         assert context == "Services: &lt;!channel&gt;"
         assert project == "Project: <https://app.example.com/project/2|Prod &lt;!channel&gt;>"
@@ -226,6 +255,61 @@ class TestSlackTransport(APIBaseTest):
         assert handle is not None and handle.root_content is not None
         assert handle.root_content["blocks"] == post.call_args.kwargs["blocks"]
 
+    def test_delivery_client_timeout_below_activity(self) -> None:
+        self.integration.sensitive_config = {"access_token": "xoxb-not-a-real-token"}
+        self.integration.save()
+        captured: dict[str, Any] = {}
+
+        def capture_post(slack: Any, *_args: Any, **_kwargs: Any) -> dict[str, str]:
+            captured["send"] = slack
+            return {"ts": "1700000000.1"}
+
+        def capture_update(slack: Any, *_args: Any, **_kwargs: Any) -> None:
+            captured["edit"] = slack
+
+        with (
+            patch("products.alerts_platform.backend.delivery.slack.post_message", side_effect=capture_post),
+            patch("products.alerts_platform.backend.delivery.slack.update_message", side_effect=capture_update),
+        ):
+            root = SlackTransport().deliver(team_id=self.team.id, target=self.target, message=MESSAGE)
+            assert root is not None
+            SlackTransport().edit_root(team_id=self.team.id, target=self.target, root=root, state_line="Resolved")
+
+        send, edit = captured["send"].client, captured["edit"].client
+        assert send.timeout == SLACK_SEND_TIMEOUT_SECONDS
+        assert edit.timeout == SLACK_EDIT_TIMEOUT_SECONDS
+        for client in (send, edit):
+            # It resends after a connection error, which can post the message twice.
+            assert not any(isinstance(handler, ConnectionErrorRetryHandler) for handler in client.retry_handlers)
+            # The egress observability handler stays.
+            assert client.retry_handlers
+        assert SLACK_SEND_TIMEOUT_SECONDS + SLACK_EDIT_TIMEOUT_SECONDS < DELIVERY_START_TO_CLOSE.total_seconds()
+
+    @parameterized.expand(
+        [
+            ("read_timeout", TimeoutError("timed out"), True),
+            ("dropped_after_send", ConnectionResetError("Connection reset by peer"), True),
+            ("connect_timeout", URLError(TimeoutError("timed out")), False),
+            ("rate_limit_body_read_timeout", _raised_while_reading(HTTPError("u", 429, "", Message(), None)), False),
+        ]
+    )
+    def test_post_timeout_is_ambiguous(self, _name: str, error: Exception, ambiguous: bool) -> None:
+        with patch("products.alerts_platform.backend.delivery.slack.SlackIntegration") as slack_integration:
+            slack_integration.return_value.client.chat_postMessage.side_effect = error
+            with pytest.raises(Exception) as raised:
+                SlackTransport().deliver(team_id=self.team.id, target=self.target, message=MESSAGE)
+
+        assert isinstance(raised.value, DeliveryAmbiguous) is ambiguous
+
+    def test_a_slack_refusal_is_not_ambiguous(self) -> None:
+        with patch("products.alerts_platform.backend.delivery.slack.SlackIntegration") as slack_integration:
+            error = SlackApiError("internal_error", {"error": "internal_error"})
+            slack_integration.return_value.client.chat_postMessage.side_effect = error
+            with pytest.raises(DeliveryError) as raised:
+                SlackTransport().deliver(team_id=self.team.id, target=self.target, message=MESSAGE)
+
+        assert not isinstance(raised.value, DeliveryAmbiguous)
+
     def test_a_destination_missing_its_channel_is_refused(self) -> None:
         target = cast(AlertDestinationData, {"type": "slack", "slack_workspace_id": self.integration.id})
 
@@ -283,6 +367,56 @@ class TestSlackAttachmentTransport(SimpleTestCase):
             assert content.attachments[1]["blocks"] == [image, actions]
 
 
+class TestSlackLateImage(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("into_its_slot", "divider", None, True),
+            ("without_a_slot", None, None, False),
+            ("already_holding_one", "image", None, False),
+            ("refused_by_slack", "divider", "invalid_blocks", False),
+        ]
+    )
+    def test_a_late_image_replaces_the_opening_message_placeholder(
+        self, _name: str, slot: str | None, refusal: str | None, edited: bool
+    ) -> None:
+        placeholder = {"type": slot or "divider", **({"block_id": SLACK_IMAGE_SLOT_BLOCK_ID} if slot else {})}
+        actions = {"type": "actions", "elements": []}
+        root = MessageHandle(
+            external_ref={"channel": "C-SAMPLE", "ts": "1700000000.1"},
+            root_content={"text": "Fired", "blocks": [], "attachments": [{"blocks": [placeholder, actions]}]},
+        )
+        target = cast(AlertDestinationData, {"type": "slack", "slack_workspace_id": 1, "slack_channel_id": "C-SAMPLE"})
+        image = MessageImage(url="https://example.com/chart.png", alt_text="Chart")
+        with (
+            patch.object(SlackTransport, "_integration"),
+            patch("products.alerts_platform.backend.delivery.slack.SlackIntegration") as integration,
+        ):
+            update = integration.return_value.client.chat_update
+            if refusal:
+                update.side_effect = SlackApiError(refusal, {"error": refusal})
+
+            def add() -> dict[str, Any] | None:
+                return SlackTransport().add_root_image(
+                    team_id=1, target=target, root=root, image=image, state_line="Still firing"
+                )
+
+            if refusal:
+                with pytest.raises(DeliveryError):
+                    add()
+                assert update.call_count == 1
+                return
+            content = add()
+        if not edited:
+            assert content == (root.root_content if slot else None)
+            update.assert_not_called()
+            return
+        slotted = {"type": "image", "image_url": image.url, "alt_text": "Chart", "block_id": SLACK_IMAGE_SLOT_BLOCK_ID}
+        assert content == {"text": "Fired", "blocks": [], "attachments": [{"blocks": [slotted, actions]}]}
+        sent = update.call_args.kwargs["attachments"][0]["blocks"]
+        assert sent[0] == slotted
+        assert sent[-2]["elements"][0]["text"] == "Still firing"
+
+
 class TestSourceRendererKeepsGroupLimitNotice(SimpleTestCase):
     @parameterized.expand(
         [
@@ -293,7 +427,7 @@ class TestSourceRendererKeepsGroupLimitNotice(SimpleTestCase):
             ("blocks_without_an_action_row", True, True),
         ]
     )
-    def test_untracked_groups_detail_survives_any_renderer_shape(
+    def test_rule_metadata_and_group_limit_survive_any_renderer_shape(
         self, _name: str, blocks_only: bool, without_actions: bool
     ) -> None:
         rendered: list[dict[str, Any]] = [{"type": "divider"}]
@@ -305,12 +439,21 @@ class TestSourceRendererKeepsGroupLimitNotice(SimpleTestCase):
             else SlackMessageContent(text="Alert", blocks=[], attachments=[{"blocks": rendered}])
         )
         message = replace(
-            MESSAGE, details=(MessageDetail(label=UNTRACKED_GROUPS_LABEL, value="2 more groups not tracked"),)
+            MESSAGE,
+            details=(
+                MessageDetail(label="Value", value="300"),
+                MessageDetail(label=UNTRACKED_GROUPS_LABEL, value="2 more groups not tracked"),
+            ),
+            rule_details=(MessageDetail(label="team", value="payments"),),
         )
         with patch("products.alerts_platform.backend.delivery.slack.slack_renderer_for") as renderer:
             renderer.return_value.return_value = content
             result = content_for(team_id=1, message=message)
         blocks = result.blocks if blocks_only else result.attachments[0]["blocks"]
         assert "2 more groups not tracked" in str(blocks)
+        assert "*team:* payments" in str(blocks)
+        notice = next(block for block in blocks if "*team:* payments" in block.get("text", {}).get("text", ""))
+        assert notice["text"]["verbatim"] is True
+        assert "*Value:*" not in str(blocks)
         # Above the buttons when there are buttons, so the notice is never read as one of them.
         assert blocks[-1]["type"] == ("section" if without_actions else "actions")

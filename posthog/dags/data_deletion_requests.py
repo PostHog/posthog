@@ -9,6 +9,7 @@ from typing import TypeVar
 
 from django.conf import settings as django_settings
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db.models import F
 
 import dagster
 import pydantic
@@ -2389,7 +2390,14 @@ def data_deletion_request_pickup_sensor(context: dagster.SensorEvaluationContext
     if active_count > 0:
         return dagster.SkipReason(f"A deletion job is already running ({active_count} active). Waiting.")
 
-    next_request = DataDeletionRequest.objects.filter(status=RequestStatus.APPROVED).order_by("approved_at").first()
+    # Only one deletion job runs at a time, so automatic requests (such as conversations ticket
+    # purges) can build a long queue. Staff-created requests skip that queue. created_by_staff is
+    # NULL on requests that no person submitted, so nulls sort with the non-staff requests.
+    next_request = (
+        DataDeletionRequest.objects.filter(status=RequestStatus.APPROVED)
+        .order_by(F("created_by_staff").desc(nulls_last=True), "approved_at")
+        .first()
+    )
     if next_request is None:
         return dagster.SkipReason("No approved deletion requests to process.")
 

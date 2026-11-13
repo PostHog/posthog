@@ -14,9 +14,11 @@ import { initKeaTests } from '~/test/init'
 import { Experiment, ExperimentStatus } from '~/types'
 
 import { NEW_EXPERIMENT } from 'products/experiments/frontend/constants'
-import { ExperimentHealthPanel } from 'products/experiments/frontend/health/ExperimentHealthPanel'
+import { ExperimentHealthChip } from 'products/experiments/frontend/health/ExperimentHealthChip'
+import { ExperimentHealthTab } from 'products/experiments/frontend/health/ExperimentHealthTab'
 
 import { experimentLogic } from '../experimentLogic'
+import { experimentSceneLogic } from '../experimentSceneLogic'
 import { ExperimentWarningBanner } from './ExperimentWarningBanners'
 import { Exposures } from './Exposures'
 import { MultiVariantBiasWarning } from './MultiVariantBiasWarning'
@@ -50,6 +52,7 @@ const UNEVEN_EXPOSURES = {
         { variant: 'test', days: ['2026-01-01', '2026-01-02'], exposure_counts: [200, 400] },
     ],
     total_exposures: { control: 600, test: 400 },
+    date_range: { date_from: '2026-01-01', date_to: '2026-01-02' },
     sample_ratio_mismatch: { expected: { control: 500, test: 500 }, p_value: 0.0001 },
     bias_risk: { multiple_variant_percentage: 5 },
     health_findings: [
@@ -96,7 +99,10 @@ describe('health finding reporting', () => {
     }
 
     // The same experiment for a person with the health findings flag: the server sends the flag-state finding.
-    const renderHealthPanel = (exposures: Record<string, unknown>): void => {
+    const renderHealth = (
+        exposures: Record<string, unknown>,
+        Surface: () => JSX.Element | null = ExperimentHealthTab
+    ): void => {
         logic.actions.setExperiment({
             ...NEW_EXPERIMENT,
             id: EXPERIMENT_ID,
@@ -116,18 +122,37 @@ describe('health finding reporting', () => {
                     evidence: {},
                     actions: ['open_feature_flag'],
                     diagnostic_ref: 'A5',
+                    check: 'flag_state',
                 },
             ],
-            checks: [],
+            checks: [
+                {
+                    key: 'no_metric',
+                    name: 'Metrics not set up',
+                    description: 'Checks that a launched experiment has at least one metric.',
+                    status: 'passed',
+                    reason: null,
+                    values: {},
+                    rule: null,
+                    rows: [],
+                },
+            ],
         })
         logic.actions.loadExposuresSuccess(exposures)
         render(
             <Provider>
                 <BindLogic logic={experimentLogic} props={{ experimentId: EXPERIMENT_ID }}>
-                    <ExperimentHealthPanel />
+                    <BindLogic logic={experimentSceneLogic} props={{ experimentId: EXPERIMENT_ID }}>
+                        <Surface />
+                    </BindLogic>
                 </BindLogic>
             </Provider>
         )
+    }
+
+    // The detail repeats the title of the picked finding or check, and the list comes first in the page.
+    const pickFromList = async (title: string): Promise<void> => {
+        await userEvent.click(screen.getAllByText(title)[0])
     }
 
     beforeEach(() => {
@@ -192,8 +217,11 @@ describe('health finding reporting', () => {
         expect(findingEvents()).toEqual([[`experiment health finding ${step}`, code, kind]])
     })
 
-    it('reports each finding of the health panel as shown, with the codes of the warnings it replaces', () => {
-        renderHealthPanel(UNEVEN_EXPOSURES)
+    it.each([
+        { surface: 'header chip', Surface: ExperimentHealthChip },
+        { surface: 'health tab', Surface: ExperimentHealthTab },
+    ])('reports each issue as shown from the $surface, with the codes of the warnings it replaces', ({ Surface }) => {
+        renderHealth(UNEVEN_EXPOSURES, Surface)
 
         const shown = captureSpy.mock.calls
             .filter(([event]) => event === 'experiment health finding shown')
@@ -206,17 +234,25 @@ describe('health finding reporting', () => {
     })
 
     it.each([
-        { control: 'Open feature flag', step: 'acted on', code: 'flag_off_while_running', kind: 'open_feature_flag' },
         {
+            pick: 'The experiment is paused',
+            control: 'Open feature flag',
+            step: 'acted on',
+            code: 'flag_off_while_running',
+            kind: 'open_feature_flag',
+        },
+        {
+            pick: 'The uneven split may bias the results',
             control: 'Use first seen variant',
             step: 'acted on',
             code: 'bias_risk_multiple_excluded',
             kind: 'use_first_seen_variant',
         },
     ])(
-        'reports $code as $step with $kind when a person uses "$control" in the health panel',
-        async ({ control, step, code, kind }) => {
-            renderHealthPanel(UNEVEN_EXPOSURES)
+        'reports $code as $step with $kind when a person uses "$control" in the health tab',
+        async ({ pick, control, step, code, kind }) => {
+            renderHealth(UNEVEN_EXPOSURES)
+            await pickFromList(pick)
             captureSpy.mockClear()
 
             await userEvent.click(screen.getByText(control))
@@ -225,17 +261,72 @@ describe('health finding reporting', () => {
         }
     )
 
-    it('reports a finding of the health panel as opened when a person opens its detail', async () => {
-        renderHealthPanel(NO_EXPOSURES)
-        captureSpy.mockClear()
+    it.each([
+        {
+            container: 'wide',
+            isNarrow: false,
+            expected: [
+                ['experiment health finding opened', 'flag_off_while_running'],
+                ['experiment health finding opened', 'srm'],
+                ['experiment health check expanded', 'no_metric'],
+                ['experiment health summary opened', undefined],
+            ],
+        },
+        {
+            container: 'narrow',
+            isNarrow: true,
+            expected: [
+                ['experiment health finding opened', 'flag_off_while_running'],
+                ['experiment health finding opened', 'srm'],
+                ['experiment health finding opened', 'srm'],
+                ['experiment health check expanded', 'no_metric'],
+                ['experiment health summary opened', undefined],
+                ['experiment health summary opened', undefined],
+            ],
+        },
+    ])(
+        'reports each finding, check or summary a person opens on the health tab in a $container container',
+        async ({ isNarrow, expected }) => {
+            // jsdom applies no container query, so the detail stays beside the list until `hidden` takes effect,
+            // as it does below the breakpoint.
+            const narrowStyles = document.head.appendChild(document.createElement('style'))
+            narrowStyles.textContent = isNarrow ? '.hidden { display: none; }' : ''
+            try {
+                renderHealth(UNEVEN_EXPOSURES)
+                expect(screen.getByText('Overview')).toBeInTheDocument()
+                const pickEvents = (): (string | undefined)[][] =>
+                    captureSpy.mock.calls
+                        .filter(([event]) =>
+                            [
+                                'experiment health finding opened',
+                                'experiment health check expanded',
+                                'experiment health summary opened',
+                            ].includes(String(event))
+                        )
+                        .map(([event, properties]) => [event, properties.finding_code ?? properties.check_key])
+                expect(pickEvents()).toEqual([])
 
-        const [flagStateWhy] = screen.getAllByText('Why?')
-        await userEvent.click(flagStateWhy)
-        expect(screen.getByText(/The linked feature flag is disabled/)).toBeInTheDocument()
-        await userEvent.click(flagStateWhy)
+                // A narrow container shows the list or the detail, so the reader goes back to the list between picks.
+                for (const title of [
+                    'The experiment is paused',
+                    'Users are not split across variants as configured',
+                    'Users are not split across variants as configured',
+                    'Metrics not set up',
+                    'Health checks',
+                    'Health checks',
+                ]) {
+                    await pickFromList(title)
+                    if (isNarrow) {
+                        await userEvent.click(screen.getByText('All checks'))
+                    }
+                }
 
-        expect(findingEvents()).toEqual([['experiment health finding opened', 'flag_off_while_running', 'why']])
-    })
+                expect(pickEvents()).toEqual(expected)
+            } finally {
+                narrowStyles.remove()
+            }
+        }
+    )
 
     it('reports zero exposures only from the open panel, as shown and then as opened', async () => {
         renderWarnings(NO_EXPOSURES)

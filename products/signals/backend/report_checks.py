@@ -279,6 +279,12 @@ def monitoring_window_end(start: datetime, soak_minutes: int | None) -> datetime
     return start + timedelta(minutes=soak_minutes or 0)
 
 
+class MetricThresholdReplacementConfig(MetricThresholdConfig):
+    monitoring: MonitoringMetricConfig = Field(
+        description="Monitoring definition for the replacement, including the target reference period and scaling policy."
+    )
+
+
 def monitoring_interval_minutes(run_interval_minutes: int | None) -> int:
     return max(MIN_CHECK_INTERVAL_MINUTES, run_interval_minutes or DEFAULT_MONITORING_INTERVAL_MINUTES)
 
@@ -519,9 +525,12 @@ class CheckSpec(BaseModel):
         ge=MIN_CHECK_SOAK_HOURS,
         le=MAX_CHECK_SOAK_HOURS,
         description=(
-            "How long after the report is resolved to wait before measuring. The fix has to have "
-            f"been live a while for the result to mean anything. Defaults to {DEFAULT_CHECK_SOAK_HOURS} hours "
-            "for a new check; omission preserves an existing check’s wait."
+            "Verification duration in hours. Monitoring observes the entire fixed window from the recorded "
+            "Monitoring start through start + soak_hours, without excluding a deployment buffer. PR completion "
+            "uses the latest implementation PR merge timestamp; manual entry uses the time Monitoring starts. "
+            "Without Monitoring, this is the wait "
+            f"after resolution before measuring. Defaults to {DEFAULT_CHECK_SOAK_HOURS} hours for a new check; "
+            "omission preserves an existing check's duration."
         ),
     )
     run_interval_minutes: int | None = Field(

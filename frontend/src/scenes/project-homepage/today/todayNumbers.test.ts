@@ -1,4 +1,4 @@
-import { todayNumber } from './todayNumbers'
+import { todayChangeText, todayNumber } from './todayNumbers'
 
 describe('todayNumber', () => {
     test.each([
@@ -13,5 +13,19 @@ describe('todayNumber', () => {
         [4.25, '4.3'],
     ])('formats %s as %s', (value, expected) => {
         expect(todayNumber(value)).toBe(expected)
+    })
+
+    test.each([
+        [18.4, '%', 0, '+18%'],
+        [-3.2, '%', 0, '−3%'],
+        [0.2, '%', 0, '0%'],
+        [1234, '%', 0, '+1,234%'],
+        [0.42, '%', 2, '+0.42%'],
+        [-0.4, '%', 2, '−0.4%'],
+        [8.24, '%', 1, '+8.2%'],
+        [2.36, 'pp', 0, '+2.4 pp'],
+        [-0.04, 'pp', 0, '0 pp'],
+    ] as const)('writes the change %s %s with %s decimals as %s', (change, unit, decimals, expected) => {
+        expect(todayChangeText(change, unit, decimals)).toBe(expected)
     })
 })
