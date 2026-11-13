@@ -15,7 +15,12 @@ from products.alerts_platform.backend.delivery.dispatch import deliver
 from products.alerts_platform.backend.delivery.evaluation import _TRANSPORTS, announcement_to_deliver
 from products.alerts_platform.backend.delivery.team_flags import team_flag_enabled
 from products.alerts_platform.backend.delivery.thread_store import DatabaseThreadStore, ThreadBusy
-from products.alerts_platform.backend.delivery.transport import DeliveryError, DeliveryTransport
+from products.alerts_platform.backend.delivery.transport import (
+    DeliveryError,
+    DeliveryTransport,
+    DestinationMisconfigured,
+    RefusedEverywhere,
+)
 from products.alerts_platform.backend.facade.contracts import (
     ROUTING_FLAG,
     AlertDeliveryRequest,
@@ -94,6 +99,7 @@ def _deliver_to(
     sent = 0
     busy: list[str] = []
     failures: list[str] = []
+    retryable = False
     for receiver in receivers:
         transport_class = _message_transport(receiver)
         transitions = tuple(
@@ -120,9 +126,11 @@ def _deliver_to(
             busy.append(str(error))
         except DeliveryError as error:
             failures.append(str(error))
+            retryable = retryable or not isinstance(error, DestinationMisconfigured)
         except Exception as error:
             # Named by class only, because an exception's text can carry a credential URL.
             failures.append(type(error).__name__)
+            retryable = True
         else:
             sent += 1
     # A held thread wins over a failure, as in `deliver_evaluation`: the workflow waits it out and
@@ -130,5 +138,6 @@ def _deliver_to(
     if busy:
         raise ThreadBusy("; ".join([*busy, *failures]))
     if failures:
-        raise DeliveryError(f"{len(failures)} receiver(s) failed: " + "; ".join(failures))
+        failed = DeliveryError if retryable else RefusedEverywhere
+        raise failed(f"{len(failures)} receiver(s) failed: " + "; ".join(failures))
     return sent
