@@ -28,16 +28,19 @@ These limits bound reuse, not the size of an accepted property: a large retained
 
 ### Objects and arrays are stored as strings
 
-The event, person, and temporary cleaners write every top-level object and array as a JSON string that holds the text that was sent.
-The cleaner validates that text and copies it without rebuilding it, so whitespace, key order, escapes, duplicate keys, large integers and `null` fields inside it are stored as sent.
-A search for a substring of the original value, such as a file path in a stack trace, matches the stored string.
+The event, person, and temporary cleaners write every top-level object and array as a JSON string of canonical text.
+The cleaner parses the value and writes it back with no whitespace and with the keys of every object in byte order.
+It escapes strings the way ClickHouse prints them from a properties document with `JSONExtractRaw`, so `caf\u00e9` is stored as `café`.
+Two values with the same content therefore have the same string, so grouping by the property or comparing it compares the content.
+Numbers are copied as they were sent, so `2.0` and `2` stay different, and `null` fields and duplicate keys inside the value are kept.
+A search for a substring of the value, such as a file path in a stack trace, matches the stored string.
 A read of the whole value returns the string, and a read of a field inside it parses the string.
 
 The event `$feature_flags` map is the exception: it stays an object, because it feeds a typed map column.
 A flag value that is an object or array is stored as a string in that map.
 
 The cleaners do not coerce any property to an array.
-`$exception_list`, the `$exception_*` lists and `$mcp_listed_tool_names` are stored as sent, so a scalar stays a scalar.
+`$exception_list`, the `$exception_*` lists and `$mcp_listed_tool_names` are stored like any other property, so a scalar stays a scalar.
 
 A string that was sent as a string is stored unchanged.
 A stored string that starts with `{` or `[` can therefore be either a nested value or text the SDK sent, and readers treat both the same way.

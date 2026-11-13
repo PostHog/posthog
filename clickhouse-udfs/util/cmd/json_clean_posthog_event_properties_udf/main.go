@@ -139,7 +139,7 @@ const (
 	kindNumber
 	kindBool
 	kindNull
-	// The source text of an object or array that is stored as a string. It orders before kindObject because the
+	// The escaped text of an object or array that is stored as a string. It orders before kindObject because the
 	// cleaner treats it as a scalar: nothing inside it is cleaned, deduplicated, or checked for nulls.
 	kindRaw
 	kindObject
@@ -185,8 +185,10 @@ type processor struct {
 	nullKeyBytes int
 	nullKeysOver bool
 	// True while parsing a properties document. Every top-level object and array, except the event feature-flags
-	// map, is then kept as a string of its source text. It is false for the envelope row itself.
-	captureNested bool
+	// map, is then stored as a string of its JSON text. It is false for the envelope row itself.
+	captureNested  bool
+	keepNumberText bool
+	nestedBuf      bytes.Buffer
 }
 
 func processLine(rawLine []byte, buf *bytes.Buffer) error {
@@ -209,6 +211,10 @@ func (p *processor) prepareLine(rawLine []byte, buf *bytes.Buffer) {
 	if p.stringBuf.Cap() > max(64*1024, 2*len(rawLine)) {
 		p.stringBuf = bytes.Buffer{}
 	}
+	if p.nestedBuf.Cap() > max(64*1024, 2*len(rawLine)) {
+		p.nestedBuf = bytes.Buffer{}
+	}
+	p.nestedBuf.Reset()
 	p.resetParser(rawLine)
 }
 
@@ -462,7 +468,7 @@ func (p *processor) parseValue(depth int) (*value, error) {
 			if v == nil {
 				return nil, nil
 			}
-			if shouldStringifyNumber(num) {
+			if !p.keepNumberText && shouldStringifyNumber(num) {
 				p.mutated = true
 				v.kind = kindString
 			}
@@ -541,25 +547,42 @@ func (p *processor) keepsStructure(key string) bool {
 	return key == featureFlagsKey && (p.kind == eventEnvelope || p.kind == eventProperties)
 }
 
-// An object or array is validated without building its tree and kept as its source text, so the stored string
-// is the bytes that were sent: nested nulls, duplicate keys, large integers and escapes are not rewritten.
+// Equal content must have equal stored text: compact, keys in byte order. Numbers, nulls and duplicate keys stay.
 func (p *processor) parseNestedAsString(depth int) (*value, error) {
 	p.skipWS()
 	if p.pos >= len(p.data) || (p.data[p.pos] != '{' && p.data[p.pos] != '[') {
 		return p.parseValue(depth)
 	}
-	start := p.pos
-	p.discard = true
-	_, err := p.parseValue(depth)
-	p.discard = false
+	p.keepNumberText = true
+	tree, err := p.parseValue(depth)
+	p.keepNumberText = false
 	if err != nil {
 		return nil, err
 	}
+	sortKeys(tree)
+	// The text stays in nestedBuf until the row is written, so it is not copied again.
+	start := p.nestedBuf.Len()
+	p.writeValueAt(&p.nestedBuf, tree, true)
+	p.recycle(tree)
 	// The stored value is a string, so the output differs from the input and the line cannot be copied through.
 	p.mutated = true
 	v := p.newValue(kindRaw)
-	v.s = borrowedString(p.data[start:p.pos])
+	v.s = borrowedString(p.nestedBuf.Bytes()[start:])
 	return v, nil
+}
+
+func sortKeys(v *value) {
+	switch v.kind {
+	case kindObject:
+		slices.SortStableFunc(v.entries, func(a, b entry) int { return strings.Compare(a.key, b.key) })
+		for _, entry := range v.entries {
+			sortKeys(entry.value)
+		}
+	case kindArray:
+		for _, child := range v.values {
+			sortKeys(child)
+		}
+	}
 }
 
 func (p *processor) parseArray(depth int) (*value, error) {
@@ -1033,9 +1056,17 @@ func (p *processor) resetValue(v *value, kind valueKind) {
 }
 
 func (p *processor) writeValue(buf *bytes.Buffer, v *value) {
+	p.writeValueAt(buf, v, false)
+}
+
+func (p *processor) writeValueAt(buf *bytes.Buffer, v *value, nested bool) {
 	switch v.kind {
-	case kindString, kindRaw:
-		writeJSONString(buf, v.s)
+	case kindString:
+		writeStringAt(buf, v.s, nested)
+	case kindRaw:
+		buf.WriteByte('"')
+		buf.WriteString(v.s)
+		buf.WriteByte('"')
 	case kindNumber:
 		buf.WriteString(v.s)
 	case kindBool:
@@ -1052,9 +1083,9 @@ func (p *processor) writeValue(buf *bytes.Buffer, v *value) {
 			if i > 0 {
 				buf.WriteByte(',')
 			}
-			writeJSONString(buf, entry.key)
+			writeStringAt(buf, entry.key, nested)
 			buf.WriteByte(':')
-			p.writeValue(buf, entry.value)
+			p.writeValueAt(buf, entry.value, nested)
 		}
 		buf.WriteByte('}')
 	case kindArray:
@@ -1063,9 +1094,17 @@ func (p *processor) writeValue(buf *bytes.Buffer, v *value) {
 			if i > 0 {
 				buf.WriteByte(',')
 			}
-			p.writeValue(buf, child)
+			p.writeValueAt(buf, child, nested)
 		}
 		buf.WriteByte(']')
+	}
+}
+
+func writeStringAt(buf *bytes.Buffer, s string, nested bool) {
+	if nested {
+		writeNestedString(buf, s)
+	} else {
+		writeJSONString(buf, s)
 	}
 }
 
@@ -1108,6 +1147,47 @@ func writeJSONString(buf *bytes.Buffer, s string) {
 	buf.WriteByte('"')
 }
 
+var nestedEscapes = func() (escapes [256]string) {
+	for ch := range 0x20 {
+		escapes[ch] = fmt.Sprintf(`\\u%04X`, ch)
+	}
+	for ch, escape := range map[byte]string{'"': `\\\"`, '\\': `\\\\`, '\b': `\\b`, '\f': `\\f`, '\n': `\\n`, '\r': `\\r`, '\t': `\\t`} {
+		escapes[ch] = escape
+	}
+	return
+}()
+
+// Writes the escapes ClickHouse's JSON printer writes, so the stored text does not depend on the client's escaping.
+func writeNestedString(buf *bytes.Buffer, s string) {
+	buf.WriteString(`\"`)
+	start := 0
+	for i := 0; i < len(s); i++ {
+		ch := s[i]
+		if ch >= 0x20 && ch != '\\' && ch != '"' && ch != 0xe2 {
+			continue
+		}
+		escape := nestedEscapes[ch]
+		width := 1
+		if ch == 0xe2 {
+			switch {
+			case strings.HasPrefix(s[i:], "\u2028"):
+				escape = `\\u2028`
+			case strings.HasPrefix(s[i:], "\u2029"):
+				escape = `\\u2029`
+			default:
+				continue
+			}
+			width = 3
+		}
+		buf.WriteString(s[start:i])
+		buf.WriteString(escape)
+		i += width - 1
+		start = i + 1
+	}
+	buf.WriteString(s[start:])
+	buf.WriteString(`\"`)
+}
+
 func isNonEmptyValue(v *value) bool {
 	switch v.kind {
 	case kindNull:
@@ -1125,10 +1205,8 @@ func isNonEmptyValue(v *value) bool {
 	}
 }
 
-// Reports whether the source text of an object or array has no members, such as `{}` or `[ ]`.
 func isEmptyContainer(s string) bool {
-	rest := strings.TrimLeft(s[1:], " \t\n\r")
-	return rest == "}" || rest == "]"
+	return s == "{}" || s == "[]"
 }
 
 func shouldStringifyNumber(num string) bool {
