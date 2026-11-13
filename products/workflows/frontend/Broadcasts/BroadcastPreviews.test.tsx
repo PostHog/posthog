@@ -111,6 +111,8 @@ describe('broadcast previews', () => {
             })
         })
     }
+    const reviewCard = (selector: string): Element | null =>
+        document.querySelector(`[data-attr="broadcast-review-test-email"] ${selector}`)
     const iframeHtml = (): string | null | undefined =>
         document.querySelector('iframe[title="Email preview"]')?.getAttribute('srcdoc')
 
@@ -243,6 +245,8 @@ describe('broadcast previews', () => {
         renderReview({})
         await screen.findByText(/^Values come from Ada\./)
         expect(screen.getByText('Send yourself a test first')).toBeInTheDocument()
+        expect(reviewCard('.text-success')).toBeNull()
+        expect(reviewCard('[data-attr="broadcast-review-send-test"]')).toHaveClass('LemonButton--primary')
         expect(document.querySelector('[data-attr="broadcast-open-test-email"]')).toBeNull()
         expect(screen.getByText(/^Read the email in a real inbox/)).toBeInTheDocument()
 
@@ -272,6 +276,8 @@ describe('broadcast previews', () => {
         expect(await screen.findByText('Test sent to reviewer@example.com')).toBeInTheDocument()
         expect(screen.getByText('Check it in your inbox, on desktop and mobile, before you send.')).toBeInTheDocument()
         expect(screen.getByText('Send another test')).toBeInTheDocument()
+        expect(reviewCard('.text-success')).not.toBeNull()
+        expect(reviewCard('[data-attr="broadcast-review-send-test"]')).toHaveClass('LemonButton--secondary')
         await waitFor(() => expect(screen.queryByText('Send a test email')).toBeNull())
         expect(sent).toHaveLength(1)
         const action = sent[0].configuration.actions.find((a: any) => a.id === sent[0].current_action_id)
@@ -331,6 +337,6 @@ describe('broadcast previews', () => {
             fireEvent.click(screen.getByText('Cancel'))
         })
 
-        await waitFor(() => expect(screen.queryByText(banner)).toBeNull())
+        await waitFor(() => expect(document.querySelector('[data-attr="broadcast-send-test-email"]')).toBeNull())
     })
 })
