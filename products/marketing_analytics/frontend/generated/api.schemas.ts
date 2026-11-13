@@ -1768,6 +1768,15 @@ export const MarketingAnalyticsOrderByEnumApi = {
     Desc: 'DESC',
 } as const
 
+export interface AgentNoticeApi {
+    /** Stable id of what the notice is about, so the same notice is not repeated in a session. */
+    key: string
+    /** Stable id of the producer. A guidance rule matches notices by source. */
+    source: string
+    /** Plain-language text for the agent, with the next step. */
+    text: string
+}
+
 export interface ClickhouseQueryProgressApi {
     active_cpu_time: number
     bytes_read: number
@@ -1976,6 +1985,8 @@ export interface BreakdownNotAppliedWarningApi {
 }
 
 export interface MarketingAnalyticsTableQueryResponseApi {
+    /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+    agent_notices?: AgentNoticeApi[] | null
     columns?: unknown[] | null
     /** ISO timestamp of the oldest precompute window backing this result. */
     dataComputedAt?: string | null

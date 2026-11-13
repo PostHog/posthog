@@ -570,6 +570,21 @@ class AccountsTableUnassignedFilter(BaseModel):
     kind: Literal["unassigned"] = "unassigned"
 
 
+class AgentNotice(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: str = Field(
+        ...,
+        description=("Stable id of what the notice is about, so the same notice is not repeated in a session."),
+    )
+    source: str = Field(
+        ...,
+        description=("Stable id of the producer. A guidance rule matches notices by source."),
+    )
+    text: str = Field(..., description="Plain-language text for the agent, with the next step.")
+
+
 class AlertScheduleRestrictionWindow(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -9087,6 +9102,15 @@ class WebAgentAnalyticsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     columns: list | None = None
     error: str | None = Field(
         default=None,
@@ -9180,6 +9204,15 @@ class WebBotsTableQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     columns: list | None = None
     error: str | None = Field(
         default=None,
@@ -9239,6 +9272,15 @@ class WebBotsTableQueryResponse(BaseModel):
 class WebExternalClicksTableQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     columns: list | None = None
     error: str | None = Field(
@@ -9300,6 +9342,15 @@ class WebExternalClicksTableQueryResponse(BaseModel):
 class WebGoalsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     columns: list | None = None
     error: str | None = Field(
@@ -9381,6 +9432,15 @@ class WebNotableChangesQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -9437,6 +9497,15 @@ class WebNotableChangesQueryResponse(BaseModel):
 class WebOverviewQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     dateFrom: str | None = None
     dateTo: str | None = None
@@ -9562,6 +9631,15 @@ class WebPageURLSearchQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -9619,6 +9697,15 @@ class WebPageURLSearchQueryResponse(BaseModel):
 class WebStatsTableQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     columns: list | None = None
     error: str | None = Field(
@@ -9735,6 +9822,15 @@ class AccountActivityMatrixQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -9789,6 +9885,15 @@ class AccountActivityMatrixQueryResponse(BaseModel):
 class AccountsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     columns: list
     error: str | None = Field(
@@ -9854,6 +9959,15 @@ class AccountsQueryResponse(BaseModel):
 class AccountsTableQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     columns: (
         list[
@@ -9959,6 +10073,15 @@ class ActorsPropertyTaxonomyQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -10013,6 +10136,15 @@ class ActorsPropertyTaxonomyQueryResponse(BaseModel):
 class ActorsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     columns: list
     error: str | None = Field(
@@ -10074,6 +10206,15 @@ class ActorsQueryResponse(BaseModel):
 class AnalyticsQueryResponseBase(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     error: str | None = Field(
         default=None,
@@ -11555,6 +11696,15 @@ class BookActivityFirstsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -11609,6 +11759,15 @@ class BookActivityFirstsQueryResponse(BaseModel):
 class BookActivityMatrixQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     error: str | None = Field(
         default=None,
@@ -11723,6 +11882,15 @@ class CachedAccountActivityMatrixQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
@@ -11792,6 +11960,15 @@ class CachedAccountActivityMatrixQueryResponse(BaseModel):
 class CachedAccountsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
@@ -11872,6 +12049,15 @@ class CachedAccountsQueryResponse(BaseModel):
 class CachedAccountsTableQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
@@ -11964,6 +12150,15 @@ class CachedActorsPropertyTaxonomyQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
@@ -12033,6 +12228,15 @@ class CachedActorsPropertyTaxonomyQueryResponse(BaseModel):
 class CachedActorsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
@@ -12110,6 +12314,15 @@ class CachedBookActivityFirstsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
@@ -12179,6 +12392,15 @@ class CachedBookActivityFirstsQueryResponse(BaseModel):
 class CachedBookActivityMatrixQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
@@ -12250,6 +12472,15 @@ class CachedCalendarHeatmapQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
@@ -12320,6 +12551,15 @@ class CachedCalendarHeatmapQueryResponse(BaseModel):
 class CachedDocumentSimilarityQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
@@ -12394,6 +12634,15 @@ class CachedEndpointsUsageOverviewQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
@@ -12463,6 +12712,15 @@ class CachedEndpointsUsageOverviewQueryResponse(BaseModel):
 class CachedEndpointsUsageTableQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
@@ -12539,6 +12797,15 @@ class CachedEndpointsUsageTrendsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
@@ -12608,6 +12875,15 @@ class CachedEndpointsUsageTrendsQueryResponse(BaseModel):
 class CachedErrorTrackingBreakdownsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
@@ -12679,6 +12955,15 @@ class CachedErrorTrackingFingerprintProjectionQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
@@ -12749,6 +13034,15 @@ class CachedErrorTrackingFingerprintProjectionQueryResponse(BaseModel):
 class CachedErrorTrackingIssueEventsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
@@ -12823,6 +13117,15 @@ class CachedErrorTrackingIssueEventsQueryResponse(BaseModel):
 class CachedErrorTrackingReleasesQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     bucket_seconds: int
     buckets: list[str] = Field(
@@ -12921,6 +13224,15 @@ class CachedErrorTrackingSimilarIssuesQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
@@ -12994,6 +13306,15 @@ class CachedEventTaxonomyQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
@@ -13066,6 +13387,15 @@ class CachedEventTaxonomyQueryResponse(BaseModel):
 class CachedEventsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
@@ -13143,6 +13473,15 @@ class CachedFunnelsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
@@ -13219,6 +13558,15 @@ class CachedFunnelsQueryResponse(BaseModel):
 class CachedGroupsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
@@ -13304,6 +13652,15 @@ class CachedLifecycleQueryResponse(BaseModel):
             " holds only the action's id."
         ),
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
@@ -13373,6 +13730,15 @@ class CachedLifecycleQueryResponse(BaseModel):
 class CachedLogsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
@@ -13449,6 +13815,15 @@ class CachedMCPDashboardQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
@@ -13522,6 +13897,15 @@ class CachedMCPHarnessBreakdownQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
@@ -13591,6 +13975,15 @@ class CachedMCPHarnessBreakdownQueryResponse(BaseModel):
 class CachedMCPMissingCapabilitiesQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
@@ -13662,6 +14055,15 @@ class CachedMCPMissingCapabilitiesQueryResponse(BaseModel):
 class CachedMCPModelBreakdownQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
@@ -13737,6 +14139,15 @@ class CachedMCPProtocolVersionBreakdownQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
@@ -13806,6 +14217,15 @@ class CachedMCPProtocolVersionBreakdownQueryResponse(BaseModel):
 class CachedMCPToolCallBreakdownQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
@@ -13877,6 +14297,15 @@ class CachedMCPToolCallsAndErrorsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
@@ -13946,6 +14375,15 @@ class CachedMCPToolCallsAndErrorsQueryResponse(BaseModel):
 class CachedMCPToolCategoriesQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
@@ -14017,6 +14455,15 @@ class CachedMCPToolCategoryCountsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
@@ -14086,6 +14533,15 @@ class CachedMCPToolCategoryCountsQueryResponse(BaseModel):
 class CachedMCPToolCategoryMapQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
@@ -14157,6 +14613,15 @@ class CachedMCPToolDailyStatsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
@@ -14226,6 +14691,15 @@ class CachedMCPToolDailyStatsQueryResponse(BaseModel):
 class CachedMCPToolDescriptionsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
@@ -14297,6 +14771,15 @@ class CachedMCPToolFailureOccurrencesQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
@@ -14366,6 +14849,15 @@ class CachedMCPToolFailureOccurrencesQueryResponse(BaseModel):
 class CachedMCPToolFailuresQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
@@ -14437,6 +14929,15 @@ class CachedMCPToolNeighborsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
@@ -14507,6 +15008,15 @@ class CachedMCPToolQualityDailyStatsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
@@ -14576,6 +15086,15 @@ class CachedMCPToolQualityDailyStatsQueryResponse(BaseModel):
 class CachedMCPToolQualityRowsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
@@ -14662,6 +15181,15 @@ class CachedMCPToolSampleIntentsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
@@ -14731,6 +15259,15 @@ class CachedMCPToolSampleIntentsQueryResponse(BaseModel):
 class CachedMCPToolStatsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
@@ -14805,6 +15342,15 @@ class CachedMCPToolTopUsersQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
@@ -14874,6 +15420,15 @@ class CachedMCPToolTopUsersQueryResponse(BaseModel):
 class CachedMarketingAnalyticsAggregatedQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
@@ -14967,6 +15522,15 @@ class CachedMarketingAnalyticsAttributionPathsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     attributedConversions: int = Field(
         ...,
         description=(
@@ -15053,6 +15617,15 @@ class CachedMarketingAnalyticsAttributionPathsQueryResponse(BaseModel):
 class CachedMarketingAnalyticsAttributionQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     allowsMultipleConversionsPerVisitor: bool = Field(
         ...,
@@ -15147,6 +15720,15 @@ class CachedMarketingAnalyticsRetentionQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
@@ -15240,6 +15822,15 @@ class CachedMarketingAnalyticsSearchQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
@@ -15313,6 +15904,15 @@ class CachedMarketingAnalyticsSearchQueryResponse(BaseModel):
 class CachedMarketingAnalyticsTableQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
@@ -15411,6 +16011,15 @@ class CachedMetricsHistogramQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     bounds: list[float] = Field(..., description="Upper bound per row (y axis), ascending.")
     cache_key: str
     cache_target_age: AwareDatetime | None = None
@@ -15487,6 +16096,15 @@ class CachedMetricsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
@@ -15556,6 +16174,15 @@ class CachedMetricsQueryResponse(BaseModel):
 class CachedPathsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
@@ -15627,6 +16254,15 @@ class CachedPropertyValuesQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
@@ -15696,6 +16332,15 @@ class CachedPropertyValuesQueryResponse(BaseModel):
 class CachedRecordingsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
@@ -15772,6 +16417,15 @@ class CachedRetentionQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
@@ -15841,6 +16495,15 @@ class CachedRetentionQueryResponse(BaseModel):
 class CachedSessionAttributionExplorerQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
@@ -15916,6 +16579,15 @@ class CachedSessionAttributionExplorerQueryResponse(BaseModel):
 class CachedSessionBatchEventsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
@@ -16000,6 +16672,15 @@ class CachedSessionQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
@@ -16073,6 +16754,15 @@ class CachedSessionQueryResponse(BaseModel):
 class CachedSessionsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
@@ -16148,6 +16838,15 @@ class CachedSessionsQueryResponse(BaseModel):
 class CachedSessionsTimelineQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
@@ -16226,6 +16925,15 @@ class CachedStickinessQueryResponse(BaseModel):
             "The name of each action the query's series reference, keyed by action id."
             " A series saved without a `name` displays this name, because the query"
             " holds only the action's id."
+        ),
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
         ),
     )
     cache_key: str
@@ -16328,6 +17036,15 @@ class CachedTeamTaxonomyQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
@@ -16400,6 +17117,15 @@ class CachedTeamTaxonomyQueryResponse(BaseModel):
 class CachedTraceQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
@@ -16475,6 +17201,15 @@ class CachedTraceSpansAggregationQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
@@ -16548,6 +17283,15 @@ class CachedTraceSpansAggregationQueryResponse(BaseModel):
 class CachedTraceSpansAttributeBreakdownQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
@@ -16623,6 +17367,15 @@ class CachedTraceSpansQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
@@ -16696,6 +17449,15 @@ class CachedTraceSpansQueryResponse(BaseModel):
 class CachedTraceSpansSymbolStatsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
@@ -16771,6 +17533,15 @@ class CachedTraceSpansTreeQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
@@ -16844,6 +17615,15 @@ class CachedTraceSpansTreeQueryResponse(BaseModel):
 class CachedTracesQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
@@ -16927,6 +17707,15 @@ class CachedTrendsQueryResponse(BaseModel):
             " holds only the action's id."
         ),
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     boxplot_data: list[BoxPlotDatum] | None = None
     cache_key: str
     cache_target_age: AwareDatetime | None = None
@@ -16999,6 +17788,15 @@ class CachedUsageMetricsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
@@ -17069,6 +17867,15 @@ class CachedVectorSearchQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
@@ -17138,6 +17945,15 @@ class CachedVectorSearchQueryResponse(BaseModel):
 class CachedWebAgentAnalyticsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
@@ -17214,6 +18030,15 @@ class CachedWebBotsTableQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
@@ -17288,6 +18113,15 @@ class CachedWebBotsTableQueryResponse(BaseModel):
 class CachedWebExternalClicksTableQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
@@ -17364,6 +18198,15 @@ class CachedWebExternalClicksTableQueryResponse(BaseModel):
 class CachedWebGoalsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
@@ -17460,6 +18303,15 @@ class CachedWebNotableChangesQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
@@ -17531,6 +18383,15 @@ class CachedWebNotableChangesQueryResponse(BaseModel):
 class CachedWebOverviewQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
@@ -17624,6 +18485,15 @@ class CachedWebPageDirectoryQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
@@ -17698,6 +18568,15 @@ class CachedWebPageURLSearchQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
@@ -17770,6 +18649,15 @@ class CachedWebPageURLSearchQueryResponse(BaseModel):
 class CachedWebStatsTableQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
@@ -17866,6 +18754,15 @@ class CachedWebVitalsPathBreakdownQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
@@ -17954,6 +18851,15 @@ class CachedWebVitalsPathBreakdownQueryResponse(BaseModel):
 class CalendarHeatmapResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     error: str | None = Field(
         default=None,
@@ -18091,6 +18997,15 @@ class Response(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     columns: list
     error: str | None = Field(
         default=None,
@@ -18151,6 +19066,15 @@ class Response(BaseModel):
 class Response1(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     columns: list
     error: str | None = Field(
@@ -18213,6 +19137,15 @@ class Response2(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     columns: list
     error: str | None = Field(
         default=None,
@@ -18273,6 +19206,15 @@ class Response2(BaseModel):
 class Response4(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     dateFrom: str | None = None
     dateTo: str | None = None
@@ -18350,6 +19292,15 @@ class Response4(BaseModel):
 class Response5(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     columns: list | None = None
     error: str | None = Field(
@@ -18431,6 +19382,15 @@ class Response6(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     columns: list | None = None
     error: str | None = Field(
         default=None,
@@ -18492,6 +19452,15 @@ class Response7(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     columns: list | None = None
     error: str | None = Field(
         default=None,
@@ -18551,6 +19520,15 @@ class Response7(BaseModel):
 class Response8(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     columns: list | None = None
     error: str | None = Field(
@@ -18632,6 +19610,15 @@ class Response9(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -18706,6 +19693,15 @@ class Response10(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     columns: list | None = None
     error: str | None = Field(
         default=None,
@@ -18766,6 +19762,15 @@ class Response11(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     columns: list
     error: str | None = Field(
         default=None,
@@ -18825,6 +19830,15 @@ class Response11(BaseModel):
 class Response12(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     columns: list | None = None
     dataComputedAt: str | None = Field(
@@ -18908,6 +19922,15 @@ class Response13(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     dataComputedAt: str | None = Field(
         default=None,
         description=("ISO timestamp of the oldest precompute window backing this result."),
@@ -18985,6 +20008,15 @@ class Response16(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     columns: list[str] | None = None
     error: str | None = Field(
         default=None,
@@ -19043,6 +20075,15 @@ class Response16(BaseModel):
 class Response18(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     columns: list | None = None
     error: str | None = Field(
@@ -19103,6 +20144,15 @@ class Response18(BaseModel):
 class Response19(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     columns: list
     error: str | None = Field(
@@ -19168,6 +20218,15 @@ class Response19(BaseModel):
 class Response20(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     columns: (
         list[
@@ -19337,6 +20396,15 @@ class DocumentSimilarityQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -19412,6 +20480,15 @@ class EndpointsUsageOverviewQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -19466,6 +20543,15 @@ class EndpointsUsageOverviewQueryResponse(BaseModel):
 class EndpointsUsageTableQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     columns: list | None = None
     error: str | None = Field(
@@ -19527,6 +20613,15 @@ class EndpointsUsageTrendsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -19581,6 +20676,15 @@ class EndpointsUsageTrendsQueryResponse(BaseModel):
 class ErrorTrackingBreakdownsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     error: str | None = Field(
         default=None,
@@ -19647,6 +20751,15 @@ class ErrorTrackingExternalReference(BaseModel):
 class ErrorTrackingFingerprintProjectionQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     error: str | None = Field(
         default=None,
@@ -19726,6 +20839,15 @@ class ErrorTrackingIssueEventsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     columns: list
     error: str | None = Field(
         default=None,
@@ -19784,6 +20906,15 @@ class ErrorTrackingIssueEventsQueryResponse(BaseModel):
 class ErrorTrackingQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     columns: list[str] | None = None
     error: str | None = Field(
@@ -19858,6 +20989,15 @@ class ErrorTrackingRelationalIssue(BaseModel):
 class ErrorTrackingReleasesQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     bucket_seconds: int
     buckets: list[str] = Field(
@@ -19941,6 +21081,15 @@ class ErrorTrackingSimilarIssuesQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -19999,6 +21148,15 @@ class EventTaxonomyQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -20056,6 +21214,15 @@ class EventTaxonomyQueryResponse(BaseModel):
 class EventsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     columns: list
     error: str | None = Field(
@@ -20374,6 +21541,15 @@ class FunnelsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -20457,6 +21633,15 @@ class GenericCachedQueryResponse(BaseModel):
 class GroupsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     columns: list
     error: str | None = Field(
@@ -20587,6 +21772,15 @@ class InboxUsage(BaseModel):
 class InboxUsageQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     error: str | None = Field(
         default=None,
@@ -20743,6 +21937,15 @@ class LifecycleQueryResponse(BaseModel):
             " holds only the action's id."
         ),
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -20797,6 +22000,15 @@ class LifecycleQueryResponse(BaseModel):
 class LogAttributesQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     count: float
     error: str | None = Field(
@@ -20854,6 +22066,15 @@ class LogValuesQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -20908,6 +22129,15 @@ class LogValuesQueryResponse(BaseModel):
 class LogsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     columns: list[str] | None = None
     error: str | None = Field(
@@ -20987,6 +22217,15 @@ class MCPDashboardQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -21045,6 +22284,15 @@ class MCPHarnessBreakdownQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -21099,6 +22347,15 @@ class MCPHarnessBreakdownQueryResponse(BaseModel):
 class MCPMissingCapabilitiesQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     error: str | None = Field(
         default=None,
@@ -21155,6 +22412,15 @@ class MCPMissingCapabilitiesQueryResponse(BaseModel):
 class MCPModelBreakdownQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     error: str | None = Field(
         default=None,
@@ -21215,6 +22481,15 @@ class MCPProtocolVersionBreakdownQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -21269,6 +22544,15 @@ class MCPProtocolVersionBreakdownQueryResponse(BaseModel):
 class MCPToolCallBreakdownQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     error: str | None = Field(
         default=None,
@@ -21325,6 +22609,15 @@ class MCPToolCallsAndErrorsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -21379,6 +22672,15 @@ class MCPToolCallsAndErrorsQueryResponse(BaseModel):
 class MCPToolCategoriesQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     error: str | None = Field(
         default=None,
@@ -21435,6 +22737,15 @@ class MCPToolCategoryCountsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -21489,6 +22800,15 @@ class MCPToolCategoryCountsQueryResponse(BaseModel):
 class MCPToolCategoryMapQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     error: str | None = Field(
         default=None,
@@ -21545,6 +22865,15 @@ class MCPToolDailyStatsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -21599,6 +22928,15 @@ class MCPToolDailyStatsQueryResponse(BaseModel):
 class MCPToolDescriptionsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     error: str | None = Field(
         default=None,
@@ -21655,6 +22993,15 @@ class MCPToolFailureOccurrencesQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -21709,6 +23056,15 @@ class MCPToolFailureOccurrencesQueryResponse(BaseModel):
 class MCPToolFailuresQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     error: str | None = Field(
         default=None,
@@ -21765,6 +23121,15 @@ class MCPToolNeighborsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -21820,6 +23185,15 @@ class MCPToolQualityDailyStatsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -21874,6 +23248,15 @@ class MCPToolQualityDailyStatsQueryResponse(BaseModel):
 class MCPToolQualityRowsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     error: str | None = Field(
         default=None,
@@ -21945,6 +23328,15 @@ class MCPToolSampleIntentsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -21999,6 +23391,15 @@ class MCPToolSampleIntentsQueryResponse(BaseModel):
 class MCPToolStatsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     error: str | None = Field(
         default=None,
@@ -22058,6 +23459,15 @@ class MCPToolTopUsersQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -22112,6 +23522,15 @@ class MCPToolTopUsersQueryResponse(BaseModel):
 class MarketingAnalyticsAggregatedQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     dataComputedAt: str | None = Field(
         default=None,
@@ -22190,6 +23609,15 @@ class MarketingAnalyticsAttributionPathsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     attributedConversions: int = Field(
         ...,
         description=(
@@ -22261,6 +23689,15 @@ class MarketingAnalyticsAttributionPathsQueryResponse(BaseModel):
 class MarketingAnalyticsAttributionQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     allowsMultipleConversionsPerVisitor: bool = Field(
         ...,
@@ -22386,6 +23823,15 @@ class MarketingAnalyticsRecommendationsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     dataGaps: list[MarketingAnalyticsRecommendationsDataGap] | None = Field(
         default=None,
         description=("Data the rules needed but could not read, so some figures use a fallback."),
@@ -22448,6 +23894,15 @@ class MarketingAnalyticsRecommendationsQueryResponse(BaseModel):
 class MarketingAnalyticsRetentionQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     error: str | None = Field(
         default=None,
@@ -22527,6 +23982,15 @@ class MarketingAnalyticsSearchQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -22585,6 +24049,15 @@ class MarketingAnalyticsSearchQueryResponse(BaseModel):
 class MarketingAnalyticsTableQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     columns: list | None = None
     dataComputedAt: str | None = Field(
@@ -22690,6 +24163,15 @@ class MetricsHistogramQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     bounds: list[float] = Field(..., description="Upper bound per row (y axis), ascending.")
     counts: list[list[float]] = Field(
         ...,
@@ -22750,6 +24232,15 @@ class MetricsHistogramQueryResponse(BaseModel):
 class MetricsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     error: str | None = Field(
         default=None,
@@ -22878,6 +24369,15 @@ class PathsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -22991,6 +24491,15 @@ class PropertyValuesQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -23045,6 +24554,15 @@ class PropertyValuesQueryResponse(BaseModel):
 class QueryResponseAlternative1(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     columns: list
     error: str | None = Field(
@@ -23107,6 +24625,15 @@ class QueryResponseAlternative2(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     columns: list
     error: str | None = Field(
         default=None,
@@ -23166,6 +24693,15 @@ class QueryResponseAlternative2(BaseModel):
 class QueryResponseAlternative3(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     columns: list
     error: str | None = Field(
@@ -23227,6 +24763,15 @@ class QueryResponseAlternative3(BaseModel):
 class QueryResponseAlternative4(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     columns: list
     error: str | None = Field(
@@ -23305,6 +24850,15 @@ class QueryResponseAlternative5(BaseModel):
 class QueryResponseAlternative6(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     error: str | None = Field(
         default=None,
@@ -23393,6 +24947,15 @@ class QueryResponseAlternative11(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     columns: list | None = None
     error: str | None = Field(
         default=None,
@@ -23453,6 +25016,15 @@ class QueryResponseAlternative12(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     columns: list[str] | None = None
     error: str | None = Field(
         default=None,
@@ -23512,6 +25084,15 @@ class QueryResponseAlternative13(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -23570,6 +25151,15 @@ class QueryResponseAlternative14(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -23626,6 +25216,15 @@ class QueryResponseAlternative15(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -23680,6 +25279,15 @@ class QueryResponseAlternative15(BaseModel):
 class QueryResponseAlternative16(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     bucket_seconds: int
     buckets: list[str] = Field(
@@ -23762,6 +25370,15 @@ class QueryResponseAlternative16(BaseModel):
 class QueryResponseAlternative18(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     columns: list
     error: str | None = Field(
@@ -23847,6 +25464,15 @@ class QueryResponseAlternative21(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -23904,6 +25530,15 @@ class QueryResponseAlternative21(BaseModel):
 class QueryResponseAlternative22(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     dateFrom: str | None = None
     dateTo: str | None = None
@@ -23981,6 +25616,15 @@ class QueryResponseAlternative22(BaseModel):
 class QueryResponseAlternative23(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     columns: list | None = None
     error: str | None = Field(
@@ -24062,6 +25706,15 @@ class QueryResponseAlternative24(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     columns: list | None = None
     error: str | None = Field(
         default=None,
@@ -24123,6 +25776,15 @@ class QueryResponseAlternative25(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     columns: list | None = None
     error: str | None = Field(
         default=None,
@@ -24183,6 +25845,15 @@ class QueryResponseAlternative27(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -24241,6 +25912,15 @@ class QueryResponseAlternative27(BaseModel):
 class QueryResponseAlternative28(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     columns: list | None = None
     error: str | None = Field(
@@ -24322,6 +26002,15 @@ class QueryResponseAlternative29(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -24396,6 +26085,15 @@ class QueryResponseAlternative30(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -24454,6 +26152,15 @@ class QueryResponseAlternative32(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -24510,6 +26217,15 @@ class QueryResponseAlternative32(BaseModel):
 class QueryResponseAlternative33(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     columns: list | None = None
     dataComputedAt: str | None = Field(
@@ -24593,6 +26309,15 @@ class QueryResponseAlternative34(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     dataComputedAt: str | None = Field(
         default=None,
         description=("ISO timestamp of the oldest precompute window backing this result."),
@@ -24669,6 +26394,15 @@ class QueryResponseAlternative34(BaseModel):
 class QueryResponseAlternative35(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     allowsMultipleConversionsPerVisitor: bool = Field(
         ...,
@@ -24748,6 +26482,15 @@ class QueryResponseAlternative36(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     attributedConversions: int = Field(
         ...,
         description=(
@@ -24819,6 +26562,15 @@ class QueryResponseAlternative36(BaseModel):
 class QueryResponseAlternative37(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     error: str | None = Field(
         default=None,
@@ -24898,6 +26650,15 @@ class QueryResponseAlternative38(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -24956,6 +26717,15 @@ class QueryResponseAlternative38(BaseModel):
 class QueryResponseAlternative39(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     dataGaps: list[MarketingAnalyticsRecommendationsDataGap] | None = Field(
         default=None,
@@ -25020,6 +26790,15 @@ class QueryResponseAlternative40(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     columns: list
     error: str | None = Field(
         default=None,
@@ -25080,6 +26859,15 @@ class QueryResponseAlternative40(BaseModel):
 class QueryResponseAlternative41(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     columns: list
     error: str | None = Field(
@@ -25142,6 +26930,15 @@ class QueryResponseAlternative42(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     columns: list
     error: str | None = Field(
         default=None,
@@ -25202,6 +26999,15 @@ class QueryResponseAlternative42(BaseModel):
 class QueryResponseAlternative44(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     dateFrom: str | None = None
     dateTo: str | None = None
@@ -25279,6 +27085,15 @@ class QueryResponseAlternative44(BaseModel):
 class QueryResponseAlternative45(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     columns: list | None = None
     error: str | None = Field(
@@ -25360,6 +27175,15 @@ class QueryResponseAlternative46(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     columns: list | None = None
     error: str | None = Field(
         default=None,
@@ -25421,6 +27245,15 @@ class QueryResponseAlternative47(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     columns: list | None = None
     error: str | None = Field(
         default=None,
@@ -25480,6 +27313,15 @@ class QueryResponseAlternative47(BaseModel):
 class QueryResponseAlternative48(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     columns: list | None = None
     error: str | None = Field(
@@ -25561,6 +27403,15 @@ class QueryResponseAlternative49(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -25635,6 +27486,15 @@ class QueryResponseAlternative50(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     columns: list | None = None
     error: str | None = Field(
         default=None,
@@ -25695,6 +27555,15 @@ class QueryResponseAlternative51(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     columns: list
     error: str | None = Field(
         default=None,
@@ -25754,6 +27623,15 @@ class QueryResponseAlternative51(BaseModel):
 class QueryResponseAlternative52(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     columns: list | None = None
     dataComputedAt: str | None = Field(
@@ -25837,6 +27715,15 @@ class QueryResponseAlternative53(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     dataComputedAt: str | None = Field(
         default=None,
         description=("ISO timestamp of the oldest precompute window backing this result."),
@@ -25914,6 +27801,15 @@ class QueryResponseAlternative54(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     columns: list[str] | None = None
     error: str | None = Field(
         default=None,
@@ -25972,6 +27868,15 @@ class QueryResponseAlternative54(BaseModel):
 class QueryResponseAlternative56(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     columns: list[str] | None = None
     error: str | None = Field(
@@ -26032,6 +27937,15 @@ class QueryResponseAlternative58(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     columns: list | None = None
     error: str | None = Field(
         default=None,
@@ -26091,6 +28005,15 @@ class QueryResponseAlternative58(BaseModel):
 class QueryResponseAlternative59(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     columns: list
     error: str | None = Field(
@@ -26156,6 +28079,15 @@ class QueryResponseAlternative59(BaseModel):
 class QueryResponseAlternative60(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     columns: (
         list[
@@ -26241,6 +28173,15 @@ class QueryResponseAlternative61(BaseModel):
             " holds only the action's id."
         ),
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     boxplot_data: list[BoxPlotDatum] | None = None
     error: str | None = Field(
         default=None,
@@ -26297,6 +28238,15 @@ class QueryResponseAlternative61(BaseModel):
 class QueryResponseAlternative62(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     error: str | None = Field(
         default=None,
@@ -26360,6 +28310,15 @@ class QueryResponseAlternative63(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -26415,6 +28374,15 @@ class QueryResponseAlternative64(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -26469,6 +28437,15 @@ class QueryResponseAlternative64(BaseModel):
 class QueryResponseAlternative65(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     error: str | None = Field(
         default=None,
@@ -26533,6 +28510,15 @@ class QueryResponseAlternative66(BaseModel):
             " holds only the action's id."
         ),
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -26587,6 +28573,15 @@ class QueryResponseAlternative66(BaseModel):
 class QueryResponseAlternative69(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     error: str | None = Field(
         default=None,
@@ -26648,6 +28643,15 @@ class QueryResponseAlternative70(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     columns: list[str] | None = None
     error: str | None = Field(
         default=None,
@@ -26708,6 +28712,15 @@ class QueryResponseAlternative71(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     count: float
     error: str | None = Field(
         default=None,
@@ -26764,6 +28777,15 @@ class QueryResponseAlternative72(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -26819,6 +28841,15 @@ class QueryResponseAlternative73(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -26873,6 +28904,15 @@ class QueryResponseAlternative73(BaseModel):
 class QueryResponseAlternative74(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     bounds: list[float] = Field(..., description="Upper bound per row (y axis), ascending.")
     counts: list[list[float]] = Field(
@@ -26935,6 +28975,15 @@ class QueryResponseAlternative75(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -26993,6 +29042,15 @@ class QueryResponseAlternative75(BaseModel):
 class QueryResponseAlternative76(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     compare: list[AggregatedSpanRow] | None = Field(
         default=None,
@@ -27053,6 +29111,15 @@ class QueryResponseAlternative77(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     compare: list[SpanTreeNode] | None = Field(
         default=None,
         description=("Result rows for the comparison period when `compareFilter.compare` is true."),
@@ -27111,6 +29178,15 @@ class QueryResponseAlternative77(BaseModel):
 class QueryResponseAlternative78(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     compare: list[AttributeBreakdownRow] | None = Field(
         default=None,
@@ -27171,6 +29247,15 @@ class QueryResponseAlternative80(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -27228,6 +29313,15 @@ class QueryResponseAlternative80(BaseModel):
 class QueryResponseAlternative81(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     error: str | None = Field(
         default=None,
@@ -27287,6 +29381,15 @@ class QueryResponseAlternative82(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -27341,6 +29444,15 @@ class QueryResponseAlternative82(BaseModel):
 class QueryResponseAlternative83(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     columns: list[str] | None = None
     error: str | None = Field(
@@ -27401,6 +29513,15 @@ class QueryResponseAlternative86(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -27455,6 +29576,15 @@ class QueryResponseAlternative86(BaseModel):
 class QueryResponseAlternative87(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     error: str | None = Field(
         default=None,
@@ -27511,6 +29641,15 @@ class QueryResponseAlternative88(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -27565,6 +29704,15 @@ class QueryResponseAlternative88(BaseModel):
 class QueryResponseAlternative89(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     columns: list
     error: str | None = Field(
@@ -27630,6 +29778,15 @@ class QueryResponseAlternative89(BaseModel):
 class QueryResponseAlternative90(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     columns: (
         list[
@@ -27707,6 +29864,15 @@ class QueryResponseAlternative91(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -27761,6 +29927,15 @@ class QueryResponseAlternative91(BaseModel):
 class QueryResponseAlternative92(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     error: str | None = Field(
         default=None,
@@ -27817,6 +29992,15 @@ class QueryResponseAlternative94(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -27872,6 +30056,15 @@ class QueryResponseAlternative95(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -27926,6 +30119,15 @@ class QueryResponseAlternative95(BaseModel):
 class QueryResponseAlternative96(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     columns: list | None = None
     error: str | None = Field(
@@ -27987,6 +30189,15 @@ class QueryResponseAlternative97(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -28041,6 +30252,15 @@ class QueryResponseAlternative97(BaseModel):
 class QueryResponseAlternative98(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     error: str | None = Field(
         default=None,
@@ -28097,6 +30317,15 @@ class QueryResponseAlternative99(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -28152,6 +30381,15 @@ class QueryResponseAlternative100(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -28206,6 +30444,15 @@ class QueryResponseAlternative100(BaseModel):
 class QueryResponseAlternative101(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     error: str | None = Field(
         default=None,
@@ -28266,6 +30513,15 @@ class QueryResponseAlternative102(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -28320,6 +30576,15 @@ class QueryResponseAlternative102(BaseModel):
 class QueryResponseAlternative103(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     error: str | None = Field(
         default=None,
@@ -28376,6 +30641,15 @@ class QueryResponseAlternative104(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -28431,6 +30705,15 @@ class QueryResponseAlternative105(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -28485,6 +30768,15 @@ class QueryResponseAlternative105(BaseModel):
 class QueryResponseAlternative106(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     error: str | None = Field(
         default=None,
@@ -28544,6 +30836,15 @@ class QueryResponseAlternative107(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -28598,6 +30899,15 @@ class QueryResponseAlternative107(BaseModel):
 class QueryResponseAlternative108(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     error: str | None = Field(
         default=None,
@@ -28669,6 +30979,15 @@ class QueryResponseAlternative109(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -28723,6 +31042,15 @@ class QueryResponseAlternative109(BaseModel):
 class QueryResponseAlternative110(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     error: str | None = Field(
         default=None,
@@ -28779,6 +31107,15 @@ class QueryResponseAlternative111(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -28833,6 +31170,15 @@ class QueryResponseAlternative111(BaseModel):
 class QueryResponseAlternative112(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     error: str | None = Field(
         default=None,
@@ -28889,6 +31235,15 @@ class QueryResponseAlternative113(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -28943,6 +31298,15 @@ class QueryResponseAlternative113(BaseModel):
 class QueryResponseAlternative114(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     error: str | None = Field(
         default=None,
@@ -28999,6 +31363,15 @@ class QueryResponseAlternative115(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -29053,6 +31426,15 @@ class QueryResponseAlternative115(BaseModel):
 class QueryResponseAlternative116(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     error: str | None = Field(
         default=None,
@@ -29109,6 +31491,15 @@ class QueryResponseAlternative116(BaseModel):
 class QueryResponseAlternative117(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     error: str | None = Field(
         default=None,
@@ -29168,6 +31559,15 @@ class QueryResponseAlternative118(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -29222,6 +31622,15 @@ class QueryResponseAlternative118(BaseModel):
 class RecordingsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     error: str | None = Field(
         default=None,
@@ -29282,6 +31691,15 @@ class RecordingsQueryResponse(BaseModel):
 class RetentionQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     error: str | None = Field(
         default=None,
@@ -29346,6 +31764,15 @@ class SessionAttributionExplorerQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     columns: list | None = None
     error: str | None = Field(
         default=None,
@@ -29405,6 +31832,15 @@ class SessionAttributionExplorerQueryResponse(BaseModel):
 class SessionBatchEventsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     columns: list
     error: str | None = Field(
@@ -29474,6 +31910,15 @@ class SessionQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     columns: list[str] | None = None
     error: str | None = Field(
         default=None,
@@ -29532,6 +31977,15 @@ class SessionQueryResponse(BaseModel):
 class SessionsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     columns: list
     error: str | None = Field(
@@ -29592,6 +32046,15 @@ class SessionsQueryResponse(BaseModel):
 class SessionsTimelineQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     error: str | None = Field(
         default=None,
@@ -29655,6 +32118,15 @@ class StickinessQueryResponse(BaseModel):
             "The name of each action the query's series reference, keyed by action id."
             " A series saved without a `name` displays this name, because the query"
             " holds only the action's id."
+        ),
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
         ),
     )
     error: str | None = Field(
@@ -29734,6 +32206,15 @@ class TeamTaxonomyQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -29792,6 +32273,15 @@ class TestBasicQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -29846,6 +32336,15 @@ class TestBasicQueryResponse(BaseModel):
 class TestCachedBasicQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
@@ -29917,6 +32416,15 @@ class TraceQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     columns: list[str] | None = None
     error: str | None = Field(
         default=None,
@@ -29975,6 +32483,15 @@ class TraceQueryResponse(BaseModel):
 class TraceSpansAggregationQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     compare: list[AggregatedSpanRow] | None = Field(
         default=None,
@@ -30035,6 +32552,15 @@ class TraceSpansAttributeBreakdownQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     compare: list[AttributeBreakdownRow] | None = Field(
         default=None,
         description=("Result rows for the comparison period when `compareFilter.compare` is true."),
@@ -30093,6 +32619,15 @@ class TraceSpansAttributeBreakdownQueryResponse(BaseModel):
 class TraceSpansQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     error: str | None = Field(
         default=None,
@@ -30153,6 +32688,15 @@ class TraceSpansSymbolStatsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -30212,6 +32756,15 @@ class TraceSpansTreeQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     compare: list[SpanTreeNode] | None = Field(
         default=None,
         description=("Result rows for the comparison period when `compareFilter.compare` is true."),
@@ -30270,6 +32823,15 @@ class TraceSpansTreeQueryResponse(BaseModel):
 class TracesQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     columns: list[str] | None = None
     error: str | None = Field(
@@ -30338,6 +32900,15 @@ class TrendsQueryResponse(BaseModel):
             " holds only the action's id."
         ),
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     boxplot_data: list[BoxPlotDatum] | None = None
     error: str | None = Field(
         default=None,
@@ -30395,6 +32966,15 @@ class UsageMetricsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -30449,6 +33029,15 @@ class UsageMetricsQueryResponse(BaseModel):
 class VectorSearchQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     error: str | None = Field(
         default=None,
@@ -30749,6 +33338,15 @@ class WebPageDirectoryQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -30917,6 +33515,15 @@ class WebVitalsPathBreakdownQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -30990,6 +33597,15 @@ class WebVitalsPathBreakdownQueryResponse(BaseModel):
 class WebVitalsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     error: str | None = Field(
         default=None,
@@ -31745,6 +34361,15 @@ class CachedBookActivityPeopleQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
@@ -31814,6 +34439,15 @@ class CachedBookActivityPeopleQueryResponse(BaseModel):
 class CachedErrorTrackingQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
@@ -31933,6 +34567,15 @@ class CachedInboxUsageQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
@@ -32038,6 +34681,15 @@ class CachedInsightActorsQueryOptionsResponse(BaseModel):
 class CachedMarketingAnalyticsRecommendationsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
@@ -32155,6 +34807,15 @@ class CachedPathsV2QueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
@@ -32224,6 +34885,15 @@ class CachedPathsV2QueryResponse(BaseModel):
 class CachedWebVitalsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
@@ -32528,6 +35198,15 @@ class Response14(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     columns: list[str] | None = None
     error: str | None = Field(
         default=None,
@@ -32820,6 +35499,15 @@ class ErrorTrackingFingerprintProjectionQuery(BaseModel):
 class ErrorTrackingIssueCorrelationQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     columns: list[str] | None = None
     error: str | None = Field(
@@ -33418,6 +36106,15 @@ class HogQLMetadataResponse(BaseModel):
 class HogQLQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     clickhouse: str | None = Field(default=None, description="Executed ClickHouse query")
     column_formats: list[str | None] | None = Field(
@@ -34568,6 +37265,15 @@ class PathsV2QueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -34702,6 +37408,15 @@ class QueryResponseAlternative8(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     clickhouse: str | None = Field(default=None, description="Executed ClickHouse query")
     column_formats: list[str | None] | None = Field(
         default=None,
@@ -34779,6 +37494,15 @@ class QueryResponseAlternative8(BaseModel):
 class QueryResponseAlternative17(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     columns: list[str] | None = None
     error: str | None = Field(
@@ -34879,6 +37603,15 @@ class QueryResponseAlternative43(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     clickhouse: str | None = Field(default=None, description="Executed ClickHouse query")
     column_formats: list[str | None] | None = Field(
         default=None,
@@ -34957,6 +37690,15 @@ class QueryResponseAlternative55(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     columns: list[str] | None = None
     error: str | None = Field(
         default=None,
@@ -35015,6 +37757,15 @@ class QueryResponseAlternative55(BaseModel):
 class QueryResponseAlternative93(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     error: str | None = Field(
         default=None,
@@ -35789,6 +38540,15 @@ class BookActivityPeopleQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     error: str | None = Field(
         default=None,
         description=(
@@ -35843,6 +38603,15 @@ class BookActivityPeopleQueryResponse(BaseModel):
 class CachedErrorTrackingIssueCorrelationQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
@@ -35977,6 +38746,15 @@ class CachedHogQLQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     cache_key: str
     cache_target_age: AwareDatetime | None = None
     calculation_trigger: str | None = Field(
@@ -36102,6 +38880,15 @@ class Response3(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
+    )
     clickhouse: str | None = Field(default=None, description="Executed ClickHouse query")
     column_formats: list[str | None] | None = Field(
         default=None,
@@ -36179,6 +38966,15 @@ class Response3(BaseModel):
 class Response15(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    agent_notices: list[AgentNotice] | None = Field(
+        default=None,
+        description=(
+            "Optional suggestions for an agent caller, such as open warehouse"
+            " suggestions about views this query read. Set only on fresh runs for agent"
+            " callers. Not part of the result: MCP guidance decides whether to show"
+            " them."
+        ),
     )
     columns: list[str] | None = None
     error: str | None = Field(

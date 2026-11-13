@@ -2596,6 +2596,15 @@ export interface PropertyGroupFilterApi {
     values: PropertyGroupFilterValueApi[]
 }
 
+export interface AgentNoticeApi {
+    /** Stable id of what the notice is about, so the same notice is not repeated in a session. */
+    key: string
+    /** Stable id of the producer. A guidance rule matches notices by source. */
+    source: string
+    /** Plain-language text for the agent, with the next step. */
+    text: string
+}
+
 export interface BoxPlotDatumApi {
     count?: number | null
     day: string
@@ -2803,6 +2812,8 @@ export type TrendsQueryResponseApiResultsItem = { [key: string]: unknown }
 export interface TrendsQueryResponseApi {
     /** The name of each action the query's series reference, keyed by action id. A series saved without a `name` displays this name, because the query holds only the action's id. */
     action_names?: TrendsQueryResponseApiActionNames
+    /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+    agent_notices?: AgentNoticeApi[] | null
     boxplot_data?: BoxPlotDatumApi[] | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
@@ -3739,6 +3750,8 @@ export interface FunnelsFilterApi {
 }
 
 export interface FunnelsQueryResponseApi {
+    /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+    agent_notices?: AgentNoticeApi[] | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
     /** Generated HogQL query. */
@@ -3932,6 +3945,8 @@ export interface RetentionResultApi {
 }
 
 export interface RetentionQueryResponseApi {
+    /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+    agent_notices?: AgentNoticeApi[] | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
     /** Generated HogQL query. */
@@ -4236,6 +4251,8 @@ export interface PathsLinkApi {
 }
 
 export interface PathsQueryResponseApi {
+    /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+    agent_notices?: AgentNoticeApi[] | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
     /** Generated HogQL query. */
@@ -4412,6 +4429,8 @@ export interface PathsV2ResultsApi {
 }
 
 export interface PathsV2QueryResponseApi {
+    /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+    agent_notices?: AgentNoticeApi[] | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
     /** Generated HogQL query. */
@@ -4494,6 +4513,8 @@ export type StickinessQueryResponseApiResultsItem = { [key: string]: unknown }
 export interface StickinessQueryResponseApi {
     /** The name of each action the query's series reference, keyed by action id. A series saved without a `name` displays this name, because the query holds only the action's id. */
     action_names?: StickinessQueryResponseApiActionNames
+    /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+    agent_notices?: AgentNoticeApi[] | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
     /** Generated HogQL query. */
@@ -4657,6 +4678,8 @@ export type LifecycleQueryResponseApiResultsItem = { [key: string]: unknown }
 export interface LifecycleQueryResponseApi {
     /** The name of each action the query's series reference, keyed by action id. A series saved without a `name` displays this name, because the query holds only the action's id. */
     action_names?: LifecycleQueryResponseApiActionNames
+    /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+    agent_notices?: AgentNoticeApi[] | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
     /** Generated HogQL query. */
@@ -4912,6 +4935,8 @@ export interface SamplingRateApi {
 }
 
 export interface WebStatsTableQueryResponseApi {
+    /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+    agent_notices?: AgentNoticeApi[] | null
     columns?: unknown[] | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
@@ -5022,6 +5047,8 @@ export interface WebOverviewItemApi {
 }
 
 export interface WebOverviewQueryResponseApi {
+    /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+    agent_notices?: AgentNoticeApi[] | null
     dateFrom?: string | null
     dateTo?: string | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
@@ -5159,6 +5186,8 @@ export const DataTableNodeApiKind = {
 } as const
 
 export interface ResponseApi {
+    /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+    agent_notices?: AgentNoticeApi[] | null
     columns: unknown[]
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
@@ -5190,6 +5219,8 @@ export interface ResponseApi {
 }
 
 export interface Response1Api {
+    /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+    agent_notices?: AgentNoticeApi[] | null
     columns: unknown[]
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
@@ -5220,6 +5251,8 @@ export interface Response1Api {
 }
 
 export interface Response2Api {
+    /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+    agent_notices?: AgentNoticeApi[] | null
     columns: unknown[]
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
@@ -5355,6 +5388,8 @@ export interface HogQLMetadataResponseApi {
 }
 
 export interface Response3Api {
+    /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+    agent_notices?: AgentNoticeApi[] | null
     /** Executed ClickHouse query */
     clickhouse?: string | null
     /** Display formats for directly selected virtual properties, aligned with columns. */
@@ -5399,6 +5434,8 @@ export interface Response3Api {
 }
 
 export interface Response4Api {
+    /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+    agent_notices?: AgentNoticeApi[] | null
     dateFrom?: string | null
     dateTo?: string | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
@@ -5433,6 +5470,8 @@ export interface Response4Api {
 }
 
 export interface Response5Api {
+    /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+    agent_notices?: AgentNoticeApi[] | null
     columns?: unknown[] | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
@@ -5470,6 +5509,8 @@ export interface Response5Api {
 }
 
 export interface Response6Api {
+    /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+    agent_notices?: AgentNoticeApi[] | null
     columns?: unknown[] | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
@@ -5500,6 +5541,8 @@ export interface Response6Api {
 }
 
 export interface Response7Api {
+    /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+    agent_notices?: AgentNoticeApi[] | null
     columns?: unknown[] | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
@@ -5529,6 +5572,8 @@ export interface Response7Api {
 }
 
 export interface Response8Api {
+    /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+    agent_notices?: AgentNoticeApi[] | null
     columns?: unknown[] | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
@@ -5577,6 +5622,8 @@ export interface WebVitalsPathBreakdownResultApi {
 }
 
 export interface Response9Api {
+    /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+    agent_notices?: AgentNoticeApi[] | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
     /** Generated HogQL query. */
@@ -5612,6 +5659,8 @@ export interface Response9Api {
 }
 
 export interface Response10Api {
+    /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+    agent_notices?: AgentNoticeApi[] | null
     columns?: unknown[] | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
@@ -5641,6 +5690,8 @@ export interface Response10Api {
 }
 
 export interface Response11Api {
+    /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+    agent_notices?: AgentNoticeApi[] | null
     columns: unknown[]
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
@@ -5680,6 +5731,8 @@ export interface MarketingAnalyticsItemApi {
 }
 
 export interface Response12Api {
+    /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+    agent_notices?: AgentNoticeApi[] | null
     columns?: unknown[] | null
     /** ISO timestamp of the oldest precompute window backing this result. */
     dataComputedAt?: string | null
@@ -5718,6 +5771,8 @@ export interface Response12Api {
 export type Response13ApiResults = { [key: string]: MarketingAnalyticsItemApi }
 
 export interface Response13Api {
+    /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+    agent_notices?: AgentNoticeApi[] | null
     /** ISO timestamp of the oldest precompute window backing this result. */
     dataComputedAt?: string | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
@@ -5899,6 +5954,8 @@ export interface ErrorTrackingIssueApi {
 }
 
 export interface Response14Api {
+    /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+    agent_notices?: AgentNoticeApi[] | null
     columns?: string[] | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
@@ -5951,6 +6008,8 @@ export interface ErrorTrackingCorrelatedIssueApi {
 }
 
 export interface Response15Api {
+    /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+    agent_notices?: AgentNoticeApi[] | null
     columns?: string[] | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
@@ -6059,6 +6118,8 @@ export interface LLMTraceApi {
 }
 
 export interface Response16Api {
+    /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+    agent_notices?: AgentNoticeApi[] | null
     columns?: string[] | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
@@ -6087,6 +6148,8 @@ export interface Response16Api {
 }
 
 export interface Response18Api {
+    /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+    agent_notices?: AgentNoticeApi[] | null
     columns?: unknown[] | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
@@ -6116,6 +6179,8 @@ export interface Response18Api {
 }
 
 export interface Response19Api {
+    /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+    agent_notices?: AgentNoticeApi[] | null
     columns: unknown[]
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
@@ -6299,6 +6364,8 @@ export interface AccountsTableRowApi {
 }
 
 export interface Response20Api {
+    /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+    agent_notices?: AgentNoticeApi[] | null
     columns?:
         | (
               | AccountsTableAccountFieldColumnApi
@@ -6473,6 +6540,8 @@ export interface EventsQueryActionStepApi {
 }
 
 export interface EventsQueryResponseApi {
+    /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+    agent_notices?: AgentNoticeApi[] | null
     columns: unknown[]
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
@@ -6511,6 +6580,8 @@ export const CompareApi = {
 } as const
 
 export interface ActorsQueryResponseApi {
+    /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+    agent_notices?: AgentNoticeApi[] | null
     columns: unknown[]
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
@@ -7393,6 +7464,8 @@ export interface HogQLFiltersApi {
 }
 
 export interface HogQLQueryResponseApi {
+    /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+    agent_notices?: AgentNoticeApi[] | null
     /** Executed ClickHouse query */
     clickhouse?: string | null
     /** Display formats for directly selected virtual properties, aligned with columns. */
@@ -7530,6 +7603,8 @@ export interface ActorsQueryApi {
 }
 
 export interface GroupsQueryResponseApi {
+    /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+    agent_notices?: AgentNoticeApi[] | null
     columns: unknown[]
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
@@ -7577,6 +7652,8 @@ export interface GroupsQueryApi {
 }
 
 export interface WebExternalClicksTableQueryResponseApi {
+    /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+    agent_notices?: AgentNoticeApi[] | null
     columns?: unknown[] | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
@@ -7651,6 +7728,8 @@ export const WebBotsBreakdownApi = {
 } as const
 
 export interface WebBotsTableQueryResponseApi {
+    /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+    agent_notices?: AgentNoticeApi[] | null
     columns?: unknown[] | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
@@ -7717,6 +7796,8 @@ export interface WebBotsTableQueryApi {
 }
 
 export interface WebGoalsQueryResponseApi {
+    /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+    agent_notices?: AgentNoticeApi[] | null
     columns?: unknown[] | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
@@ -7854,6 +7935,8 @@ export const WebVitalsPercentileApi = {
 } as const
 
 export interface WebVitalsPathBreakdownQueryResponseApi {
+    /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+    agent_notices?: AgentNoticeApi[] | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
     /** Generated HogQL query. */
@@ -7951,6 +8034,8 @@ export const SessionAttributionGroupByApi = {
 } as const
 
 export interface SessionAttributionExplorerQueryResponseApi {
+    /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+    agent_notices?: AgentNoticeApi[] | null
     columns?: unknown[] | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
@@ -7994,6 +8079,8 @@ export interface SessionAttributionExplorerQueryApi {
 }
 
 export interface SessionsQueryResponseApi {
+    /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+    agent_notices?: AgentNoticeApi[] | null
     columns: unknown[]
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
@@ -8471,6 +8558,8 @@ export const MarketingAnalyticsOrderByEnumApi = {
 } as const
 
 export interface MarketingAnalyticsTableQueryResponseApi {
+    /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+    agent_notices?: AgentNoticeApi[] | null
     columns?: unknown[] | null
     /** ISO timestamp of the oldest precompute window backing this result. */
     dataComputedAt?: string | null
@@ -8559,6 +8648,8 @@ export interface MarketingAnalyticsTableQueryApi {
 export type MarketingAnalyticsAggregatedQueryResponseApiResults = { [key: string]: MarketingAnalyticsItemApi }
 
 export interface MarketingAnalyticsAggregatedQueryResponseApi {
+    /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+    agent_notices?: AgentNoticeApi[] | null
     /** ISO timestamp of the oldest precompute window backing this result. */
     dataComputedAt?: string | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
@@ -8655,6 +8746,8 @@ export interface ErrorTrackingPendingFingerprintIssueStateUpdateApi {
 }
 
 export interface ErrorTrackingQueryResponseApi {
+    /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+    agent_notices?: AgentNoticeApi[] | null
     columns?: string[] | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
@@ -8724,6 +8817,8 @@ export interface ErrorTrackingQueryApi {
 }
 
 export interface ErrorTrackingIssueCorrelationQueryResponseApi {
+    /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+    agent_notices?: AgentNoticeApi[] | null
     columns?: string[] | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
@@ -8763,6 +8858,8 @@ export interface ErrorTrackingIssueCorrelationQueryApi {
 }
 
 export interface TracesQueryResponseApi {
+    /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+    agent_notices?: AgentNoticeApi[] | null
     columns?: string[] | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
@@ -8845,6 +8942,8 @@ export interface TracesQueryApi {
 }
 
 export interface TraceQueryResponseApi {
+    /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+    agent_notices?: AgentNoticeApi[] | null
     columns?: string[] | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
@@ -8916,6 +9015,8 @@ export interface TraceQueryApi {
 }
 
 export interface SessionQueryResponseApi {
+    /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+    agent_notices?: AgentNoticeApi[] | null
     columns?: string[] | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
@@ -8995,6 +9096,8 @@ export const EndpointsUsageOrderByDirectionApi = {
 } as const
 
 export interface EndpointsUsageTableQueryResponseApi {
+    /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+    agent_notices?: AgentNoticeApi[] | null
     columns?: unknown[] | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
@@ -9043,6 +9146,8 @@ export interface EndpointsUsageTableQueryApi {
 }
 
 export interface AccountsQueryResponseApi {
+    /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+    agent_notices?: AgentNoticeApi[] | null
     columns: unknown[]
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
@@ -9244,6 +9349,8 @@ export interface AccountsTableCountThresholdMetricApi {
 }
 
 export interface AccountsTableQueryResponseApi {
+    /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+    agent_notices?: AgentNoticeApi[] | null
     columns?:
         | (
               | AccountsTableAccountFieldColumnApi

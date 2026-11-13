@@ -650,6 +650,16 @@ export interface BreakdownNotAppliedWarning {
     message: string
 }
 
+/** An optional suggestion for an agent, delivered through MCP guidance rather than as part of the result. */
+export interface AgentNotice {
+    /** Stable id of the producer. A guidance rule matches notices by source. */
+    source: string
+    /** Stable id of what the notice is about, so the same notice is not repeated in a session. */
+    key: string
+    /** Plain-language text for the agent, with the next step. */
+    text: string
+}
+
 export type WarehouseSuggestionNoteKind = 'materialize' | 'unmaterialize'
 
 /** An open warehouse suggestion about a view the query read, for an agent to mention to the person. */
@@ -2946,6 +2956,11 @@ export interface AnalyticsQueryResponseBase {
      * absent when not evaluated, empty when evaluated and none apply.
      */
     warehouse_suggestions?: WarehouseSuggestionNote[]
+    /**
+     * Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read.
+     * Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them.
+     */
+    agent_notices?: AgentNotice[]
 }
 
 interface CachedQueryResponseMixin {

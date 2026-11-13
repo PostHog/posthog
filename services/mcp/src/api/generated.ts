@@ -3292,6 +3292,15 @@ export namespace Schemas {
       webAnalyticsFirstPageviewFilters?: boolean | null;
     }
 
+    export interface AgentNotice {
+      /** Stable id of what the notice is about, so the same notice is not repeated in a session. */
+      key: string;
+      /** Stable id of the producer. A guidance rule matches notices by source. */
+      source: string;
+      /** Plain-language text for the agent, with the next step. */
+      text: string;
+    }
+
     export interface ClickhouseQueryProgress {
       active_cpu_time: number;
       bytes_read: number;
@@ -3489,6 +3498,8 @@ export namespace Schemas {
     }
 
     export interface AccountActivityMatrixQueryResponse {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -4283,6 +4294,8 @@ export namespace Schemas {
     }
 
     export interface ActorsQueryResponse {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       columns: unknown[];
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -4942,6 +4955,8 @@ export namespace Schemas {
     }
 
     export interface AccountsQueryResponse {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       columns: unknown[];
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -5296,6 +5311,8 @@ export namespace Schemas {
     }
 
     export interface AccountsTableQueryResponse {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       columns?: (AccountsTableAccountFieldColumn | AccountsTableTagsColumn | AccountsTableNoteCountColumn | AccountsTableRelationshipColumn | AccountsTableCustomPropertyColumn | AccountsTableCustomPropertyHistoryColumn)[] | null;
       customPropertyDefinitions?: AccountsTableCustomPropertyDefinition[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
@@ -7190,6 +7207,8 @@ export namespace Schemas {
     }
 
     export interface ActorsPropertyTaxonomyQueryResponse {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -7342,6 +7361,8 @@ export namespace Schemas {
     export interface TrendsQueryResponse {
       /** The name of each action the query's series reference, keyed by action id. A series saved without a `name` displays this name, because the query holds only the action's id. */
       action_names?: TrendsQueryResponseActionNames;
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       boxplot_data?: BoxPlotDatum[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -7915,6 +7936,8 @@ export namespace Schemas {
     }
 
     export interface FunnelsQueryResponse {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -8017,6 +8040,8 @@ export namespace Schemas {
     }
 
     export interface RetentionQueryResponse {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -8277,6 +8302,8 @@ export namespace Schemas {
     }
 
     export interface PathsQueryResponse {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -8426,6 +8453,8 @@ export namespace Schemas {
     }
 
     export interface PathsV2QueryResponse {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -8480,6 +8509,8 @@ export namespace Schemas {
     export interface StickinessQueryResponse {
       /** The name of each action the query's series reference, keyed by action id. A series saved without a `name` displays this name, because the query holds only the action's id. */
       action_names?: StickinessQueryResponseActionNames;
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -8614,6 +8645,8 @@ export namespace Schemas {
     export interface LifecycleQueryResponse {
       /** The name of each action the query's series reference, keyed by action id. A series saved without a `name` displays this name, because the query holds only the action's id. */
       action_names?: LifecycleQueryResponseActionNames;
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -8779,6 +8812,8 @@ export namespace Schemas {
     }
 
     export interface WebStatsTableQueryResponse {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -8885,6 +8920,8 @@ export namespace Schemas {
     }
 
     export interface WebOverviewQueryResponse {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       dateFrom?: string | null;
       dateTo?: string | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
@@ -9635,6 +9672,8 @@ export namespace Schemas {
     }
 
     export interface HogQLQueryResponse {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Executed ClickHouse query */
       clickhouse?: string | null;
       /** Display formats for directly selected virtual properties, aligned with columns. */
@@ -9921,6 +9960,8 @@ export namespace Schemas {
     } as const;
 
     export interface Response {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       columns: unknown[];
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -9952,6 +9993,8 @@ export namespace Schemas {
     }
 
     export interface Response1 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       columns: unknown[];
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -9982,6 +10025,8 @@ export namespace Schemas {
     }
 
     export interface Response2 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       columns: unknown[];
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -10012,6 +10057,8 @@ export namespace Schemas {
     }
 
     export interface Response3 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Executed ClickHouse query */
       clickhouse?: string | null;
       /** Display formats for directly selected virtual properties, aligned with columns. */
@@ -10056,6 +10103,8 @@ export namespace Schemas {
     }
 
     export interface Response4 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       dateFrom?: string | null;
       dateTo?: string | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
@@ -10090,6 +10139,8 @@ export namespace Schemas {
     }
 
     export interface Response5 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -10127,6 +10178,8 @@ export namespace Schemas {
     }
 
     export interface Response6 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -10157,6 +10210,8 @@ export namespace Schemas {
     }
 
     export interface Response7 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -10186,6 +10241,8 @@ export namespace Schemas {
     }
 
     export interface Response8 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -10234,6 +10291,8 @@ export namespace Schemas {
     }
 
     export interface Response9 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -10269,6 +10328,8 @@ export namespace Schemas {
     }
 
     export interface Response10 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -10298,6 +10359,8 @@ export namespace Schemas {
     }
 
     export interface Response11 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       columns: unknown[];
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -10337,6 +10400,8 @@ export namespace Schemas {
     }
 
     export interface Response12 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       columns?: unknown[] | null;
       /** ISO timestamp of the oldest precompute window backing this result. */
       dataComputedAt?: string | null;
@@ -10375,6 +10440,8 @@ export namespace Schemas {
     export type Response13Results = {[key: string]: MarketingAnalyticsItem};
 
     export interface Response13 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** ISO timestamp of the oldest precompute window backing this result. */
       dataComputedAt?: string | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
@@ -10558,6 +10625,8 @@ export namespace Schemas {
     }
 
     export interface Response14 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       columns?: string[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -10610,6 +10679,8 @@ export namespace Schemas {
     }
 
     export interface Response15 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       columns?: string[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -10701,6 +10772,8 @@ export namespace Schemas {
     }
 
     export interface Response16 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       columns?: string[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -10729,6 +10802,8 @@ export namespace Schemas {
     }
 
     export interface Response18 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -10758,6 +10833,8 @@ export namespace Schemas {
     }
 
     export interface Response19 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       columns: unknown[];
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -10790,6 +10867,8 @@ export namespace Schemas {
     }
 
     export interface Response20 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       columns?: (AccountsTableAccountFieldColumn | AccountsTableTagsColumn | AccountsTableNoteCountColumn | AccountsTableRelationshipColumn | AccountsTableCustomPropertyColumn | AccountsTableCustomPropertyHistoryColumn)[] | null;
       customPropertyDefinitions?: AccountsTableCustomPropertyDefinition[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
@@ -10932,6 +11011,8 @@ export namespace Schemas {
     }
 
     export interface EventsQueryResponse {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       columns: unknown[];
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -11026,6 +11107,8 @@ export namespace Schemas {
     }
 
     export interface GroupsQueryResponse {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       columns: unknown[];
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -11073,6 +11156,8 @@ export namespace Schemas {
     }
 
     export interface WebExternalClicksTableQueryResponse {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -11143,6 +11228,8 @@ export namespace Schemas {
     } as const;
 
     export interface WebBotsTableQueryResponse {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -11204,6 +11291,8 @@ export namespace Schemas {
     }
 
     export interface WebGoalsQueryResponse {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -11324,6 +11413,8 @@ export namespace Schemas {
     } as const;
 
     export interface WebVitalsPathBreakdownQueryResponse {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -11416,6 +11507,8 @@ export namespace Schemas {
     } as const;
 
     export interface SessionAttributionExplorerQueryResponse {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -11459,6 +11552,8 @@ export namespace Schemas {
     }
 
     export interface SessionsQueryResponse {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       columns: unknown[];
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -11664,6 +11759,8 @@ export namespace Schemas {
     } as const;
 
     export interface MarketingAnalyticsTableQueryResponse {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       columns?: unknown[] | null;
       /** ISO timestamp of the oldest precompute window backing this result. */
       dataComputedAt?: string | null;
@@ -11747,6 +11844,8 @@ export namespace Schemas {
     export type MarketingAnalyticsAggregatedQueryResponseResults = {[key: string]: MarketingAnalyticsItem};
 
     export interface MarketingAnalyticsAggregatedQueryResponse {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** ISO timestamp of the oldest precompute window backing this result. */
       dataComputedAt?: string | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
@@ -11851,6 +11950,8 @@ export namespace Schemas {
     }
 
     export interface ErrorTrackingQueryResponse {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       columns?: string[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -11920,6 +12021,8 @@ export namespace Schemas {
     }
 
     export interface ErrorTrackingIssueCorrelationQueryResponse {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       columns?: string[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -11959,6 +12062,8 @@ export namespace Schemas {
     }
 
     export interface TracesQueryResponse {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       columns?: string[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -12014,6 +12119,8 @@ export namespace Schemas {
     }
 
     export interface TraceQueryResponse {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       columns?: string[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -12058,6 +12165,8 @@ export namespace Schemas {
     }
 
     export interface SessionQueryResponse {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       columns?: string[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -12139,6 +12248,8 @@ export namespace Schemas {
     } as const;
 
     export interface EndpointsUsageTableQueryResponse {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -22705,6 +22816,8 @@ export namespace Schemas {
     }
 
     export interface BookActivityFirstsQueryResponse {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -22797,6 +22910,8 @@ export namespace Schemas {
     }
 
     export interface BookActivityMatrixQueryResponse {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -22879,6 +22994,8 @@ export namespace Schemas {
     }
 
     export interface BookActivityPeopleQueryResponse {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -24185,6 +24302,8 @@ export namespace Schemas {
     }
 
     export interface CalendarHeatmapResponse {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Wether more breakdown values are available. */
@@ -38927,6 +39046,8 @@ export namespace Schemas {
     }
 
     export interface DocumentSimilarityQueryResponse {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       hasMore?: boolean | null;
@@ -41635,6 +41756,8 @@ export namespace Schemas {
     }
 
     export interface EndpointsUsageOverviewQueryResponse {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -41689,6 +41812,8 @@ export namespace Schemas {
     export type EndpointsUsageTrendsQueryResponseResultsItem = { [key: string]: unknown };
 
     export interface EndpointsUsageTrendsQueryResponse {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -42235,6 +42360,8 @@ export namespace Schemas {
     export type ErrorTrackingBreakdownsQueryResponseResults = {[key: string]: Results};
 
     export interface ErrorTrackingBreakdownsQueryResponse {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -42451,6 +42578,8 @@ export namespace Schemas {
     }
 
     export interface ErrorTrackingFingerprintProjectionQueryResponse {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       hasMore?: boolean | null;
@@ -42845,6 +42974,8 @@ export namespace Schemas {
     }
 
     export interface ErrorTrackingIssueEventsQueryResponse {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       columns: unknown[];
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -43536,6 +43667,8 @@ export namespace Schemas {
     } as const;
 
     export interface ErrorTrackingReleasesQueryResponse {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       bucket_seconds: number;
       /** ISO start of each bucket. The first one can start before `date_from`. */
       buckets: string[];
@@ -43711,6 +43844,8 @@ export namespace Schemas {
     }
 
     export interface ErrorTrackingSimilarIssuesQueryResponse {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       hasMore?: boolean | null;
@@ -46187,6 +46322,8 @@ export namespace Schemas {
     }
 
     export interface EventTaxonomyQueryResponse {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       hasMore?: boolean | null;
@@ -58903,6 +59040,8 @@ export namespace Schemas {
     }
 
     export interface SessionsTimelineQueryResponse {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       hasMore?: boolean | null;
@@ -58979,6 +59118,8 @@ export namespace Schemas {
     }
 
     export interface MarketingAnalyticsAttributionQueryResponse {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Whether this result counted a repeat converter's every conversion, after resolving the query's null against the goal's math. The rate columns are a true share only when this is false, so the table reads it to label them. */
       allowsMultipleConversionsPerVisitor: boolean;
       /** The team's configured attribution window, for the tooltips. */
@@ -59074,6 +59215,8 @@ export namespace Schemas {
     }
 
     export interface MarketingAnalyticsAttributionPathsQueryResponse {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Conversions with at least one in-window touchpoint. The share denominator — deliberately unfiltered by min/maxTouchpoints so shares stay comparable across filter values. */
       attributedConversions: number;
       /** The attribution window actually used, for the tooltips. */
@@ -59202,6 +59345,8 @@ export namespace Schemas {
     }
 
     export interface MarketingAnalyticsRetentionQueryResponse {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -59340,6 +59485,8 @@ export namespace Schemas {
     }
 
     export interface MarketingAnalyticsSearchQueryResponse {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -59560,6 +59707,8 @@ export namespace Schemas {
     }
 
     export interface MarketingAnalyticsRecommendationsQueryResponse {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Data the rules needed but could not read, so some figures use a fallback. */
       dataGaps?: MarketingAnalyticsRecommendationsDataGap[] | null;
       /** Caveat to show with the results. The results are suggestions, and impact figures are estimates. */
@@ -59665,6 +59814,8 @@ export namespace Schemas {
     } as const;
 
     export interface WebAgentAnalyticsQueryResponse {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -59777,6 +59928,8 @@ export namespace Schemas {
     }
 
     export interface WebPageDirectoryQueryResponse {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       hasMore?: boolean | null;
@@ -59870,6 +60023,8 @@ export namespace Schemas {
     }
 
     export interface WebPageURLSearchQueryResponse {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       hasMore?: boolean | null;
@@ -59957,6 +60112,8 @@ export namespace Schemas {
     }
 
     export interface WebNotableChangesQueryResponse {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -60022,6 +60179,8 @@ export namespace Schemas {
     } as const;
 
     export interface LogsQueryResponse {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       columns?: string[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -60132,6 +60291,8 @@ export namespace Schemas {
     }
 
     export interface LogAttributesQueryResponse {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       count: number;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -60186,6 +60347,8 @@ export namespace Schemas {
     }
 
     export interface LogValuesQueryResponse {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -60407,6 +60570,8 @@ export namespace Schemas {
     }
 
     export interface MetricsQueryResponse {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -60473,6 +60638,8 @@ export namespace Schemas {
     }
 
     export interface MetricsHistogramQueryResponse {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Upper bound per row (y axis), ascending. */
       bounds: number[];
       /** Observation count per cell: counts[row][column], row = bound, column = time. */
@@ -60538,6 +60705,8 @@ export namespace Schemas {
     } as const;
 
     export interface TraceSpansQueryResponse {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       hasMore?: boolean | null;
@@ -60597,6 +60766,8 @@ export namespace Schemas {
     }
 
     export interface TraceSpansAggregationQueryResponse {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Result rows for the comparison period when `compareFilter.compare` is true. */
       compare?: AggregatedSpanRow[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
@@ -60663,6 +60834,8 @@ export namespace Schemas {
     }
 
     export interface TraceSpansTreeQueryResponse {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Result rows for the comparison period when `compareFilter.compare` is true. */
       compare?: SpanTreeNode[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
@@ -60725,6 +60898,8 @@ export namespace Schemas {
     } as const;
 
     export interface TraceSpansAttributeBreakdownQueryResponse {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Result rows for the comparison period when `compareFilter.compare` is true. */
       compare?: AttributeBreakdownRow[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
@@ -60913,6 +61088,8 @@ export namespace Schemas {
     }
 
     export interface RecordingsQueryResponse {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       has_next: boolean;
@@ -60992,6 +61169,8 @@ export namespace Schemas {
     }
 
     export interface VectorSearchQueryResponse {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -61083,6 +61262,8 @@ export namespace Schemas {
     }
 
     export interface InboxUsageQueryResponse {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -61150,6 +61331,8 @@ export namespace Schemas {
     }
 
     export interface UsageMetricsQueryResponse {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -61197,6 +61380,8 @@ export namespace Schemas {
     }
 
     export interface MCPToolCallBreakdownQueryResponse {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -61243,6 +61428,8 @@ export namespace Schemas {
     }
 
     export interface MCPToolCallsAndErrorsQueryResponse {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -61293,6 +61480,8 @@ export namespace Schemas {
     }
 
     export interface MCPHarnessBreakdownQueryResponse {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -61337,6 +61526,8 @@ export namespace Schemas {
     }
 
     export interface MCPModelBreakdownQueryResponse {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Whether another page of individual model identifiers is available. */
@@ -61389,6 +61580,8 @@ export namespace Schemas {
     }
 
     export interface MCPProtocolVersionBreakdownQueryResponse {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -61438,6 +61631,8 @@ export namespace Schemas {
     }
 
     export interface MCPToolTopUsersQueryResponse {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -61494,6 +61689,8 @@ export namespace Schemas {
     }
 
     export interface MCPToolFailuresQueryResponse {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -61548,6 +61745,8 @@ export namespace Schemas {
     }
 
     export interface MCPToolFailureOccurrencesQueryResponse {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -61608,6 +61807,8 @@ export namespace Schemas {
     }
 
     export interface MCPToolStatsQueryResponse {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -61658,6 +61859,8 @@ export namespace Schemas {
     }
 
     export interface MCPToolDailyStatsQueryResponse {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -61723,6 +61926,8 @@ export namespace Schemas {
     }
 
     export interface MCPToolQualityRowsQueryResponse {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -61816,6 +62021,8 @@ export namespace Schemas {
     }
 
     export interface MCPToolQualityDailyStatsQueryResponse {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -61864,6 +62071,8 @@ export namespace Schemas {
     }
 
     export interface MCPToolCategoryCountsQueryResponse {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -61905,6 +62114,8 @@ export namespace Schemas {
     }
 
     export interface MCPToolCategoriesQueryResponse {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -61947,6 +62158,8 @@ export namespace Schemas {
     }
 
     export interface MCPToolCategoryMapQueryResponse {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -61987,6 +62200,8 @@ export namespace Schemas {
     }
 
     export interface MCPToolDescriptionsQueryResponse {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -62035,6 +62250,8 @@ export namespace Schemas {
     }
 
     export interface MCPToolSampleIntentsQueryResponse {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -62087,6 +62304,8 @@ export namespace Schemas {
     }
 
     export interface MCPToolNeighborsQueryResponse {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -62141,6 +62360,8 @@ export namespace Schemas {
     }
 
     export interface MCPMissingCapabilitiesQueryResponse {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Whether more reports exist past this page. */
@@ -62203,6 +62424,8 @@ export namespace Schemas {
     export type MCPDashboardQueryResponseResults = {[key: string]: MCPDashboardSectionResult};
 
     export interface MCPDashboardQueryResponse {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -101485,6 +101708,8 @@ export namespace Schemas {
     }
 
     export interface PropertyValuesQueryResponse {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -102771,6 +102996,8 @@ export namespace Schemas {
     }
 
     export interface TeamTaxonomyQueryResponse {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       hasMore?: boolean | null;
@@ -102844,6 +103071,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative1 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       columns: unknown[];
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -102875,6 +103104,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative2 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       columns: unknown[];
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -102904,6 +103135,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative3 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       columns: unknown[];
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -102934,6 +103167,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative4 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       columns: unknown[];
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -102976,6 +103211,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative6 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       hasMore?: boolean | null;
@@ -103008,6 +103245,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative8 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Executed ClickHouse query */
       clickhouse?: string | null;
       /** Display formats for directly selected virtual properties, aligned with columns. */
@@ -103077,6 +103316,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative11 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -103106,6 +103347,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative12 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       columns?: string[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -103134,6 +103377,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative13 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       hasMore?: boolean | null;
@@ -103161,6 +103406,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative14 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       hasMore?: boolean | null;
@@ -103188,6 +103435,8 @@ export namespace Schemas {
     export type QueryResponseAlternative15Results = {[key: string]: Results};
 
     export interface QueryResponseAlternative15 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -103212,6 +103461,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative16 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       bucket_seconds: number;
       /** ISO start of each bucket. The first one can start before `date_from`. */
       buckets: string[];
@@ -103254,6 +103505,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative17 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       columns?: string[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -103282,6 +103535,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative18 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       columns: unknown[];
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -103349,6 +103604,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative21 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       hasMore?: boolean | null;
@@ -103376,6 +103633,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative22 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       dateFrom?: string | null;
       dateTo?: string | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
@@ -103410,6 +103669,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative23 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -103447,6 +103708,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative24 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -103477,6 +103740,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative25 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -103506,6 +103771,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative27 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       hasMore?: boolean | null;
@@ -103534,6 +103801,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative28 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -103571,6 +103840,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative29 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -103606,6 +103877,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative30 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       hasMore?: boolean | null;
@@ -103641,6 +103914,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative32 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -103667,6 +103942,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative33 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       columns?: unknown[] | null;
       /** ISO timestamp of the oldest precompute window backing this result. */
       dataComputedAt?: string | null;
@@ -103705,6 +103982,8 @@ export namespace Schemas {
     export type QueryResponseAlternative34Results = {[key: string]: MarketingAnalyticsItem};
 
     export interface QueryResponseAlternative34 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** ISO timestamp of the oldest precompute window backing this result. */
       dataComputedAt?: string | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
@@ -103736,6 +104015,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative35 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Whether this result counted a repeat converter's every conversion, after resolving the query's null against the goal's math. The rate columns are a true share only when this is false, so the table reads it to label them. */
       allowsMultipleConversionsPerVisitor: boolean;
       /** The team's configured attribution window, for the tooltips. */
@@ -103775,6 +104056,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative36 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Conversions with at least one in-window touchpoint. The share denominator — deliberately unfiltered by min/maxTouchpoints so shares stay comparable across filter values. */
       attributedConversions: number;
       /** The attribution window actually used, for the tooltips. */
@@ -103810,6 +104093,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative37 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -103847,6 +104132,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative38 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -103875,6 +104162,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative39 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Data the rules needed but could not read, so some figures use a fallback. */
       dataGaps?: MarketingAnalyticsRecommendationsDataGap[] | null;
       /** Caveat to show with the results. The results are suggestions, and impact figures are estimates. */
@@ -103903,6 +104192,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative40 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       columns: unknown[];
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -103934,6 +104225,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative41 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       columns: unknown[];
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -103964,6 +104257,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative42 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       columns: unknown[];
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -103994,6 +104289,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative43 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Executed ClickHouse query */
       clickhouse?: string | null;
       /** Display formats for directly selected virtual properties, aligned with columns. */
@@ -104038,6 +104335,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative44 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       dateFrom?: string | null;
       dateTo?: string | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
@@ -104072,6 +104371,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative45 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -104109,6 +104410,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative46 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -104139,6 +104442,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative47 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -104168,6 +104473,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative48 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -104205,6 +104512,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative49 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -104240,6 +104549,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative50 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -104269,6 +104580,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative51 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       columns: unknown[];
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -104298,6 +104611,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative52 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       columns?: unknown[] | null;
       /** ISO timestamp of the oldest precompute window backing this result. */
       dataComputedAt?: string | null;
@@ -104336,6 +104651,8 @@ export namespace Schemas {
     export type QueryResponseAlternative53Results = {[key: string]: MarketingAnalyticsItem};
 
     export interface QueryResponseAlternative53 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** ISO timestamp of the oldest precompute window backing this result. */
       dataComputedAt?: string | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
@@ -104367,6 +104684,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative54 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       columns?: string[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -104395,6 +104714,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative55 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       columns?: string[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -104423,6 +104744,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative56 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       columns?: string[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -104451,6 +104774,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative58 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -104480,6 +104805,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative59 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       columns: unknown[];
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -104512,6 +104839,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative60 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       columns?: (AccountsTableAccountFieldColumn | AccountsTableTagsColumn | AccountsTableNoteCountColumn | AccountsTableRelationshipColumn | AccountsTableCustomPropertyColumn | AccountsTableCustomPropertyHistoryColumn)[] | null;
       customPropertyDefinitions?: AccountsTableCustomPropertyDefinition[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
@@ -104554,6 +104883,8 @@ export namespace Schemas {
     export interface QueryResponseAlternative61 {
       /** The name of each action the query's series reference, keyed by action id. A series saved without a `name` displays this name, because the query holds only the action's id. */
       action_names?: QueryResponseAlternative61ActionNames;
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       boxplot_data?: BoxPlotDatum[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -104581,6 +104912,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative62 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -104607,6 +104940,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative63 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -104631,6 +104966,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative64 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -104655,6 +104992,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative65 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -104688,6 +105027,8 @@ export namespace Schemas {
     export interface QueryResponseAlternative66 {
       /** The name of each action the query's series reference, keyed by action id. A series saved without a `name` displays this name, because the query holds only the action's id. */
       action_names?: QueryResponseAlternative66ActionNames;
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -104719,6 +105060,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative69 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       has_next: boolean;
@@ -104746,6 +105089,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative70 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       columns?: string[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -104776,6 +105121,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative71 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       count: number;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -104801,6 +105148,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative72 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -104825,6 +105174,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative73 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -104849,6 +105200,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative74 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Upper bound per row (y axis), ascending. */
       bounds: number[];
       /** Observation count per cell: counts[row][column], row = bound, column = time. */
@@ -104879,6 +105232,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative75 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       hasMore?: boolean | null;
@@ -104908,6 +105263,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative76 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Result rows for the comparison period when `compareFilter.compare` is true. */
       compare?: AggregatedSpanRow[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
@@ -104934,6 +105291,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative77 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Result rows for the comparison period when `compareFilter.compare` is true. */
       compare?: SpanTreeNode[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
@@ -104960,6 +105319,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative78 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Result rows for the comparison period when `compareFilter.compare` is true. */
       compare?: AttributeBreakdownRow[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
@@ -104992,6 +105353,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative80 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       hasMore?: boolean | null;
@@ -105019,6 +105382,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative81 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       hasMore?: boolean | null;
@@ -105046,6 +105411,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative82 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -105070,6 +105437,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative83 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       columns?: string[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -105098,6 +105467,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative86 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -105122,6 +105493,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative87 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -105146,6 +105519,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative88 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -105170,6 +105545,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative89 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       columns: unknown[];
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -105202,6 +105579,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative90 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       columns?: (AccountsTableAccountFieldColumn | AccountsTableTagsColumn | AccountsTableNoteCountColumn | AccountsTableRelationshipColumn | AccountsTableCustomPropertyColumn | AccountsTableCustomPropertyHistoryColumn)[] | null;
       customPropertyDefinitions?: AccountsTableCustomPropertyDefinition[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
@@ -105235,6 +105614,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative91 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -105259,6 +105640,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative92 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -105283,6 +105666,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative93 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -105307,6 +105692,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative94 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -105331,6 +105718,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative95 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -105355,6 +105744,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative96 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
@@ -105386,6 +105777,8 @@ export namespace Schemas {
     export type QueryResponseAlternative97ResultsItem = { [key: string]: unknown };
 
     export interface QueryResponseAlternative97 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -105410,6 +105803,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative98 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -105434,6 +105829,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative99 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -105458,6 +105855,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative100 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -105482,6 +105881,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative101 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Whether another page of individual model identifiers is available. */
@@ -105508,6 +105909,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative102 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -105532,6 +105935,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative103 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -105556,6 +105961,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative104 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -105580,6 +105987,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative105 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -105604,6 +106013,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative106 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -105629,6 +106040,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative107 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -105653,6 +106066,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative108 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -105683,6 +106098,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative109 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -105707,6 +106124,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative110 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -105731,6 +106150,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative111 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -105755,6 +106176,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative112 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -105779,6 +106202,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative113 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -105803,6 +106228,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative114 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -105827,6 +106254,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative115 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -105851,6 +106280,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative116 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Whether more reports exist past this page. */
@@ -105882,6 +106313,8 @@ export namespace Schemas {
     export type QueryResponseAlternative117Results = {[key: string]: MCPDashboardSectionResult};
 
     export interface QueryResponseAlternative117 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -105907,6 +106340,8 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative118 {
+      /** Optional suggestions for an agent caller, such as open warehouse suggestions about views this query read. Set only on fresh runs for agent callers. Not part of the result: MCP guidance decides whether to show them. */
+      agent_notices?: AgentNotice[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
