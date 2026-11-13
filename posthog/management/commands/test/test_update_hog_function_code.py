@@ -1,3 +1,5 @@
+import hmac
+import hashlib
 from io import StringIO
 
 from posthog.test.base import BaseTest
@@ -9,6 +11,8 @@ from parameterized import parameterized
 
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.validation import compile_hog as compile_hog_for_check
+
+from common.hogvm.python.execute import execute_bytecode
 
 # The powerplatform branch the migration must splice into stale Microsoft Teams functions.
 POWERPLATFORM_BRANCH = "environment.api.powerplatform.com(:443)?/powerautomate/automations/direct/(.*/)?workflows"
@@ -146,7 +150,7 @@ if (res.status >= 400) {
 """.strip()
 
 
-# The signature parsing lines of both Stripe webhook templates before the fix, with the code between them trimmed.
+# The signature check of the Stripe webhook source template before the fix, with the code between its lines trimmed.
 STRIPE_STALE_PARSING = """let timestamp := null
 let v1Signature := null
 for (let _, part in splitByString(',', request.headers['stripe-signature'])) {
@@ -164,27 +168,6 @@ if (empty(timestamp) or empty(v1Signature)) {
 }
 let computedSignature := sha256HmacChainHex([inputs.signing_secret, concat(timestamp, '.', request.stringBody)])
 if (computedSignature != v1Signature) {
-    return {'httpResponse': {'status': 400, 'body': 'Bad signature'}}
-}
-"""
-
-STRIPE_FIXED_PARSING = """let timestamp := null
-let v1Signatures := []
-for (let _, part in splitByString(',', request.headers['stripe-signature'])) {
-    let trimmed := trim(part)
-    if (startsWith(trimmed, 't=')) {
-        timestamp := splitByString('=', trimmed, 2)[2]
-    }
-    if (startsWith(trimmed, 'v1=')) {
-        let v1Parts := splitByString('=', trimmed, 2)
-        v1Signatures := arrayPushBack(v1Signatures, v1Parts[2])
-    }
-}
-if (empty(timestamp) or empty(v1Signatures)) {
-    return {'httpResponse': {'status': 400, 'body': 'Could not parse signature'}}
-}
-let computedSignature := sha256HmacChainHex([inputs.signing_secret, concat(timestamp, '.', request.stringBody)])
-if (not has(v1Signatures, computedSignature)) {
     return {'httpResponse': {'status': 400, 'body': 'Bad signature'}}
 }
 """
@@ -670,14 +653,21 @@ class TestUpdateHogFunctionCode(BaseTest):
         assert edited.hog == edited_hog
         compile_hog_for_check(stale.hog, "destination")
 
-    @parameterized.expand(
-        [
-            ("source_webhook", "template-source-stripe-webhook"),
-            ("warehouse_source_webhook", "template-warehouse-source-stripe"),
-        ]
-    )
-    def test_stripe_signature_header_parsing_migration(self, function_type, template_id) -> None:
-        stale, hand_edited = self._create_stripe_functions(function_type, template_id)
+    def test_stripe_signature_header_parsing_migration(self) -> None:
+        with patch("products.cdp.backend.models.hog_functions.hog_function.reload_hog_functions_on_workers"):
+            stale, hand_edited = (
+                HogFunction.objects.create(
+                    team=self.team,
+                    name="Stripe webhook",
+                    type="source_webhook",
+                    template_id="template-source-stripe-webhook",
+                    hog=hog,
+                    bytecode=compile_hog_for_check(hog, "source_webhook"),
+                    enabled=True,
+                )
+                for hog in (STRIPE_STALE_PARSING, STRIPE_HAND_EDITED_PARSING)
+            )
+        assert _run_stripe_delivery(stale.bytecode) == {"httpResponse": {"status": 400, "body": "Bad signature"}}
 
         for expected in ("Updated: 1", "Updated: 0"):
             out = StringIO()
@@ -686,20 +676,14 @@ class TestUpdateHogFunctionCode(BaseTest):
 
         stale.refresh_from_db()
         hand_edited.refresh_from_db()
-        assert stale.hog == STRIPE_FIXED_PARSING
-        assert stale.bytecode == compile_hog_for_check(stale.hog, function_type)
+        assert _run_stripe_delivery(stale.bytecode) is None
         assert hand_edited.hog == STRIPE_HAND_EDITED_PARSING
 
-    def _create_stripe_functions(self, function_type: str, template_id: str) -> list[HogFunction]:
-        with patch("products.cdp.backend.models.hog_functions.hog_function.reload_hog_functions_on_workers"):
-            return [
-                HogFunction.objects.create(
-                    team=self.team,
-                    name="Stripe webhook",
-                    type=function_type,
-                    template_id=template_id,
-                    hog=hog,
-                    enabled=True,
-                )
-                for hog in (STRIPE_STALE_PARSING, STRIPE_HAND_EDITED_PARSING)
-            ]
+
+def _run_stripe_delivery(bytecode: list) -> object:
+    body = '{"type": "invoice.paid"}'
+    timestamp = "1700000000"
+    signature = hmac.new(b"whsec_test", f"{timestamp}.{body}".encode(), hashlib.sha256).hexdigest()
+    header = f"t={timestamp},v1={signature},v1={'f' * 64},secret=whsec_test,destination=we_test,payload=a1b2c3d4"
+    request = {"headers": {"stripe-signature": header}, "stringBody": body}
+    return execute_bytecode(bytecode, {"request": request, "inputs": {"signing_secret": "whsec_test"}}).result

@@ -18,13 +18,13 @@ class _Replacement(TypedDict):
 
 
 class _ReplaceOption(TypedDict):
-    template_ids: list[str]
-    function_types: NotRequired[list[str]]
+    template_id: str
     replacements: list[_Replacement]
     # Skip a destination entirely unless its hog contains this string. For options whose replacements
     # would otherwise also match code deliberately left behind (e.g. a sunset version kept dead on
     # purpose), this pins the run to the intended cohort.
     only_if_contains: NotRequired[str]
+    function_type: NotRequired[str]
     # Skip a function unless every replacement matches, so a variable renamed across lines is never half renamed.
     all_or_nothing: NotRequired[bool]
 
@@ -50,7 +50,7 @@ class Command(BaseCommand):
 
         replaceOptions: dict[str, _ReplaceOption] = {
             "linked-api-version-update": {
-                "template_ids": ["template-linkedin-ads"],
+                "template_id": "template-linkedin-ads",
                 "replacements": [
                     {
                         "from_string": "'LinkedIn-Version': '202409'",
@@ -77,7 +77,7 @@ class Command(BaseCommand):
             # collect-and-guard form. only_if_contains keeps the userInfo replacements, which match
             # both eras' code, from touching the excluded 202409 destinations.
             "linkedin-api-version-update-202607": {
-                "template_ids": ["template-linkedin-ads"],
+                "template_id": "template-linkedin-ads",
                 "only_if_contains": "'LinkedIn-Version': '202508'",
                 "replacements": [
                     {
@@ -99,7 +99,7 @@ class Command(BaseCommand):
                 ],
             },
             "meta-ads-api-version-update": {
-                "template_ids": ["template-meta-ads"],
+                "template_id": "template-meta-ads",
                 "replacements": [
                     {
                         "from_string": "graph.facebook.com/v21.0/",
@@ -115,7 +115,7 @@ class Command(BaseCommand):
             # separately with customer awareness. Destinations carry whatever version the template
             # pinned at creation; only one matches per destination, and a v24 no-op is skipped.
             "google-ads-api-version-update": {
-                "template_ids": ["template-google-ads"],
+                "template_id": "template-google-ads",
                 "replacements": [
                     {"from_string": f"googleads.googleapis.com/v{v}/", "to_string": "googleads.googleapis.com/v24/"}
                     for v in range(19, 24)
@@ -127,7 +127,7 @@ class Command(BaseCommand):
             # standard 4-branch and the powerplatform.com:443 variant share the same tail, and the
             # original single-branch (logic.azure.com only) block is replaced whole.
             "microsoft-teams-powerplatform-url": {
-                "template_ids": ["template-microsoft-teams"],
+                "template_id": "template-microsoft-teams",
                 "replacements": [
                     {
                         "from_string": "not match(inputs.webhookUrl, '^https://[^/]+.flow.microsoft.com/[^/]+')) {\n    throw Error('Invalid URL. The URL should match either Azure Logic Apps format (https://<region>.logic.azure.com:443/workflows/...), Power Platform format (https://<tenant>.webhook.office.com/webhookb2/...), or Power Automate format (https://<region>.powerautomate.com/... or https://<region>.flow.microsoft.com/...)')",
@@ -144,7 +144,7 @@ class Command(BaseCommand):
             # `direct/workflows/` regex rejected valid URLs. Widen the path to allow those segments
             # on functions already deployed with the stale pattern.
             "microsoft-teams-powerplatform-cu-path": {
-                "template_ids": ["template-microsoft-teams"],
+                "template_id": "template-microsoft-teams",
                 "replacements": [
                     {
                         "from_string": "automations/direct/workflows/.*')",
@@ -159,7 +159,7 @@ class Command(BaseCommand):
             # Numeric external IDs (e.g. a numeric user ID) crashed in trim() before the fetch, so the
             # conversion was never sent. Functions created earlier keep the frozen code without toString().
             "openai-ads-numeric-external-id": {
-                "template_ids": ["template-openai-ads"],
+                "template_id": "template-openai-ads",
                 "replacements": [
                     {
                         "from_string": "sha256Hex(trim(inputs.externalId))",
@@ -167,12 +167,11 @@ class Command(BaseCommand):
                     },
                 ],
             },
-            # Existing Microsoft Ads destinations hash email and phone in a form Microsoft cannot match, and do
-            # not send the required dataProvider. One replacement covers both checks, so it cannot half-apply.
             # Stripe sends one `v1` per signing secret and fields such as `secret=`, which the old parser misread.
+            # Warehouse Stripe sources need no rewrite because they run the template's bytecode.
             "stripe-signature-header-parsing": {
-                "template_ids": ["template-source-stripe-webhook", "template-warehouse-source-stripe"],
-                "function_types": ["source_webhook", "warehouse_source_webhook"],
+                "template_id": "template-source-stripe-webhook",
+                "function_type": "source_webhook",
                 "all_or_nothing": True,
                 "replacements": [
                     {"from_string": "let v1Signature := null", "to_string": "let v1Signatures := []"},
@@ -192,8 +191,10 @@ class Command(BaseCommand):
                     },
                 ],
             },
+            # Existing Microsoft Ads destinations hash email and phone in a form Microsoft cannot match, and do
+            # not send the required dataProvider. One replacement covers both checks, so it cannot half-apply.
             "microsoft-ads-capi-normalization": {
-                "template_ids": ["template-microsoft-ads"],
+                "template_id": "template-microsoft-ads",
                 "replacements": [
                     {
                         "from_string": """if (not empty(inputs.email)) {
@@ -275,9 +276,9 @@ if (not empty(inputs.phone)) {
         replaceOption = replaceOptions[replace_key]
 
         queryset = HogFunction.objects.filter(
-            type__in=replaceOption.get("function_types", ["destination"]),
+            type=replaceOption.get("function_type", "destination"),
             deleted=False,
-            template_id__in=replaceOption["template_ids"],
+            template_id=replaceOption["template_id"],
         )
 
         updated_count = 0
@@ -301,13 +302,13 @@ if (not empty(inputs.phone)) {
                 if not destination.hog:
                     continue
 
-                required_marker = replaceOption.get("only_if_contains")
-                if required_marker and required_marker not in destination.hog:
-                    continue
-
                 if replaceOption.get("all_or_nothing") and not all(
                     replacement["from_string"] in destination.hog for replacement in replaceOption["replacements"]
                 ):
+                    continue
+
+                required_marker = replaceOption.get("only_if_contains")
+                if required_marker and required_marker not in destination.hog:
                     continue
 
                 new_hog = destination.hog
