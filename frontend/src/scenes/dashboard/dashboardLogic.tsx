@@ -173,6 +173,7 @@ import {
 import { TileFiltersOverride } from 'products/dashboards/frontend/TileFiltersOverride'
 import { calculateDuplicateLayout, calculateLayouts } from 'products/dashboards/frontend/tileLayouts'
 import { tileLogic } from 'products/dashboards/frontend/tileLogic'
+import type { TileCarryKind } from 'products/dashboards/frontend/useCarryTile'
 import {
     chunkTileIds,
     fetchRunWidgets,
@@ -815,7 +816,7 @@ export interface dashboardLogicValues {
     canSaveProjectDashboardTemplate: boolean
     canUndoLayoutChange: boolean
     cancellingPreview: boolean
-    carryingTile: boolean
+    carryingTile: TileCarryKind | null
     changedFilterCount: number
     collapsedTileGroupKeys: string[]
     collapsedTileIds: Set<number>
@@ -1496,8 +1497,8 @@ export interface dashboardLogicActions {
     setButtonTileId: (buttonTileId: DashboardTileIdOrNew) => {
         buttonTileId: DashboardTileIdOrNew
     }
-    setCarryingTile: (carryingTile: boolean) => {
-        carryingTile: boolean
+    setCarryingTile: (carryingTile: TileCarryKind | null) => {
+        carryingTile: TileCarryKind | null
     }
     setCompareFilter: (compareFilter: CompareFilter | null) => {
         compareFilter: CompareFilter | null
@@ -2377,7 +2378,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             widgets: { widgetType: string; config: Record<string, unknown> }[]
         }) => payload,
         setAddWidgetModalOpen: (open: boolean) => ({ open }),
-        setCarryingTile: (carryingTile: boolean) => ({ carryingTile }),
+        setCarryingTile: (carryingTile: TileCarryKind | null) => ({ carryingTile }),
         toggleAddWidgetSelectedType: (widgetType: string) => ({ widgetType }),
         clearAddWidgetSelectedTypes: true,
         toggleAddWidgetCollapsedGroup: (groupId: string) => ({ groupId }),
@@ -3833,10 +3834,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
         carryingTile: [
-            false,
+            null as TileCarryKind | null,
             {
                 setCarryingTile: (_, { carryingTile }) => carryingTile,
-                setDashboardMode: () => false,
+                setDashboardMode: () => null,
             },
         ],
         addWidgetSelectedTypes: [
