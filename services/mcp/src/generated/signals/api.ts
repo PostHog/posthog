@@ -3421,7 +3421,7 @@ export const SignalsScoutProjectProfileGetQueryParams = () => zod.object({
 })
 
 /**
- * Return the discussions people opened with Ask AI on inbox reports your scout emitted or edited, newest first, each with the latest summary of the conversation and its outcome. Callable only from a scout run, which is read from the run's credential.
+ * Return the discussions people opened with Ask AI or in a report's Slack thread on inbox reports your scout emitted or edited, newest first, each with the latest summary of the conversation and its outcome. Callable only from a scout run, which is read from the run's credential.
  * @summary List discussions on your scout's reports
  */
 export const SignalsScoutReportDiscussionsListParams = () => zod.object({
