@@ -70,7 +70,8 @@ def _issue(
     *,
     state: str = "waiting_on_you",
     priority: str | None = None,
-    title: str = "Help with billing",
+    title: str = "Refund escalation for VIP account",
+    customer_portal_title: str | None = "Help with billing",
     tags: list[str] | None = None,
     requester: dict[str, Any] | None = None,
     workspace_email: str | None = None,
@@ -80,6 +81,7 @@ def _issue(
         "id": issue_id,
         "number": 7,
         "title": title,
+        "customer_portal_title": customer_portal_title,
         "state": state,
         "body_html": body_html,
         "created_at": CREATED_AT,
@@ -230,6 +232,11 @@ class TestPylonImportBatchActivity(BaseTest):
         assert tickets["i-111"].status == Status.RESOLVED
         assert (tickets["i-111"].unread_team_count, tickets["i-111"].unread_customer_count) == (0, 0)
         client.issue_status_categories.assert_called_once()
+
+    def test_internal_title_never_becomes_the_reply_subject(self) -> None:
+        self._run_batch([_issue("i-130", customer_portal_title=None)])
+
+        assert Ticket.objects.get(team_id=self.team.id, pylon_issue_id="i-130").email_subject is None
 
     def test_issue_body_is_kept_when_the_messages_list_is_empty(self) -> None:
         self._run_batch([_issue("i-120", body_html="<p>Opening text</p>")], messages={"i-120": []})

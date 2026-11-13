@@ -465,7 +465,9 @@ def _build_ticket(
         distinct_id=distinct_id,
         status=_issue_status(client, issue),
         priority=_issue_priority(issue),
-        email_subject=_clean(issue.get("title"))[:500] or None,
+        # `title` is the internal triage title. Replies send this subject to the customer, so only
+        # the customer-facing title may go here; without one, replies use the generic subject.
+        email_subject=_clean(issue.get("customer_portal_title"))[:500] or None,
         email_from=requester_email or None,
         identity_verified=False,
         email_config=email_channel or email_channels.default,
