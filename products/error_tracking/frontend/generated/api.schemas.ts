@@ -955,6 +955,17 @@ export interface ErrorTrackingIssueCohortReadApi {
     name: string
 }
 
+export interface ErrorTrackingIssueTagReadApi {
+    /** Key of the tag. Pass it as `issueTag.key` to filter the issue list. */
+    key: string
+    /** Short name of the tag. */
+    label: string
+    /** What the tag means, for a tooltip. */
+    description: string
+    /** The tagger that applied the tag: `jev` for AI, `manual` for a person. */
+    source: string
+}
+
 /**
  * Read-only serializer for issue contract types returned by the facade.
  */
@@ -972,6 +983,8 @@ export interface ErrorTrackingIssueReadApi {
     assignee: ErrorTrackingIssueAssigneeReadApi | null
     external_issues: ErrorTrackingExternalReferenceResultApi[]
     cohort: ErrorTrackingIssueCohortReadApi | null
+    /** The enabled tags that are applied to the issue. Only issue detail returns it, and only while the project has an enabled tag. */
+    tags?: ErrorTrackingIssueTagReadApi[]
 }
 
 export interface PaginatedErrorTrackingIssueReadListApi {
@@ -1201,6 +1214,20 @@ export interface ErrorTrackingIssueBulkRequestApi {
 export interface ErrorTrackingIssueExistsResponseApi {
     /** Whether the project has recorded any issue at all. */
     exists: boolean
+}
+
+export interface ErrorTrackingIssueTagDefinitionApi {
+    /** Key of the tag. Pass it as `issueTag.key` to filter the issue list. */
+    key: string
+    /** Short name of the tag. */
+    label: string
+    /** What the tag means, for a tooltip. */
+    description: string
+}
+
+export interface ErrorTrackingIssueTagDefinitionsResponseApi {
+    /** The tags enabled for the project. Empty while issue tags are off for the project. */
+    results: ErrorTrackingIssueTagDefinitionApi[]
 }
 
 export interface ErrorTrackingIssueValueApi {
@@ -1634,9 +1661,10 @@ export const OrderDirectionEnumApi = {
  * * `correlation` - correlation
  * * `diagnostics` - diagnostics
  */
-export type IncludeEnumApi = (typeof IncludeEnumApi)[keyof typeof IncludeEnumApi]
+export type ErrorTrackingIssueEventsQueryRequestIncludeEnumApi =
+    (typeof ErrorTrackingIssueEventsQueryRequestIncludeEnumApi)[keyof typeof ErrorTrackingIssueEventsQueryRequestIncludeEnumApi]
 
-export const IncludeEnumApi = {
+export const ErrorTrackingIssueEventsQueryRequestIncludeEnumApi = {
     Exception: 'exception',
     Stacktrace: 'stacktrace',
     CodeVariables: 'code_variables',
@@ -1678,7 +1706,7 @@ export interface ErrorTrackingIssueEventsQueryRequestApi {
      */
     offset?: number
     /** Context groups to return. Defaults to exception, environment, navigation, and correlation. Request stacktrace for frames, code_variables for captured and SDK-masked frame variables, release for release metadata, or diagnostics for ingestion errors. code_variables implies stacktrace. */
-    include?: IncludeEnumApi[]
+    include?: ErrorTrackingIssueEventsQueryRequestIncludeEnumApi[]
     /** When true, include only stack frames marked in_app. Defaults to true. */
     onlyAppFrames?: boolean
 }

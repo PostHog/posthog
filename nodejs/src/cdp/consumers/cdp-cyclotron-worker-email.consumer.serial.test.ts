@@ -3,13 +3,14 @@ import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 import { SESv2Client } from '@aws-sdk/client-sesv2'
 import { DateTime } from 'luxon'
 import { randomUUID } from 'node:crypto'
-import { AddressInfo, Socket, connect, createServer } from 'node:net'
 import { Client, Pool } from 'pg'
 import { Histogram, register } from 'prom-client'
 
 import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
 import {
     BucketProxy,
+    EmailQueueOfOneTest,
+    PostgresProxy,
     StoredFile,
     attachmentStoreConfig,
     deliveredTo,
@@ -20,10 +21,10 @@ import { FakeSes, startFakeSes } from '~/cdp/_tests/fake-ses'
 import { insertHogFunctionTemplate, insertIntegration } from '~/cdp/_tests/fixtures'
 import { insertHogFlow } from '~/cdp/_tests/fixtures-hogflows'
 import { HogFlow } from '~/cdp/schema/hogflow'
-import { CyclotronV2Manager } from '~/cdp/services/cyclotron-v2'
+import { CyclotronV2Janitor, CyclotronV2Manager, CyclotronV2WorkerConfig } from '~/cdp/services/cyclotron-v2'
 import { createHogFlowInvocation } from '~/cdp/services/hogflows/hogflow-executor.service'
 import { TRANSACTIONAL_EMAIL_EVENT } from '~/cdp/services/hogflows/hogflow-sensitivity'
-import { CONSUMER_STOP_DEADLINE_MS, CyclotronJobQueuePostgresV2 } from '~/cdp/services/job-queue/job-queue-postgres-v2'
+import { CONSUMER_STOP_DEADLINE_MS } from '~/cdp/services/job-queue/job-queue-postgres-v2'
 import { LONGEST_WAIT_FOR_ROOM_MS } from '~/cdp/services/messaging/attachment-horizon'
 import {
     InFlightLimits,
@@ -31,7 +32,7 @@ import {
     LARGEST_SEND_FILE_BYTES,
     estimateSend,
 } from '~/cdp/services/messaging/in-flight-registry'
-import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueueKind } from '~/cdp/types'
+import { CyclotronJobInvocation } from '~/cdp/types'
 import { convertToHogFunctionFilterGlobal } from '~/cdp/utils/hog-function-filtering'
 import { KAFKA_EMAIL_STATUS } from '~/common/config/kafka-topics'
 import { closeHub, createHub } from '~/common/utils/db/hub'
@@ -55,155 +56,12 @@ jest.mock('node:dns/promises', () => ({
     })),
 }))
 
-class EmailQueueOfOneTest extends CyclotronJobQueuePostgresV2 {
-    constructor(
-        private readonly queueName: string,
-        config: ConstructorParameters<typeof CyclotronJobQueuePostgresV2>[1]
-    ) {
-        super(10, config)
-    }
-
-    public override startAsConsumer(
-        _queue: CyclotronJobQueueKind,
-        consumeBatch: (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>
-    ): Promise<void> {
-        return super.startAsConsumer(this.queueName as CyclotronJobQueueKind, (invocations) =>
-            consumeBatch(invocations.map((invocation) => ({ ...invocation, queue: 'email' })))
-        )
-    }
-
-    public override queueInvocations(invocations: CyclotronJobInvocation[]): Promise<void> {
-        return super.queueInvocations(invocations.map((invocation) => this.onOwnQueue(invocation)))
-    }
-
-    public override queueInvocationResults(results: CyclotronJobInvocationResult[]): Promise<void> {
-        return super.queueInvocationResults(
-            results.map((result) => ({ ...result, invocation: this.onOwnQueue(result.invocation) }))
-        )
-    }
-
-    private onOwnQueue(invocation: CyclotronJobInvocation): CyclotronJobInvocation {
-        const queue = invocation.queue === 'email' ? this.queueName : `${this.queueName}/${invocation.queue}`
-        return { ...invocation, queue: queue as CyclotronJobQueueKind }
-    }
-}
-
-type HeldQuery = { release: () => void; drop: () => void }
-
-const SSL_REQUEST = 80877103
-const GSS_ENCRYPTION_REQUEST = 80877104
-const ENDS_A_REQUEST = new Set(['S', 'Q', 'X', 'p', 'H', 'c', 'f'])
-
-class CyclotronProxy {
-    url = ''
-    private readonly waiting: { matches: (request: string) => boolean; caught: (held: HeldQuery) => void }[] = []
-    private readonly holding = new Set<HeldQuery>()
-    private readonly sockets = new Set<Socket>()
-    private readonly server = createServer((client) => this.forward(client))
-
-    static async start(upstream: URL): Promise<CyclotronProxy> {
-        const proxy = new CyclotronProxy(upstream)
-        await new Promise<void>((resolve) => proxy.server.listen(0, '127.0.0.1', resolve))
-        const url = new URL(upstream)
-        url.host = `127.0.0.1:${(proxy.server.address() as AddressInfo).port}`
-        proxy.url = url.toString()
-        return proxy
-    }
-
-    private constructor(private readonly upstream: URL) {}
-
-    hold(matches: (request: string) => boolean): Promise<HeldQuery> {
-        return new Promise((caught) => this.waiting.push({ matches, caught }))
-    }
-
-    releaseAll(): void {
-        this.waiting.splice(0)
-        for (const held of this.holding) {
-            held.release()
-        }
-    }
-
-    async close(): Promise<void> {
-        for (const socket of this.sockets) {
-            socket.destroy()
-        }
-        await new Promise((resolve) => this.server.close(resolve))
-    }
-
-    private forward(client: Socket): void {
-        const upstream = connect(Number(this.upstream.port || 5432), this.upstream.hostname)
-        for (const socket of [client, upstream]) {
-            this.sockets.add(socket)
-            socket.on('error', () => undefined)
-            socket.on('close', () => {
-                client.destroy()
-                upstream.destroy()
-            })
-        }
-        upstream.pipe(client)
-
-        let unread = Buffer.alloc(0)
-        let request: Buffer[] = []
-        let startedUp = false
-        let paused = false
-        const forwardRequests = (): void => {
-            while (!paused) {
-                const typeBytes = startedUp ? 1 : 0
-                if (unread.length < typeBytes + 4) {
-                    return
-                }
-                const length = typeBytes + unread.readInt32BE(typeBytes)
-                if (unread.length < length) {
-                    return
-                }
-                const message = unread.subarray(0, length)
-                unread = unread.subarray(length)
-                if (!startedUp) {
-                    const code = message.readInt32BE(4)
-                    startedUp = code !== SSL_REQUEST && code !== GSS_ENCRYPTION_REQUEST
-                    upstream.write(message)
-                    continue
-                }
-                request.push(message)
-                if (!ENDS_A_REQUEST.has(String.fromCharCode(message[0]))) {
-                    continue
-                }
-                const whole = Buffer.concat(request)
-                request = []
-                const index = this.waiting.findIndex(({ matches }) => matches(whole.toString('latin1')))
-                if (index === -1) {
-                    upstream.write(whole)
-                    continue
-                }
-                const [{ caught }] = this.waiting.splice(index, 1)
-                paused = true
-                const held: HeldQuery = {
-                    release: () => {
-                        this.holding.delete(held)
-                        upstream.write(whole)
-                        paused = false
-                        forwardRequests()
-                    },
-                    drop: () => {
-                        this.holding.delete(held)
-                        client.destroy()
-                    },
-                }
-                this.holding.add(held)
-                caught(held)
-            }
-        }
-        client.on('data', (chunk: Buffer) => {
-            unread = Buffer.concat([unread, chunk])
-            forwardRequests()
-        })
-    }
-}
-
 const completes = (request: string): boolean => request.includes("SET status = 'completed'")
 const fails = (request: string): boolean => request.includes("SET status = 'failed'")
 const dequeues = (request: string): boolean => request.includes("SET status = 'running'")
 const defers = (request: string): boolean => request.includes('dequeue_seq = COALESCE')
+const checksOwnership = (request: string): boolean =>
+    request.includes('SELECT 1 FROM cyclotron_jobs WHERE id = $1 AND lock_id = $2')
 const writeOf =
     (write: (request: string) => boolean, id: string) =>
     (request: string): boolean =>
@@ -238,7 +96,7 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
     let recipient: string
     let ses: FakeSes
     let bucket: BucketProxy
-    let cyclotron: CyclotronProxy
+    let cyclotron: PostgresProxy
     let workers: CdpCyclotronWorkerEmail[]
     let producer: EmailQueueOfOneTest
     let invoice: StoredFile
@@ -278,7 +136,7 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
             [hub.SES_UNTRACKED_CONFIGURATION_SET]: { tracking: false },
         })
         bucket = await BucketProxy.start()
-        cyclotron = await CyclotronProxy.start(new URL(hub.CYCLOTRON_NODE_DATABASE_URL!))
+        cyclotron = await PostgresProxy.start(new URL(hub.CYCLOTRON_NODE_DATABASE_URL!))
         mockProducerObserver.resetKafkaProducer()
 
         integration = await insertIntegration(hub.postgres, team.id, {
@@ -383,7 +241,9 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
     async function startWorker(
         limits: InFlightLimits | null,
         sesClient: SESv2Client = sesClientFor(ses),
-        postgres: PostgresRouter = hub.postgres
+        postgres: PostgresRouter = hub.postgres,
+        overrides: Partial<Hub> = {},
+        workerOverrides: Partial<CyclotronV2WorkerConfig> = {}
     ): Promise<CdpCyclotronWorkerEmail> {
         const config = {
             ...hub,
@@ -393,11 +253,12 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
             CDP_EMAIL_ATTACHMENTS_S3_ENDPOINT: bucket.endpoint,
             CDP_EMAIL_ATTACHMENTS_S3_PREFIX: attachmentStoreConfig.CDP_EMAIL_ATTACHMENTS_S3_PREFIX,
             EMAIL_STATUS_ENABLED: true,
+            ...overrides,
         }
         const worker = new CdpCyclotronWorkerEmail(
             config,
             { ...createCdpConsumerDeps(hub), postgres },
-            new EmailQueueOfOneTest(queueName, config),
+            new EmailQueueOfOneTest(queueName, config, workerOverrides),
             new InFlightRegistry(limits, () => 0)
         )
         worker.emailService.sesV2Client = sesClient
@@ -485,6 +346,115 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
         )
         return latest && { status: latest.status, reason: latest.reason, sendingDomain: latest.sending_domain }
     }
+
+    it('a worker whose job the janitor re-queued to another worker does not send it, and its write is refused', async () => {
+        const ownershipChecked = { CDP_EMAIL_JOB_OWNERSHIP_CHECK_TEAMS: String(team.id) }
+        const staleReschedules = (): Promise<number> =>
+            metric('cdp_cyclotron_v2_stale_commits_total', { queue: queueName, operation: 'reschedule' })
+        const staleBefore = await staleReschedules()
+        const [id] = await enqueue(transactionalSend(null))
+        const firstWorkersCheck = cyclotron.hold(writeOf(checksOwnership, id))
+        await startWorker(null, sesClientFor(ses), hub.postgres, {
+            ...ownershipChecked,
+            CDP_CYCLOTRON_HEARTBEAT_INTERVAL_MS: 0,
+        })
+        const heldCheck = await firstWorkersCheck
+
+        await db.query(`UPDATE cyclotron_jobs SET last_heartbeat = NOW() - INTERVAL '1 minute' WHERE id = $1`, [id])
+        const janitor = new CyclotronV2Janitor({
+            pool: { dbUrl: hub.CYCLOTRON_NODE_DATABASE_URL! },
+            stallTimeoutMs: 30_000,
+            stallBackoffBaseMs: 0,
+            cleanupGraceMs: 60_000,
+        })
+        const { stalled } = await janitor.runOnce()
+        await janitor.stop()
+        expect(stalled).toBeGreaterThanOrEqual(1)
+        await startWorker(null, sesClientFor(ses), hub.postgres, ownershipChecked)
+        expect(await ended(id)).toBe('completed')
+
+        heldCheck.release()
+        await waitForExpect(async () => expect(await staleReschedules()).toBe(staleBefore + 1))
+        expect(delivered()).toEqual([[]])
+        expect((await jobRow(id)).status).toBe('completed')
+    })
+
+    it('a worker with one Postgres connection sends once while its first ownership check never gets an answer', async () => {
+        const [id] = await enqueue(transactionalSend(null))
+        const unansweredCheck = cyclotron.hold(writeOf(checksOwnership, id))
+        await startWorker(
+            null,
+            sesClientFor(ses),
+            hub.postgres,
+            { CDP_EMAIL_JOB_OWNERSHIP_CHECK_TEAMS: String(team.id) },
+            { pool: { dbUrl: cyclotron.url, maxConnections: 1 }, ownershipReadTimeoutMs: 200 }
+        )
+        await unansweredCheck
+
+        expect(await ended(id)).toBe('completed')
+        expect(delivered()).toEqual([[]])
+    })
+
+    it('a worker that claims its own re-queued send with files again sends it once, from the newer claim', async () => {
+        const staleReschedules = (): Promise<number> =>
+            metric('cdp_cyclotron_v2_stale_commits_total', { queue: queueName, operation: 'reschedule' })
+        const staleBefore = await staleReschedules()
+        const [id] = await enqueue(transactionalSend([invoice.metadata]))
+        const olderClaimsCheck = cyclotron.hold(writeOf(checksOwnership, id))
+        await startWorker(roomFor(2), sesClientFor(ses), hub.postgres, {
+            CDP_EMAIL_JOB_OWNERSHIP_CHECK_TEAMS: String(team.id),
+            CDP_CYCLOTRON_HEARTBEAT_INTERVAL_MS: 0,
+        })
+        const heldCheck = await olderClaimsCheck
+
+        await db.query(`UPDATE cyclotron_jobs SET last_heartbeat = NOW() - INTERVAL '1 minute' WHERE id = $1`, [id])
+        const janitor = new CyclotronV2Janitor({
+            pool: { dbUrl: hub.CYCLOTRON_NODE_DATABASE_URL! },
+            stallTimeoutMs: 30_000,
+            stallBackoffBaseMs: 0,
+            cleanupGraceMs: 60_000,
+        })
+        const { stalled } = await janitor.runOnce()
+        await janitor.stop()
+        expect(stalled).toBeGreaterThanOrEqual(1)
+        expect(await ended(id)).toBe('completed')
+
+        heldCheck.release()
+        await waitForExpect(async () => expect(await staleReschedules()).toBe(staleBefore + 1))
+        expect(delivered()).toEqual([['invoice.pdf']])
+        expect((await jobRow(id)).status).toBe('completed')
+    })
+
+    it('a worker that claims its own re-queued send with files again while the older claim still downloads sends it once', async () => {
+        const staleReschedules = (): Promise<number> =>
+            metric('cdp_cyclotron_v2_stale_commits_total', { queue: queueName, operation: 'reschedule' })
+        const staleBefore = await staleReschedules()
+        bucket.answer = 'hold'
+        const [id] = await enqueue(transactionalSend([invoice.metadata]))
+        await startWorker(roomFor(2), sesClientFor(ses), hub.postgres, {
+            CDP_EMAIL_JOB_OWNERSHIP_CHECK_TEAMS: String(team.id),
+            CDP_CYCLOTRON_HEARTBEAT_INTERVAL_MS: 0,
+        })
+        await waitForExpect(() => expect(bucket.heldRequests).toBeGreaterThan(0))
+        const olderClaimsDownloads = bucket.heldRequests
+
+        await db.query(`UPDATE cyclotron_jobs SET last_heartbeat = NOW() - INTERVAL '1 minute' WHERE id = $1`, [id])
+        const janitor = new CyclotronV2Janitor({
+            pool: { dbUrl: hub.CYCLOTRON_NODE_DATABASE_URL! },
+            stallTimeoutMs: 30_000,
+            stallBackoffBaseMs: 0,
+            cleanupGraceMs: 60_000,
+        })
+        const { stalled } = await janitor.runOnce()
+        await janitor.stop()
+        expect(stalled).toBeGreaterThanOrEqual(1)
+        await waitForExpect(() => expect(bucket.heldRequests).toBeGreaterThan(olderClaimsDownloads))
+
+        bucket.release('pass')
+        expect(await ended(id)).toBe('completed')
+        await waitForExpect(async () => expect(await staleReschedules()).toBe(staleBefore + 1))
+        expect(delivered()).toEqual([['invoice.pdf']])
+    })
 
     it('writes the plain sends of a batch and dequeues the next one while a send with files waits on its download', async () => {
         bucket.answer = 'hold'

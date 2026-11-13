@@ -496,7 +496,8 @@ The description covers the backend, frontend, and Rust workflows. The diff chang
 The PR did not merge, and no person reviewed it. The stale bot closed it. Thus there is no recorded reason for the result.
 
 Sparse-checkout is correct for small jobs, and `ci-storybook.yml`, `ci-security.yaml`, and `pr-resolve-outdated-bot-comments.yml` use it today.
-The backend timing collector keeps the full `products/` tree because its optimizer uses product directory presence to retain timings for skipped products.
+The backend timing collector uses a full checkout because its optimizer uses product directory presence to retain timings for skipped products.
+Sparse checkout enables a blobless fetch by default, which adds on-demand fetching when the collector still needs the broad `products/` tree.
 The bot IP updater needs only `bin/update-bots-list` and `nodejs/assets/bot-ips.txt`; its sparse checkout retains the tracked output so Git can detect and commit updates.
 `ci-depot-action-mirrors.yml` checks out `.depot/`, `.github/actions/`, and `depot_mirrors.py`; its Git diff still covers all changed paths.
 The Dagster path validator also uses a sparse checkout of every internal Python source file, its workflow, and the local uv action. Its import resolver needs the complete internal Python tree, including namespace packages.
@@ -519,6 +520,8 @@ It keeps the frozen filtered install and live upstream test.
 
 If you propose this again, name the jobs and prove that each one reads only the included paths. A test job can read more of the tree than an exclusion list expects.
 
+Ownership lint omits new-path metadata when it checks tracked-file coverage, so files excluded by sparse checkout do not cause another ownership lookup.
+
 Storybook's `select-stories` job checks out only `.nvmrc` from the PR head. It keeps the bounded blobless history for changed-path detection, downloads the module graph, and runs the selector from a separate trusted base checkout, which also carries `common/storybook/storybook-timings.json`. Source files do not need to exist in the PR worktree for this job. The manifest is there because it sizes the shard count, and a file count cannot size that: the stories a frontend diff affects carry about twice the render time per story that the average story does. It is read from the base checkout so the nightly refresh applies to branches behind master and a fork cannot steer the shard count.
 
 _Also asked as:_ sparse-checkout, partial clone, do not check out the whole repo, speed up the checkout step
@@ -532,7 +535,8 @@ With `fetch-depth: 1000` and `filter: blob:none`, the checkout took 42 to 46 s, 
 Without the filter it took 39 s, because the server then packs the file contents of all 1000 commits.
 A depth-1 checkout followed by `git fetch --filter=blob:none --depth=1000` takes about 7 s, and the job uses that now.
 `--deepen=999` in its place fetched nothing when GitHub had already replaced the PR's merge ref, which failed the run.
-The `test-selection-verdict` and `backend-coverage-report` jobs still use deep blobless checkouts. They run after the required gate, so no PR waits on them.
+The `test-selection-verdict` job uses the same split checkout and history fetch.
+The `backend-coverage-report` job still uses a deep blobless checkout. It runs after the required gate, so no PR waits on it.
 The Agent Skills build uses a plain depth-1 checkout on master pushes because its schema cache keys read only `HEAD`.
 Its PR checkout keeps bounded blobless history for the merge-base schema key.
 

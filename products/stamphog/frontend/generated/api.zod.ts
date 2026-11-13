@@ -16,8 +16,15 @@ export const stamphogRepoConfigsCreateBodyRoutingForkLabelsMaxOne = 50
 
 export const StamphogRepoConfigsCreateBody = /* @__PURE__ */ zod
     .object({
-        provider: zod.string().optional().describe("SCM provider this config talks to. Defaults to 'github'."),
-        repository: zod.string().describe("Repository full name, e.g. 'PostHog\/posthog'."),
+        provider: zod
+            .string()
+            .optional()
+            .describe(
+                "SCM provider this config talks to. Defaults to 'github'. Set on create only, an update ignores it."
+            ),
+        repository: zod
+            .string()
+            .describe("Repository full name, e.g. 'PostHog\/posthog'. Set on create only, an update ignores it."),
         enabled: zod.boolean().optional().describe('Whether stamphog actively reviews pull requests for this repo.'),
         digest_enabled: zod
             .boolean()
@@ -65,8 +72,15 @@ export const stamphogRepoConfigsUpdateBodyRoutingForkLabelsMaxOne = 50
 
 export const StamphogRepoConfigsUpdateBody = /* @__PURE__ */ zod
     .object({
-        provider: zod.string().optional().describe("SCM provider this config talks to. Defaults to 'github'."),
-        repository: zod.string().describe("Repository full name, e.g. 'PostHog\/posthog'."),
+        provider: zod
+            .string()
+            .optional()
+            .describe(
+                "SCM provider this config talks to. Defaults to 'github'. Set on create only, an update ignores it."
+            ),
+        repository: zod
+            .string()
+            .describe("Repository full name, e.g. 'PostHog\/posthog'. Set on create only, an update ignores it."),
         enabled: zod.boolean().optional().describe('Whether stamphog actively reviews pull requests for this repo.'),
         digest_enabled: zod
             .boolean()
@@ -114,8 +128,16 @@ export const stamphogRepoConfigsPartialUpdateBodyRoutingForkLabelsMaxOne = 50
 
 export const StamphogRepoConfigsPartialUpdateBody = /* @__PURE__ */ zod
     .object({
-        provider: zod.string().optional().describe("SCM provider this config talks to. Defaults to 'github'."),
-        repository: zod.string().optional().describe("Repository full name, e.g. 'PostHog\/posthog'."),
+        provider: zod
+            .string()
+            .optional()
+            .describe(
+                "SCM provider this config talks to. Defaults to 'github'. Set on create only, an update ignores it."
+            ),
+        repository: zod
+            .string()
+            .optional()
+            .describe("Repository full name, e.g. 'PostHog\/posthog'. Set on create only, an update ignores it."),
         enabled: zod.boolean().optional().describe('Whether stamphog actively reviews pull requests for this repo.'),
         digest_enabled: zod
             .boolean()

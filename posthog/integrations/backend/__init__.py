@@ -7,6 +7,9 @@ Tests swap in a `FakeBackend` with `posthog.integrations.testing.fake_integratio
 from collections.abc import Iterator
 from contextlib import contextmanager
 
+from django.conf import settings
+from django.core.exceptions import ImproperlyConfigured
+
 from posthog.integrations.backend.django_backend import DjangoBackend
 from posthog.integrations.backend.protocol import (
     KindScope,
@@ -17,11 +20,26 @@ from posthog.integrations.backend.protocol import (
     StorageBackend,
     TokenRefresh,
 )
+from posthog.integrations.backend.service_backend import ServiceBackend
 
-_backend: StorageBackend = DjangoBackend()
+_backend: StorageBackend | None = None
+
+
+def configured_backend() -> StorageBackend:
+    """The backend that `INTEGRATIONS_STORAGE_BACKEND` names."""
+    name = settings.INTEGRATIONS_STORAGE_BACKEND
+    if name == "django":
+        return DjangoBackend()
+    if name == "service":
+        return ServiceBackend()
+    raise ImproperlyConfigured(f"INTEGRATIONS_STORAGE_BACKEND must be 'django' or 'service', not {name!r}")
 
 
 def current_backend() -> StorageBackend:
+    global _backend
+    # Read the setting on first use, not at import, so importing the SDK does not need Django settings.
+    if _backend is None:
+        _backend = configured_backend()
     return _backend
 
 
@@ -57,9 +75,11 @@ __all__ = [
     "NewIntegration",
     "RowFilter",
     "RowScope",
+    "ServiceBackend",
     "SourceRows",
     "StorageBackend",
     "TokenRefresh",
+    "configured_backend",
     "current_backend",
     "database_read_aliases",
     "use_backend",

@@ -235,7 +235,7 @@
         "scope": "project"
     },
     "analyticsSpaces": {
-        "template": "/analytics/spaces",
+        "template": "/analytics/collections",
         "params": [],
         "scope": "project"
     },
@@ -531,6 +531,11 @@
     },
     "customerAnalyticsNotes": {
         "template": "/customer_analytics/notes",
+        "params": [],
+        "scope": "project"
+    },
+    "customerAnalyticsProductActivity": {
+        "template": "/customer_analytics/product-activity",
         "params": [],
         "scope": "project"
     },
@@ -976,6 +981,16 @@
     },
     "inbox": {
         "template": "/inbox",
+        "params": [],
+        "scope": "project"
+    },
+    "inboxActivate": {
+        "template": "/inbox/activate",
+        "params": [],
+        "scope": "project"
+    },
+    "inboxActivateWithoutGithub": {
+        "template": "/inbox/activate/without-github",
         "params": [],
         "scope": "project"
     },
@@ -1869,6 +1884,11 @@
         "params": [],
         "scope": "project"
     },
+    "transactionalCodeEmail": {
+        "template": "/transactional/code-emails/{id}",
+        "params": ["id"],
+        "scope": "project"
+    },
     "transactionalEmailLogEntry": {
         "template": "/transactional/log/{messageId}",
         "params": ["messageId"],
@@ -2009,18 +2029,13 @@
         "params": [],
         "scope": "project"
     },
-    "webAnalyticsBotAnalytics": {
-        "template": "/web/bots",
-        "params": [],
-        "scope": "project"
-    },
     "webAnalyticsContentAutopilot": {
-        "template": "/web/content-autopilot",
+        "template": "/web/ai-visibility",
         "params": [],
         "scope": "project"
     },
     "webAnalyticsContentAutopilotPrompt": {
-        "template": "/web/content-autopilot/prompts/{id}",
+        "template": "/web/ai-visibility/prompts/{id}",
         "params": ["id"],
         "scope": "project"
     },

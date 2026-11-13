@@ -369,7 +369,7 @@ describe('hog auth login', () => {
         })
 
         expect(result.exitCode).toBe(0)
-        expect(result.stdout).toContain(`Logged in to ${host}, project 42.`)
+        expect(result.stdout.split('\n')[0]).toBe(`✓ Logged in to ${host}, project 42`)
         expect(result.opened).toHaveLength(opensBrowser ? 1 : 0)
         expect(result.files[PENDING_FILE]).toBeUndefined()
         expect(readJson(result.keychain[`${host}#42`] ?? '{}')).toMatchObject(secret)
@@ -458,7 +458,7 @@ describe('hog auth login', () => {
         expect(result.error()).toMatchObject({
             code: 'project_mismatch',
             message: expect.stringContaining(
-                `/repo/apps/docs/posthog.json names project 3, and hog has no login for it on ${EU}`
+                `/repo/apps/docs/posthog.json names project 3, but you aren't logged in to it on ${EU}`
             ),
             hint: expect.stringContaining(`hog auth login --host ${EU}`),
         })

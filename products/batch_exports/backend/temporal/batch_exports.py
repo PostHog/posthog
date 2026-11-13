@@ -48,7 +48,6 @@ from products.batch_exports.backend.temporal.sql.events import (
     SELECT_FROM_EVENTS_VIEW,
     SELECT_FROM_EVENTS_VIEW_BACKFILL,
     SELECT_FROM_EVENTS_VIEW_RECENT,
-    SELECT_FROM_EVENTS_VIEW_UNBOUNDED,
     native_events_export_query,
 )
 from products.cdp.backend.internal_events import InternalEventEvent, create_internal_event, internal_event_to_dict
@@ -227,8 +226,6 @@ def select_events_query_template(
         is_backfill=is_backfill, backfill_details=backfill_details, data_interval_start=start_at
     ):
         return SELECT_FROM_DISTRIBUTED_EVENTS_RECENT
-    if str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
-        return SELECT_FROM_EVENTS_VIEW_UNBOUNDED
     if is_backfill:
         return SELECT_FROM_EVENTS_VIEW_BACKFILL
     return SELECT_FROM_EVENTS_VIEW

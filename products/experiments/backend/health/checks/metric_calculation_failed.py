@@ -170,7 +170,7 @@ _EXPOSURE_QUERY = _Wording(
 
 def metric_calculation_values(ctx: HealthContext) -> CheckValues:
     calculation = ctx.latest_calculation
-    if calculation is None:
+    if calculation is None or calculation.metric_count == 0:
         return {}
     finished_at = calculation.finished_at
     return {

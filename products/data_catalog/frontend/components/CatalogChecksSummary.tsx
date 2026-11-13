@@ -1,12 +1,31 @@
 import { useValues } from 'kea'
 
-import { Spinner } from '@posthog/quill'
+import { IconCheckCircle, IconWarning, IconXCircle } from '@posthog/icons'
+import { Badge, Spinner } from '@posthog/quill'
 
 import { dataQualityOverviewLogic } from 'products/data_quality/frontend/overview/dataQualityOverviewLogic'
 
 import { CheckCounts, ChecksSubject, passingChecks } from '../catalogTableRows'
 
 type CatalogChecksSummaryProps = { row: ChecksSubject } | { counts: CheckCounts | null; subjectKey: string | undefined }
+
+type ChecksOutcome = 'all_passing' | 'some_failing' | 'all_failing'
+
+const OUTCOME_BADGES: Record<
+    ChecksOutcome,
+    { variant: 'success' | 'warning' | 'destructive'; Icon: typeof IconCheckCircle }
+> = {
+    all_passing: { variant: 'success', Icon: IconCheckCircle },
+    some_failing: { variant: 'warning', Icon: IconWarning },
+    all_failing: { variant: 'destructive', Icon: IconXCircle },
+}
+
+function checksOutcome({ total, failing }: CheckCounts): ChecksOutcome {
+    if (failing === 0) {
+        return 'all_passing'
+    }
+    return failing === total ? 'all_failing' : 'some_failing'
+}
 
 export function CatalogChecksSummary(props: CatalogChecksSummaryProps): JSX.Element | null {
     const { runningSubjectKey } = useValues(dataQualityOverviewLogic)
@@ -23,7 +42,11 @@ export function CatalogChecksSummary(props: CatalogChecksSummaryProps): JSX.Elem
     if (!counts) {
         return null
     }
+    const { variant, Icon } = OUTCOME_BADGES[checksOutcome(counts)]
     return (
-        <span className="whitespace-nowrap tabular-nums">{`${counts.total - counts.failing}/${counts.total} passing`}</span>
+        <Badge variant={variant} className="whitespace-nowrap tabular-nums">
+            <Icon aria-hidden />
+            <span>{`${counts.total - counts.failing}/${counts.total} passing`}</span>
+        </Badge>
     )
 }

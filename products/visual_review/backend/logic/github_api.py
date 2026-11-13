@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping
-from typing import TYPE_CHECKING
+from collections.abc import Callable, Mapping
+from datetime import datetime
+from functools import partial
+from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
+
+from django.utils.dateparse import parse_datetime
 
 import structlog
 
@@ -17,7 +21,7 @@ if TYPE_CHECKING:
     from posthog.models.integration import GitHubIntegration
 
 from posthog.dataclasses import frozen
-from posthog.egress.github.transport import GitHubRateLimitError
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.integrations import IntegrationManager
 from posthog.models.github_integration_base import GitHubIntegrationError
 
@@ -25,6 +29,10 @@ from ..models import Repo
 from . import content_cache, errors
 
 logger = structlog.get_logger(__name__)
+
+# GitHub's own rate limit and a refusal by our shared egress budget (a non-CRITICAL call) both mean
+# "ask again later". Readers let them through, where any other failure becomes None.
+GITHUB_READ_REFUSED = (GitHubRateLimitError, GitHubEgressBudgetExhausted)
 
 
 def _get_merge_base_sha(github: GitHubIntegration, repo_full_name: str, base: str, head: str) -> str | None:
@@ -70,55 +78,69 @@ def _get_default_branch(github: GitHubIntegration, repo_full_name: str) -> str:
         return "master"
 
 
-def default_branch_name(repo: Repo) -> str | None:
+def default_branch_name(repo: Repo, priority: Priority = Priority.CRITICAL) -> str | None:
     """The repo's default branch, or None when GitHub cannot say.
 
     Unlike `_get_default_branch`, there is no fallback name: a caller that decides on the answer
     must not treat a branch called master as the default during a GitHub outage. A rate limit
-    still raises, so a task can retry.
+    or a refusal by the egress budget still raises, so a task can retry.
     """
     try:
-        github = get_github_integration_for_repo(repo)
+        github = get_github_integration_for_repo(repo, priority)
         return github.get_default_branch(repo.repo_full_name)
-    except GitHubRateLimitError:
+    except GITHUB_READ_REFUSED:
         raise
     except Exception:
         logger.warning("visual_review.default_branch_fetch_failed", repo_id=str(repo.id))
         return None
 
 
-def default_branch_head_sha(repo: Repo) -> str | None:
+def _read_json(log_event: str, send: Callable[[], requests.Response], **log_fields: object) -> Any:
+    """The parsed body of a GitHub read, or None after a failed request or a status other than 200.
+
+    A rate limit or a refusal by the egress budget propagates, so a caller can wait and ask again.
+    """
+    try:
+        response = send()
+    except GITHUB_READ_REFUSED:
+        raise
+    except Exception:
+        logger.warning(log_event, **log_fields)
+        return None
+    if response.status_code != 200:
+        logger.warning(log_event, status=response.status_code, **log_fields)
+        return None
+    return response.json()
+
+
+def default_branch_head_sha(repo: Repo, priority: Priority = Priority.CRITICAL) -> str | None:
     """The commit the repo's default branch points at, or None when GitHub cannot say.
 
-    Raises `GitHubIntegrationNotFoundError` and `GitHubRateLimitError`, because a retry does not help
-    the first and has to wait for the second.
+    Raises `GitHubIntegrationNotFoundError`, and `GitHubRateLimitError` or `GitHubEgressBudgetExhausted`,
+    because a retry does not help the first and has to wait for the others.
     """
-    github = get_github_integration_for_repo(repo)
-    try:
+    github = get_github_integration_for_repo(repo, priority)
+
+    def read_head() -> requests.Response:
         # Not `_get_default_branch`: its fallback name can point at a branch that is not the default,
         # and a commit from that branch would scope the lift wrongly.
         branch = github.get_default_branch(repo.repo_full_name)
         # One path segment, so a branch name with a slash does not split the ref.
-        response = github.api_request("GET", f"/repos/{repo.repo_full_name}/commits/{quote(branch, safe='')}")
-    except GitHubRateLimitError:
-        raise
-    except Exception:
-        logger.warning("visual_review.default_branch_head_fetch_failed", repo_id=str(repo.id))
-        return None
-    if response.status_code != 200:
-        logger.warning(
-            "visual_review.default_branch_head_fetch_failed", repo_id=str(repo.id), status=response.status_code
-        )
-        return None
-    return response.json().get("sha")
+        return github.api_request("GET", f"/repos/{repo.repo_full_name}/commits/{quote(branch, safe='')}")
+
+    data = _read_json("visual_review.default_branch_head_fetch_failed", read_head, repo_id=str(repo.id))
+    return None if data is None else data.get("sha")
 
 
-def _is_ancestor(repo: Repo, ancestor_sha: str, head_sha: str) -> bool | None:
-    """Whether `ancestor_sha` is in the history of `head_sha`, or None when GitHub cannot tell."""
+def _is_ancestor(repo: Repo, ancestor_sha: str, head_sha: str, priority: Priority) -> bool | None:
+    """Whether `ancestor_sha` is in the history of `head_sha`, or None when GitHub cannot tell.
+
+    A rate limit or a refusal by the egress budget propagates, so a caller can wait and ask again.
+    """
     try:
-        github = get_github_integration_for_repo(repo)
+        github = get_github_integration_for_repo(repo, priority)
         merge_base = _get_merge_base_sha(github, repo.repo_full_name, ancestor_sha, head_sha)
-    except (errors.GitHubIntegrationNotFoundError, GitHubRateLimitError):
+    except errors.GitHubIntegrationNotFoundError:
         logger.warning("visual_review.commit_ancestry_unknown", repo_id=str(repo.id), ancestor=ancestor_sha)
         return None
     if merge_base is None:
@@ -126,20 +148,35 @@ def _is_ancestor(repo: Repo, ancestor_sha: str, head_sha: str) -> bool | None:
     return merge_base == ancestor_sha
 
 
-def commit_contains(repo: Repo, ancestor_sha: str, head_sha: str) -> bool:
-    """Whether `ancestor_sha` is in the history of `head_sha`. False when GitHub cannot tell.
+def commit_ancestry(
+    repo: Repo, ancestor_sha: str, head_sha: str, priority: Priority = Priority.CRITICAL
+) -> bool | None:
+    """Whether `ancestor_sha` is in the history of `head_sha`, or None when GitHub cannot tell.
 
     Two commits never change their ancestry, so a known answer is cached and later calls for the
-    same pair make no request. An unknown answer is not cached, so the next call asks again.
+    same pair make no request. An unknown answer is not cached, so the next call asks again. A rate
+    limit raises `GitHubRateLimitError` and a refusal by the egress budget raises
+    `GitHubEgressBudgetExhausted`, so a caller on a retry path waits instead of failing for good.
     """
     if ancestor_sha == head_sha:
         return True
-    ancestry = content_cache.load_by_hash(
+    return content_cache.load_by_hash(
         "commit_ancestry",
         f"{repo.id}:{ancestor_sha}..{head_sha}",
-        lambda: _is_ancestor(repo, ancestor_sha, head_sha),
+        lambda: _is_ancestor(repo, ancestor_sha, head_sha, priority),
     )
-    return ancestry is True
+
+
+def commit_contains(repo: Repo, ancestor_sha: str, head_sha: str) -> bool:
+    """Whether `ancestor_sha` is in the history of `head_sha`. False when GitHub cannot tell.
+
+    A refused read also answers False, because the callers of this function do not retry.
+    """
+    try:
+        return commit_ancestry(repo, ancestor_sha, head_sha) is True
+    except GITHUB_READ_REFUSED:
+        logger.warning("visual_review.commit_ancestry_unknown", repo_id=str(repo.id), ancestor=ancestor_sha)
+        return False
 
 
 _MERGE_QUEUE_BRANCH_RE = re.compile(r"^trunk-merge/pr-(?P<pr_number>\d+)/")
@@ -222,7 +259,7 @@ def is_verified_merge_queue_run(repo: Repo, branch: str, commit_sha: str) -> boo
         return False
 
 
-def get_github_integration_for_repo(repo: Repo):
+def get_github_integration_for_repo(repo: Repo, priority: Priority = Priority.CRITICAL):
     """Get GitHub integration for the repo's team."""
     from posthog.models.integration import GitHubIntegration
 
@@ -231,7 +268,7 @@ def get_github_integration_for_repo(repo: Repo):
     if not integration:
         raise errors.GitHubIntegrationNotFoundError(f"No GitHub integration found for team {repo.team_id}")
 
-    return GitHubIntegration(integration, source="visual_review", priority=Priority.CRITICAL)
+    return GitHubIntegration(integration, source="visual_review", priority=priority)
 
 
 def _resolve_repo_by_id(github, repo_external_id: int) -> str | None:
@@ -254,7 +291,9 @@ def _github_api_request(
     path: str,
     *,
     json: Mapping[str, object] | None = None,
+    params: dict[str, str | int] | None = None,
     timeout: int = 10,
+    priority: Priority = Priority.CRITICAL,
 ) -> requests.Response:
     """
     Make a GitHub API request, auto-resolving renamed repos on 404.
@@ -263,12 +302,18 @@ def _github_api_request(
     the current full_name via /repositories/{id}. If it changed, updates
     the stored repo_full_name and retries once.
     """
-    # Prevent path traversal — each segment must be safe
-    safe_path = "/".join(quote(segment, safe="") for segment in path.split("/"))
+    segments = path.split("/")
+    # `quote` leaves a dot segment as it is, and the HTTP client resolves it to another path, so refuse it.
+    if any(segment in (".", "..") for segment in segments):
+        raise ValueError(f"GitHub API path has a dot segment: {path!r}")
+    # Quoting each segment keeps a `?` or `#` inside a value from starting a query or a fragment.
+    safe_path = "/".join(quote(segment, safe="") for segment in segments)
 
-    github = get_github_integration_for_repo(repo)
+    github = get_github_integration_for_repo(repo, priority)
 
-    response = github.api_request(method, f"/repos/{repo.repo_full_name}/{safe_path}", json_body=json, timeout=timeout)
+    response = github.api_request(
+        method, f"/repos/{repo.repo_full_name}/{safe_path}", json_body=json, params=params, timeout=timeout
+    )
 
     if response.status_code == 404 and repo.repo_external_id:
         new_full_name = _resolve_repo_by_id(github, repo.repo_external_id)
@@ -283,7 +328,7 @@ def _github_api_request(
             repo.save(update_fields=["repo_full_name"])
 
             response = github.api_request(
-                method, f"/repos/{new_full_name}/{safe_path}", json_body=json, timeout=timeout
+                method, f"/repos/{new_full_name}/{safe_path}", json_body=json, params=params, timeout=timeout
             )
 
     return response
@@ -293,7 +338,7 @@ def _get_pr_info(github, repo_full_name: str, pr_number: int) -> dict:
     """
     Fetch PR info from GitHub.
 
-    Returns dict with head_ref (branch) and head_sha.
+    Returns dict with head_ref (branch), head_sha, and whether the PR is still open.
     """
     response = github.api_request("GET", f"/repos/{repo_full_name}/pulls/{pr_number}")
 
@@ -304,6 +349,7 @@ def _get_pr_info(github, repo_full_name: str, pr_number: int) -> dict:
     return {
         "head_ref": pr_data["head"]["ref"],
         "head_sha": pr_data["head"]["sha"],
+        "open": pr_data.get("state", "open") == "open" and not pr_data.get("merged", False),
     }
 
 
@@ -315,32 +361,131 @@ class PullRequestState:
     merged: bool
     merge_commit_sha: str | None
     base_ref: str
+    head_sha: str | None
+    merged_at: datetime | None = None
 
 
-def pull_request_state(repo: Repo, pr_number: int) -> PullRequestState | None:
+def pull_request_state(repo: Repo, pr_number: int, priority: Priority = Priority.CRITICAL) -> PullRequestState | None:
     """The pull request's merge state, or None when GitHub cannot say."""
-    try:
-        github = get_github_integration_for_repo(repo)
-        response = github.api_request("GET", f"/repos/{repo.repo_full_name}/pulls/{pr_number}")
-    except GitHubRateLimitError:
-        raise
-    except Exception:
-        logger.warning("visual_review.pull_request_state_fetch_failed", repo_id=str(repo.id), pr_number=pr_number)
+    data = _read_json(
+        "visual_review.pull_request_state_fetch_failed",
+        lambda: get_github_integration_for_repo(repo, priority).api_request(
+            "GET", f"/repos/{repo.repo_full_name}/pulls/{pr_number}"
+        ),
+        repo_id=str(repo.id),
+        pr_number=pr_number,
+    )
+    if data is None:
         return None
-    if response.status_code != 200:
-        logger.warning(
-            "visual_review.pull_request_state_fetch_failed",
-            repo_id=str(repo.id),
-            pr_number=pr_number,
-            status=response.status_code,
-        )
-        return None
-    data = response.json()
     return PullRequestState(
         state=data.get("state") or "",
         merged=bool(data.get("merged")),
         merge_commit_sha=data.get("merge_commit_sha"),
         base_ref=(data.get("base") or {}).get("ref") or "",
+        head_sha=(data.get("head") or {}).get("sha"),
+        merged_at=parse_datetime(data["merged_at"]) if data.get("merged_at") else None,
+    )
+
+
+@frozen
+class MergedPullRequest:
+    number: int
+    base_ref: str
+    head_sha: str | None
+
+
+def merged_pull_requests_for_commit(
+    repo: Repo, sha: str, priority: Priority = Priority.CRITICAL
+) -> list[MergedPullRequest] | None:
+    """The pull requests whose merge produced `sha`, or None when GitHub cannot say."""
+    items = _read_json(
+        "visual_review.commit_pull_requests_fetch_failed",
+        lambda: _github_api_request("GET", repo, f"commits/{sha}/pulls", priority=priority),
+        repo_id=str(repo.id),
+        sha=sha,
+    )
+    if items is None:
+        return None
+    # The list also holds open pull requests that merely contain the commit, and the list items
+    # carry `merged_at` instead of the `merged` flag of the single pull request read.
+    return [
+        MergedPullRequest(
+            number=item["number"],
+            base_ref=(item.get("base") or {}).get("ref") or "",
+            head_sha=(item.get("head") or {}).get("sha"),
+        )
+        for item in items
+        if item.get("merged_at") and item.get("merge_commit_sha") == sha
+    ]
+
+
+# Ten pages of the compare endpoint. Past that the default branch went unwatched for long enough
+# that an operator re-seeds the ledger, and one call must not spend the rate limit on a long walk.
+MAX_COMPARE_COMMITS = 1000
+_COMPARE_PAGE_SIZE = 100
+
+
+@frozen
+class ComparedCommit:
+    sha: str
+    parent_shas: tuple[str, ...]
+    subject: str
+
+
+@frozen
+class Comparison:
+    merge_base_sha: str | None
+    commits: tuple[ComparedCommit, ...]
+    # False when GitHub reports more commits than were read.
+    complete: bool
+
+
+def _compared_commit(item: dict) -> ComparedCommit:
+    return ComparedCommit(
+        sha=item["sha"],
+        parent_shas=tuple(parent["sha"] for parent in item["parents"]),
+        subject=item["commit"]["message"].split("\n", 1)[0],
+    )
+
+
+def compare_commits(repo: Repo, base: str, head: str, priority: Priority = Priority.CRITICAL) -> Comparison | None:
+    """The merge-base of two commits and the commits `head` has that `base` does not.
+
+    None when GitHub cannot say. GitHub sorts the commits by date, not by ancestry, so a caller
+    that needs the order follows the parent links.
+    """
+    commits: list[ComparedCommit] = []
+    merge_base_sha: str | None = None
+    total_commits = 0
+    page = 1
+    while len(commits) < MAX_COMPARE_COMMITS:
+        data = _read_json(
+            "visual_review.compare_fetch_failed",
+            partial(
+                _github_api_request,
+                "GET",
+                repo,
+                f"compare/{base}...{head}",
+                params={"per_page": _COMPARE_PAGE_SIZE, "page": page},
+                priority=priority,
+            ),
+            repo_id=str(repo.id),
+            base=base,
+            head=head,
+        )
+        if data is None:
+            return None
+        merge_base_sha = (data.get("merge_base_commit") or {}).get("sha")
+        total_commits = data.get("total_commits") or 0
+        page_commits = [_compared_commit(item) for item in data.get("commits") or []]
+        commits.extend(page_commits)
+        if not page_commits or len(commits) >= total_commits:
+            break
+        page += 1
+    return Comparison(
+        merge_base_sha=merge_base_sha,
+        commits=tuple(commits),
+        complete=len(commits) >= total_commits,
     )
 
 

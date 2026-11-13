@@ -62,7 +62,7 @@ function QualityContent(): JSX.Element {
             <ModelsOverviewErrorCallout
                 message="Your checks could not be loaded. Try again, and if it keeps failing, refresh the page."
                 onRetry={() => {
-                    loadDatabase()
+                    loadDatabase({ shallow: true })
                     loadOverview()
                 }}
                 dataAttr="data-catalog-quality-error"

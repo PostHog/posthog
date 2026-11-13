@@ -8,7 +8,7 @@ from django.apps import apps
 from langchain_core.runnables import RunnableConfig
 
 from ee.hogai.context import AssistantContextManager
-from ee.hogai.context.entity_search.context import ACTION_ENTITY, COUNTED_ENTITIES, ENTITY_MAP, FACADE_SEARCHES
+from ee.hogai.context.entity_search.context import COUNTED_ENTITIES, ENTITY_MAP, FACADE_SEARCHES
 from ee.hogai.core.shared_prompts import HYPERLINK_USAGE_INSTRUCTIONS
 
 if TYPE_CHECKING:
@@ -64,7 +64,7 @@ class TestEntitySearchToolkit(NonAtomicBaseTest):
         _ = await self.toolkit.execute(query="test query", search_kind=EntityKind.ALL)
 
         mock_search_entities.assert_called_once_with(
-            {*ENTITY_MAP.keys(), ACTION_ENTITY},
+            {*ENTITY_MAP.keys(), *FACADE_SEARCHES},
             "test query",
             self.team.project_id,
             ANY,

@@ -79,6 +79,7 @@ from products.slack_app.backend.views import (
 from products.streamlit_apps.backend.presentation.bridge_views import StreamlitBridgeView
 from products.surveys.backend.api.survey import public_survey_page
 from products.tasks.backend.facade.agent_proxy import agent_proxy_callback
+from products.tasks.backend.presentation.views.agent_egress import AgentEgressRegistrationView
 from products.tasks.backend.presentation.views.artifact_preview import task_artifact_preview
 from products.tasks.backend.presentation.views.gateway_generation_requests import gateway_generation_request
 from products.warehouse_sources.backend.presentation.views.public_source_configs import PublicSourceConfigViewSet
@@ -277,7 +278,20 @@ urlpatterns = [
         "api/projects/<str:team_id>/internal/hog_flows/batch_jobs/<str:batch_job_id>/status",
         csrf_exempt(hog_flow.InternalHogFlowViewSet.as_view({"put": "internal_update_batch_job_status"})),
     ),
+    path(
+        "api/projects/<str:team_id>/internal/hog_flows/batch_jobs/<str:batch_job_id>/audience_snapshot",
+        csrf_exempt(hog_flow.InternalHogFlowViewSet.as_view({"post": "internal_batch_job_audience_snapshot"})),
+    ),
+    path(
+        "api/projects/<str:team_id>/internal/hog_flows/batch_jobs/<str:batch_job_id>/audience_page",
+        csrf_exempt(hog_flow.InternalHogFlowViewSet.as_view({"post": "internal_batch_job_audience_page"})),
+    ),
     *signals_internal_urlpatterns,
+    path(
+        "api/projects/<int:team_id>/internal/agent_egress/runs/<uuid:run_id>/executions/<uuid:execution_id>",
+        AgentEgressRegistrationView.as_view(),
+        name="agent-egress-registration",
+    ),
     # Ticket route for the CDP worker's workflow actions (auth: scoped service JWT)
     path(
         "api/projects/<str:team_id>/internal/conversations/tickets/<uuid:ticket_id>",

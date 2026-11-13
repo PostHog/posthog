@@ -12,7 +12,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
     Action: () => import('../../products/actions/frontend/pages/Action'),
     NewAction: () => import('../../products/actions/frontend/pages/Action'),
     AIObservability: () => import('../../products/ai_observability/frontend/AIObservabilityScene'),
-    AIObservabilityTrace: () => import('../../products/ai_observability/frontend/AIObservabilityTraceScene'),
+    AIObservabilityTrace: () => import('../../products/ai_observability/frontend/redesign/trace/TraceScene'),
     AIObservabilitySession: () => import('../../products/ai_observability/frontend/AIObservabilitySessionScene'),
     AIObservabilityUsers: () => import('../../products/ai_observability/frontend/AIObservabilityUsers'),
     AIObservabilityPlayground: () =>
@@ -175,6 +175,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
     ReplayVisionScannerEditor: () => import('../../products/replay_vision/frontend/replay_scanners/ScannerEditorScene'),
     ReplayVisionObservation: () => import('../../products/replay_vision/frontend/observations/ReplayObservation'),
     CodeReview: () => import('../../products/review_hog/frontend/CodeReviewScene'),
+    InboxActivate: () => import('../../products/signals/frontend/inbox/InboxActivateScene'),
     ScoutTrials: () => import('../../products/signals/frontend/inbox/ScoutTrialsScene'),
     Inbox: () => import('../../products/signals/frontend/inbox/InboxScene'),
     Skills: () => import('../../products/skills/frontend/LLMSkillsScene'),
@@ -227,5 +228,6 @@ export const productScenes: Record<string, () => Promise<any>> = {
     Transactional: () => import('../../products/workflows/frontend/Transactional/TransactionalScene'),
     TransactionalEmailLogEntry: () =>
         import('../../products/workflows/frontend/Transactional/log/TransactionalEmailLogEntryScene'),
+    TransactionalCodeEmail: () => import('../../products/workflows/frontend/Transactional/code/CodeEmailScene'),
     WorkflowsEmailDomain: () => import('../../products/workflows/frontend/Channels/EmailDomain/EmailDomainScene'),
 }

@@ -5,6 +5,7 @@ typed as the read-only `IntegrationRecord`.
 """
 
 import builtins
+from collections import OrderedDict
 from collections.abc import Mapping, Sequence
 from datetime import datetime
 from typing import Any, cast
@@ -51,6 +52,24 @@ logger = structlog.get_logger(__name__)
 _UNIQUE_KEY_CONSTRAINT = "posthog_integration_kind_id_unique"
 
 
+# Every load of an over-encrypted row peels it again, so report each (row, field) once per process.
+_REPORTED_LIMIT = 4096
+_reported_over_encrypted: OrderedDict[tuple[int, str], None] = OrderedDict()
+
+
+def _first_report(row_id: int | None, field_name: str) -> bool:
+    if row_id is None:
+        return True
+    key = (row_id, field_name)
+    if key in _reported_over_encrypted:
+        _reported_over_encrypted.move_to_end(key)
+        return False
+    _reported_over_encrypted[key] = None
+    if len(_reported_over_encrypted) > _REPORTED_LIMIT:
+        _reported_over_encrypted.popitem(last=False)
+    return True
+
+
 def peel_secret_layers(row: Integration) -> None:
     """Remove the extra encryption layers of the secrets that the row loaded with. `Integration.from_db` calls it.
 
@@ -85,6 +104,8 @@ def peel_secret_layers(row: Integration) -> None:
     # A deferred `kind` would cost a query, so read only what the row loaded.
     kind = row.__dict__.get("kind") or "unknown"
     for field_name in sorted(set(recovered)):
+        if not _first_report(row.pk, field_name):
+            continue
         integration_secret_decrypt_counter.labels(kind=kind, result="recovered").inc()
         logger.warning(
             "integration_sensitive_config_over_encrypted",

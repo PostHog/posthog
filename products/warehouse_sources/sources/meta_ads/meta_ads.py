@@ -459,13 +459,14 @@ META_UNSUPPORTED_GET_REQUEST_MESSAGE = "unsupported get request"
 # https://developers.facebook.com/docs/graph-api/overview/rate-limiting
 META_RATE_LIMIT_ERROR_CODES = {4, 17, 32, 613}
 
-# Meta error code 2642: the `paging.next` cursor used to follow a page was rejected as invalid.
-# Terminal for this job — `_iter_time_range_pagination`/`_iter_simple_pagination` save that same
-# cursor to resumable state before fetching it, so a Temporal retry of this job would resume with
-# the identical cursor and fail the same way every time. A later sync run gets a fresh job id (and
-# so a fresh resumable-state key, see `ResumableSourceManager`), which starts pagination from
-# scratch with a new cursor.
+# Meta error code 2642, or code 100 with subcode 1885719: the `paging.next` cursor used to follow
+# a page was rejected as invalid. Terminal for this job — `_iter_time_range_pagination`/
+# `_iter_simple_pagination` save that same cursor to resumable state before fetching it, so a
+# Temporal retry of this job would resume with the identical cursor and fail the same way every
+# time. A later sync run gets a fresh job id (and so a fresh resumable-state key, see
+# `ResumableSourceManager`), which starts pagination from scratch with a new cursor.
 META_INVALID_CURSOR_ERROR_CODE = 2642
+META_INVALID_CURSOR_ERROR_SUBCODE = 1885719
 
 # Meta error code 100 with one of these subcodes: Meta refuses to serve a field it cannot compute
 # for one row of a page, rejecting the whole page unless we ask again without it.
@@ -621,9 +622,13 @@ def _is_rate_limit_error(response: Response) -> bool:
 
 
 def _is_invalid_cursor_error(response: Response) -> bool:
-    """Return True for Meta's "Invalid cursors values" error (code 2642), which retrying this
-    job can't recover from — see `META_INVALID_CURSOR_ERROR_CODE`."""
-    return _meta_error_code(response) == META_INVALID_CURSOR_ERROR_CODE
+    """Return True for Meta's "Invalid cursors values" error (code 2642), or its "Invalid
+    Pagination Cursor Data" sibling (code 100, subcode 1885719), neither of which retrying this
+    job can recover from — see `META_INVALID_CURSOR_ERROR_CODE`."""
+    code = _meta_error_code(response)
+    if code == META_INVALID_CURSOR_ERROR_CODE:
+        return True
+    return code == 100 and _meta_error_subcode(response) == META_INVALID_CURSOR_ERROR_SUBCODE
 
 
 def _is_refused_creative_error(response: Response) -> bool:

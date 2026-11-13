@@ -183,15 +183,22 @@ class TestMaterializeRules(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("at_floor", 90, 10_000.0, None, True),
-            ("one_read_short", 89, 10_000.0, None, False),
-            ("slow_reads_raise_the_refresh_price", 90, 20_000.0, None, False),
+            ("at_floor", 90, 60_000.0, None, True),
+            ("one_read_short", 89, 60_000.0, None, False),
+            ("slow_reads_raise_the_refresh_price", 90, 120_000.0, None, False),
             (
                 "recorded_refreshes_set_the_price",
                 90,
-                20_000.0,
-                SubjectRefreshes(runs=3, duration_ms=30_000, read_bytes=3),
+                120_000.0,
+                SubjectRefreshes(runs=3, duration_ms=180_000, read_bytes=3),
                 True,
+            ),
+            (
+                "refreshes_scan_over_a_terabyte_more",
+                90,
+                120_000.0,
+                SubjectRefreshes(runs=3, duration_ms=180_000, read_bytes=3 * 40 * 10**9),
+                False,
             ),
         ]
     )
@@ -205,8 +212,8 @@ class TestMaterializeRules(SimpleTestCase):
     ) -> None:
         reads = busy_reads(
             human_reads=human_reads,
-            human_duration_ms=human_reads * 10_000,
-            alone_duration_ms_median=10_000.0,
+            human_duration_ms=human_reads * 60_000,
+            alone_duration_ms_median=60_000.0,
             alone_duration_ms_p90=alone_duration_ms_p90,
             human_read_bytes=human_reads,
             alone_read_bytes_median=1.0,
@@ -216,7 +223,7 @@ class TestMaterializeRules(SimpleTestCase):
 
         estimate = estimate_savings(ctx, reads, DAY, refresh_cost(ctx, VIEW_ID, reads))
 
-        assert estimate.clears_a_floor is expect_clear
+        assert estimate.qualifies is expect_clear
 
     @parameterized.expand(
         [
@@ -329,7 +336,13 @@ class TestMaterializeRefreshMode(BaseTest):
         dag = DAG.objects.create(team=self.team, name="Default")
         Node.objects.create(team=self.team, dag=dag, name="daily_counts", saved_query=saved_query, type=NodeType.VIEW)
         candidate_context = context(
-            team_reads({view_subject(saved_query.id): busy_reads(human_duration_ms=200 * 10_000)}),
+            team_reads(
+                {
+                    view_subject(saved_query.id): busy_reads(
+                        human_duration_ms=200 * 30_000, alone_duration_ms_median=30_000.0
+                    )
+                }
+            ),
             views=[view(saved_query.id, name="daily_counts", hogql=hogql)],
             team_id=self.team.pk,
         )
@@ -452,14 +465,14 @@ class TestDeprecateCandidate(BaseTest):
 
 
 HOURLY_RUNS = 720
-FIVE_SECONDS_MS = 5_000
+EIGHT_SECONDS_MS = 8_000
 TWENTY_SECONDS_MS = 20_000
 RARE_READS = {"human_requests": 4, "human_reads": 4, "background_reads": 0}
 UNMATERIALIZE_MODULE = "products.warehouse_suggestions.backend.logic.candidates.unmaterialize"
 
 
 def hourly_runs(
-    count: int = HOURLY_RUNS, *, duration_ms: int = FIVE_SECONDS_MS, prefix: str = "run"
+    count: int = HOURLY_RUNS, *, duration_ms: int = EIGHT_SECONDS_MS, prefix: str = "run"
 ) -> tuple[RefreshRun, ...]:
     return tuple(
         RefreshRun(workflow_id=f"{prefix}-{index}", duration_ms=duration_ms, read_bytes=10**6) for index in range(count)
@@ -538,11 +551,11 @@ class TestUnmaterializeCandidate(BaseTest):
         assert isinstance(draft.payload, UnmaterializePayload)
         assert replace(draft.payload, query_fingerprint="") == UnmaterializePayload(
             subject_name="orders",
-            refresh_seconds_per_month=3600.0,
+            refresh_seconds_per_month=5760.0,
             refresh_bytes_per_month=720.0 * 10**6,
-            live_seconds_per_month=20.0,
+            live_seconds_per_month=32.0,
             live_bytes_per_month=4.0 * 10**6,
-            read_seconds=5.0,
+            read_seconds=8.0,
             query_fingerprint="",
         )
 

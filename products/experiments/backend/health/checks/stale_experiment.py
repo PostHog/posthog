@@ -4,11 +4,14 @@ An experiment that runs past the daily calculation. Pure functions, no I/O.
 The finding says what stopped and not that the results are old, because a page load can still refresh them.
 """
 
+from datetime import UTC
+
 from products.experiments.backend.facade.contracts import (
     ExperimentHealthFinding,
     ExperimentHealthFindingActionKind,
     ExperimentHealthFindingCode,
     ExperimentHealthFindingSeverity,
+    ExperimentHealthValueKey,
 )
 from products.experiments.backend.facade.daily_calculation import DAILY_CALCULATION_DAYS
 from products.experiments.backend.health.context import HealthContext
@@ -17,8 +20,21 @@ from products.experiments.backend.health.skips import (
     NOT_ON_ARCHIVED,
     RUNS_AFTER_LAUNCH,
     CheckOutcome,
+    CheckValues,
     not_applicable,
 )
+
+
+def stale_experiment_values(ctx: HealthContext) -> CheckValues:
+    if ctx.archived or ctx.has_ended or not ctx.is_launched or ctx.hours_since_start is None:
+        return {}
+    ends_at = ctx.daily_calculation_ends_at
+    return {
+        ExperimentHealthValueKey.SINCE_START_HOURS: round(ctx.hours_since_start, 1),
+        ExperimentHealthValueKey.DAILY_CALCULATION_ENDS_AT: None
+        if ends_at is None
+        else ends_at.astimezone(UTC).isoformat(),
+    }
 
 
 def stale_experiment(ctx: HealthContext) -> CheckOutcome:

@@ -28,8 +28,7 @@ from posthog.models.utils import strip_null_bytes
 from posthog.query_creator_access import CreatorLeftOrganizationError, assert_creator_can_run
 
 from products.access_control.backend.facade.user_access_control import UserAccessControlError
-from products.dashboards.backend.models.dashboard import Dashboard
-from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.dashboards.backend.facade.contracts import DashboardInsightTileSummary, DashboardSummary
 from products.product_analytics.backend.facade.models import Insight
 from products.subscriptions.backend.models.subscription import Subscription
 from products.subscriptions.backend.temporal.results_summarizer import is_time_series_query
@@ -109,7 +108,7 @@ def _serialize_insight_result(result: InsightResult) -> dict[str, Any]:
     return parsed
 
 
-def _insight_snapshot_base_metadata(*, insight: Insight, tile: DashboardTile | None) -> dict[str, Any]:
+def _insight_snapshot_base_metadata(*, insight: Insight, tile: DashboardInsightTileSummary | None) -> dict[str, Any]:
     return {
         "id": insight.id,
         "short_id": str(insight.short_id),
@@ -119,16 +118,17 @@ def _insight_snapshot_base_metadata(*, insight: Insight, tile: DashboardTile | N
     }
 
 
-def _default_query_hash(*, tile: DashboardTile | None, insight: Insight) -> str | None:
+def _default_query_hash(
+    *, tile: DashboardInsightTileSummary | None, insight: Insight, dashboard: DashboardSummary | None
+) -> str | None:
     """Best-effort hash from layout target before execution (may be replaced by ``cache_key`` later)."""
-    cache_target: DashboardTile | Insight = tile if tile is not None else insight
-    query_hash = calculate_cache_key(cache_target)
+    query_hash = calculate_cache_key(insight, dashboard=dashboard if tile is not None else None)
     if query_hash is None:
         query_hash = insight.filters_hash
     return query_hash
 
 
-def _resolve_effective_query_json(insight: Insight, dashboard: Dashboard | None) -> Any | None:
+def _resolve_effective_query_json(insight: Insight, dashboard: DashboardSummary | None) -> Any | None:
     query_json = insight.get_effective_query(dashboard=dashboard)
     if query_json is None:
         query_json = insight.query
@@ -186,14 +186,14 @@ def _execute_and_serialize_insight_query(
     *,
     insight: Insight,
     team: Team,
-    dashboard: Dashboard | None,
+    dashboard: DashboardSummary | None,
     user: User | None,
     query_json: Any,
 ) -> dict[str, Any]:
     """Run cache/calculate path and return snapshot fields to merge (``query_*`` / ``cache_key`` only)."""
     # Same rule as the export: no query runs for an owner who left or who cannot view the insight.
     try:
-        assert_creator_can_run(user, team, dashboard, insight)
+        assert_creator_can_run(user, team, dashboard.access_ref if dashboard is not None else None, insight)
     except (CreatorLeftOrganizationError, UserAccessControlError) as error:
         # Both messages are ours and name no query data, so they are safe to show as they are.
         return {
@@ -259,8 +259,8 @@ def build_insight_delivery_snapshot(
     *,
     insight: Insight,
     team: Team,
-    dashboard: Dashboard | None,
-    tile: DashboardTile | None,
+    dashboard: DashboardSummary | None,
+    tile: DashboardInsightTileSummary | None,
     user: User | None,
 ) -> dict[str, Any]:
     """Metadata + query hash + serialized query results for one exported insight.
@@ -269,7 +269,7 @@ def build_insight_delivery_snapshot(
     so workflow merges do not contradict the row created at delivery start.
     """
     base = _insight_snapshot_base_metadata(insight=insight, tile=tile)
-    base["query_hash"] = _default_query_hash(tile=tile, insight=insight)
+    base["query_hash"] = _default_query_hash(tile=tile, insight=insight, dashboard=dashboard)
 
     query_json = _resolve_effective_query_json(insight, dashboard)
     if query_json is None:

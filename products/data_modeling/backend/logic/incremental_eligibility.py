@@ -14,7 +14,6 @@ They have to reject them because they combine partial aggregates across refreshe
 """
 
 from collections.abc import Mapping
-from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Optional
 
 from posthog.schema import HogQLQueryModifiers
@@ -46,7 +45,7 @@ from posthog.hogql.visitor import TraversingVisitor, clear_locations, clone_expr
 if TYPE_CHECKING:
     from posthog.models import User
 
-from products.data_modeling.backend.logic.incremental import IncrementalConfig
+from products.data_modeling.backend.facade.contracts import EligibilityResult, IncrementalConfig
 from products.data_modeling.backend.logic.incremental_filter import find_key_expression, parse_model_query
 
 # Non-deterministic calls make a window irreproducible: two runs over the same window can disagree,
@@ -129,20 +128,6 @@ _NON_KEY_TYPE_LABELS = {
 # and it MUST admit strings and booleans, since every GROUP BY column (event names, ids, flags)
 # has to be coverable. UUIDs qualify too: equality is exactly what they are for.
 _NON_UNIQUE_KEY_TYPE_LABELS = {"array", "tuple", "map", "interval", "aggregate", "json", "struct"}
-
-
-@dataclass(frozen=True, kw_only=True)
-class EligibilityResult:
-    eligible: bool
-    key_candidates: list[str] = field(default_factory=list)
-    # Columns the unique key may be built from: a superset of key_candidates, since identifying a
-    # row only needs equality while the incremental key needs an advancing order.
-    unique_key_candidates: list[str] = field(default_factory=list)
-    # Coarse type per candidate, for the picker's type tags. Missing entry: type unknown.
-    key_candidate_types: dict[str, str] = field(default_factory=dict)
-    blockers: list[str] = field(default_factory=list)
-    blocked_keys: list[str] = field(default_factory=list)
-    warnings: list[str] = field(default_factory=list)
 
 
 def definition_database(team_id: int, *, user: Optional["User"] = None) -> Database:

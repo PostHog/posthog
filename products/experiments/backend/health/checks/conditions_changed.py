@@ -21,15 +21,23 @@ were exposed before the last change, a warning by that grade is info, because so
 override that is still in place is the forced-variant check's to report, so it is not reported here.
 """
 
+from datetime import datetime
+
 from products.experiments.backend.facade.contracts import (
     ExperimentHealthFinding,
     ExperimentHealthFindingCode,
     ExperimentHealthFindingSeverity,
     ExperimentHealthFlagChangeKind,
 )
-from products.experiments.backend.health.checks.change_wording import RESET_EFFECT, suggested_start, the_change
+from products.experiments.backend.health.checks.change_wording import (
+    RESET_EFFECT,
+    suggested_start,
+    suggested_start_at,
+    the_change,
+)
 from products.experiments.backend.health.checks.flag_change_findings import (
     change_finding,
+    change_rows,
     changes_to_check,
     count_only_after,
     exposed_when,
@@ -60,7 +68,7 @@ from products.experiments.backend.health.pinned_share import (
     pinned_conditions,
     pinned_share_severity,
 )
-from products.experiments.backend.health.skips import CheckOutcome, CheckSkip
+from products.experiments.backend.health.skips import CheckOutcome, CheckRows, CheckSkip
 from products.experiments.backend.health.split_changes import format_change_time
 from products.feature_flags.backend.facade.edits import ConditionsChange, ReleaseCondition
 
@@ -70,6 +78,10 @@ _REORDERED_TITLE = "The order of the release conditions changed after launch"
 _ROLLOUT_TITLE = "A release condition's rollout was lowered after launch"
 _REVERTED_TITLE = "The release conditions changed and were set back"
 _NOT_CHECKED_TITLE = "Release condition changes were not checked"
+
+
+def release_conditions_changed_rows(ctx: HealthContext) -> CheckRows:
+    return change_rows(ctx, ConditionsChange)
 
 
 def release_conditions_changed_mid_run(ctx: HealthContext) -> CheckOutcome:
@@ -200,6 +212,7 @@ def _rollout_reduced(
     history: FlagHistory, effect: ConditionsNetEffect, lowered: tuple[LoweredRollout, ...]
 ) -> ExperimentHealthFinding:
     subject = "it no longer serves" if len(lowered) == 1 else "these conditions no longer serve"
+    last_lowered_at = max(rollout.lowered_at for rollout in lowered)
     return _finding(
         history,
         effect,
@@ -209,8 +222,9 @@ def _rollout_reduced(
             _lowered(lowered, history.team_timezone),
             f"Users {subject} get no variant, or the variant of a later condition.",
             "Their exposures stay in the results, and their later events still count for the variant they got first.",
-            count_only_after(max(rollout.lowered_at for rollout in lowered), history.team_timezone),
+            count_only_after(last_lowered_at, history.team_timezone),
         ],
+        start_after=last_lowered_at,
     )
 
 
@@ -286,6 +300,7 @@ def _override_removed(
     what_changed = [_removed(override, history.team_timezone) for override in removed]
     few = few_exposed_units(history, ExperimentHealthFlagChangeKind.RELEASE_CONDITIONS)
     if severity == ExperimentHealthFindingSeverity.WARNING and few is not None:
+        move_start = leave_out(history, effect, few)
         return _finding(
             history,
             effect,
@@ -295,11 +310,12 @@ def _override_removed(
             sentences=[
                 *what_changed,
                 exposed_when(history, effect, few),
-                *leave_out(history, effect, few),
+                *move_start,
                 *_measured(grade, removed),
             ],
             grade=grade,
             diagnostic_ref="A7",
+            start_after=effect.last.changed_at if move_start else None,
         )
     last_changed_at = max(override.restored_at or override.removed_at for override in removed)
     return _finding(
@@ -318,6 +334,7 @@ def _override_removed(
         ],
         grade=grade,
         diagnostic_ref="A7",
+        start_after=last_changed_at,
     )
 
 
@@ -374,8 +391,7 @@ def _measured(grade: PinnedShareGrade | None, removed: list[RemovedOverride]) ->
         since = format_change_time(measurement.since, measurement.team_timezone)
         return [
             f"Since {since}, {subject} matched about {percent(grade.share)} of the users who would get "
-            f'"{measurement.most_pinned_variant}" with the override in place ({measurement.pinned_people:,} of '
-            f"about {round(measurement.variant_people):,})."
+            f'"{measurement.most_pinned_variant}" with the override in place ({measurement.counts()}).'
         ]
     if grade is None:
         return [
@@ -402,7 +418,9 @@ def _finding(
     severity: ExperimentHealthFindingSeverity = ExperimentHealthFindingSeverity.INFO,
     grade: PinnedShareGrade | None = None,
     diagnostic_ref: str = "A6",
+    start_after: datetime | None = None,
 ) -> ExperimentHealthFinding:
+    """`start_after` is the change that the sentences move the start date past, so the button and the text agree."""
     return change_finding(
         history,
         effect,
@@ -415,6 +433,7 @@ def _finding(
         kind_evidence={**_kind_evidence(effect), **(grade.evidence() if grade is not None else {})},
         diagnostic_ref=diagnostic_ref,
         reason=grade.finding_reason if grade is not None else None,
+        suggested_start_date=suggested_start_at(start_after) if start_after is not None else None,
     )
 
 
