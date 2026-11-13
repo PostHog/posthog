@@ -51,14 +51,14 @@ describe('broadcast previews', () => {
     let sendResult: Partial<HogflowTestResult>
     let sent: SentInvocation[]
     let sendGate: Promise<void>
-    let wizard: ReturnType<typeof broadcastWizardLogic.build> | undefined
+    let mountedWizard: ReturnType<typeof broadcastWizardLogic.build> | undefined
 
     beforeEach(() => {
         people = []
         sendResult = { status: 'success' }
         sent = []
         sendGate = Promise.resolve()
-        wizard = undefined
+        mountedWizard = undefined
         useMocks({
             get: { '/api/projects/:team_id/integrations/': { results: [], count: 0 } },
             post: {
@@ -80,7 +80,7 @@ describe('broadcast previews', () => {
 
     afterEach(() => {
         cleanup()
-        wizard?.unmount()
+        mountedWizard?.unmount()
         window.POSTHOG_APP_CONTEXT = priorAppContext
     })
 
@@ -98,24 +98,20 @@ describe('broadcast previews', () => {
         )
     }
 
-    function mountWizard(
-        channel: 'email' | 'push',
-        email: BroadcastEmailValue = READY_EMAIL
-    ): ReturnType<typeof broadcastWizardLogic.build> {
+    function mountWizard(channel: 'email' | 'push', email: BroadcastEmailValue = READY_EMAIL): void {
         window.POSTHOG_APP_CONTEXT = {
             ...priorAppContext,
             resource_access_control: { [AccessControlResourceType.Workflow]: AccessControlLevel.Editor },
         } as AppContext
         initKeaTests()
-        wizard = broadcastWizardLogic({ id: 'new' })
-        wizard.mount()
+        mountedWizard = broadcastWizardLogic({ id: 'new' })
+        mountedWizard.mount()
         if (channel === 'push') {
-            wizard.actions.setChannel('push')
-            wizard.actions.setPush({ channels: [7], title: 'New release', body: 'Open the app' })
+            mountedWizard.actions.setChannel('push')
+            mountedWizard.actions.setPush({ channels: [7], title: 'New release', body: 'Open the app' })
         } else {
-            wizard.actions.setEmail(email)
+            mountedWizard.actions.setEmail(email)
         }
-        return wizard
     }
 
     function renderReview(channel: 'email' | 'push', email?: BroadcastEmailValue): void {
@@ -132,16 +128,15 @@ describe('broadcast previews', () => {
         )
     }
 
+    const el = (dataAttr: string): HTMLElement => document.querySelector(`[data-attr="${dataAttr}"]`) as HTMLElement
     const click = (dataAttr: string): void => {
         act(() => {
-            fireEvent.click(document.querySelector(`[data-attr="${dataAttr}"]`) as HTMLElement)
+            fireEvent.click(el(dataAttr))
         })
     }
     const type = (dataAttr: string, value: string): void => {
         act(() => {
-            fireEvent.change(document.querySelector(`[data-attr="${dataAttr}"]`) as HTMLElement, {
-                target: { value },
-            })
+            fireEvent.change(el(dataAttr), { target: { value } })
         })
     }
     const reviewCard = (selector: string): Element | null =>
@@ -165,7 +160,17 @@ describe('broadcast previews', () => {
         } as AppContext
         initKeaTests()
 
-        renderTree(channel === 'email' ? <BroadcastEmailPreview /> : <BroadcastPushPreview />)
+        render(
+            <Provider>
+                <BindLogic logic={broadcastWizardLogic} props={{ id: 'new' }}>
+                    <BindLogic logic={broadcastPreviewLogic} props={{ id: 'new' }}>
+                        <BindLogic logic={broadcastTestSendLogic} props={{ id: 'new' }}>
+                            {channel === 'email' ? <BroadcastEmailPreview /> : <BroadcastPushPreview />}
+                        </BindLogic>
+                    </BindLogic>
+                </BindLogic>
+            </Provider>
+        )
 
         expect(
             document.querySelector(`[data-attr="broadcast-open-test-${channel === 'email' ? 'email' : 'push'}"]`)
@@ -178,9 +183,25 @@ describe('broadcast previews', () => {
                 '/api/projects/:team_id/hog_flows/': () => new Promise(() => {}),
             },
         })
-        const draft = mountWizard('email', { ...DEFAULT_BROADCAST_EMAIL, html: '<p>Hi</p>' })
+        initKeaTests()
+        const wizard = broadcastWizardLogic({ id: 'new' })
+        wizard.mount()
+        wizard.actions.setEmail({ ...DEFAULT_BROADCAST_EMAIL, html: '<p>Hi</p>' })
 
-        renderTree(<BroadcastEmailPreview showTestButton={false} onModifyContent={draft.actions.editEmailContent} />)
+        render(
+            <Provider>
+                <BindLogic logic={broadcastWizardLogic} props={{ id: 'new' }}>
+                    <BindLogic logic={broadcastPreviewLogic} props={{ id: 'new' }}>
+                        <BindLogic logic={broadcastTestSendLogic} props={{ id: 'new' }}>
+                            <BroadcastEmailPreview
+                                showTestButton={false}
+                                onModifyContent={wizard.actions.editEmailContent}
+                            />
+                        </BindLogic>
+                    </BindLogic>
+                </BindLogic>
+            </Provider>
+        )
         const button = document.querySelector('[data-attr="broadcast-review-modify-content"]') as HTMLElement
         expect(button).toHaveAttribute('aria-disabled', 'false')
 
@@ -189,6 +210,7 @@ describe('broadcast previews', () => {
         })
 
         expect(button).toHaveAttribute('aria-disabled', 'true')
+        wizard.unmount()
     })
 
     it('previews the email as the first audience member with an email address, then as the person picked', async () => {
@@ -274,23 +296,15 @@ describe('broadcast previews', () => {
 
         expect(screen.getByText('Send a test email')).toBeInTheDocument()
         expect(screen.getByText('Goes to this address only. Nobody in the audience receives it.')).toBeInTheDocument()
-        expect(document.querySelector('[data-attr="broadcast-test-email-recipient"]')).toHaveValue(
-            MOCK_DEFAULT_USER.email
-        )
+        expect(el('broadcast-test-email-recipient')).toHaveValue(MOCK_DEFAULT_USER.email)
         type('broadcast-test-email-recipient', 'not-an-email')
-        expect(document.querySelector('[data-attr="broadcast-send-test-email"]')).toHaveAttribute(
-            'aria-disabled',
-            'true'
-        )
+        expect(el('broadcast-send-test-email')).toHaveAttribute('aria-disabled', 'true')
         type('broadcast-test-email-recipient', 'reviewer@example.com')
         let release = (): void => {}
         sendGate = new Promise((resolve) => (release = resolve))
         click('broadcast-send-test-email')
         await waitFor(() => expect(sent).toHaveLength(1))
-        expect(document.querySelector('[data-attr="broadcast-send-test-email"]')).toHaveAttribute(
-            'aria-disabled',
-            'true'
-        )
+        expect(el('broadcast-send-test-email')).toHaveAttribute('aria-disabled', 'true')
         release()
 
         expect(await screen.findByText('Test sent to reviewer@example.com')).toBeInTheDocument()
@@ -323,9 +337,7 @@ describe('broadcast previews', () => {
         expect(
             screen.getByText('No one matches this audience yet, so variables send as blank text.')
         ).toBeInTheDocument()
-        expect(document.querySelector('[data-attr="broadcast-test-push-recipient"]')).toHaveValue(
-            MOCK_DEFAULT_USER.distinct_id
-        )
+        expect(el('broadcast-test-push-recipient')).toHaveValue(MOCK_DEFAULT_USER.distinct_id)
         type('broadcast-test-push-recipient', 'user-1')
         click('broadcast-send-test-email')
 
