@@ -1,4 +1,4 @@
-import { Card, CardContent, Skeleton, ToggleGroup, ToggleGroupItem } from '@posthog/quill-primitives'
+import { Card, CardContent, ToggleGroup, ToggleGroupItem } from '@posthog/quill-primitives'
 
 import { BrandMark } from 'lib/components/BrandMark/BrandMark'
 import { TileDecorations } from 'lib/components/TileDecorations/TileDecorations'
@@ -6,6 +6,7 @@ import { formatPercentage } from 'lib/utils/numbers'
 
 import { labMark } from '../aiLabs'
 import { formatNumber } from '../dashboard/formatters'
+import { SkeletonLine } from '../dashboard/SkeletonLine'
 import { leadingLabs, type LabShare, type ScoreboardMetric } from './leaderboardShares'
 import { LoadErrorMessage } from './LoadErrorMessage'
 
@@ -37,10 +38,8 @@ export function LabScoreboard({
     metric: ScoreboardMetric
     onMetricChange: (metric: ScoreboardMetric) => void
 }): JSX.Element | null {
-    if (loading && shares.length === 0) {
-        return <Skeleton className="h-20 w-full" />
-    }
-    if (shares.length === 0 && !failed) {
+    const showSkeleton = loading && shares.length === 0
+    if (shares.length === 0 && !failed && !showSkeleton) {
         return null
     }
     const caption = METRICS.find(({ value }) => value === metric)?.caption
@@ -76,10 +75,11 @@ export function LabScoreboard({
                     ))}
                 </ToggleGroup>
             </div>
-            {shares.length === 0 ? (
+            {shares.length === 0 && !showSkeleton ? (
                 <LoadErrorMessage />
             ) : (
                 <div className="grid min-w-0 grid-cols-1 gap-4 @min-[40rem]/mcp-overview:grid-cols-3">
+                    {showSkeleton && Array.from({ length: PODIUM_SIZE }, (_, i) => <LabTileSkeleton key={i} />)}
                     {podium.map(({ lab, share, count, total }) => (
                         <div key={lab} className="relative">
                             <TileDecorations badge={leaders.includes(lab) ? 'winner' : null} />
@@ -102,5 +102,23 @@ export function LabScoreboard({
                 </div>
             )}
         </div>
+    )
+}
+
+function LabTileSkeleton(): JSX.Element {
+    return (
+        <Card size="sm" className="h-full" aria-busy>
+            <CardContent className="flex flex-col gap-1">
+                <div className="text-sm">
+                    <SkeletonLine className="w-24" />
+                </div>
+                <div className="text-3xl">
+                    <SkeletonLine className="h-7 w-20" />
+                </div>
+                <div className="text-xs">
+                    <SkeletonLine className="w-48" />
+                </div>
+            </CardContent>
+        </Card>
     )
 }
