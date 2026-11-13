@@ -3,8 +3,12 @@ import { LemonTable, LemonTableColumn, Link } from '@posthog/lemon-ui'
 import { percentage } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
 
-import type { AEOPromptSetSearchApi } from 'products/web_analytics/frontend/generated/api.schemas'
+import type {
+    AEOPromptSetSearchApi,
+    BrandedSegmentEnumApi,
+} from 'products/web_analytics/frontend/generated/api.schemas'
 
+import { ContentAutopilotCitationsLink } from './ContentAutopilotCitationsLink'
 import { ContentAutopilotEngineMarks } from './ContentAutopilotEngineMarks'
 import { OVERVIEW_DAYS } from './contentAutopilotPromptsOverviewLogic'
 
@@ -13,12 +17,15 @@ type SearchColumn = LemonTableColumn<SearchRow, keyof SearchRow | undefined>
 
 const citedShare = (row: SearchRow): number => (row.answers ? row.cited / row.answers : 0)
 
-/** One row per web search the engines ran. Expanding a row lists the prompts that ran it. */
+/** One row per web search the engines ran. A search opens the answers that ran it, and expanding a row lists the
+ *  prompts that ran it most. */
 export const ContentAutopilotPromptsSearchTable = ({
     rows,
+    branded,
     onOpenPrompt,
 }: {
     rows: SearchRow[]
+    branded: BrandedSegmentEnumApi
     onOpenPrompt: (promptId: string) => void
 }): JSX.Element => {
     const columns: SearchColumn[] = [
@@ -26,9 +33,14 @@ export const ContentAutopilotPromptsSearchTable = ({
             title: 'Search',
             key: 'query',
             render: (_, row) => (
-                <span className="block max-w-120 truncate font-semibold" title={row.query}>
+                <ContentAutopilotCitationsLink
+                    lookup={{ kind: 'search', value: row.query, days: OVERVIEW_DAYS, branded }}
+                    source="overview-searches"
+                    className="block max-w-120 truncate font-semibold"
+                    title={row.query}
+                >
                     {row.query}
-                </span>
+                </ContentAutopilotCitationsLink>
             ),
         },
         {
