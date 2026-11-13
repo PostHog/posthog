@@ -61,6 +61,16 @@ export const consumerLoopErrorsCounter = new Counter({
     labelNames: ['queue'] as const,
 })
 
+const staleCommitsCounter = new Counter({
+    name: 'cdp_cyclotron_v2_stale_commits_total',
+    help: 'Writes to a job that matched no row because the worker no longer held its lock, usually after the janitor reset a stalled job. Another worker may run that job too.',
+    labelNames: ['queue', 'operation'] as const,
+})
+
+export function countStaleCommit(queue: string, operation: string): void {
+    staleCommitsCounter.labels({ queue, operation }).inc()
+}
+
 export const pollsCounter = new Counter({
     name: 'cdp_cyclotron_v2_polls_total',
     help: 'Consumer loop polls of the queue database, per queue and outcome.',
@@ -251,6 +261,7 @@ export class CyclotronV2Worker {
     protected readonly includeEmptyBatches: boolean
     protected readonly fairDequeue: boolean
     private readonly boundedPolls: boolean
+    private readonly ownershipReadTimeoutMs: number
     private readonly boundedFairDequeue: boolean
     private readonly assignEmailDequeueSeq: (teamId: number) => Promise<string>
 
@@ -274,6 +285,7 @@ export class CyclotronV2Worker {
         this.releaseWriteHeartbeatLimitMs = config.releaseWriteHeartbeatLimitMs ?? 20000
         this.includeEmptyBatches = config.includeEmptyBatches ?? false
         this.boundedPolls = config.boundedPolls ?? false
+        this.ownershipReadTimeoutMs = config.ownershipReadTimeoutMs ?? 5_000
         this.boundedFairDequeue = config.boundedFairDequeue ?? false
         // Fair (per-team round-robin) dequeue is the email queue's ordering.
         // `dequeue_seq` is only ever assigned for email jobs (see
@@ -425,6 +437,7 @@ export class CyclotronV2Worker {
         const assignEmailDequeueSeq = this.assignEmailDequeueSeq
         const lockId = row.lock_id
         const releaseWriteHeartbeatLimitMs = this.releaseWriteHeartbeatLimitMs
+        const ownershipReadTimeoutMs = this.ownershipReadTimeoutMs
         let releaseStartedAt: number | null = null
         let releaseWritten = false
 
@@ -442,12 +455,31 @@ export class CyclotronV2Worker {
         const releaseWriteOutlivedHeartbeats = (): boolean =>
             releaseStartedAt !== null && Date.now() - releaseStartedAt > releaseWriteHeartbeatLimitMs
 
+        let ownershipLost = false
+        const noteOwnershipLost = (operation: string): void => {
+            ownershipLost = true
+            countStaleCommit(row.queue_name, operation)
+            logger.warn('CyclotronV2Worker lost ownership of a job', { id: row.id, operation })
+        }
+        const ownsJobNow = async (): Promise<boolean> => {
+            const ownershipRead = {
+                text: 'SELECT 1 FROM cyclotron_jobs WHERE id = $1 AND lock_id = $2',
+                values: [row.id, lockId],
+                query_timeout: ownershipReadTimeoutMs,
+            }
+            const result = await pool.query(ownershipRead)
+            return result.rowCount === 1
+        }
+
         const releaseWrite =
-            <A extends unknown[]>(method: string, write: (...args: A) => Promise<unknown>) =>
+            <A extends unknown[]>(method: string, write: (...args: A) => Promise<{ rowCount: number | null }>) =>
             async (...args: A): Promise<void> => {
                 releaseGuard(method)
                 try {
-                    await write(...args)
+                    const result = await write(...args)
+                    if (result.rowCount === 0) {
+                        noteOwnershipLost(method)
+                    }
                 } finally {
                     releaseWritten = true
                 }
@@ -455,6 +487,7 @@ export class CyclotronV2Worker {
 
         return {
             id: row.id,
+            lockId,
             teamId: row.team_id,
             functionId: row.function_id,
             queueName: row.queue_name,
@@ -471,8 +504,8 @@ export class CyclotronV2Worker {
                 ? DateTime.fromISO(row.cancel_requested_at, { zone: 'utc' })
                 : null,
 
-            ack: releaseWrite('ack', async () => {
-                await pool.query(
+            ack: releaseWrite('ack', () =>
+                pool.query(
                     `UPDATE cyclotron_jobs
                      SET status = 'completed', lock_id = NULL, last_heartbeat = NULL,
                          last_transition = NOW(), transition_count = LEAST(transition_count + 1, ${CYCLOTRON_COUNTER_MAX}),
@@ -480,10 +513,10 @@ export class CyclotronV2Worker {
                      WHERE id = $1 AND lock_id = $2`,
                     [row.id, lockId]
                 )
-            }),
+            ),
 
-            fail: releaseWrite('fail', async () => {
-                await pool.query(
+            fail: releaseWrite('fail', () =>
+                pool.query(
                     `UPDATE cyclotron_jobs
                      SET status = 'failed', lock_id = NULL, last_heartbeat = NULL,
                          last_transition = NOW(), transition_count = LEAST(transition_count + 1, ${CYCLOTRON_COUNTER_MAX}),
@@ -491,7 +524,7 @@ export class CyclotronV2Worker {
                      WHERE id = $1 AND lock_id = $2`,
                     [row.id, lockId]
                 )
-            }),
+            ),
 
             reschedule: releaseWrite('reschedule', async (input?: CyclotronV2RescheduleOptions) => {
                 const options = input ? CyclotronV2RescheduleOptionsSchema.parse(input) : undefined
@@ -555,7 +588,7 @@ export class CyclotronV2Worker {
                     setClauses.push(`dequeue_seq = $${params.length}`)
                 }
 
-                await pool.query(
+                return pool.query(
                     `UPDATE cyclotron_jobs SET ${setClauses.join(', ')}
                      WHERE id = $1 AND lock_id = $2`,
                     params
@@ -564,7 +597,7 @@ export class CyclotronV2Worker {
 
             defer: releaseWrite('defer', async ({ scheduledAt, state }: { scheduledAt: Date; state?: Buffer }) => {
                 const dequeueSeq = row.queue_name === 'email' ? await assignEmailDequeueSeq(row.team_id) : null
-                await pool.query(
+                return pool.query(
                     `UPDATE cyclotron_jobs
                      SET status = 'available', lock_id = NULL, last_heartbeat = NULL,
                          last_transition = NOW(), transition_count = LEAST(transition_count + 1, ${CYCLOTRON_COUNTER_MAX}),
@@ -576,8 +609,8 @@ export class CyclotronV2Worker {
                 )
             }),
 
-            cancel: releaseWrite('cancel', async () => {
-                await pool.query(
+            cancel: releaseWrite('cancel', () =>
+                pool.query(
                     `UPDATE cyclotron_jobs
                      SET status = 'canceled', lock_id = NULL, last_heartbeat = NULL,
                          last_transition = NOW(), transition_count = LEAST(transition_count + 1, ${CYCLOTRON_COUNTER_MAX}),
@@ -585,13 +618,16 @@ export class CyclotronV2Worker {
                      WHERE id = $1 AND lock_id = $2`,
                     [row.id, lockId]
                 )
-            }),
+            ),
 
             async heartbeat(): Promise<void> {
                 if (releaseWritten || releaseWriteOutlivedHeartbeats()) {
                     throw new Error(`Job ${row.id} already released, cannot heartbeat`)
                 }
-                await pool.query(
+                if (ownershipLost) {
+                    return
+                }
+                const result = await pool.query(
                     `UPDATE cyclotron_jobs
                      SET last_heartbeat = NOW()
                      WHERE id = (
@@ -601,6 +637,20 @@ export class CyclotronV2Worker {
                      )`,
                     [row.id, lockId]
                 )
+                if (result.rowCount === 0 && !(await ownsJobNow()) && releaseStartedAt === null) {
+                    noteOwnershipLost('heartbeat')
+                }
+            },
+
+            async stillOwned(): Promise<boolean> {
+                if (ownershipLost) {
+                    return false
+                }
+                if (await ownsJobNow()) {
+                    return true
+                }
+                ownershipLost = true
+                return false
             },
 
             async bulkCreateAndCheckIn(
@@ -629,6 +679,9 @@ export class CyclotronV2Worker {
                          FOR UPDATE`,
                         [row.id, lockId]
                     )
+                    if (selfRow.rowCount === 0) {
+                        noteOwnershipLost('check_in')
+                    }
                     assertSelfRowAffected(selfRow.rowCount, row.id, 'precheck')
                     if (selfRow.rows[0].cancel_requested_at !== null) {
                         await client.query('ROLLBACK')

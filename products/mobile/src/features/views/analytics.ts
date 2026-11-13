@@ -191,7 +191,7 @@ export function trackViewsReauthShown(props: {
 
 export type BrowseSection = 'dashboards' | 'insights'
 
-export type BrowseListEntry = BrowseSection | 'errors' | 'replay' | 'live'
+export type BrowseListEntry = BrowseSection | 'errors' | 'replay'
 
 export function trackBrowseListOpened(props: { section: BrowseListEntry; from: 'browse' | 'search' }): void {
     track('mobile_browse_list_opened', { section: props.section, from: props.from })

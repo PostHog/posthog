@@ -31,6 +31,7 @@ import { triggersOnEvents } from '~/cdp/consumers/event-name-gate'
 import {
     CdpProducerName,
     WAREHOUSE_PRODUCER,
+    WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER,
     WARPSTREAM_CYCLOTRON_PRODUCER,
     WARPSTREAM_INGESTION_PRODUCER,
 } from '~/cdp/outputs/producers'
@@ -451,6 +452,7 @@ async function startCdp(config: Partial<PluginsServerConfig>): Promise<Cdp> {
         cdpProducerRegistry: new KafkaProducerRegistry<CdpProducerName>({
             [WARPSTREAM_INGESTION_PRODUCER]: discardingProducer,
             [WARPSTREAM_CYCLOTRON_PRODUCER]: discardingProducer,
+            [WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER]: discardingProducer,
             [WAREHOUSE_PRODUCER]: discardingProducer,
         }),
         internalCaptureService: new InternalCaptureService(hub),

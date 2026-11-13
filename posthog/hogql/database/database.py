@@ -86,6 +86,7 @@ from posthog.hogql.database.schema.error_tracking_issue_fingerprint_overrides im
     ErrorTrackingIssueFingerprintOverridesTable,
     RawErrorTrackingIssueFingerprintOverridesTable,
 )
+from posthog.hogql.database.schema.error_tracking_issue_tags import RawErrorTrackingIssueTagsTable
 from posthog.hogql.database.schema.error_tracking_recent_issue_state import ErrorTrackingRecentIssueStateTable
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.events_with_flag_calls import EVENTS_WITH_FLAG_CALLS_TABLE, EventsWithFlagCallsTable
@@ -654,6 +655,11 @@ def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
                     "error_tracking_recent_issue_state": TableNode(
                         name="error_tracking_recent_issue_state",
                         table=ErrorTrackingRecentIssueStateTable(),
+                        hidden=True,
+                    ),
+                    "raw_error_tracking_issue_tags": TableNode(
+                        name="raw_error_tracking_issue_tags",
+                        table=RawErrorTrackingIssueTagsTable(),
                         hidden=True,
                     ),
                     "web_overview_preaggregated": TableNode(
@@ -1499,6 +1505,22 @@ class Database(BaseModel):
                 self._denied_tables.add(table_key)
         return True
 
+    def _is_live_only_table_denied(self, schema: ExternalDataSchema) -> bool:
+        """
+        `_is_warehouse_table_denied` for a dual-mode table that is queryable live but has no synced table row.
+        Userless context (no UserAccessControl) fails closed.
+        """
+        from products.warehouse_sources.backend.facade.live_queries import live_only_access_ref  # noqa: PLC0415
+
+        uac = self.user_access_control
+        if uac is not None and (
+            uac.is_organization_admin or uac.check_access_level_for_ref(live_only_access_ref(schema), "viewer")
+        ):
+            return False
+
+        self._denied_tables.add(schema.name)
+        return True
+
     def _is_warehouse_view_denied(self, saved_query: Any) -> bool:
         """
         View counterpart of `_is_warehouse_table_denied`.
@@ -2254,7 +2276,7 @@ class Database(BaseModel):
                         # Dual-mode live queries run under warehouse table-level access control. The
                         # introspected `available_functions` (scalar passthrough, e.g. query_to_xml) and
                         # `available_table_functions` (FROM func() via OpaqueFunctionCallTable) both let a
-                        # user execute arbitrary SQL against the upstream DB, bypassing the should_sync /
+                        # user execute arbitrary SQL against the upstream DB, bypassing the table selection /
                         # row-filter / column / warehouse-object checks enforced when virtual tables are
                         # built. Drop both so only built-in safe functions pass through; DIRECT sources
                         # (full DB access by design) keep introspected passthrough.
@@ -2890,15 +2912,23 @@ class Database(BaseModel):
                 virtual_source = sources.virtual_source
                 with timings.measure("build_virtual_tables", emit_span=True):
                     for schema_row in sources.virtual_schemas:
-                        # Warehouse access control is granted on the synced table row. A schema row
-                        # without one yet (discovered but not synced) has nothing to check permission
-                        # against, so fail closed and deny it rather than let it slip through unchecked.
+                        # A row with a table row uses that table's rules. A table-less row with live queries on
+                        # uses its source's rules. Any other table-less row is denied.
                         if (
                             sources.is_hogql_warehouse_access_control_enabled
                             and not sources.bypass_warehouse_access_control
-                            and (schema_row.table is None or database._is_warehouse_table_denied(schema_row.table))
                         ):
-                            continue
+                            if schema_row.table is not None:
+                                denied = database._is_warehouse_table_denied(schema_row.table)
+                                if denied:
+                                    # The table row's names are the synced copy's, so record the live name too.
+                                    database._denied_tables.add(schema_row.name)
+                            elif schema_row.live_query_enabled:
+                                denied = database._is_live_only_table_denied(schema_row)
+                            else:
+                                denied = True
+                            if denied:
+                                continue
 
                         virtual_table = build_direct_table_for_schema(schema_row, virtual_source)
                         if virtual_table is None:

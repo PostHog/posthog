@@ -11430,7 +11430,8 @@ export namespace Schemas {
         | "open_feature_flag"
         | "edit_exposure_criteria"
         | "adjust_distribution"
-        | "use_first_seen_variant";
+        | "use_first_seen_variant"
+        | "move_start_date";
     export type ExperimentExposureHealthFindingCode =
         | "zero_exposures"
         | "srm"
@@ -11830,6 +11831,14 @@ export namespace Schemas {
          * A schema of an external data source: its sync configuration and the warehouse table it syncs into.
          */
         should_sync?: boolean | undefined;
+        /**
+         * A schema of an external data source: its sync configuration and the warehouse table it syncs into.
+         */
+        live_query_enabled?: boolean | undefined;
+        /**
+         * Why this table can't be made queryable live without syncing it, or null when it can.
+         */
+        live_query_unavailable_reason: string | null;
         last_synced_at: string | null;
         /**
          * The latest error that occurred when syncing this schema.
@@ -12011,6 +12020,7 @@ export namespace Schemas {
          */
         id: string;
         should_sync?: boolean | undefined;
+        live_query_enabled?: boolean | undefined;
         sync_type?: (ExternalDataSchemaSyncTypeEnum | NullEnum) | undefined;
         incremental_field?: (string | null) | undefined;
         incremental_field_type?: (string | null) | undefined;
@@ -18506,6 +18516,8 @@ export namespace Schemas {
         auto_publish: boolean | null;
         channel: string | null;
         scheduled_at: string | null;
+        warm_submission_id: string | null;
+        warm_run_id: string | null;
         start_run: boolean;
         signal_report_discussion_question: string;
         naming_source: string;
@@ -18757,6 +18769,7 @@ export namespace Schemas {
         | CodexTaskRunCreateSchema
         | TaskRunResumeRequestSchema;
     export type TaskRunErrorResponse = Partial<{
+        id: unknown;
         detail: string;
         error: string;
         type: string;
@@ -19091,6 +19104,23 @@ export namespace Schemas {
          * The user's resolved GitHub login, or null when no GitHub identity is linked.
          */
         github_login: string | null;
+    };
+    /**
+     * Response for a successful warm request — the draft Task + idling warm Run reused on submit.
+     */
+    export type WarmTaskResponse = {
+        /**
+         * Id of the draft Task birthed for the warm Run.
+         */
+        task_id: string;
+        /**
+         * Id of the idling warm Run. The normal create+run path reuses and activates it on submit.
+         */
+        run_id: string;
+        /**
+         * Response for a successful warm request — the draft Task + idling warm Run reused on submit.
+         */
+        permission_mode_mutable?: boolean | undefined;
     };
     export type _DateRange = Partial<{
         date_from: string | null;
