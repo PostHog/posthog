@@ -293,7 +293,7 @@ const TRANSACTIONAL_SEND_REFUSAL_STATUS: Record<TransactionalSendRefusal, number
     sending_paused: 422,
     recipient_suppressed: 422,
     recipient_opted_out: 422,
-    content_too_large: 400,
+    content_too_large: 413,
     unsubscribe_link_required: 400,
     copies_not_allowed: 400,
     quota_limited: 429,

@@ -4245,38 +4245,6 @@ describe('EmailService', () => {
             ).toEqual(sent ? [] : ['content_too_large'])
         })
 
-        it("holds a marketing API send when its recipient's preferences cannot be read at send time", async () => {
-            hub.SITE_URL = 'http://localhost:8000'
-            service = createService()
-            const body = '<a href="{{ unsubscribe_url }}">Unsubscribe</a>'
-            invocation.state.globals.event.event = TRANSACTIONAL_EMAIL_EVENT
-            invocation.state.messageCategory = { id: randomUUID(), type: 'marketing' }
-            invocation.state.send = {
-                content: { subject: 'News', html: body },
-                from: { integrationId: getIntegrationId(1) },
-                tracking: { captureEngagement: true },
-            }
-            invocation.hogFunction.metadata = { ...invocation.hogFunction.metadata, message_category_type: 'marketing' }
-            invocation.queueParameters = createEmailParams({ from: { integrationId: 1 }, html: body })
-            expect((await service.executeSendEmail(invocation)).emailSendResult).toEqual({ status: 'accepted' })
-            const query = hub.postgres.query.bind(hub.postgres)
-            jest.spyOn(hub.postgres, 'query').mockImplementation((target, sql, values, tag) =>
-                tag === 'fetchCDPRecipients'
-                    ? Promise.reject(new Error('Connection terminated unexpectedly'))
-                    : query(target, sql, values, tag)
-            )
-
-            const before = Date.now()
-            const result = await service.executeSendEmail(invocation)
-
-            expect(ses.sent).toHaveLength(1)
-            expect(result.error).toBeUndefined()
-            expect(result.finished).toBe(false)
-            expect(result.invocation.queueMetadata?.suppressionLookupAttempts).toBe(1)
-            expect(result.invocation.queueScheduledAt!.toMillis()).toBeGreaterThanOrEqual(before + 30_000)
-            expect(result.invocation.queueParameters).toEqual(invocation.queueParameters)
-        })
-
         it.each([
             {
                 links: "one other recipient's preferences link, repeated past the check's limit,",

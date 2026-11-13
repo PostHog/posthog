@@ -3834,7 +3834,7 @@ describe('Workflows E2E (email queue)', () => {
                         html: '<a href="{{ unsubscribe_url }}">Unsubscribe</a>' + 'x'.repeat(19_000_000),
                     },
                 }),
-                status: 400,
+                status: 413,
                 error: 'content_too_large',
                 reason: expect.stringContaining('1,500,000 characters'),
             },
@@ -3844,7 +3844,7 @@ describe('Workflows E2E (email queue)', () => {
                 payload: codeSendIn(newsletter, {
                     content: { subject: 'News', text: 'Bye: {{ unsubscribe_url }}'.padEnd(BODY_MAX_LENGTH + 1, 'x') },
                 }),
-                status: 400,
+                status: 413,
                 error: 'content_too_large',
                 reason: expect.stringContaining('1,500,000 characters'),
             },
@@ -3970,7 +3970,7 @@ describe('Workflows E2E (email queue)', () => {
 
         it.each([
             { length: BODY_MAX_LENGTH, status: 202 },
-            { length: BODY_MAX_LENGTH + 1, status: 400 },
+            { length: BODY_MAX_LENGTH + 1, status: 413 },
         ])(
             'answers a code send in a marketing category whose html is $length characters long with $status',
             async ({ length, status }) => {
@@ -3984,7 +3984,7 @@ describe('Workflows E2E (email queue)', () => {
                 })
 
                 expect(res.status).toEqual(status)
-                expect(res.body.error).toEqual(status === 400 ? 'content_too_large' : undefined)
+                expect(res.body.error).toEqual(status === 413 ? 'content_too_large' : undefined)
             }
         )
 
@@ -4190,6 +4190,44 @@ describe('Workflows E2E (email queue)', () => {
 
             expect(await emailsTo(to)).toEqual([])
             await expectStoredStatus(res.body.invocation_id, { status: 'failed', reason: 'recipient_opted_out' })
+        })
+
+        it("holds a marketing code send while its recipient's preferences can't be read, then sends it once", async () => {
+            const flow = await insertHogFlow(hub.postgres, sendFlow('code', 'transactional'))
+            const to = `reader-${new UUIDT().toString()}@example.com`
+            const query = hub.postgres.query.bind(hub.postgres)
+            const outage = jest
+                .spyOn(hub.postgres, 'query')
+                .mockImplementation((target, sql, values, tag) =>
+                    tag === 'fetchCDPRecipients'
+                        ? Promise.reject(new Error('Connection terminated unexpectedly'))
+                        : query(target, sql, values, tag)
+                )
+            emailWorker = new CdpCyclotronWorkerEmail(
+                hub,
+                deps,
+                new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub)
+            )
+            await emailWorker.start()
+
+            const res = await post('code', flow, { to, distinct_id: 'reader', ...codeSendIn(newsletter) })
+            expect(res.status).toEqual(202)
+            await waitForExpect(async () => {
+                const job = (await queryCyclotronJobs()).find((j: any) => j.id === res.body.invocation_id)
+                expect(job).toMatchObject({ queue_name: 'email', status: 'available' })
+                expect(new Date(job.scheduled).getTime()).toBeGreaterThan(Date.now())
+            }, 15000)
+            expect(await emailsTo(to)).toEqual([])
+
+            outage.mockRestore()
+            await cyclotronPool.query(`UPDATE cyclotron_jobs SET scheduled = NOW() WHERE id = $1`, [
+                res.body.invocation_id,
+            ])
+            await waitForExpect(async () => expect(await emailsTo(to)).toHaveLength(1), 15000)
+            await waitForExpect(async () => {
+                expect((await queryCyclotronJobs()).filter((j: any) => j.status !== 'completed')).toEqual([])
+            }, 15000)
+            expect(await emailsTo(to)).toHaveLength(1)
         })
 
         it.each<ApiSend & { delivered: number; copyDelivered?: boolean; skipped?: string }>([
