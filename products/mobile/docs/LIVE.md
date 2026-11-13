@@ -131,7 +131,7 @@ A project read that fails counts as unknown, so Live shows what the snapshot say
 **Quiet.** The Quiet card says "Quiet right now" and "No events in the last 30 minutes. Live keeps checking." The stats, map, chart and list cards are hidden. Polling goes on as usual, so the cards come back with the first event. The 10-second stats read waits while Quiet, because users online are not on screen, and the next 30-second read ends Quiet.
 
 **Not set up.** The setup card says "Install PostHog to see live activity" and "This project has not sent an event yet. Add the web snippet or an SDK and Live fills in within a minute."
-"Open setup guide" opens `{host}/project/{id}/onboarding` on the web, where the person picks the web snippet or an SDK. It is disabled with "Not in the demo" in demo mode, and with "Needs an HTTPS instance" when the host is not HTTPS. "Open Views" switches to the Views tab.
+"Open setup guide" opens `{host}/project/{id}/onboarding` on the web, where the person picks the web snippet or an SDK. It is disabled with "Not in the demo" in demo mode, and with "Not available over http" when the host is not https. "Open Views" switches to the Views tab.
 Live runs no jobs and no stats reads in this state. While the screen is seen, it reads the project again every minute, and on each focus and each return to the foreground, at most once a minute (`PROJECT_RECHECK_MS` in `hooks.ts`). These reads are outside the query budget. A pull reads it at once. When `ingested_event` turns true, the normal poller starts. When a later project read fails, Live keeps the last answer.
 
 **Meanwhile** (`live-meanwhile`): the "Meanwhile" eyebrow and a card with up to two pinned views, in Views order, then "Inbox".

@@ -51,7 +51,7 @@ export function LiveNoTraffic({ state, scope }: LiveNoTrafficProps): ReactElemen
                         actionLabel="Open setup guide"
                         onAction={openSetup}
                         actionDisabledReason={
-                            setupUrl ? undefined : scope ? 'Needs an HTTPS instance' : 'Not in the demo'
+                            setupUrl ? undefined : scope ? 'Not available over http' : 'Not in the demo'
                         }
                         secondaryActionLabel="Open Views"
                         onSecondaryAction={() => router.navigate('/(tabs)/views')}
