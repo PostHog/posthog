@@ -12,10 +12,7 @@ export function ClustersWaitingState(): JSX.Element {
             <div className="mx-auto max-w-3xl space-y-4 py-8">
                 <div>
                     <h2>Clustering is enabled</h2>
-                    <p className="text-muted">
-                        Each job below shows the data it needs. Results will replace this page when clusters are ready.
-                        You can leave this page while jobs run.
-                    </p>
+                    <p className="text-muted">Your clusters will appear here when they’re ready.</p>
                 </div>
                 <ClusteringProgress />
                 <p className="text-sm text-muted">

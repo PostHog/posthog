@@ -68,7 +68,7 @@ function JobProgress({ job }: { job: ClusteringJobProgressApi }): JSX.Element {
                         </AccessControlAction>
                     </div>
                 ) : job.status === 'waiting' ? (
-                    <>
+                    <div className="space-y-2">
                         <div>
                             <strong>
                                 {job.eligible_count ?? 0} of {job.minimum}
@@ -76,16 +76,18 @@ function JobProgress({ job }: { job: ClusteringJobProgressApi }): JSX.Element {
                             found.
                         </div>
                         {needsTracing && (
-                            <Link to="https://posthog.com/docs/llm-analytics/installation" target="_blank">
-                                Set up AI tracing
-                            </Link>
+                            <div>
+                                <Link to="https://posthog.com/docs/llm-analytics/installation" target="_blank">
+                                    Set up AI tracing
+                                </Link>
+                            </div>
                         )}
                         {job.analysis_level === 'evaluation' && job.eligible_count === 0 && (
                             <div className="text-muted">
                                 This job needs evaluation results. Your trace and generation jobs can run without them.
                             </div>
                         )}
-                    </>
+                    </div>
                 ) : job.status === 'completed' ? (
                     job.cluster_count ? (
                         `${job.cluster_count} clusters found. Results will appear on this page.`

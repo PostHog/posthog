@@ -27,7 +27,7 @@ export const clustersEmptyState: SceneProductEmptyState = {
         text: {
             'needs-setup': {
                 headline: 'Find the patterns in how people use your AI',
-                lead: 'Group similar traces, generations, and evaluations to see what people ask for and where things go wrong. You can enable clustering before sending data. Each job needs at least 10 eligible items to start; we’ll show you what’s missing.',
+                lead: 'Group similar traces, generations, and evaluations to see what people ask for and where things go wrong.',
             },
             'waiting-for-data': {
                 headline: 'Waiting for the first clustering run',
