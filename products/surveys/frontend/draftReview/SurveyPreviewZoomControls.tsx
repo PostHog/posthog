@@ -5,16 +5,17 @@ const ZOOM_STEP = 1.25
 
 export function SurveyPreviewZoomControls({
     scale,
-    fitScale,
-    maxScale,
-    onZoom,
+    isFit,
+    isMax,
+    onZoomBy,
+    onZoomTo,
 }: {
     scale: number
-    fitScale: number
-    maxScale: number
-    onZoom: (scale: number | 'fit') => void
+    isFit: boolean
+    isMax: boolean
+    onZoomBy: (factor: number) => void
+    onZoomTo: (scale: number | 'fit') => void
 }): JSX.Element {
-    const isFit = scale === fitScale
     return (
         <div className="flex shrink-0 items-center" data-attr="survey-draft-review-preview-zoom">
             <LemonButton
@@ -22,12 +23,12 @@ export function SurveyPreviewZoomControls({
                 icon={<IconMinus />}
                 tooltip="Zoom out"
                 disabledReason={isFit ? 'The whole page is already in view' : undefined}
-                onClick={() => onZoom(scale / ZOOM_STEP)}
+                onClick={() => onZoomBy(1 / ZOOM_STEP)}
             />
             <LemonButton
                 size="xsmall"
                 tooltip={isFit ? 'Show at actual size' : 'Fit the page to the frame'}
-                onClick={() => onZoom(isFit ? 1 : 'fit')}
+                onClick={() => onZoomTo(isFit ? 1 : 'fit')}
             >
                 <span className="w-9 text-center tabular-nums">{Math.round(scale * 100)}%</span>
             </LemonButton>
@@ -35,8 +36,8 @@ export function SurveyPreviewZoomControls({
                 size="xsmall"
                 icon={<IconPlus />}
                 tooltip="Zoom in"
-                disabledReason={scale >= maxScale ? 'Zoomed in as far as it goes' : undefined}
-                onClick={() => onZoom(scale * ZOOM_STEP)}
+                disabledReason={isMax ? 'Zoomed in as far as it goes' : undefined}
+                onClick={() => onZoomBy(ZOOM_STEP)}
             />
         </div>
     )

@@ -27,6 +27,8 @@ const SURVEY_PLACEMENTS: Record<SurveyPosition, string> = {
 }
 
 const MAX_SCALE = 2
+// Zooming out by steps lands a hair above the fit scale in floating point, which still counts as fit.
+const FIT_TOLERANCE = 1.001
 const WHEEL_ZOOM_SENSITIVITY = 0.01
 // A mouse wheel notch reports a delta near 100 where a pinch reports a few, so one notch is capped near one button step.
 const MAX_WHEEL_DELTA = 25
@@ -36,6 +38,11 @@ const highlightClasses = (active: boolean): string =>
         'outline-2 outline-offset-2 motion-safe:transition-[outline-color]',
         active ? 'outline-accent' : 'outline-transparent'
     )
+
+function clampZoom(next: number, fitScale: number): number | 'fit' {
+    const clamped = Math.min(MAX_SCALE, next)
+    return clamped <= fitScale * FIT_TOLERANCE ? 'fit' : clamped
+}
 
 function centerOn(viewport: HTMLElement, element: HTMLElement): void {
     const viewportRect = viewport.getBoundingClientRect()
@@ -64,23 +71,37 @@ export function SurveyPreviewBrowserFrame({
     const [viewport, setViewport] = useState<HTMLDivElement | null>(null)
     const surveyRef = useRef<HTMLDivElement>(null)
     const { width: viewportWidth = 0, height: viewportHeight = 0 } = useResizeObserver({ ref: viewport })
-    const [pageHeight, setPageHeight] = useState<number | null>(null)
-    const [zoom, setZoom] = useState<number | 'fit'>('fit')
+    // Page size and zoom belong to one image, so a new snapshot starts from its own size at fit.
+    const [loadedPage, setLoadedPage] = useState<{ imageUrl: string; height: number } | null>(null)
+    const [zoomState, setZoomState] = useState<{ imageUrl: string; zoom: number | 'fit' } | null>(null)
+    const [failedImageUrl, setFailedImageUrl] = useState<string | null>(null)
 
-    const pageWidth = readySnapshot?.viewportWidth ?? 0
+    const snapshot = readySnapshot && readySnapshot.imageUrl !== failedImageUrl ? readySnapshot : null
+    const imageUrl = snapshot?.imageUrl
+    const pageWidth = snapshot?.viewportWidth ?? 0
+    const pageHeight = imageUrl && loadedPage?.imageUrl === imageUrl ? loadedPage.height : null
+    const zoom = imageUrl && zoomState?.imageUrl === imageUrl ? zoomState.zoom : 'fit'
     const fitScale =
         pageWidth && pageHeight && viewportWidth
             ? Math.min(viewportWidth / pageWidth, viewportHeight / pageHeight, 1)
             : null
-    const scale = fitScale === null ? null : zoom === 'fit' ? fitScale : zoom
+    const scale = fitScale === null ? null : zoom === 'fit' ? fitScale : Math.max(fitScale, zoom)
 
-    const zoomTo = (next: number | 'fit'): void => {
-        if (next === 'fit' || fitScale === null) {
-            setZoom('fit')
-            return
+    const zoomTo = (target: number | 'fit'): void => {
+        if (imageUrl && fitScale !== null) {
+            setZoomState({ imageUrl, zoom: target === 'fit' ? 'fit' : clampZoom(target, fitScale) })
         }
-        const clamped = Math.min(MAX_SCALE, Math.max(fitScale, next))
-        setZoom(clamped === fitScale ? 'fit' : clamped)
+    }
+    const zoomBy = (factor: number): void => {
+        if (imageUrl && fitScale !== null) {
+            setZoomState((previous) => {
+                const current =
+                    previous?.imageUrl === imageUrl && previous.zoom !== 'fit'
+                        ? Math.max(fitScale, previous.zoom)
+                        : fitScale
+                return { imageUrl, zoom: clampZoom(current * factor, fitScale) }
+            })
+        }
     }
 
     useLayoutEffect(() => {
@@ -100,7 +121,7 @@ export function SurveyPreviewBrowserFrame({
             }
             event.preventDefault()
             const delta = Math.max(-MAX_WHEEL_DELTA, Math.min(MAX_WHEEL_DELTA, event.deltaY))
-            zoomTo(scale * Math.exp(-delta * WHEEL_ZOOM_SENSITIVITY))
+            zoomBy(Math.exp(-delta * WHEEL_ZOOM_SENSITIVITY))
         }
         viewport.addEventListener('wheel', onWheel, { passive: false })
         return () => viewport.removeEventListener('wheel', onWheel)
@@ -139,12 +160,18 @@ export function SurveyPreviewBrowserFrame({
                 >
                     {readySnapshot?.pageUrl || survey.conditions?.url || 'Any page on your site'}
                 </span>
-                {readySnapshot && scale !== null && fitScale !== null && (
-                    <SurveyPreviewZoomControls scale={scale} fitScale={fitScale} maxScale={MAX_SCALE} onZoom={zoomTo} />
+                {scale !== null && (
+                    <SurveyPreviewZoomControls
+                        scale={scale}
+                        isFit={zoom === 'fit' || scale === fitScale}
+                        isMax={scale >= MAX_SCALE}
+                        onZoomBy={zoomBy}
+                        onZoomTo={zoomTo}
+                    />
                 )}
             </div>
             <div className="relative flex min-h-[26rem] flex-1">
-                {readySnapshot ? (
+                {snapshot ? (
                     <div ref={setViewport} className={cn('absolute inset-1 flex overflow-auto rounded', pageHighlight)}>
                         <div
                             className={cn('relative m-auto shrink-0', scale === null && 'invisible')}
@@ -155,16 +182,19 @@ export function SurveyPreviewBrowserFrame({
                                 style={{ width: pageWidth, transform: `scale(${scale ?? 1})` }}
                             >
                                 <img
-                                    src={readySnapshot.imageUrl}
+                                    src={snapshot.imageUrl}
                                     alt=""
                                     aria-hidden
                                     className="block w-full max-w-none"
                                     onLoad={(event) =>
-                                        setPageHeight(
-                                            (pageWidth * event.currentTarget.naturalHeight) /
-                                                event.currentTarget.naturalWidth
-                                        )
+                                        setLoadedPage({
+                                            imageUrl: snapshot.imageUrl,
+                                            height:
+                                                (pageWidth * event.currentTarget.naturalHeight) /
+                                                event.currentTarget.naturalWidth,
+                                        })
                                     }
+                                    onError={() => setFailedImageUrl(snapshot.imageUrl)}
                                 />
                                 {surveyLayer}
                             </div>
