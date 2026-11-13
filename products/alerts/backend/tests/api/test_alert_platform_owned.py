@@ -88,6 +88,7 @@ from products.alerts_platform.backend.facade.contracts import (
 from products.alerts_platform.backend.facade.enums import HoldRelease, HoldReleasedBy, PlatformAlertOwner
 from products.alerts_platform.backend.facade.scheduling import REAL_TIME_CADENCE_MINUTES
 from products.cdp.backend.facade.models import HogFunction
+from products.cdp.backend.templates.discord.template_discord import template as template_discord
 from products.cdp.backend.templates.fixtures import template_slack
 from products.cdp.backend.templates.hog_function_template import sync_template_to_db
 from products.notebooks.backend.facade.api import create_notebook
@@ -594,6 +595,33 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
         with team_scope(self.team.id):
             self.copy_id = platform_testing.copy_of(self.alert.id).id
         self.url = f"/api/projects/{self.team.id}/alerts"
+
+    @parameterized.expand([("generic_hog_function_api",), ("alert_route",)])
+    def test_a_deleted_destination_takes_its_platform_row_with_it(self, delete_path: str) -> None:
+        sync_template_to_db(template_discord)
+        created = self.client.post(
+            f"{self.url}/{self.alert.id}/destinations/webhook/",
+            {"type": "discord", "webhook_url": "https://discord.com/api/webhooks/1/secret"},
+            format="json",
+        )
+        assert created.status_code == status.HTTP_201_CREATED, created.json()
+        (hog_function_id,) = created.json()["hog_function_ids"]
+        (listed,) = self.client.get(f"{self.url}/{self.alert.id}/destinations/").json()
+        assert listed["id"] is not None
+
+        if delete_path == "alert_route":
+            response = self.client.post(
+                f"{self.url}/{self.alert.id}/destinations/delete/",
+                {"hog_function_ids": [hog_function_id]},
+                format="json",
+            )
+        else:
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_functions/{hog_function_id}/", {"deleted": True}, format="json"
+            )
+
+        assert response.status_code in (status.HTTP_200_OK, status.HTTP_204_NO_CONTENT), response.content
+        assert self.client.get(f"{self.url}/{self.alert.id}/destinations/").json() == []
 
     def _copy(self) -> Any:
         with team_scope(self.team.id):
