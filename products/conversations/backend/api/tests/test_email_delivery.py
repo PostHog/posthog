@@ -18,7 +18,12 @@ from posthog.models.utils import generate_random_token_secret
 from products.conversations.backend.api.tests.mailgun_signing import MailgunWebhookTestMixin, post_mailgun
 from products.conversations.backend.models import EmailChannel, EmailOutboxMessage, Ticket
 from products.conversations.backend.models.constants import Channel, EmailDelivery, Status
-from products.conversations.backend.services.email_delivery import request_email_delivery, stop_email_delivery
+from products.conversations.backend.services.email_delivery import (
+    MAX_CONFIRMATION_EMAILS_PER_RECIPIENT,
+    EmailDeliveryUnavailable,
+    request_email_delivery,
+    stop_email_delivery,
+)
 from products.conversations.backend.services.messages import is_private_message
 from products.conversations.backend.tasks.email import send_email_reply
 
@@ -79,7 +84,7 @@ class TestWidgetTicketEmailDelivery(MailgunWebhookTestMixin, BaseTest):
             item_context={"author_type": "support", "is_private": False},
         )
 
-    def _email_from(self, sender: str, *, in_reply_to: str, headers: list[list[str]] | None = None):
+    def _email_from(self, sender: str, *, in_reply_to: str, **fields: str):
         return post_mailgun(
             self.webhook,
             "/api/conversations/v1/email/inbound",
@@ -91,7 +96,7 @@ class TestWidgetTicketEmailDelivery(MailgunWebhookTestMixin, BaseTest):
                 "In-Reply-To": in_reply_to,
                 "stripped-text": "Yes, email me",
                 "X-Mailgun-Spf": "Pass",
-                "message-headers": json.dumps(headers or []),
+                **fields,
             },
         )
 
@@ -121,20 +126,27 @@ class TestWidgetTicketEmailDelivery(MailgunWebhookTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            ("ticket_address", CUSTOMER_EMAIL, None, EmailDelivery.ACTIVE, 1),
-            ("ticket_address_in_another_case", CUSTOMER_EMAIL.upper(), None, EmailDelivery.ACTIVE, 1),
-            ("another_address", "someone-else@customer.example", None, EmailDelivery.PENDING, 0),
-            ("auto_reply", CUSTOMER_EMAIL, [["Auto-Submitted", "auto-replied"]], EmailDelivery.PENDING, 0),
+            ("ticket_address", CUSTOMER_EMAIL, {}, EmailDelivery.ACTIVE, 1),
+            ("ticket_address_in_another_case", CUSTOMER_EMAIL.upper(), {}, EmailDelivery.ACTIVE, 1),
+            ("another_address", "someone-else@customer.example", {}, EmailDelivery.PENDING, 0),
+            (
+                "auto_reply",
+                CUSTOMER_EMAIL,
+                {"message-headers": json.dumps([["Auto-Submitted", "auto-replied"]])},
+                EmailDelivery.PENDING,
+                0,
+            ),
+            ("sender_that_failed_authentication", CUSTOMER_EMAIL, {"X-Mailgun-Spf": "Fail"}, EmailDelivery.PENDING, 0),
         ]
     )
     def test_replies_are_emailed_only_after_the_customer_confirms(
-        self, _name, sender, headers, expected_state, expected_outbox_rows
+        self, _name, sender, fields, expected_state, expected_outbox_rows
     ):
         confirmation = self._request_and_send_confirmation()
         held_reply = self._team_reply("Written before the customer confirmed")
         assert not EmailOutboxMessage.objects.filter(comment=held_reply).exists()
 
-        self._email_from(sender, in_reply_to=confirmation.message_id, headers=headers)
+        self._email_from(sender, in_reply_to=confirmation.message_id, **fields)
 
         assert Ticket.objects.filter(team=self.team).count() == 1
         self.ticket.refresh_from_db()
@@ -155,13 +167,18 @@ class TestWidgetTicketEmailDelivery(MailgunWebhookTestMixin, BaseTest):
     ):
         first = self._request_and_send_confirmation()
         self._email_from(CUSTOMER_EMAIL, in_reply_to=first.message_id)
+        queued_for_first_address = EmailOutboxMessage.objects.get(comment=self._team_reply("For the first address"))
         stop_email_delivery(self.ticket)
         Ticket.objects.filter(id=self.ticket.id).update(
             cc_participants=["copied@customer.example"], anonymous_traits={"email": second_address}
         )
 
         request_email_delivery(self.ticket)
-        second = EmailOutboxMessage.objects.filter(ticket=self.ticket).exclude(id=first.id).get()
+        second = (
+            EmailOutboxMessage.objects.filter(ticket=self.ticket)
+            .exclude(id__in=[first.id, queued_for_first_address.id])
+            .get()
+        )
         send_mime = self._send(second)
         self._email_from(second_address, in_reply_to=first.message_id)
 
@@ -171,8 +188,11 @@ class TestWidgetTicketEmailDelivery(MailgunWebhookTestMixin, BaseTest):
         assert self.ticket.cc_participants == expected_cc
         assert self.ticket.email_delivery == EmailDelivery.PENDING
         self._email_from(second_address, in_reply_to=second.message_id)
+        self._email_from("earlier@customer.example", in_reply_to=first.message_id, Cc="added-later@customer.example")
         self.ticket.refresh_from_db()
         assert self.ticket.email_delivery == EmailDelivery.ACTIVE
+        assert self.ticket.cc_participants == expected_cc
+        self._send(queued_for_first_address).assert_not_called()
 
     def test_widget_session_does_not_read_what_arrives_by_email(self):
         widget_token = "widget-token-for-email-delivery"
@@ -183,6 +203,7 @@ class TestWidgetTicketEmailDelivery(MailgunWebhookTestMixin, BaseTest):
             self._team_reply("Shown in the widget")
         with self.captureOnCommitCallbacks(execute=True):
             self._email_from(CUSTOMER_EMAIL, in_reply_to=confirmation.message_id)
+        EmailChannel.objects.filter(id=self.config.id).delete()
         session = f"widget_session_id={self.ticket.widget_session_id}"
 
         messages = self.api.get(
@@ -195,6 +216,41 @@ class TestWidgetTicketEmailDelivery(MailgunWebhookTestMixin, BaseTest):
         assert Ticket.objects.get(id=self.ticket.id).last_message_text == "Yes, email me"
         assert [message["content"] for message in messages.json()["messages"]] == ["Shown in the widget"]
         assert [ticket["last_message"] for ticket in tickets.json()["results"]] == ["Shown in the widget"]
+
+    def test_replies_behind_many_customer_messages_are_still_emailed_on_confirmation(self):
+        confirmation = self._request_and_send_confirmation()
+        Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(self.ticket.id),
+            content="Another message from the widget",
+            item_context={"author_type": "customer", "is_private": False},
+        )
+        held_reply = self._team_reply("Written before the customer confirmed")
+
+        with patch("products.conversations.backend.services.email_delivery.MAX_REPLIES_SENT_ON_CONFIRMATION", 1):
+            self._email_from(CUSTOMER_EMAIL, in_reply_to=confirmation.message_id)
+
+        assert EmailOutboxMessage.objects.filter(comment=held_reply).exists()
+
+    def test_an_address_gets_a_limited_number_of_confirmation_emails(self):
+        def request_on_a_new_ticket() -> None:
+            ticket = Ticket.objects.create_with_number(
+                team=self.team,
+                widget_session_id=str(uuid.uuid4()),
+                distinct_id=str(uuid.uuid4()),
+                channel_source=Channel.WIDGET,
+                status=Status.NEW,
+                anonymous_traits={"email": CUSTOMER_EMAIL.upper()},
+            )
+            request_email_delivery(ticket)
+
+        for _ in range(MAX_CONFIRMATION_EMAILS_PER_RECIPIENT):
+            request_on_a_new_ticket()
+
+        with self.assertRaises(EmailDeliveryUnavailable):
+            request_on_a_new_ticket()
+        assert self._patch({"email_delivery": True}).status_code == status.HTTP_400_BAD_REQUEST
 
     def test_queued_reply_is_not_sent_after_delivery_is_turned_off(self):
         confirmation = self._request_and_send_confirmation()

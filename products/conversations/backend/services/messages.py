@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
 from django.db.models import Q, QuerySet
@@ -86,6 +87,24 @@ def visible_ticket_messages(team_id: int, ticket_id: str) -> QuerySet[Comment]:
     ).filter(_public_ticket_message_context())
 
 
+def _tickets_with_authenticated_mail_from(team_id: int, ticket_ids: list[str], address: str) -> set[str]:
+    return set(
+        Comment.objects.filter(
+            team_id=team_id,
+            scope=TICKET_MESSAGE_SCOPE,
+            item_id__in=ticket_ids,
+            deleted=False,
+            item_context__from_email=True,
+            item_context__email_sender_authenticated=True,
+            item_context__email_from__iexact=address,
+        ).values_list("item_id", flat=True)
+    )
+
+
+def _is_ticket_address(ticket: "Ticket", viewer_email: str | None) -> bool:
+    return bool(viewer_email and ticket.email_from and ticket.email_from.lower() == viewer_email.lower())
+
+
 def widget_viewer_reads_emails(ticket: "Ticket", viewer_email: str | None) -> bool:
     """Whether the emails on a ticket are shown to a widget viewer.
 
@@ -99,17 +118,10 @@ def widget_viewer_reads_emails(ticket: "Ticket", viewer_email: str | None) -> bo
     """
     if ticket.channel_source == Channel.EMAIL:
         return True
-    if not viewer_email or not ticket.email_from or ticket.email_from.lower() != viewer_email.lower():
+    if not _is_ticket_address(ticket, viewer_email):
         return False
-    return Comment.objects.filter(
-        team_id=ticket.team_id,
-        scope=TICKET_MESSAGE_SCOPE,
-        item_id=str(ticket.id),
-        deleted=False,
-        item_context__from_email=True,
-        item_context__email_sender_authenticated=True,
-        item_context__email_from__iexact=ticket.email_from,
-    ).exists()
+    ticket_id = str(ticket.id)
+    return ticket_id in _tickets_with_authenticated_mail_from(ticket.team_id, [ticket_id], ticket.email_from or "")
 
 
 def messages_shown_in_widget(messages: QuerySet[Comment], *, reads_emails: bool) -> QuerySet[Comment]:
@@ -119,22 +131,38 @@ def messages_shown_in_widget(messages: QuerySet[Comment], *, reads_emails: bool)
     return messages.filter(~Q(item_context__from_email=True) | Q(item_context__from_email__isnull=True))
 
 
-def last_message_text_shown_in_widget(ticket: "Ticket", *, reads_emails: bool) -> str | None:
-    """The ticket's last-message preview for a widget viewer.
+def last_message_texts_shown_in_widget(tickets: Sequence["Ticket"], viewer_email: str | None) -> dict[str, str | None]:
+    """Each ticket's last-message preview for a widget viewer, keyed by ticket ID.
 
     `Ticket.last_message_text` is shared with the inbox, so it can hold an email the viewer
-    must not read. Only a ticket that had email delivery requested has an email channel
-    while not being an email ticket, and only such a ticket can receive one.
+    must not read. The tickets must belong to one team.
     """
-    if reads_emails or ticket.email_config_id is None:
-        return ticket.last_message_text
-    content = (
-        messages_shown_in_widget(visible_ticket_messages(ticket.team_id, str(ticket.id)), reads_emails=False)
-        .order_by("-created_at")
-        .values_list("content", flat=True)
-        .first()
+    previews: dict[str, str | None] = {str(ticket.id): ticket.last_message_text for ticket in tickets}
+    # email_from is set on a ticket from another channel when email delivery is requested for it,
+    # and nothing clears it afterwards. The email channel can be deleted, so it is not a signal.
+    with_emails = [ticket for ticket in tickets if ticket.channel_source != Channel.EMAIL and ticket.email_from]
+    if not with_emails:
+        return previews
+
+    team_id = with_emails[0].team_id
+    own = [str(ticket.id) for ticket in with_emails if _is_ticket_address(ticket, viewer_email)]
+    readable = _tickets_with_authenticated_mail_from(team_id, own, viewer_email or "") if own else set()
+    hidden = [str(ticket.id) for ticket in with_emails if str(ticket.id) not in readable]
+    last_visible = dict(
+        messages_shown_in_widget(
+            Comment.objects.filter(
+                team_id=team_id, scope=TICKET_MESSAGE_SCOPE, item_id__in=hidden, deleted=False
+            ).filter(_public_ticket_message_context()),
+            reads_emails=False,
+        )
+        .order_by("item_id", "-created_at")
+        .distinct("item_id")
+        .values_list("item_id", "content")
     )
-    return None if content is None else content[:500]
+    for ticket_id in hidden:
+        content = last_visible.get(ticket_id)
+        previews[ticket_id] = None if content is None else content[:500]
+    return previews
 
 
 def public_human_ticket_replies(

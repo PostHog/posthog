@@ -150,7 +150,9 @@ A widget ticket uses the same outbox when a workflow turns on email delivery for
 The customer typed the address on such a ticket into the widget, so it is unverified.
 While `Ticket.email_delivery` is `pending`, the outbox sends only a fixed confirmation email with no ticket content.
 A reply to the latest confirmation email from the ticket's address sets the state to `active`, and team replies then get outbox rows as they do on an email ticket.
-An auto-reply does not count, and neither does a reply to any other message in the thread.
+An auto-reply does not count, and neither does a reply to any other message in the thread or a reply that fails sender authentication.
+Turning delivery off cancels the emails still queued for the ticket.
+An address gets at most three confirmation emails per team in 24 hours.
 An email that lands on a widget ticket is shown in the inbox and is not returned to a widget session, because the session has not proved it owns the mailbox.
 A widget viewer reads those emails under the conditions of the email bridge: a signed email claim equal to the ticket's address, and mail from that address that passed sender authentication.
 The send path checks the state again right before each send, so a reply queued while delivery was active is not sent after delivery is turned off.

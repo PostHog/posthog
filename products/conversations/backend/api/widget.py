@@ -71,7 +71,7 @@ from products.conversations.backend.services.identity import (
     verify_identity_hash,
 )
 from products.conversations.backend.services.messages import (
-    last_message_text_shown_in_widget,
+    last_message_texts_shown_in_widget,
     messages_shown_in_widget,
     widget_viewer_reads_emails,
 )
@@ -844,17 +844,17 @@ class WidgetTicketsView(APIView):
         total_count = tickets_query.count()
 
         # Serialize tickets
+        page = list(tickets)
+        previews = last_message_texts_shown_in_widget(page, verified_email)
         ticket_list = []
-        for ticket in tickets:
+        for ticket in page:
             ticket_list.append(
                 {
                     "id": str(ticket.id),
                     "ticket_number": ticket.ticket_number,
                     "status": ticket.status,
                     "unread_count": ticket.unread_customer_count,  # Unread messages for customer
-                    "last_message": last_message_text_shown_in_widget(
-                        ticket, reads_emails=widget_viewer_reads_emails(ticket, verified_email)
-                    ),
+                    "last_message": previews[str(ticket.id)],
                     "last_message_at": ticket.last_message_at.isoformat() if ticket.last_message_at else None,
                     "message_count": ticket.message_count,
                     "created_at": ticket.created_at.isoformat(),

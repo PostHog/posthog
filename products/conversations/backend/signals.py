@@ -30,7 +30,7 @@ from .events import (
 from .models import ConversationDeliveryPart, SigningSecret, Ticket
 from .models.constants import WORKFLOW_AUTHOR_TYPE, Channel
 from .services.delivery import enqueue_slack_body_delivery
-from .services.email_delivery import enqueue_email_reply, tickets_delivering_replies_by_email
+from .services.email_delivery import enqueue_email_reply, ticket_delivering_replies_by_email
 from .services.messages import is_outbound_reply, is_private_message, visible_ticket_messages
 from .tasks.github import post_reply_to_github
 from .tasks.slack import wake_delivery_part
@@ -452,11 +452,7 @@ def send_email_reply_on_team_message(sender, instance: Comment, created: bool, *
     # Resolve the ticket + email config now (synchronously, in the comment's transaction)
     # so the durable outbox row commits atomically with the reply. If Celery/the broker
     # is down, the row still exists and flush_pending_email_replies will send it.
-    ticket = (
-        Ticket.objects.select_related("team", "email_config")
-        .filter(tickets_delivering_replies_by_email(), id=item_id, team_id=team_id)
-        .first()
-    )
+    ticket = ticket_delivering_replies_by_email(team_id, item_id)
     if not ticket:
         return
 

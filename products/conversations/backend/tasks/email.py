@@ -93,8 +93,10 @@ def _mark_outbox_failed(outbox: EmailOutboxMessage, error: str) -> None:
     _set_comment_delivery_status(outbox.team_id, outbox.comment_id, "failed")
 
 
-def cancel_pending_email_replies_for_ticket(*, team_id: int, ticket_id: UUID | str) -> None:
-    """Stop queued replies for a ticket that was just soft-deleted.
+def cancel_pending_email_replies_for_ticket(
+    *, team_id: int, ticket_id: UUID | str, reason: str = "ticket deleted"
+) -> None:
+    """Stop queued emails for a ticket that was just soft-deleted or had email delivery turned off.
 
     Rows under an active send lease are left alone. Their worker checks the delete
     right before it sends, and it owns the final status of the row.
@@ -111,7 +113,7 @@ def cancel_pending_email_replies_for_ticket(*, team_id: int, ticket_id: UUID | s
             return
         EmailOutboxMessage.objects.filter(id__in=[outbox.id for outbox in pending]).update(
             status=EmailOutboxMessage.Status.FAILED_PERMANENT,
-            last_error="ticket deleted",
+            last_error=reason,
             locked_until=None,
             updated_at=now,
         )

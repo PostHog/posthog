@@ -6,12 +6,13 @@ confirmation email. That reply proves they receive mail at the address.
 """
 
 from collections.abc import Iterable
+from datetime import timedelta
 from email.utils import make_msgid
 from typing import Any, cast
 
 from django.core.exceptions import ValidationError
 from django.core.validators import MaxLengthValidator, validate_email
-from django.db import transaction
+from django.db import connection, transaction
 from django.db.models import Q
 from django.utils import timezone
 
@@ -42,20 +43,47 @@ from products.conversations.backend.services.messages import (
     is_outbound_reply,
     visible_ticket_messages,
 )
-from products.conversations.backend.tasks.email import send_email_reply
+from products.conversations.backend.tasks.email import cancel_pending_email_replies_for_ticket, send_email_reply
 
 logger = structlog.get_logger(__name__)
 
 # Bounds the work done under the ticket row lock when a customer confirms.
 MAX_REPLIES_SENT_ON_CONFIRMATION = 100
 
+MAX_CONFIRMATION_EMAILS_PER_RECIPIENT = 3
+CONFIRMATION_EMAIL_WINDOW = timedelta(hours=24)
+
 
 class EmailDeliveryUnavailable(Exception):
     """Email delivery cannot be turned on for this ticket. The message is safe to return to the caller."""
 
 
-def tickets_delivering_replies_by_email() -> Q:
-    return Q(channel_source=Channel.EMAIL) | Q(email_delivery=EmailDelivery.ACTIVE)
+def ticket_delivering_replies_by_email(team_id: int, ticket_id: str) -> Ticket | None:
+    """The ticket, when a team reply on it must be emailed to the customer.
+
+    A ticket waiting for confirmation is read again under its row lock. The inbound email that
+    confirms the address holds that lock while it activates delivery and queues the waiting
+    replies. So a reply saved at the same moment is either queued by that pass, or it waits
+    for the lock here and then sees the active state.
+    """
+    ticket = (
+        Ticket.objects.select_related("team", "email_config")
+        .filter(Q(channel_source=Channel.EMAIL) | Q(email_delivery__isnull=False), id=ticket_id, team_id=team_id)
+        .first()
+    )
+    if ticket is None or ticket.channel_source == Channel.EMAIL or ticket.email_delivery == EmailDelivery.ACTIVE:
+        return ticket
+    with transaction.atomic():
+        state = (
+            Ticket.objects.select_for_update()
+            .filter(id=ticket.id, team_id=team_id)
+            .values_list("email_delivery", flat=True)
+            .first()
+        )
+    if state != EmailDelivery.ACTIVE:
+        return None
+    ticket.email_delivery = state
+    return ticket
 
 
 def _report_usage(ticket: Ticket, event: str) -> None:
@@ -137,6 +165,28 @@ def _default_support_channel(ticket: Ticket) -> EmailChannel:
     return config
 
 
+def _check_confirmation_email_quota(team_id: int, recipient: str) -> None:
+    """Refuse another confirmation email to an address that got several of them recently.
+
+    Each new widget ticket can request one, and a visitor can type someone else's address into
+    many tickets. The advisory lock makes the count and the new outbox row one step for a
+    recipient, so concurrent requests on different tickets cannot both pass the last slot.
+    """
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+            [f"conversations-email-confirmation:{team_id}:{recipient.lower()}"],
+        )
+    recent = EmailOutboxMessage.objects.filter(
+        team_id=team_id,
+        ticket__email_from__iexact=recipient,
+        created_at__gte=timezone.now() - CONFIRMATION_EMAIL_WINDOW,
+        **{f"comment__item_context__{EMAIL_CONFIRMATION_CONTEXT_KEY}": True},
+    ).count()
+    if recent >= MAX_CONFIRMATION_EMAILS_PER_RECIPIENT:
+        raise EmailDeliveryUnavailable("This address received several confirmation emails recently. Try again later.")
+
+
 def request_email_delivery(ticket: Ticket) -> str:
     """Turn email delivery on for a widget ticket and send the confirmation email.
 
@@ -156,6 +206,7 @@ def request_email_delivery(ticket: Ticket) -> str:
 
         recipient = _customer_email(locked)
         locked.email_config = _default_support_channel(locked)
+        _check_confirmation_email_quota(locked.team_id, recipient)
         if (locked.email_from or "").lower() != recipient.lower():
             # Addresses copied on the earlier thread belong to the earlier customer address.
             locked.cc_participants = []
@@ -196,7 +247,9 @@ def stop_email_delivery(ticket: Ticket) -> str:
     """Turn email delivery off for a ticket that is not an email ticket. Returns the new state.
 
     The address and the email thread stay on the ticket, so a later email from the customer
-    still reaches it. An email ticket always delivers by email, so the request is a no-op for it.
+    still reaches it. Emails still queued are cancelled: a later request can be for another
+    address, and they were written for this one. An email ticket always delivers by email,
+    so the request is a no-op for it.
     """
     if ticket.channel_source == Channel.EMAIL:
         return ticket.email_delivery_state
@@ -204,6 +257,9 @@ def stop_email_delivery(ticket: Ticket) -> str:
         email_delivery=None, updated_at=timezone.now()
     )
     if stopped:
+        cancel_pending_email_replies_for_ticket(
+            team_id=ticket.team_id, ticket_id=ticket.id, reason="email delivery was turned off"
+        )
         _report_usage(ticket, "support ticket email delivery stopped")
     return EMAIL_DELIVERY_OFF
 
@@ -222,7 +278,12 @@ def _pending_confirmation_message_id(ticket: Ticket) -> str | None:
 
 
 def confirm_email_delivery(
-    ticket: Ticket, *, sender_email: str, thread_message_ids: Iterable[str | None], auto_generated: bool
+    ticket: Ticket,
+    *,
+    sender_email: str,
+    sender_authenticated: bool,
+    thread_message_ids: Iterable[str | None],
+    auto_generated: bool,
 ) -> bool:
     """Activate email delivery when the customer replies to the confirmation email.
 
@@ -230,13 +291,14 @@ def confirm_email_delivery(
     The caller holds the row lock on `ticket`. The reply must name the Message-ID of the latest
     confirmation email, which only the address on the ticket received. Any other message in the
     thread is not proof: earlier ones reached an address the ticket may no longer carry. The
-    sender must also be that address, so that a person the confirmation was forwarded to cannot
-    confirm on behalf of its owner. An auto-reply names the Message-ID too, with nobody having
-    read the email, so it does not confirm.
+    sender must also be that address and pass sender authentication, so that a person the
+    confirmation was forwarded to cannot confirm on behalf of its owner with a forged From.
+    An auto-reply names the Message-ID too, with nobody having read the email, so it does
+    not confirm.
     """
     if ticket.email_delivery != EmailDelivery.PENDING:
         return False
-    if auto_generated:
+    if auto_generated or not sender_authenticated:
         return False
     if sender_email.strip().lower() != (ticket.email_from or "").lower():
         return False
@@ -296,14 +358,33 @@ def enqueue_replies_awaiting_confirmation(ticket: Ticket) -> None:
     if note is None:
         return
 
-    replies = (
-        visible_ticket_messages(ticket.team_id, ticket_id)
-        .filter(created_at__gt=note.created_at)
-        .order_by("created_at")[:MAX_REPLIES_SENT_ON_CONFIRMATION]
+    messages = (
+        visible_ticket_messages(ticket.team_id, ticket_id).filter(created_at__gt=note.created_at).order_by("created_at")
     )
-    for reply in replies:
-        context = reply.item_context
+    queued = 0
+    for message in messages.iterator():
+        context = message.item_context
         if isinstance(context, dict) and context.get("from_email"):
             continue
-        if is_outbound_reply(context, reply.created_by_id):
-            enqueue_email_reply(ticket, reply)
+        if not is_outbound_reply(context, message.created_by_id):
+            continue
+        enqueue_email_reply(ticket, message)
+        queued += 1
+        if queued == MAX_REPLIES_SENT_ON_CONFIRMATION:
+            logger.warning("email_delivery_confirmation_backlog_capped", ticket_id=ticket_id, team_id=ticket.team_id)
+            break
+
+
+def copied_addresses_from_email(ticket: Ticket, sender_email: str, addresses: list[str]) -> list[str]:
+    """The addresses an inbound email may add to the ticket's copied addresses.
+
+    On an email ticket any participant can copy someone in. On a ticket from another channel
+    only the confirmed address can. Otherwise an address the ticket had before could use the
+    old thread to copy in a mailbox that then receives the replies.
+    """
+    requester = (ticket.email_from or "").lower()
+    if ticket.channel_source != Channel.EMAIL:
+        is_confirmed_address = ticket.email_delivery == EmailDelivery.ACTIVE and sender_email.lower() == requester
+        if not is_confirmed_address:
+            return []
+    return [address for address in addresses if address != requester]

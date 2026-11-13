@@ -59,7 +59,7 @@ from products.conversations.backend.services.email_channel_setup import (
     capture_google_forwarding_confirmation,
     process_forwarding_challenges,
 )
-from products.conversations.backend.services.email_delivery import confirm_email_delivery
+from products.conversations.backend.services.email_delivery import confirm_email_delivery, copied_addresses_from_email
 from products.conversations.backend.services.email_links import recover_links_from_html
 from products.conversations.backend.services.email_thread_ingestion import (
     EmailAddress,
@@ -797,6 +797,7 @@ def _process_support_email(
                 confirm_email_delivery(
                     ticket,
                     sender_email=sender_email,
+                    sender_authenticated=email.sender_authenticated,
                     thread_message_ids=(email.in_reply_to, *email.references),
                     auto_generated=email.auto_generated,
                 )
@@ -841,8 +842,7 @@ def _process_support_email(
                 # The requester is already the reply target (to=email_from); when another
                 # participant reply-alls, the requester shows up in their To/Cc and must not
                 # be folded into cc_participants or replies would deliver to them twice.
-                ticket_from = (ticket.email_from or "").lower()
-                cc_list = [addr for addr in cc_list if addr != ticket_from]
+                cc_list = copied_addresses_from_email(ticket, sender_email, cc_list)
                 qs = Ticket.objects.filter(id=ticket.id, team=team)
                 if not is_team_member and cc_list:
                     qs.update(
