@@ -16,7 +16,7 @@ from typing import Any
 from posthoganalytics import Posthog
 
 from .acp_log import GenerationDescriptor, ParsedLog, SpanDescriptor
-from .log_parser import describe_tool_use
+from .log_parser import LogParser, ToolCall
 
 logger = logging.getLogger(__name__)
 
@@ -75,15 +75,18 @@ class TraceEventEmitter:
     def emit_parsed_events(self, parsed: ParsedLog) -> None:
         """Emit ``$ai_generation`` per model turn and ``$ai_span`` per log span."""
         error_spans = [s for s in parsed.spans if s.span_name == "error"]
-        model = parsed.model or DEFAULT_MODEL
+        agent_model = self._run_metadata.get("agent_model")
+        model = parsed.model or (agent_model if isinstance(agent_model, str) and agent_model else DEFAULT_MODEL)
 
-        tool_results = _tool_results(parsed)
+        # The spans read the same parsed calls as the tool chain, so the trace and the chain agree.
+        calls = {call.call_id: call for call in LogParser.from_parsed_log(parsed).get_tool_calls(include_skills=True)}
         tool_spans = 0
         for gen in parsed.generations:
             generation_span_id = self._emit_generation(gen, error_spans, model)
             for block in gen.output_content:
-                if block.get("type") == "tool_use":
-                    self._emit_tool_span(block, tool_results, parsed, generation_span_id)
+                call = calls.get(str(block.get("id") or "")) if block.get("type") == "tool_use" else None
+                if call is not None:
+                    self._emit_tool_span(call, generation_span_id)
                     tool_spans += 1
         for span in parsed.spans:
             self._emit_span(span)
@@ -147,39 +150,26 @@ class TraceEventEmitter:
         )
         return span_id
 
-    def _emit_tool_span(
-        self,
-        tool_use: dict[str, Any],
-        tool_results: dict[str, dict[str, Any]],
-        parsed: ParsedLog,
-        generation_span_id: str,
-    ) -> None:
+    def _emit_tool_span(self, call: ToolCall, generation_span_id: str) -> None:
         """One ``$ai_span`` per tool call, the shape production MCP analytics emits from ``trackToolSpan``."""
-        call_id = str(tool_use.get("id") or "")
-        raw_name = str(tool_use.get("name") or "")
-        raw_input = tool_use.get("input")
-        tool_input: dict[str, Any] = raw_input if isinstance(raw_input, dict) else {}
-        name, inner_input = describe_tool_use(raw_name, tool_input)
-        result = tool_results.get(call_id)
-        timing = parsed.tool_timings.get(call_id)
-        started = _parse_iso_timestamp(timing.started_at) if timing else None
-        ended = _parse_iso_timestamp(timing.ended_at) if timing else None
-
+        started = _parse_iso_timestamp(call.started_at)
+        ended = _parse_iso_timestamp(call.ended_at)
         properties: dict[str, Any] = {
             **self._eval_metadata,
             "$ai_trace_id": self._trace_id,
             "$ai_span_id": str(uuid.uuid4()),
             "$ai_parent_id": generation_span_id,
-            "$ai_span_name": name,
-            "$ai_input_state": _truncate(json.dumps(inner_input, default=str)),
+            "$ai_span_name": call.name,
+            "$ai_input_state": _truncate_span_state(json.dumps(call.input, default=str)),
             # A call with no result never finished, which reads as a failure everywhere else in the harness.
-            "$ai_is_error": result is None or bool(result.get("is_error")),
-            "tool_raw_name": raw_name,
+            "$ai_is_error": call.is_error,
+            "tool_raw_name": call.raw_name,
+            "tool_sequence": call.sequence,
         }
-        if result is not None:
-            properties["$ai_output_state"] = _truncate(str(result.get("content") or ""))
-        if timing is not None:
-            properties["tool_sequence"] = timing.sequence
+        if call.ended_at:
+            properties["$ai_output_state"] = _truncate_span_state(call.output)
+            if call.is_error:
+                properties["$ai_error"] = properties["$ai_output_state"]
         if started and ended and ended >= started:
             properties["$ai_latency"] = (ended - started).total_seconds()
 
@@ -294,19 +284,7 @@ class TraceEventEmitter:
         )
 
 
-def _tool_results(parsed: ParsedLog) -> dict[str, dict[str, Any]]:
-    results: dict[str, dict[str, Any]] = {}
-    for message in parsed.messages:
-        content = message.get("content")
-        if not isinstance(content, list):
-            continue
-        for block in content:
-            if isinstance(block, dict) and block.get("type") == "tool_result" and block.get("tool_use_id"):
-                results[str(block["tool_use_id"])] = block
-    return results
-
-
-def _truncate(text: str) -> str:
+def _truncate_span_state(text: str) -> str:
     return text if len(text) <= TOOL_STATE_CHAR_LIMIT else text[:TOOL_STATE_CHAR_LIMIT] + "…"
 
 

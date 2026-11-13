@@ -184,13 +184,13 @@ class TestLogParserToolCalls(unittest.TestCase):
         self.assertEqual(calls[0].output, "")
 
     def test_tool_result_just_before_end_turn_is_kept(self):
-        raw = _join(
+        raw = join_lines(
             [
-                _prompt("2026-04-15T10:00:00.000Z"),
-                _tool_call_start("2026-04-15T10:00:01.000Z", "t1", "query-trends"),
-                _tool_call_input("2026-04-15T10:00:01.100Z", "t1", {"foo": 1}),
-                _tool_call_completed("2026-04-15T10:00:02.000Z", "t1", "42"),
-                _end_turn("2026-04-15T10:00:03.000Z"),
+                prompt_line("2026-04-15T10:00:00.000Z"),
+                tool_call_start_line("2026-04-15T10:00:01.000Z", "t1", "query-trends"),
+                tool_call_input_line("2026-04-15T10:00:01.100Z", "t1", {"foo": 1}),
+                tool_call_completed_line("2026-04-15T10:00:02.000Z", "t1", "42"),
+                end_turn_line("2026-04-15T10:00:03.000Z"),
             ]
         )
         parser = LogParser(raw, initial_prompt="hi")
