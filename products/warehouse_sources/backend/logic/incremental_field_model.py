@@ -19,7 +19,7 @@ from django.core.cache import cache
 import structlog
 from asgiref.sync import async_to_sync
 
-from posthog.event_usage import report_team_action
+from posthog.event_usage import groups, report_team_action
 from posthog.exceptions_capture import capture_exception
 from posthog.llm.gateway_client import team_distinct_id
 from posthog.llm.managed_decision_model import DEFAULT_DECISION_MODEL
@@ -37,7 +37,7 @@ from posthog.llm.system_one_client import (
     build_system_one_client,
     system_one_configured,
 )
-from posthog.ph_client import feature_enabled_or_false
+from posthog.ph_client import feature_enabled_or_false, ph_scoped_capture
 from posthog.token_bucket import BucketDecision, BucketUnavailable, Budget, consume
 
 from products.warehouse_sources.backend.models.external_data_schema import update_sync_type_config_keys
@@ -79,6 +79,7 @@ MODEL_PICK_NOTE = "Picked by AI from the table and column names."
 # Callers named in the usage event.
 WIZARD_PATH = "wizard"
 SYNC_FORM_PATH = "sync_form"
+ANSWERED_EVENT = "incremental field model answered"
 # Key in the schema's sync_type_config that holds the stored model pick for the sync settings form.
 SUGGESTION_KEY = "incremental_field_suggestion"
 
@@ -265,7 +266,16 @@ def _recommend(schemas: Sequence[SourceSchema], team: "Team", path: str) -> None
         "changed_defaults": changed,
     }
     logger.info("incremental_field_model_applied", team_id=team.pk, **summary)
-    report_team_action(team, "incremental field model answered", summary)
+    _report_answered(team, summary)
+
+
+def _report_answered(team: "Team", summary: dict[str, Any]) -> None:
+    if summary["path"] == SYNC_FORM_PATH:
+        # The sync form's pick is computed in a Celery task, where the global client may never flush.
+        with ph_scoped_capture() as capture:
+            capture(distinct_id=str(team.uuid), event=ANSWERED_EVENT, properties=summary, groups=groups(team=team))
+    else:
+        report_team_action(team, ANSWERED_EVENT, summary)
 
 
 def _first_call(indexes: list[int], schemas: Sequence[SourceSchema]) -> list[int]:

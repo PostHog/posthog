@@ -24,6 +24,7 @@ from posthog.token_bucket import TEST_reset_scripts, consume
 from products.warehouse_sources.backend.logic import incremental_field_model
 from products.warehouse_sources.backend.logic.incremental_field_model import (
     MODEL_PICK_NOTE,
+    SYNC_FORM_PATH,
     WIZARD_PATH,
     fits_one_call,
     recommend_incremental_fields,
@@ -159,6 +160,28 @@ class TestRecommendIncrementalFields(SimpleTestCase):
                 "changed_defaults": 1,
             },
         )
+
+    def test_sync_form_answer_is_reported_with_a_flushed_client(self) -> None:
+        gateway = GatewaySystemOneClient(
+            url="https://gateway.example.com/v1/systemone", api_key="test-key", headers={}, model="m", timeout=1.0
+        )
+        client = _FakeClient(_pick("c2"))
+        self.team.uuid = "team-uuid"
+        with (
+            patch(f"{MODULE}.build_system_one_client", return_value=gateway),
+            patch.object(GatewaySystemOneClient, "adecide", new=lambda _self, **kwargs: client.adecide(**kwargs)),
+            patch(f"{MODULE}.system_one_configured", return_value=True),
+            patch(f"{MODULE}.feature_enabled_or_false", return_value=True),
+            patch(f"{MODULE}.groups", return_value={}),
+            patch(f"{MODULE}.ph_scoped_capture") as scoped,
+            patch(f"{MODULE}.report_team_action") as report,
+        ):
+            recommend_incremental_fields([_open_schema()], team=self.team, path=SYNC_FORM_PATH)
+
+        capture = scoped.return_value.__enter__.return_value
+        assert capture.call_args.kwargs["event"] == "incremental field model answered"
+        assert capture.call_args.kwargs["properties"]["changed_defaults"] == 1
+        report.assert_not_called()
 
     def test_model_can_pick_a_column_of_any_cursor_type(self) -> None:
         schema = _schema("orders", _field("created_at"), _field("seq_no", IncrementalFieldType.Integer))
