@@ -80,6 +80,15 @@ TIER1_SOURCES = [
     (ExternalDataSourceType.STATUSPAGE, "incidents", "statuspage", "incident"),
     (ExternalDataSourceType.CRONITOR, "issues", "cronitor", "incident"),
     (ExternalDataSourceType.INSTATUS, "incidents", "instatus", "incident"),
+    (ExternalDataSourceType.ROOTLY, "incidents", "rootly", "incident"),
+    (ExternalDataSourceType.ZENDUTY, "incidents", "zenduty", "incident"),
+    (ExternalDataSourceType.SPLUNKOBSERVABILITYCLOUD, "incidents", "splunk_observability_cloud", "incident"),
+    (ExternalDataSourceType.UPTIMEROBOT, "incidents", "uptimerobot", "incident"),
+    # On-call alert tables with their own toggle
+    (ExternalDataSourceType.ROOTLY, "alerts", "rootly_alerts", "incident"),
+    (ExternalDataSourceType.INCIDENTIO, "alerts", "incident_io_alerts", "incident"),
+    (ExternalDataSourceType.FIREHYDRANT, "alerts", "firehydrant_alerts", "incident"),
+    (ExternalDataSourceType.GRAFANAIRM, "alert_groups", "grafana_irm_alert_groups", "incident"),
     # Work trackers
     (ExternalDataSourceType.ASANA, "tasks", "asana", "issue"),
     (ExternalDataSourceType.MONDAY, "items", "monday", "issue"),
