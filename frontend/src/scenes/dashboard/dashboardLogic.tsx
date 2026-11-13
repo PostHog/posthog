@@ -6401,10 +6401,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
         changeTileGroupDisplay: ({ groupDisplay }) => {
             actions.triggerDashboardUpdate({ group_display: groupDisplay })
-            posthog.capture('dashboard tile group display changed', {
-                dashboard_id: props.id,
-                group_display: groupDisplay,
-            })
         },
         createTiles: ({ tiles }) => {
             const groupKey = values.newTileGroupKey
