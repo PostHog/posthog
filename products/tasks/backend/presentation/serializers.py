@@ -29,7 +29,19 @@ from posthog.temporal.oauth import POSTHOG_CODE_OAUTH_APP_CLIENT_IDS
 
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.agent_instructions import AGENT_INSTRUCTIONS_MAX_LENGTH
-from products.tasks.backend.facade.api import CHANNEL_INSTRUCTIONS_MAX_BYTES, TASK_RUN_FAILURE_ERROR_TYPES
+from products.tasks.backend.facade.api import (
+    CHANNEL_INSTRUCTIONS_MAX_BYTES,
+    PUBLIC_RUN_OPTIONS,
+    TASK_DESCRIPTION_PREVIEW_LENGTH,
+    TASK_RUN_FAILURE_ERROR_TYPES,
+    create_fields_from_options,
+    options_from_request,
+    public_idempotency_key,
+    request_fingerprint,
+    run_only_option_names,
+    run_options_record,
+    validate_run_options,
+)
 from products.tasks.backend.facade.client_provenance import is_api_key_request, is_sandbox_oauth_request
 from products.tasks.backend.facade.contracts import (
     ChannelContributorsDTO,
@@ -58,6 +70,18 @@ from products.tasks.backend.facade.contracts import (
 )
 from products.tasks.backend.facade.enums import TaskChannelWriteType
 from products.tasks.backend.facade.model_catalogue import TASK_RUN_GATEWAY_PRODUCT, ModelChoice, available_model_choices
+from products.tasks.backend.facade.profiles import (
+    RunOptionsCaller,
+    SourceKind,
+    TaskProfile,
+    TaskRunOptionsError,
+    TaskSource,
+    TaskSourceError,
+    check_task_source,
+    find_task_profile,
+    public_profile_for_origin,
+    resolve_task_origin,
+)
 from products.tasks.backend.facade.run_config import (
     ALL_INITIAL_PERMISSION_MODE_CHOICES,
     CODEX_INITIAL_PERMISSION_MODE_CHOICES,
@@ -653,6 +677,22 @@ class TaskSerializer(DataclassSerializer):
         required=False,
         help_text="First-party PostHog client that created this task.",
     )
+    last_client = serializers.ChoiceField(
+        choices=tasks_facade.TaskClient.choices,
+        allow_null=True,
+        required=False,
+        help_text="Client the latest person turn on this task came from. Null when no turn came from a known client.",
+    )
+    last_client_at = serializers.DateTimeField(
+        allow_null=True,
+        required=False,
+        help_text="When the latest person turn from `last_client` arrived.",
+    )
+    repository_integration = serializers.IntegerField(
+        allow_null=True,
+        required=False,
+        help_text="GitLab integration for a task in a GitLab project. Null for GitHub tasks and tasks without a repository.",
+    )
 
     class Meta:
         dataclass = TaskDetailDTO
@@ -684,6 +724,9 @@ class TaskSerializer(DataclassSerializer):
             "slack_thread_references",
             "origin_key",
             "client_provenance",
+            "last_client",
+            "last_client_at",
+            "repository_integration",
         ]
 
 
@@ -723,7 +766,6 @@ class TaskRunResponseSerializer(TaskCreateResponseSerializer):
         fields = [*TaskCreateResponseSerializer.Meta.fields, "run"]
 
 
-TASK_DESCRIPTION_PREVIEW_LENGTH = 1000
 TASK_DESCRIPTION_PREVIEW_HELP_TEXT = (
     f"First {TASK_DESCRIPTION_PREVIEW_LENGTH} characters of the description, so a summary "
     "surface can show a prompt snippet without the full body. Open the task for the complete text."
@@ -761,6 +803,28 @@ TaskListItemSerializer = PolymorphicProxySerializer(
 )
 
 
+def normalized_repository_name(value: str) -> str:
+    parts = value.split("/")
+    if len(parts) != 2 or not parts[0] or not parts[1]:
+        raise serializers.ValidationError("Repository must be in the format organization/repository")
+
+    return value.lower()
+
+
+def normalized_gitlab_project_path(value: str) -> str:
+    parts = value.split("/")
+    if len(parts) < 2 or not all(parts):
+        raise serializers.ValidationError("Repository must be the full GitLab project path, such as group/project")
+
+    return value.lower()
+
+
+def require_unique_repositories(repositories: list[str]) -> list[str]:
+    if len(set(repositories)) != len(repositories):
+        raise serializers.ValidationError("Repositories must be unique")
+    return repositories
+
+
 class TaskWriteSerializer(serializers.Serializer):
     title = serializers.CharField(
         max_length=255,
@@ -790,7 +854,11 @@ class TaskWriteSerializer(serializers.Serializer):
         required=False,
         allow_blank=True,
         allow_null=True,
-        help_text="Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).",
+        help_text=(
+            "Target repository. For GitHub, use `organization/repo` (e.g. `posthog/posthog-js`). "
+            "For GitLab, set `repository_integration` and use the full project path, which can include "
+            "nested groups (e.g. `acme/platform/api`)."
+        ),
     )
     repositories = serializers.ListField(
         child=serializers.CharField(max_length=255),
@@ -803,6 +871,15 @@ class TaskWriteSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         help_text="GitHub integration for this task.",
+    )
+    repository_integration = IntegrationReferenceField(
+        kinds=["gitlab"],
+        required=False,
+        allow_null=True,
+        help_text=(
+            "GitLab integration for a task in a GitLab project on gitlab.com. Requires `repository`. "
+            "Leave `github_integration` and `github_user_integration` empty."
+        ),
     )
     # UserIntegration is scoped to request.user in validate_github_user_integration.
     github_user_integration = serializers.PrimaryKeyRelatedField(  # nosemgrep: unscoped-primary-key-related-field
@@ -982,61 +1059,30 @@ class TaskWriteSerializer(serializers.Serializer):
 
     def validate_origin_product(self, value):
         """Reject internal-only origins that are set by server-side flows, never by API callers."""
-        reserved_origins = {
-            tasks_facade.TaskOriginProduct.SPACE_SETUP,
-            tasks_facade.TaskOriginProduct.IMAGE_BUILDER,
-            tasks_facade.TaskOriginProduct.EXPERIMENTS,
-            tasks_facade.TaskOriginProduct.SIGNALS_SCOUT,
-            tasks_facade.TaskOriginProduct.SIGNALS_SCOUT_SUGGESTIONS,
-            tasks_facade.TaskOriginProduct.SUPPORT_REPLY,
-            # Only the autoresearch training loop creates these, in-process. Nothing legitimately
-            # sets the origin from outside, so reserve it before anything starts depending on it.
-            tasks_facade.TaskOriginProduct.AUTORESEARCH,
-            # Routes the run's LLM traffic to the unbilled `onboarding` gateway product, so a
-            # forged origin would be free model access. Only create_wizard_cloud_run sets it,
-            # behind its own rate limits and daily cap.
-            tasks_facade.TaskOriginProduct.ONBOARDING,
-            tasks_facade.TaskOriginProduct.ACCOUNT_AUDIT,
-            # Exempt from the Desktop code-access gate on run endpoints, so a forged origin
-            # would bypass the waitlist. Only the signals scout-chat endpoint sets it.
-            tasks_facade.TaskOriginProduct.SIGNALS_CHAT,
-            # Attributes the task to a workflow, which the workflow_tasks endpoint proves
-            # via its service JWT. A forged origin would fake that provenance.
-            tasks_facade.TaskOriginProduct.WORKFLOW,
-            # Maps to the mintable `review_hog` gateway product, so a forged origin would
-            # mint an internally funded scoped token. Only ReviewHog's executor sets it.
-            tasks_facade.TaskOriginProduct.REVIEW_HOG,
-            tasks_facade.TaskOriginProduct.TASK_ANALYSIS,
-            # Maps to the mintable `slack_app` gateway product. Only the Slack app's server flows set it.
-            tasks_facade.TaskOriginProduct.SLACK,
-            # Internal business-knowledge sandbox runs. Only that product's sandbox endpoint sets it.
-            tasks_facade.TaskOriginProduct.BUSINESS_KNOWLEDGE,
-            # Maps to the billed `posthog_ai` gateway product. Only the metrics dashboard import sets it.
-            tasks_facade.TaskOriginProduct.METRICS_IMPORT,
-            # Owns the docs repository branch it pushes to. Only the knowledge writer intake sets it.
-            tasks_facade.TaskOriginProduct.KNOWLEDGE_WRITER,
-            tasks_facade.TaskOriginProduct.CONTEXT_LAYER,
-        }
-        if value in reserved_origins:
+        if value in tasks_facade.TASK_SERVER_ONLY_ORIGIN_PRODUCTS:
             raise serializers.ValidationError(f"origin_product '{value}' is reserved for server-created tasks")
         return value
+
+    def _targets_repository_integration(self) -> bool:
+        initial_data = getattr(self, "initial_data", {})
+        if "repository_integration" in initial_data:
+            return initial_data["repository_integration"] not in (None, "")
+        return (
+            getattr(self.instance, "repository_integration", getattr(self.instance, "repository_integration_id", None))
+            is not None
+        )
 
     def validate_repository(self, value):
         """Validate repository configuration"""
         if not value:
             return value
 
-        parts = value.split("/")
-        if len(parts) != 2 or not parts[0] or not parts[1]:
-            raise serializers.ValidationError("Repository must be in the format organization/repository")
-
-        return value.lower()
+        if self._targets_repository_integration():
+            return normalized_gitlab_project_path(value)
+        return normalized_repository_name(value)
 
     def validate_repositories(self, value: list[str]) -> list[str]:
-        repositories = [self.validate_repository(repository) for repository in value]
-        if len(set(repositories)) != len(repositories):
-            raise serializers.ValidationError("Repositories must be unique")
-        return repositories
+        return require_unique_repositories([self.validate_repository(repository) for repository in value])
 
     def validate_signal_report(self, value):
         if value and value.team_id != self.context["team"].id:
@@ -1064,22 +1110,46 @@ class TaskWriteSerializer(serializers.Serializer):
             if legacy != (repositories[0] if repositories else None):
                 raise serializers.ValidationError({"repositories": "Conflicts with repository"})
         repositories = attrs.get("repositories")
-        plural_repositories = repositories
         if repositories is None and "repository" in attrs:
-            repositories = [attrs["repository"]] if attrs["repository"] else []
-        if plural_repositories and attrs.get("github_integration") is None:
-            instance_integration = getattr(self.instance, "github_integration", None)
-            if instance_integration is None:
-                raise serializers.ValidationError({"github_integration": "Required when repositories are configured"})
-        integration = attrs.get("github_integration") or getattr(self.instance, "github_integration", None)
-        if repositories and integration:
-            inaccessible = tasks_facade.inaccessible_repositories_via_integration(
-                self.context["team"].id, integration.id, repositories
+            current_repositories = getattr(self.instance, "repositories", None) or []
+            repositories = (
+                current_repositories
+                if len(current_repositories) > 1
+                else ([attrs["repository"]] if attrs["repository"] else [])
             )
-            if inaccessible:
-                raise serializers.ValidationError(
-                    {"repositories": f"Not accessible via the selected GitHub integration: {', '.join(inaccessible)}"}
+        if repositories is None:
+            repositories = getattr(self.instance, "repositories", None) or (
+                [self.instance.repository] if self.instance and self.instance.repository else []
+            )
+        gitlab = attrs.get("repository_integration", getattr(self.instance, "repository_integration", None))
+        github = attrs.get("github_integration", getattr(self.instance, "github_integration", None))
+        github_user = attrs.get("github_user_integration", getattr(self.instance, "github_user_integration", None))
+        repository_fields_changed = not attrs.keys().isdisjoint(
+            {"repository", "repositories", "repository_integration", "github_integration", "github_user_integration"}
+        )
+        if gitlab and (github or github_user):
+            raise serializers.ValidationError(
+                {"repository_integration": "Set either a GitHub integration or a GitLab integration, not both."}
+            )
+        if gitlab and repository_fields_changed:
+            if isinstance(gitlab, int):
+                gitlab = self.fields["repository_integration"].run_validation(gitlab)
+            self._validate_gitlab_task({**attrs, "repository_integration": gitlab}, repositories)
+        elif repository_fields_changed:
+            repositories = [normalized_repository_name(repository) for repository in repositories]
+            if repositories and "repositories" in attrs and not github:
+                raise serializers.ValidationError({"github_integration": "Required when repositories are configured"})
+            if repositories and github:
+                integration_id = github if isinstance(github, int) else github.id
+                inaccessible = tasks_facade.inaccessible_repositories_via_integration(
+                    self.context["team"].id, integration_id, repositories
                 )
+                if inaccessible:
+                    raise serializers.ValidationError(
+                        {
+                            "repositories": f"Not accessible via the selected GitHub integration: {', '.join(inaccessible)}"
+                        }
+                    )
         if "runtime" in self.initial_data and "runtime" not in self.fields:
             raise serializers.ValidationError({"runtime": "Runtime cannot be changed after task creation."})
 
@@ -1121,7 +1191,28 @@ class TaskWriteSerializer(serializers.Serializer):
             raise serializers.ValidationError(
                 {"repository": "Signal report tasks resolve their repository server-side."}
             )
+        # Task keeps a plain id for this connection, and create and update set the fields by name.
+        if "repository_integration" in attrs:
+            repository_integration = attrs.pop("repository_integration")
+            attrs["repository_integration_id"] = repository_integration.id if repository_integration else None
         return attrs
+
+    def _validate_gitlab_task(self, attrs: dict[str, Any], repositories: list[str]) -> None:
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if user is None or not tasks_facade.gitlab_tasks_enabled(self.context["team"], user):
+            raise serializers.ValidationError(
+                {"repository_integration": "Coding tasks in GitLab projects aren't available for your account yet."}
+            )
+        if attrs.get("github_integration") is not None or attrs.get("github_user_integration") is not None:
+            raise serializers.ValidationError(
+                {"repository_integration": "Set either a GitHub integration or a GitLab integration, not both."}
+            )
+        if len(repositories) != 1:
+            raise serializers.ValidationError({"repository": "Choose one GitLab project for this task."})
+        error = tasks_facade.gitlab_repository_error(attrs["repository_integration"], repositories[0])
+        if error is not None:
+            raise serializers.ValidationError({"repository": error})
 
 
 @extend_schema_field(OpenApiTypes.STR)
@@ -1147,6 +1238,93 @@ class TaskRunScheduleSerializer(serializers.Serializer):
             if value <= now or value > now + timedelta(days=30):
                 raise serializers.ValidationError("Choose a future time within 30 days.")
         return value
+
+
+class PublicReasoningEffort(models.TextChoices):
+    LOW = "low", "low"
+    MEDIUM = "medium", "medium"
+    HIGH = "high", "high"
+    XHIGH = "xhigh", "xhigh"
+    MAX = "max", "max"
+    ULTRACODE = "ultracode", "ultracode"
+
+
+class PublicTaskSourceKind(models.TextChoices):
+    SIGNAL_REPORT = SourceKind.SIGNAL_REPORT.value
+    HOG_FLOW = SourceKind.HOG_FLOW.value
+
+
+class TaskRunOptionsRepositorySerializer(serializers.Serializer):
+    name = serializers.CharField(max_length=255, help_text="GitHub repository in `organization/repo` format.")
+    initial_branch = serializers.CharField(
+        max_length=255,
+        required=False,
+        allow_null=True,
+        help_text="Branch the first run starts from. Omit to use the repository's default branch.",
+    )
+
+    def validate_name(self, value: str) -> str:
+        return normalized_repository_name(value)
+
+
+class TaskRunOptionsRequestSerializer(serializers.Serializer):
+    runtime = serializers.ChoiceField(
+        choices=tasks_facade.TaskRuntime.choices,
+        required=False,
+        help_text="Agent protocol and harness for the task. It must be one the profile allows.",
+    )
+    adapter = serializers.ChoiceField(
+        choices=RuntimeAdapter.choices,
+        required=False,
+        help_text="Agent harness for the first run. Derived from the model when omitted.",
+    )
+    model = serializers.CharField(required=False, help_text="LLM model for the first run.")
+    reasoning_effort = serializers.ChoiceField(
+        choices=PublicReasoningEffort.choices,
+        required=False,
+        help_text="Reasoning effort for the first run, for models that support it.",
+    )
+    repositories = serializers.ListField(
+        child=TaskRunOptionsRepositorySerializer(),
+        required=False,
+        max_length=10,
+        help_text="GitHub repositories available to the task. The first one's initial branch starts the first run.",
+    )
+    output_schema = serializers.DictField(
+        child=serializers.JSONField(),
+        required=False,
+        help_text="JSON schema that the agent's final answer must match.",
+    )
+    permission_mode = serializers.ChoiceField(
+        choices=ALL_INITIAL_PERMISSION_MODE_CHOICES,
+        required=False,
+        help_text="The agent's starting permission mode for the first run.",
+    )
+    auto_publish = serializers.BooleanField(
+        required=False,
+        help_text="When true, the agent pushes its work and opens a draft pull request when it finishes.",
+    )
+
+    def validate_repositories(self, value: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        require_unique_repositories([repository["name"] for repository in value])
+        return value
+
+    def to_internal_value(self, data: Any) -> dict[str, Any]:
+        if isinstance(data, dict):
+            unsupported = sorted(set(data) - PUBLIC_RUN_OPTIONS)
+            if unsupported:
+                raise serializers.ValidationError(
+                    dict.fromkeys(unsupported, "This option is not supported by this endpoint.")
+                )
+        return super().to_internal_value(data)
+
+
+class TaskSourceRequestSerializer(serializers.Serializer):
+    kind = serializers.ChoiceField(
+        choices=PublicTaskSourceKind.choices,
+        help_text="The kind of row the task starts from. It must be the kind the profile takes.",
+    )
+    id = serializers.CharField(max_length=64, help_text="ID of that row. It must belong to the current project.")
 
 
 class TaskCreateSerializer(TaskWriteSerializer, TaskRunScheduleSerializer):
@@ -1197,8 +1375,129 @@ class TaskCreateSerializer(TaskWriteSerializer, TaskRunScheduleSerializer):
         required=False,
         help_text="Agent protocol and harness used for this task's runs. Defaults to ACP when omitted.",
     )
+    profile = serializers.CharField(
+        max_length=64,
+        required=False,
+        write_only=True,
+        help_text=(
+            "Key of a public task profile, which sets the limits for this kind of task. "
+            "Omit it to create a task from `origin_product` as before."
+        ),
+    )
+    options = TaskRunOptionsRequestSerializer(
+        required=False,
+        write_only=True,
+        help_text=(
+            "Settings for this task, checked against the profile. Only the options the profile makes public are "
+            "accepted. Requires `profile`. Do not repeat a setting that you also send at the top level. "
+            "Settings for the first run also require `start_run`: `adapter`, `model`, `reasoning_effort`, "
+            "`permission_mode`, `auto_publish` and the `initial_branch` of a repository."
+        ),
+    )
+    source = TaskSourceRequestSerializer(  # type: ignore[assignment]
+        required=False,
+        write_only=True,
+        help_text="The row this task starts from, for profiles that take one. Requires `profile`.",
+    )
+    idempotency_key = serializers.CharField(
+        max_length=64,
+        required=False,
+        write_only=True,
+        help_text=(
+            "Makes the request safe to retry. Sending the same key with the same body returns the task "
+            "that the first request created. The same key with a different body is refused. Requires `profile`."
+        ),
+    )
+
+    def validate_profile(self, value: str) -> TaskProfile:
+        profile = find_task_profile(value)
+        if (
+            profile is None
+            or not profile.public
+            or profile.origin_product in tasks_facade.TASK_SERVER_ONLY_ORIGIN_PRODUCTS
+        ):
+            raise serializers.ValidationError(f"Unknown task profile '{value}'")
+        return profile
+
+    def validate_source(self, value: dict[str, str]) -> TaskSource:
+        return TaskSource(kind=SourceKind(value["kind"]), id=value["id"])
+
+    def _apply_profile_request(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        profile = attrs.pop("profile", None)
+        options_data = attrs.pop("options", None)
+        source = attrs.pop("source", None)
+        idempotency_key = attrs.pop("idempotency_key", None)
+        if profile is None:
+            profile_only = {
+                name: "Requires profile."
+                for name, value in (("options", options_data), ("source", source), ("idempotency_key", idempotency_key))
+                if value is not None
+            }
+            if profile_only:
+                raise serializers.ValidationError(profile_only)
+            return self._with_origin_profile(attrs)
+        origin = resolve_task_origin(profile)
+        if attrs.get("origin_product", origin.origin_product) != origin.origin_product:
+            raise serializers.ValidationError(
+                {"origin_product": f"Origin {attrs['origin_product']!r} does not match task profile {profile.key!r}"}
+            )
+        try:
+            check_task_source(profile=profile, source=source)
+        except TaskSourceError as error:
+            raise serializers.ValidationError({"source": str(error)}) from error
+        if source is not None and attrs.get("signal_report") is not None:
+            raise serializers.ValidationError({"source": "Send the source or signal_report, not both."})
+        if source is not None and not tasks_facade.task_source_in_team(self.context["team"].id, source):
+            raise serializers.ValidationError({"source": "Source not found."})
+        attrs.update(profile=profile.key, origin_product=origin.origin_product, internal=origin.internal)
+        if source is not None:
+            attrs["source"] = source
+            if source.kind == SourceKind.SIGNAL_REPORT:
+                attrs["signal_report"] = self.fields["signal_report"].to_internal_value(source.id)
+        if idempotency_key is not None:
+            user_id = getattr(getattr(self.context.get("request"), "user", None), "id", None)
+            attrs["idempotency_key"] = public_idempotency_key(user_id, idempotency_key)
+            attrs["idempotency_fingerprint"] = request_fingerprint(self.initial_data)
+        if options_data is not None:
+            attrs.update(self._options_fields(profile, options_data, attrs))
+        return attrs
+
+    def _with_origin_profile(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        origin_product = attrs.get("origin_product", tasks_facade.TaskOriginProduct.USER_CREATED)
+        profile = public_profile_for_origin(origin_product)
+        if profile is None:
+            raise serializers.ValidationError(
+                {"origin_product": f"origin_product '{origin_product}' is reserved for server-created tasks"}
+            )
+        attrs["profile"] = profile.key
+        return attrs
+
+    def _options_fields(
+        self, profile: TaskProfile, options_data: dict[str, Any], attrs: dict[str, Any]
+    ) -> dict[str, Any]:
+        options = options_from_request(options_data)
+        try:
+            validate_run_options(profile, options, caller=RunOptionsCaller.PUBLIC)
+        except TaskRunOptionsError as error:
+            raise serializers.ValidationError({"options": str(error)}) from error
+        run_only = run_only_option_names(options)
+        if run_only and not attrs.get("start_run"):
+            raise serializers.ValidationError({"options": f"Set start_run to true to use {', '.join(run_only)}."})
+        fields = create_fields_from_options(options, repositories_given="repositories" in options_data)
+        repeated = sorted(
+            name
+            for name in fields
+            if (name == "repositories" and ("repositories" in attrs or "repository" in attrs))
+            or (name != "repositories" and attrs.get(name) is not None)
+        )
+        if repeated:
+            raise serializers.ValidationError(
+                {"options": f"Set {', '.join(repeated)} in options or at the top level, not both."}
+            )
+        return {**fields, "options": run_options_record(options)}
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        attrs = self._apply_profile_request(attrs)
         attrs = super().validate(attrs)
         if attrs.get("scheduled_at") is not None and not attrs.get("start_run"):
             raise serializers.ValidationError({"scheduled_at": "Set start_run to true to schedule a run."})
@@ -2284,8 +2583,8 @@ class SandboxCustomImageListQuerySerializer(serializers.Serializer):
         required=False,
         choices=tasks_facade.TaskOriginProduct.choices,
         help_text=(
-            "Return 403 unless tasks from this origin product can run on custom images. "
-            "Leave it out to only check that custom images are enabled."
+            "The list is empty when tasks from this origin product cannot run on custom images. "
+            "Leave it out to list every image you can see."
         ),
     )
 

@@ -2,6 +2,7 @@ import {
     type ColumnDef,
     type ColumnSizingState,
     type PaginationState,
+    type RowSelectionState,
     type Row,
     type RowData,
     type Header,
@@ -19,6 +20,7 @@ import * as React from 'react'
 
 import {
     Button,
+    Checkbox,
     cn,
     Empty,
     EmptyHeader,
@@ -58,6 +60,7 @@ declare module '@tanstack/react-table' {
     interface ColumnMeta<TData extends RowData, TValue> {
         align?: 'left' | 'center' | 'right'
         expand?: boolean
+        sticky?: 'left' | 'right'
         /** `data-attr` for the column's sort button. */
         sortDataAttr?: string
     }
@@ -155,6 +158,23 @@ export interface DataTableProps<TData, TValue> {
      * "No results" Empty; pass a richer node (custom copy, actions) to override.
      */
     empty?: React.ReactNode
+    /**
+     * Adds a leading checkbox column so the user can select rows. Shift-click a checkbox to set every row between it
+     * and the last one clicked. The header checkbox selects or clears every selectable row on the page.
+     */
+    selectable?: boolean
+    /** Controls the selection, as `true` by row id. Pass `getRowId` so that a selection survives a change of `data`. */
+    rowSelection?: RowSelectionState
+    onRowSelectionChange?: (rowSelection: RowSelectionState) => void
+    /** The id of a row, for `rowSelection`. Defaults to the row's index in `data`. */
+    getRowId?: (row: TData, index: number) => string
+    /** The accessible name of a row's checkbox. Defaults to "Select row". */
+    rowSelectionLabel?: (row: TData) => string
+    /**
+     * Why a row can't be selected. A reason disables the row's checkbox and shows in its tooltip, and `null` lets the
+     * user select the row. A shift-click range skips the disabled rows.
+     */
+    rowSelectionDisabledReason?: (row: TData) => string | null
     /**
      * Enables client-side pagination at this page size and renders a pager below
      * the table. Omit for a single, un-paginated list.
@@ -300,7 +320,7 @@ function DataTableHead<TData>({
 }): React.ReactElement {
     const { column, isPlaceholder } = header
     const sorted = column.getIsSorted()
-    const { align, expand, sortDataAttr } = column.columnDef.meta ?? {}
+    const { align, expand, sticky, sortDataAttr } = column.columnDef.meta ?? {}
     const label = isPlaceholder ? null : flexRender(column.columnDef.header, header.getContext())
     const title = column.columnDef.header
     return (
@@ -308,6 +328,7 @@ function DataTableHead<TData>({
             colSpan={header.colSpan}
             align={align}
             expand={expand}
+            sticky={sticky}
             aria-sort={sorted ? ARIA_SORT[sorted] : undefined}
             // While the columns fit their content, this is what holds an expand column at its minimum.
             style={expand && resizable ? { minWidth: column.columnDef.minSize } : undefined}
@@ -354,6 +375,8 @@ function DataTableHead<TData>({
 
 // Memoized so that a resize, which ends by setting a width on the table, does not render every row again. For the same
 // reason, a caller with its own state should keep `columns`, `onRowClick`, `rowClassName` and `empty` stable between renders.
+// TanStack keeps `rows` the same array when only the selection changes, so `rowSelection` and `rowSelectionDisabledReason`
+// are props that the body never reads: they are there to make the memo render the rows again.
 function DataTableBodyInner<TData, TValue>({
     rows,
     columns,
@@ -363,6 +386,8 @@ function DataTableBodyInner<TData, TValue>({
     empty,
 }: {
     rows: Row<TData>[]
+    rowSelection: RowSelectionState
+    rowSelectionDisabledReason: DataTableProps<TData, TValue>['rowSelectionDisabledReason']
     columns: ColumnDef<TData, TValue>[]
     filler: boolean
     onRowClick?: (row: TData) => void
@@ -410,6 +435,7 @@ function DataTableBodyInner<TData, TValue>({
                                 key={cell.id}
                                 align={cell.column.columnDef.meta?.align}
                                 expand={cell.column.columnDef.meta?.expand}
+                                sticky={cell.column.columnDef.meta?.sticky}
                             >
                                 {flexRender(cell.column.columnDef.cell, cell.getContext())}
                             </TableCell>
@@ -430,6 +456,100 @@ function DataTableBodyInner<TData, TValue>({
 
 const DataTableBody = React.memo(DataTableBodyInner) as typeof DataTableBodyInner
 
+const SELECTION_COLUMN_ID = '__select'
+
+function isShiftClick(event: Event | undefined): boolean {
+    return (event instanceof MouseEvent || event instanceof KeyboardEvent) && event.shiftKey
+}
+
+// Shift-click would otherwise select the page's text between the two checkboxes.
+function preventShiftTextSelection(event: React.MouseEvent): void {
+    if (event.shiftKey) {
+        event.preventDefault()
+    }
+}
+
+function selectRange<TData>(
+    current: RowSelectionState,
+    rows: Row<TData>[],
+    fromId: string,
+    toId: string,
+    checked: boolean
+): RowSelectionState {
+    const from = rows.findIndex((row) => row.id === fromId)
+    const to = rows.findIndex((row) => row.id === toId)
+    const next = { ...current }
+    for (const row of rows.slice(Math.min(from, to), Math.max(from, to) + 1)) {
+        if (!row.getCanSelect()) {
+            continue
+        }
+        if (checked) {
+            next[row.id] = true
+        } else {
+            delete next[row.id]
+        }
+    }
+    return next
+}
+
+function useSelectionColumn<TData>(
+    selectable: boolean,
+    rowSelectionLabel: ((row: TData) => string) | undefined,
+    rowSelectionDisabledReason: ((row: TData) => string | null) | undefined
+): ColumnDef<TData, unknown> | null {
+    const anchorRowId = React.useRef<string | null>(null)
+    // Read through refs so that inline callbacks keep the column, and with it the memoized body, the same between renders.
+    const labelRef = React.useRef(rowSelectionLabel)
+    labelRef.current = rowSelectionLabel
+    const disabledReasonRef = React.useRef(rowSelectionDisabledReason)
+    disabledReasonRef.current = rowSelectionDisabledReason
+    return React.useMemo(() => {
+        if (!selectable) {
+            return null
+        }
+        return {
+            id: SELECTION_COLUMN_ID,
+            enableSorting: false,
+            enableResizing: false,
+            header: ({ table }) => (
+                <Checkbox
+                    aria-label="Select all rows"
+                    checked={table.getIsAllPageRowsSelected()}
+                    indeterminate={table.getIsSomePageRowsSelected()}
+                    disabled={!table.getRowModel().rows.some((row) => row.getCanSelect())}
+                    onCheckedChange={(checked) => {
+                        anchorRowId.current = null
+                        table.toggleAllPageRowsSelected(checked)
+                    }}
+                />
+            ),
+            cell: ({ row, table }) => (
+                <Checkbox
+                    aria-label={labelRef.current?.(row.original) ?? 'Select row'}
+                    checked={row.getIsSelected()}
+                    disabled={!row.getCanSelect()}
+                    disabledReason={disabledReasonRef.current?.(row.original)}
+                    onMouseDown={preventShiftTextSelection}
+                    onCheckedChange={(checked, details) => {
+                        const anchorId = anchorRowId.current
+                        anchorRowId.current = row.id
+                        const rows = table.getRowModel().rows
+                        if (
+                            anchorId !== null &&
+                            isShiftClick(details.event) &&
+                            rows.some((candidate) => candidate.id === anchorId)
+                        ) {
+                            table.setRowSelection((current) => selectRange(current, rows, anchorId, row.id, checked))
+                        } else {
+                            row.toggleSelected(checked)
+                        }
+                    }}
+                />
+            ),
+        }
+    }, [selectable])
+}
+
 /**
  * Headless TanStack Table wired onto the quill Table primitive — client-side
  * sorting out of the box (sortable columns render a sort button + indicator and
@@ -437,7 +557,7 @@ const DataTableBody = React.memo(DataTableBodyInner) as typeof DataTableBodyInne
  * pagination, and an empty state. Pass `enableSorting: false` on a column to opt
  * it out, `meta: { align }` to align a column's header and cells,
  * `fullWidth` + `meta: { expand: true }` to stretch one column to fill, or
- * `resizableColumns` to let the user drag a column's edge.
+ * `resizableColumns` to let the user drag a column's edge, or `selectable` to add a checkbox column for selecting rows.
  */
 function DataTable<TData, TValue>({
     columns,
@@ -459,8 +579,24 @@ function DataTable<TData, TValue>({
     pageSize,
     pageSizeOptions,
     onPageChange,
+    selectable = false,
+    rowSelection: controlledRowSelection,
+    onRowSelectionChange,
+    getRowId,
+    rowSelectionLabel,
+    rowSelectionDisabledReason,
 }: DataTableProps<TData, TValue>): React.ReactElement {
     const paginated = pageSize != null
+    const [rowSelection, setRowSelection] = useControllable<RowSelectionState>(
+        controlledRowSelection,
+        onRowSelectionChange,
+        {}
+    )
+    const selectionColumn = useSelectionColumn<TData>(selectable, rowSelectionLabel, rowSelectionDisabledReason)
+    const tableColumns = React.useMemo(
+        () => (selectionColumn ? [selectionColumn as ColumnDef<TData, TValue>, ...columns] : columns),
+        [selectionColumn, columns]
+    )
     const [sorting, setSorting] = useControllable<SortingState>(controlledSorting, onSortingChange, [])
     const [columnSizing, setColumnSizing] = useControllable<ColumnSizingState>(
         controlledColumnSizing,
@@ -477,10 +613,16 @@ function DataTable<TData, TValue>({
     }, [pageSize])
     const table = useReactTable({
         data,
-        columns,
+        columns: tableColumns,
+        getRowId,
+        // TanStack merges each render's options into the last ones, so a removed callback must reset to its default.
+        enableRowSelection: rowSelectionDisabledReason
+            ? (row: Row<TData>) => rowSelectionDisabledReason(row.original) === null
+            : true,
+        onRowSelectionChange: setRowSelection,
         enableColumnResizing: resizableColumns,
         defaultColumn: { minSize: MIN_TABLE_COLUMN_WIDTH, maxSize: Infinity },
-        state: { sorting, columnSizing, ...(paginated ? { pagination } : {}) },
+        state: { sorting, columnSizing, rowSelection, ...(paginated ? { pagination } : {}) },
         onColumnSizingChange: setColumnSizing,
         manualSorting: controlledSorting !== undefined,
         // A list sorted on the server always has an order, so its headers have no "off" state.
@@ -528,7 +670,9 @@ function DataTable<TData, TValue>({
             </TableHeader>
             <DataTableBody
                 rows={table.getRowModel().rows}
-                columns={columns}
+                rowSelection={table.getState().rowSelection}
+                rowSelectionDisabledReason={rowSelectionDisabledReason}
+                columns={tableColumns}
                 filler={hasFiller}
                 onRowClick={onRowClick}
                 rowClassName={rowClassName}

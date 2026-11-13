@@ -86,12 +86,13 @@ def validate_credentials(api_key: str, site_id: str) -> tuple[bool, Optional[str
         return True, None
     if response.status_code == 401:
         return False, "Wix rejected this API key. Check the key in the Wix API Key Manager and try again."
-    if response.status_code == 428:
+    # Wix answers an API key call with 404 when the site ID does not belong to the key's account.
+    if response.status_code in (404, 428):
         return False, (
             "Wix could not find this site. Check the site ID matches the site you want to sync, and that the "
             "API key belongs to the same account."
         )
-    return False, f"Wix returned an unexpected error ({response.status_code}) while checking these credentials."
+    return False, "Wix couldn't check your API key. Check the API key and site ID, then try again."
 
 
 def check_endpoint_permissions(api_key: str, site_id: str, endpoints: list[str]) -> dict[str, Optional[str]]:

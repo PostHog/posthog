@@ -2,7 +2,7 @@ import json
 import uuid
 import hashlib
 import calendar
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from contextvars import ContextVar
 from datetime import datetime, timedelta
 from functools import wraps
@@ -12,7 +12,7 @@ from urllib.parse import parse_qs, urlparse
 from django.conf import settings
 from django.core.exceptions import DisallowedRedirect
 from django.db import DatabaseError, OperationalError, transaction
-from django.http import HttpResponse, JsonResponse
+from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import render
 from django.utils import timezone
 from django.utils.decorators import method_decorator
@@ -38,8 +38,9 @@ from oauthlib.common import Request as OauthlibRequest
 from oauthlib.oauth2 import InvalidClientError, InvalidClientIdError, InvalidGrantError
 from redis.exceptions import RedisError
 from rest_framework import serializers, status
-from rest_framework.exceptions import AuthenticationFailed, NotFound
+from rest_framework.exceptions import AuthenticationFailed, NotFound, PermissionDenied
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -47,6 +48,7 @@ from posthog.api import id_jag
 from posthog.api.oauth.cimd import (
     CIMD_THROTTLE_CLASSES,
     CIMDFetchError,
+    CIMDSigningKeyMissingError,
     CIMDValidationError,
     enqueue_cimd_refresh_if_stale,
     get_or_create_cimd_application,
@@ -68,6 +70,17 @@ from posthog.api.oauth.device import (
     device_token_response,
     token_server_kwargs,
 )
+from posthog.api.oauth.ema_issuer import (
+    EMA_ISSUER_MANAGE_SCOPE,
+    EMA_SETUP_TOKEN_EXPIRES_SECONDS,
+    EmaSetupError,
+    client_may_manage_ema_issuer,
+    ema_consent_context,
+    ema_setup_endpoint,
+    impersonation_refused,
+    requests_ema_issuer,
+    validate_ema_grant,
+)
 from posthog.api.oauth.mcp_resource_scopes import build_oauth_mcp_consent_context, is_trusted_posthog_mcp_resource
 from posthog.api.oauth.metadata import (
     Document,
@@ -77,13 +90,15 @@ from posthog.api.oauth.metadata import (
     protected_resource_metadata,
 )
 from posthog.api.oauth.step_up import resolve_step_up_grant
-from posthog.auth import IDJagAccessTokenAuthentication, SessionAuthentication
+from posthog.auth import IDJagAccessTokenAuthentication, OAuthAccessTokenAuthentication, SessionAuthentication
 from posthog.helpers.impersonation import get_original_user_from_session, is_impersonated_session
 from posthog.helpers.oauth_pending_connection import (
     PendingOAuthConnection,
     clear_pending_oauth_connection_cookie,
     set_pending_oauth_connection_cookie,
 )
+from posthog.helpers.two_factor_session import missing_two_factor_step
+from posthog.ip_restrictions import enforce_credential_ip_restrictions, enforce_ip_restrictions
 from posthog.llm.wizard_blocklist import GATEWAY_BEARING_SCOPES, WIZARD_BLOCKED_DETAIL
 from posthog.middleware import is_read_only_impersonation
 from posthog.models import OAuthAccessToken, OAuthApplication, Organization, Team, User
@@ -96,6 +111,7 @@ from posthog.models.oauth import (
     revoke_oauth_session,
     revoke_oauth_token_family,
 )
+from posthog.permissions import TimeSensitiveActionPermission
 from posthog.scopes import (
     ALWAYS_ALLOWED_SCOPES,
     clamp_scopes_to_ceiling,
@@ -112,6 +128,7 @@ from posthog.security.url_validation import has_ambiguous_authority
 from posthog.user_permissions import UserPermissions
 from posthog.utils import absolute_uri, get_instance_region, get_trusted_client_ip, render_template
 from posthog.views import login_required
+from posthog.workload_identity import token_exchange as workload_token_exchange
 
 from products.access_control.backend.facade.api import user_organizations_use_access_controls
 from products.security.backend.facade.api import access_refused as security_access_refused
@@ -171,7 +188,9 @@ _OTHER_CLOUD_REGION_HOST = {"US": "https://eu.posthog.com", "EU": "https://us.po
 # InvalidClientIdError doesn't carry the request, so this is how error_response learns the
 # reason. validate_client_id resets it on every call, and error_response only uses it for the
 # same client_id.
-_cimd_resolution_error: ContextVar[tuple[str, str] | None] = ContextVar("cimd_resolution_error", default=None)
+_cimd_resolution_error: ContextVar[tuple[str, CIMDFetchError | CIMDValidationError] | None] = ContextVar(
+    "cimd_resolution_error", default=None
+)
 
 
 def unknown_client_id_description(client_id: str | None, cimd_error: str | None = None) -> str:
@@ -528,7 +547,7 @@ class OAuthValidator(OAuth2Validator):
 
     def _should_skip_refresh_token(self, request) -> bool:
         # No refresh tokens for impersonation-minted tokens.
-        if self._get_impersonator_id(request) is not None:
+        if self._get_impersonator_id(request) is not None or requests_ema_issuer(getattr(request, "scopes", None)):
             return True
 
         client_key: str | None = None
@@ -763,7 +782,7 @@ class OAuthValidator(OAuth2Validator):
                 return True
             except (CIMDFetchError, CIMDValidationError) as e:
                 logger.warning("cimd_resolution_failed", client_id=client_id, error=str(e), cause=repr(e.__cause__))
-                _cimd_resolution_error.set((client_id, str(e)))
+                _cimd_resolution_error.set((client_id, e))
                 return False
 
         # Standard UUID lookup
@@ -838,12 +857,22 @@ class OAuthValidator(OAuth2Validator):
         `*` is still accepted verbatim under an empty ceiling here (legacy PostHog
         Desktop CLI) but never on the provisioning paths — see the flag.
 
-        This never returns `False`. `/authorize` does not reject on scope grounds:
+        `ema_issuer:manage` is the one exception to clamping, and the only case that returns
+        `False`. A client not allowed to request it gets `invalid_scope` rather than a
+        consent screen for some other set of scopes, and an allowed one gets a grant that
+        carries nothing else, so its token can do nothing but the EMA setup call.
+
+        Otherwise this never returns `False`. `/authorize` does not reject on scope grounds:
         scopes are retired and renamed routinely, and a client pinning a hardcoded
         list cannot see that coming, so an ungrantable scope must not cost the user
         their sign-in. A request with nothing grantable yields an identity-only
         token whose resource calls 403; `oauth_scopes_clamped` is what surfaces it.
         """
+        if requests_ema_issuer(scopes):
+            if not client_may_manage_ema_issuer(client or getattr(request, "client", None)):
+                return False
+            request.scopes = [EMA_ISSUER_MANAGE_SCOPE]
+            return True
         request.scopes = resolve_requested_scopes(
             list(scopes or []),
             getattr(client, "ceiling_scopes", None) or [],
@@ -944,7 +973,10 @@ class OAuthValidator(OAuth2Validator):
         Impersonation-minted tokens are capped to the impersonation idle timeout so
         they can't outlive the admin's session. That check comes first so an
         impersonated first-party app can't inherit the longer window.
+        An EMA setup token only has to last until the setup call that follows it.
         """
+        if requests_ema_issuer(getattr(request, "scopes", None)):
+            return EMA_SETUP_TOKEN_EXPIRES_SECONDS
         if self._get_impersonator_id(request) is not None:
             return settings.IMPERSONATION_IDLE_TIMEOUT_SECONDS
         if self._is_first_party_client(request) or (
@@ -1147,7 +1179,8 @@ class OAuthValidator(OAuth2Validator):
         # A rotating family holds every access token of one login, so revoking it ends only that
         # login. A token already rotated away still ends its family: during the grace period it can
         # still refresh.
-        if rt and self._is_dynamic_client(request) and self.rotate_refresh_token(request):
+        dynamic_or_device = self._is_dynamic_client(request) or self._is_device_client(request)
+        if rt and dynamic_or_device and self.rotate_refresh_token(request):
             revoke_oauth_refresh_family(rt)
             return
         # A non-rotating token can't be traced to its access tokens, so the whole connection goes.
@@ -1444,22 +1477,30 @@ def _pending_connection_for_request(request) -> PendingOAuthConnection | None:
     )
 
 
-def _login_required_with_pending_connection(view):
+def login_required_with_pending_connection(
+    connection_for_request: Callable[[HttpRequest], PendingOAuthConnection | None],
+):
     """`login_required` that also sets the pending-connection cookie on the login redirect,
     so the login, signup and verification screens can name the application."""
-    base_handler = login_required(view)
 
-    @wraps(view)
-    def handler(request, *args, **kwargs):
-        response = base_handler(request, *args, **kwargs)
-        is_login_redirect = response.status_code == 302 and getattr(response, "url", "").startswith(settings.LOGIN_URL)
-        if is_login_redirect:
-            connection = _pending_connection_for_request(request)
-            if connection is not None:
-                set_pending_oauth_connection_cookie(request, response, connection)
-        return response
+    def decorator(view):
+        base_handler = login_required(view)
 
-    return handler
+        @wraps(view)
+        def handler(request, *args, **kwargs):
+            response = base_handler(request, *args, **kwargs)
+            is_login_redirect = response.status_code == 302 and getattr(response, "url", "").startswith(
+                settings.LOGIN_URL
+            )
+            if is_login_redirect:
+                connection = connection_for_request(request)
+                if connection is not None:
+                    set_pending_oauth_connection_cookie(request, response, connection)
+            return response
+
+        return handler
+
+    return decorator
 
 
 def cimd_creation_throttled(request, view, client_id: str) -> bool:
@@ -1619,7 +1660,7 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
             },
         )
 
-    @method_decorator(_login_required_with_pending_connection)
+    @method_decorator(login_required_with_pending_connection(_pending_connection_for_request))
     def get(self, request, *args, **kwargs):
         # Rate-limit new CIMD application creation by IP.
         if cimd_creation_throttled(request, self, request.query_params.get("client_id") or ""):
@@ -1714,6 +1755,10 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
         impersonator_id = _impersonator_id_for_request(request)
         credentials["impersonated_by_id"] = impersonator_id
 
+        # Before the first-party and auto-approval paths: this grant is always shown to the person.
+        if requests_ema_issuer(scopes):
+            return self._ema_issuer_consent(request, application, impersonator_id)
+
         required_resource_scopes = {scope for scope in application.required_scopes if ":" in scope}
         resource = request.query_params.get("resource")
         step_up_grant = None
@@ -1740,6 +1785,9 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                 org_ids = request.user.organizations.values_list("id", flat=True)
                 credentials["scoped_organizations"] = [str(org_id) for org_id in org_ids]
                 credentials["scoped_teams"] = []
+                enforce_credential_ip_restrictions(
+                    request, credentials["scoped_organizations"], credentials["scoped_teams"]
+                )
 
                 uri, headers, body, status_code = self.create_authorization_response(
                     request=request, scopes=scope_str, credentials=credentials, allow=True
@@ -1769,6 +1817,9 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                     ):
                         credentials["scoped_teams"] = token.scoped_teams
                         credentials["scoped_organizations"] = token.scoped_organizations
+                        enforce_credential_ip_restrictions(
+                            request, credentials["scoped_organizations"], credentials["scoped_teams"]
+                        )
                         # Conservative fallback: check every org the impersonated user belongs to,
                         # not just the existing token's scope. Auto-approval during impersonation
                         # is a near-dead path (those tokens are short-lived, refresh-less, and
@@ -1846,6 +1897,35 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
 
         return render_template("index.html", request, context=template_context)
 
+    def _ema_issuer_consent(
+        self, request, application: OAuthApplication, impersonator_id: int | None
+    ) -> HttpResponse | Response:
+        if impersonator_id is not None:
+            refused = impersonation_refused()
+            return Response(
+                {"error": refused.error, "error_description": refused.description},
+                status=refused.http_status,
+            )
+        posthoganalytics.capture(
+            distinct_id=str(request.user.distinct_id),
+            event="oauth_ema_issuer_consent_shown",
+            properties={**_oauth_app_event_properties(application), **(get_region_info() or {})},
+        )
+        template_context: dict[str, object] = {
+            "oauth_application": {
+                "name": application.name,
+                "client_id": application.client_id,
+                "is_verified": application.is_verified,
+                "logo_uri": application.logo_uri,
+                "required_scopes": [],
+                "wildcard_read_scopes": [],
+                "grantable_scopes": [EMA_ISSUER_MANAGE_SCOPE],
+            },
+            "oauth_scope_resolution": {"scopes": [EMA_ISSUER_MANAGE_SCOPE], "was_defaulted": False},
+            "oauth_ema_issuer_consent": ema_consent_context(request.user),
+        }
+        return render_template("index.html", request, context=template_context)
+
     def post(self, request, *args, **kwargs):
         serializer = OAuthAuthorizationSerializer(data=request.data, context={"user": request.user})
 
@@ -1885,12 +1965,51 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
         if is_read_only_impersonation(request):
             scopes = downgrade_scopes_to_read_only(scopes)
 
+        if serializer.validated_data["allow"] and requests_ema_issuer(scopes):
+            if not TimeSensitiveActionPermission().has_permission(request, self):
+                raise PermissionDenied(
+                    detail=TimeSensitiveActionPermission.message, code=TimeSensitiveActionPermission.code
+                )
+            try:
+                ema_organization = validate_ema_grant(
+                    request.user,
+                    application,
+                    serializer.validated_data.get("scoped_organizations") or [],
+                    impersonated=_impersonator_id_for_request(request) is not None,
+                    access_level=serializer.validated_data.get("access_level"),
+                )
+                if missing_two_factor_step(request._request, request.user, organization=ema_organization):
+                    raise EmaSetupError(
+                        "access_denied",
+                        "This organization requires two-factor authentication. Set it up or verify it, then try again.",
+                        status.HTTP_403_FORBIDDEN,
+                    )
+            except EmaSetupError as error:
+                posthoganalytics.capture(
+                    distinct_id=str(request.user.distinct_id),
+                    event="oauth_authorization_rejected",
+                    properties={
+                        "reason": f"ema_issuer_{error.error}",
+                        **_oauth_app_event_properties(application),
+                        "requested_scopes": scopes,
+                        **(get_region_info() or {}),
+                    },
+                )
+                return Response(
+                    {"error": error.error, "error_description": error.description}, status=error.http_status
+                )
+
         if serializer.validated_data["allow"]:
             # Required scopes can't be deselected at consent. Compare against the same
             # read-only downgrade applied to the grant, so impersonation doesn't 400.
             # Filtered to resource scopes to mirror the consent UI, which only renders
             # and force-includes `object:action` rows (identity scopes always pass).
-            required = {scope for scope in application.required_scopes if ":" in scope}
+            # An EMA grant carries only its own scope, so the app's resource floor does not apply.
+            required = (
+                set()
+                if requests_ema_issuer(scopes)
+                else {scope for scope in application.required_scopes if ":" in scope}
+            )
             if is_read_only_impersonation(request):
                 required = set(downgrade_scopes_to_read_only(" ".join(sorted(required))).split())
             missing_required = required - set(scopes.split())
@@ -1919,6 +2038,10 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                     },
                     status=status.HTTP_400_BAD_REQUEST,
                 )
+
+            enforce_credential_ip_restrictions(
+                request, credentials["scoped_organizations"], credentials["scoped_teams"]
+            )
 
             if block := _impersonation_ai_processing_block(
                 request,
@@ -2024,8 +2147,14 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
             # only ever reaches the JSON body.
             client_id = self.request.query_params.get("client_id")
             failure = _cimd_resolution_error.get()
+            cimd_error = failure[1] if failure and failure[0] == client_id else None
+            if isinstance(cimd_error, CIMDSigningKeyMissingError):
+                return Response(
+                    {"error": "server_error", "error_description": str(cimd_error)},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
             oauthlib_error.description = unknown_client_id_description(
-                client_id, cimd_error=failure[1] if failure and failure[0] == client_id else None
+                client_id, cimd_error=str(cimd_error) if cimd_error else None
             )
 
         redirect, error_response = super().error_response(error, **kwargs)
@@ -2231,7 +2360,9 @@ class OAuthTokenView(TokenView):
             )
 
         try:
-            issued_access_token = id_jag.issue_access_token(assertion, request.POST.get("scope"), client.client_id)
+            issued_access_token = id_jag.issue_access_token(
+                assertion, request.POST.get("scope"), client.client_id, request.POST.get("resource")
+            )
         except id_jag.IdJagError as e:
             logger.info("id_jag_token_rejected", error=e.error_code, description=e.description)
             self._capture_token_rejected(id_jag.JWT_BEARER_GRANT_TYPE, client.client_id, e.error_code)
@@ -2263,6 +2394,49 @@ class OAuthTokenView(TokenView):
                 "expires_in": issued_access_token.expires_in_seconds,
                 "scope": " ".join(issued_access_token.granted_scopes),
             }
+        )
+
+    def _handle_token_exchange_grant(self, request) -> JsonResponse:
+        """Workload OIDC token exchange (RFC 8693). A workload has no client registration, so the grant takes
+        no client authentication: the OIDC token, checked against a trust policy, is the only credential."""
+        grant_type = workload_token_exchange.TOKEN_EXCHANGE_GRANT_TYPE
+        try:
+            # The IP throttles read only `request.META`, which a Django request has too.
+            workload_token_exchange.check_exchange_attempts(cast(Request, request), self)
+            issued = workload_token_exchange.exchange_workload_token(
+                subject_token=request.POST.get("subject_token") or "",
+                subject_token_type=request.POST.get("subject_token_type") or "",
+                resource=request.POST.get("resource") or "",
+            )
+        except workload_token_exchange.WorkloadExchangeError as e:
+            logger.info("workload_token_exchange_rejected", error_code=e.code.value)
+            self._capture_token_rejected(grant_type, "", e.code.value)
+            headers = {"Retry-After": str(e.retry_after)} if e.retry_after is not None else None
+            return JsonResponse(e.body(), status=e.http_status, headers=headers)
+        except (OperationalError, RedisError) as e:
+            logger.warning("workload_token_exchange_unavailable", error=str(e))
+            return _temporarily_unavailable_response()
+
+        posthoganalytics.capture(
+            distinct_id=f"workload_trust_policy:{issued.policy_id}",
+            event="oauth_token_issued",
+            properties={
+                "grant_type": grant_type,
+                "granted_scope_count": len(issued.scopes),
+                "$process_person_profile": False,
+                **(get_region_info() or {}),
+            },
+        )
+        # RFC 6749 section 5.1: a response that carries a token must not be cached.
+        return JsonResponse(
+            {
+                "access_token": issued.access_token,
+                "issued_token_type": workload_token_exchange.ISSUED_TOKEN_TYPE,
+                "token_type": "Bearer",
+                "expires_in": issued.expires_in_seconds,
+                "scope": " ".join(issued.scopes),
+            },
+            headers={"Cache-Control": "no-store", "Pragma": "no-cache"},
         )
 
     def post(self, request, *args, **kwargs):
@@ -2303,6 +2477,8 @@ class OAuthTokenView(TokenView):
 
         if grant_type == id_jag.JWT_BEARER_GRANT_TYPE:
             return self._handle_jwt_bearer_grant(request)
+        if grant_type == workload_token_exchange.TOKEN_EXCHANGE_GRANT_TYPE:
+            return self._handle_token_exchange_grant(request)
 
         # DOT reads `device_code` with a bare subscript, which turns a missing one into a 500.
         if grant_type == DEVICE_CODE_GRANT_TYPE and not request.POST.get("device_code"):
@@ -2414,6 +2590,8 @@ class OAuthTokenView(TokenView):
 
                     response_data["scoped_teams"] = scoped_teams
                     response_data["scoped_organizations"] = scoped_organizations
+                    if requests_ema_issuer(access_token.scope):
+                        response_data["ema_setup_endpoint"] = ema_setup_endpoint()
 
                     self._capture_token_issued(
                         access_token, grant_type, scoped_organizations, scoped_teams, client_auth_method
@@ -2488,6 +2666,7 @@ def _active_access_token_response(
     application: OAuthApplication | None,
     sandbox_task_id: uuid.UUID | None = None,
     supports_step_up: bool = False,
+    self_introspecting_user: User | None = None,
 ) -> JsonResponse:
     """RFC 7662 response for an active access token, whether it is stored or a signed JWT."""
     data: dict[str, Any] = {
@@ -2505,6 +2684,14 @@ def _active_access_token_response(
     if application:
         data["client_id"] = application.client_id
         data["client_name"] = application.name
+    if self_introspecting_user is not None:
+        # Only for self-introspection: a caller with the `introspection` scope can read other
+        # users' tokens from the same application.
+        data["user_distinct_id"] = self_introspecting_user.distinct_id
+        organization = self_introspecting_user.organization
+        team = self_introspecting_user.team
+        data["current_organization_id"] = str(organization.id) if organization else None
+        data["current_team_id"] = team.id if team else None
     if sandbox_task_id is not None:
         # The policy resolves API routes, which import these views.
         from products.signals.backend.facade.tool_policy import resolve_scout_held_tools  # noqa: PLC0415
@@ -2632,7 +2819,8 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
             verified = IDJagAccessTokenAuthentication.verify_access_token(token_value)
         except AuthenticationFailed:
             return JsonResponse({"active": False}, status=200)
-        if not self._is_self_introspection(request):
+        is_self = self._is_self_introspection(request)
+        if not is_self:
             caller_token = getattr(request, "oauth_caller_access_token", None)
             caller_client_id = credential_client_id or getattr(
                 getattr(caller_token, "application", None), "client_id", None
@@ -2646,6 +2834,7 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
             scoped_teams=[],
             scoped_organizations=[verified.organization_id],
             application=OAuthApplication.objects.filter(client_id=verified.client_id).first(),
+            self_introspecting_user=verified.user if is_self else None,
         )
 
     def get_token_response(self, request, token_value=None):
@@ -2728,6 +2917,9 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
                 application=access_token.application,
                 sandbox_task_id=access_token.sandbox_task_id,
                 supports_step_up=access_token.supports_step_up,
+                self_introspecting_user=(
+                    access_token.user if caller_token is not None and access_token.pk == caller_token.pk else None
+                ),
             )
 
         # Fall back to refresh token (lookup by plaintext token — OAuthRefreshToken has
@@ -2791,7 +2983,23 @@ class OAuthJwksInfoView(JwksInfoView):
 
 
 class OAuthUserInfoView(UserInfoView):
-    pass
+    def _create_userinfo_response(self, request: HttpRequest) -> HttpResponse:
+        valid, oauth_request = self.get_oauthlib_core().verify_request(request, scopes=["openid"])
+        if valid:
+            authenticator = OAuthAccessTokenAuthentication()
+            authenticator.access_token = oauth_request.access_token
+            try:
+                enforce_ip_restrictions(request, oauth_request.user, authenticator)
+            except PermissionDenied as error:
+                return JsonResponse(
+                    {
+                        "error": "access_denied",
+                        "error_description": str(error.detail),
+                        "code": "ip_not_allowed",
+                    },
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+        return cast(HttpResponse, super()._create_userinfo_response(request))
 
 
 class _PublicMetadataView(APIView):

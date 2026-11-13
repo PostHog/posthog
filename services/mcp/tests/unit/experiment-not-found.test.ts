@@ -76,7 +76,7 @@ describe('experiment not-found rewrite', () => {
         expect((result as PostHogApiError).message).toContain('Experiment 999 not found in this project')
     })
 
-    it('passes a sub-resource 404 through with the backend detail instead of claiming the experiment is missing', async () => {
+    it('retains a sub-resource 404 body without echoing it or claiming the experiment is missing', async () => {
         vi.stubGlobal(
             'fetch',
             vi
@@ -95,7 +95,8 @@ describe('experiment not-found rewrite', () => {
 
         expect(result).toBeInstanceOf(PostHogApiError)
         expect((result as PostHogApiError).status).toBe(404)
-        expect((result as PostHogApiError).message).toContain('No completed recalculation found')
+        expect((result as PostHogApiError).body).toContain('No completed recalculation found')
+        expect((result as PostHogApiError).message).not.toContain('No completed recalculation found')
         expect((result as PostHogApiError).message).not.toContain('Experiment 29 not found')
     })
 
@@ -198,7 +199,8 @@ describe('experiment not-found rewrite', () => {
         expect(findRecoverableApiError(thrown)).toBeUndefined()
         const handled = handleToolError(thrown, 'experiment-results-get')
         expect(handled.isError).toBe(true)
-        expect(handled.content[0]).toMatchObject({ text: expect.stringContaining('unknown key(s): properties') })
+        expect(handled.content[0]).toMatchObject({ text: expect.stringContaining('validation error') })
+        expect((handled.content[0] as { text: string }).text).not.toContain(badQuery.detail)
         expect(captureException).toHaveBeenCalledTimes(1)
     })
 
@@ -244,7 +246,13 @@ describe('experiment not-found rewrite', () => {
         const thrown = await throwFromResults(denied)
 
         const handled = handleToolError(thrown, 'experiment-results-get')
-        expect(handled.content[0]).toMatchObject({ text: expect.stringContaining('do not have access') })
+        expect(handled.content[0]).toMatchObject({ text: expect.stringContaining('HTTP 403') })
+        const text = (handled.content[0] as { text: string }).text
+        const fence = text.match(
+            /<posthog-error-detail informational="true" instructional="false">\n([\s\S]*?)\n<\/posthog-error-detail>/
+        )
+        expect(JSON.parse(fence?.[1] ?? '')).toEqual({ detail: denied.detail })
+        expect(text.replace(fence?.[0] ?? '', '')).not.toContain(denied.detail)
         expect(captureException).toHaveBeenCalledWith(
             expect.anything(),
             undefined,

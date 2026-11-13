@@ -47,7 +47,7 @@ from social_django.models import UserSocialAuth
 from two_factor.forms import TOTPDeviceForm
 from two_factor.utils import default_device
 
-from posthog.schema import UserUIConfiguration
+from posthog.schema import SessionReplayListConfiguration, UserUIConfiguration
 
 from posthog.after_response import run_after_response
 from posthog.api.email_verification import email_verification_code_verifier
@@ -109,6 +109,7 @@ from posthog.helpers.two_factor_session import (
     set_two_factor_verified_in_session,
 )
 from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED_ERROR, resolve_login_organization
+from posthog.ip_restrictions import get_ip_blocked_organization_ids
 from posthog.middleware import (
     IMPERSONATION_REASON_SESSION_KEY,
     get_impersonated_session_expires_at,
@@ -124,13 +125,7 @@ from posthog.models.organization_notification_lock import notification_locks_for
 from posthog.models.organization_provisioning import OrganizationProvisioning
 from posthog.models.personal_api_key import PersonalAPIKey, max_personal_api_keys_for_user
 from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
-from posthog.models.user import (
-    ROLE_CHOICES,
-    Notifications,
-    OnboardingFlowVariant,
-    OnboardingSkippedReason,
-    ShortcutPosition,
-)
+from posthog.models.user import ROLE_CHOICES, Notifications, OnboardingSkippedReason, ShortcutPosition
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.permissions import APIScopePermission, TimeSensitiveActionPermission, UserNoOrgMembershipDeletePermission
 from posthog.rate_limit import (
@@ -166,7 +161,7 @@ from posthog.user_permissions import UserPermissions
 from posthog.utils import get_safe_cache, render_template, safe_cache_set
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.facade.api import find_dashboard_team_id
 from products.notifications.backend.facade.api import NotificationType
 
 REDIRECT_TO_SITE_COUNTER = Counter("posthog_redirect_to_site", "Redirect to site")
@@ -245,11 +240,6 @@ class OnboardingSkipRequestSerializer(serializers.Serializer):
         allow_blank=True,
         max_length=64,
         help_text="Onboarding step key the user was on when skipping, for analytics only.",
-    )
-    flow_variant = serializers.ChoiceField(
-        choices=OnboardingFlowVariant.choices,
-        required=False,
-        help_text="Which onboarding flow the user skipped from, for analytics only.",
     )
 
 
@@ -743,6 +733,9 @@ class UserSerializer(serializers.ModelSerializer):
             return None
         try:
             UserUIConfiguration.model_validate(value)
+            # The check above coerces "false" to a boolean, but the raw JSON is what gets stored.
+            if value.get("session_replay") is not None:
+                SessionReplayListConfiguration.model_validate(value["session_replay"], strict=True)
         except pydantic.ValidationError as e:
             errors = "; ".join(
                 f"{'.'.join(str(part) for part in error['loc']) or 'root'}: {error['msg']}" for error in e.errors()
@@ -914,6 +907,11 @@ class UserSerializer(serializers.ModelSerializer):
         with tracer.start_as_current_span("user_serializer.default_fields"):
             data = super().to_representation(instance)
 
+        request = self.context.get("request")
+        if request is not None and data.get("team") is not None:
+            if str(data["team"]["organization"]) in get_ip_blocked_organization_ids(request):
+                data["team"] = None
+
         # Backfill shortcut_position default for frontend if null
         with tracer.start_as_current_span("user_serializer.shortcut_position_backfill"):
             if data.get("shortcut_position") is None:
@@ -923,15 +921,18 @@ class UserSerializer(serializers.ModelSerializer):
 
 
 class ScenePersonalisationSerializer(serializers.ModelSerializer):
+    dashboard = serializers.IntegerField(help_text="ID of the dashboard to show for the scene, in the current team.")
+
     class Meta:
         model = UserScenePersonalisation
         fields = ["scene", "dashboard"]
         read_only_fields = ["user", "team"]
 
-    def validate_dashboard(self, value: Dashboard) -> Dashboard:
+    def validate_dashboard(self, value: int) -> int:
         instance = cast(User, self.instance)
 
-        if value.team != instance.current_team:
+        dashboard_team_id = find_dashboard_team_id(dashboard_id=value)
+        if dashboard_team_id is None or instance.current_team is None or dashboard_team_id != instance.current_team.id:
             raise serializers.ValidationError("Dashboard must belong to the user's current team.")
 
         return value
@@ -957,7 +958,7 @@ class ScenePersonalisationSerializer(serializers.ModelSerializer):
             user=instance,
             team=instance.current_team,
             scene=validated_data["scene"],
-            defaults={"dashboard": validated_data["dashboard"]},
+            defaults={"dashboard_id": validated_data["dashboard"]},
         )
 
 
@@ -1455,7 +1456,6 @@ class UserViewSet(
         non_delegated_reasons = {OnboardingSkippedReason.LATER, OnboardingSkippedReason.OTHER}
         reason = validated["reason"]
         step_at_skip = validated.get("step_at_skip") or ""
-        flow_variant = validated.get("flow_variant")
 
         with transaction.atomic():
             locked = User.objects.select_for_update().get(pk=instance.pk)
@@ -1532,7 +1532,6 @@ class UserViewSet(
                             properties={
                                 "step_at_skip": step_at_skip or None,
                                 "reason": reason,
-                                "flow_variant": flow_variant,
                             },
                             groups=analytics_groups,
                         )

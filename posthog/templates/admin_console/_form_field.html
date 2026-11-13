@@ -1,0 +1,53 @@
+{# One bound Django form field as a quill Field. Covers the widgets console forms use; add a branch before a new widget. #}
+<div class="quill-field flex flex-col gap-1" data-slot="field">
+    {% if field.widget_type == "checkbox" %}
+        <label class="quill-label flex items-center gap-2"
+               for="{{ field.id_for_label }}">
+            <input id="{{ field.id_for_label }}"
+                   name="{{ field.html_name }}"
+                   type="checkbox"
+                   {% if field.value %}checked{% endif %} />
+            {{ field.label }}
+        </label>
+    {% else %}
+        <label class="quill-field__label quill-label font-bold"
+               for="{{ field.id_for_label }}">{{ field.label }}</label>
+        {% if field.widget_type == "textarea" %}
+            <textarea id="{{ field.id_for_label }}"
+                      name="{{ field.html_name }}"
+                      class="quill-textarea flex"
+                      rows="3"
+                      {% if field.field.required %}required{% endif %}
+                      {% if field.errors %}aria-invalid="true"{% endif %}>{{ field.value|default_if_none:"" }}</textarea>
+        {% elif field.widget_type == "file" %}
+            <input id="{{ field.id_for_label }}"
+                   name="{{ field.html_name }}"
+                   type="file"
+                   class="quill-input"
+                   {% if field.field.widget.attrs.accept %}accept="{{ field.field.widget.attrs.accept }}"{% endif %}
+                   {% if field.field.required %}required{% endif %}
+                   {% if field.errors %}aria-invalid="true"{% endif %} />
+        {% elif field.widget_type == "select" %}
+            <select id="{{ field.id_for_label }}"
+                    name="{{ field.html_name }}"
+                    class="quill-input"
+                    {% if field.errors %}aria-invalid="true"{% endif %}>
+                {% for value, label in field.field.choices %}
+                    <option value="{{ value }}"
+                            {% if value|stringformat:"s" == field.value|stringformat:"s" %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        {% else %}
+            <input id="{{ field.id_for_label }}"
+                   name="{{ field.html_name }}"
+                   type="{{ field.field.widget.input_type|default:'text' }}"
+                   {% if field.field.widget.input_type != "password" or field.field.widget.render_value %}value="{{ field.value|default_if_none:'' }}"{% endif %}
+                   class="quill-input"
+                   autocomplete="off"
+                   {% if field.field.required %}required{% endif %}
+                   {% if field.errors %}aria-invalid="true"{% endif %} />
+        {% endif %}
+    {% endif %}
+    {% if field.help_text %}<p class="quill-field__description m-0">{{ field.help_text }}</p>{% endif %}
+    {% for error in field.errors %}<p class="quill-field__error m-0" role="alert">{{ error }}</p>{% endfor %}
+</div>

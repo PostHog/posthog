@@ -18,6 +18,8 @@ def streamelements_base_url(api_version: str) -> str:
 
 # Documented cap for tips/activities list endpoints (limit must be 1-100).
 DEFAULT_PAGE_SIZE = 100
+# Song request history rejects limits above 100 with a 400.
+SONG_REQUEST_PAGE_SIZE = 100
 # Points leaderboards accept bigger pages: verified live that limit=1000 returns rows while
 # larger values silently return an empty list.
 LEADERBOARD_PAGE_SIZE = 1000
@@ -129,6 +131,26 @@ STREAMELEMENTS_ENDPOINTS: dict[str, StreamElementsEndpointConfig] = {
         primary_keys=["username"],
         page_size=LEADERBOARD_PAGE_SIZE,
     ),
+    "watchtime_leaderboard": StreamElementsEndpointConfig(
+        name="watchtime_leaderboard",
+        path="/points/{channel}/watchtime",
+        kind="offset",
+        data_selector="users",
+        total_path="_total",
+        primary_keys=["username"],
+        page_size=LEADERBOARD_PAGE_SIZE,
+    ),
+    "song_request_history": StreamElementsEndpointConfig(
+        name="song_request_history",
+        # Singular "songrequest": the plural path returns 404.
+        path="/songrequest/{channel}/history",
+        kind="offset",
+        data_selector="history",
+        total_path="total",
+        partition_key="createdAt",
+        # Newest first, with no sort or time filter params, so full refresh only.
+        page_size=SONG_REQUEST_PAGE_SIZE,
+    ),
     "bot_commands": StreamElementsEndpointConfig(
         name="bot_commands",
         path="/bot/commands/{channel}",
@@ -142,6 +164,12 @@ STREAMELEMENTS_ENDPOINTS: dict[str, StreamElementsEndpointConfig] = {
     "channel": StreamElementsEndpointConfig(
         name="channel",
         path="/channels/me",
+        kind="single",
+        returns_list=False,
+    ),
+    "session": StreamElementsEndpointConfig(
+        name="session",
+        path="/sessions/{channel}",
         kind="single",
         returns_list=False,
     ),

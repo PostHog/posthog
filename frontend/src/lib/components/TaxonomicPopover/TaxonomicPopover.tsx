@@ -4,7 +4,7 @@ import { Ref, forwardRef, useEffect, useId, useState } from 'react'
 import { IconX } from '@posthog/icons'
 
 import { DisplayableEntity } from 'lib/components/EntityFilterInfo'
-import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
+import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import {
     DataWarehousePopoverField,
     DefinitionPopoverRenderer,
@@ -19,6 +19,9 @@ import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
 import type { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
 
 import { AnyDataNode, DatabaseSchemaField } from '~/queries/schema/schema-general'
+
+import { QuillTaxonomicPopover } from './QuillTaxonomicPopover'
+import { TaxonomicPopoverFilter } from './TaxonomicPopoverFilter'
 
 export interface TaxonomicPopoverProps<ValueType extends TaxonomicFilterValue = TaxonomicFilterValue> extends Omit<
     LemonButtonProps,
@@ -44,6 +47,7 @@ export interface TaxonomicPopoverProps<ValueType extends TaxonomicFilterValue = 
     excludedProperties?: ExcludedProperties
     excludedOperators?: ExcludedOperators
     includeHiddenEvents?: boolean
+    offerHiddenEventStandIns?: boolean
     selectedProperties?: SelectedProperties
     metadataSource?: AnyDataNode
     showNumericalPropsOnly?: boolean
@@ -91,6 +95,7 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
         excludedProperties,
         excludedOperators,
         includeHiddenEvents,
+        offerHiddenEventStandIns,
         selectedProperties,
         metadataSource,
         schemaColumns,
@@ -115,6 +120,8 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
     const taxonomicFilterLogicKey = `taxonomic-popover-${generatedKey}`
     const [localValue, setLocalValue] = useState<ValueType>(value || ('' as ValueType))
     const [visible, setVisible] = useState(false)
+
+    const quillSurface = useQuillSurface()
 
     const isClearButtonShown = allowClear && !!localValue
 
@@ -143,40 +150,73 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
         }
     }, [value]) // oxlint-disable-line react-hooks/exhaustive-deps
 
+    const filterElement = (
+        <TaxonomicPopoverFilter
+            taxonomicFilterLogicKey={taxonomicFilterLogicKey}
+            groupType={groupType}
+            value={value}
+            filter={filter}
+            onSelect={(payload: ValueType, type, item) => {
+                onChange?.(payload, type, item)
+                if (closeOnChange) {
+                    setVisible(false)
+                }
+            }}
+            groupTypes={groupTypes}
+            eventNames={eventNames}
+            schemaColumns={schemaColumns}
+            metadataSource={metadataSource}
+            excludedProperties={excludedProperties}
+            excludedOperators={excludedOperators}
+            includeHiddenEvents={includeHiddenEvents}
+            offerHiddenEventStandIns={offerHiddenEventStandIns}
+            selectedProperties={selectedProperties}
+            showNumericalPropsOnly={showNumericalPropsOnly}
+            dataWarehousePopoverFields={dataWarehousePopoverFields}
+            maxContextOptions={maxContextOptions}
+            allowNonCapturedEvents={allowNonCapturedEvents}
+            definitionPopoverRenderer={definitionPopoverRenderer}
+            suggestedFiltersLabel={suggestedFiltersLabel}
+            enableKeywordShortcuts={enableKeywordShortcuts}
+            promoteSelectedItemToFirstPosition={promoteSelectedItemToFirstPosition}
+            selectingKeyOnly={selectingKeyOnly}
+            width={width}
+        />
+    )
+
+    if (quillSurface) {
+        return (
+            <QuillTaxonomicPopover
+                ref={ref}
+                buttonProps={buttonPropsRest}
+                open={visible}
+                onOpenChange={(open) => {
+                    if (open) {
+                        onOpen?.()
+                    }
+                    setVisible(open)
+                }}
+                label={buttonPropsFinal.children}
+                tooltip={buttonPropsFinal.tooltip}
+                onClear={
+                    isClearButtonShown
+                        ? () => {
+                              onChange?.('' as ValueType, groupType, null)
+                              setLocalValue('' as ValueType)
+                          }
+                        : undefined
+                }
+                showChevron={sideIcon !== null}
+                placement={placement}
+            >
+                {filterElement}
+            </QuillTaxonomicPopover>
+        )
+    }
+
     return (
         <LemonDropdown
-            overlay={
-                <TaxonomicFilter
-                    taxonomicFilterLogicKey={taxonomicFilterLogicKey}
-                    groupType={groupType}
-                    value={value}
-                    filter={filter}
-                    onChange={({ type }, payload, item) => {
-                        onChange?.(payload as ValueType, type, item)
-                        if (closeOnChange) {
-                            setVisible(false)
-                        }
-                    }}
-                    taxonomicGroupTypes={groupTypes ?? [groupType]}
-                    eventNames={eventNames}
-                    schemaColumns={schemaColumns}
-                    metadataSource={metadataSource}
-                    excludedProperties={excludedProperties}
-                    excludedOperators={excludedOperators}
-                    includeHiddenEvents={includeHiddenEvents}
-                    selectedProperties={selectedProperties}
-                    showNumericalPropsOnly={showNumericalPropsOnly}
-                    dataWarehousePopoverFields={dataWarehousePopoverFields}
-                    maxContextOptions={maxContextOptions}
-                    allowNonCapturedEvents={allowNonCapturedEvents}
-                    definitionPopoverRenderer={definitionPopoverRenderer}
-                    suggestedFiltersLabel={suggestedFiltersLabel}
-                    enableKeywordShortcuts={enableKeywordShortcuts}
-                    promoteSelectedItemToFirstPosition={promoteSelectedItemToFirstPosition}
-                    selectingKeyOnly={selectingKeyOnly}
-                    width={width}
-                />
-            }
+            overlay={filterElement}
             matchWidth={false}
             actionable
             visible={visible}

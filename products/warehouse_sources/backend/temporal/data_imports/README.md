@@ -79,12 +79,13 @@ The existing admin repartition action now stages a `repartition_pending` target 
 
 ## Admin panel actions
 
-Most day-to-day interventions no longer need a k8s pod — they're buttons on the `ExternalDataSchema` change page in the Django admin (`/admin/warehouse_sources/externaldataschema/<schema_id>/change/`).
+Most day-to-day interventions no longer need a k8s pod — they're operations on the Warehouse sources tool in PostHog Admin (`/admin/console/tools/warehouse-sources/?schema=<schema_id>`), linked from the `ExternalDataSchema` change page in Django admin. The same tool lists the schemas of a source (`?source=<source_id>`).
 All admin-triggered runs are non-billable, and admin-triggered runs auto-pause the per-schema schedule for the duration and auto-unpause it on success.
 
 - **Trigger sync / resync.** Runs an ad-hoc `external-data-job` workflow, with checkboxes for `reset_pipeline` (wipe existing files and re-pull from scratch) and `billable`. This replaces the pod snippets under [How to resync](#how-to-resync) for most cases.
 - **Repartition / change partition mode.** Stages a `repartition_pending` target and triggers the cheap [in-place repartition](#automated-in-place-repartitioning) — rewrites the data already in S3, no source re-pull, no pod, no oversized partition materialised. You can switch `partition_mode` (`datetime` / `numerical` / `md5`), set the partitioning keys, and set the mode's knob (`partition_format`, `partition_size`, or `partition_count`).
 - **Pause / unpause schedule.** Pause the per-schema Temporal schedule manually while doing admin work.
+- **Recreate schedule.** Creates the per-schema schedule when it is missing, or updates it in place. It starts no run.
 
 ### Overriding the read chunk size (`chunk_size_override`)
 

@@ -203,6 +203,23 @@ export const AlertsCreateBody = () => zod.object({
                                 'When true, anchor on the trailing (possibly still accumulating) bucket instead of the last complete one.'
                             ),
                         type: zod.enum(['MetricsAlertConfig']).default(alertsCreateBodyConfigOneFourTypeDefault),
+                        variables: zod
+                            .union([
+                                zod.record(
+                                    zod.string(),
+                                    zod.object({
+                                        all: zod.union([zod.boolean(), zod.null()]).optional(),
+                                        values: zod
+                                            .array(zod.string())
+                                            .describe(
+                                                'The selected values. Empty when `all` is true: All stands for every option of the variable.'
+                                            ),
+                                    })
+                                ),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe("Values for the `$name` variables in the insight's query."),
                     }),
                 ])
                 .describe(
@@ -1543,6 +1560,23 @@ export const AlertsPartialUpdateBody = () => zod.object({
                                 'When true, anchor on the trailing (possibly still accumulating) bucket instead of the last complete one.'
                             ),
                         type: zod.enum(['MetricsAlertConfig']).default(alertsPartialUpdateBodyConfigOneFourTypeDefault),
+                        variables: zod
+                            .union([
+                                zod.record(
+                                    zod.string(),
+                                    zod.object({
+                                        all: zod.union([zod.boolean(), zod.null()]).optional(),
+                                        values: zod
+                                            .array(zod.string())
+                                            .describe(
+                                                'The selected values. Empty when `all` is true: All stands for every option of the variable.'
+                                            ),
+                                    })
+                                ),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe("Values for the `$name` variables in the insight's query."),
                     }),
                 ])
                 .describe(
@@ -3908,6 +3942,23 @@ export const AlertsSimulateCreateBody = () => zod.object({
                         type: zod
                             .enum(['MetricsAlertConfig'])
                             .default(alertsSimulateCreateBodyConfigOneFourTypeDefault),
+                        variables: zod
+                            .union([
+                                zod.record(
+                                    zod.string(),
+                                    zod.object({
+                                        all: zod.union([zod.boolean(), zod.null()]).optional(),
+                                        values: zod
+                                            .array(zod.string())
+                                            .describe(
+                                                'The selected values. Empty when `all` is true: All stands for every option of the variable.'
+                                            ),
+                                    })
+                                ),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe("Values for the `$name` variables in the insight's query."),
                     }),
                 ])
                 .describe(

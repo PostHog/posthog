@@ -26,11 +26,15 @@ import type {
     DataCatalogMetricsRunCreateParams,
     DataCatalogRelationshipProposalApi,
     DataCatalogRelationshipProposalsListParams,
+    MetricUsageApi,
     PaginatedDataCatalogCertificationListApi,
     PaginatedDataCatalogMetricListApi,
     PaginatedDataCatalogRelationshipProposalListApi,
     PatchedDataCatalogMetricApi,
+    PendingReviewCountsApi,
     RelationshipRejectApi,
+    UsageSnapshotApi,
+    UsageSnapshotSummaryApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -383,6 +387,24 @@ export const dataCatalogMetricsRunCreate = async (
     })
 }
 
+export const getDataCatalogMetricsUsageRetrieveUrl = (projectId: string, name: string) => {
+    return `/api/projects/${projectId}/data_catalog/metrics/${name}/usage/`
+}
+
+/**
+ * How the metric was used in the latest usage scan: direct runs and agent re-derivations.
+ */
+export const dataCatalogMetricsUsageRetrieve = async (
+    projectId: string,
+    name: string,
+    options?: RequestInit
+): Promise<MetricUsageApi> => {
+    return apiMutator<MetricUsageApi>(getDataCatalogMetricsUsageRetrieveUrl(projectId, name), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getDataCatalogMetricsBulkChangeOwnerCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/data_catalog/metrics/bulk/change_owner/`
 }
@@ -440,6 +462,23 @@ export const dataCatalogMetricsBulkDeleteCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(dataCatalogMetricBulkNamesRequestApi),
+    })
+}
+
+export const getDataCatalogPendingReviewRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_catalog/pending_review/`
+}
+
+/**
+ * How many items wait in each review queue, counted as the list of that queue shows them to you.
+ */
+export const dataCatalogPendingReviewRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<PendingReviewCountsApi> => {
+    return apiMutator<PendingReviewCountsApi>(getDataCatalogPendingReviewRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
 
@@ -563,4 +602,38 @@ export const dataCatalogRelationshipProposalsRejectCreate = async (
             body: JSON.stringify(relationshipRejectApi),
         }
     )
+}
+
+export const getDataCatalogUsageListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_catalog/usage/`
+}
+
+/**
+ * Up to a year of usage scans for the project, newest first, without payloads.
+ */
+export const dataCatalogUsageList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<UsageSnapshotSummaryApi[]> => {
+    return apiMutator<UsageSnapshotSummaryApi[]>(getDataCatalogUsageListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getDataCatalogUsageLatestRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_catalog/usage/latest/`
+}
+
+/**
+ * The newest finished usage scan, with its payload.
+ */
+export const dataCatalogUsageLatestRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<UsageSnapshotApi> => {
+    return apiMutator<UsageSnapshotApi>(getDataCatalogUsageLatestRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
 }

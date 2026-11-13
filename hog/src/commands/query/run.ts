@@ -2,13 +2,7 @@ import { defineCommand } from '@/core/command'
 import type { ColumnKind } from '@/core/output'
 import { plural } from '@/core/text'
 import { ApiError } from '@/posthog/api'
-
-interface QueryResponse {
-    columns?: string[] | null
-    results?: unknown[][] | null
-    types?: [string, string][] | null
-    hasMore?: boolean | null
-}
+import { runHogQL, type HogQLResponse } from '@/posthog/query'
 
 // ClickHouse returns 64-bit integers as JSON numbers and dates as strings, so the declared type
 // colors a column better than its values do.
@@ -37,37 +31,41 @@ export default defineCommand({
     examples: ['hog query run "select event, count() from events group by event"', 'cat query.sql | hog query run -'],
 
     async run({ args, ctx }) {
-        const api = await ctx.posthog()
+        let response: HogQLResponse
         try {
-            return await api.post<QueryResponse>('query', {
-                query: { kind: 'HogQLQuery', query: args.query },
-                refresh: 'blocking',
-            })
+            response = await runHogQL(await ctx.posthog(), args.query)
         } catch (error) {
             if (error instanceof ApiError && error.type === 'validation_error') {
                 throw error.withHint('Run `hog query check` on the query to see where it fails.')
             }
             throw error
         }
+        return {
+            columns: (response.columns ?? []).map((name, index) => ({ name, type: response.types?.[index]?.[1] })),
+            rows: response.results,
+            hasMore: response.hasMore === true,
+            response,
+        }
     },
 
+    raw: (result) => result.response,
+
     human({ result, out }) {
-        const rows = result.results ?? []
         out.table(
-            (result.columns ?? []).map((name, index) => ({ name, kind: kindOf(result.types?.[index]?.[1]) })),
-            rows
+            result.columns.map((column) => ({ name: column.name, kind: kindOf(column.type) })),
+            result.rows
         )
-        const count = plural(rows.length, 'row')
+        const count = plural(result.rows.length, 'row')
         out.line(out.style(result.hasMore ? `${count}, more available` : count, 'dim'))
     },
 
     agent({ result, out }) {
-        out.jsonLines(result.results ?? [])
+        out.jsonLines(result.rows)
     },
 
     telemetry: ({ result }) => ({
-        row_count: result.results?.length ?? 0,
-        column_count: result.columns?.length ?? 0,
-        has_more: result.hasMore === true,
+        row_count: result.rows.length,
+        column_count: result.columns.length,
+        has_more: result.hasMore,
     }),
 })

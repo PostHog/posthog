@@ -6,6 +6,7 @@ use std::collections::VecDeque;
 use super::{Task, TaskWorkflow, WorkflowStage};
 use crate::{
     api::client::PHClient, experimental::tasks::list::TaskIterator, invocation_context::context,
+    utils::redact_request_error,
 };
 
 const PAGE_SIZE: usize = 10;
@@ -86,6 +87,7 @@ impl WorkflowIterator {
         let response = client
             .get(client.project_url(&format!("task_workflows/?limit={BUFFER_SIZE}"))?)
             .send()
+            .map_err(redact_request_error)
             .context("Failed to send request")?;
 
         if !response.status().is_success() {
@@ -122,6 +124,7 @@ impl WorkflowIterator {
             .client
             .get(Url::parse(&url)?)
             .send()
+            .map_err(redact_request_error)
             .context("Failed to send request")?;
 
         if !response.status().is_success() {
@@ -179,6 +182,7 @@ impl StageIterator {
         let response = client
             .get(client.project_url(&format!("workflow_stages/?limit={BUFFER_SIZE}"))?)
             .send()
+            .map_err(redact_request_error)
             .context("Failed to send request")?;
 
         if !response.status().is_success() {
@@ -214,6 +218,7 @@ impl StageIterator {
             .client
             .get(Url::parse(&url)?)
             .send()
+            .map_err(redact_request_error)
             .context("Failed to send request")?;
 
         if !response.status().is_success() {

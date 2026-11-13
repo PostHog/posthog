@@ -52,7 +52,9 @@ class AudienceSuggestionSerializer(serializers.Serializer):
         allow_null=True, help_text="For regulars: how many times the event must happen in the window."
     )
     reachable_count = serializers.IntegerField(
-        help_text="People in the audience with an email address, counted when the suggestion was made."
+        allow_null=True,
+        help_text="Roughly how many people in the audience have an email address, counted when the suggestion was "
+        "made. Null while the count runs, or when it failed.",
     )
     cohort_filters = serializers.JSONField(
         help_text="The audience's cohort filters, in the cohorts endpoint's `filters` format. Saved as a static cohort."
@@ -63,7 +65,7 @@ class AudienceSuggestionsResponseSerializer(serializers.Serializer):
     status = serializers.ChoiceField(
         choices=DataSuggestionsStatus.choices,
         help_text="ready when suggestions were made (the list can still be empty), generating while a background "
-        "run makes them (poll current until it ends), ai_not_approved when the organization has not approved AI "
+        "run makes them (poll current until it ends, the list can already hold cards being counted), ai_not_approved when the organization has not approved AI "
         "data processing, unavailable when nothing was made or the run failed.",
     )
     suggestions = AudienceSuggestionSerializer(many=True, help_text="Up to 3 suggested broadcast audiences.")

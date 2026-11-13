@@ -72,8 +72,8 @@ Full command list: [`.agents/skills/manage-dashboard-widgets/SKILL.md` § Verify
 Minimum when adding a type:
 
 ```bash
-hogli test products/dashboards/backend/api/test/test_run_widgets.py
-hogli test products/dashboards/backend/api/test/test_dashboard_widgets.py
+hogli test products/dashboards/backend/tests/api/test_run_widgets.py
+hogli test products/dashboards/backend/tests/api/test_dashboard_widgets.py
 hogli test products/dashboards/frontend/widgets/registry.test.tsx
 ```
 

@@ -125,7 +125,6 @@ export {
     ComboboxTrigger,
     ComboboxValue,
     useComboboxAnchor,
-    useComboboxFilteredItems,
 } from './combobox'
 export {
     ContextMenu,
@@ -177,7 +176,11 @@ export {
     DropdownMenuPortal,
     DropdownMenuTrigger,
     DropdownMenuContent,
+    DropdownMenuEmpty,
+    DropdownMenuFilterProvider,
     DropdownMenuGroup,
+    DropdownMenuInput,
+    DropdownMenuList,
     DropdownMenuLabel,
     DropdownMenuItem,
     DropdownMenuCheckboxItem,
@@ -356,3 +359,4 @@ export { ToggleGroup, ToggleGroupItem } from './toggle-group'
 export { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger, createTooltipHandle } from './tooltip'
 export { ThemeProvider, useTheme, type Theme } from './theme-provider'
 export { cn } from './lib/utils'
+export { useReducedMotion } from './lib/use-reduced-motion'

@@ -1,4 +1,4 @@
-"""Run a PromQL metrics insight as a Snuffle range query.
+"""Run a PromQL metrics insight as a Snuffle range query, or an instant query for one value per series.
 
 The range and step come from the same interval ladder as the builder engine, so a PromQL insight
 and a builder insight over the same window chart the same buckets.
@@ -12,14 +12,18 @@ from typing import Any
 import requests
 
 from posthog.api.snuffle_proxy import SnuffleNotConfiguredError, snuffle_request
+from posthog.clickhouse.client.connection import ClickHouseUser
+from posthog.clickhouse.workload import Workload
 from posthog.models import Team
 
 from products.metrics.backend.facade.contracts import MetricPoint, MetricSeries, PromQLQueryError
 from products.metrics.backend.metric_query_runner import _align_to_interval, _interval_step, _resolve_interval
+from products.metrics.backend.query_counts import record_promql_query
 from products.metrics.backend.series import rank_and_fill_series
 
 # The label that builderToPromql adds to keep the series of a multi-series query apart.
 CLAUSE_LABEL = "clause"
+_QUERY_PATHS = frozenset({"/api/v1/query", "/api/v1/query_range"})
 # builderToPromql sets the label with `label_replace(<series>, "clause", "<alias>", "", "")`. Without
 # that call, a `clause` label belongs to the user's data.
 _SETS_CLAUSE_LABEL = re.compile(r'label_replace\s*\(.*,\s*"clause"\s*,\s*"', re.DOTALL)
@@ -29,6 +33,10 @@ _SETS_CLAUSE_LABEL = re.compile(r'label_replace\s*\(.*,\s*"clause"\s*,\s*"', re.
 _SHARED_HISTOGRAM_QUANTILES = re.compile(
     r'^\s*histogram_quantiles\s*\(\s*"clause"\s*((?:,\s*[0-9.eE+-]+\s*)+),', re.DOTALL
 )
+# Grafana's dashboard range, as `$__range` (a duration), `$__range_s` or `$__range_ms` (a number). Snuffle
+# does not know them, so they become the chart's date range before the query goes out. A `\$__range` in a
+# regex matcher is an escaped literal dollar, so it stays.
+_RANGE_VARIABLE = re.compile(r"(?<!\\)\$\{__range(?P<braced>_s|_ms)?\}|(?<!\\)\$__range(?P<plain>_s|_ms)?\b")
 
 
 def _sample_value(raw: Any) -> float | None:
@@ -68,6 +76,14 @@ def _clause_alias(value: str | None, quantile_clauses: dict[float, str]) -> str 
         return value
 
 
+def fill_range_variables(expr: str, date_from: dt.datetime, date_to: dt.datetime) -> str:
+    # Timestamps, not datetime subtraction, which counts wall-clock time across a DST change.
+    milliseconds = max(round((date_to.timestamp() - date_from.timestamp()) * 1000), 1000)
+    seconds = round(milliseconds / 1000)
+    values = {None: f"{seconds}s", "_s": str(seconds), "_ms": str(milliseconds)}
+    return _RANGE_VARIABLE.sub(lambda match: values[match.group("braced") or match.group("plain")], expr)
+
+
 def snuffle_payload(
     team: Team,
     method: str,
@@ -76,10 +92,22 @@ def snuffle_payload(
     data: dict[str, str] | None = None,
     params: dict[str, list[str]] | None = None,
     timeout: float | None = None,
+    ch_user: ClickHouseUser | None = None,
 ) -> dict[str, Any]:
     """Send one Prometheus API request to Snuffle and return its JSON body. Errors are safe to show."""
+    if path in _QUERY_PATHS and data and data.get("query"):
+        record_promql_query(team, data["query"])
     try:
-        response = snuffle_request(team.pk, method, path, data=data, params=params, timeout=timeout)
+        response = snuffle_request(
+            team.pk,
+            method,
+            path,
+            data=data,
+            params=params,
+            timeout=timeout,
+            ch_user=ch_user,
+            workload=Workload.METRICS,
+        )
     except SnuffleNotConfiguredError as exc:
         # Deployment config, not the query, so an alert waiting on it is not counted as broken.
         raise PromQLQueryError("PromQL queries are not available on this PostHog instance.", transient=True) from exc
@@ -115,7 +143,7 @@ def run_promql_range(
         "POST",
         "/api/v1/query_range",
         data={
-            "query": expr,
+            "query": fill_range_variables(expr, date_from, date_to),
             "start": str(start.timestamp()),
             "end": str(date_to.timestamp()),
             "step": str(int(step.total_seconds())),
@@ -131,6 +159,32 @@ def run_promql_range(
     elif result_type != "matrix":
         raise PromQLQueryError(f"A PromQL range query cannot return a {result_type} result.")
 
+    # PromQL has no sample for a time that a series does not report, so the chart shows a gap.
+    return _series_from_results(team, expr, results)
+
+
+def run_promql_instant(team: Team, expr: str, time: dt.datetime) -> list[MetricSeries]:
+    """Run a PromQL instant query on Snuffle: one value per series at `time`."""
+    payload = snuffle_payload(team, "POST", "/api/v1/query", data={"query": expr, "time": str(time.timestamp())})
+
+    data = payload.get("data") or {}
+    result_type = data.get("resultType")
+    results = data.get("result") or []
+    if result_type == "scalar":
+        results = [{"metric": {}, "values": [results]}] if results else []
+    elif result_type == "vector":
+        results = [{**result, "values": [result["value"]] if result.get("value") else []} for result in results]
+    elif result_type == "matrix":
+        raise PromQLQueryError(
+            "The expression returns a range vector, which an instant query cannot show. "
+            "Wrap the range selector in a function such as rate(...[5m]) or max_over_time(...[5m])."
+        )
+    else:
+        raise PromQLQueryError(f"A PromQL instant query cannot return a {result_type} result.")
+    return _series_from_results(team, expr, results)
+
+
+def _series_from_results(team: Team, expr: str, results: list[dict[str, Any]]) -> list[MetricSeries]:
     tzinfo = team.timezone_info
     quantile_clauses = _quantile_clauses(expr)
     marks_clauses = bool(quantile_clauses) or bool(_SETS_CLAUSE_LABEL.search(expr))
@@ -147,5 +201,4 @@ def run_promql_range(
             for timestamp, value in result.get("values") or []
         ]
         rows.append((labels, metric_name, clause, points))
-    # PromQL has no sample for a time that a series does not report, so the chart shows a gap.
     return rank_and_fill_series(rows, fill=None)

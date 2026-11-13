@@ -307,6 +307,38 @@ function IspCoverage({
     )
 }
 
+function HighBounceRateNotice({
+    bounceRate,
+    emailsSent,
+}: {
+    bounceRate: number
+    emailsSent: number
+}): JSX.Element | null {
+    if (emailsSent < minimumVolumeToClassify('bounce')) {
+        return null
+    }
+    const level = classifyRate(bounceRate, 'bounce')
+    if (level === 'healthy') {
+        return null
+    }
+    return (
+        <LemonBanner
+            type={level === 'high' ? 'warning' : 'info'}
+            className="mt-3"
+            action={{
+                children: 'View suppression list',
+                to: urls.workflows('suppression'),
+                'data-attr': 'workflows-reputation-high-bounce-suppression-list',
+            }}
+        >
+            Your bounce rate is above {formatRate(RATE_THRESHOLDS.bounce[level])}. This usually means an older list,
+            such as addresses of people who have left a company. Mailbox providers count every bounce against your
+            sending reputation, even when the email isn't spam. Addresses that hard-bounce are added to your suppression
+            list and aren't emailed again. To bring the rate down, send to people who were active recently.
+        </LemonBanner>
+    )
+}
+
 function TeamRatesCard({
     reputation,
     aws,
@@ -333,26 +365,29 @@ function TeamRatesCard({
                 )}
             </div>
             {reputation ? (
-                <div className="flex flex-wrap gap-8 mt-3">
-                    <div>
-                        <MetricLabel
-                            label="Bounce rate"
-                            tooltip={`Hard (permanent) bounces divided by emails sent. Transient bounces like a full mailbox are not counted. ${WINDOW_TOOLTIP}`}
-                        />
-                        <div className="text-lg font-semibold">{formatRate(reputation.bounce_rate)}</div>
+                <>
+                    <div className="flex flex-wrap gap-8 mt-3">
+                        <div>
+                            <MetricLabel
+                                label="Bounce rate"
+                                tooltip={`Hard (permanent) bounces divided by emails sent. Transient bounces like a full mailbox are not counted. An address that hard-bounces is added to your suppression list and isn't emailed again. ${WINDOW_TOOLTIP}`}
+                            />
+                            <div className="text-lg font-semibold">{formatRate(reputation.bounce_rate)}</div>
+                        </div>
+                        <div>
+                            <MetricLabel
+                                label="Spam complaint rate"
+                                tooltip={`Spam complaints divided by emails sent. ${WINDOW_TOOLTIP}`}
+                            />
+                            <div className="text-lg font-semibold">{formatRate(reputation.complaint_rate)}</div>
+                        </div>
+                        <div>
+                            <MetricLabel label="Emails sent (last 30 days)" tooltip={WINDOW_TOOLTIP} />
+                            <div className="text-lg font-semibold">{humanFriendlyNumber(reputation.emails_sent)}</div>
+                        </div>
                     </div>
-                    <div>
-                        <MetricLabel
-                            label="Spam complaint rate"
-                            tooltip={`Spam complaints divided by emails sent. ${WINDOW_TOOLTIP}`}
-                        />
-                        <div className="text-lg font-semibold">{formatRate(reputation.complaint_rate)}</div>
-                    </div>
-                    <div>
-                        <MetricLabel label="Emails sent (last 30 days)" tooltip={WINDOW_TOOLTIP} />
-                        <div className="text-lg font-semibold">{humanFriendlyNumber(reputation.emails_sent)}</div>
-                    </div>
-                </div>
+                    <HighBounceRateNotice bounceRate={reputation.bounce_rate} emailsSent={reputation.emails_sent} />
+                </>
             ) : isps.length > 0 ? (
                 <div className="text-secondary mt-3">
                     No workflow email in the last 30 days. The breakdown below covers all email sent from your verified
@@ -379,7 +414,6 @@ function TeamRatesCard({
 function SendingAllowanceCard({ allowance }: { allowance: EmailSendingAllowanceApi }): JSX.Element {
     const { canRequestSendingTierIncrease } = useValues(workflowsReputationLogic)
     const { requestSendingTierIncrease } = useActions(workflowsReputationLogic)
-    const hourlyPercent = Math.min(100, (allowance.emails_sent_last_hour / allowance.emails_per_hour) * 100)
     const dailyPercent = Math.min(100, (allowance.emails_sent_last_day / allowance.emails_per_day) * 100)
     return (
         <div className="border rounded p-4 bg-surface-primary" data-attr="workflows-sending-allowance">
@@ -408,17 +442,6 @@ function SendingAllowanceCard({ allowance }: { allowance: EmailSendingAllowanceA
                 )}
             </p>
             <div className="flex flex-wrap gap-8 mt-3">
-                <div className="min-w-48">
-                    <MetricLabel
-                        label="Emails this hour"
-                        tooltip="Emails your workflows sent in the last hour, against what this tier allows per hour."
-                    />
-                    <div className="text-lg font-semibold">
-                        {humanFriendlyNumber(allowance.emails_sent_last_hour)} of{' '}
-                        {humanFriendlyNumber(allowance.emails_per_hour)}
-                    </div>
-                    <LemonProgress percent={hourlyPercent} className="mt-1" />
-                </div>
                 <div className="min-w-48">
                     <MetricLabel
                         label="Emails today"

@@ -15,13 +15,12 @@ const KIND_LABELS: Record<ExtractReport['kind'], string> = {
 }
 
 export function renderExtracted(out: Output, result: ExtractReport & { dryRun: boolean }): void {
-    for (const file of result.files) {
-        out.line(escapeControls(file))
-    }
     const verb = result.dryRun ? 'Dry run: would extract' : 'Extracted'
-    out.line(
-        out.style(`${verb} the ${KIND_LABELS[result.kind]} symbol set to ${escapeControls(result.output)}.`, 'dim')
-    )
+    out.report({
+        status: result.dryRun ? 'unchanged' : 'done',
+        result: `${verb} the ${KIND_LABELS[result.kind]} symbol set to ${escapeControls(result.output)}`,
+        effects: result.files.map(escapeControls),
+    })
 }
 
 export default defineCommand({

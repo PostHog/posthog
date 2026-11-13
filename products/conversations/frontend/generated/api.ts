@@ -20,9 +20,12 @@ import type {
     ComposeTicketApi,
     ComposeTicketResponseApi,
     ConversationsMacrosListParams,
+    ConversationsTicketsAttachmentsCreateBody,
     ConversationsTicketsListParams,
     ConversationsTicketsMessagesListParams,
     ConversationsViewsListParams,
+    IntercomImportJobApi,
+    IntercomImportStartApi,
     PaginatedTicketListApi,
     PaginatedTicketMacroListApi,
     PaginatedTicketMessageListApi,
@@ -33,6 +36,7 @@ import type {
     PatchedTicketViewApi,
     SigningSecretApi,
     TicketApi,
+    TicketAttachmentApi,
     TicketFullEmailApi,
     TicketMacroApi,
     TicketMessageApi,
@@ -91,6 +95,37 @@ export const conversationsAiReplyPlaybookRetrieve = async (
     options?: RequestInit
 ): Promise<AIReplyPlaybookApi> => {
     return apiMutator<AIReplyPlaybookApi>(getConversationsAiReplyPlaybookRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getConversationsIntercomImportsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/conversations/intercom_imports/`
+}
+
+export const conversationsIntercomImportsCreate = async (
+    projectId: string,
+    intercomImportStartApi: IntercomImportStartApi,
+    options?: RequestInit
+): Promise<IntercomImportJobApi> => {
+    return apiMutator<IntercomImportJobApi>(getConversationsIntercomImportsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(intercomImportStartApi),
+    })
+}
+
+export const getConversationsIntercomImportsStatusRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/conversations/intercom_imports/status/`
+}
+
+export const conversationsIntercomImportsStatusRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<IntercomImportJobApi> => {
+    return apiMutator<IntercomImportJobApi>(getConversationsIntercomImportsStatusRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })
@@ -398,6 +433,34 @@ export const conversationsTicketsAiHumanOutcomeCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(aiHumanOutcomeRequestApi),
+    })
+}
+
+export const getConversationsTicketsAttachmentsCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/conversations/tickets/${id}/attachments/`
+}
+
+/**
+ * Upload a file to put in a reply to this ticket.
+ *
+ * Images are validated and shown inline. Other files are stored as they are and
+ * served as a download. Widget tickets do not accept file attachments yet.
+ */
+export const conversationsTicketsAttachmentsCreate = async (
+    projectId: string,
+    id: string,
+    conversationsTicketsAttachmentsCreateBody?: ConversationsTicketsAttachmentsCreateBody,
+    options?: RequestInit
+): Promise<TicketAttachmentApi> => {
+    const formData = new FormData()
+    if (conversationsTicketsAttachmentsCreateBody?.file !== undefined) {
+        formData.append(`file`, conversationsTicketsAttachmentsCreateBody.file)
+    }
+
+    return apiMutator<TicketAttachmentApi>(getConversationsTicketsAttachmentsCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        body: formData,
     })
 }
 

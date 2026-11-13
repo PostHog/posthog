@@ -1,10 +1,47 @@
-import { isAbsolute, posix, relative, resolve, win32 } from 'node:path'
+import { basename, dirname, isAbsolute, join, posix, relative, resolve, sep, win32 } from 'node:path'
 
 import { HogError } from './errors'
 import type { Runtime } from './runtime'
 
 export function absolutePath(root: string, path: string): string {
     return isAbsolute(path) ? path : resolve(root, path)
+}
+
+// Whether an absolute `path` is inside the absolute `folder`. The folder itself is not inside it.
+export function isInside(folder: string, path: string): boolean {
+    const inside = relative(folder, path)
+    return inside !== '' && inside !== '..' && !inside.startsWith(`..${sep}`) && !isAbsolute(inside)
+}
+
+// Where a write to `path` lands once links resolve, even when the folders above it don't exist yet. A link
+// to a missing target counts as missing here, so it doesn't resolve.
+export async function realWritePath(runtime: Pick<Runtime, 'exists' | 'realPath'>, path: string): Promise<string> {
+    const missing: string[] = []
+    let existing = path
+
+    while (!(await runtime.exists(existing)) && dirname(existing) !== existing) {
+        missing.unshift(basename(existing))
+        existing = dirname(existing)
+    }
+
+    return join(await runtime.realPath(existing), ...missing)
+}
+
+export async function findGitRoot(
+    runtime: Pick<Runtime, 'cwd' | 'exists'>
+): Promise<{ root: string; gitPath: string } | undefined> {
+    let folder = runtime.cwd()
+    for (;;) {
+        const gitPath = join(folder, '.git')
+        if (await runtime.exists(gitPath)) {
+            return { root: folder, gitPath }
+        }
+        const parent = dirname(folder)
+        if (parent === folder) {
+            return undefined
+        }
+        folder = parent
+    }
 }
 
 // The path to store in posthog.json, relative to its folder. A sibling folder stays relative, as

@@ -193,6 +193,7 @@ fn setup_ai_test_router() -> Router {
         None,             // ai_byte_rate_limiter
         None,             // replay_overflow_limiter
         8,                // capture_v1_scatter_gather_min_batch
+        true,             // capture_v1_legacy_property_splice
         None,             // ai_gateway_signing_secret
         None,             // ingestion_warning_emitter
     )
@@ -248,6 +249,7 @@ fn setup_ai_router_collecting_warnings() -> (Router, Arc<CollectingEmitter>) {
         None, // ai_byte_rate_limiter
         None,
         8,
+        true,
         None,
         warning_emitter,
     );
@@ -1293,6 +1295,7 @@ fn setup_ai_test_router_with_capturing_sink() -> (Router, CapturingSink) {
         None,             // ai_byte_rate_limiter
         None,             // replay_overflow_limiter
         8,                // capture_v1_scatter_gather_min_batch
+        true,             // capture_v1_legacy_property_splice
         None,             // ai_gateway_signing_secret
         None,             // ingestion_warning_emitter
     );
@@ -1961,6 +1964,7 @@ fn setup_ai_test_router_with_token_dropper(token_dropper: TokenDropper) -> (Rout
         None,             // ai_byte_rate_limiter
         None,             // replay_overflow_limiter
         8,                // capture_v1_scatter_gather_min_batch
+        true,             // capture_v1_legacy_property_splice
         None,             // ai_gateway_signing_secret
         None,             // ingestion_warning_emitter
     );
@@ -2026,6 +2030,7 @@ fn setup_ai_test_router_with_byte_limiter() -> (Router, CapturingSink) {
         Some(byte_limiter),
         None, // replay_overflow_limiter
         8,    // capture_v1_scatter_gather_min_batch
+        true, // capture_v1_legacy_property_splice
         None, // ai_gateway_signing_secret
         None, // ingestion_warning_emitter
     );
@@ -2287,6 +2292,7 @@ fn setup_ai_test_router_with_llm_quota_limited(token: &str) -> (Router, Capturin
         None,             // ai_byte_rate_limiter
         None,             // replay_overflow_limiter
         8,                // capture_v1_scatter_gather_min_batch
+        true,             // capture_v1_legacy_property_splice
         None,             // ai_gateway_signing_secret
         None,             // ingestion_warning_emitter
     );
@@ -2434,6 +2440,7 @@ fn setup_ai_test_router_with_overflow_limiter(
         None, // ai_byte_rate_limiter
         None, // replay_overflow_limiter
         8,    // capture_v1_scatter_gather_min_batch
+        true, // capture_v1_legacy_property_splice
         None, // ai_gateway_signing_secret
         None, // ingestion_warning_emitter
     );
@@ -2565,6 +2572,7 @@ fn ai_router(
         None, // ai_byte_rate_limiter
         None,
         8,
+        true,
         Some(GW_SECRET.to_string()),
         None, // ingestion_warning_emitter
     );

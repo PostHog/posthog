@@ -1,4 +1,6 @@
 import { buildIntegerMatcher, buildStringMatcher, getDefaultConfig, overrideWithEnv } from '~/common/config/config'
+import { MISSING_DATABASE_URL_MESSAGE } from '~/common/config/database-url'
+import { PostgresRouter } from '~/common/utils/db/postgres'
 
 describe('config', () => {
     test('overrideWithEnv 1', () => {
@@ -28,15 +30,28 @@ describe('config', () => {
         expect(config.TASK_TIMEOUT).toEqual(3008.12)
     })
 
+    test.each([
+        ['true', true],
+        ['1', false],
+        ['yes', false],
+        ['TRUE', false],
+        [undefined, false],
+    ])('turns sandbox email sending on only for exactly "true" (got %s)', (value, expected) => {
+        const config = overrideWithEnv(getDefaultConfig(), { WORKFLOWS_SANDBOX_SENDER_ENABLED: value })
+
+        expect(config.WORKFLOWS_SANDBOX_SENDER_ENABLED).toBe(expected)
+    })
+
     describe('DATABASE_URL', () => {
-        test('Error if DATABASE_URL is not set AND POSTHOG_DB_NAME is not set', () => {
+        test('Error only when Postgres is opened if DATABASE_URL is not set AND POSTHOG_DB_NAME is not set', () => {
             const env = {
                 DATABASE_URL: '',
                 POSTHOG_DB_NAME: '',
             }
-            expect(() => overrideWithEnv(getDefaultConfig(), env)).toThrow(
-                'You must specify either DATABASE_URL or the database options POSTHOG_DB_NAME, POSTHOG_DB_USER, POSTHOG_DB_PASSWORD, POSTHOG_POSTGRES_HOST, POSTHOG_POSTGRES_PORT!'
-            )
+            const config = overrideWithEnv(getDefaultConfig(), env)
+
+            expect(config.DATABASE_URL).toEqual('')
+            expect(() => new PostgresRouter(config)).toThrow(MISSING_DATABASE_URL_MESSAGE)
         })
 
         test('Set DATABASE_URL to a string composed of URL-encoded connection options if DATABASE_URL is not explictly set', () => {

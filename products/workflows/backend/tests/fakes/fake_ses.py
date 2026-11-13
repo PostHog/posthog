@@ -27,6 +27,8 @@ class SesIdentity:
     forced_dkim_status: str | None = None
     checks_paused: bool = False
     feedback_forwarding: bool = True
+    reports_mail_from_status: bool = True
+    mail_from_setup_expired: bool = False
 
 
 class FakeSes:
@@ -90,6 +92,8 @@ class FakeSes:
         assert identity.mail_from_domain is not None
         if identity.checks_paused:
             return PENDING
+        if identity.mail_from_setup_expired:
+            return "Failed"
         expected_exchange = f"feedback-smtp.{self.region}.amazonses.com."
         exchanges = [
             rdata.exchange.to_text()
@@ -135,7 +139,9 @@ class FakeSes:
 
     def _set_identity_mail_from_domain(self, *, Identity: str, MailFromDomain: str, **_options: Any) -> dict:
         self.writes.append("set_identity_mail_from_domain")
-        self._existing(Identity, "SetIdentityMailFromDomain").mail_from_domain = MailFromDomain
+        identity = self._existing(Identity, "SetIdentityMailFromDomain")
+        identity.mail_from_domain = MailFromDomain
+        identity.mail_from_setup_expired = False
         return {}
 
     def _get_identity_verification_attributes(self, *, Identities: list[str]) -> dict[str, Any]:
@@ -166,7 +172,11 @@ class FakeSes:
             "MailFromDomainAttributes": {
                 identity.domain: {
                     "MailFromDomain": identity.mail_from_domain,
-                    "MailFromDomainStatus": self.mail_from_status(identity),
+                    **(
+                        {"MailFromDomainStatus": self.mail_from_status(identity)}
+                        if identity.reports_mail_from_status
+                        else {}
+                    ),
                     "BehaviorOnMXFailure": "UseDefaultValue",
                 }
                 for identity in self._known(Identities)

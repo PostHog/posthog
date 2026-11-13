@@ -653,13 +653,20 @@ def test_status_for_strips_bucket_from_response(mock_request: MagicMock) -> None
     # The bucket is internal infra detail — never part of the UI-facing status body.
     org = Organization.objects.create(name="Org")
     mock_request.return_value = Response(
-        {"org_id": str(org.id), "state": "ready", "bucket": "posthog-duckling-x-mw-prod-us"}, status=200
+        {
+            "org_id": str(org.id),
+            "state": "ready",
+            "bucket": "posthog-duckling-x-mw-prod-us",
+            "bucket_prefix": "warehouses/x",
+        },
+        status=200,
     )
 
     resp = managed_warehouse.status_for(org.id)
 
     assert "bucket" not in resp.data
     assert "bucket_region" not in resp.data
+    assert "bucket_prefix" not in resp.data
 
 
 @pytest.mark.django_db
@@ -738,6 +745,27 @@ def test_cp_bucket_for_returns_none_when_cp_has_no_bucket(mock_request: MagicMoc
     mock_request.return_value = Response({"org_id": str(org.id), "state": "ready"}, status=200)
 
     assert managed_warehouse.cp_bucket_for(org.id) is None
+
+
+@pytest.mark.parametrize(
+    "body_overrides, expected",
+    [
+        ({"bucket": "lake-bucket"}, "s3://lake-bucket/"),
+        ({"bucket": "lake-bucket", "bucket_prefix": "lake"}, "s3://lake-bucket/lake/"),
+        ({"bucket": "lake-bucket", "bucket_prefix": "/lake/sub/"}, "s3://lake-bucket/lake/sub/"),
+        ({}, None),
+        ({"bucket": "lake-bucket", "org_id": "00000000-0000-0000-0000-000000000000"}, None),
+    ],
+)
+@patch("products.managed_warehouse.backend.presentation.views._request")
+def test_cp_data_path_for_renders_the_ducklake_data_path(
+    mock_request: MagicMock, body_overrides: dict[str, str], expected: str | None
+) -> None:
+    org_id = "11111111-1111-1111-1111-111111111111"
+    mock_request.return_value = Response({"org_id": org_id, "state": "ready", **body_overrides}, status=200)
+
+    assert managed_warehouse.cp_data_path_for(org_id) == expected
+    assert mock_request.call_args.kwargs["require_enabled"] is False
 
 
 def test_teams_response_attaches_the_org_naming_policy_to_each_row() -> None:
@@ -1339,7 +1367,7 @@ _TRINO_ORG_ID = "0193f1a4-0000-7000-8000-000000000001"
 _TRINO_CONNECTION = {"host": "my-warehouse.dw.example.com", "port": 443, "username": "root"}
 
 
-def _trino_upstream(**status_overrides: object) -> Response:
+def _trino_upstream(*, top: dict[str, object] | None = None, **status_overrides: object) -> Response:
     trino_status: dict[str, object] = {
         "org": _TRINO_ORG_ID,
         "state": "ready",
@@ -1351,7 +1379,28 @@ def _trino_upstream(**status_overrides: object) -> Response:
         "principal": "sensitive-principal",
     }
     trino_status.update(status_overrides)
-    return Response({"enabled": True, "available": True, "status": trino_status}, status=200)
+    return Response({"enabled": True, "available": True, "status": trino_status, **(top or {})}, status=200)
+
+
+@pytest.mark.parametrize(
+    "top, hoglake",
+    [
+        ({"backend": "hoglake", "hoglake_initialized": True}, True),
+        # hogtower has not created hoglake's catalog yet: credentials would reach nothing.
+        ({"backend": "hoglake", "hoglake_initialized": False}, False),
+        ({"backend": "hoglake"}, False),
+        ({"backend": "ducklake", "hoglake_initialized": True}, False),
+        ({"backend": "", "hoglake_initialized": True}, False),
+        ({}, False),
+    ],
+)
+@patch("products.managed_warehouse.backend.presentation.views._request")
+def test_trino_status_for_says_whether_the_catalog_is_hoglake(
+    mock_request: MagicMock, top: dict[str, object], hoglake: bool
+) -> None:
+    mock_request.return_value = _trino_upstream(top=top)
+
+    assert managed_warehouse.trino_status_for(_TRINO_ORG_ID)["hoglake"] is hoglake
 
 
 @pytest.mark.parametrize(
@@ -1368,34 +1417,53 @@ def _trino_upstream(**status_overrides: object) -> Response:
                     "catalog": "org_my_warehouse",
                     "username": "root",
                 },
+                "hoglake": False,
             },
         ),
         # The coordinator is unreachable, so duckgres advertises no connection.
-        (_trino_upstream(connection=None), {"state": "ready", "ready_at": "2026-09-01T12:00:00Z", "connection": None}),
+        (
+            _trino_upstream(connection=None),
+            {"state": "ready", "ready_at": "2026-09-01T12:00:00Z", "connection": None, "hoglake": False},
+        ),
         (
             _trino_upstream(state="provisioning", ready_at=None),
-            {"state": "provisioning", "ready_at": None, "connection": None},
+            {"state": "provisioning", "ready_at": None, "connection": None, "hoglake": False},
         ),
         (
             _trino_upstream(state="failed"),
-            {"state": "failed", "ready_at": "2026-09-01T12:00:00Z", "connection": None},
+            {"state": "failed", "ready_at": "2026-09-01T12:00:00Z", "connection": None, "hoglake": False},
         ),
-        (_trino_upstream(state="", ready_at=None), {"state": "pending", "ready_at": None, "connection": None}),
-        (_trino_upstream(state=None, ready_at=None), {"state": "pending", "ready_at": None, "connection": None}),
-        (_trino_upstream(state="resharding"), {"state": "unavailable", "ready_at": None, "connection": None}),
-        (_trino_upstream(state=["ready"]), {"state": "unavailable", "ready_at": None, "connection": None}),
+        (
+            _trino_upstream(state="", ready_at=None),
+            {"state": "pending", "ready_at": None, "connection": None, "hoglake": False},
+        ),
+        (
+            _trino_upstream(state=None, ready_at=None),
+            {"state": "pending", "ready_at": None, "connection": None, "hoglake": False},
+        ),
+        (
+            _trino_upstream(state="resharding"),
+            {"state": "unavailable", "ready_at": None, "connection": None, "hoglake": False},
+        ),
+        (
+            _trino_upstream(state=["ready"]),
+            {"state": "unavailable", "ready_at": None, "connection": None, "hoglake": False},
+        ),
         (
             Response({"enabled": False, "assigned": False}, status=200),
-            {"state": "not_enabled", "ready_at": None, "connection": None},
+            {"state": "not_enabled", "ready_at": None, "connection": None, "hoglake": False},
         ),
-        (_trino_upstream(org="another-organization"), {"state": "unavailable", "ready_at": None, "connection": None}),
+        (
+            _trino_upstream(org="another-organization"),
+            {"state": "unavailable", "ready_at": None, "connection": None, "hoglake": False},
+        ),
         (
             Response({"error": "the assigned Trino cell is not configured"}, status=409),
-            {"state": "unavailable", "ready_at": None, "connection": None},
+            {"state": "unavailable", "ready_at": None, "connection": None, "hoglake": False},
         ),
         (
             Response({"error": "Provisioning service is unreachable"}, status=502),
-            {"state": "unavailable", "ready_at": None, "connection": None},
+            {"state": "unavailable", "ready_at": None, "connection": None, "hoglake": False},
         ),
     ],
 )

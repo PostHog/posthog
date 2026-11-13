@@ -47,9 +47,6 @@ export const dataCatalogMetricsCreateBodySourceInsightShortIdMax = 12
 
 export const dataCatalogMetricsCreateBodyAiModelMax = 128
 
-export const dataCatalogMetricsCreateBodyConfidenceMin = 0
-export const dataCatalogMetricsCreateBodyConfidenceMax = 1
-
 export const dataCatalogMetricsCreateBodyOverwriteDefault = false
 
 export const DataCatalogMetricsCreateBody = /* @__PURE__ */ zod
@@ -106,12 +103,6 @@ export const DataCatalogMetricsCreateBody = /* @__PURE__ */ zod
             .max(dataCatalogMetricsCreateBodyAiModelMax)
             .optional()
             .describe('Model that generated the metric, if AI-authored.'),
-        confidence: zod
-            .number()
-            .min(dataCatalogMetricsCreateBodyConfidenceMin)
-            .max(dataCatalogMetricsCreateBodyConfidenceMax)
-            .nullish()
-            .describe("AI author's confidence in the proposal, 0-1."),
         reasoning: zod
             .string()
             .optional()
@@ -144,9 +135,6 @@ export const dataCatalogMetricsUpdateBodyUnitMax = 64
 export const dataCatalogMetricsUpdateBodySourceInsightShortIdMax = 12
 
 export const dataCatalogMetricsUpdateBodyAiModelMax = 128
-
-export const dataCatalogMetricsUpdateBodyConfidenceMin = 0
-export const dataCatalogMetricsUpdateBodyConfidenceMax = 1
 
 export const DataCatalogMetricsUpdateBody = /* @__PURE__ */ zod.object({
     name: zod
@@ -201,12 +189,6 @@ export const DataCatalogMetricsUpdateBody = /* @__PURE__ */ zod.object({
         .max(dataCatalogMetricsUpdateBodyAiModelMax)
         .optional()
         .describe('Model that generated the metric, if AI-authored.'),
-    confidence: zod
-        .number()
-        .min(dataCatalogMetricsUpdateBodyConfidenceMin)
-        .max(dataCatalogMetricsUpdateBodyConfidenceMax)
-        .nullish()
-        .describe("AI author's confidence in the proposal, 0-1."),
     reasoning: zod
         .string()
         .optional()
@@ -230,9 +212,6 @@ export const dataCatalogMetricsPartialUpdateBodyUnitMax = 64
 export const dataCatalogMetricsPartialUpdateBodySourceInsightShortIdMax = 12
 
 export const dataCatalogMetricsPartialUpdateBodyAiModelMax = 128
-
-export const dataCatalogMetricsPartialUpdateBodyConfidenceMin = 0
-export const dataCatalogMetricsPartialUpdateBodyConfidenceMax = 1
 
 export const DataCatalogMetricsPartialUpdateBody = /* @__PURE__ */ zod.object({
     name: zod
@@ -289,12 +268,6 @@ export const DataCatalogMetricsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .max(dataCatalogMetricsPartialUpdateBodyAiModelMax)
         .optional()
         .describe('Model that generated the metric, if AI-authored.'),
-    confidence: zod
-        .number()
-        .min(dataCatalogMetricsPartialUpdateBodyConfidenceMin)
-        .max(dataCatalogMetricsPartialUpdateBodyConfidenceMax)
-        .nullish()
-        .describe("AI author's confidence in the proposal, 0-1."),
     reasoning: zod
         .string()
         .optional()
@@ -320,6 +293,8 @@ export const DataCatalogMetricsApproveCreateBody = /* @__PURE__ */ zod
 /**
  * Execute the metric's definition and return the normalized result envelope.
  */
+export const dataCatalogMetricsRunCreateBodyOffsetMin = 0
+
 export const DataCatalogMetricsRunCreateBody = /* @__PURE__ */ zod
     .object({
         date_from: zod
@@ -337,6 +312,13 @@ export const DataCatalogMetricsRunCreateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 'Override the bucket interval. Rejected for HogQLQuery metrics.\n\n\* `second` - second\n\* `minute` - minute\n\* `hour` - hour\n\* `day` - day\n\* `week` - week\n\* `month` - month\n\* `quarter` - quarter\n\* `year` - year'
+            ),
+        offset: zod
+            .number()
+            .min(dataCatalogMetricsRunCreateBodyOffsetMin)
+            .optional()
+            .describe(
+                'Rows to skip, to read the page after a run that returned has_more. Pass next_offset from that run. Only HogQLQuery metrics accept it. Runs made with a personal or project API key are rejected.'
             ),
         query_id: zod.string().optional().describe('Client-supplied id to correlate or cancel the run.'),
     })

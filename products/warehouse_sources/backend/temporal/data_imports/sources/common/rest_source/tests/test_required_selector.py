@@ -52,9 +52,9 @@ class TestRequiredDataSelector:
 
 
 class TestRequiredListBody:
-    def test_non_list_body_raises_when_required_and_no_selector(self) -> None:
-        with pytest.raises(ValueError, match="list response body"):
-            _client()._extract_response({"error": "x"}, None, required=True)
+    def test_non_list_body_raises_with_its_keys_when_required_and_no_selector(self) -> None:
+        with pytest.raises(ValueError, match=r"list response body, got dict \(body keys: \['error', 'items'\]\)"):
+            _client()._extract_response({"items": [], "error": "x"}, None, required=True)
 
     def test_list_body_ok_when_required_and_no_selector(self) -> None:
         assert _client()._extract_response([{"id": 1}], None, required=True) == [{"id": 1}]

@@ -2,6 +2,7 @@ import json
 from typing import Any, cast
 
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from django.http import HttpRequest
 from django.test import SimpleTestCase
@@ -12,9 +13,12 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.exceptions import ValidationError as DRFValidationError
 
+from posthog.schema import QueryTiming
+
 from posthog.api.utils import (
     PaginationMode,
     PublicIPOnlyHttpAdapter,
+    ServerTimingsGathered,
     canonicalize_encoded_url,
     check_definition_ids_inclusion_field_sql,
     format_paginated_url,
@@ -23,12 +27,70 @@ from posthog.api.utils import (
     is_async_query,
     is_insight_query,
     parse_actor_property_filters,
-    raise_if_user_provided_url_unsafe,
     safe_clickhouse_string,
     strip_url_userinfo,
     unparsed_hostname_in_allowed_url_list,
     validate_authorized_url_wildcards,
 )
+
+
+class TestServerTimingsGathered(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (None, ""),
+            ([], ""),
+            ([QueryTiming(k="./query/execute", t=0.123456)], "hogql_query_execute;dur=123.46"),
+        ]
+    )
+    def test_header_format(self, timings: list[QueryTiming] | None, expected: str) -> None:
+        assert ServerTimingsGathered().to_header_string(timings) == expected
+
+    def test_header_keeps_slowest_hogql_timings_and_endpoint_timings(self) -> None:
+        timer = ServerTimingsGathered()
+        timer.timings_dict["load_recordings"] = 12.345
+        timings = [QueryTiming(k=f"./query/{index}/" + "step_" * 10, t=index / 1000) for index in range(300)]
+
+        header = timer.to_header_string(timings)
+        entries = header.split(", ")
+
+        assert entries[0] == "load_recordings;dur=12.35"
+        assert entries[1:] == [
+            f"hogql_query_{index}_" + "step_" * 10 + f";dur={float(index)}" for index in range(299, 279, -1)
+        ]
+        assert len(header) <= 10000
+        assert len(timer.generate_timings(timings)) == 301
+        assert timings[0].t == 0
+
+    @parameterized.expand([(9992, False), (9993, True)])
+    def test_header_size_limit(self, key_length: int, truncated: bool) -> None:
+        timer = ServerTimingsGathered()
+        key = "x" * key_length
+        timer.timings_dict[key] = 1.0
+
+        with patch("posthog.api.utils.logger.info") as log_info:
+            header = timer.to_header_string()
+
+        assert len(header) <= 10000
+        if truncated:
+            assert header == ""
+            log_info.assert_called_once_with(
+                "server_timing_header_truncated", timing_count=1, included_timing_count=0, header_length=0
+            )
+        else:
+            assert header == f"{key};dur=1.0"
+            log_info.assert_not_called()
+
+    def test_header_cap_includes_separators_and_keeps_complete_entries(self) -> None:
+        timer = ServerTimingsGathered()
+        timer.timings_dict = {"first": 1.0, "x" * 9979: 2.0}
+
+        with patch("posthog.api.utils.logger.info") as log_info:
+            header = timer.to_header_string()
+
+        assert header == "first;dur=1.0"
+        log_info.assert_called_once_with(
+            "server_timing_header_truncated", timing_count=2, included_timing_count=1, header_length=len(header)
+        )
 
 
 def return_true():
@@ -181,56 +243,6 @@ class TestUtils(BaseTest):
         self.assertEqual(safe_clickhouse_string("✨"), "✨")
         self.assertEqual(safe_clickhouse_string("foo \u2728\\ bar"), "foo \u2728\\ bar")
         self.assertEqual(safe_clickhouse_string("💜 \u1f49c\\ 💜"), "💜 \u1f49c\\ 💜")
-
-    def test_raise_if_user_provided_url_unsafe(self):
-        # Sync test cases with nodejs/src/common/utils/request.test.ts
-        raise_if_user_provided_url_unsafe("https://google.com?q=20")  # Safe
-        raise_if_user_provided_url_unsafe("https://posthog.com")  # Safe
-        raise_if_user_provided_url_unsafe("https://posthog.com/foo/bar")  # Safe, with path
-        raise_if_user_provided_url_unsafe("https://posthog.com:443")  # Safe, good port
-        raise_if_user_provided_url_unsafe("https://1.1.1.1")  # Safe, public IP
-        self.assertRaisesMessage(ValueError, "No hostname", lambda: raise_if_user_provided_url_unsafe(""))
-        self.assertRaisesMessage(ValueError, "No hostname", lambda: raise_if_user_provided_url_unsafe("@@@"))
-        self.assertRaisesMessage(
-            ValueError,
-            "No hostname",
-            lambda: raise_if_user_provided_url_unsafe("posthog.com"),
-        )
-        self.assertRaisesMessage(
-            ValueError,
-            "Scheme must be either HTTP or HTTPS",
-            lambda: raise_if_user_provided_url_unsafe("ftp://posthog.com"),
-        )
-        self.assertRaisesMessage(
-            ValueError,
-            "Internal hostname",
-            lambda: raise_if_user_provided_url_unsafe("http://localhost"),
-        )
-        self.assertRaisesMessage(
-            ValueError,
-            "Internal hostname",
-            lambda: raise_if_user_provided_url_unsafe("http://192.168.0.5"),
-        )
-        self.assertRaisesMessage(
-            ValueError,
-            "Internal hostname",
-            lambda: raise_if_user_provided_url_unsafe("http://0.0.0.0"),
-        )
-        self.assertRaisesMessage(
-            ValueError,
-            "Internal hostname",
-            lambda: raise_if_user_provided_url_unsafe("http://10.0.0.24"),
-        )
-        self.assertRaisesMessage(
-            ValueError,
-            "Internal hostname",
-            lambda: raise_if_user_provided_url_unsafe("http://172.20.0.21"),
-        )
-        self.assertRaisesMessage(
-            ValueError,
-            "Invalid hostname",
-            lambda: raise_if_user_provided_url_unsafe("http://fgtggggzzggggfd.com"),
-        )  # Non-existent
 
     def test_public_ip_only_adapter(self):
         address = "http://localhost:8123"  # Clickhouse's HTTP port

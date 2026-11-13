@@ -9,14 +9,16 @@ Progress/maturity scoring lives in maturity.py instead.
 from __future__ import annotations
 
 import re
+import ast
 import json
 import shlex
+import tomllib
 from abc import ABC, abstractmethod
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .ast_helpers import module_import_targets
+from .ast_helpers import ast_parse_safe, module_import_targets
 from .crossings import driven_wiring_locations, facade_shape_use, facade_wiring_use, recorded_facade_shape_rows
 from .isolation import (
     GARAGE_PREFIXES,
@@ -36,9 +38,11 @@ from .isolation import (
     names_from_pattern as _names_from_pattern,
     pattern_targets_public_surface as _pattern_targets_public_surface,
     routes_in_turbo_inputs,
+    unwatched_modules,
     webhook_consumers_unwatched,
 )
 from .paths import TACH_TOML, get_tach_block
+from .watched_channels import unwatched_channel_issue
 from .wiring_interfaces import APPROVED_WIRING_BASES, APPROVED_WIRING_DECORATORS, WiringVerdict
 
 # ---------------------------------------------------------------------------
@@ -59,15 +63,17 @@ def check_file_exists(backend_dir: Path, path: str) -> bool:
 
 
 def _iter_module_blocks(tach_content: str) -> Iterator[tuple[str, list[str]]]:
-    """Yield (path, depends_on) for every [[modules]] block."""
-    for match in re.finditer(r"\[\[modules\]\]\s*\n(.*?)(?=\[\[|\Z)", tach_content, re.DOTALL):
-        block = match.group(1)
-        path_match = re.search(r'path\s*=\s*"(.*?)"', block)
-        if not path_match:
+    """Yield (path, depends_on) for every [[modules]] block.
+
+    Reads the parsed TOML because a comment inside a depends_on list can name `[[interfaces]]`,
+    which ends a text match early and drops the rest of the list.
+    """
+    for module in tomllib.loads(tach_content).get("modules", []):
+        path = module.get("path")
+        if not path:
             continue
-        path = path_match.group(1)
-        deps_match = re.search(r"depends_on\s*=\s*\[(.*?)\]", block, re.DOTALL)
-        depends_on = re.findall(r'"(.*?)"', deps_match.group(1)) if deps_match else []
+        # tach accepts a dependency as a bare path or as a table such as {path = "...", deprecated = true}.
+        depends_on = [dep if isinstance(dep, str) else dep["path"] for dep in module.get("depends_on", [])]
         yield path, depends_on
 
 
@@ -458,25 +464,18 @@ class ImportSurfaceCheck(ProductCheck):
     watch. This check reads the same imports straight from the AST, honors the same
     ignore_imports deferrals, and fails on what grimp cannot see.
 
-    A product that is not sealed yet holds the webhook_consumers surface alone: posthog/ingress/
-    imports that module by name and must not reach the product's internals through it, whether or
-    not the product has a contract.
+    The contracts name `products.*.backend.<surface>`, so they hold for every product whether or
+    not it has facade/contracts.py, and this check holds every surface for every product too.
     """
 
     label = "import surface"
 
     # (source subtree or module, allowed destination subtrees)
-    WEBHOOK_CONSUMERS_SURFACE = ("webhook_consumers", ("facade",))
     SURFACES = (
         ("routes", ("presentation",)),
         ("presentation", ("presentation", "facade")),
-        WEBHOOK_CONSUMERS_SURFACE,
+        ("webhook_consumers", ("facade",)),
     )
-
-    def _surfaces(self, ctx: CheckContext) -> tuple[tuple[str, tuple[str, ...]], ...]:
-        """A product that is not sealed yet has no routes/presentation contract to hold, so
-        only its ingress entry point is checked."""
-        return self.SURFACES if ctx.has_facade_contracts else (self.WEBHOOK_CONSUMERS_SURFACE,)
 
     def _surface_files(self, ctx: CheckContext, source: str) -> list[Path]:
         root = ctx.backend_dir / source
@@ -488,7 +487,7 @@ class ImportSurfaceCheck(ProductCheck):
     def should_run(self, ctx: CheckContext) -> bool:
         if not super().should_run(ctx) or not ctx.backend_dir.is_dir():
             return False
-        return any(self._surface_files(ctx, source) for source, _ in self._surfaces(ctx))
+        return any(self._surface_files(ctx, source) for source, _ in self.SURFACES)
 
     def _module_name(self, ctx: CheckContext, path: Path) -> str:
         rel = path.relative_to(ctx.backend_dir).with_suffix("")
@@ -499,7 +498,7 @@ class ImportSurfaceCheck(ProductCheck):
         prefix = f"products.{ctx.name}.backend"
         ignored = ignored_import_edges()
         issues = []
-        for source, allowed in self._surfaces(ctx):
+        for source, allowed in self.SURFACES:
             allowed_prefixes = tuple(f"{prefix}.{a}" for a in allowed)
             for f in self._surface_files(ctx, source):
                 importer = self._module_name(ctx, f)
@@ -510,9 +509,9 @@ class ImportSurfaceCheck(ProductCheck):
                         continue
                     issues.append(
                         f"{f.relative_to(ctx.product_dir)}:{line} imports {target} — {source} may only import "
-                        f"{'/'.join(allowed)}. If import-linter did not flag this, either the target sits "
-                        "under a directory without __init__.py, which grimp cannot see, or this product "
-                        "carries no contract yet"
+                        f"{'/'.join(allowed)}. If import-linter did not flag this, the target sits under a "
+                        "directory without __init__.py, which grimp cannot see. To defer the edge, add that "
+                        "__init__.py first: import-linter rejects an ignore_imports entry it cannot match"
                     )
         if issues:
             return CheckResult(
@@ -1359,6 +1358,199 @@ class OrphanedTestFilesCheck(ProductCheck):
         return result
 
 
+class WatchedChannelsCheck(ProductCheck):
+    """Hold the modules that outside suites run without an import edge in the contract-check inputs.
+
+    watched_channels.py finds them: receivers on a sender the product does not own, modules that
+    outside tests or core settings name by dotted path, modules core loads by name, backend/apps.py
+    and what it imports, and registrations into another boundary's hook. Only a product with
+    'backend:contract-check' skips the suite, so no other product runs this check.
+    """
+
+    label = "watched channels"
+
+    def should_run(self, ctx: CheckContext) -> bool:
+        return super().should_run(ctx) and ctx.isolation_status().has_contract_check_script
+
+    def run(self, ctx: CheckContext) -> CheckResult:
+        channels = ctx.isolation_status().channel_modules
+        unwatched = unwatched_modules(ctx.product_dir, {c.path for c in channels})
+        result = CheckResult(file=f"products/{ctx.name}/turbo.json")
+        result.issues = [
+            unwatched_channel_issue(path, [c for c in channels if c.path == path]) for path in sorted(unwatched)
+        ]
+        if result.issues:
+            result.lines = [f"✗ {len(result.issues)} issue(s)"] + [f"  → {i}" for i in result.issues]
+        else:
+            result.lines = ["✓ ok"]
+        return result
+
+
+# A string shaped like a Django system check ID: dotted words, then a level letter and three digits.
+_SYSTEM_CHECK_ID_RE = re.compile(r"^[A-Za-z_][\w.]*\.[A-Z]\d{3}$")
+# Each module that registers system checks, mapped to its register function.
+_REGISTER_FUNCTIONS = {"django.core.checks": "register", "posthog.checks": "register_check"}
+
+
+def _register_bindings(tree: ast.Module) -> tuple[set[str], dict[str, str]]:
+    """Local names bound to a register function, and local module names mapped to their register function."""
+    register_names: set[str] = set()
+    module_names: dict[str, str] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module:
+            for alias in node.names:
+                bound = alias.asname or alias.name
+                if _REGISTER_FUNCTIONS.get(node.module) == alias.name:
+                    register_names.add(bound)
+                elif (module := f"{node.module}.{alias.name}") in _REGISTER_FUNCTIONS:
+                    module_names[bound] = _REGISTER_FUNCTIONS[module]
+        elif isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name in _REGISTER_FUNCTIONS:
+                    module_names[alias.asname or alias.name] = _REGISTER_FUNCTIONS[alias.name]
+    return register_names, module_names
+
+
+def _registers_system_check(tree: ast.Module) -> bool:
+    """Whether the module registers a Django system check, through Django or posthog.checks."""
+    register_names, module_names = _register_bindings(tree)
+
+    def _is_register(func: ast.expr) -> bool:
+        if isinstance(func, ast.Name):
+            return func.id in register_names
+        return isinstance(func, ast.Attribute) and module_names.get(ast.unparse(func.value)) == func.attr
+
+    return any(
+        (isinstance(node, ast.Call) and _is_register(node.func))
+        or (
+            isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
+            and any(_is_register(decorator) for decorator in node.decorator_list)
+        )
+        for node in ast.walk(tree)
+    )
+
+
+def _system_check_ids(tree: ast.Module) -> list[str]:
+    return sorted(
+        {
+            node.value
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Constant) and isinstance(node.value, str) and _SYSTEM_CHECK_ID_RE.match(node.value)
+        }
+    )
+
+
+def _is_type_checking(test: ast.expr) -> bool:
+    return (isinstance(test, ast.Name) and test.id == "TYPE_CHECKING") or (
+        isinstance(test, ast.Attribute) and test.attr == "TYPE_CHECKING"
+    )
+
+
+def _runtime_imports(statements: list[ast.stmt]) -> Iterator[ast.Import | ast.ImportFrom]:
+    """Imports that run when the statements run: not in a nested def or class, or a type-checking-only branch."""
+    for stmt in statements:
+        if isinstance(stmt, ast.Import | ast.ImportFrom):
+            yield stmt
+        elif isinstance(stmt, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
+            continue
+        elif isinstance(stmt, ast.If) and _is_type_checking(stmt.test):
+            yield from _runtime_imports(stmt.orelse)
+        elif (
+            isinstance(stmt, ast.If)
+            and isinstance(stmt.test, ast.UnaryOp)
+            and isinstance(stmt.test.op, ast.Not)
+            and _is_type_checking(stmt.test.operand)
+        ):
+            yield from _runtime_imports(stmt.body)
+        else:
+            for nested in ("body", "orelse", "finalbody"):
+                yield from _runtime_imports(getattr(stmt, nested, []))
+            for handler in getattr(stmt, "handlers", []):
+                yield from _runtime_imports(handler.body)
+
+
+def _imports_checks_module(node: ast.Import | ast.ImportFrom, backend: str) -> bool:
+    if isinstance(node, ast.Import):
+        return any(alias.name == f"{backend}.checks" for alias in node.names)
+    names = {alias.name for alias in node.names}
+    if node.level == 0:
+        return node.module == f"{backend}.checks" or (node.module == backend and "checks" in names)
+    return node.level == 1 and (node.module == "checks" or (node.module is None and "checks" in names))
+
+
+def _ready_imports_checks(apps_path: Path, product: str) -> bool:
+    """Whether an AppConfig.ready() in apps.py imports the product's backend/checks.py when it runs."""
+    tree = ast_parse_safe(apps_path) if apps_path.exists() else None
+    if tree is None:
+        return False
+    backend = f"products.{product}.backend"
+    return any(
+        _imports_checks_module(node, backend)
+        for class_node in tree.body
+        if isinstance(class_node, ast.ClassDef)
+        for ready in class_node.body
+        if isinstance(ready, ast.FunctionDef) and ready.name == "ready"
+        for node in _runtime_imports(ready.body)
+    )
+
+
+class SystemChecksCheck(ProductCheck):
+    """A product's Django system checks live in backend/checks.py, which apps.py ready() imports.
+
+    Django only runs a check whose module has been imported, so a check anywhere else, or a
+    checks.py that ready() never imports, is silently never run. IDs follow the scheme in
+    posthog/checks.py, with the product name as the area.
+    """
+
+    label = "system checks"
+
+    @staticmethod
+    def _misplaced_registrations(backend_dir: Path) -> list[str]:
+        problems: list[str] = []
+        for path in sorted(backend_dir.rglob("*.py")):
+            rel = path.relative_to(backend_dir)
+            if rel == Path("checks.py") or {"__pycache__", "test", "tests"}.intersection(rel.parts):
+                continue
+            if path.name.startswith("test_") or path.name.endswith("_test.py"):
+                continue
+            tree = ast_parse_safe(path)
+            if tree is not None and _registers_system_check(tree):
+                problems.append(
+                    f"backend/{rel.as_posix()} registers a Django system check: move it to backend/checks.py"
+                )
+        return problems
+
+    @staticmethod
+    def _checks_module_problems(ctx: CheckContext) -> list[str]:
+        tree = ast_parse_safe(ctx.backend_dir / "checks.py")
+        prefix = f"posthog.{ctx.name}."
+        problems = [
+            f"backend/checks.py uses check ID {check_id!r}, which must start with {prefix!r}"
+            for check_id in (_system_check_ids(tree) if tree is not None else [])
+            if not check_id.startswith(prefix)
+        ]
+        if not _ready_imports_checks(ctx.backend_dir / "apps.py", ctx.name):
+            problems.append(
+                "backend/checks.py is never imported by apps.py ready(), so Django never registers its checks"
+            )
+        return problems
+
+    def run(self, ctx: CheckContext) -> CheckResult:
+        if not ctx.backend_dir.exists():
+            return CheckResult(skip=True)
+
+        problems = self._misplaced_registrations(ctx.backend_dir)
+        if (ctx.backend_dir / "checks.py").exists():
+            problems.extend(self._checks_module_problems(ctx))
+
+        if problems:
+            return CheckResult(
+                lines=[f"✗ {len(problems)} problem(s)"] + [f"  → {p}" for p in problems],
+                issues=problems,
+            )
+        return CheckResult(lines=["✓ ok"])
+
+
 CHECKS: list[ProductCheck] = [
     ProductYamlCheck(),
     RequiredRootFilesCheck(),
@@ -1371,5 +1563,7 @@ CHECKS: list[ProductCheck] = [
     IsolationChainCheck(),
     FacadeShapeCheck(),
     WiringInterfaceCheck(),
+    WatchedChannelsCheck(),
     OrphanedTestFilesCheck(),
+    SystemChecksCheck(),
 ]

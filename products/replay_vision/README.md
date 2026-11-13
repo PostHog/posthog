@@ -59,6 +59,10 @@ The experiment creation wizard offers an opt-in experiment scanner when the `exp
 
 The `experiment` scanner type is the way agents (Max, MCP, the `scanning-experiments-with-replay-vision` skill) scan an experiment: its experiment lives in `scanner_config`, each session's variant comes from the exposure data, variants are sampled evenly, and `GET scanners/{id}/variants/` reads the results per variant.
 
+## Cloud only
+
+Replay vision runs only on PostHog Cloud and in local development. A scan needs the AI gateway and the recording rasterizer worker, and self-hosted installs run neither. On a self-hosted install every vision endpoint returns 403 (`backend/api/cloud_only.py`), the scenes redirect to the Move to PostHog Cloud page (`cloudOnly` in `manifest.tsx`), and the player and replay list hide their vision surfaces.
+
 ## Layout
 
 - `backend/models/` — `ReplayScanner`, `ReplayObservation`, `ReplayScannerBackfill`, `ReplayObservationRequest` (one handle over a programmatic batch of scans, served at `vision/requests/` and open to project secret API keys), observation labels (ratings), usage receipts, and `TeamReplayVisionConfig` (the team's learned rules state).
