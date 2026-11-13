@@ -329,12 +329,13 @@ def find_workflow_email_decisions(*, now: datetime | None = None) -> DetectorDec
         return DetectorDecisions(pauses=[], warnings=[])
 
     # Already-paused workflows are skipped: the pause is in force and a second decision would only
-    # re-notify. Resuming is what puts a workflow back in scope.
+    # re-notify. Resuming is what puts a workflow back in scope. Transactional email (the API trigger)
+    # is exempt: its bounces come from addresses people type in, and a pause stops sign-up email.
     flows_by_id = {
         str(flow.id): flow
-        for flow in HogFlow.objects.filter(team_id__in=candidate_team_ids, email_sending_paused_at__isnull=True).only(
-            "id", "team_id", "name", "email_sending_resumed_at", "email_sending_warned_at"
-        )
+        for flow in HogFlow.objects.filter(team_id__in=candidate_team_ids, email_sending_paused_at__isnull=True)
+        .exclude(trigger__contains={"type": "api"})
+        .only("id", "team_id", "name", "email_sending_resumed_at", "email_sending_warned_at")
     }
     if not flows_by_id:
         return DetectorDecisions(pauses=[], warnings=[])
