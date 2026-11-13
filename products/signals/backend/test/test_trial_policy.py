@@ -1,4 +1,3 @@
-from contextlib import nullcontext
 from datetime import timedelta
 from decimal import Decimal
 from uuid import UUID, uuid4
@@ -12,7 +11,6 @@ from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from parameterized import parameterized
-from rest_framework.exceptions import ValidationError
 
 from posthog.models import Organization, Team
 
@@ -26,8 +24,6 @@ from products.signals.backend.trial.models import SignalTrialGrant
 from products.signals.backend.trial.policy import TrialPolicy, TrialRefused
 from products.signals.backend.trial.scouts import trial_scout_runtime
 from products.signals.backend.usage import trial_usage
-from products.skills.backend.api.archive_guards import SkillPublishRefused
-from products.skills.backend.api.skill_services import create_skill_file, publish_skill_version
 from products.skills.backend.models.skills import LLMSkill
 
 _INBOX_VALIDATION = "signals-scout-inbox-validation"
@@ -237,20 +233,19 @@ class TestTrialPolicy(BaseTest):
         else:
             assert runtime is None
 
-    def test_activation_pauses_excess_scouts_and_preserves_user_pause(self) -> None:
+    def test_activation_preserves_enabled_scouts_and_user_pause(self) -> None:
         scouts = [SignalScoutConfig.objects.create(team=self.team, skill_name=f"scout-{index}") for index in range(5)]
         paused = SignalScoutConfig.objects.create(team=self.team, skill_name="paused", enabled=False)
         self.claim()
         for scout in scouts:
             scout.refresh_from_db()
         paused.refresh_from_db()
-        assert [scout.enabled for scout in scouts] == [True, True, True, False, False]
-        assert scouts[-1].pause_reason == SignalScoutConfig.PauseReason.TRIAL_SCOUT_LIMIT
+        assert [scout.enabled for scout in scouts] == [True] * 5
         assert paused.status == SignalScoutConfig.Status.PAUSED_BY_USER
 
     @parameterized.expand([("enabled_before_claim", 3), ("enabled_after_claim", 2)])
-    def test_operational_scout_takes_no_trial_slot(self, _name: str, enabled_before_claim: int) -> None:
-        self._operational_skill("shipped")
+    def test_trial_allows_enabling_more_scouts(self, _name: str, enabled_before_claim: int) -> None:
+        self._seed_operational_skill()
         operational = SignalScoutConfig.objects.create(team=self.team, skill_name=_INBOX_VALIDATION)
         chosen = [
             SignalScoutConfig.objects.create(
@@ -268,90 +263,19 @@ class TestTrialPolicy(BaseTest):
             scout.refresh_from_db()
         assert [scout.enabled for scout in [operational, *chosen]] == [True, True, True, True]
         extra.enabled = True
-        with self.assertRaisesMessage(ValidationError, "The free trial allows three enabled scouts"):
-            extra.save()
+        extra.save()
+        extra.refresh_from_db()
+        assert extra.enabled
         with patch("products.signals.backend.scout_harness.team_limits._read_flag_payload", return_value={}):
-            assert max_enabled_scouts_for_team(self.team.id) == 4
+            assert max_enabled_scouts_for_team(self.team.id) == 250
 
-    @parameterized.expand([("team_authored",), ("edited_after_seed",)])
-    def test_operational_scout_the_team_wrote_takes_a_trial_slot(self, origin: str) -> None:
-        self._operational_skill(origin)
-        SignalScoutConfig.objects.create(team=self.team, skill_name=_INBOX_VALIDATION)
-        for index in range(2):
-            SignalScoutConfig.objects.create(team=self.team, skill_name=f"scout-{index}")
-        self.claim()
-
-        third = SignalScoutConfig.objects.create(team=self.team, skill_name="scout-third", enabled=False)
-        third.enabled = True
-        with self.assertRaisesMessage(ValidationError, "The free trial allows three enabled scouts"):
-            third.save()
-        with patch("products.signals.backend.scout_harness.team_limits._read_flag_payload", return_value={}):
-            assert max_enabled_scouts_for_team(self.team.id) == 3
-
-    @parameterized.expand(
-        [
-            ("body_edit_every_slot_taken", "body", 3, True),
-            ("file_edit_every_slot_taken", "file", 3, True),
-            ("body_edit_slot_free", "body", 2, False),
-        ]
-    )
-    def test_editing_the_operational_scout_mid_trial_needs_a_free_slot(
-        self, _name: str, edit: str, chosen_count: int, refused: bool
-    ) -> None:
-        operational = self._start_trial_beside_operational_scout(chosen_count)
-
-        refusal = self.assertRaisesMessage(SkillPublishRefused, "every slot is in use") if refused else nullcontext()
-        with refusal:
-            if edit == "body":
-                publish_skill_version(
-                    self.team, user=self.user, skill_name=_INBOX_VALIDATION, body="the team's own body", base_version=1
-                )
-            else:
-                create_skill_file(
-                    self.team,
-                    user=self.user,
-                    skill_name=_INBOX_VALIDATION,
-                    path="notes.md",
-                    content="the team's own notes",
-                )
-
-        latest = LLMSkill.objects.get(team=self.team, name=_INBOX_VALIDATION, is_latest=True, deleted=False)
-        assert latest.version == (1 if refused else 2)
-        operational.refresh_from_db()
-        assert operational.enabled
-
-    def test_operational_scout_edit_without_a_trial_slot_is_refused_over_the_api(self) -> None:
-        self._start_trial_beside_operational_scout(3)
-        self.client.force_login(self.user)
-
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/llm_skills/name/{_INBOX_VALIDATION}/",
-            data={"body": "the team's own body", "base_version": 1},
-            content_type="application/json",
-        )
-
-        assert response.status_code == 400
-        assert "every slot is in use" in response.json()["detail"]
-
-    def _start_trial_beside_operational_scout(self, chosen_count: int) -> SignalScoutConfig:
-        self._operational_skill("shipped")
-        operational = SignalScoutConfig.objects.create(team=self.team, skill_name=_INBOX_VALIDATION)
-        for index in range(chosen_count):
-            SignalScoutConfig.objects.create(team=self.team, skill_name=f"scout-{index}")
-        self.claim()
-        return operational
-
-    def _operational_skill(self, origin: str) -> None:
+    def _seed_operational_skill(self) -> None:
         skill = LLMSkill.objects.create(team=self.team, name=_INBOX_VALIDATION, description="d", body="shipped body")
-        if origin == "team_authored":
-            return
         skill.metadata = {"seeded_by": HARNESS_SEEDED_BY, "canonical_hash": _compute_row_hash(skill, [])}
-        if origin == "edited_after_seed":
-            skill.body = "the team's own body"
         skill.save()
 
-    @parameterized.expand([(None, 3), (2, 2), (10, 3)])
-    def test_scout_metadata_matches_the_enforced_trial_limit(self, configured_limit: int | None, expected: int) -> None:
+    @parameterized.expand([(None, 250), (2, 2), (10, 10)])
+    def test_trial_preserves_the_project_scout_limit(self, configured_limit: int | None, expected: int) -> None:
         self.claim()
         payload = {"default_team_config": {"max_enabled_scouts": configured_limit}}
         with patch("products.signals.backend.scout_harness.team_limits._read_flag_payload", return_value=payload):
@@ -425,21 +349,14 @@ class TestTrialPolicy(BaseTest):
             self.admit()
 
     @parameterized.expand([(True,), (False,)])
-    def test_scout_cap_is_shared_with_environments_and_supports_swapping(self, enabled: bool) -> None:
+    def test_trial_does_not_cap_scouts_in_child_environments(self, enabled: bool) -> None:
         self.claim()
         self.flag_mock.return_value = enabled
         child = Team.objects.create(organization=self.organization, parent_team=self.team, name="Child")
         scouts = [SignalScoutConfig.objects.create(team=child, skill_name=f"scout-{i}") for i in range(4)]
-        if not enabled:
-            assert all(scout.enabled for scout in scouts)
-            return
-        assert [scout.enabled for scout in scouts] == [True, True, True, False]
-        scouts[-1].enabled = True
-        with self.assertRaises(ValidationError):
-            scouts[-1].save(update_fields=["enabled"])
-        scouts[-1].refresh_from_db()
-        scouts[0].enabled = False
-        scouts[0].save(update_fields=["enabled"])
+        assert all(scout.enabled for scout in scouts)
+        scouts[-1].enabled = False
+        scouts[-1].save(update_fields=["enabled"])
         scouts[-1].enabled = True
         scouts[-1].save(update_fields=["enabled"])
-        assert SignalScoutConfig.objects.for_team(self.team.pk).filter(enabled=True).count() == 3
+        assert SignalScoutConfig.objects.for_team(self.team.pk).filter(enabled=True).count() == 4

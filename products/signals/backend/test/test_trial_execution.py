@@ -33,7 +33,6 @@ from products.signals.backend.trial.reports import (
     prepare_report_pass,
     requires_trial_accounting,
 )
-from products.signals.backend.trial.scouts import trial_scout_limit
 from products.signals.backend.usage import trial_usage
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.billing import get_task_run_token_usage, process_pending_gateway_usage
@@ -320,7 +319,6 @@ class TestTrialExecution(BaseTest):
         }.get(key, False)
         assert requires_trial_accounting(self.team.id) is enabled
         assert self_driving_free_trial_enabled(self.team) is (not enabled)
-        assert trial_scout_limit(self.team.id) == (3 if enabled else None)
         assert not self_driving_quota_gate(self.team).enforced
         admission = prepare_task_trial(team=self.team, origin="signals_scout")
         if not enabled:

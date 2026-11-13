@@ -701,6 +701,10 @@ When a report has a linked task run, the View task button opens it in the PostHo
 The button fits its label, including when it appears below the Solution section.
 
 Trial-funded background runs require the PostHog AI gateway.
+The free trial does not add an enabled-scout count limit or pause scouts when it starts.
+Scouts keep the standard project count limit, and setup permits up to five selections.
+Trial spend and report limits still apply.
+Eligible free-trial scout runs use GPT-6 Luna.
 Pi scouts, including the first-report DeepSeek arm, use the scoped gateway path and retain trial spend accounting.
 They cannot start without a scoped gateway token; a transient mint failure retries provisioning without falling back to unaccounted execution.
 Pi runs outside scouts and own-subscription model access are refused before a run is created, with instructions to choose Claude Code or Codex with PostHog model access.

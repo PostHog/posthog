@@ -1,13 +1,8 @@
-from collections.abc import Iterator
-from contextlib import contextmanager
 from typing import TYPE_CHECKING
-
-from django.db import transaction
 
 from products.signals.backend.agent_runtime import AgentRuntime
 from products.signals.backend.trial.billing import TrialContinuation, trial_billing_status
-from products.signals.backend.trial.models import SignalTrialGrant
-from products.signals.backend.trial.policy import TrialPolicy, lock_organization_trial
+from products.signals.backend.trial.policy import TrialPolicy
 from products.signals.backend.usage import trial_usage
 
 if TYPE_CHECKING:
@@ -16,15 +11,9 @@ if TYPE_CHECKING:
     from posthog.models import Team
 
     from products.signals.backend.models import SignalScoutConfig
-    from products.skills.backend.models.skills import LLMSkill
 
 
 def trial_counted_scouts(team_id: int) -> "QuerySet[SignalScoutConfig]":
-    """Enabled scouts that take a trial slot.
-
-    An operational scout is seeded enabled for every project, so nobody chose it and it takes no slot.
-    A team that edits one owns the result, so it takes a slot like any custom scout.
-    """
     from products.signals.backend.models import SignalScoutConfig  # noqa: PLC0415 -- model registration cycle
     from products.signals.backend.scout_harness.operational import (  # noqa: PLC0415 -- keeps the canonical fleet off the model import path
         unedited_operational_skill_names,
@@ -37,105 +26,9 @@ def trial_counted_scouts(team_id: int) -> "QuerySet[SignalScoutConfig]":
     )
 
 
-@contextmanager
-def scout_capacity(config: "SignalScoutConfig") -> Iterator[None]:
-    from products.signals.backend.models import SignalScoutConfig  # noqa: PLC0415 -- model registration cycle
-    from products.signals.backend.scout_harness.operational import (  # noqa: PLC0415 -- keeps the canonical fleet off the model import path
-        unedited_operational_skill_names,
-    )
-
-    if not config.enabled:
-        yield
-        return
-    team = config.team
-    # An unsaved config can still point at a child environment, because the model moves it to the
-    # parent project only inside `save()`.
-    team_id = team.parent_team_id or team.id
-    policy = TrialPolicy(team)
-    if not policy.enabled() or config.skill_name in unedited_operational_skill_names(team_id):
-        yield
-        return
-    with transaction.atomic():
-        previous = (
-            SignalScoutConfig.objects.for_team(team_id, canonical=True).select_for_update().filter(id=config.id).first()
-        )
-        if previous is not None and previous.enabled:
-            yield
-            return
-        lock_organization_trial(team.organization_id)
-        grant = SignalTrialGrant.objects.for_team(team_id, canonical=True).first()
-        if grant is not None and not trial_usage(grant).exhaustion_reason(grant):
-            count = trial_counted_scouts(team_id).exclude(id=config.id).count()
-            if count >= grant.scout_limit:
-                if not config._state.adding:
-                    from rest_framework.exceptions import (
-                        ValidationError,  # noqa: PLC0415 -- only API writes need the error renderer
-                    )
-
-                    raise ValidationError(
-                        {"enabled": "The free trial allows three enabled scouts. Pause one before enabling another."}
-                    )
-                config.enabled = False
-                config.status = SignalScoutConfig.Status.PAUSED_BY_SYSTEM
-                config.pause_reason = SignalScoutConfig.PauseReason.TRIAL_SCOUT_LIMIT
-        yield
-
-
-TRIAL_SLOT_EDIT_REFUSED = (
-    "Editing this scout makes it count toward the free trial's scout limit, and every slot is in use. "
-    "Pause another scout, then save your edit again."
-)
-
-
-def edit_needs_unavailable_trial_slot(skill: "LLMSkill") -> bool:
-    """Whether this new version of a scout's skill leaves the scout with no free trial slot.
-
-    An edit makes an operational scout count against the trial without a config write, so
-    `scout_capacity` never sees it. Call this inside the publish transaction, after the version's
-    files are written, so the content hash is final and a refusal rolls the edit back.
-    """
-    from products.signals.backend.scout_harness.lazy_seed import (  # noqa: PLC0415 -- keeps the canonical fleet off the model import path
-        is_operational_scout,
-    )
-
-    if not is_operational_scout(skill.name):
-        return False
-    team = skill.team
-    if not TrialPolicy(team).enabled():
-        return False
-    team_id = team.parent_team_id or team.id
-    lock_organization_trial(team.organization_id)
-    grant = SignalTrialGrant.objects.for_team(team_id, canonical=True).first()
-    if grant is None or trial_usage(grant).exhaustion_reason(grant):
-        return False
-    counted = trial_counted_scouts(team_id)
-    config = counted.filter(skill_name=skill.name).first()
-    return config is not None and counted.exclude(id=config.id).count() >= grant.scout_limit
-
-
-def trial_scout_limit(team_id: int) -> int | None:
-    from posthog.models import Team  # noqa: PLC0415 -- avoid model registration cycle
-
-    grant = TrialPolicy(Team.objects.get(id=team_id)).active_grant()
-    return grant.scout_limit if grant is not None and not trial_usage(grant).exhaustion_reason(grant) else None
-
-
-def trial_enabled_scout_cap(team_id: int) -> int | None:
-    """The trial's ceiling on all enabled scouts: its slots, plus the enabled scouts that take no slot.
-
-    The enabled-scout cap counts every enabled scout, so the scouts the trial does not count go on top.
-    """
-    from products.signals.backend.models import SignalScoutConfig  # noqa: PLC0415 -- model registration cycle
-
-    limit = trial_scout_limit(team_id)
-    if limit is None:
-        return None
-    enabled = SignalScoutConfig.objects.for_team(team_id, canonical=True).filter(enabled=True).count()
-    return limit + enabled - trial_counted_scouts(team_id).count()
-
-
 def trial_scout_runtime(team: "Team") -> AgentRuntime | None:
-    if trial_scout_limit(team.parent_team_id or team.id) is None:
+    grant = TrialPolicy(team).active_grant()
+    if grant is None or trial_usage(grant).exhaustion_reason(grant):
         return None
     decision = TrialPolicy(team).flag_decision()
     if not decision.confirmed or decision.enabled is not True:
