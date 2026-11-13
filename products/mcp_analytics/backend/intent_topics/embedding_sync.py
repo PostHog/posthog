@@ -53,7 +53,7 @@ def emit_intent_embeddings(team: Team, intents: Sequence[DistinctIntent], *, now
                 document_id=intent.hash,
                 models=[EMBEDDING_MODEL],
                 timestamp=now,
-                metadata={"calls": intent.calls, "tool": intent.top_tool, "intent_source": intent.intent_source},
+                metadata={"calls": intent.calls},
             )
             for intent in intents[start : start + DELIVERY_BATCH_SIZE]
         ]
