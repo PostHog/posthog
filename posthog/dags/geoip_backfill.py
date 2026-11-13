@@ -7,13 +7,16 @@ the transformation with `geoip_enrichment`, and writes the fixed rows to a stagi
 writes to `sharded_events`; later jobs read the staging table.
 """
 
+import re
 import json
+import math
 import uuid
 from collections import Counter, defaultdict
 from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from functools import partial
+from json.encoder import encode_basestring
 from pathlib import Path
 from typing import Any, TypeVar
 
@@ -357,8 +360,8 @@ def enrich_row(
     if enrichment is None:
         return None
     staged = dict(row)
-    staged["properties"] = _dump(enrichment.apply(properties))
-    staged["person_properties"] = _dump(enriched_person_properties(row, enrichment))
+    staged["properties"] = node_json(enrichment.apply(properties))
+    staged["person_properties"] = node_json(enriched_person_properties(row, enrichment))
     staged["_timestamp"] = staged_at
     staged["original_properties"] = row["properties"]
     staged["original_person_properties"] = row["person_properties"]
@@ -387,8 +390,69 @@ def _json_object(value: str) -> dict[str, Any]:
     return parsed if isinstance(parsed, dict) else {}
 
 
-def _dump(value: Mapping[str, Any]) -> str:
-    return json.dumps(value, separators=(",", ":"), ensure_ascii=False)
+def node_json(value: Any) -> str:
+    """JSON text as `JSON.stringify` writes it.
+
+    Ingestion wrote the original text with `JSON.stringify`, so writing the same way keeps the bytes of
+    every value the repair does not change. HogQL reads a property's raw text, so `1e-05` for the original
+    `0.00001` would change what queries see.
+    """
+    if value is None:
+        return "null"
+    if value is True:
+        return "true"
+    if value is False:
+        return "false"
+    if isinstance(value, str):
+        return _node_string(value)
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, float):
+        return _node_number(value)
+    if isinstance(value, Mapping):
+        return "{" + ",".join(f"{_node_string(str(key))}:{node_json(item)}" for key, item in value.items()) + "}"
+    if isinstance(value, list | tuple):
+        return "[" + ",".join(node_json(item) for item in value) + "]"
+    raise TypeError(f"{type(value).__name__} is not JSON")
+
+
+_LONE_SURROGATE = re.compile("[\ud800-\udfff]")
+
+
+def _node_string(value: str) -> str:
+    # json.loads joins a valid surrogate pair into one character, so a surrogate left in the string is
+    # alone. JSON.stringify escapes it. Written raw, it is not UTF-8, and the insert fails.
+    text = encode_basestring(value)
+    if _LONE_SURROGATE.search(text):
+        text = _LONE_SURROGATE.sub(lambda match: f"\\u{ord(match.group()):04x}", text)
+    return text
+
+
+def _node_number(value: float) -> str:
+    """Number::toString from the ECMAScript spec, on the shortest digits that repr() also picks."""
+    if not math.isfinite(value):
+        raise ValueError(f"{value} is not JSON")
+    if value == 0:
+        return "0"
+    sign = "-" if value < 0 else ""
+    mantissa, _, exponent = repr(abs(value)).partition("e")
+    whole, _, fraction = mantissa.partition(".")
+    digits = (whole + fraction).lstrip("0")
+    # The value is 0.<digits> * 10**point.
+    point = len(whole) + int(exponent or 0) - (len(whole + fraction) - len((whole + fraction).lstrip("0")))
+    digits = digits.rstrip("0")
+    count = len(digits)
+    if count <= point <= 21:
+        text = digits + "0" * (point - count)
+    elif 0 < point <= 21:
+        text = f"{digits[:point]}.{digits[point:]}"
+    elif -6 < point <= 0:
+        text = "0." + "0" * -point + digits
+    else:
+        written_exponent = point - 1
+        text = digits[0] + (f".{digits[1:]}" if count > 1 else "")
+        text += f"e{'+' if written_exponent >= 0 else '-'}{abs(written_exponent)}"
+    return sign + text
 
 
 def _chunks(items: Sequence[int], size: int) -> Iterator[tuple[int, ...]]:

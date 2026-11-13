@@ -22,6 +22,7 @@ from posthog.dags.geoip_backfill import (
     decide_team,
     enriched_person_properties,
     geoip_backfill_staging_job,
+    node_json,
     plan_windows,
 )
 from posthog.dags.geoip_enrichment import TEMPLATE_VERSIONS, geoip_enrichment
@@ -147,6 +148,31 @@ def run_cleanup(cluster: ClickhouseCluster, table: GeoipStagingTable) -> None:
         resources={"cluster": cluster},
         instance=dagster.DagsterInstance.ephemeral(),
     )
+
+
+# Each case is a property text and what `JSON.stringify(JSON.parse(text))` returns for it in Node.
+NODE_JSON_CASES = [
+    pytest.param(
+        '{"title":"caf\\ud83d","low":"\\udc00x","pair":"\\ud83d\\ude00","e":"é","emoji":"😀","ctrl":"\\u0001\\n\\t\\u001f","del":"\\u007f","u2028":"\\u2028","slash":"a\\/b","quote":"\\"","backslash":"\\\\"}',
+        '{"title":"caf\\ud83d","low":"\\udc00x","pair":"😀","e":"é","emoji":"😀","ctrl":"\\u0001\\n\\t\\u001f","del":"\x7f","u2028":"\u2028","slash":"a/b","quote":"\\"","backslash":"\\\\"}',
+        id="strings",
+    ),
+    pytest.param(
+        '{"small":0.00001,"tiny":1e-7,"edge":0.000001,"big":1e21,"under":1e20,"bigint":12345678901234567000,"whole":13.0,"neg":-0.5,"zero":-0,"sci":1.5e300,"mid":123456789012345680000,"pi":3.141592653589793,"third":0.3333333333333333,"exp":2e-310,"list":[1.0,2.5,null,true,false,{},[]]}',
+        '{"small":0.00001,"tiny":1e-7,"edge":0.000001,"big":1e+21,"under":100000000000000000000,"bigint":12345678901234567000,"whole":13,"neg":-0.5,"zero":0,"sci":1.5e+300,"mid":123456789012345680000,"pi":3.141592653589793,"third":0.3333333333333333,"exp":2e-310,"list":[1,2.5,null,true,false,{},[]]}',
+        id="numbers",
+    ),
+    pytest.param(
+        '{"nested":{"a":[{"b":1.10},{"c":"\\ud800"}]},"key\\ud83d":1}',
+        '{"nested":{"a":[{"b":1.1},{"c":"\\ud800"}]},"key\\ud83d":1}',
+        id="nested",
+    ),
+]
+
+
+@pytest.mark.parametrize("text, node_text", NODE_JSON_CASES)
+def test_node_json_writes_what_json_stringify_writes(text: str, node_text: str) -> None:
+    assert node_json(json.loads(text)) == node_text
 
 
 WINDOWS_NOW = datetime(2026, 1, 10, 12, 0, tzinfo=UTC)
