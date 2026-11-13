@@ -52,6 +52,7 @@ import type {
     ErrorTrackingIssueSplitResponseApi,
     ErrorTrackingIssueSuccessResponseApi,
     ErrorTrackingIssueSummaryResponseApi,
+    ErrorTrackingIssueTagDefinitionsResponseApi,
     ErrorTrackingIssueValuesResponseApi,
     ErrorTrackingIssueWriteApi,
     ErrorTrackingIssuesListParams,
@@ -1226,6 +1227,23 @@ export const errorTrackingIssuesExistsRetrieve = async (
         ...options,
         method: 'GET',
     })
+}
+
+export const getErrorTrackingIssuesTagDefinitionsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/error_tracking/issues/tag_definitions/`
+}
+
+export const errorTrackingIssuesTagDefinitionsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ErrorTrackingIssueTagDefinitionsResponseApi> => {
+    return apiMutator<ErrorTrackingIssueTagDefinitionsResponseApi>(
+        getErrorTrackingIssuesTagDefinitionsRetrieveUrl(projectId),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getErrorTrackingIssuesValuesRetrieveUrl = (

@@ -26591,6 +26591,20 @@
                 },
                 "status": {
                     "$ref": "#/definitions/ErrorTrackingIssueStatus"
+                },
+                "tags": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/ErrorTrackingIssueTag"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "The enabled tags that are applied to the issue, on issue list results and issue detail. Null or absent when the project has no enabled tag."
                 }
             },
             "required": [
@@ -26875,6 +26889,20 @@
                 },
                 "status": {
                     "$ref": "#/definitions/ErrorTrackingIssueStatus"
+                },
+                "tags": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/ErrorTrackingIssueTag"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "The enabled tags that are applied to the issue, on issue list results and issue detail. Null or absent when the project has no enabled tag."
                 }
             },
             "required": ["assignee", "description", "first_seen", "id", "last_seen", "library", "name", "status"],
@@ -27321,6 +27349,44 @@
             "title": "ErrorTrackingIssueStatus",
             "type": "string"
         },
+        "ErrorTrackingIssueTag": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "description": "What the tag means, for a tooltip.",
+                    "type": "string"
+                },
+                "key": {
+                    "description": "Key of the tag definition.",
+                    "type": "string"
+                },
+                "label": {
+                    "description": "Short name of the tag.",
+                    "type": "string"
+                },
+                "source": {
+                    "description": "The tagger that applied the tag: `jev` for AI, `manual` for a person. Issue detail sets it, list results send null.",
+                    "type": ["string", "null"]
+                }
+            },
+            "required": ["key", "label", "description"],
+            "type": "object"
+        },
+        "ErrorTrackingIssueTagFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "applied": {
+                    "description": "True matches the issues the tag is applied to. False matches every other issue.",
+                    "type": "boolean"
+                },
+                "key": {
+                    "description": "Key of the tag definition.",
+                    "type": "string"
+                }
+            },
+            "required": ["key", "applied"],
+            "type": "object"
+        },
         "ErrorTrackingOrderBy": {
             "enum": ["last_seen", "first_seen", "occurrences", "users", "sessions", "severity"],
             "title": "ErrorTrackingOrderBy",
@@ -27428,6 +27494,17 @@
                 "issueId": {
                     "description": "Filter to a specific error tracking issue by ID.",
                     "type": "string"
+                },
+                "issueTag": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/ErrorTrackingIssueTagFilter"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Filter by whether one issue tag is applied. Ignored when issue tags or this tag are off for the project."
                 },
                 "kind": {
                     "const": "ErrorTrackingQuery",
@@ -27669,6 +27746,20 @@
                 },
                 "status": {
                     "$ref": "#/definitions/ErrorTrackingIssueStatus"
+                },
+                "tags": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/ErrorTrackingIssueTag"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "The enabled tags that are applied to the issue, on issue list results and issue detail. Null or absent when the project has no enabled tag."
                 }
             },
             "required": ["id", "name", "description", "assignee", "status", "first_seen"],
@@ -40403,6 +40494,17 @@
                 "reason": {
                     "type": "string"
                 },
+                "resolution": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/MarketingAnalyticsRecommendationResolution"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Set only when the query includes resolved recommendations and someone dismissed this one or marked it as applied."
+                },
                 "rule": {
                     "$ref": "#/definitions/MarketingAnalyticsRecommendationRule"
                 },
@@ -40513,6 +40615,28 @@
             "enum": ["account", "campaign", "search_term"],
             "type": "string"
         },
+        "MarketingAnalyticsRecommendationResolution": {
+            "additionalProperties": false,
+            "properties": {
+                "id": {
+                    "description": "The resolution id. Delete it through the resolutions API to show the recommendation again.",
+                    "type": "string"
+                },
+                "resolution": {
+                    "$ref": "#/definitions/MarketingAnalyticsRecommendationResolutionState"
+                },
+                "resolved_at": {
+                    "description": "When someone last dismissed the recommendation or marked it as applied, as an ISO 8601 timestamp.",
+                    "type": "string"
+                }
+            },
+            "required": ["id", "resolution", "resolved_at"],
+            "type": "object"
+        },
+        "MarketingAnalyticsRecommendationResolutionState": {
+            "enum": ["dismissed", "applied"],
+            "type": "string"
+        },
         "MarketingAnalyticsRecommendationRule": {
             "enum": [
                 "budget_constrained",
@@ -40584,6 +40708,11 @@
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
+                },
+                "includeResolved": {
+                    "default": false,
+                    "description": "Also return recommendations that someone in the project dismissed or marked as applied, with their `resolution`.",
+                    "type": "boolean"
                 },
                 "kind": {
                     "const": "MarketingAnalyticsRecommendationsQuery",
@@ -58052,6 +58181,9 @@
                 },
                 "hidden": {
                     "type": "boolean"
+                },
+                "label": {
+                    "type": "string"
                 }
             },
             "required": ["assignmentBy"],
