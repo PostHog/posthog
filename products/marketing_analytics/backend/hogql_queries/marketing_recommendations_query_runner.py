@@ -131,7 +131,7 @@ class MarketingAnalyticsRecommendationsQueryRunner(
             update={
                 "results": apply_resolutions(
                     response.results,
-                    resolutions_by_key(self.team.pk),
+                    resolutions_by_key(self.team.pk, (rec.identity for rec in response.results)),
                     include_resolved=bool(self.query.includeResolved),
                 )
             }
