@@ -11,6 +11,7 @@ from posthog.hogql.database.database import Database
 from products.data_modeling.backend.facade.system_tables import DATA_MODELING_ALLOWED_SYSTEM_TABLES
 from products.data_modeling.backend.logic.saved_query_dag_sync import delete_nodes, lock_dag, replace_incoming_edges
 from products.data_modeling.backend.models.dag import DAG
+from products.data_modeling.backend.models.modeling import ParentReference
 from products.data_modeling.backend.models.node import Node, NodeType
 
 if TYPE_CHECKING:
@@ -57,10 +58,9 @@ def sync_metric_to_dag(
         node.name = name
         unresolved = replace_incoming_edges(
             node,
-            dependency_names,
+            [ParentReference.for_name(name, database) for name in dependency_names],
             team=team,
             dag=dag,
-            database=database,
             on_unresolved="skip",
         )
 

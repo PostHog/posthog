@@ -68,7 +68,7 @@ def _related_saved_queries(
     Each reached node is identified the way the lineage endpoints have always identified it: a
     query by its saved-query id, an imported warehouse table by its `DataWarehouseTable` id, and a
     PostHog system table by its name. A table node carries the id in its properties
-    (`saved_query_dag_sync.resolve_dependency_to_node`) rather than the `saved_query` FK.
+    (`saved_query_dag_sync.resolve_parent_to_node`) rather than the `saved_query` FK.
     """
     start_node_ids = saved_query_node_ids(saved_query.team_id, saved_query.id)
     if not start_node_ids:

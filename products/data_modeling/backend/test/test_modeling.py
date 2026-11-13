@@ -216,13 +216,13 @@ class TestBoundedResolver(BaseTest):
     @parameterized.expand(
         [
             # a view joined to itself is not a cycle
-            ("self_join", "select a.* from shared a join shared b on 1=1", {"models.shared"}),
+            ("self_join", "select a.* from shared a join shared b on 1=1", {"shared"}),
             # `mid` reads `shared`, and `shared` also sits earlier in the same FROM
-            ("shared_joined_first", "select m.* from shared s join mid m on 1=1", {"models.shared", "models.mid"}),
+            ("shared_joined_first", "select m.* from shared s join mid m on 1=1", {"shared", "mid"}),
             # same diamond, reversed join order — `shared` must still be registered as a parent
-            ("shared_joined_second", "select m.* from mid m join shared s on 1=1", {"models.shared", "models.mid"}),
+            ("shared_joined_second", "select m.* from mid m join shared s on 1=1", {"shared", "mid"}),
             # union branches are true siblings and must keep working
-            ("union_branches", "select * from shared union all select * from mid", {"models.shared", "models.mid"}),
+            ("union_branches", "select * from shared union all select * from mid", {"shared", "mid"}),
         ],
     )
     def test_sibling_view_joins_resolve_without_cycle(self, _name: str, query: str, expected_parents: set[str]):
@@ -232,11 +232,11 @@ class TestBoundedResolver(BaseTest):
 
     @parameterized.expand(
         [
-            ("where", "select * from shared where event in (select event from mid)", {"models.shared", "models.mid"}),
+            ("where", "select * from shared where event in (select event from mid)", {"shared", "mid"}),
             (
                 "nested_in_from_subquery",
                 "select * from (select * from shared where event in (select event from mid))",
-                {"models.shared", "models.mid"},
+                {"shared", "mid"},
             ),
         ],
     )
@@ -297,7 +297,7 @@ class TestBoundedResolver(BaseTest):
         self._make_union_bodied_view_with_ctes()
 
         body = "with a as (select event from events), b as (select event from leaf) select event from a union all select event from b"
-        assert get_parents_from_model_query(self.team, "unioned", body) == {"events", "models.leaf"}
+        assert get_parents_from_model_query(self.team, "unioned", body) == {"events", "leaf"}
 
     def test_cycle_through_union_bodied_view_raises(self):
         # `view_name` is only stamped on ast.SelectQuery, so a view whose body is a top-level
@@ -340,12 +340,10 @@ class TestBoundedResolver(BaseTest):
         )
 
         # baseline: a regular view is its consumer's parent
-        assert get_parents_from_model_query(self.team, "caller", "select * from regular_view") == {
-            "models.regular_view"
-        }
+        assert get_parents_from_model_query(self.team, "caller", "select * from regular_view") == {"regular_view"}
 
         # a union-bodied view must be too — not replaced by {leaf, events}
-        assert get_parents_from_model_query(self.team, "caller", "select * from union_view") == {"models.union_view"}
+        assert get_parents_from_model_query(self.team, "caller", "select * from union_view") == {"union_view"}
 
     def test_values_join_after_view_does_not_crash(self):
         # bug 2's fix walks past the first view instead of breaking, so a VALUES/PIVOT/UNPIVOT
@@ -356,13 +354,13 @@ class TestBoundedResolver(BaseTest):
         parents = get_parents_from_model_query(
             self.team, "caller", "select 1 from shared s join (select 1 as n) v on 1=1"
         )
-        assert parents == {"models.shared"}
+        assert parents == {"shared"}
 
         # the actual crash shape: a real VALUES clause joined after a view
         parents = get_parents_from_model_query(
             self.team, "caller", "select n from shared s cross join (values (1), (2)) as v(n)"
         )
-        assert parents == {"models.shared"}
+        assert parents == {"shared"}
 
     def test_pivot_over_join_keeps_its_sources_as_parents(self):
         # PIVOT/UNPIVOT wrap their source in `.table`, which can be a whole join — its tables
@@ -515,7 +513,7 @@ class TestResolutionMetrics(BaseTest):
 
         parents = get_parents_from_model_query(self.team, "caller", "select * from leaf")
 
-        assert parents == {"models.leaf"}
+        assert parents == {"leaf"}
         assert self._counter("ok") - before_ok == 1.0
         assert self._duration_count() - before_count == 1.0
         # A lineage resolution must not move the materialization counter: without the label the

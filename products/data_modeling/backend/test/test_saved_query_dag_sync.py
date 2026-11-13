@@ -320,7 +320,7 @@ class TestSyncSavedQueryToDag(BaseTest):
         }
         saved_query.save()
         with mock.patch(
-            "products.data_modeling.backend.logic.saved_query_dag_sync.resolve_dependency_to_node",
+            "products.data_modeling.backend.logic.saved_query_dag_sync.resolve_parent_to_node",
             side_effect=RuntimeError("postgres went away"),
         ):
             with self.assertRaises(RuntimeError):
@@ -363,11 +363,18 @@ class TestSyncSavedQueryToDag(BaseTest):
 
     @parameterized.expand(
         [
-            ("read_under_models_root", "models.revenue", NodeType.VIEW),
-            ("the_bare_name_still_reads_the_table", "revenue", NodeType.TABLE),
+            ("read_under_models_root", "models.revenue", {NodeType.VIEW}),
+            ("the_bare_name_still_reads_the_table", "revenue", {NodeType.TABLE}),
+            (
+                "both_read_in_one_query",
+                "models.revenue AS model CROSS JOIN revenue AS synced",
+                {NodeType.VIEW, NodeType.TABLE},
+            ),
         ]
     )
-    def test_a_model_parent_survives_a_same_named_warehouse_table(self, _name: str, reference: str, parent_type: str):
+    def test_a_model_parent_survives_a_same_named_warehouse_table(
+        self, _name: str, from_clause: str, parent_types: set[str]
+    ):
         model = DataWarehouseSavedQuery.objects.create(
             name="revenue",
             team=self.team,
@@ -380,13 +387,14 @@ class TestSyncSavedQueryToDag(BaseTest):
         child = DataWarehouseSavedQuery.objects.create(
             name="revenue_by_event",
             team=self.team,
-            query={"query": f"SELECT * FROM {reference}", "kind": "HogQLQuery"},
+            query={"query": f"SELECT 1 FROM {from_clause}", "kind": "HogQLQuery"},
         )
 
         child_node = sync_saved_query_to_dag(child)
 
-        sources = [(edge.source.type, edge.source.saved_query_id) for edge in Edge.objects.filter(target=child_node)]
-        self.assertEqual(sources, [(parent_type, model.id if parent_type == NodeType.VIEW else None)])
+        sources = {(edge.source.type, edge.source.saved_query_id) for edge in Edge.objects.filter(target=child_node)}
+        expected = {(parent_type, model.id if parent_type == NodeType.VIEW else None) for parent_type in parent_types}
+        self.assertEqual(sources, expected)
 
     def test_sync_rolls_back_its_node_when_a_parent_view_has_no_node(self):
         DataWarehouseSavedQuery.objects.create(
