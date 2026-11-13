@@ -60,7 +60,6 @@ from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.pagination import FacadeLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import (
-    IDJagAccessTokenAuthentication,
     InternalAPIAuthentication,
     OAuthAccessTokenAuthentication,
     PersonalAPIKeyAuthentication,
@@ -7593,12 +7592,7 @@ class SignalUserAutonomyConfigView(APIView):
     """
 
     serializer_class = SignalUserAutonomyConfigSerializer
-    authentication_classes = [
-        IDJagAccessTokenAuthentication,
-        SessionAuthentication,
-        PersonalAPIKeyAuthentication,
-        OAuthAccessTokenAuthentication,
-    ]
+    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission]
     scope_object = "user"
     required_scopes = ["user:write"]

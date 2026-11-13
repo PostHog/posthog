@@ -16,7 +16,7 @@ from posthog.auth import (
 )
 from posthog.models import User, UserFacetSettings
 from posthog.models.scoping import team_scope
-from posthog.permissions import APIScopePermission
+from posthog.permissions import APIScopePermission, check_team_within_credential_organizations
 from posthog.rate_limit import UserAuthenticationThrottle
 
 
@@ -157,4 +157,5 @@ class UserFacetSettingsViewSet(viewsets.GenericViewSet):
         team_id = instance.current_team_id
         if not team_id:
             raise serializers.ValidationError("Current team is required to manage custom facets.")
+        check_team_within_credential_organizations(self.request, team_id)
         return team_id

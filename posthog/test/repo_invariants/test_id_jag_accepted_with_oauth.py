@@ -31,6 +31,15 @@ OAUTH_ONLY_VIEWS: dict[str, str] = {
     "posthog.api.user_integration.UserIntegrationViewSet": (
         "Lists teams across every organization of the user, and an ID-JAG token is confined to one."
     ),
+    "posthog.api.user_push_token.UserPushTokenViewSet": (
+        "Push delivery selects devices by user alone, so a device reaches every organization of the user."
+    ),
+    "products.ai_observability.backend.api.personal_spend.PersonalSpendViewSet": (
+        "Spend is aggregated by email across every organization of the user."
+    ),
+    "products.signals.backend.views.SignalUserAutonomyConfigView": (
+        "One config per user drives autonomous task starts in every organization of the user."
+    ),
 }
 
 

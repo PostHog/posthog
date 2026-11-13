@@ -13,7 +13,7 @@ from posthog.auth import (
     SessionAuthentication,
 )
 from posthog.models import Team, User, UserHomeSettings
-from posthog.permissions import APIScopePermission
+from posthog.permissions import APIScopePermission, check_team_within_credential_organizations
 from posthog.rate_limit import UserAuthenticationThrottle
 
 
@@ -173,9 +173,7 @@ class UserHomeSettingsViewSet(viewsets.GenericViewSet):
         homepage_provided = "homepage" in serializer.validated_data
         homepage_payload = serializer.validated_data.get("homepage") if homepage_provided else None
 
-        team = instance.current_team
-        if not team:
-            raise serializers.ValidationError("Current team is required to manage pinned scene tabs.")
+        team = self._current_team(instance)
 
         pinned_tabs = self._get_settings(instance, team)
 
@@ -194,9 +192,7 @@ class UserHomeSettingsViewSet(viewsets.GenericViewSet):
         return self._get_response(instance)
 
     def _get_response(self, instance: User) -> Response:
-        team = instance.current_team
-        if not team:
-            raise serializers.ValidationError("Current team is required to manage pinned scene tabs.")
+        team = self._current_team(instance)
 
         pinned_tabs = self._get_settings(instance, team)
 
@@ -217,6 +213,13 @@ class UserHomeSettingsViewSet(viewsets.GenericViewSet):
                 "homepage": homepage,
             }
         )
+
+    def _current_team(self, instance: User) -> Team:
+        team = instance.current_team
+        if not team:
+            raise serializers.ValidationError("Current team is required to manage pinned scene tabs.")
+        check_team_within_credential_organizations(self.request, team.id)
+        return team
 
     def _sanitize_tabs(self, tabs: Iterable[Optional[dict[str, Any]]]) -> tuple[list[dict[str, Any]], bool]:
         sanitized_tabs: list[dict[str, Any]] = []
