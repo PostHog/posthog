@@ -30,7 +30,6 @@ from products.workflows.backend.presentation.views.hog_flow import (
     HOG_FLOW_RUN_IDEMPOTENCY_IN_PROGRESS,
     _hog_flow_run_idempotency_cache_key,
 )
-from products.workflows.backend.utils.rrule_utils import compute_next_occurrences
 
 BATCH_AUDIENCE = [{"key": "$browser", "type": "person", "value": ["Chrome"], "operator": "exact"}]
 BATCH_TRIGGER = {"type": "batch", "filters": {"properties": BATCH_AUDIENCE}}
@@ -392,24 +391,19 @@ class TestProcessDueSchedules(APIBaseTest):
         assert batch_job.variables == {"greeting": "Hello"}
         mock_dispatch.assert_called_once()
 
-    def test_workflow_stopped_after_the_status_check_creates_no_batch_job(self, mock_dispatch):
-        hog_flow, _ = self._create_workflow_with_schedule(next_run_at=datetime(2020, 1, 1, tzinfo=UTC))
-        real_compute = compute_next_occurrences
+    def test_failed_dispatch_runs_the_occurrence_on_the_next_poll(self, mock_dispatch):
+        hog_flow, schedule = self._create_workflow_with_schedule(next_run_at=datetime(2020, 1, 1, tzinfo=UTC))
+        mock_dispatch.side_effect = [_worker_response(500, {"error": "Internal error"}), unittest.mock.DEFAULT]
 
-        def stop_then_compute(*args, **kwargs):
-            HogFlow.objects.filter(id=hog_flow.id).update(status="draft")
-            return real_compute(*args, **kwargs)
-
-        with unittest.mock.patch(
-            "products.workflows.backend.services.hog_flow_schedules.compute_next_occurrences",
-            side_effect=stop_then_compute,
-        ):
-            response = self._post()
-
-        assert response.status_code == 200
-        assert response.json()["processed"] == []
+        assert self._post().json()["failed"] == [str(schedule.id)]
+        schedule.refresh_from_db()
+        assert schedule.next_run_at == datetime(2020, 1, 1, tzinfo=UTC)
         assert not HogFlowBatchJob.objects.filter(hog_flow=hog_flow).exists()
-        mock_dispatch.assert_not_called()
+
+        assert self._post().json()["processed"] == [str(schedule.id)]
+        schedule.refresh_from_db()
+        assert schedule.next_run_at > datetime(2020, 1, 1, tzinfo=UTC)
+        assert HogFlowBatchJob.objects.filter(hog_flow=hog_flow).count() == 1
 
     def test_inactive_workflow_clears_next_run_at(self, mock_dispatch):
         hog_flow, schedule = self._create_workflow_with_schedule(
@@ -520,6 +514,14 @@ class TestProcessDueSchedules(APIBaseTest):
         assert schedule.next_run_at is None
 
 
+def _worker_response(status_code: int, body: dict[str, Any]) -> requests.Response:
+    response = requests.Response()
+    response.status_code = status_code
+    response._content = json.dumps(body).encode()
+    response.headers["Content-Type"] = "application/json; charset=utf-8"
+    return response
+
+
 @override_settings(INTERNAL_API_SECRET="test-secret")
 @unittest.mock.patch("products.workflows.backend.services.hog_flow_schedules.create_hog_flow_scheduled_invocation")
 class TestProcessDueScheduleTriggers(APIBaseTest):
@@ -616,12 +618,19 @@ class TestProcessDueScheduleTriggers(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("engine_error_fails", 500, {"error": "Internal error"}, "failed"),
-            ("over_quota_skips_the_run", 429, {"error": "The project is over its workflow quota"}, "processed"),
+            ("engine_error_retries_next_poll", _worker_response(500, {"error": "Internal error"}), "failed", False),
+            ("engine_unreachable_retries_next_poll", requests.ConnectionError(), "failed", False),
+            ("engine_slow_to_answer_keeps_the_advance", requests.ReadTimeout(), "failed", True),
+            (
+                "over_quota_skips_the_run",
+                _worker_response(429, {"error": "The project is over its workflow quota"}),
+                "processed",
+                True,
+            ),
         ]
     )
-    def test_cdp_refusal_outcome(self, mock_invocation, _name, status_code, body, outcome):
-        mock_invocation.return_value = _worker_response(status_code, body)
+    def test_cdp_dispatch_outcome(self, mock_invocation, _name, engine_reply, outcome, advanced):
+        mock_invocation.side_effect = [engine_reply]
 
         _, schedule = self._create_workflow_with_schedule(
             next_run_at=datetime(2020, 1, 1, tzinfo=UTC),
@@ -633,16 +642,7 @@ class TestProcessDueScheduleTriggers(APIBaseTest):
             "failed": [str(schedule.id)] if outcome == "failed" else [],
         }
         schedule.refresh_from_db()
-        assert schedule.next_run_at is not None
-        assert schedule.next_run_at > datetime(2020, 1, 1, tzinfo=UTC)
-
-
-def _worker_response(status_code: int, body: dict[str, Any]) -> requests.Response:
-    response = requests.Response()
-    response.status_code = status_code
-    response._content = json.dumps(body).encode()
-    response.headers["Content-Type"] = "application/json; charset=utf-8"
-    return response
+        assert (schedule.next_run_at > datetime(2020, 1, 1, tzinfo=UTC)) == advanced
 
 
 # Answers the manual run as CdpApi.postHogFlowManualInvocation in nodejs/src/cdp/cdp-api.ts does.
