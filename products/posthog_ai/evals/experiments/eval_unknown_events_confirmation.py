@@ -11,7 +11,7 @@ This eval guards three layers of the fix in tandem:
    the at-the-moment-of-decision text reads "course-correct first, confirm
    second, flag last" instead of the previous "if intentional, set the flag".
 3. ``help_text`` on ``allow_unknown_events`` in
-   ``products/experiments/backend/presentation/serializers.py`` — flows
+   ``products/experiments/backend/presentation/serializers/experiment_crud.py`` — flows
    into the generated MCP schema so the field's own description matches
    the RULE.
 

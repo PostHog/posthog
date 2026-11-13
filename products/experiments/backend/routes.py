@@ -14,12 +14,12 @@ def register_routes(routers: RouterRegistry) -> None:
     routers.projects.register(r"web_experiments", WebExperimentViewSet, "web_experiments", ["project_id"])
 
     # The other experiments viewsets live in `ee/clickhouse/views/` and
-    # `products/experiments/backend/presentation/views.py`. Both are unavailable
+    # `products/experiments/backend/presentation/views/`. Both are unavailable
     # without EE installed, so these routes are EE-gated.
     if not EE_AVAILABLE:
         return
 
-    from products.experiments.backend.presentation.views import EnterpriseExperimentsViewSet
+    from products.experiments.backend.presentation.views.viewset import EnterpriseExperimentsViewSet
 
     from ee.clickhouse.views.experiment_holdouts import ExperimentHoldoutViewSet
     from ee.clickhouse.views.experiment_saved_metrics import ExperimentSavedMetricViewSet

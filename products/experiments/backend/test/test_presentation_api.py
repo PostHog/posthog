@@ -67,8 +67,8 @@ from products.experiments.backend.models.experiment import (
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.models.web_experiment import WebExperiment
-from products.experiments.backend.presentation.serializers import ExperimentSerializer
-from products.experiments.backend.presentation.views import LIST_DEFERRED_FIELDS, EnterpriseExperimentsViewSet
+from products.experiments.backend.presentation.serializers.experiment_crud import ExperimentSerializer
+from products.experiments.backend.presentation.views.viewset import LIST_DEFERRED_FIELDS, EnterpriseExperimentsViewSet
 from products.experiments.backend.setup_context import EXPERIMENT_SETUP_CONTEXT_FLAG
 from products.experiments.backend.test.utils import patch_exposure_event_flag
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
@@ -5739,7 +5739,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             {**metric, "source": {"kind": "EventsNode", "event": "stale_event"}} if extra_body else {"uuid": "m1"}
         )
 
-        with patch("products.experiments.backend.presentation.views.sync_connect") as mock_connect:
+        with patch("products.experiments.backend.presentation.views.recalculation.sync_connect") as mock_connect:
             mock_connect.return_value.start_workflow = AsyncMock()
             response = self.client.post(
                 f"/api/projects/{self.team.id}/experiments/{experiment.id}/recalculate_timeseries/",
@@ -6608,11 +6608,11 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         )
         with (
             patch(
-                "products.experiments.backend.presentation.views.tasks_facade.get_latest_run_by_task",
+                "products.experiments.backend.presentation.views.lifecycle.tasks_facade.get_latest_run_by_task",
                 return_value={str(task_id): run},
             ),
             patch(
-                "products.experiments.backend.presentation.views.tasks_facade.task_visible",
+                "products.experiments.backend.presentation.views.lifecycle.tasks_facade.task_visible",
                 return_value=True,
             ) as mock_task_visible,
         ):
@@ -6632,7 +6632,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
 
         # No Task row exists for this id, so the real visibility check reports False.
         with patch(
-            "products.experiments.backend.presentation.views.tasks_facade.get_latest_run_by_task",
+            "products.experiments.backend.presentation.views.lifecycle.tasks_facade.get_latest_run_by_task",
             return_value={str(task_id): run},
         ):
             resp = self.client.get(f"/api/projects/{self.team.id}/experiments/{exp_id}/flag_cleanup_task/")
@@ -6644,7 +6644,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             status="completed", is_terminal=True, pr_url="http://evil.example.com/pr/1", team_id=self.team.id
         )
         with patch(
-            "products.experiments.backend.presentation.views.tasks_facade.get_latest_run_by_task",
+            "products.experiments.backend.presentation.views.lifecycle.tasks_facade.get_latest_run_by_task",
             return_value={str(task_id): run},
         ):
             resp = self.client.get(f"/api/projects/{self.team.id}/experiments/{exp_id}/flag_cleanup_task/")
@@ -6659,7 +6659,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             team_id=self.team.id + 1,
         )
         with patch(
-            "products.experiments.backend.presentation.views.tasks_facade.get_latest_run_by_task",
+            "products.experiments.backend.presentation.views.lifecycle.tasks_facade.get_latest_run_by_task",
             return_value={str(task_id): run},
         ):
             resp = self.client.get(f"/api/projects/{self.team.id}/experiments/{exp_id}/flag_cleanup_task/")
@@ -6670,7 +6670,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
 
         # Task recorded but no run row yet: reported as queued, non-terminal.
         with patch(
-            "products.experiments.backend.presentation.views.tasks_facade.get_latest_run_by_task",
+            "products.experiments.backend.presentation.views.lifecycle.tasks_facade.get_latest_run_by_task",
             return_value={},
         ):
             resp = self.client.get(f"/api/projects/{self.team.id}/experiments/{exp_id}/flag_cleanup_task/")
@@ -8853,7 +8853,7 @@ class TestExperimentParametersFieldMutation(APILicensedTest):
     """
 
     def test_to_internal_value_does_not_mutate_input_dict(self):
-        from products.experiments.backend.presentation.serializers import ExperimentParametersField
+        from products.experiments.backend.presentation.serializers.experiment_crud import ExperimentParametersField
 
         input_dict = {
             "feature_flag_variants": [
@@ -8873,7 +8873,7 @@ class TestExperimentParametersFieldMutation(APILicensedTest):
         }
 
     def test_to_representation_does_not_mutate_stored_value(self):
-        from products.experiments.backend.presentation.serializers import ExperimentParametersField
+        from products.experiments.backend.presentation.serializers.experiment_crud import ExperimentParametersField
 
         stored_value = {
             "feature_flag_variants": [
@@ -9719,7 +9719,7 @@ class TestExperimentSerializerSuperset(unittest.TestCase):
     """
 
     def test_basic_fields_are_subset_of_full_fields(self) -> None:
-        from products.experiments.backend.presentation.serializers import (
+        from products.experiments.backend.presentation.serializers.experiment_crud import (
             ExperimentBasicSerializer,
             ExperimentSerializer,
         )
@@ -9736,7 +9736,7 @@ class TestExperimentSerializerSuperset(unittest.TestCase):
         )
 
     def test_shared_fields_have_matching_read_only_and_required(self) -> None:
-        from products.experiments.backend.presentation.serializers import (
+        from products.experiments.backend.presentation.serializers.experiment_crud import (
             ExperimentBasicSerializer,
             ExperimentSerializer,
         )

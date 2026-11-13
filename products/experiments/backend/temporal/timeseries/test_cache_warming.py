@@ -184,7 +184,7 @@ class TestTemporalRecalcWarmsResponseCache(ExperimentQueryRunnerBaseTest):
         fingerprint = metric_calculation_keys(experiment.id, team_id=self.team.id).saved[saved_metric_link.id]
 
         # Build the metric the way /query sees it for saved metrics:
-        # fingerprint added by the API serializer (presentation/serializers.py)
+        # fingerprint added by the API serializer (presentation/serializers/experiment_crud.py)
         # plus breakdownFilter wrapped by sharedMetricsToExperimentMetrics on the frontend.
         frontend_metric_dict = {
             **metric_dict,

@@ -10,7 +10,7 @@ import { LemonModal } from 'lib/lemon-ui/LemonModal/LemonModal'
 import type { TemplatesEnumApi } from '../../../experiments/frontend/generated/api.schemas'
 import { MAX_VERSIONS, createPromptExperimentModalLogic } from './createPromptExperimentModalLogic'
 
-// Mirrors the variant-key generation in products/experiments/backend/presentation/views.py
+// Mirrors the variant-key generation in products/experiments/backend/presentation/views/prompts.py
 // (_build_prompt_variants). Labels are the literal variant keys so the modal matches what
 // gets stored on the feature flag.
 function variantLabel(index: number, total: number): string {
