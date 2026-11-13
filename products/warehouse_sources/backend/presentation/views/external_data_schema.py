@@ -1759,7 +1759,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         if self._webhook_only_check_applies():
             if self._is_webhook_only_schema_cached(instance):
                 raise ValidationError(
-                    f"{instance.name} can only be synced via webhooks — pick the Webhook sync method."
+                    f"{instance.name} can only be synced via webhooks. Pick the Webhook sync method for it."
                 )
 
         # Only update sync_type if it was explicitly provided in the request
