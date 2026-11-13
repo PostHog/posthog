@@ -1190,6 +1190,13 @@ describe('EmailTrackingService', () => {
                         )
                     },
                 ],
+                [
+                    'writing the suppression list',
+                    (service) =>
+                        jest
+                            .spyOn(service.emailSuppressionService, 'upsertHardBounces')
+                            .mockRejectedValueOnce(new Error('connection terminated')),
+                ],
             ])(
                 'fails the batch so Kafka redelivers it, and counts the notification once, when the first attempt fails %s',
                 async (_, failFirstAttempt) => {
