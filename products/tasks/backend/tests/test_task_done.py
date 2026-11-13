@@ -15,8 +15,10 @@ from posthog.models import Organization, Team
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 
+from products.tasks.backend.constants import STOPPED_BEFORE_TURN_CLOSED_STATE_KEY
+from products.tasks.backend.facade.profiles import TaskProfile
 from products.tasks.backend.logic.services.workflow_dispatch import materialize_due_scheduled_task_runs
-from products.tasks.backend.models import Task, TaskRun, TaskStatusChange
+from products.tasks.backend.models import TASK_RUN_FINISH_REPORT_STATE_KEY, Task, TaskRun, TaskStatusChange
 from products.tasks.backend.task_done import TaskDoneError, record_pull_request_outcome
 from products.tasks.backend.task_profiles import USER
 from products.tasks.backend.task_run_sync import DoneMode, done_mode, sync_task_status, transition
@@ -24,6 +26,8 @@ from products.tasks.backend.task_run_sync import DoneMode, done_mode, sync_task_
 PAYLOAD = "products.tasks.backend.task_run_sync.posthoganalytics.get_feature_flag_payload"
 PR_ONE = "https://github.com/posthog/posthog/pull/1"
 PR_TWO = "https://github.com/posthog/posthog/pull/2"
+_DONE_ON_TURN_CLOSE = replace(USER, done_on_turn_close=True)
+_STOPPED_EARLY = {STOPPED_BEFORE_TURN_CLOSED_STATE_KEY: True}
 
 
 class TestTaskDone(TestCase):
@@ -114,23 +118,35 @@ class TestTaskDone(TestCase):
 
     @parameterized.expand(
         [
-            ("enforce_marks_done", "enforce", "done", "task_run"),
-            ("shadow_only_records", "shadow", "idle", "shadow:task_run"),
-            ("off_does_nothing", "off", "idle", None),
+            ("enforce_marks_done", "enforce", _DONE_ON_TURN_CLOSE, {}, "done", "task_run"),
+            ("shadow_only_records", "shadow", _DONE_ON_TURN_CLOSE, {}, "idle", "shadow:task_run"),
+            ("off_does_nothing", "off", _DONE_ON_TURN_CLOSE, {}, "idle", None),
+            ("stopped_before_the_turn_closed", "enforce", _DONE_ON_TURN_CLOSE, _STOPPED_EARLY, "idle", None),
+            (
+                "stopped_after_a_finish_report",
+                "enforce",
+                replace(USER, finish_tool=True),
+                {**_STOPPED_EARLY, TASK_RUN_FINISH_REPORT_STATE_KEY: True},
+                "done",
+                "task_run",
+            ),
         ]
     )
     def test_turn_close_finishes_done_on_turn_close_profiles(
-        self, _name: str, mode: str, status: str, done_changed_by: str | None
+        self,
+        _name: str,
+        mode: str,
+        profile: TaskProfile,
+        run_state: dict[str, bool],
+        status: str,
+        done_changed_by: str | None,
     ) -> None:
         self._set_status(Task.Status.RUNNING)
-        TaskRun.objects.create(task=self.task, team=self.team, status=TaskRun.Status.COMPLETED)
+        TaskRun.objects.create(task=self.task, team=self.team, status=TaskRun.Status.COMPLETED, state=run_state)
 
         with (
             self._mode(mode),
-            patch(
-                "products.tasks.backend.task_run_sync.find_task_profile",
-                return_value=replace(USER, done_on_turn_close=True),
-            ),
+            patch("products.tasks.backend.task_run_sync.find_task_profile", return_value=profile),
         ):
             sync_task_status(self.task.id)
 
