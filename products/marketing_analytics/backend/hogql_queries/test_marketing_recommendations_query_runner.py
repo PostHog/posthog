@@ -14,8 +14,12 @@ from posthog.schema import (
     MarketingAnalyticsRecommendationsSource,
 )
 
+from posthog.constants import AvailableFeature
+from posthog.models import User
+from posthog.models.organization import OrganizationMembership
 from posthog.models.utils import uuid7
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.marketing_analytics.backend.hogql_queries.marketing_recommendations_query_runner import (
     MarketingAnalyticsRecommendationsQueryRunner,
 )
@@ -133,7 +137,7 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
             "campaign_id,segments_date,metrics_cost_micros,metrics_conversions\n1,2026-01-15,1000000000,10\n",
         )
 
-        def run(include_resolved: bool = False) -> tuple[bool, list[tuple[str, str | None]]]:
+        def run(include_resolved: bool = False, user: User | None = None) -> tuple[bool, list[tuple[str, str | None]]]:
             response = MarketingAnalyticsRecommendationsQueryRunner(
                 query=MarketingAnalyticsRecommendationsQuery(
                     dateRange=DateRange(date_from="2026-01-01", date_to="2026-01-30"),
@@ -145,7 +149,7 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
                     includeResolved=include_resolved,
                 ),
                 team=self.team,
-                user=self.user,
+                user=user or self.user,
             ).run()
             assert isinstance(response, CachedMarketingAnalyticsRecommendationsQueryResponse)
             return response.is_cached or False, [
@@ -171,6 +175,40 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
 
         resolution.delete()
         assert run() == (True, [("budget_constrained", None)])
+
+        # A member denied any Google source could name views of their own, so they see no resolution.
+        RecommendationResolution.objects.for_team(self.team.pk).create(
+            team=self.team,
+            rule="budget_constrained",
+            source_type="google_ads",
+            customer_id="1234567890",
+            campaign_id="1",
+            resolution="dismissed",
+        )
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        member = User.objects.create_and_join(self.organization, "member@example.com", "testtest")
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_id="denied", connection_id="denied", source_type="GoogleAds"
+        )
+        ExternalDataSchema.objects.create(
+            team=self.team,
+            source=source,
+            name="campaign",
+            table=DataWarehouseTable.objects.create(
+                team=self.team, name="denied_campaign", columns={}, external_data_source=source
+            ),
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="external_data_source",
+            resource_id=str(source.id),
+            access_level="none",
+            organization_member=OrganizationMembership.objects.get(user=member, organization=self.organization),
+        )
+        assert run(include_resolved=True, user=member)[1] == [("budget_constrained", None)]
 
     def test_ranking_page_is_the_page_with_most_impressions_for_the_query(self) -> None:
         query_page = self._table(
