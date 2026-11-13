@@ -5217,6 +5217,28 @@ describe('dashboardLogic', () => {
             expect(logic.values.dashboardSettingsState).toBe('unsavedChanges')
         })
 
+        it('keeps the chosen default in the refresh payload when the dashboard saved another value', async () => {
+            await mountDashboardWithVariable({ dashboardOverride: { value: 'persisted', isNull: false } })
+            const getInsightWithRetrySpy = jest
+                .spyOn(dashboardUtils, 'getInsightWithRetry')
+                .mockImplementation(async (_teamId, insight) => insight)
+
+            try {
+                await expectLogic(logic, () => {
+                    logic.actions.overrideVariableValue(variableId, 'Default org', false)
+                }).toFinishAllListeners()
+
+                expect(logic.values.currentDashboardSettings.variables[variableId]).toEqual(
+                    expect.objectContaining({ value: 'Default org' })
+                )
+                expect(getInsightWithRetrySpy.mock.calls[0][7]).toEqual({
+                    [variableId]: expect.objectContaining({ value: 'Default org', isNull: false }),
+                })
+            } finally {
+                getInsightWithRetrySpy.mockRestore()
+            }
+        })
+
         it('discards filter and SQL variable changes and restores the saved settings', async () => {
             await mountDashboardWithVariable({ urlValue: 'url-val' })
             router.actions.push('/', {
