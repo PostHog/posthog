@@ -620,7 +620,11 @@ export const YSeriesDisplayTab = ({ ySeriesLogicProps }: { ySeriesLogicProps: YS
                 </div>
             )}
             {effectiveVisualizationType === ChartDisplayType.ActionsTable && (
-                <LemonField name="wrapText" label="Wrap text">
+                <LemonField
+                    name="wrapText"
+                    label="Wrap text"
+                    info="Off by default to keep rows compact. Turn on to show all text in this column."
+                >
                     {({ value, onChange }) => (
                         <LemonSwitch
                             checked={value ?? false}

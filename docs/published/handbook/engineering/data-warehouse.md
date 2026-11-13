@@ -58,6 +58,8 @@ These measurements describe query work and are not billing amounts.
 
 ## SQL editor drafts
 
+SQL result tables keep text truncated and rows compact by default. To show all text in a column, open its settings and turn on **Display → Wrap text**. Turn it off to restore compact rows. To inspect just one cell, hover or focus it and select **View full value**; the viewer shows the complete string or JSON and offers **Copy value** without expanding the table's rows.
+
 Saving a view infers its column types with LIMIT 0 on the outer SELECT branches and explicit IN subqueries.
 Scalar subqueries can still read data, so column inference shares the organization's foreground query concurrency limit.
 API-key requests and background jobs retain the query runner's existing exemptions from that limit.

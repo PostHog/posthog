@@ -150,6 +150,7 @@ describe('SeriesTab', () => {
     it.each([
         { setting: 'formatting', field: 'decimalPlaces', value: 2 },
         { setting: 'display', field: 'description', value: 'Value in USD' },
+        { setting: 'display', field: 'wrapText', value: true },
     ])('persists table column $field changes immediately', async ({ setting, field, value }) => {
         initKeaTests()
 
@@ -225,11 +226,18 @@ describe('SeriesTab', () => {
 
         const user = userEvent.setup()
         const input =
-            setting === 'formatting'
-                ? await screen.findByRole('spinbutton')
-                : await screen.findByLabelText('Description')
-        await user.clear(input)
-        await user.type(input, String(value))
+            field === 'wrapText'
+                ? await screen.findByRole('switch')
+                : setting === 'formatting'
+                  ? await screen.findByRole('spinbutton')
+                  : await screen.findByLabelText('Description')
+        if (field === 'wrapText') {
+            expect(input).toHaveAttribute('aria-checked', 'false')
+            await user.click(input)
+        } else {
+            await user.clear(input)
+            await user.type(input, String(value))
+        }
 
         await waitFor(() =>
             expect(setQuery).toHaveBeenLastCalledWith(
@@ -249,7 +257,12 @@ describe('SeriesTab', () => {
         )
 
         if (setting === 'display') {
-            await user.clear(input)
+            if (field === 'wrapText') {
+                await user.click(input)
+                expect(input).toHaveAttribute('aria-checked', 'false')
+            } else {
+                await user.clear(input)
+            }
             await waitFor(() =>
                 expect(setQuery).toHaveBeenLastCalledWith(
                     expect.objectContaining({
@@ -258,7 +271,9 @@ describe('SeriesTab', () => {
                                 expect.objectContaining({
                                     column: 'value',
                                     settings: expect.objectContaining({
-                                        display: expect.objectContaining({ description: '' }),
+                                        display: expect.objectContaining({
+                                            [field]: field === 'wrapText' ? false : '',
+                                        }),
                                     }),
                                 }),
                             ]),
