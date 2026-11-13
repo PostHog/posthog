@@ -40,11 +40,14 @@ describe('ToolCallValue', () => {
     ])('%s', async (_name, value, highlightQuery, expected) => {
         const { container } = render(<ToolCallValue value={value} highlightQuery={highlightQuery} />)
 
-        await waitFor(() =>
-            expect({
-                open: container.querySelector('details')?.open ?? null,
-                body: container.querySelector('dl, pre') !== null,
-            }).toEqual(expected)
+        // The tree for the 200,000-item value takes about half a second to render, more on a busy runner.
+        await waitFor(
+            () =>
+                expect({
+                    open: container.querySelector('details')?.open ?? null,
+                    body: container.querySelector('dl, pre, .react-json-view') !== null,
+                }).toEqual(expected),
+            { timeout: 5000 }
         )
     })
 })

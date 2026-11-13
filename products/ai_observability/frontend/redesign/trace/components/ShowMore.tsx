@@ -11,16 +11,18 @@ export interface ShowMoreProps {
     children: ReactNode
     /** Content whose text shows this query is never cut, so the search highlights in it stay visible. */
     highlightQuery?: string | null
+    /** Cuts at half the usual height, for a block that sits inside a section with its own cut. */
+    compact?: boolean
     className?: string
 }
 
-function useIsTallerThanWindow(content: HTMLElement | null): boolean {
+function useIsTallerThanWindow(content: HTMLElement | null, windowShare: number): boolean {
     const [isTall, setIsTall] = useState(false)
     useLayoutEffect(() => {
         if (!content) {
             return
         }
-        const measure = (): void => setIsTall(content.offsetHeight > window.innerHeight)
+        const measure = (): void => setIsTall(content.offsetHeight > window.innerHeight * windowShare)
         measure()
         const observer = new ResizeObserver(measure)
         observer.observe(content)
@@ -29,18 +31,18 @@ function useIsTallerThanWindow(content: HTMLElement | null): boolean {
             observer.disconnect()
             window.removeEventListener('resize', measure)
         }
-    }, [content])
+    }, [content, windowShare])
     return isTall
 }
 
 /** Cuts content taller than the window to half the window's height, with a "Show more" that shows the rest. */
-export function ShowMore({ children, highlightQuery = null, className }: ShowMoreProps): JSX.Element {
+export function ShowMore({ children, highlightQuery = null, compact = false, className }: ShowMoreProps): JSX.Element {
     const containerRef = useRef<HTMLDivElement>(null)
     const [content, setContent] = useState<HTMLDivElement | null>(null)
     const [isExpanded, setIsExpanded] = useState(false)
     const scrollAfterCollapse = useRef(false)
     const contentId = useId()
-    const isTall = useIsTallerThanWindow(content)
+    const isTall = useIsTallerThanWindow(content, compact ? 0.5 : 1)
     const isForcedOpen = useShowsQuery(content, highlightQuery)
     const isCut = isTall && !isExpanded && !isForcedOpen
 
@@ -80,7 +82,8 @@ export function ShowMore({ children, highlightQuery = null, className }: ShowMor
                 id={contentId}
                 className={cn(
                     isCut &&
-                        'max-h-[50vh] overflow-clip [mask-image:linear-gradient(to_bottom,black_calc(100%_-_4rem),transparent)]'
+                        'overflow-clip [mask-image:linear-gradient(to_bottom,black_calc(100%_-_4rem),transparent)]',
+                    isCut && (compact ? 'max-h-[25vh]' : 'max-h-[50vh]')
                 )}
                 // Keyboard focus can reach a link in the cut part, so the content opens to show it.
                 onFocus={isCut ? () => setIsExpanded(true) : undefined}

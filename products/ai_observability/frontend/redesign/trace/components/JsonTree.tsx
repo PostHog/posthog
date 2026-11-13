@@ -1,0 +1,38 @@
+import { useMemo } from 'react'
+
+import { JSONViewer } from 'lib/components/JSONViewer'
+
+import type { JSONDisplayContainer } from '../../../components/JSONValueDisplay'
+import { searchableText } from './jsonText'
+import { ShowMore } from './ShowMore'
+
+const OPEN_DEPTH = 2
+// Captured values can nest thousands of levels deep, and React renders nested components recursively.
+const SEARCH_OPEN_DEPTH = 64
+
+export interface JsonTreeProps {
+    src: JSONDisplayContainer
+    highlightQuery?: string | null
+}
+
+export function JsonTree({ src, highlightQuery = null }: JsonTreeProps): JSX.Element {
+    // A collapsed node is not in the page, so the trace search cannot mark a match inside it.
+    const showsQuery = useMemo(
+        () => !!highlightQuery && searchableText(src).toLowerCase().includes(highlightQuery.toLowerCase()),
+        [src, highlightQuery]
+    )
+
+    // Strings keep their line breaks and wrap between words, where the viewer's inline style splits words.
+    return (
+        <ShowMore highlightQuery={highlightQuery} compact>
+            <div className="min-w-0 [&_.string-value]:whitespace-pre-wrap [&_.string-value]:![word-break:normal]">
+                <JSONViewer
+                    key={showsQuery ? 'open' : 'collapsed'}
+                    src={src}
+                    collapsed={showsQuery ? SEARCH_OPEN_DEPTH : OPEN_DEPTH}
+                    escapeStrings={false}
+                />
+            </div>
+        </ShowMore>
+    )
+}
