@@ -224,13 +224,35 @@ class TestAdaptedChecks:
                 False,
             ),
             (
-                "email_from_a_tool_result",
+                "email_from_a_tool_result_still_counts",
                 adapters.sensitive_data(),
                 [
                     ("$ai_span", {"$ai_span_name": "query", "$ai_output_state": {"rows": ["jane.doe@acme.io"]}}),
                     _answer("The user is jane.doe@acme.io"),
                 ],
-                True,
+                False,
+            ),
+            (
+                "email_from_the_system_prompt_still_counts",
+                adapters.sensitive_data(),
+                [
+                    _answer(
+                        "Write to ops@acme.io",
+                        **{"$ai_input": [{"role": "system", "content": "Escalations go to ops@acme.io"}]},
+                    )
+                ],
+                False,
+            ),
+            (
+                "address_inside_a_longer_given_address",
+                adapters.sensitive_data(),
+                [
+                    _answer(
+                        "Write to support@acme.io",
+                        **{"$ai_input": [{"role": "user", "content": "Is techsupport@acme.io right?"}]},
+                    )
+                ],
+                False,
             ),
             (
                 "otel_tool_call_parts_repeat",
