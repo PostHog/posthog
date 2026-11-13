@@ -27,7 +27,7 @@ import { resolveHmacSha256Secret, signHmacSha256Request } from '../utils/hmac-sh
 import { createInvocationResult } from '../utils/invocation-utils'
 import { isNonFailureStatus } from '../utils/non-failure-status-codes'
 import { ScopedServiceJwt } from '../utils/scoped-service-jwt'
-import { mergeSecretHeaders, resolveSecretHeaders } from '../utils/secret-headers'
+import { overrideHeaders, resolveSecretHeaders } from '../utils/secret-headers'
 import { resolveStandardWebhooksKey, signStandardWebhooksRequest } from '../utils/standard-webhooks'
 import { HogExecutorExecuteOptions, HogExecutorPreviousResult, HogExecutorService } from './hog-executor.service'
 import { HogInputsService } from './hog-inputs.service'
@@ -473,12 +473,12 @@ export class HogExecutorAsyncService {
             if (!resolved.ok) {
                 return failSigning(resolved.error)
             }
-            signedHeaders = mergeSecretHeaders(signedHeaders, resolved.headers)
+            signedHeaders = overrideHeaders(signedHeaders, resolved.headers)
         }
 
         // Standard Webhooks signatures embed a timestamp the receiver checks
-        // against a tolerance window (5 minutes in the reference libraries), so
-        // like AWS SigV4 below they are computed immediately before each attempt
+        // against a tolerance window (5 minutes in the reference libraries), so they
+        // are computed immediately before each attempt
         // and never persisted back to queueParameters. The `webhook-id` the
         // receiver dedupes on is the exception: it comes from the queue payload,
         // which the retry path preserves, so it stays constant across attempts.
@@ -508,7 +508,6 @@ export class HogExecutorAsyncService {
             })
         }
 
-        // SigV4 covers the headers it is given, so it runs after every signer that sets one.
         if (params.aws_sigv4) {
             const resolved = resolveAwsSigV4Credentials(params.aws_sigv4, invocation.hogFunction)
             if (!resolved.ok) {

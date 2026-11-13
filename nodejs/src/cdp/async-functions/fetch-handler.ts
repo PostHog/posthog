@@ -6,11 +6,6 @@ import { CyclotronInvocationQueueParametersFetchSchema } from '~/cdp/schema/cycl
 
 import { registerAsyncFunction } from '../async-function-registry'
 
-const withWebhookId = (signing: Record<string, unknown>, webhookId: string): Record<string, unknown> => ({
-    ...signing,
-    webhook_id: webhookId,
-})
-
 registerAsyncFunction('fetch', {
     execute: (args, _context, result) => {
         const [url, fetchOptions] = args as [string | undefined, Record<string, any> | undefined]
@@ -47,11 +42,12 @@ registerAsyncFunction('fetch', {
             // executor: it has to survive every retry of this call (the receiver
             // dedupes on it) and it must not be shared with another fetch from the
             // same invocation, which anything derived from the invocation would be.
-            // Both signers send webhook-id, so they share the one id of this delivery.
             ...(fetchOptions?.standard_webhooks
-                ? { standard_webhooks: withWebhookId(fetchOptions.standard_webhooks, webhookId) }
+                ? { standard_webhooks: { ...fetchOptions.standard_webhooks, webhook_id: webhookId } }
                 : {}),
-            ...(fetchOptions?.hmac_sha256 ? { hmac_sha256: withWebhookId(fetchOptions.hmac_sha256, webhookId) } : {}),
+            ...(fetchOptions?.hmac_sha256
+                ? { hmac_sha256: { ...fetchOptions.hmac_sha256, webhook_id: webhookId } }
+                : {}),
         })
 
         result.invocation.queueParameters = fetchQueueParameters

@@ -134,7 +134,6 @@ export const CyclotronInvocationQueueParametersFetchStandardWebhooksSchema = z.o
     webhook_id: z.string(),
 })
 
-// GitHub-style body signing for receivers that do not implement Standard Webhooks.
 export const CyclotronInvocationQueueParametersFetchHmacSha256Schema = z.object({
     secret_input: z.string(),
     webhook_id: z.string(),
