@@ -116,6 +116,7 @@ rules:
           - '/sites/*.test.*'
       owners: team-growth
     - match:
+          - '/organization/*.test.*'
           - '/project/*.test.*'
           - '/settings/organization/Approvals/*.test.*'
           - '/settings/user/passkeys/*.test.*'

@@ -198,7 +198,7 @@ export function copyTableToCsv(
     try {
         const tableData = getCsvTableData(dataTableRows, columns, query).slice(includeHeader ? 0 : 1)
 
-        const csv = Papa.unparse(tableData)
+        const csv = Papa.unparse(tableData, { escapeFormulae: true })
 
         void copyToClipboard(csv, 'table')
     } catch {
@@ -222,7 +222,7 @@ export function copyTableToExcel(dataTableRows: DataTableRow[], columns: string[
     try {
         const tableData = getCsvTableData(dataTableRows, columns, query)
 
-        const tsv = Papa.unparse(tableData, { delimiter: '\t' })
+        const tsv = Papa.unparse(tableData, { delimiter: '\t', escapeFormulae: true })
 
         void copyToClipboard(tsv, 'table')
     } catch {
