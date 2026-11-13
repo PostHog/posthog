@@ -1,7 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconPlusSmall } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonCard } from '@posthog/lemon-ui'
+import { LemonBanner, LemonCard } from '@posthog/lemon-ui'
 
 import { pluralize } from 'lib/utils/strings'
 import { PagePerformanceCard } from 'scenes/web-analytics/PagePerformanceCard'
@@ -10,6 +9,7 @@ import { PagePerformanceCardHeader } from 'scenes/web-analytics/PagePerformanceC
 import { ContentAutopilotBrandedSegmentControl } from './ContentAutopilotBrandedSegmentControl'
 import { ContentAutopilotCitedSitesTable } from './ContentAutopilotCitedSitesTable'
 import { ContentAutopilotEngineTable } from './ContentAutopilotEngineTable'
+import { ContentAutopilotFirstRunCard } from './ContentAutopilotFirstRunCard'
 import { ContentAutopilotKpiStat } from './ContentAutopilotKpiStat'
 import { contentAutopilotLogic } from './contentAutopilotLogic'
 import { ContentAutopilotOpenInsightButton } from './ContentAutopilotOpenInsightButton'
@@ -19,9 +19,10 @@ import { OVERVIEW_DAYS, contentAutopilotPromptsOverviewLogic } from './contentAu
 import { ContentAutopilotPromptsOverviewSkeleton } from './ContentAutopilotPromptsOverviewSkeleton'
 import { ContentAutopilotPromptsSearchTable } from './ContentAutopilotPromptsSearchTable'
 import { ContentAutopilotPromptsTopicTable } from './ContentAutopilotPromptsTopicTable'
-import { ContentAutopilotPromptSuggestButton } from './ContentAutopilotPromptSuggestButton'
+import { ContentAutopilotSetupCard } from './ContentAutopilotSetupCard'
+import { ContentAutopilotSetupJobCard } from './ContentAutopilotSetupJobCard'
+import { contentAutopilotSetupLogic } from './contentAutopilotSetupLogic'
 import { ContentAutopilotStatStrip } from './ContentAutopilotStatStrip'
-import { ContentAutopilotTopicQuadrant } from './ContentAutopilotTopicQuadrant'
 import { ContentAutopilotVisibilityChart } from './ContentAutopilotVisibilityChart'
 import { ContentAutopilotVisibilityDashboardButton } from './ContentAutopilotVisibilityDashboardButton'
 import { POSITION_DESCRIPTION } from './promptReport'
@@ -36,7 +37,6 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
         hasChecks,
         chartMetric,
         visibilityChart,
-        topicQuadrantGroups,
         visibilityQuery,
         sourcesQuery,
     } = useValues(contentAutopilotPromptsOverviewLogic)
@@ -45,7 +45,7 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
     )
     const { setWorkspaceTab } = useActions(contentAutopilotLogic)
     const { promptsTopic } = useValues(contentAutopilotPromptsLogic)
-    const { openAddPrompts } = useActions(contentAutopilotPromptsLogic)
+    const { job: setupJob, setupJobShown, setupContext } = useValues(contentAutopilotSetupLogic)
 
     if (overviewError === 'forbidden') {
         return <ContentAutopilotPromptsDisabled />
@@ -59,6 +59,10 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
                 Couldn't load the overview. Try again, and if it keeps happening contact support.
             </LemonBanner>
         )
+    }
+    // A setup job saves prompts partway through, so its progress stays up until the person dismisses it.
+    if (setupJob && setupJobShown) {
+        return <ContentAutopilotSetupJobCard job={setupJob} />
     }
     if (!overview || !overviewKpis || !visibilityChart || !visibilityQuery || !sourcesQuery) {
         return <ContentAutopilotPromptsOverviewSkeleton />
@@ -99,35 +103,12 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
         )
     }
     if (!hasChecks) {
-        return overview.prompts_tracked === 0 ? (
-            <LemonCard
-                hoverEffect={false}
-                className="p-6 text-center"
-                data-attr="content-autopilot-prompts-overview-no-prompts"
-            >
-                <h3 className="m-0">No prompts yet</h3>
-                <p className="m-0 mt-2 text-muted max-w-xl mx-auto">
-                    Add the questions your buyers ask AI assistants. PostHog can suggest them from your site, or you can
-                    write your own. PostHog checks them once a day and shows the results here.
-                </p>
-                <div className="mt-4 flex justify-center gap-2">
-                    <ContentAutopilotPromptSuggestButton type="primary" />
-                    <LemonButton
-                        type="secondary"
-                        icon={<IconPlusSmall />}
-                        onClick={openAddPrompts}
-                        data-attr="content-autopilot-prompts-overview-add"
-                    >
-                        Add my own
-                    </LemonButton>
-                </div>
-            </LemonCard>
-        ) : (
-            <LemonCard hoverEffect={false} className="p-4" data-attr="content-autopilot-prompts-overview-empty">
-                <h4 className="m-0">No checks yet</h4>
-                <p className="m-0 mt-1 text-muted">The daily run fills this in.</p>
-            </LemonCard>
-        )
+        const paused = setupContext?.paused_prompts ?? 0
+        if (overview.prompts_tracked > 0) {
+            return <ContentAutopilotFirstRunCard prompts={overview.prompts_tracked} />
+        }
+        // A configure-only setup saves its prompts paused, which the overview does not count.
+        return paused > 0 ? <ContentAutopilotFirstRunCard prompts={paused} paused /> : <ContentAutopilotSetupCard />
     }
 
     // The chart's legend order, so an engine sits in the same place in the chart and the table.
@@ -197,6 +178,22 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
                 </PagePerformanceCard>
                 <PagePerformanceCard className="min-w-0">
                     <PagePerformanceCardHeader
+                        title="Mentions by topic"
+                        description="Pick a topic to see its prompts."
+                    />
+                    <div className="overflow-x-auto" data-attr="content-autopilot-prompts-overview-topics">
+                        <ContentAutopilotPromptsTopicTable
+                            rows={overview.topics}
+                            selectedTopic={promptsTopic}
+                            onSelect={selectOverviewTopic}
+                        />
+                    </div>
+                </PagePerformanceCard>
+            </div>
+
+            <div className="grid grid-cols-1 @3xl/prompts-overview:grid-cols-2 gap-4">
+                <PagePerformanceCard className="min-w-0">
+                    <PagePerformanceCardHeader
                         title="Sites the engines cite most"
                         actions={
                             <ContentAutopilotOpenInsightButton
@@ -213,40 +210,20 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
                         />
                     </div>
                 </PagePerformanceCard>
-            </div>
-
-            <div className="grid grid-cols-1 @3xl/prompts-overview:grid-cols-2 gap-4">
-                {topicQuadrantGroups ? (
-                    <ContentAutopilotTopicQuadrant groups={topicQuadrantGroups} onSelectTopic={selectOverviewTopic} />
-                ) : null}
                 <PagePerformanceCard className="min-w-0">
                     <PagePerformanceCardHeader
-                        title="Mentions by topic"
-                        description="Pick a topic to see its prompts."
+                        title="What the engines searched for"
+                        description="The web searches the engines ran while answering your prompts. Expand one to see its prompts."
                     />
-                    <div className="overflow-x-auto" data-attr="content-autopilot-prompts-overview-topics">
-                        <ContentAutopilotPromptsTopicTable
-                            rows={overview.topics}
-                            selectedTopic={promptsTopic}
-                            onSelect={selectOverviewTopic}
+                    <div className="overflow-x-auto" data-attr="content-autopilot-prompts-overview-searches">
+                        <ContentAutopilotPromptsSearchTable
+                            rows={overview.top_searches}
+                            branded={overview.branded}
+                            onOpenPrompt={openOverviewSearchPrompt}
                         />
                     </div>
                 </PagePerformanceCard>
             </div>
-
-            <PagePerformanceCard className="min-w-0">
-                <PagePerformanceCardHeader
-                    title="What the engines searched for"
-                    description="The web searches the engines ran while answering your prompts. Expand one to see its prompts."
-                />
-                <div className="overflow-x-auto" data-attr="content-autopilot-prompts-overview-searches">
-                    <ContentAutopilotPromptsSearchTable
-                        rows={overview.top_searches}
-                        branded={overview.branded}
-                        onOpenPrompt={openOverviewSearchPrompt}
-                    />
-                </div>
-            </PagePerformanceCard>
         </section>
     )
 }
