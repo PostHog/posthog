@@ -850,7 +850,7 @@ describe('Hogflow Executor', () => {
                   "Executing action [Action:function_id_1]",
                   "[Action:function_id_1] Fetch 3, 200",
                   "[Action:function_id_1] All fetches done!",
-                  "[Action:function_id_1] Function completed in REPLACEDms. Sync: 0ms. Mem: 0.099kb. Ops: 32. Event: 'http://localhost:8000/events/1'",
+                  "[Action:function_id_1] Function completed in REPLACEDms. Sync: 0ms. Mem: 0.13kb. Ops: 32. Event: 'http://localhost:8000/events/1'",
                   "Workflow moved to action [Action:exit]",
                   "Executing action [Action:exit]",
                   "Workflow completed",

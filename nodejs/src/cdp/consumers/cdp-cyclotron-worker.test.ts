@@ -96,7 +96,7 @@ describe('CdpCyclotronWorker', () => {
                 },
             ])
             expect(result.logs.map((x) => x.message)).toEqual([
-                'Fetch response:, {"status":200,"body":{}}',
+                expect.stringMatching(/^Fetch response:, \{"status":200,"body":\{\},"duration_ms":\d+\}$/),
                 expect.stringContaining('Function completed in'),
             ])
         })
@@ -241,7 +241,7 @@ describe('CdpCyclotronWorker', () => {
                 },
             ])
             expect(result2.logs.map((x) => x.message)).toEqual([
-                'Fetch response:, {"status":200,"body":{}}',
+                expect.stringMatching(/^Fetch response:, \{"status":200,"body":\{\},"duration_ms":\d+\}$/),
                 expect.stringContaining('Function completed in'),
             ])
         })
