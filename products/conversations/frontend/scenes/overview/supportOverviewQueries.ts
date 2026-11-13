@@ -29,12 +29,13 @@ export type SupportOverviewNumberKey = 'open' | 'unassigned' | 'slaAtRisk' | 'sl
 // The SLA windows match the ticket list's `sla` filter, so a card and the list behind it count the same tickets.
 export const SUPPORT_OVERVIEW_NUMBERS_QUERY = `
     SELECT
-        countIf(status != 'resolved') AS open,
-        countIf(status != 'resolved' AND assignee.user_id IS NULL AND assignee.role_id IS NULL) AS unassigned,
-        countIf(status != 'resolved' AND sla_due_at >= now() AND sla_due_at <= now() + INTERVAL 1 HOUR) AS sla_at_risk,
-        countIf(status != 'resolved' AND sla_due_at < now()) AS sla_breached,
-        countIf(status != 'resolved' AND sla_due_at IS NOT NULL) AS with_sla
+        count() AS open,
+        countIf(assignee.user_id IS NULL AND assignee.role_id IS NULL) AS unassigned,
+        countIf(sla_due_at >= now() AND sla_due_at <= now() + INTERVAL 1 HOUR) AS sla_at_risk,
+        countIf(sla_due_at < now()) AS sla_breached,
+        countIf(sla_due_at IS NOT NULL) AS with_sla
     FROM system.support_tickets
+    WHERE status != 'resolved'
 `
 
 export function parseSupportOverviewNumbers(row: unknown[] | undefined): SupportOverviewNumbers {
@@ -134,6 +135,8 @@ export function firstResponseTimeQuery(dateRange: DateRange): DataVisualizationN
         kind: NodeKind.DataVisualizationNode,
         source: {
             kind: NodeKind.HogQLQuery,
+            // The range bounds the ticket creation time only. A reply sent after the range end still counts,
+            // so slow first responses stay in the median.
             query: `
                 SELECT
                     toStartOfDay(created_at) AS day,
@@ -145,11 +148,12 @@ export function firstResponseTimeQuery(dateRange: DateRange): DataVisualizationN
                         minIf(timestamp, event = '$conversation_message_sent') AS first_reply_at
                     FROM events
                     WHERE event IN ('$conversation_ticket_created', '$conversation_message_sent')
-                        AND {filters}
+                        AND timestamp >= {filters.dateRange.from}
                     GROUP BY ticket_id
                     HAVING countIf(event = '$conversation_ticket_created') > 0
                         AND countIf(event = '$conversation_message_sent') > 0
                         AND first_reply_at >= created_at
+                        AND created_at <= {filters.dateRange.to}
                 )
                 GROUP BY day
                 ORDER BY day
