@@ -1928,10 +1928,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                 const results = items.results.filter(
                     (entry) =>
                         !deletedSince.some((deleted) =>
-                            deleted.type === 'folder'
-                                ? isPathUnder(entry.path, deleted.path)
-                                : entry.id === deleted.id ||
-                                  (!!deleted.ref && entry.ref === deleted.ref && entry.type === deleted.type)
+                            deleted.type === 'folder' ? isPathUnder(entry.path, deleted.path) : entry.id === deleted.id
                         )
                 )
                 actions.addLoadedResults({ ...items, results } as any as SearchResults)
