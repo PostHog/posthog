@@ -3,7 +3,7 @@ import { nameOf } from '../environment/identity'
 import type { RoleExit } from '../environment/supervisor'
 import type { DriveSummary } from '../generator/generator'
 import type { Convergence, InvariantResult } from '../judge/judge'
-import type { Baseline } from '../judge/measurements'
+import { Baseline, MIN_BASELINE_SECONDS } from '../judge/measurements'
 import type { ValveTimelineEntry } from '../valves/valves'
 
 export type Status = 'passed' | 'failed' | 'invalid'
@@ -23,6 +23,12 @@ const rate = (perSecond: number): string => `${Number(perSecond.toFixed(2))}/s`
 
 export function admissionsOf({ load, host }: Pick<Profile, 'load' | 'host'>, baseline: Baseline): Admission[] {
     const admissions: Admission[] = []
+    const unmeasurable =
+        baseline.seconds <= 0
+            ? 'the drive had no baseline before its valve'
+            : baseline.seconds >= MIN_BASELINE_SECONDS
+              ? undefined
+              : `the baseline was too short to measure: ${Number(baseline.seconds.toFixed(1))}s, under the ${MIN_BASELINE_SECONDS}s minimum`
     if (load) {
         const { targets, tolerance } = load
         const checks: RateCheck[] = [
@@ -44,8 +50,8 @@ export function admissionsOf({ load, host }: Pick<Profile, 'load' | 'host'>, bas
                     `${what} ${measured === undefined ? 'unmeasured' : rate(measured)}, not within ${percent(tolerance)} of ${rate(target)}`
             )
         admissions.push(
-            baseline.seconds <= 0
-                ? { name: 'load', passed: false, reason: 'the drive had no baseline before its valve' }
+            unmeasurable !== undefined
+                ? { name: 'load', passed: false, reason: unmeasurable }
                 : misses.length > 0
                   ? { name: 'load', passed: false, reason: misses.join(', ') }
                   : {
@@ -58,13 +64,15 @@ export function admissionsOf({ load, host }: Pick<Profile, 'load' | 'host'>, bas
     if (host) {
         const { hostBusyShare } = baseline
         admissions.push(
-            hostBusyShare === undefined
-                ? { name: 'host', passed: false, reason: 'no host CPU sample covers the baseline' }
-                : {
-                      name: 'host',
-                      passed: hostBusyShare < host.cpuCeiling,
-                      reason: `host CPU ${percent(hostBusyShare)} busy in the baseline, ${hostBusyShare < host.cpuCeiling ? 'under' : 'over'} the ${percent(host.cpuCeiling)} ceiling`,
-                  }
+            unmeasurable !== undefined
+                ? { name: 'host', passed: false, reason: unmeasurable }
+                : hostBusyShare === undefined
+                  ? { name: 'host', passed: false, reason: 'no host CPU sample covers the baseline' }
+                  : {
+                        name: 'host',
+                        passed: hostBusyShare < host.cpuCeiling,
+                        reason: `host CPU ${percent(hostBusyShare)} busy in the baseline, ${hostBusyShare < host.cpuCeiling ? 'under' : 'over'} the ${percent(host.cpuCeiling)} ceiling`,
+                    }
         )
     }
     return admissions

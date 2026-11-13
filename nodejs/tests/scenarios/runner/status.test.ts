@@ -221,6 +221,23 @@ describe('statusOf', () => {
             [{ name: 'load', passed: false, reason: 'the drive had no baseline before its valve' }],
         ],
         [
+            'refuses both admissions when the baseline was too short to measure',
+            { load: LOAD, host: { cpuCeiling: 0.7 } },
+            { seconds: 4.2 },
+            [
+                {
+                    name: 'load',
+                    passed: false,
+                    reason: 'the baseline was too short to measure: 4.2s, under the 30s minimum',
+                },
+                {
+                    name: 'host',
+                    passed: false,
+                    reason: 'the baseline was too short to measure: 4.2s, under the 30s minimum',
+                },
+            ],
+        ],
+        [
             'admits a host under its CPU ceiling',
             { host: { cpuCeiling: 0.7 } },
             {},

@@ -25,7 +25,10 @@ function sqlstateOf(error: unknown): { sqlstate?: string } {
     return typeof code === 'string' && SQLSTATE.test(code) ? { sqlstate: code } : {}
 }
 
-export async function createWriterProbe(cyclotronUrl: string): Promise<WriterProbe> {
+export async function createWriterProbe(
+    cyclotronUrl: string,
+    applicationName = 'scenario-writer-probe'
+): Promise<WriterProbe> {
     await withPostgres(
         (client) =>
             client.query(
@@ -43,7 +46,7 @@ export async function createWriterProbe(cyclotronUrl: string): Promise<WriterPro
         if (open === undefined) {
             const client = new Client({
                 connectionString: cyclotronUrl,
-                application_name: 'scenario-writer-probe',
+                application_name: applicationName,
                 connectionTimeoutMillis: TIMEOUT_MS,
                 statement_timeout: TIMEOUT_MS,
                 query_timeout: TIMEOUT_MS,

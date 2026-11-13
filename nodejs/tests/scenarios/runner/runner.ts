@@ -103,11 +103,10 @@ type Probes = { stop(): Promise<Probed> }
 
 async function startProbes(cyclotronUrl: string, probe: CyclotronProbe, teams: number[]): Promise<Probes> {
     const writerProbe: WriterProbe = await createWriterProbe(cyclotronUrl)
-    const since = new Date()
     const writer: Sampling<WriterSample> = sampleEvery(WRITER_PROBE_EVERY_MS, () => writerProbe.sample())
     const queue: Sampling<QueueSample> = sampleEvery(QUEUE_PROBE_EVERY_MS, async () => {
         const at = Date.now()
-        return probe.counts({ teams, queues: PROBED_QUEUES, since }).then(
+        return probe.counts({ teams, queues: PROBED_QUEUES }).then(
             (counts) => ({ at, ...counts }),
             (error: unknown) => ({ at, error: messageOf(error) })
         )

@@ -1,9 +1,10 @@
 import { defaultConfig } from '~/common/config/config'
 
-import { scratchSchema, terminateRoleConnections, withPostgres } from '../environment/stack'
+import { scratchSchema, withPostgres } from '../environment/stack'
 import { createWriterProbe } from './writer-probe'
 
 const SCHEMA = scratchSchema(defaultConfig.CYCLOTRON_NODE_DATABASE_URL!, `scenario_writer_${process.pid}`, [])
+const APPLICATION_NAME = `scenario-writer-probe-test-${process.pid}`
 
 describe('writer probe', () => {
     beforeEach(async () => {
@@ -14,11 +15,17 @@ describe('writer probe', () => {
         await SCHEMA.drop()
     })
 
-    it('commits one row per sample on its own table, loses its connection to a drop of the roles, and reconnects', async () => {
-        const probe = await createWriterProbe(SCHEMA.url)
+    it('commits one row per sample on its own table, loses its connection when its backend is terminated, and reconnects', async () => {
+        const probe = await createWriterProbe(SCHEMA.url, APPLICATION_NAME)
         try {
             const before = await probe.sample()
-            await terminateRoleConnections(defaultConfig.CYCLOTRON_NODE_DATABASE_URL!, 1)
+            await withPostgres(
+                (client) =>
+                    client.query('SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE application_name = $1', [
+                        APPLICATION_NAME,
+                    ]),
+                SCHEMA.url
+            )
             const cut = await probe.sample()
             const after = await probe.sample()
 

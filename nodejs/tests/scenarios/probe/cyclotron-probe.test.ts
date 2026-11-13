@@ -1,7 +1,8 @@
 import { defaultConfig } from '~/common/config/config'
+import { waitForExpect } from '~/tests/helpers/expectations'
 
 import { scratchSchema, withPostgres } from '../environment/stack'
-import { createCyclotronProbe } from './cyclotron-probe'
+import { Queue, QueueCounts, createCyclotronProbe } from './cyclotron-probe'
 
 const SCHEMA = scratchSchema(defaultConfig.CYCLOTRON_NODE_DATABASE_URL!, `scenario_probe_${process.pid}`, [
     'cyclotron_jobs',
@@ -10,7 +11,7 @@ const PROBE_URL = SCHEMA.url
 const OURS = 9999101
 const THEIRS = 9999102
 
-type Job = { team: number; queue: string; status: string; scheduledInS?: number; createdInS?: number }
+type Job = { team: number; queue: string; status: string; scheduledInS?: number }
 
 describe('cyclotron probe', () => {
     beforeAll(async () => {
@@ -31,15 +32,14 @@ describe('cyclotron probe', () => {
                 client.query(
                     `INSERT INTO cyclotron_jobs (id, team_id, queue_name, status, priority, scheduled, created, last_transition)
                      SELECT gen_random_uuid(), team, queue, status::public.cyclotronjobstatus, 0,
-                            now() + make_interval(secs => scheduled_in), now() + make_interval(secs => created_in), now()
-                     FROM unnest($1::int[], $2::text[], $3::text[], $4::float8[], $5::float8[])
-                         AS job(team, queue, status, scheduled_in, created_in)`,
+                            now() + make_interval(secs => scheduled_in), now(), now()
+                     FROM unnest($1::int[], $2::text[], $3::text[], $4::float8[])
+                         AS job(team, queue, status, scheduled_in)`,
                     [
                         jobs.map((job) => job.team),
                         jobs.map((job) => job.queue),
                         jobs.map((job) => job.status),
                         jobs.map((job) => job.scheduledInS ?? 0),
-                        jobs.map((job) => job.createdInS ?? 0),
                     ]
                 ),
             PROBE_URL
@@ -105,30 +105,45 @@ describe('cyclotron probe', () => {
         expect(await probe.runningJobs({ teams: [OURS], queues: ['email'] })).toBe(2)
     })
 
-    it.each<[string, Job[], { due: number; running: number; oldestDueSeconds: number; created: number }]>([
-        ['reads an empty queue as no lag', [], { due: 0, running: 0, oldestDueSeconds: 0, created: 0 }],
+    const QUEUES = { teams: [OURS], queues: ['hogflow', 'email'] as Queue[] }
+
+    it.each<[string, Job[], Omit<QueueCounts, 'inserted'>]>([
+        ['reads an empty queue as no lag', [], { due: 0, running: 0, oldestDueSeconds: 0 }],
         [
-            'counts due and running jobs of the teams, the oldest due age, and the jobs created since the instant given',
+            'counts due and running jobs of the teams and the age of the oldest due one',
             [
-                { team: OURS, queue: 'email', status: 'available', scheduledInS: -30, createdInS: -30 },
-                { team: OURS, queue: 'hogflow', status: 'available', scheduledInS: -5, createdInS: -5 },
-                { team: OURS, queue: 'hogflow', status: 'available', scheduledInS: 600, createdInS: -5 },
-                { team: OURS, queue: 'email', status: 'running', scheduledInS: -400, createdInS: -400 },
-                { team: OURS, queue: 'email', status: 'completed', scheduledInS: -500, createdInS: -500 },
-                { team: OURS, queue: 'hog', status: 'available', scheduledInS: -900, createdInS: -5 },
-                { team: THEIRS, queue: 'email', status: 'available', scheduledInS: -900, createdInS: -5 },
+                { team: OURS, queue: 'email', status: 'available', scheduledInS: -30 },
+                { team: OURS, queue: 'hogflow', status: 'available', scheduledInS: -5 },
+                { team: OURS, queue: 'hogflow', status: 'available', scheduledInS: 600 },
+                { team: OURS, queue: 'email', status: 'running', scheduledInS: -400 },
+                { team: OURS, queue: 'email', status: 'completed', scheduledInS: -500 },
+                { team: OURS, queue: 'hog', status: 'available', scheduledInS: -900 },
+                { team: THEIRS, queue: 'email', status: 'available', scheduledInS: -900 },
             ],
-            { due: 2, running: 1, oldestDueSeconds: 30, created: 3 },
+            { due: 2, running: 1, oldestDueSeconds: 30 },
         ],
-    ])('%s', async (_story, jobs, expected) => {
+    ])('%s', async (_story, jobs, { oldestDueSeconds, ...expected }) => {
+        const insertedAt = Date.now()
         await insert(jobs)
 
-        const counts = await createCyclotronProbe(PROBE_URL).counts({
-            teams: [OURS],
-            queues: ['hogflow', 'email'],
-            since: new Date(Date.now() - 60_000),
-        })
+        const { due, running, oldestDueSeconds: age } = await createCyclotronProbe(PROBE_URL).counts(QUEUES)
 
-        expect({ ...counts, oldestDueSeconds: Math.round(counts.oldestDueSeconds) }).toEqual(expected)
+        expect({ due, running }).toEqual(expected)
+        expect(age).toBeGreaterThanOrEqual(oldestDueSeconds)
+        expect(age).toBeLessThanOrEqual(oldestDueSeconds + (Date.now() - insertedAt) / 1000)
+    })
+
+    it('counts every job inserted into the table, including the ones the janitor already deleted', async () => {
+        const probe = createCyclotronProbe(PROBE_URL)
+        const before = (await probe.counts(QUEUES)).inserted
+
+        await insert([
+            { team: OURS, queue: 'email', status: 'completed' },
+            { team: OURS, queue: 'hogflow', status: 'completed' },
+            { team: OURS, queue: 'hogflow', status: 'available' },
+        ])
+        await withPostgres((client) => client.query("DELETE FROM cyclotron_jobs WHERE status = 'completed'"), PROBE_URL)
+
+        await waitForExpect(async () => expect((await probe.counts(QUEUES)).inserted - before).toBe(3))
     })
 })
