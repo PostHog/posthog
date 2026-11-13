@@ -107,21 +107,18 @@ class TestJevTagger(SimpleTestCase):
     @parameterized.expand(
         [
             ("at_yes_threshold", 0.8, True),
-            ("between_thresholds", 0.5, None),
+            ("just_below_yes_threshold", 0.79, False),
             ("at_no_threshold", 0.2, False),
         ]
     )
-    def test_maps_the_probability_through_the_tag_thresholds(
-        self, _name: str, probability: float, expected: bool | None
+    def test_applies_the_label_only_at_or_above_the_yes_threshold(
+        self, _name: str, probability: float, applied: bool
     ) -> None:
         with patch(DECIDE, return_value=_decision({"blocks_checkout": NoulAnswer(probability=probability)})):
             answers = JevTagger().answer(self._context(), [BLOCKS_CHECKOUT])
 
-        assert answers == {
-            "blocks_checkout": TagAnswer(
-                value=expected, probability=probability, model="jev-model", question_version=2, set_by=None
-            )
-        }
+        label = TagAnswer(value=True, probability=probability, model="jev-model", question_version=2, set_by=None)
+        assert answers == ({"blocks_checkout": label} if applied else {})
 
     def test_asks_every_tag_in_one_private_request_and_leaves_out_an_unanswered_tag(self) -> None:
         with patch(DECIDE, return_value=_decision({"blocks_checkout": NoulAnswer(probability=0.9)})) as decide:
@@ -216,7 +213,7 @@ class TestRunIssueTaggers(BaseTest):
         with (
             patch.object(registry, "ISSUE_TAG_DEFINITIONS", (definition,)),
             patch.object(runner, "TAGGERS", (_FailingTagger(error), JevTagger())),
-            patch(DECIDE, return_value=_decision({"cause_in_trace": NoulAnswer(probability=0.1)})),
+            patch(DECIDE, return_value=_decision({"cause_in_trace": NoulAnswer(probability=0.9)})),
         ):
             result = run_issue_taggers(self.team.id, issue.id, lambda team: EVENT_PROPERTIES)
 
@@ -224,7 +221,7 @@ class TestRunIssueTaggers(BaseTest):
             TaggerRun(source=NEW_TAGGER, error=error),
             TaggerRun(source=Source.JEV),
         )
-        assert ErrorTrackingIssueTag.objects.for_team(self.team.id).get(issue=issue).value is False
+        assert ErrorTrackingIssueTag.objects.for_team(self.team.id).get(issue=issue).value is True
 
     def test_returns_cleanly_when_a_merge_removes_the_issue_while_jev_answers(self) -> None:
         issue = ErrorTrackingIssue.objects.create(team=self.team)

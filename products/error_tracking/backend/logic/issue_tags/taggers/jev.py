@@ -46,8 +46,11 @@ class JevTagger:
                     answer=repr(answer),
                 )
                 continue
+            # Any Jev row blocks the taggers ranked below Jev, so Jev writes a row only when it applies the label.
+            if answer.probability < configs[definition.key].yes_at:
+                continue
             answers[definition.key] = TagAnswer(
-                value=_value(configs[definition.key], answer.probability),
+                value=True,
                 probability=answer.probability,
                 model=result.model,
                 question_version=definition.question_version,
@@ -61,11 +64,3 @@ def _jev_config(definition: IssueTagDefinition) -> JevTaggerConfig:
         if isinstance(tagger, JevTaggerConfig):
             return tagger
     raise ValueError(f"the issue tag {definition.key!r} has no Jev tagger")
-
-
-def _value(config: JevTaggerConfig, probability: float) -> bool | None:
-    if probability >= config.yes_at:
-        return True
-    if probability <= config.no_at:
-        return False
-    return None
