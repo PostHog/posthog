@@ -3,14 +3,14 @@ import { CyclotronJobInvocationResult } from '../types'
 import { createInvocationResult } from '../utils/invocation-utils'
 import { CapturedEventsService } from './captured-events/captured-events.service'
 import { ConversionWatchersService } from './conversion-watchers/conversion-watchers.service'
-import { InvocationResultsService } from './invocation-results.service'
+import { InvocationResultsService, ResultSink } from './invocation-results.service'
 import { EmailStatusService } from './messaging/email-status.service'
 import { MessageAssetsService } from './messaging/message-assets.service'
 import { HogFunctionMonitoringService } from './monitoring/hog-function-monitoring.service'
 import { HogInvocationResultsService } from './monitoring/hog-invocation-results.service'
 import { WarehouseWebhooksService } from './warehouse/warehouse-webhooks.service'
 
-class RecordingSink {
+class RecordingSink implements ResultSink {
     pending: CyclotronJobInvocationResult[] = []
     delivered: CyclotronJobInvocationResult[] = []
 
@@ -29,12 +29,30 @@ class RecordingSink {
     }
 }
 
-const serviceWithRecordingSinks = (): { service: InvocationResultsService; sinks: RecordingSink[] } => {
+type SinkState = Pick<RecordingSink, 'pending' | 'delivered'>
+
+const serviceWithRecordingSinks = (): {
+    recordingService: InvocationResultsService
+    sinkStates: () => Record<string, SinkState>
+    everySink: (state: SinkState) => Record<string, SinkState>
+} => {
     const sinks = Array.from({ length: InvocationResultsService.length }, () => new RecordingSink())
-    const service = new InvocationResultsService(
+    const recordingService = new InvocationResultsService(
         ...(sinks as unknown as ConstructorParameters<typeof InvocationResultsService>)
     )
-    return { service, sinks }
+    const names = sinks.map(
+        (sink, index) =>
+            Object.entries(recordingService).find(([, field]) => field === sink)?.[0] ??
+            `constructor parameter ${index}`
+    )
+    return {
+        recordingService,
+        sinkStates: () =>
+            Object.fromEntries(
+                sinks.map((sink, index) => [names[index], { pending: sink.pending, delivered: sink.delivered }])
+            ),
+        everySink: (state) => Object.fromEntries(names.map((name) => [name, state])),
+    }
 }
 
 const invocationResults = [
@@ -106,13 +124,11 @@ describe('InvocationResultsService', () => {
 
     describe('queueInvocationResults', () => {
         it('fans the same results out to every sink without flushing them', async () => {
-            const { service, sinks } = serviceWithRecordingSinks()
+            const { recordingService, sinkStates, everySink } = serviceWithRecordingSinks()
 
-            await service.queueInvocationResults(invocationResults)
+            await recordingService.queueInvocationResults(invocationResults)
 
-            expect(sinks.map(({ pending, delivered }) => ({ pending, delivered }))).toEqual(
-                sinks.map(() => ({ pending: invocationResults, delivered: [] }))
-            )
+            expect(sinkStates()).toEqual(everySink({ pending: invocationResults, delivered: [] }))
         })
 
         it('awaits the captured-events service (which is async)', async () => {
@@ -144,14 +160,12 @@ describe('InvocationResultsService', () => {
 
     describe('flush', () => {
         it('flushes every sink', async () => {
-            const { service, sinks } = serviceWithRecordingSinks()
-            await service.queueInvocationResults(invocationResults)
+            const { recordingService, sinkStates, everySink } = serviceWithRecordingSinks()
+            await recordingService.queueInvocationResults(invocationResults)
 
-            await service.flush()
+            await recordingService.flush()
 
-            expect(sinks.map(({ pending, delivered }) => ({ pending, delivered }))).toEqual(
-                sinks.map(() => ({ pending: [], delivered: invocationResults }))
-            )
+            expect(sinkStates()).toEqual(everySink({ pending: [], delivered: invocationResults }))
         })
 
         it('flushes all in parallel (all start before any finish)', async () => {
