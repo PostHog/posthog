@@ -63,6 +63,7 @@ import { IntercomImportSection } from 'products/conversations/frontend/scenes/se
 import { LearnFromSupportSection } from 'products/conversations/frontend/scenes/settings/LearnFromSupportSection'
 import { MacrosSection } from 'products/conversations/frontend/scenes/settings/MacrosSection'
 import { NotificationsSection } from 'products/conversations/frontend/scenes/settings/NotificationsSection'
+import { PylonImportSection } from 'products/conversations/frontend/scenes/settings/PylonImportSection'
 import { ZendeskImportSection } from 'products/conversations/frontend/scenes/settings/ZendeskImportSection'
 import { CustomerAnalyticsNotifications } from 'products/customer_analytics/frontend/components/TaskDigest/CustomerAnalyticsNotifications'
 import { AccountTrackRules } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/account/AccountTrackRules'
@@ -1706,10 +1707,11 @@ export const SETTINGS_MAP: SettingSection[] = [
                     <>
                         <ZendeskImportSection />
                         <IntercomImportSection />
+                        <PylonImportSection />
                     </>
                 ),
                 allowForTeam: (t) => !!t?.conversations_enabled,
-                keywords: ['import', 'zendesk', 'intercom', 'migrate', 'ticket', 'support', 'conversation'],
+                keywords: ['import', 'zendesk', 'intercom', 'pylon', 'migrate', 'ticket', 'support', 'conversation'],
             },
             {
                 id: 'conversations-macros',
