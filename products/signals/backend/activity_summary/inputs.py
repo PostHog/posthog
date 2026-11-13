@@ -4,6 +4,7 @@ in-region Postgres, and the calls of the user's MCP agent, from the Redis MCP in
 import json
 import datetime
 from collections.abc import Callable, Iterable
+from typing import Any
 
 from django.conf import settings
 from django.db.models import Case, TextField, Value, When
@@ -23,6 +24,7 @@ from products.signals.backend.activity_summary.render import (
     INBOX_ARTEFACT_TYPES,
     INBOX_DISMISSAL,
     INBOX_NOTE,
+    INBOX_REVIEWER_CORRECTIONS,
     MAX_ACTIVITY_ROWS_PER_PERSON,
     MAX_INBOX_ROWS_PER_PERSON,
     MAX_TASKS_PER_PERSON,
@@ -38,6 +40,7 @@ from products.signals.backend.activity_summary.render import (
     McpItem,
     Parent,
     ParentLookup,
+    ReviewerChange,
     TaskItem,
     ViewItem,
 )
@@ -164,14 +167,33 @@ def user_views(team_id: int, user_id: int, start: datetime.datetime, end: dateti
     return items
 
 
-def _artefact_fields(artefact_type: str, content: str | None) -> dict[str, str | None]:
-    """The verdict, reason and note of a dismissal, or the text of a note. A row that does not parse has none."""
+def _reviewer_change(parsed: dict[str, Any], user_uuid: str | None) -> ReviewerChange:
+    """Whether the corrections leave the person excluded or pinned. Entries are dicts with an optional `user_uuid`."""
+
+    def names_user(key: str) -> bool:
+        entries = parsed.get(key)
+        return isinstance(entries, list) and any(
+            isinstance(entry, dict) and entry.get("user_uuid") == user_uuid for entry in entries
+        )
+
+    if user_uuid and names_user("excluded"):
+        return "removed_self"
+    if user_uuid and names_user("pinned"):
+        return "added_self"
+    return "others"
+
+
+def _artefact_fields(artefact_type: str, content: str | None, user_uuid: str | None) -> dict[str, Any]:
+    """The verdict, reason and note of a dismissal, the text of a note, or the direction of a reviewer
+    correction. A row that does not parse has none."""
     try:
         parsed = json.loads(content) if content else None
     except ValueError:
         parsed = None
     if not isinstance(parsed, dict):
         return {}
+    if artefact_type == INBOX_REVIEWER_CORRECTIONS:
+        return {"reviewer_change": _reviewer_change(parsed, user_uuid)}
     fields = {"note": parsed.get("note")}
     if artefact_type == INBOX_DISMISSAL:
         fields.update(state=parsed.get("state"), reason=parsed.get("reason"))
@@ -194,7 +216,7 @@ def user_inbox(team_id: int, user_id: int, start: datetime.datetime, end: dateti
             :MAX_INBOX_ROWS_PER_PERSON
         ]
     )
-    # Only dismissals and notes need their content. A summary change holds two whole summaries.
+    # Only dismissals, notes and reviewer corrections need their content. A summary change holds two whole summaries.
     artefacts = (
         SignalReportArtefact.objects.filter(
             team_id=team_id,
@@ -207,14 +229,21 @@ def user_inbox(team_id: int, user_id: int, start: datetime.datetime, end: dateti
         .order_by("-created_at")
         .annotate(
             parsed_content=Case(
-                When(type__in=(INBOX_DISMISSAL, INBOX_NOTE), then="content"),
+                When(type__in=(INBOX_DISMISSAL, INBOX_NOTE, INBOX_REVIEWER_CORRECTIONS), then="content"),
                 default=Value(None),
                 output_field=TextField(),
             )
         )
-        .values_list("report_id", "report__title", "type", "created_at", "parsed_content", "task_id", "actor_kind")[
-            :MAX_INBOX_ROWS_PER_PERSON
-        ]
+        .values_list(
+            "report_id",
+            "report__title",
+            "type",
+            "created_at",
+            "parsed_content",
+            "task_id",
+            "actor_kind",
+            "created_by__uuid",
+        )[:MAX_INBOX_ROWS_PER_PERSON]
     )
     return InboxActivity(
         actions=tuple(
@@ -236,9 +265,9 @@ def user_inbox(team_id: int, user_id: int, start: datetime.datetime, end: dateti
                 type=artefact_type,
                 at=created_at,
                 by_agent=bool(task_id) or actor_kind not in (None, SignalActorKind.USER),
-                **_artefact_fields(artefact_type, content),
+                **_artefact_fields(artefact_type, content, str(user_uuid) if user_uuid else None),
             )
-            for report_id, title, artefact_type, created_at, content, task_id, actor_kind in artefacts
+            for report_id, title, artefact_type, created_at, content, task_id, actor_kind, user_uuid in artefacts
         ),
     )
 
