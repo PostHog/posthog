@@ -1272,6 +1272,8 @@ class TestTransactionalEmail(APIBaseTest):
         self, mock_post, flag, _capture, _name, reason, fields, attr
     ):
         self._without_a_verified_sender(unverified_sender=True)
+        pipeline = FakeCdpApi()
+        mock_post.side_effect = pipeline.post
         if reason == "flag_off":
             flag.side_effect = lambda key, *args, **kwargs: key != SANDBOX_SENDER_FLAG
         else:
@@ -1284,7 +1286,7 @@ class TestTransactionalEmail(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert (response.json()["code"], response.json()["attr"]) == ("sender_not_verified", attr)
         assert self._sandbox_senders() == []
-        mock_post.assert_not_called()
+        assert pipeline.queued == []
 
     @parameterized.expand(
         [
@@ -1299,6 +1301,8 @@ class TestTransactionalEmail(APIBaseTest):
         self, mock_post, _flag, _capture, field, fields
     ):
         self._without_a_verified_sender(unverified_sender=False)
+        pipeline = FakeCdpApi()
+        mock_post.side_effect = pipeline.post
         refusals_before = _sandbox_fallbacks("fields_unsupported")
 
         response = self._psak_client(["hog_flow:write"]).post(
@@ -1311,7 +1315,7 @@ class TestTransactionalEmail(APIBaseTest):
         assert (body["type"], body["code"], body["attr"]) == ("invalid_request", "sandbox_fields_unsupported", field)
         assert self._setup_url(None) in body["detail"]
         assert self._sandbox_senders() == []
-        mock_post.assert_not_called()
+        assert pipeline.queued == []
 
     def test_refuses_a_code_send_from_an_unverified_domain(self, mock_post, _flag, capture):
         response = self._psak_client(["hog_flow:write"]).post(
