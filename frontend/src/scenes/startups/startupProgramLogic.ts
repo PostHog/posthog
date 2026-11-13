@@ -34,6 +34,7 @@ export interface StartupProgramFormValues {
     yc_batch?: string
     yc_proof_screenshot_url?: string
     yc_merch_count?: number
+    referrer?: string
 }
 
 export interface StartupProgramLogicProps {
@@ -95,6 +96,17 @@ function validateYcVerificationUrl(url: string | undefined, isYC: boolean): stri
     }
     if (!YC_VERIFICATION_URL_REGEX.test(url.trim())) {
         return 'This should look like https://www.ycombinator.com/verify/your-unique-code'
+    }
+    return undefined
+}
+
+// Partner pages carry the referrer in the URL, so only the plain startup form asks for it
+function validateReferrer(referrer: string | undefined, isYC: boolean, isReferralProgram: boolean): string | undefined {
+    if (isYC || isReferralProgram) {
+        return undefined
+    }
+    if (!referrer?.trim()) {
+        return 'Please tell us how you heard about the startup program'
     }
     return undefined
 }
@@ -342,11 +354,12 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
                 yc_batch: values.isYC ? '' : undefined,
                 yc_proof_screenshot_url: undefined,
                 yc_merch_count: values.isYC ? 1 : undefined,
+                referrer: '',
             } as StartupProgramFormValues,
             // Selector-style errors so that validation recomputes when billing
             // or isYC change, not only when form values change
             errors: [
-                (s) => [s.startupProgram, s.billing, s.isYC, s.isEmailDomainBlocked],
+                (s) => [s.startupProgram, s.billing, s.isYC, s.isReferralProgram, s.isEmailDomainBlocked],
                 (
                     {
                         organization_id,
@@ -355,9 +368,11 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
                         yc_verification_url,
                         yc_batch,
                         yc_proof_screenshot_url,
+                        referrer,
                     }: StartupProgramFormValues,
                     billing: BillingType | null,
                     isYC: boolean,
+                    isReferralProgram: boolean,
                     isEmailDomainBlocked: boolean
                 ) => {
                     if (isEmailDomainBlocked) {
@@ -380,6 +395,7 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
                         yc_batch: isYC && !yc_batch ? 'Please select your YC batch' : undefined,
                         yc_proof_screenshot_url:
                             isYC && !yc_proof_screenshot_url ? 'Please upload a screenshot' : undefined,
+                        referrer: validateReferrer(referrer, isYC, isReferralProgram),
                     }
                 },
             ],
@@ -401,8 +417,9 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
                     valuesToSubmit.incorporation_date = dayjs.isDayjs(formValues.incorporation_date)
                         ? formValues.incorporation_date.format('YYYY-MM-DD')
                         : undefined
-                    if (props.referrer) {
-                        valuesToSubmit.referrer = props.referrer.toLowerCase()
+                    const referrer = props.referrer || formValues.referrer?.trim()
+                    if (referrer) {
+                        valuesToSubmit.referrer = referrer.toLowerCase()
                     }
                 }
 

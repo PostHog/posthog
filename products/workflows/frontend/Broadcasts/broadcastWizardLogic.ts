@@ -2471,6 +2471,10 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                     path: broadcastPath(broadcastId),
                     schedule_mode: values.scheduleMode,
                     audience_filter_count: values.audienceProperties.length,
+                    excluded_cohort_count: values.audienceProperties.filter(
+                        (filter) =>
+                            filter.type === PropertyFilterType.Cohort && filter.operator === PropertyOperator.NotIn
+                    ).length,
                     has_goal: values.goalEnabled,
                     skip_frequency_cap: values.emailSettings.skipFrequencyCap,
                     entry_source: values.entrySource ?? loadEntrySource(broadcastId),
