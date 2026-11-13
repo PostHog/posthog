@@ -41,7 +41,7 @@ describe('create-event-step', () => {
     })
 
     describe('createCreateEventStep', () => {
-        it('should create event with processPerson=true', async () => {
+        it.each([undefined, {}, { plan: 'paid' }])('creates a personful event with snapshot %j', async (snapshot) => {
             const step = createCreateEventStep(EVENTS_OUTPUT)
             const input = {
                 team: mockTeam,
@@ -49,7 +49,7 @@ describe('create-event-step', () => {
                 preparedEvent: mockPreparedEvent,
                 processPerson: true,
                 historicalMigration: false,
-                headers: createTestEventHeaders(),
+                headers: createTestEventHeaders({ person_properties_snapshot: snapshot }),
                 message: mockMessage,
                 lastStep: 'prepareEventStep',
             }
@@ -68,40 +68,45 @@ describe('create-event-step', () => {
                 expect(event.distinct_id).toBe('distinct-id-789')
                 expect(event.person_id).toBe('person-uuid-123')
                 expect(event.person_mode).toBe('full')
-                expect(event.person_properties).toEqual({
-                    email: 'test@example.com',
-                    name: 'Test User',
-                })
+                expect(event.person_properties).toEqual(
+                    snapshot ?? {
+                        email: 'test@example.com',
+                        name: 'Test User',
+                    }
+                )
                 expect(value.teamId).toBe(1)
             }
             expect(result.sideEffects).toHaveLength(0)
         })
 
-        it('should create event with processPerson=false', async () => {
-            const step = createCreateEventStep(EVENTS_OUTPUT)
-            const input = {
-                team: mockTeam,
-                person: mockPerson,
-                preparedEvent: mockPreparedEvent,
-                processPerson: false,
-                historicalMigration: false,
-                headers: createTestEventHeaders(),
-                message: mockMessage,
-                lastStep: 'prepareEventStep',
-            }
+        it.each([undefined, { plan: 'paid' }])(
+            'keeps personless events propertyless with snapshot %j',
+            async (snapshot) => {
+                const step = createCreateEventStep(EVENTS_OUTPUT)
+                const input = {
+                    team: mockTeam,
+                    person: mockPerson,
+                    preparedEvent: mockPreparedEvent,
+                    processPerson: false,
+                    historicalMigration: false,
+                    headers: createTestEventHeaders({ person_properties_snapshot: snapshot }),
+                    message: mockMessage,
+                    lastStep: 'prepareEventStep',
+                }
 
-            const result = await step(input)
+                const result = await step(input)
 
-            expect(isOkResult(result)).toBe(true)
-            if (isOkResult(result)) {
-                const value = result.value
-                expect(value.eventsToEmit).toHaveLength(1)
-                const event = value.eventsToEmit[0].event
-                expect(event.person_mode).toBe('propertyless')
-                expect(event.person_properties).toEqual({})
+                expect(isOkResult(result)).toBe(true)
+                if (isOkResult(result)) {
+                    const value = result.value
+                    expect(value.eventsToEmit).toHaveLength(1)
+                    const event = value.eventsToEmit[0].event
+                    expect(event.person_mode).toBe('propertyless')
+                    expect(event.person_properties).toEqual({})
+                }
+                expect(result.sideEffects).toHaveLength(0)
             }
-            expect(result.sideEffects).toHaveLength(0)
-        })
+        )
 
         it('should handle person with force_upgrade=true', async () => {
             const personWithForceUpgrade: Person = {

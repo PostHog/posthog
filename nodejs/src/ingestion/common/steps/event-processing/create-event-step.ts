@@ -84,7 +84,14 @@ export function createCreateEventStep<O extends string, T extends CreateEventSte
         } = input
 
         const capturedAt = headers.now ?? null
-        const rawEvent = createEvent(preparedEvent, person, processPerson, historicalMigration, capturedAt)
+        const rawEvent = createEvent(
+            preparedEvent,
+            person,
+            processPerson,
+            historicalMigration,
+            capturedAt,
+            input.headers.person_properties_snapshot
+        )
         const eventsToEmit: EventToEmit<O>[] = [{ event: rawEvent, output }]
 
         // Duplicated exposures build up $experiment_exposure data for allowlisted teams during

@@ -135,6 +135,34 @@ A person profile contains:
 - **is_identified**: Whether this person has been explicitly identified (via `$identify`)
 - **created_at**: When the person was first seen
 
+#### Importing person-on-event snapshots
+
+The legacy capture API, including `/batch`, accepts an event's stored person properties through two top-level fields:
+
+```json
+{
+  "event": "example_event",
+  "distinct_id": "example-user",
+  "person_properties_mode": "snapshot",
+  "person_properties": { "plan": "paid" }
+}
+```
+
+Send both fields together, with an object for `person_properties`.
+An empty object is an empty snapshot; `null` is invalid.
+Do not combine a snapshot with `$set`, `$set_once`, or `$unset` mutations.
+The opt-in is independent of `historical_migration`, so it also works for recent events.
+
+Ingestion keeps the snapshot outside the transformation payload.
+After transformations, the analytics pipeline uses it as an internal `$set` for normal person processing, replacing person updates derived by transformations or browser/UTM enrichment.
+It removes synthetic mutations before storing the event and writes the supplied snapshot directly to the event's `person_properties` column.
+Destination-only person properties do not appear on that event.
+Personless processing still suppresses person properties, and read-only ingestion lanes do not start writing person profiles.
+
+This preserves event snapshots, not authoritative current profiles.
+Missing snapshot keys do not delete destination profile keys, and replay does not reconstruct person deletions, splits, or later API updates.
+Profile updates follow ingestion order; an older event replayed later can overwrite a newer profile value.
+
 ### The identify flow
 
 When a user identifies themselves (typically on login), the SDK calls `$identify` with:

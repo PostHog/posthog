@@ -53,7 +53,11 @@ describe('AiIngestionPipeline', () => {
 
     const team = createTestTeam({ id: 123, api_token: 'token-123' })
 
-    const createMessage = (event: string, properties: Record<string, any> = {}): Message => {
+    const createMessage = (
+        event: string,
+        properties: Record<string, any> = {},
+        snapshot?: Record<string, unknown>
+    ): Message => {
         const distinctId = 'user-1'
         const eventData = {
             event,
@@ -61,6 +65,7 @@ describe('AiIngestionPipeline', () => {
             uuid: new UUIDT().toString(),
             timestamp: '2024-01-01T00:00:00Z',
             properties: { $ai_trace_id: 'trace-1', ...properties },
+            ...(snapshot === undefined ? {} : { person_properties_mode: 'snapshot', person_properties: snapshot }),
         }
         return {
             value: Buffer.from(
@@ -215,12 +220,14 @@ describe('AiIngestionPipeline', () => {
         expect(ingestedUsage.every((r) => r.teamId === team.id)).toBe(true)
     })
 
-    it('double-writes AI events to both the events and ai_events outputs', async () => {
-        await runPipeline([createMessage('$ai_generation')])
+    it.each([undefined, {}, { plan: 'paid' }])('double-writes AI events with person snapshot %j', async (snapshot) => {
+        await runPipeline([createMessage('$ai_generation', {}, snapshot)])
 
         expect(producedForTopic(EVENTS_TOPIC)).toHaveLength(1)
         expect(producedForTopic(AI_EVENTS_TOPIC)).toHaveLength(1)
         expect(producedForTopic(DLQ_TOPIC)).toHaveLength(0)
+        expect(parseJSON(producedForTopic(EVENTS_TOPIC)[0].person_properties)).toEqual(snapshot ?? {})
+        expect(parseJSON(producedForTopic(AI_EVENTS_TOPIC)[0].person_properties)).toEqual(snapshot ?? {})
     })
 
     it('nulls invalid AI token properties before emitting', async () => {

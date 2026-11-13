@@ -312,6 +312,7 @@ fn create_group_identify_event(
         offset: None,
         set: None,
         set_once: None,
+        ..Default::default()
     };
 
     let captured_event = CapturedEvent {
@@ -606,6 +607,7 @@ impl AmplitudeEvent {
                     Some(set_once)
                 },
                 offset: None,
+                ..Default::default()
             };
 
             let Some(raw_event) = event_transform(raw_event)? else {

@@ -62,6 +62,7 @@ pub fn create_identify_event(
         set: None,
         set_once: None,
         offset: None,
+        ..Default::default()
     };
 
     // Create the captured event
