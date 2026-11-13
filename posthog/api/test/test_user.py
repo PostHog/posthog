@@ -432,15 +432,13 @@ class TestUserAPI(APIBaseTest):
         self.user.current_organization = other_organization
         self.user.save()
         token = generate_random_token_personal()
-        scope = {"scoped_organizations": [str(self.organization.id)]}
-        if scope_field == "scoped_teams":
-            scope = {"scoped_teams": [self.team.id]}
         PersonalAPIKey.objects.create(
             user=self.user,
             label="Scoped key",
             secure_value=hash_key_value(token),
             scopes=["user:read"],
-            **scope,
+            scoped_organizations=[str(self.organization.id)] if scope_field == "scoped_organizations" else [],
+            scoped_teams=[self.team.id] if scope_field == "scoped_teams" else [],
         )
         self.client.logout()
 
