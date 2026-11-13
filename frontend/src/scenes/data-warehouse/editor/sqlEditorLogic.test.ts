@@ -7,9 +7,8 @@ import { LemonDialog } from '@posthog/lemon-ui'
 import * as dashboardsApi from '@posthog/products-dashboards/frontend/generated/api'
 
 import { ApiError } from 'lib/api'
-import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import {
     MANAGED_TRINO_SCHEMA_SCOPE,
     databaseTableListLogic,
@@ -1104,57 +1103,27 @@ describe('sqlEditorLogic', () => {
 
     describe('title section', () => {
         it.each([
-            [
-                'SQL v2',
-                true,
-                null,
-                'SQL query',
-                {
-                    type: NotebookNodeType.SQLV2,
-                    attrs: {
-                        nodeId: expect.any(String),
-                        code: 'SELECT * FROM events LIMIT 10',
-                        returnVariable: '',
-                        edit: true,
-                    },
-                },
-            ],
-            [
-                'legacy SQL',
-                false,
-                MOCK_INSIGHT,
-                MOCK_INSIGHT.name,
-                {
-                    type: NotebookNodeType.Query,
-                    attrs: {
-                        query: {
-                            kind: NodeKind.DataTableNode,
-                            source: {
-                                kind: NodeKind.HogQLQuery,
-                                query: 'SELECT * FROM events LIMIT 10',
-                            },
+            [null, 'SQL query'],
+            [MOCK_INSIGHT, MOCK_INSIGHT.name],
+        ])('builds a SQL notebook with the source title', (editingInsight, expectedTitle) => {
+            const notebook = buildSqlNotebook('SELECT * FROM events LIMIT 10', null, editingInsight)
+            expect(notebook).toMatchObject({
+                title: expectedTitle,
+                content: [
+                    {
+                        type: NotebookNodeType.SQLV2,
+                        attrs: {
+                            nodeId: expect.any(String),
+                            code: 'SELECT * FROM events LIMIT 10',
+                            returnVariable: '',
+                            edit: true,
                         },
-                        edit: true,
                     },
-                },
-            ],
-        ])(
-            'builds a %s notebook from the current SQL',
-            (_case, isFlagOn, editingInsight, expectedTitle, expectedNode) => {
-                const notebook = buildSqlNotebook('SELECT * FROM events LIMIT 10', null, editingInsight, {
-                    [FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS]: isFlagOn,
-                })
-
-                expect(notebook).toMatchObject({
-                    title: expectedTitle,
-                    content: [expectedNode],
-                })
-
-                const markdown = getMarkdownNotebookMarkdown(defaultNotebookContent(notebook.title, notebook.content))
-
-                expect(markdown).not.toContain('hideFilters')
-            }
-        )
+                ],
+            })
+            const markdown = getMarkdownNotebookMarkdown(defaultNotebookContent(notebook.title, notebook.content))
+            expect(markdown).not.toContain('hideFilters')
+        })
 
         it('shows loading view title when opening a view from URL before view loads', async () => {
             logic = sqlEditorLogic({
@@ -2791,10 +2760,7 @@ describe('sqlEditorLogic', () => {
             limit: 1000,
             sort: null,
         }
-        it.each([true, false])('opens a saved BI insight with rollout enabled=%s', async (enabled) => {
-            featureFlagLogic.actions.setFeatureFlags(enabled ? [FEATURE_FLAGS.SQL_EDITOR_BI_MODE] : [], {
-                [FEATURE_FLAGS.SQL_EDITOR_BI_MODE]: enabled,
-            })
+        it('opens a saved BI insight without rollout flags', async () => {
             const getInsight = jest.spyOn(insightsApi, 'getByShortId').mockResolvedValue({
                 ...MOCK_INSIGHT,
                 query: {
@@ -2809,15 +2775,12 @@ describe('sqlEditorLogic', () => {
                 router.actions.push(urls.sqlEditor({ insightShortId: MOCK_INSIGHT_SHORT_ID }))
             ).toFinishAllListeners()
             expect(router.values.location.pathname).toBe(
-                `/project/${MOCK_DEFAULT_TEAM.id}${enabled ? urls.businessIntelligence() : urls.insightView(MOCK_INSIGHT_SHORT_ID)}`
+                `/project/${MOCK_DEFAULT_TEAM.id}${urls.businessIntelligence()}`
             )
             getInsight.mockRestore()
         })
 
         it('redirects bookmarked SQL editor BI links with their query state', () => {
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SQL_EDITOR_BI_MODE], {
-                [FEATURE_FLAGS.SQL_EDITOR_BI_MODE]: true,
-            })
             logic = sqlEditorLogic({ tabId: TAB_ID })
             logic.mount()
             router.actions.push(

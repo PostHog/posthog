@@ -1,6 +1,9 @@
 import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
 
 import { LemonBanner } from '@posthog/lemon-ui'
+
+import { slackIntegrationLogic } from 'lib/integrations/slackIntegrationLogic'
 
 import {
     AlertNotificationDestinationEditor,
@@ -9,12 +12,30 @@ import {
 } from 'products/alerts/frontend/components/AlertNotificationDestinationEditor'
 import { PlatformAlertDestinationTypeEnumApi } from 'products/alerts_platform/frontend/generated/api.schemas'
 
-import { DESTINATION_TYPE_OPTIONS, describeDestination, describePendingDestination } from './platformAlertDestinations'
+import {
+    AlertDestinationEntry,
+    DESTINATION_TYPE_OPTIONS,
+    describeDestination,
+    describePendingDestination,
+} from './platformAlertDestinations'
 import { PlatformAlertDestinationsLogicProps, platformAlertDestinationsLogic } from './platformAlertDestinationsLogic'
 
+export interface PlatformAlertNotificationsProps extends PlatformAlertDestinationsLogicProps {
+    /** The destination types the product sends to, when it does not send to every type. */
+    typeOptions?: typeof DESTINATION_TYPE_OPTIONS
+    /** What the product adds to a saved destination's row, such as a link to edit its message. */
+    destinationView?: (destination: AlertDestinationEntry) => Partial<AlertNotificationDestinationView>
+}
+
 /** An alert's own notification destinations, in the editor every alert product uses. */
-export function PlatformAlertNotifications({ alertId, sourceKind }: PlatformAlertDestinationsLogicProps): JSX.Element {
-    const logic = platformAlertDestinationsLogic({ alertId, sourceKind })
+export function PlatformAlertNotifications({
+    alertId,
+    sourceKind,
+    api,
+    typeOptions = DESTINATION_TYPE_OPTIONS,
+    destinationView,
+}: PlatformAlertNotificationsProps): JSX.Element {
+    const logic = platformAlertDestinationsLogic({ alertId, sourceKind, api })
     const {
         destinations,
         destinationsLoading,
@@ -49,12 +70,32 @@ export function PlatformAlertNotifications({ alertId, sourceKind }: PlatformAler
         setSelectedSlackIntegrationId,
     } = useActions(logic)
 
+    // A Slack destination saved before its channel's name was kept shows the name Slack has for it now.
+    const unnamedSlackWorkspaceId = destinations.find(
+        (destination) =>
+            destination.type === PlatformAlertDestinationTypeEnumApi.Slack && !destination.slack_channel_name
+    )?.slack_workspace_id
+    const slackLogic = slackIntegrationLogic({ id: unnamedSlackWorkspaceId ?? 0 })
+    const { slackChannels } = useValues(slackLogic)
+    const { loadAllSlackChannels } = useActions(slackLogic)
+    useEffect(() => {
+        if (unnamedSlackWorkspaceId) {
+            loadAllSlackChannels()
+        }
+    }, [unnamedSlackWorkspaceId, loadAllSlackChannels])
+
     const existing: AlertNotificationDestinationView[] = destinations.map((destination) => ({
         key: destination.id,
-        ...describeDestination(destination),
+        ...describeDestination({
+            ...destination,
+            slack_channel_name:
+                destination.slack_channel_name ??
+                slackChannels.find((channel) => channel.id === destination.slack_channel_id)?.name,
+        }),
         tags: destination.enabled ? undefined : [{ label: 'Paused' }],
         onDelete: () => deleteDestination(destination),
         deleting: deletingDestinationIds.has(destination.id),
+        ...destinationView?.(destination),
     }))
 
     const pending: PendingAlertNotificationDestinationView[] = pendingDestinations.map((destination, index) => ({
@@ -82,7 +123,7 @@ export function PlatformAlertNotifications({ alertId, sourceKind }: PlatformAler
                         : 'Added when you create the alert',
                 }}
                 notificationType={{
-                    options: DESTINATION_TYPE_OPTIONS,
+                    options: typeOptions,
                     value: selectedType,
                     onChange: setSelectedType,
                 }}

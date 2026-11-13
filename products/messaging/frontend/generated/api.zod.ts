@@ -164,7 +164,7 @@ export const MessagingSendEmailCreateBody = /* @__PURE__ */ zod.object({
                     .max(messagingSendEmailCreateBodyAttachmentsItemContentTypeMax)
                     .optional()
                     .describe(
-                        'MIME type of the file, such as `application\/pdf`. Without it, the type follows from the file name.'
+                        'MIME type of the file, such as `application\/pdf`, with any parameters, such as `text\/calendar; charset=utf-8; method=REQUEST`. Without it, the type follows from the file name. A `name` parameter is refused, because the file name comes from `filename`.'
                     ),
                 content_id: zod
                     .string()
@@ -652,6 +652,34 @@ export const MessagingSuppressionsAddSuppressionCreateBody = /* @__PURE__ */ zod
         .string()
         .max(messagingSuppressionsAddSuppressionCreateBodyIdentifierMax)
         .describe('The email address to suppress. Will not receive any messages until removed.'),
+})
+
+/**
+ * Suppress every address in the list. Addresses that already have an entry are skipped, so repeating a call is safe.
+ * @summary Add multiple email addresses to the suppression list
+ */
+export const messagingSuppressionsBulkAddSuppressionsCreateBodySuppressionsItemIdentifierMax = 512
+
+export const messagingSuppressionsBulkAddSuppressionsCreateBodySuppressionsItemReasonDefault = `manual`
+
+export const MessagingSuppressionsBulkAddSuppressionsCreateBody = /* @__PURE__ */ zod.object({
+    suppressions: zod
+        .array(
+            zod.object({
+                identifier: zod
+                    .string()
+                    .max(messagingSuppressionsBulkAddSuppressionsCreateBodySuppressionsItemIdentifierMax)
+                    .describe('The email address to suppress. Matched case-insensitively.'),
+                reason: zod
+                    .enum(['bounce', 'complaint', 'manual'])
+                    .describe('\* `bounce` - Bounce\n\* `complaint` - Complaint\n\* `manual` - Manual')
+                    .default(messagingSuppressionsBulkAddSuppressionsCreateBodySuppressionsItemReasonDefault)
+                    .describe(
+                        "Why the address is suppressed. `bounce` blocks every email, transactional included, because the address can't receive mail. `complaint` (the recipient reported spam) and `manual` block marketing email only. Defaults to `manual`.\n\n\* `bounce` - Bounce\n\* `complaint` - Complaint\n\* `manual` - Manual"
+                    ),
+            })
+        )
+        .describe('Addresses to suppress, at most 1000 per request.'),
 })
 
 /**

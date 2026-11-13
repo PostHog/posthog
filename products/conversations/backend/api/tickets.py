@@ -484,6 +484,7 @@ class TicketSerializer(UserAccessControlSerializerMixin, TaggedItemSerializerMix
             "github_issue_number",
             "zendesk_ticket_id",
             "intercom_conversation_id",
+            "pylon_issue_id",
             "organization_id",
             "organization_id_source",
             "person",
@@ -516,6 +517,7 @@ class TicketSerializer(UserAccessControlSerializerMixin, TaggedItemSerializerMix
             "github_issue_number",
             "zendesk_ticket_id",
             "intercom_conversation_id",
+            "pylon_issue_id",
             "organization_id",
             "organization_id_source",
             "person",
@@ -538,6 +540,7 @@ class TicketSerializer(UserAccessControlSerializerMixin, TaggedItemSerializerMix
             "intercom_conversation_id": {
                 "help_text": "Intercom conversation id when the ticket was imported from Intercom. Null otherwise."
             },
+            "pylon_issue_id": {"help_text": "Pylon issue id when the ticket was imported from Pylon. Null otherwise."},
             "organization_id": {
                 "help_text": "Customer's PostHog organization group key, resolved at ticket creation. Null when unknown."
             },

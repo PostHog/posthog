@@ -22,6 +22,7 @@ import {
     cn,
 } from '@posthog/quill'
 
+import { QuillTablePagination } from 'lib/components/QuillTablePagination/QuillTablePagination'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
 import { ModelsOverviewProblemBadges } from 'products/data_modeling/frontend/ModelsOverviewProblemBadges'
@@ -32,7 +33,6 @@ import { CatalogChecksSummary } from '../components/CatalogChecksSummary'
 import { PageSelectionCheckbox } from '../components/PageSelectionCheckbox'
 import { CatalogTableFreshness } from './CatalogTableFreshness'
 import { CatalogTableRowMenu } from './CatalogTableRowMenu'
-import { CatalogTablesPagination } from './CatalogTablesPagination'
 import { CatalogTablesSortableHead } from './CatalogTablesSortableHead'
 import { CatalogTableTrust } from './CatalogTableTrust'
 import { MutedCellText } from './MutedCellText'
@@ -225,7 +225,7 @@ export function CatalogTablesTable(): JSX.Element {
                 )}
             </Table>
             {pageCount > 1 && (
-                <CatalogTablesPagination
+                <QuillTablePagination
                     currentPage={currentPage}
                     pageCount={pageCount}
                     pageSize={TABLES_PAGE_SIZE}

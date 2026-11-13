@@ -49,6 +49,7 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
                 "campaign_primary_status": "String",
                 "campaign_primary_status_reasons": "String",
                 "campaign_budget_recommended_budget_amount_micros": "Int64",
+                "customer_id": "Int64",
             }
         rows = []
         for i in range(1, count + 1):
@@ -59,6 +60,7 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
                     "LIMITED" if constrained else "ELIGIBLE",
                     '"[""BUDGET_CONSTRAINED""]"' if constrained else '"[]"',
                     "300000000" if constrained else "0",
+                    "1234567890",
                 ]
             rows.append(",".join(row))
         campaigns = self._table(
@@ -89,8 +91,14 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
             user=self.user,
         ).calculate()
 
-        budget = [(rec.subject, rec.action) for rec in response.results if rec.rule == "budget_constrained"]
-        assert budget == ([("Campaign 101", "Raise the daily budget from $100 to $300")] if has_status else [])
+        budget = [
+            (rec.subject, rec.action, rec.identity.customer_id, rec.identity.campaign_id)
+            for rec in response.results
+            if rec.rule == "budget_constrained"
+        ]
+        assert budget == (
+            [("Campaign 101", "Raise the daily budget from $100 to $300", "1234567890", "101")] if has_status else []
+        )
 
     def test_ranking_page_is_the_page_with_most_impressions_for_the_query(self) -> None:
         query_page = self._table(

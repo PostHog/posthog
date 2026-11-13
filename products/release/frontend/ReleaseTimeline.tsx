@@ -14,6 +14,7 @@ import { RolloutStep } from './releaseRollout'
 import { ReleaseRolloutChart } from './ReleaseRolloutChart'
 import { ReleaseStageDot } from './ReleaseStageDot'
 import { ReleaseTimelineAxis } from './ReleaseTimelineAxis'
+import { ReleaseTimelineSkeleton } from './ReleaseTimelineSkeleton'
 import { ReleaseTrackGrid } from './ReleaseTrackGrid'
 import { ReleaseTrackLabel } from './ReleaseTrackLabel'
 import { ReleaseTrackLane } from './ReleaseTrackLane'
@@ -196,29 +197,31 @@ export function ReleaseTimeline(): JSX.Element {
             className={`overflow-hidden rounded-lg border border-border bg-background ${STAGE_COLOR_VARS} [--quill-table-sticky-bg:var(--background)] [&_td]:py-0 [&_td]:align-top [&_td+td]:p-0 [&_th+th]:p-0`}
             data-attr="release-timeline"
         >
-            <CalendarStateContext.Provider value={state}>
-                <DataTable
-                    key={filteredRows.length > PAGE_SIZE ? 'paged' : 'single'}
-                    columns={COLUMNS}
-                    data={filteredRows}
-                    size="sm"
-                    stickyHeader
-                    className="max-h-[75vh]"
-                    pageSize={filteredRows.length > PAGE_SIZE ? PAGE_SIZE : undefined}
-                    getRowId={(row) => row.id}
-                    onRowClick={(row) => toggleExpanded(row.id)}
-                    rowClassName={(row) => (expanded[row.id] ? 'bg-fill-hover/40' : undefined)}
-                    empty={
-                        <Text size="xs" variant="muted">
-                            {dataLoading
-                                ? 'Loading releases…'
-                                : releases.length
-                                  ? 'No release matches these filters.'
-                                  : 'No releases yet. Each new feature flag gets one, or create one yourself.'}
-                        </Text>
-                    }
-                />
-            </CalendarStateContext.Provider>
+            {dataLoading && !filteredRows.length ? (
+                <ReleaseTimelineSkeleton />
+            ) : (
+                <CalendarStateContext.Provider value={state}>
+                    <DataTable
+                        key={filteredRows.length > PAGE_SIZE ? 'paged' : 'single'}
+                        columns={COLUMNS}
+                        data={filteredRows}
+                        size="sm"
+                        stickyHeader
+                        className="max-h-[75vh]"
+                        pageSize={filteredRows.length > PAGE_SIZE ? PAGE_SIZE : undefined}
+                        getRowId={(row) => row.id}
+                        onRowClick={(row) => toggleExpanded(row.id)}
+                        rowClassName={(row) => (expanded[row.id] ? 'bg-fill-hover/40' : undefined)}
+                        empty={
+                            <Text size="xs" variant="muted">
+                                {releases.length
+                                    ? 'No release matches these filters.'
+                                    : 'No releases yet. Each new feature flag gets one, or create one yourself.'}
+                            </Text>
+                        }
+                    />
+                </CalendarStateContext.Provider>
+            )}
         </div>
     )
 }

@@ -11,7 +11,7 @@ export type NotebookWidgetTrustControlsProps = {
     onViewSource: () => void
 }
 
-const SEVERITY_LABELS: Record<WidgetSecurityReviewApi['severity'], string> = {
+export const SEVERITY_LABELS: Record<WidgetSecurityReviewApi['severity'], string> = {
     none: 'No potential issues flagged',
     low: 'Low',
     medium: 'Medium',

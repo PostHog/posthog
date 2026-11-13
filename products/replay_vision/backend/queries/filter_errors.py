@@ -6,7 +6,7 @@ from django.utils import timezone
 
 import structlog
 
-from posthog.hogql.errors import ExposedHogQLError, TableAccessDeniedError
+from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.errors import ExposedCHQueryError, QueryErrorCategory, classify_query_error
 
@@ -30,8 +30,6 @@ REDACTED_FILTER_ERROR = "The filter cannot run."
 
 def filter_error_message(error: BaseException) -> str | None:
     """The user-facing reason the filter cannot run, or None when the error is not about the filter."""
-    if isinstance(error, TableAccessDeniedError):
-        return None
     # Rate limits and timeouts are user-safe too, so the category keeps them out.
     if isinstance(error, ExposedHogQLError) or (
         isinstance(error, ExposedCHQueryError)
