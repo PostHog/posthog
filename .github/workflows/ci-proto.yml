@@ -215,10 +215,10 @@ jobs:
                   echo "Generated Python proto stubs are up to date."
 
     node-codegen:
-        name: Check Node proto stubs are up to date (depot-ubuntu-22.04-4)
+        name: Check Node proto stubs are up to date (depot-ubuntu-22.04)
         needs: changes
         if: needs.changes.outputs.proto == 'true'
-        runs-on: depot-ubuntu-22.04-4
+        runs-on: depot-ubuntu-22.04
         timeout-minutes: 10
 
         steps:
