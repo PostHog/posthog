@@ -154,12 +154,12 @@ tools:
             linear -> {id}, the issue key such as ENG-123; jira -> {key}. For GitHub, `repository` is the bare
             repository name without the owner. To link a GitHub pull request, add "resource_type":"pull_request", for
             example {"repository":"posthog","number":123,"resource_type":"pull_request"}. Every kind also accepts an
-            optional `title` to show for the link. Use the provider's MCP tools to find an existing issue or pull request,
-            or ask the user for its identifier. Use integrations-list to find the `integration_id` and kind. Call
-            query-error-tracking-issue first and read
-            `external_issues` to see the work that is already linked. Linking the same item again returns the existing
-            link. A link cannot be removed after you create it, so confirm the item with the user when it is not clear.
-            For Linear, linking also attaches a link to the PostHog issue to the Linear issue.
+            optional `title` to show for the link. Use the provider's MCP tools to find an existing issue or pull
+            request, or ask the user for its identifier. Use integrations-list to find the `integration_id` and kind.
+            Call query-error-tracking-issue first and read `external_issues` to see the work that is already linked.
+            Linking the same item again returns the existing link. A link cannot be removed after you create it, so
+            confirm the item with the user when it is not clear. For Linear, linking also attaches a link to the PostHog
+            issue to the Linear issue.
     error-tracking-grouping-rules-create:
         operation: error_tracking_grouping_rules_create
         enabled: true
