@@ -70,6 +70,17 @@ class GoogleAnalyticsQuotaExceededError(Exception):
     """
 
 
+class GoogleAnalyticsServerError(Exception):
+    """Raised when runReport's own 5xx or 409 response never clears within the in-line retry budget.
+
+    Deliberately NOT matched by `get_non_retryable_errors`, so Temporal retries the activity
+    later and the resumable source picks up from the last saved chunk — the right recovery for
+    a transient outage on Google's side, not a PostHog or customer defect. Tagged `(retryable)`
+    so `GoogleAnalyticsSource.get_retryable_errors` keeps this self-recovering failure out of
+    error tracking, the same way `GoogleSearchConsoleServerError` classifies the same shape.
+    """
+
+
 @dataclasses.dataclass
 class GoogleAnalyticsResumeConfig:
     chunk_start: str  # ISO date of the chunk currently being fetched
@@ -286,8 +297,12 @@ def _run_report(
                     "initially' value on the source, or remove high-cardinality dimensions from your custom "
                     "reports (retryable)"
                 )
-            # A transient 5xx or 409 that never cleared — surface the HTTPError so Temporal retries the activity.
-            response.raise_for_status()
+            # A transient 5xx or 409 that never cleared — raise a retryable error so Temporal
+            # retries the activity without paging error tracking for an outage on Google's side.
+            raise GoogleAnalyticsServerError(
+                f"Google Analytics Data API returned {response.status_code} for property '{pid}' "
+                "after retries. PostHog will retry automatically (retryable)"
+            )
 
         wait = _runreport_backoff_seconds(response, attempt)
         logger.warning("GA4 runReport failed, backing off", property_id=pid, attempt=attempt, wait_seconds=wait)
