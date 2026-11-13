@@ -9700,17 +9700,21 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
                 {"properties": [{"key": "group", "type": "person", "value": ["1"], "operator": "exact"}]},
             )
 
-    def test_user_blast_radius_endpoint_returns_400_for_unevaluable_filters(self):
+    @parameterized.expand(
+        [
+            ("event_property", [{"key": "$browser", "type": "event", "value": ["Chrome"], "operator": "exact"}]),
+            ("hogql_expression", [{"key": "1 = 1", "type": "hogql"}]),
+            ("nested_hogql_expression", {"type": "AND", "values": [{"key": "1 = 1", "type": "hogql"}]}),
+        ]
+    )
+    def test_user_blast_radius_endpoint_returns_400_for_unevaluable_filters(self, _name, properties):
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
-            {
-                "condition": {
-                    "properties": [{"key": "$browser", "type": "event", "value": ["Chrome"], "operator": "exact"}]
-                }
-            },
+            {"condition": {"properties": properties}},
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["type"], "validation_error")
+        self.assertEqual(response.json()["attr"], "filters")
+        self.assertIn("isn't supported in release conditions", response.json()["detail"])
 
     @parameterized.expand(
         [

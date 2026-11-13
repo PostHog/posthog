@@ -89,6 +89,7 @@ from posthog.models.person.point_in_time_properties import (
     get_person_and_distinct_ids_for_identifier,
 )
 from posthog.models.property import Property
+from posthog.models.property.parse import parse_property_group_data
 from posthog.permissions import TeamSecretTokenPermission, get_authenticator_scopes, is_service_auth
 from posthog.ph_client import feature_enabled_or_false
 from posthog.rate_limit import (
@@ -1034,6 +1035,17 @@ class EvaluationContextSerializerMixin(serializers.Serializer):
 # entire cached flag set. person_metadata is here because Rust accepts it — the narrower
 # four-type set the structural tier enforces is a policy choice, not a serde limit.
 _RUST_PROPERTY_TYPES: frozenset[str] = frozenset({*FEATURE_FLAG_PROPERTY_TYPES, "person_metadata"})
+
+
+def _validate_blast_radius_property_types(condition: Any) -> None:
+    # Sizing runs the caller's condition as a query, so it accepts only the property types a saved flag accepts.
+    if not isinstance(condition, dict):
+        raise exceptions.ValidationError({"condition": "The condition must be an object."})
+    for prop in parse_property_group_data(condition.get("properties")).flat:
+        if prop.type not in _RUST_PROPERTY_TYPES:
+            raise exceptions.ValidationError(
+                {"filters": f"Property type '{prop.type}' isn't supported in release conditions."}
+            )
 
 
 def _variant_keys(filters: Mapping[str, Any]) -> Iterator[str]:
@@ -6009,6 +6021,7 @@ class FeatureFlagViewSet(
             raise exceptions.ValidationError("Missing condition for which to get blast radius")
 
         condition = request.data.get("condition") or {}
+        _validate_blast_radius_property_types(condition)
         group_type_index = request.data.get("group_type_index", None)
 
         if group_type_index is None and use_blast_radius_query_v2(self.team):
