@@ -2,10 +2,7 @@ from posthog.test.base import BaseTest
 
 from posthog.models import Team
 
-from products.cdp.backend.facade.api import (
-    teams_with_enabled_transformation,
-    warehouse_tables_with_enabled_hog_functions,
-)
+from products.cdp.backend.facade.api import enabled_transformations, warehouse_tables_with_enabled_hog_functions
 from products.cdp.backend.models.hog_functions import HogFunction
 
 VIEW_SOURCE = "data-warehouse-view"
@@ -36,24 +33,45 @@ class TestWarehouseTablesWithEnabledHogFunctions(BaseTest):
         assert triggered == {"orders", "refunds", "invoices"}
 
 
-class TestTeamsWithEnabledTransformation(BaseTest):
-    def test_returns_only_the_asked_teams_that_run_an_enabled_transformation_of_the_template(self) -> None:
-        teams = [self.team, *(Team.objects.create(organization=self.organization) for _ in range(5))]
-        enabled, disabled, deleted, other_template, destination, not_asked = teams
-        for team, template_id, type, is_enabled, is_deleted in [
-            (enabled, "template-geoip", "transformation", True, False),
-            (disabled, "template-geoip", "transformation", False, False),
-            (deleted, "template-geoip", "transformation", True, True),
-            (other_template, "template-other", "transformation", True, False),
-            (destination, "template-geoip", "destination", True, False),
-            (not_asked, "template-geoip", "transformation", True, False),
+# Saving compiles both: the empty filters to a program that returns true, the event filter to a real check.
+NO_FILTERS: dict = {"events": [], "actions": []}
+EVENT_FILTER = {"events": [{"id": "$pageview", "type": "events"}]}
+
+
+class TestEnabledTransformations(BaseTest):
+    def test_returns_the_enabled_transformations_of_the_asked_teams_in_ingestion_order(self) -> None:
+        other_team, not_asked = (Team.objects.create(organization=self.organization) for _ in range(2))
+        for team, template_id, type, execution_order, filters, enabled, deleted in [
+            (self.team, "unordered", "transformation", None, None, True, False),
+            (self.team, "second", "transformation", 2, NO_FILTERS, True, False),
+            (self.team, "first", "transformation", 1, {}, True, False),
+            (self.team, "second-created-later", "transformation", 2, EVENT_FILTER, True, False),
+            (self.team, "disabled", "transformation", 1, None, False, False),
+            (self.team, "deleted", "transformation", 1, None, True, True),
+            (self.team, "destination", "destination", 1, None, True, False),
+            (other_team, "filtered", "transformation", 1, EVENT_FILTER, True, False),
+            (not_asked, "not-asked", "transformation", 1, None, True, False),
         ]:
             HogFunction.objects.create(
-                team=team, template_id=template_id, type=type, enabled=is_enabled, deleted=is_deleted
+                team=team,
+                template_id=template_id,
+                type=type,
+                execution_order=execution_order,
+                filters=filters,
+                enabled=enabled,
+                deleted=deleted,
+                hog=f"// {template_id}",
             )
 
-        teams_with_geoip = teams_with_enabled_transformation(
-            template_id="template-geoip", team_ids=[team.pk for team in teams if team is not not_asked]
-        )
+        transformations = enabled_transformations(team_ids=[self.team.pk, other_team.pk])
 
-        assert teams_with_geoip == {enabled.pk}
+        assert sorted(
+            [(t.team_id, t.template_id, t.hog, t.has_filters) for t in transformations],
+            key=lambda row: row[0],
+        ) == [
+            (self.team.pk, "first", "// first", False),
+            (self.team.pk, "second", "// second", False),
+            (self.team.pk, "second-created-later", "// second-created-later", True),
+            (self.team.pk, "unordered", "// unordered", False),
+            (other_team.pk, "filtered", "// filtered", True),
+        ]

@@ -34,13 +34,14 @@ _LAZY = {"HogFunctionSerializer": "api.hog_function"}
 
 __all__ = [
     *sorted(_LAZY),
+    "EnabledTransformation",
     "HogFunctionActionReference",
     "count_hog_functions_referencing_actions",
     "create_hog_functions",
+    "enabled_transformations",
     "has_enabled_hog_function_for_warehouse_table",
     "hog_functions_referencing_action",
     "is_hog_function_template_available",
-    "teams_with_enabled_transformation",
     "warehouse_tables_with_enabled_hog_functions",
 ]
 
@@ -169,21 +170,59 @@ def count_hog_functions_referencing_actions(*, team_id: int, action_ids: Sequenc
         return dict(cursor.fetchall())
 
 
-def teams_with_enabled_transformation(*, template_id: str, team_ids: Collection[int]) -> set[int]:
-    """The given teams that run an enabled transformation built from this template."""
+@frozen
+class EnabledTransformation:
+    """An enabled transformation of a team, as ingestion runs it."""
+
+    team_id: int
+    template_id: str | None
+    hog: str
+    # Filters that can skip the function. Saving compiles empty filters to a program that returns true,
+    # which ingestion runs but which never skips.
+    has_filters: bool
+
+
+def enabled_transformations(*, team_ids: Collection[int]) -> list[EnabledTransformation]:
+    """The enabled transformations of the given teams, per team in the order ingestion runs them."""
     if not team_ids:
-        return set()
-    return set(
+        return []
+    from posthog.hogql import ast
+    from posthog.hogql.compiler.bytecode import create_bytecode
+
+    always_true = create_bytecode(ast.Constant(value=True)).bytecode
+    rows = (
         HogFunction.objects.filter(
             team_id__in=list(team_ids),
-            template_id=template_id,
             type=HogFunctionType.TRANSFORMATION,
             enabled=True,
         )
         .exclude(deleted=True)
-        .values_list("team_id", flat=True)
-        .distinct()
+        .values("team_id", "template_id", "hog", "filters", "execution_order", "created_at")
     )
+    # The order of sortHogFunctionsByExecutionOrder in nodejs/src/cdp/services/managers/hog-function-manager.service.ts:
+    # by execution_order with the unset ones last, then by creation time.
+    ordered = sorted(
+        rows,
+        key=lambda row: (
+            row["team_id"],
+            row["execution_order"] is None,
+            row["execution_order"] or 0,
+            row["created_at"],
+        ),
+    )
+    return [
+        EnabledTransformation(
+            team_id=row["team_id"],
+            template_id=row["template_id"],
+            hog=row["hog"],
+            has_filters=_filter_bytecode(row["filters"]) not in (None, always_true),
+        )
+        for row in ordered
+    ]
+
+
+def _filter_bytecode(filters: Any) -> Any:
+    return filters.get("bytecode") or None if isinstance(filters, dict) else None
 
 
 def __getattr__(name: str):

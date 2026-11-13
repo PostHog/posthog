@@ -12,20 +12,28 @@ import dagster
 from posthog.clickhouse.cluster import ClickhouseCluster, NodeRole, Query
 from posthog.dags import geoip_backfill
 from posthog.dags.geoip_backfill import (
+    Exclusion,
     GeoipBackfillConfig,
     GeoipStagingTable,
     IngestionWindow,
     IngestionWindowConfig,
     StagingRunConfig,
+    TeamDecision,
     cleanup_geoip_backfill_staging,
+    decide_team,
     enriched_person_properties,
     geoip_backfill_staging_job,
     plan_windows,
 )
-from posthog.dags.geoip_enrichment import geoip_enrichment
-from posthog.dags.tests.conftest import GeoipTeams
+from posthog.dags.geoip_enrichment import TEMPLATE_VERSIONS, geoip_enrichment
+from posthog.dags.tests.conftest import GeoipTeams, geoip_template_source
 from posthog.dataclasses import frozen
+from posthog.models import Team
+from posthog.models.dmat_slot_assignments.sql import DMAT_SLOT_ASSIGNMENTS_TABLE_NAME
 from posthog.models.event.sql import EVENTS_DATA_TABLE
+
+from products.cdp.backend.facade.api import EnabledTransformation
+from products.cdp.backend.models.hog_functions import HogFunction
 
 PUBLIC_IP = "216.160.83.56"
 UNKNOWN_IP = "203.0.113.9"
@@ -148,6 +156,60 @@ def run_cleanup(cluster: ClickhouseCluster, table: GeoipStagingTable) -> None:
 
 
 WINDOWS_NOW = datetime(2026, 1, 10, 12, 0, tzinfo=UTC)
+CURRENT_VERSION = TEMPLATE_VERSIONS[-1]
+
+
+def transformation(template_id: str, *, hog: str = "return event", has_filters: bool = False) -> EnabledTransformation:
+    return EnabledTransformation(team_id=1, template_id=template_id, hog=hog, has_filters=has_filters)
+
+
+def geoip(*, hog: str | None = None, has_filters: bool = False) -> EnabledTransformation:
+    return transformation("template-geoip", hog=hog or geoip_template_source(), has_filters=has_filters)
+
+
+@pytest.mark.parametrize(
+    "transformations, reviewed, expected",
+    [
+        pytest.param([geoip()], False, TeamDecision(version=CURRENT_VERSION), id="repairable"),
+        pytest.param(
+            [geoip(hog=f"\n{geoip_template_source()}\n")],
+            False,
+            TeamDecision(version=CURRENT_VERSION),
+            id="source_saved_with_whitespace",
+        ),
+        pytest.param(
+            [transformation("template-other"), geoip()],
+            False,
+            TeamDecision(version=CURRENT_VERSION),
+            id="earlier_transformation",
+        ),
+        pytest.param([geoip(has_filters=True)], False, TeamDecision(exclusion=Exclusion.FILTERS), id="filters"),
+        pytest.param([geoip(hog="return event")], False, TeamDecision(exclusion=Exclusion.EDITED_SOURCE), id="edited"),
+        pytest.param(
+            [geoip(), transformation("template-other")],
+            False,
+            TeamDecision(exclusion=Exclusion.LATER_TRANSFORMATION),
+            id="later_transformation",
+        ),
+        pytest.param(
+            [transformation("plugin-posthog-plugin-geoip")],
+            False,
+            TeamDecision(exclusion=Exclusion.LEGACY_GEOIP_PLUGIN),
+            id="legacy_plugin",
+        ),
+        pytest.param(
+            [transformation("template-other")], False, TeamDecision(exclusion=Exclusion.NO_GEOIP), id="no_geoip"
+        ),
+        pytest.param(
+            [geoip(hog="return event", has_filters=True), transformation("template-other")],
+            True,
+            TeamDecision(version=CURRENT_VERSION),
+            id="reviewed",
+        ),
+    ],
+)
+def test_decide_team(transformations: list[EnabledTransformation], reviewed: bool, expected: TeamDecision) -> None:
+    assert decide_team(transformations, reviewed=reviewed) == expected
 
 
 @pytest.mark.parametrize(
@@ -240,7 +302,7 @@ def test_window_slices_and_halves_cover_the_window_without_gaps() -> None:
 def test_enriched_person_properties(
     person_mode: str, person_properties: dict[str, Any], expected: dict[str, Any]
 ) -> None:
-    enrichment = geoip_enrichment({"$ip": PUBLIC_IP}, FakeLookup())
+    enrichment = geoip_enrichment({"$ip": PUBLIC_IP}, FakeLookup(), CURRENT_VERSION)
     assert enrichment is not None
     row = {"person_mode": person_mode, "person_properties": json.dumps(person_properties)}
 
@@ -360,3 +422,82 @@ def assert_damaged_events_staged(
     assert row.person_properties["$initial_geoip_country_code"] == "FR"
     assert json.loads(row.original_properties) == damaged.properties
     assert staged[second_damaged.uuid].person_properties == {}
+
+
+def output_metadata(result: dagster.ExecuteInProcessResult, node: str) -> dict[str, Any]:
+    [output] = [event for event in result.events_for_node(node) if event.event_type_value == "STEP_OUTPUT"]
+    return {key: value.value for key, value in output.step_output_data.metadata.items()}
+
+
+@pytest.mark.django_db
+def test_staging_leaves_out_and_reports_the_teams_it_cannot_repair(
+    cluster: ClickhouseCluster, geoip_teams: GeoipTeams, tmp_path: Path
+) -> None:
+    organization = Team.objects.get(id=geoip_teams.with_geoip).organization
+
+    def team_with(template_id: str, hog: str, *, filters: dict | None = None, anonymize_ips: bool = False) -> int:
+        team = Team.objects.create(organization=organization, anonymize_ips=anonymize_ips)
+        HogFunction.objects.create(
+            team=team, type="transformation", template_id=template_id, enabled=True, hog=hog, filters=filters
+        )
+        return team.id
+
+    source = geoip_template_source()
+    filtered = team_with("template-geoip", source, filters={"events": [{"id": "$pageview", "type": "events"}]})
+    legacy_plugin = team_with("plugin-posthog-plugin-geoip", "return event")
+    materialized = team_with("template-geoip", source)
+    anonymized = team_with("template-geoip", source, anonymize_ips=True)
+    reviewed = team_with("template-geoip", "return event")
+    # nosemgrep: test-datetime-now-without-freeze (every event time and the window are offsets from this one reading)
+    now = datetime.now(UTC).replace(microsecond=0)
+    events = {
+        team_id: SeededEvent(
+            label=f"left-out-{team_id}",
+            team_id=team_id,
+            properties={} if team_id == anonymized else {"$ip": PUBLIC_IP},
+            written_minutes_ago=30,
+            person_properties={},
+        )
+        for team_id in (
+            geoip_teams.with_geoip,
+            geoip_teams.without_geoip,
+            filtered,
+            legacy_plugin,
+            materialized,
+            anonymized,
+            reviewed,
+        )
+    }
+    seed(cluster, now, list(events.values()))
+    cluster.any_host_by_role(
+        Query(
+            f"INSERT INTO {DMAT_SLOT_ASSIGNMENTS_TABLE_NAME} (team_id, column_index, property_name) VALUES",
+            [(materialized, 0, "$geoip_country_code")],
+        ),
+        NodeRole.DATA,
+    ).result()
+    try:
+        result = run_staging(cluster, now, tmp_path, reviewed_team_ids=[reviewed])
+    finally:
+        cluster.any_host_by_role(
+            Query(
+                f"DELETE FROM {DMAT_SLOT_ASSIGNMENTS_TABLE_NAME} WHERE team_id = %(team_id)s", {"team_id": materialized}
+            ),
+            NodeRole.DATA,
+        ).result()
+
+    table = GeoipStagingTable(id=UUID(result.dagster_run.run_id))
+    try:
+        staged = staged_rows(cluster, table)
+    finally:
+        run_cleanup(cluster, table)
+    assert set(staged) == {events[geoip_teams.with_geoip].uuid, events[reviewed].uuid}
+    metadata = output_metadata(result, "find_affected_teams")
+    assert {key: value for key, value in metadata.items() if key.endswith("_team_ids") and value} == {
+        "filters_team_ids": [filtered],
+        "legacy_geoip_plugin_team_ids": [legacy_plugin],
+        "materialized_geoip_team_ids": [materialized],
+    }
+    assert metadata["no_geoip_events"] == 1
+    assert metadata["anonymize_ips_teams"] == 1
+    assert metadata["anonymize_ips_events"] == 1

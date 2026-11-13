@@ -9,9 +9,10 @@ writes to `sharded_events`; later jobs read the staging table.
 
 import json
 import uuid
-from collections import Counter
-from collections.abc import Callable, Iterator, Mapping, Sequence
+from collections import Counter, defaultdict
+from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
 from datetime import UTC, datetime, timedelta
+from enum import StrEnum
 from functools import partial
 from pathlib import Path
 from typing import Any, TypeVar
@@ -31,11 +32,21 @@ from posthog.clickhouse.query_tagging import DagsterTags
 from posthog.clickhouse.table_engines import ReplacingMergeTree, ReplicationScheme
 from posthog.dags.common import JobOwners, dagster_tags
 from posthog.dags.common.shards import inserted_rows, on_shard_host, shard_workload, tagged
-from posthog.dags.geoip_enrichment import GeoipEnrichment, GeoipLookup, MmdbGeoipLookup, geoip_enrichment
+from posthog.dags.geoip_enrichment import (
+    TEMPLATE_VERSIONS,
+    GeoipEnrichment,
+    GeoipLookup,
+    GeoipTemplateVersion,
+    MmdbGeoipLookup,
+    geoip_enrichment,
+    template_version,
+)
 from posthog.dataclasses import frozen
+from posthog.models.dmat_slot_assignments.sql import DMAT_SLOT_ASSIGNMENTS_TABLE_NAME
 from posthog.models.event.sql import EVENTS_DATA_TABLE
+from posthog.models.team import Team
 
-from products.cdp.backend.facade.api import teams_with_enabled_transformation
+from products.cdp.backend.facade.api import EnabledTransformation, enabled_transformations
 
 T = TypeVar("T")
 
@@ -44,6 +55,9 @@ OWNER_TAG = {"owner": JobOwners.TEAM_INGESTION.value}
 PRODUCT = ProductKey.PIPELINE_TRANSFORMATIONS
 
 GEOIP_TEMPLATE_ID = "template-geoip"
+# Legacy plugins that look up the same MMDB. Their output differs from the template's, so the port
+# cannot repair their events.
+LEGACY_GEOIP_TEMPLATE_IDS = ("plugin-posthog-plugin-geoip", "plugin-plugin-advanced-geoip")
 
 GIB = 1024**3
 
@@ -53,13 +67,13 @@ STAGING_TABLE_PREFIX = "tmp_geoip_backfill_"
 
 # A successful lookup writes every GeoIP key into `$set`, with null for the missing ones. An event that
 # has neither the property nor the `$set` key therefore never went through a successful lookup.
-_AFFECTED_EVENT_FILTER = """
+_WRITTEN_WITHOUT_GEOIP_FILTER = """
     timestamp >= %(event_time_floor)s AND timestamp < %(event_time_ceiling)s
     AND _timestamp >= %(written_from)s AND _timestamp < %(written_until)s
-    AND JSONExtractString(properties, '$ip') != ''
     AND NOT JSONHas(properties, '$geoip_country_code')
     AND NOT JSONHas(properties, '$set', '$geoip_country_code')
 """
+_AFFECTED_EVENT_FILTER = _WRITTEN_WITHOUT_GEOIP_FILTER + "    AND JSONExtractString(properties, '$ip') != ''\n"
 
 _TEAM_FILTER = " AND team_id IN %(team_ids)s"
 
@@ -75,6 +89,13 @@ class GeoipBackfillConfig(dagster.Config):
     )
     team_ids: list[int] | None = pydantic.Field(
         default=None, description="Repair only these teams. Leave empty to repair every affected team."
+    )
+    reviewed_team_ids: list[int] = pydantic.Field(
+        default_factory=list,
+        description=(
+            "Repair these teams even when their GeoIP transformation has filters, an edited source, or a "
+            "transformation after it. Check first that the port's output is what ingestion would have written."
+        ),
     )
     max_event_age_days: int = pydantic.Field(
         default=7,
@@ -239,8 +260,65 @@ def team_counts(rows: Sequence[Sequence[int]]) -> list[TeamCount]:
 
 
 @frozen
+class RepairTeam:
+    team_id: int
+    version: GeoipTemplateVersion
+
+
+@frozen
 class AffectedTeams:
-    team_ids: tuple[int, ...]
+    teams: tuple[RepairTeam, ...]
+
+    @property
+    def team_ids(self) -> tuple[int, ...]:
+        return tuple(team.team_id for team in self.teams)
+
+    def versions(self) -> dict[int, GeoipTemplateVersion]:
+        return {team.team_id: team.version for team in self.teams}
+
+
+class Exclusion(StrEnum):
+    """Why the job leaves out a team whose events lack GeoIP."""
+
+    # Not damaged: the team runs no GeoIP lookup.
+    NO_GEOIP = "no_geoip"
+    # Damaged, but the port cannot say what ingestion would have written.
+    LEGACY_GEOIP_PLUGIN = "legacy_geoip_plugin"
+    FILTERS = "filters"
+    EDITED_SOURCE = "edited_source"
+    LATER_TRANSFORMATION = "later_transformation"
+    # Damaged, but reads serve the team's GeoIP property from a dmat column, which the copy cannot change.
+    MATERIALIZED_GEOIP = "materialized_geoip"
+
+
+@frozen
+class TeamDecision:
+    version: GeoipTemplateVersion | None = None
+    exclusion: Exclusion | None = None
+
+
+def decide_team(transformations: Sequence[EnabledTransformation], *, reviewed: bool) -> TeamDecision:
+    """Whether the port reproduces what ingestion would have written for a team with these transformations.
+
+    `transformations` are the team's enabled transformations in the order ingestion runs them.
+    """
+    positions = [index for index, item in enumerate(transformations) if item.template_id == GEOIP_TEMPLATE_ID]
+    if not positions:
+        if any(item.template_id in LEGACY_GEOIP_TEMPLATE_IDS for item in transformations):
+            return TeamDecision(exclusion=Exclusion.LEGACY_GEOIP_PLUGIN)
+        return TeamDecision(exclusion=Exclusion.NO_GEOIP)
+    geoip = transformations[positions[0]]
+    version = template_version(geoip.hog)
+    if reviewed:
+        return TeamDecision(version=version or TEMPLATE_VERSIONS[-1])
+    if geoip.has_filters:
+        return TeamDecision(exclusion=Exclusion.FILTERS)
+    if version is None:
+        return TeamDecision(exclusion=Exclusion.EDITED_SOURCE)
+    if positions[0] != len(transformations) - 1:
+        # The stored event is the output of the later transformations, which saw no GeoIP keys.
+        return TeamDecision(exclusion=Exclusion.LATER_TRANSFORMATION)
+    return TeamDecision(version=version)
 
 
 @frozen
@@ -271,11 +349,11 @@ def _parse_utc(value: str) -> datetime:
 
 
 def enrich_row(
-    row: Mapping[str, Any], lookup: GeoipLookup, staged_at: datetime
+    row: Mapping[str, Any], lookup: GeoipLookup, staged_at: datetime, version: GeoipTemplateVersion
 ) -> tuple[dict[str, Any], GeoipEnrichment] | None:
     """The staged copy of an events row, or None when the transformation would leave the event unchanged."""
     properties = _json_object(row["properties"])
-    enrichment = geoip_enrichment(properties, lookup)
+    enrichment = geoip_enrichment(properties, lookup, version)
     if enrichment is None:
         return None
     staged = dict(row)
@@ -334,18 +412,82 @@ def find_affected_teams(
     cluster: dagster.ResourceParam[ClickhouseCluster],
     plan: StagingPlan,
 ) -> AffectedTeams:
-    """Count the events without GeoIP per team, and keep the teams that run the GeoIP transformation.
+    """Count the events without GeoIP per team, and keep the teams whose events the port can repair.
 
-    A team without the transformation never had GeoIP, so its events are not damaged. A team with
-    `anonymize_ips` has no `$ip` on its events, so it never matches the filter.
+    A team without a GeoIP lookup never had GeoIP, so its events are not damaged. The op reports every
+    other team it leaves out, with its events, because those events stay damaged:
+
+    - a team on a legacy GeoIP plugin, a team whose GeoIP transformation has filters or an edited
+      source, or one with a transformation after it, because the port cannot say what ingestion
+      would have written (`reviewed_team_ids` includes such a team anyway)
+    - a team that reads a GeoIP property from a dmat column, because the copy keeps the original's
+      dmat values
+    - a team with `anonymize_ips`, because ingestion deletes `$ip` after the transformations, so
+      nothing is left to look up
     """
-    team_filter = _TEAM_FILTER if plan.config.team_ids else ""
-    query = f"SELECT team_id, count() FROM {EVENTS_DATA_TABLE()} WHERE {_AFFECTED_EVENT_FILTER}{team_filter} GROUP BY team_id"
-    workload, node_role = shard_workload()
     query_tags = dagster_tags(context)
+    counts = _count_per_team(cluster, plan, query_tags, _AFFECTED_EVENT_FILTER, plan.config.team_ids)
+    transformations: defaultdict[int, list[EnabledTransformation]] = defaultdict(list)
+    for transformation in enabled_transformations(team_ids=counts.keys()):
+        transformations[transformation.team_id].append(transformation)
+    reviewed = set(plan.config.reviewed_team_ids)
+    decisions = {team_id: decide_team(transformations[team_id], reviewed=team_id in reviewed) for team_id in counts}
+    for team_id in _teams_with_materialized_geoip(cluster, query_tags, [t for t, d in decisions.items() if d.version]):
+        decisions[team_id] = TeamDecision(exclusion=Exclusion.MATERIALIZED_GEOIP)
+
+    repair = {team_id: decision.version for team_id, decision in decisions.items() if decision.version}
+    excluded: defaultdict[Exclusion, list[int]] = defaultdict(list)
+    for team_id, decision in decisions.items():
+        if decision.exclusion is not None:
+            excluded[decision.exclusion].append(team_id)
+    anonymized = _anonymized_teams_with_geoip(plan.config.team_ids)
+    anonymized_counts = (
+        _count_per_team(cluster, plan, query_tags, _WRITTEN_WITHOUT_GEOIP_FILTER, anonymized) if anonymized else {}
+    )
+
+    def events(team_ids: Collection[int], source: Mapping[int, int] = counts) -> int:
+        return sum(source.get(team_id, 0) for team_id in team_ids)
+
+    metadata: dict[str, Any] = {
+        "teams": dagster.MetadataValue.int(len(repair)),
+        "events": dagster.MetadataValue.int(events(repair)),
+        "events_per_team": dagster.MetadataValue.json(
+            dict(Counter({str(team_id): counts[team_id] for team_id in repair}).most_common(500))
+        ),
+        "anonymize_ips_teams": dagster.MetadataValue.int(len(anonymized_counts)),
+        "anonymize_ips_events": dagster.MetadataValue.int(sum(anonymized_counts.values())),
+    }
+    context.log.info(f"{len(repair)} team(s) with {events(repair)} event(s) to repair.")
+    for exclusion in Exclusion:
+        team_ids = sorted(excluded[exclusion])
+        metadata[f"{exclusion}_teams"] = dagster.MetadataValue.int(len(team_ids))
+        metadata[f"{exclusion}_events"] = dagster.MetadataValue.int(events(team_ids))
+        if exclusion != Exclusion.NO_GEOIP:
+            metadata[f"{exclusion}_team_ids"] = dagster.MetadataValue.json(team_ids[:500])
+        context.log.info(f"Left out {len(team_ids)} team(s) with {events(team_ids)} event(s): {exclusion}.")
+    context.log.info(
+        f"Left out {len(anonymized_counts)} team(s) with anonymize_ips and "
+        f"{sum(anonymized_counts.values())} event(s) without GeoIP."
+    )
+    context.add_output_metadata(metadata)
+    return AffectedTeams(
+        teams=tuple(RepairTeam(team_id=team_id, version=version) for team_id, version in sorted(repair.items()))
+    )
+
+
+def _count_per_team(
+    cluster: ClickhouseCluster,
+    plan: StagingPlan,
+    query_tags: DagsterTags,
+    event_filter: str,
+    team_ids: Collection[int] | None,
+) -> Counter[int]:
+    team_filter = _TEAM_FILTER if team_ids else ""
+    query = f"SELECT team_id, count() FROM {EVENTS_DATA_TABLE()} WHERE {event_filter}{team_filter} GROUP BY team_id"
+    workload, node_role = shard_workload()
     counts: Counter[int] = Counter()
     for window in plan.windows:
-        args = {**plan.query_args(window), "team_ids": tuple(plan.config.team_ids or ())}
+        args = {**plan.query_args(window), "team_ids": tuple(team_ids or ())}
 
         def count_teams(client: Client, args: dict[str, Any] = args) -> list[TeamCount]:
             return team_counts(
@@ -367,24 +509,44 @@ def find_affected_teams(
         for shard_counts in per_shard.values():
             for team_count in shard_counts:
                 counts[team_count.team_id] += team_count.count
+    return counts
 
-    with_geoip = teams_with_enabled_transformation(template_id=GEOIP_TEMPLATE_ID, team_ids=counts.keys())
-    affected = Counter({team_id: events for team_id, events in counts.items() if team_id in with_geoip})
-    skipped = {team_id: events for team_id, events in counts.items() if team_id not in with_geoip}
-    context.log.info(
-        f"{len(affected)} team(s) with {sum(affected.values())} event(s) to repair. "
-        f"Skipped {len(skipped)} team(s) without the GeoIP transformation ({sum(skipped.values())} event(s))."
-    )
-    context.add_output_metadata(
+
+def _teams_with_materialized_geoip(
+    cluster: ClickhouseCluster, query_tags: DagsterTags, team_ids: Collection[int]
+) -> set[int]:
+    """The teams with a dmat slot for a GeoIP property. Every host holds the whole slot table."""
+    if not team_ids:
+        return set()
+    workload, node_role = shard_workload()
+
+    def read(client: Client) -> set[int]:
+        rows = sync_execute(
+            f"""
+            SELECT DISTINCT team_id FROM {DMAT_SLOT_ASSIGNMENTS_TABLE_NAME} FINAL
+            WHERE team_id IN %(team_ids)s AND startsWith(property_name, '$geoip')
+            """,
+            {"team_ids": tuple(team_ids)},
+            workload=workload,
+            sync_client=client,
+        )
+        return {team_id for (team_id,) in rows}
+
+    return cluster.any_host_by_role(tagged(query_tags, read, product=PRODUCT), node_role).result()
+
+
+def _anonymized_teams_with_geoip(team_ids: Collection[int] | None) -> list[int]:
+    teams = Team.objects.filter(anonymize_ips=True)
+    if team_ids:
+        teams = teams.filter(id__in=list(team_ids))
+    geoip_template_ids = (GEOIP_TEMPLATE_ID, *LEGACY_GEOIP_TEMPLATE_IDS)
+    return sorted(
         {
-            "teams": dagster.MetadataValue.int(len(affected)),
-            "events": dagster.MetadataValue.int(sum(affected.values())),
-            "skipped_teams": dagster.MetadataValue.int(len(skipped)),
-            "skipped_events": dagster.MetadataValue.int(sum(skipped.values())),
-            "events_per_team": dagster.MetadataValue.json({str(team): n for team, n in affected.most_common(500)}),
+            transformation.team_id
+            for transformation in enabled_transformations(team_ids=list(teams.values_list("id", flat=True)))
+            if transformation.template_id in geoip_template_ids
         }
     )
-    return AffectedTeams(team_ids=tuple(sorted(affected)))
 
 
 def _read_settings(config: GeoipBackfillConfig) -> dict[str, Any]:
@@ -430,6 +592,7 @@ class ShardStaging:
     shard_num: int
     plan: StagingPlan
     table: GeoipStagingTable
+    versions: Mapping[int, GeoipTemplateVersion]
     lookup: GeoipLookup
     staged_at: datetime
     log: dagster.DagsterLogManager
@@ -457,7 +620,7 @@ class ShardStaging:
             return totals
         staged = []
         for row in rows:
-            enriched = enrich_row(row, self.lookup, self.staged_at)
+            enriched = enrich_row(row, self.lookup, self.staged_at, self.versions[row["team_id"]])
             if enriched is not None:
                 staged.append(enriched[0])
         if staged:
@@ -543,6 +706,7 @@ def stage_shard(
             shard_num=shard_num,
             plan=plan,
             table=table,
+            versions=teams.versions(),
             lookup=lookup,
             staged_at=datetime.now(UTC),
             log=context.log,
