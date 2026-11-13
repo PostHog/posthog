@@ -121,7 +121,6 @@ const examples: Record<string, string> = {
     'MCP servers': 'Find a server that gives your agent the tools it needs.',
     'Marketing analytics': 'Compare campaign performance alongside your product data.',
     Metrics: 'Investigate a change in application performance over time.',
-    Playground: 'Try a revised prompt before using it in your application.',
     'Product tours': 'Guide new users through their first useful action.',
     Prompts: 'Keep track of changes to the prompts your application uses.',
     Pulse: 'Follow what is happening across your project.',
