@@ -414,6 +414,7 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             # The reader is already querying the exposure events.
             can_query_events=True,
             denied_event_properties=split_restricted_property_names(restrictions).event,
+            restricted_properties=frozenset(restrictions),
         )
 
     def _evaluate_health(self, exposures: ExposureTotals, exposure_params: ExposureQueryParams) -> ExperimentHealth:

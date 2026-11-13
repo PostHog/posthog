@@ -16,8 +16,8 @@ def _datetime_field(name: str) -> IncrementalField:
 @dataclass(frozen=True)
 class TwelveLabsEndpointConfig:
     name: str
-    # `path` may contain `{index_id}`, `{asset_id}`, or `{knowledge_store_id}` + `{item_id}` placeholders
-    # for fan-out endpoints.
+    # `path` may contain `{index_id}`, `{asset_id}`, `{knowledge_store_id}`, or `{knowledge_store_id}` +
+    # `{item_id}` placeholders for fan-out endpoints.
     path: str
     incremental_fields: list[IncrementalField]
     # Field to partition by. Must be a STABLE creation-time field so partitions don't rewrite
@@ -25,13 +25,15 @@ class TwelveLabsEndpointConfig:
     partition_key: Optional[str] = "created_at"
     primary_keys: list[str] = field(default_factory=lambda: ["_id"])
     should_sync_default: bool = True
-    # Fan out one request per parent index, asset, or knowledge store item. `path` is then a template
-    # with the parent's placeholders.
-    fan_out_over: Optional[Literal["indexes", "assets", "knowledge_store_items"]] = None
+    # Fan out one request per parent index, asset, knowledge store, or knowledge store item. `path` is
+    # then a template with the parent's placeholders.
+    fan_out_over: Optional[Literal["indexes", "assets", "knowledge_stores", "knowledge_store_items"]] = None
     # The child returns one object per parent instead of a paginated `data` list.
     single_object: bool = False
     # Extra static query params sent with every request to this endpoint.
     params: dict[str, Any] = field(default_factory=dict)
+    # The endpoint accepts `sort_by` / `sort_option`. Without them the API returns the newest rows first.
+    sortable: bool = True
 
 
 # Twelve Labs list endpoints all use page-number pagination (page + page_limit, max 50) and expose
@@ -95,6 +97,64 @@ TWELVE_LABS_ENDPOINTS: dict[str, TwelveLabsEndpointConfig] = {
         primary_keys=["knowledge_store_id", "item_id", "_id"],
         should_sync_default=False,
         fan_out_over="knowledge_store_items",
+    ),
+    # Assets are the account-wide media inventory: every uploaded or imported video, audio, image, and
+    # document. The endpoint has no sort or time filter and returns the newest assets first, so it
+    # ships as full refresh, which also picks up assets that move from processing to ready.
+    "assets": TwelveLabsEndpointConfig(
+        name="assets",
+        path="/assets",
+        incremental_fields=[],
+        sortable=False,
+    ),
+    # Indexed assets link an asset to an index and carry its indexing status in that index. Same
+    # shape as `videos`: one paginated request per index, full refresh because the `updated_at` filter
+    # only matches PATCH edits, not status changes, and off by default because of the per-index API cost.
+    "indexed_assets": TwelveLabsEndpointConfig(
+        name="indexed_assets",
+        path="/indexes/{index_id}/indexed-assets",
+        incremental_fields=[],
+        primary_keys=["index_id", "_id"],
+        should_sync_default=False,
+        fan_out_over="indexes",
+    ),
+    # Async analysis tasks, with their status, completion time, token usage, and result. The endpoint
+    # has no sort or time filter and returns the newest tasks first, so it ships as full refresh,
+    # which also picks up tasks that reach a final status.
+    "analyze_tasks": TwelveLabsEndpointConfig(
+        name="analyze_tasks",
+        path="/analyze/tasks",
+        incremental_fields=[],
+        primary_keys=["task_id"],
+        sortable=False,
+    ),
+    # The endpoint sorts by `created_at` / `updated_at` but has no time filter, so it ships as full
+    # refresh.
+    "knowledge_stores": TwelveLabsEndpointConfig(
+        name="knowledge_stores",
+        path="/knowledge-stores",
+        incremental_fields=[],
+    ),
+    # Item collections group items of one knowledge store. One request per store, no time filter, off
+    # by default because of the per-store API cost.
+    "knowledge_store_item_collections": TwelveLabsEndpointConfig(
+        name="knowledge_store_item_collections",
+        path="/knowledge-stores/{knowledge_store_id}/item-collections",
+        incremental_fields=[],
+        primary_keys=["knowledge_store_id", "_id"],
+        should_sync_default=False,
+        fan_out_over="knowledge_stores",
+    ),
+    # Items are the video and image entries of a knowledge store, with their processing status. One
+    # request per store. The only time filter is on `created_at`, which misses status changes, so it
+    # ships as full refresh. Off by default because of the per-store API cost.
+    "knowledge_store_items": TwelveLabsEndpointConfig(
+        name="knowledge_store_items",
+        path="/knowledge-stores/{knowledge_store_id}/items",
+        incremental_fields=[],
+        primary_keys=["knowledge_store_id", "_id"],
+        should_sync_default=False,
+        fan_out_over="knowledge_stores",
     ),
 }
 

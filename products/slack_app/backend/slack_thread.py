@@ -57,7 +57,9 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
-PROGRESS_MESSAGE_MARKER = "Working on task..."
+PROGRESS_MESSAGE_MARKER = "*Hedgehog on the job* :hedgehog:"
+# Cards posted before the copy change still carry this text and must stay editable.
+LEGACY_PROGRESS_MESSAGE_MARKER = "Working on task..."
 UPSTREAM_PROVIDER_FAILURE_MESSAGE = (
     "The upstream AI provider failed to process the request. Please retry the task in a few minutes."
 )
@@ -491,7 +493,10 @@ class SlackThreadHandler:
             messages: list[dict[str, Any]] = response.get("messages", [])
 
             for msg in messages:
-                if msg.get("user") == bot_user_id and PROGRESS_MESSAGE_MARKER in msg.get("text", ""):
+                text = msg.get("text", "")
+                if msg.get("user") == bot_user_id and (
+                    PROGRESS_MESSAGE_MARKER in text or LEGACY_PROGRESS_MESSAGE_MARKER in text
+                ):
                     return msg.get("ts")
         except Exception as e:
             logger.warning("slack_find_progress_message_failed", error=str(e))
@@ -730,7 +735,7 @@ class SlackThreadHandler:
         running on and against is a property of the task, and the thread already has
         one place that describes it while it works.
         """
-        text = f"*{PROGRESS_MESSAGE_MARKER}* :hourglass_flowing_sand:\nStage: {stage}"
+        text = f"{PROGRESS_MESSAGE_MARKER}\n{stage}"
         blocks: list[dict[str, Any]] = [
             {"type": "section", "text": {"type": "mrkdwn", "text": text}},
         ]
@@ -781,7 +786,7 @@ class SlackThreadHandler:
         """
         reply_target_slack_user_id = self.notification_target(reply_target_slack_user_id)
         mention_prefix = f"<@{reply_target_slack_user_id}> " if reply_target_slack_user_id else ""
-        header = f"{mention_prefix}*Pull request opened* :rocket:"
+        header = f"{mention_prefix}*Hedgehog shipped a PR* :hedgehog: :rocket:"
 
         blocks: list[dict[str, Any]] = [
             {"type": "section", "text": {"type": "mrkdwn", "text": header}},
@@ -809,7 +814,9 @@ class SlackThreadHandler:
         """
         reply_target_slack_user_id = self.notification_target(reply_target_slack_user_id)
         mention_prefix = f"<@{reply_target_slack_user_id}> " if reply_target_slack_user_id else ""
-        outcome = "*Pull request merged* :tada:" if merged else "*Pull request closed without merging*"
+        outcome = (
+            "*Merged! The hedgehog is proud* :tada:" if merged else "*PR closed, the hedgehog lets it go* :fallen_leaf:"
+        )
         header = f"{mention_prefix}{outcome}"
         blocks: list[dict[str, Any]] = [
             {"type": "section", "text": {"type": "mrkdwn", "text": header}},
@@ -953,7 +960,7 @@ class SlackThreadHandler:
         semantics). This card is the "task finished without opening a PR"
         terminal state.
         """
-        header = "*Task Completed* :hedgehog:"
+        header = "*All done, hedgehog out* :hedgehog:"
 
         blocks: list[dict[str, Any]] = [
             {"type": "section", "text": {"type": "mrkdwn", "text": header}},
@@ -967,7 +974,7 @@ class SlackThreadHandler:
         self, error: str, task_url: str | None, recovery_hint: str | None = DEFAULT_FAILURE_RECOVERY_HINT
     ) -> None:
         """Post the error message. The session link is in the footer."""
-        header = "*Task Failed* :x:"
+        header = "*The hedgehog hit a snag* :hedgehog: :boom:"
         error = _format_task_error(error)
         truncated_error = error[:200] if len(error) > 200 else error
 
