@@ -1205,7 +1205,6 @@ mod tests {
         let key = gate_key("token-a", 7);
         let window = gate.window_for(key);
 
-        // This pod labels the series at START.
         let mut rows = vec![row(7)];
         gate.apply("token-a", &mut rows);
         assert_labelled(&rows[0]);
@@ -1228,7 +1227,6 @@ mod tests {
         assert_eq!(merged, 0);
         assert_eq!(gate.seen_at(key), Some(since));
 
-        // This pod no longer sends its own copy of the labels.
         let mut rows = vec![row(7)];
         gate.apply("token-a", &mut rows);
         assert_stripped(&rows[0]);
