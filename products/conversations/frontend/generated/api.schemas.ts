@@ -40,6 +40,100 @@ export interface AIReplyPlaybookApi {
     readonly max_chars: number
 }
 
+export type IntercomImportJobRegionEnumApi =
+    (typeof IntercomImportJobRegionEnumApi)[keyof typeof IntercomImportJobRegionEnumApi]
+
+export const IntercomImportJobRegionEnumApi = {
+    Us: 'us',
+    Eu: 'eu',
+    Au: 'au',
+} as const
+
+export interface IntercomImportStartApi {
+    /** Region where the Intercom workspace is hosted: us, eu, or au.
+     *
+     * * `us` - United States
+     * * `eu` - Europe
+     * * `au` - Australia */
+    region?: IntercomImportJobRegionEnumApi
+    /**
+     * Intercom access token with permission to read conversations and contacts.
+     * @maxLength 500
+     */
+    access_token: string
+    /**
+     * Optional support email channel to attach imported tickets to, so agents can reply by email. Omit or null to import tickets without an email channel.
+     * @nullable
+     */
+    default_email_channel_id?: string | null
+}
+
+/**
+ * * `pending` - Pending
+ * * `running` - Running
+ * * `completed` - Completed
+ * * `failed` - Failed
+ */
+export type ZendeskImportJobStatusEnumApi =
+    (typeof ZendeskImportJobStatusEnumApi)[keyof typeof ZendeskImportJobStatusEnumApi]
+
+export const ZendeskImportJobStatusEnumApi = {
+    Pending: 'pending',
+    Running: 'running',
+    Completed: 'completed',
+    Failed: 'failed',
+} as const
+
+export interface IntercomImportJobApi {
+    /** Unique identifier for the import job. */
+    readonly id: string
+    /** Current job state: pending, running, completed, or failed.
+     *
+     * * `pending` - Pending
+     * * `running` - Running
+     * * `completed` - Completed
+     * * `failed` - Failed */
+    readonly status: ZendeskImportJobStatusEnumApi
+    /** Intercom region used for this import job. */
+    readonly region: IntercomImportJobRegionEnumApi | null
+    /** Whether a stored Intercom access token exists for this job (the token is never returned). */
+    readonly has_credentials: boolean
+    /** Total number of conversations discovered for import. */
+    readonly total_conversations: number
+    /** Number of conversations processed so far. */
+    readonly processed_conversations: number
+    /** Number of conversations imported as tickets. */
+    readonly imported_conversations: number
+    /** Number of conversations skipped because they were already imported. */
+    readonly skipped_conversations: number
+    /** Number of conversations that failed to import. */
+    readonly failed_conversations: number
+    /**
+     * When the import started running.
+     * @nullable
+     */
+    readonly started_at: string | null
+    /**
+     * When the import reached a terminal state.
+     * @nullable
+     */
+    readonly finished_at: string | null
+    /**
+     * Generic, user-safe error message when the job failed.
+     * @nullable
+     */
+    readonly latest_error: string | null
+    /** When the import job was created. */
+    readonly created_at: string
+    /** When the import job was last updated. */
+    readonly updated_at: string
+}
+
+export interface IntercomImportErrorApi {
+    /** Human-readable error message. */
+    detail: string
+}
+
 /**
  * * `shared` - Everyone in the project
  * * `personal` - Only the creator
@@ -417,6 +511,11 @@ export interface TicketApi {
     /** @nullable */
     readonly zendesk_ticket_id: number | null
     /**
+     * Intercom conversation id when the ticket was imported from Intercom. Null otherwise.
+     * @nullable
+     */
+    readonly intercom_conversation_id: string | null
+    /**
      * Customer's PostHog organization group key, resolved at ticket creation. Null when unknown.
      * @nullable
      */
@@ -520,7 +619,7 @@ export interface TicketUpdateRequestApi {
      * @nullable
      */
     snoozed_until?: string | null
-    /** Tag names to set on the ticket. */
+    /** Tag names to set on the ticket. The list replaces the ticket's current tags. A request can add up to 100 new tags. */
     tags?: string[]
 }
 
@@ -564,7 +663,7 @@ export interface PatchedTicketUpdateRequestApi {
      * @nullable
      */
     snoozed_until?: string | null
-    /** Tag names to set on the ticket. */
+    /** Tag names to set on the ticket. The list replaces the ticket's current tags. A request can add up to 100 new tags. */
     tags?: string[]
 }
 
@@ -1110,22 +1209,6 @@ export interface ZendeskImportStartApi {
      */
     default_email_channel_id?: string | null
 }
-
-/**
- * * `pending` - Pending
- * * `running` - Running
- * * `completed` - Completed
- * * `failed` - Failed
- */
-export type ZendeskImportJobStatusEnumApi =
-    (typeof ZendeskImportJobStatusEnumApi)[keyof typeof ZendeskImportJobStatusEnumApi]
-
-export const ZendeskImportJobStatusEnumApi = {
-    Pending: 'pending',
-    Running: 'running',
-    Completed: 'completed',
-    Failed: 'failed',
-} as const
 
 export interface ZendeskImportJobApi {
     /** Unique identifier for the import job. */

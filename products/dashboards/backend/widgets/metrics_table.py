@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import math
 from typing import Any
 
@@ -14,9 +15,10 @@ from posthog.utils import relative_date_parse
 
 from products.dashboards.backend.constants import METRICS_TABLE_RETRY_BUCKETS, METRICS_TABLE_SPARKLINE_POINTS
 from products.dashboards.backend.feature_flags import widget_flag_enabled
-from products.dashboards.backend.widget_specs.configs import METRICS_TABLE_WIDGET_TYPE
+from products.dashboards.backend.widget_specs.configs import METRICS_TABLE_WIDGET_TYPE, metrics_table_group_by_labels
 from products.dashboards.backend.widget_specs.registry import validate_widget_config
 from products.metrics.backend.facade.api import (
+    MAX_SERIES_PER_CLAUSE,
     metric_query_concurrency_slots,
     pick_metric_query_interval,
     run_metric_query,
@@ -38,7 +40,7 @@ DEFAULT_METRICS_TABLE_DATE_FROM = "-1h"
 _COUNTER_FUNCTIONS = {"rate": MetricRangeFunction.RATE, "increase": MetricRangeFunction.INCREASE}
 
 
-def _clause(index: int, column: dict[str, Any], group_by: str) -> MetricQueryClause:
+def _clause(index: int, column: dict[str, Any], group_by: list[str]) -> MetricQueryClause:
     aggregation = column["aggregation"]
     range_function = _COUNTER_FUNCTIONS.get(aggregation)
     return MetricQueryClause(
@@ -51,7 +53,7 @@ def _clause(index: int, column: dict[str, Any], group_by: str) -> MetricQueryCla
             MetricFilter(key=item["key"], op=FilterOp(item["op"]), value=item["value"])
             for item in column.get("filters", [])
         ),
-        group_by=(MetricGroupBy(key=group_by),),
+        group_by=tuple(MetricGroupBy(key=label) for label in group_by),
     )
 
 
@@ -76,6 +78,33 @@ def _sparkline(series: MetricSeries) -> list[float | None]:
     ]
 
 
+def _fill_counter_zeros(
+    rows: list[dict[str, Any]], columns: list[dict[str, Any]], present: set[tuple[str, int]], series_counts: list[int]
+) -> None:
+    # A counter series for a label set starts with its first event, so a counter column has no series for a row
+    # that counted nothing. When another column shows that the row reports the same metric, the count is 0.
+    # A column that matched no row may filter on a wrong label, and a column at the series cap may have dropped
+    # the row, so both stay empty.
+    for index, column in enumerate(columns):
+        if column["aggregation"] not in _COUNTER_FUNCTIONS or not 0 < series_counts[index] < MAX_SERIES_PER_CLAUSE:
+            continue
+        siblings = [
+            other
+            for other, candidate in enumerate(columns)
+            if other != index and candidate["metricName"] == column["metricName"]
+        ]
+        for row in rows:
+            if (row["key"], index) in present:
+                continue
+            sibling_lines = [row["sparklines"][other] for other in siblings if (row["key"], other) in present]
+            if not sibling_lines:
+                continue
+            row["values"][index] = 0.0
+            row["sparklines"][index] = [
+                None if all(value is None for value in points) else 0.0 for points in zip(*sibling_lines)
+            ]
+
+
 def _order_rows(rows: list[dict[str, Any]], column: int, descending: bool) -> list[dict[str, Any]]:
     # Python sorts are stable, so ties keep the key order. Rows without a value go last in both directions.
     by_key = sorted(rows, key=lambda row: row["key"])
@@ -98,7 +127,7 @@ def run_metrics_table_widget(
     if not widget_flag_enabled(METRICS_FEATURE_FLAG, team=team, user=user):
         raise exceptions.PermissionDenied("Metrics are not enabled for this project.")
     typed_config = validate_widget_config(METRICS_TABLE_WIDGET_TYPE, config)
-    group_by = typed_config.get("groupBy")
+    group_by = metrics_table_group_by_labels(typed_config.get("groupBy"))
     columns: list[dict[str, Any]] = typed_config["columns"]
     if not group_by or not columns:
         return {"needsConfiguration": True, "groupBy": group_by, "columns": [], "rows": [], "totalCount": 0}
@@ -144,22 +173,34 @@ def run_metrics_table_widget(
             "queryError": str(error),
         }
 
-    rows_by_key: dict[str, dict[str, Any]] = {}
+    rows_by_key: dict[tuple[str, ...], dict[str, Any]] = {}
     units: list[str | None] = [None] * len(columns)
+    present: set[tuple[str, int]] = set()
+    series_counts = [0] * len(columns)
     for item in series:
-        key = item.labels.get(group_by)
-        if key is None or item.clause is None:
+        if item.clause is None:
             continue
         index = int(item.clause.removeprefix("c"))
+        # The series cap counts every series of the clause, also one without a group-by label.
+        series_counts[index] += 1
+        if any(label not in item.labels for label in group_by):
+            continue
+        label_values = [item.labels[label] for label in group_by]
+        # Joining the values could make two combinations one key, so a row grouped by several labels has
+        # its values as a JSON list for a key. The frontend shows its labels.
+        key = label_values[0] if len(label_values) == 1 else json.dumps(label_values)
         units[index] = units[index] or item.unit
+        present.add((key, index))
         row = rows_by_key.setdefault(
-            key, {"key": key, "values": [None] * len(columns), "sparklines": [[] for _ in columns]}
+            tuple(label_values),
+            {"key": key, "labels": label_values, "values": [None] * len(columns), "sparklines": [[] for _ in columns]},
         )
         values = [point.value for point in item.points if point.value is not None]
         # An increase bucket holds the change in that bucket, so the total over the range does not depend on
         # the bucket size. Every other calculation is a level per bucket, so its mean does not either.
         row["values"][index] = _sum(values) if columns[index]["aggregation"] == "increase" else _mean(values)
         row["sparklines"][index] = _sparkline(item)
+    _fill_counter_zeros(list(rows_by_key.values()), columns, present, series_counts)
 
     ordered = _order_rows(
         list(rows_by_key.values()), typed_config["orderByColumn"], typed_config["orderDirection"] == "DESC"

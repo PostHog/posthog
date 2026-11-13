@@ -100,34 +100,35 @@ class TestExternalDataSourceAdmin(BaseTest):
         assert b"metadata-secret-sentinel" not in response.content
         assert "job_inputs" in response.context["original"].get_deferred_fields()
 
-    def test_change_view_lists_only_this_sources_schemas(self) -> None:
+    def test_console_lists_only_this_sources_schemas_and_the_change_view_links_there(self) -> None:
         source = self._source(credential_kind="project_reader")
         other_source = self._source(credential_kind="project_reader")
         schema = ExternalDataSchema.objects.create(team_id=self.team.pk, source=source, name="public.users")
         ExternalDataSchema.objects.create(team_id=self.team.pk, source=other_source, name="public.orders")
         self.client.force_login(self.user)
 
-        response = self.client.get(reverse("admin:warehouse_sources_externaldatasource_change", args=[source.pk]))
+        change = self.client.get(reverse("admin:warehouse_sources_externaldatasource_change", args=[source.pk]))
+        response = self.client.get(f"/admin/console/tools/warehouse-sources/?source={source.pk}")
 
+        assert f"/admin/console/tools/warehouse-sources/?source={source.pk}" in change.content.decode()
         assert response.status_code == 200
-        assert [listed.pk for listed in response.context["schema_page"].object_list] == [schema.pk]
-        schema_url = reverse("admin:warehouse_sources_externaldataschema_change", args=[schema.pk])
-        assert schema_url.encode() in response.content
+        content = response.content.decode()
+        assert f"?schema={schema.pk}" in content
+        assert "public.orders" not in content
 
-    def test_pagination_links_keep_changelist_filters(self) -> None:
+    def test_console_pages_through_the_schemas_of_a_source(self) -> None:
         source = self._source(credential_kind="project_reader")
         for name in ("public.users", "public.orders"):
             ExternalDataSchema.objects.create(team_id=self.team.pk, source=source, name=name)
         self.client.force_login(self.user)
 
-        with patch.object(ExternalDataSourceAdmin, "SCHEMAS_PER_PAGE", 1):
-            response = self.client.get(
-                reverse("admin:warehouse_sources_externaldatasource_change", args=[source.pk]),
-                {"_changelist_filters": "source_type=Postgres"},
-            )
+        with patch("products.warehouse_sources.backend.logic.schema_staff_actions.SCHEMAS_PER_PAGE", 1):
+            response = self.client.get(f"/admin/console/tools/warehouse-sources/?source={source.pk}")
 
         assert response.status_code == 200
-        assert b"_changelist_filters=source_type%3DPostgres&amp;page=2" in response.content
+        content = response.content.decode()
+        assert "public.orders" in content and "public.users" not in content
+        assert f"source={source.pk}&amp;page=2" in content
 
     def test_credential_kind_filter_uses_connection_metadata(self) -> None:
         project_reader = self._source(credential_kind="project_reader")

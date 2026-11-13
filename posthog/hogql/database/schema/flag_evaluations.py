@@ -5,6 +5,7 @@ from posthog.hogql import ast
 from posthog.hogql.database.lazy_join_tags import GROUP_N, PERSON_DISTINCT_ID_OVERRIDES, PERSON_DISTINCT_IDS, PERSONS
 from posthog.hogql.database.models import (
     DateTimeDatabaseField,
+    EventsRetentionTable,
     ExpressionField,
     FieldOrTable,
     FieldTraverser,
@@ -12,7 +13,6 @@ from posthog.hogql.database.models import (
     LazyJoin,
     StringDatabaseField,
     StringJSONDatabaseField,
-    Table,
     UUIDDatabaseField,
     VirtualTable,
 )
@@ -34,10 +34,9 @@ if TYPE_CHECKING:
 # name is spelled out here rather than imported.
 FLAG_EVALUATIONS_CLICKHOUSE_TABLE = "flag_evaluations"
 
-# At most FLAG_EVALUATIONS_TTL_DAYS - 1, because the TTL can already have dropped the day FLAG_EVALUATIONS_TTL_DAYS
-# back. It stays lower while the table still lacks the oldest days that a shorter TTL dropped. The TTL constant
-# lives in posthog/models/flag_evaluations/sql.py.
-FLAG_EVALUATIONS_COMPLETE_DAYS = 89
+# FLAG_EVALUATIONS_TTL_DAYS - 1, because the TTL can already have dropped the day FLAG_EVALUATIONS_TTL_DAYS back.
+# The TTL constant lives in posthog/models/flag_evaluations/sql.py.
+FLAG_EVALUATIONS_COMPLETE_DAYS = 91
 
 
 def utc_midnight(now: datetime) -> datetime:
@@ -54,8 +53,7 @@ FLAG_EVALUATIONS_HOGQL_TABLE = "posthog.flag_evaluations"
 
 
 # The expression the events table uses under the persons-on-events modes that apply overrides. This table
-# applies it for every team instead of following the mode, because the mode decides where person properties
-# come from and this table does not follow the mode for those either. A team on
+# applies it for every team instead of following the mode. A team on
 # `PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS` therefore reads a merge-aware person here, and from `events` the
 # write-time person until the squash rewrites it.
 # The table and its `poe` subtable each take their own copy. The tests in test_flag_evaluations.py select
@@ -121,11 +119,13 @@ _ELEMENT_ARRAY_STAND_INS = ("elements_chain_texts", "elements_chain_ids", "eleme
 ELEMENT_STAND_INS = frozenset(_ELEMENT_STRING_STAND_INS + _ELEMENT_ARRAY_STAND_INS)
 
 
-class FlagEvaluationsTable(Table):
+# Flag calls are events too, and a query on events can read them from here, so events retention applies.
+class FlagEvaluationsTable(EventsRetentionTable):
     description: str = (
         "One row per feature flag evaluation, from the `$feature_flag_called` event. Rows are kept for 90 days. "
         "A project that is not sending flag-evaluation telemetry yet sees an empty table."
     )
+    events_retention_field: str = "timestamp"
     fields: dict[str, FieldOrTable] = {
         "uuid": UUIDDatabaseField(name="uuid", nullable=False, description="Unique identifier of this row."),
         "event": StringDatabaseField(
@@ -220,7 +220,7 @@ class FlagEvaluationsTable(Table):
             name="person_mode",
             nullable=False,
             description="How ingestion processed the person: 'full', 'propertyless' or 'force_upgrade'. A "
-            "'propertyless' evaluation had no person profile, and its `person.properties` is '{}'.",
+            "'propertyless' evaluation had no person profile, so it carries no person properties.",
         ),
         # Should not be used directly; reached via `person`.
         "poe": FlagEvaluationsPersonSubTable(),
@@ -309,17 +309,20 @@ class FlagEvaluationsTable(Table):
 EVENTS_LIST_JOINED_FIELDS = frozenset({"person", "session", *(f"group_{index}" for index in range(GROUP_TYPES_LIMIT))})
 
 
-def add_events_list_fields_to_flag_evaluations(database: "Database") -> None:
-    """Make `person` on `posthog.flag_evaluations` in `database` a persons join, as an events list reads it.
+def join_persons_to_flag_evaluations(database: "Database") -> None:
+    """Make `person` on `posthog.flag_evaluations` in `database` a join to `persons` on the merge-corrected
+    `person_id`, as `events.person` is under PERSON_ID_OVERRIDE_PROPERTIES_JOINED.
 
     This changes the table instance that `database` holds. Every later query compiled against `database` reads each
-    person's current properties instead of the stored ones. Pass a database that only the events list runner uses,
-    such as its `shared_database`.
+    person's current properties instead of the stored ones.
     """
     flag_evaluations = database.get_table(["posthog", "flag_evaluations"])
-
-    # This joins persons on the merge-corrected person_id, the way events does under
-    # PERSON_ID_OVERRIDE_PROPERTIES_JOINED. The join is lazy. A query that reads no person field skips it.
+    # The join is lazy. A query that reads no person field skips it.
     flag_evaluations.fields["person"] = LazyJoin(
-        from_field=["person_id"], join_table=database.get_table("persons"), resolver=PERSONS
+        from_field=["person_id"],
+        join_table=database.get_table("persons"),
+        resolver=PERSONS,
+        description="The person the evaluation is attributed to, joined on `person_id`, which is corrected for any "
+        "later identify or merge. `person.properties` and `person.created_at` are the person's current values, not "
+        "the values stored at evaluation time.",
     )

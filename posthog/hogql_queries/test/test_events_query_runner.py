@@ -43,7 +43,7 @@ from posthog.hogql.ast import CompareOperationOp
 from posthog.clickhouse.client import sync_execute
 from posthog.date_util import start_of_day
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
-from posthog.models import Element, Organization, OrganizationMembership, PropertyDefinition, Team
+from posthog.models import Element, Organization, OrganizationMembership, Team
 from posthog.models.event.util import events_only_in_active_schema
 from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_RETENTION_DAYS
 from posthog.models.group.util import create_group
@@ -53,6 +53,7 @@ from posthog.test.persons import create_group_type_mapping
 
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.property_access_control import PropertyAccessLevel
+from products.event_definitions.backend.models import PropertyDefinition
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
 
@@ -1401,7 +1402,7 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(response, CachedEventsQueryResponse)
         assert f"in(flag_key, tuple('{FLAG_EVALUATIONS_FLAG_KEY}'))" in response.hogql
         expect_pushdown = person_id_pushdown is not False
-        assert ("SELECT DISTINCT" in " ".join(page_queries[0].split())) is expect_pushdown
+        assert ("globalIn(person.id, (SELECT DISTINCT" in " ".join(page_queries[0].split())) is expect_pushdown
         assert response.modifiers is not None
         assert response.modifiers.personIdPushdown is expect_pushdown
         assert "properties.$feature_flag," not in response.hogql
@@ -1490,6 +1491,10 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         expected_flag_key: str,
         reads_forced_to_events: bool = False,
     ):
+        # The native JSON events table holds no flag calls.
+        # FLAG_EVALUATIONS_READS_FORCE_EVENTS therefore does not move its reads to events.
+        if reads_forced_to_events and settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            expected_flag_key = FLAG_EVALUATIONS_FLAG_KEY
         self._set_flag_evaluations_mode(mode)
         self._create_flag_calls_in_both_tables()
 
@@ -1518,7 +1523,10 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(from_flag_evaluations, CachedEventsQueryResponse)
         assert isinstance(from_events, CachedEventsQueryResponse)
         assert [row[0] for row in from_flag_evaluations.results] == [FLAG_EVALUATIONS_FLAG_KEY]
-        assert [row[0] for row in from_events.results] == [EVENTS_FLAG_KEY]
+        forced_flag_key = (
+            FLAG_EVALUATIONS_FLAG_KEY if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else EVENTS_FLAG_KEY
+        )
+        assert [row[0] for row in from_events.results] == [forced_flag_key]
 
     @parameterized.expand(
         [
@@ -1740,10 +1748,9 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     @time_machine.travel("2020-01-11T12:00:05Z", tick=False)
     def test_restricted_person_properties_stripped_from_person_column(self):
-        from posthog.models import PropertyDefinition
-
         from products.access_control.backend.models.property_access_control import PropertyAccessControl
         from products.access_control.backend.property_access_control import PropertyAccessLevel
+        from products.event_definitions.backend.models import PropertyDefinition
 
         self._enable_property_access_control()
 
@@ -1827,10 +1834,9 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     @time_machine.travel("2020-01-11T12:00:05Z", tick=False)
     def test_restricted_display_property_does_not_break_person_display_name(self):
-        from posthog.models import PropertyDefinition
-
         from products.access_control.backend.models.property_access_control import PropertyAccessControl
         from products.access_control.backend.property_access_control import PropertyAccessLevel
+        from products.event_definitions.backend.models import PropertyDefinition
 
         self._enable_property_access_control()
 
@@ -1980,10 +1986,9 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     @time_machine.travel("2020-01-11T12:00:05Z", tick=False)
     def test_cached_results_not_served_across_restriction_boundaries(self):
-        from posthog.models import PropertyDefinition
-
         from products.access_control.backend.models.property_access_control import PropertyAccessControl
         from products.access_control.backend.property_access_control import PropertyAccessLevel
+        from products.event_definitions.backend.models import PropertyDefinition
 
         self._enable_property_access_control()
 

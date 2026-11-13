@@ -83,7 +83,7 @@ let _toolDefinitions: ToolDefinitions | undefined = undefined
 let _generatedToolDefinitions: ToolDefinitions | undefined = undefined
 let _mergedToolDefinitions: ToolDefinitions | undefined = undefined
 
-const NOTEBOOK_BUILDER_TOOL_NAMES = ['notebooks-create', 'notebooks-create-markdown', 'notebooks-add-cell'] as const
+const NOTEBOOK_BUILDER_TOOL_NAMES = ['notebooks-create-markdown', 'notebooks-add-cell'] as const
 
 function addNotebookWidgetCatalog(definitions: ToolDefinitions): ToolDefinitions {
     const widgetCatalog = formatNotebookWidgetCatalogForAgents()

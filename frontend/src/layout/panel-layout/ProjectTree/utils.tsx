@@ -64,6 +64,13 @@ export function getItemId(item: FileSystemImport | FileSystemEntry, protocol = '
     return item.type === 'folder' ? `${root}://${item.path}` : `${root}/${item.id || item.path}`
 }
 
+// A star of one of these is named after a customer's own record, often their email, so telemetry leaves the name out.
+const CUSTOMER_RECORD_SHORTCUT_TYPES: ReadonlySet<string> = new Set(['person', 'group', 'account', 'ticket'])
+
+export function shortcutTelemetryName(type: string | null | undefined, name: string): string | undefined {
+    return type && CUSTOMER_RECORD_SHORTCUT_TYPES.has(type) ? undefined : name
+}
+
 // pinned: stored as each source star's type. Its source id `ref` keeps it apart from the ref-less Sources page star.
 export const DATA_SOURCE_SHORTCUT_TYPE = 'data_source'
 
@@ -690,7 +697,7 @@ export function calculateMovePath(
     // Moving to another folder
     newPath = joinPath([...splitPath(destinationFolder), fileName])
     // Only valid if destination is different from current location
-    const isValidMove = newPath !== oldPath
+    const isValidMove = newPath !== oldPath && !(item.type === 'folder' && isPathUnder(destinationFolder, oldPath))
     return { newPath, isValidMove }
 }
 

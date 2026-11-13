@@ -1,16 +1,51 @@
+from collections.abc import Callable
+
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.utils import timezone
+
+from parameterized import parameterized
+
+from posthog.models import Team
 from posthog.models.health_issue import HealthIssue
 from posthog.tasks.health_checks import evaluate_health_check_for_team
 
+from products.event_definitions.backend.models import EventDefinition
 from products.web_analytics.backend.temporal.health_checks.authorized_urls import AuthorizedUrlsCheck
 
 
+def _set_app_urls(team: Team) -> None:
+    team.app_urls = ["https://example.com"]
+    team.save()
+
+
+def _become_server_only(team: Team) -> None:
+    team.ingested_event = True
+    team.save()
+    EventDefinition.objects.create(
+        team=team, project_id=team.project_id, name="$mcp_tool_call", last_seen_at=timezone.now()
+    )
+
+
 class TestAuthorizedUrlsEvaluation(BaseTest):
-    def test_creates_issue_when_team_has_no_app_urls(self):
+    @parameterized.expand(
+        [
+            ("nothing_ingested_yet", False, None, 1),
+            ("web_project", True, "$pageview", 1),
+            ("server_only_project", True, "$mcp_tool_call", 0),
+        ]
+    )
+    def test_issue_when_team_has_no_app_urls(
+        self, _name: str, ingested_event: bool, seen_event: str | None, expected_issues: int
+    ):
         self.team.app_urls = []
+        self.team.ingested_event = ingested_event
         self.team.save()
+        if seen_event:
+            EventDefinition.objects.create(
+                team=self.team, project_id=self.team.project_id, name=seen_event, last_seen_at=timezone.now()
+            )
         HealthIssue.objects.filter(team_id=self.team.id, kind=AuthorizedUrlsCheck.kind).delete()
 
         evaluate_health_check_for_team(AuthorizedUrlsCheck.kind, self.team.id)
@@ -20,10 +55,12 @@ class TestAuthorizedUrlsEvaluation(BaseTest):
             kind=AuthorizedUrlsCheck.kind,
             status=HealthIssue.Status.ACTIVE,
         )
-        self.assertEqual(issues.count(), 1)
-        self.assertEqual(issues.get().severity, HealthIssue.Severity.WARNING)
+        self.assertEqual(issues.count(), expected_issues)
+        if expected_issues:
+            self.assertEqual(issues.get().severity, HealthIssue.Severity.WARNING)
 
-    def test_resolves_active_issue_when_team_has_app_urls(self):
+    @parameterized.expand([("team_sets_app_urls", _set_app_urls), ("team_is_server_only", _become_server_only)])
+    def test_resolves_active_issue(self, _name: str, make_healthy: Callable[[Team], None]):
         self.team.app_urls = []
         self.team.save()
         evaluate_health_check_for_team(AuthorizedUrlsCheck.kind, self.team.id)
@@ -34,8 +71,7 @@ class TestAuthorizedUrlsEvaluation(BaseTest):
             1,
         )
 
-        self.team.app_urls = ["https://example.com"]
-        self.team.save()
+        make_healthy(self.team)
         evaluate_health_check_for_team(AuthorizedUrlsCheck.kind, self.team.id)
 
         self.assertEqual(

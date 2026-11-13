@@ -8,9 +8,7 @@ import {
     healthCheckShowsDecidingValue,
     healthExposureSplit,
     healthRuleReadings,
-    healthSummaryReadings,
 } from './healthCheckValues'
-import type { HealthPanelCheck } from './healthPanelChecks'
 
 const SRM_RULE: HealthCheckRule = {
     value: 'p_value',
@@ -27,13 +25,6 @@ const MULTIPLE_RULE: HealthCheckRule = {
     test: null,
     minimum: { value: 'multiple_variant_count', threshold: 5 },
 }
-
-const check = (
-    key: HealthPanelCheck['key'],
-    status: HealthPanelCheck['status'],
-    values: HealthPanelCheck['values'],
-    rule: HealthCheckRule | null = null
-): HealthPanelCheck => ({ key, name: key, description: '', status, reason: null, values, rule }) as HealthPanelCheck
 
 const exposures = (
     totalExposures: Record<string, number>,
@@ -71,11 +62,32 @@ describe('healthCheckValues', () => {
             ],
         },
         {
+            name: "the new users in variants the flag doesn't serve go with their share",
+            values: { unserved_exposed_count: 2960, unserved_exposed_percentage: 100 },
+            expected: [{ label: "New users in variants the flag doesn't serve", text: '2,960 · 100%' }],
+        },
+        {
             name: 'a metric count reads as n of m',
             values: { metric_count: 3, completed_metric_count: 2, failed_metric_count: 1, calculated_at: null },
             expected: [
                 { label: 'Metrics calculated', text: '2 of 3' },
                 { label: 'Metrics whose calculation failed', text: '1' },
+            ],
+        },
+        {
+            name: "a compile count reads as n of m, and names the metrics it couldn't check",
+            values: { metric_count: 4, invalid_metric_count: 1, unchecked_metric_count: 2 },
+            expected: [
+                { label: "Metrics whose query doesn't compile", text: '1 of 4' },
+                { label: "Metrics it couldn't check", text: '2' },
+            ],
+        },
+        {
+            name: 'an exposure event without a record reads as unknown',
+            values: { event: 'purchase', event_received: null },
+            expected: [
+                { label: 'Exposure event', text: 'purchase' },
+                { label: 'Received by this project', text: 'Unknown' },
             ],
         },
         {
@@ -93,8 +105,36 @@ describe('healthCheckValues', () => {
             values: { only_count_matured_users: false },
             expected: [{ label: 'Require completed conversion or retention window', text: 'Off' }],
         },
+        {
+            name: 'the sample so far reads against the planned sample',
+            values: { metric_name: 'Checkout completed', sample_count: 9602, planned_sample_count: 14800 },
+            expected: [
+                { label: 'Metric', text: 'Checkout completed' },
+                { label: 'Users so far', text: '9,602 of 14,800 planned' },
+            ],
+        },
     ])('healthCheckReadings: $name', ({ values, expected }) => {
         expect(healthCheckReadings(values, 'users')).toEqual(expected)
+    })
+
+    it.each([
+        { name: 'before its end the daily calculation still runs', now: '2026-11-12T12:00:00Z', label: 'runs until' },
+        { name: 'after its end the daily calculation has stopped', now: '2026-12-19T12:00:00Z', label: 'stopped on' },
+    ])('healthCheckReadings: $name', ({ now, label }) => {
+        jest.useFakeTimers().setSystemTime(new Date(now))
+        try {
+            expect(
+                healthCheckReadings(
+                    { since_start_hours: 552, daily_calculation_ends_at: '2026-12-18T09:00:00+00:00' },
+                    'users'
+                )
+            ).toEqual([
+                { label: 'Running for', text: '23 days' },
+                { label: `Daily calculation ${label}`, time: '2026-12-18T09:00:00+00:00', asDate: true },
+            ])
+        } finally {
+            jest.useRealTimers()
+        }
     })
 
     it.each([
@@ -133,6 +173,38 @@ describe('healthCheckValues', () => {
         expect(healthRuleReadings({ status: 'passed', values: {} }, rule, 'groups')).toEqual([
             { label: 'Warns when', text: 'No groups are exposed' },
             { label: 'Warns from', text: '24 hours after launch' },
+        ])
+    })
+
+    it('healthRuleReadings: the running time reads in days', () => {
+        const rule: HealthCheckRule = {
+            value: 'since_start_hours',
+            threshold: 1440,
+            warns: 'above',
+            test: null,
+            minimum: null,
+        }
+
+        expect(healthRuleReadings({ status: 'passed', values: {} }, rule, 'users')).toEqual([
+            { label: 'Warns when', text: 'The experiment runs for more than 60 days' },
+        ])
+    })
+
+    it('healthRuleReadings: the unserved check names the users it counts', () => {
+        const rule: HealthCheckRule = {
+            value: 'unserved_exposed_percentage',
+            threshold: 1,
+            warns: 'above',
+            test: null,
+            minimum: { value: 'unserved_exposed_count', threshold: 5 },
+        }
+
+        expect(healthRuleReadings({ status: 'passed', values: {} }, rule, 'users')).toEqual([
+            {
+                label: 'Warns when',
+                text: "More than 1% of the users first exposed after the flag's last save are in variants that it doesn't serve",
+            },
+            { label: 'Warns from', text: "5 users in variants that the flag doesn't serve" },
         ])
     })
 
@@ -186,28 +258,5 @@ describe('healthCheckValues', () => {
         { name: 'nothing without exposures', answer: exposures({ control: 0, test: 0 }), expected: null },
     ])('healthExposureSplit: $name', ({ answer, expected }) => {
         expect(healthExposureSplit(answer)).toEqual(expected)
-    })
-
-    it('healthSummaryReadings: picks each line from the check that read it', () => {
-        const checks = [
-            check('zero_exposures', 'passed', { exposed_count: 9602, since_launch_hours: 300 }),
-            check(
-                'srm',
-                'not_applicable',
-                { p_value: 0.0001, compared_count: 9199, multiple_variant_count: 403 },
-                SRM_RULE
-            ),
-            check('multiple_variants_share', 'passed', {
-                multiple_variant_count: 403,
-                multiple_variant_percentage: 4.2,
-            }),
-            check('metric_calculation_failed', 'passed', { metric_count: 3, completed_metric_count: 3 }),
-        ]
-
-        expect(healthSummaryReadings(checks, 'users')).toEqual([
-            { label: 'Exposed users', text: '9,602' },
-            { label: 'In more than one variant', text: '403 · 4.2%' },
-            { label: 'Metrics calculated', text: '3 of 3' },
-        ])
     })
 })

@@ -5,7 +5,7 @@ import { LemonBadge, LemonButton, LemonMenu, LemonMenuItem, LemonMenuSection, Sp
 
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { cn } from 'lib/utils/css-classes'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { inStorybook } from 'lib/utils/dom'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -13,6 +13,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import type { MetricsSuggestedDashboardApi } from 'products/metrics/frontend/generated/api.schemas'
 
+import { InternalTag } from '../dashboardReview/InternalTag'
 import { suggestedDashboardsLogic } from './suggestedDashboardsLogic'
 
 function suggestionItem(
@@ -69,7 +70,12 @@ export function SuggestedDashboardsMenu(): JSX.Element | null {
         sections.push({
             items: [
                 {
-                    label: 'Review generated dashboards',
+                    label: (
+                        <span className="flex items-center gap-2">
+                            <span>Review generated dashboards</span>
+                            <InternalTag />
+                        </span>
+                    ),
                     to: urls.metricsDashboardReview(),
                     'data-attr': 'metrics-suggested-dashboards-review',
                 },
@@ -94,12 +100,7 @@ export function SuggestedDashboardsMenu(): JSX.Element | null {
                 data-attr="metrics-suggested-dashboards-menu"
             >
                 <span className="flex items-center gap-1">
-                    <span
-                        className={cn(
-                            'rainbow-text font-semibold',
-                            !(inStorybook() || inStorybookTestRunner()) && 'rainbow-text-animating'
-                        )}
-                    >
+                    <span className={cn('rainbow-text font-semibold', !inStorybook() && 'rainbow-text-animating')}>
                         Suggested
                     </span>
                     {newSuggestionCount > 0 && (

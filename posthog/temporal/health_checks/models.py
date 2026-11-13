@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
+from temporalio.exceptions import ApplicationError
+
 from posthog.dataclasses import frozen
 from posthog.models.health_issue import HealthIssue
 
@@ -110,8 +112,16 @@ class HealthCheckWorkflowInputs:
         )
 
 
-class HealthCheckThresholdExceeded(Exception):
-    pass
+class HealthCheckThresholdExceeded(ApplicationError):
+    """Fails the run when too many teams were skipped or failed.
+
+    The workflow raises it, so it must be an `ApplicationError`. Temporal treats any other exception raised in a
+    workflow as a workflow task failure and retries the task until the run times out. The schedule skips every
+    start while the run stays open, and each retry reports the same breach again.
+    """
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message, type="HealthCheckThresholdExceeded", non_retryable=True)
 
 
 class HealthCheckBatchSkipped(Exception):

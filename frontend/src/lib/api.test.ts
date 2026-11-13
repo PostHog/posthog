@@ -34,6 +34,29 @@ describe('API helper', () => {
         ApiConfig.setCurrentTeamId(2)
     })
 
+    describe('conversation queue', () => {
+        it.each([
+            { messages: [], max_queue_messages: 2 },
+            {
+                messages: [{ id: 'queue-2', content: 'Next message', created_at: '2026-01-01T00:00:00Z' }],
+                max_queue_messages: 2,
+            },
+        ])('parses the queue delete response with messages $messages', async (queue) => {
+            fakeFetch.mockResolvedValueOnce(
+                new Response(JSON.stringify(queue), {
+                    status: 200,
+                    headers: { 'Content-Type': 'application/json' },
+                })
+            )
+
+            await expect(api.conversations.queue.delete('conversation-1', 'queue-1')).resolves.toEqual(queue)
+            expect(fakeFetch).toHaveBeenCalledWith(
+                '/api/projects/2/conversations/conversation-1/queue/queue-1/',
+                expect.objectContaining({ method: 'DELETE' })
+            )
+        })
+    })
+
     describe('events', () => {
         it('can build URL for events with properties', async () => {
             await api.events.list(
@@ -467,6 +490,28 @@ describe('API helper', () => {
         } satisfies Partial<ApiError>)
     })
 
+    it('reports the DRF error code of a failed response as a client_request_failure', async () => {
+        fakeFetch.mockResolvedValueOnce({
+            ok: false,
+            status: 400,
+            statusText: '',
+            headers: new Headers(),
+            json: () =>
+                Promise.resolve({ type: 'validation_error', code: 'token_invalid', detail: 'Token is not valid' }),
+        })
+
+        await api.create('api/users/@me/two_factor_validate/', { token: '123456' }).catch(() => null)
+
+        expect(posthog.capture).toHaveBeenCalledWith(
+            'client_request_failure',
+            expect.objectContaining({
+                pathname: '/api/users/@me/two_factor_validate/',
+                status: 400,
+                code: 'token_invalid',
+            })
+        )
+    })
+
     describe('OAuth mode auth headers', () => {
         beforeEach(() => {
             window.localStorage.setItem(
@@ -528,6 +573,30 @@ describe('API helper', () => {
             const [url, options] = fakeFetch.mock.calls[0]
             expect(url).toEqual('/some/local/path/')
             expect(options.headers.Authorization).toBeUndefined()
+        })
+    })
+
+    describe('client build header', () => {
+        const existingAppContext = window.POSTHOG_APP_CONTEXT
+
+        beforeEach(() => {
+            window.POSTHOG_APP_CONTEXT = { ...existingAppContext, commit_sha: 'abc123def0' } as any
+        })
+
+        afterEach(() => {
+            window.POSTHOG_APP_CONTEXT = existingAppContext
+        })
+
+        it('sends the frontend build with same-origin requests', async () => {
+            await api.get('/api/projects/2/insights/')
+            const [, options] = fakeFetch.mock.calls[0]
+            expect(options.headers['X-PostHog-Client-Build']).toEqual('abc123def0')
+        })
+
+        it('omits the frontend build on cross-origin requests, whose CORS allowlists do not include it', async () => {
+            await api.get('https://agent-proxy.example.com/v1/runs/1/stream')
+            const [, options] = fakeFetch.mock.calls[0]
+            expect(options.headers['X-PostHog-Client-Build']).toBeUndefined()
         })
     })
 

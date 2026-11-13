@@ -8,6 +8,7 @@ import json
 import uuid
 from collections import Counter, defaultdict
 from collections.abc import Iterable
+from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -33,6 +34,7 @@ from products.mcp_store.backend.facade.contracts import (
     ConnectorCallOutcome,
     ConnectorTool,
     SandboxInstallations,
+    UnconnectedTeamTool,
     UnmountedInstallation,
     UnmountedInstallationReason,
 )
@@ -43,9 +45,12 @@ from products.mcp_store.backend.gateway import (
     reachable_agent_grants,
 )
 from products.mcp_store.backend.models import (
+    MCPAuthType,
+    MCPGatewayServer,
     MCPMemberServerRevocation,
     MCPServerInstallation,
     MCPServerInstallationTool,
+    MCPServerTemplate,
     MCPServiceAccount,
     MCPServiceAccountServerAccess,
 )
@@ -234,13 +239,43 @@ def _to_info(installation: MCPServerInstallation, team_id: int) -> ActiveInstall
     )
 
 
+@dataclass(frozen=True)
+class _AgentRunMounts:
+    mounts: list[tuple[MCPServiceAccountServerAccess, MCPServerInstallation]]
+    unmounted: list[UnmountedInstallation]
+
+
+def _agent_unmounted(
+    server: MCPGatewayServer, scope: str, reason: UnmountedInstallationReason
+) -> UnmountedInstallation:
+    return UnmountedInstallation(id=str(server.id), name=server.name, scope=scope, reason=reason)
+
+
+def _selected_servers_without_grants(
+    team_id: int, allowed: set[str], granted_server_ids: set[str]
+) -> list[UnmountedInstallation]:
+    missing: list[uuid.UUID] = []
+    for server_id in sorted(allowed - granted_server_ids):
+        try:
+            missing.append(uuid.UUID(server_id))
+        except ValueError:
+            continue
+    if not missing:
+        return []
+    servers = MCPGatewayServer.objects.for_team(team_id).filter(id__in=missing).order_by("name", "id")
+    return [
+        _agent_unmounted(server, "team", "not_shared" if server.is_team_enabled else "server_disabled")
+        for server in servers
+    ]
+
+
 def _mounts_for_agent_run(
     team_id: int,
     agent_account: MCPServiceAccount,
     credential_owner_id: int | None,
     allowed_gateway_server_ids: list[str] | None = None,
-) -> list[tuple[MCPServiceAccountServerAccess, MCPServerInstallation]]:
-    """The (grant, credential) pairs this run mounts.
+) -> _AgentRunMounts:
+    """The (grant, credential) pairs this run mounts, and the servers it reached but could not mount.
 
     Health resolution runs before per-server precedence, not after. A grant only
     becomes a candidate once its credential still resolves, is enabled, sits on a
@@ -263,33 +298,50 @@ def _mounts_for_agent_run(
     servers (a scout's per-scout selection). It gates every grant regardless of
     scope, so a run that passes it mounts exactly the selected servers and
     nothing else. None leaves mounts unfiltered; an empty list mounts nothing.
+
+    A server is reported unmounted only when none of its grants survived, keyed
+    by the gateway server rather than one credential, since any one working
+    grant gives the run that server's tools. A selected server the run reaches
+    no grant for at all is reported too, so a step that names a connector never
+    runs without it silently.
     """
     allowed = {str(server_id) for server_id in allowed_gateway_server_ids or []}
     rows = (
         MCPServiceAccountServerAccess.objects.for_team(team_id)
         .filter(service_account=agent_account)
         .filter(reachable_agent_grants(team_id, credential_owner_id))
-        .select_related("installation__template", "installation__gateway_server", "user")
+        .select_related("gateway_server", "installation__template", "installation__gateway_server", "user")
         .order_by("created_at", "id")
     )
 
     healthy_by_server: dict[uuid.UUID, list[tuple[MCPServiceAccountServerAccess, MCPServerInstallation]]] = defaultdict(
         list
     )
+    dropped_by_server: dict[uuid.UUID, UnmountedInstallation] = {}
+    granted_server_ids: set[str] = set()
     for access in rows:
         if allowed_gateway_server_ids is not None and str(access.gateway_server_id) not in allowed:
+            continue
+        granted_server_ids.add(str(access.gateway_server_id))
+        # The admin kill switch overrides grants: a server turned off for the
+        # team is withheld from agents too.
+        if not access.gateway_server.is_team_enabled:
+            dropped_by_server[access.gateway_server_id] = _agent_unmounted(
+                access.gateway_server, access.scope, "server_disabled"
+            )
             continue
         # Same resolution the gateway proxy and the API serializers use, so a
         # grant whose credential drifted off its team, server, or owner is
         # dropped here too instead of being mounted into the sandbox.
         installation = installation_for_agent_access(access)
-        if installation is None or not installation.is_enabled:
-            continue
-        # The admin kill switch overrides grants: a server turned off for the
-        # team is withheld from agents too.
-        if installation.gateway_server is None or not installation.gateway_server.is_team_enabled:
-            continue
-        if not _is_oauth_ready(installation):
+        if installation is None or not installation.is_enabled or not _is_oauth_ready(installation):
+            owns_grant = credential_owner_id is not None and access.user_id == credential_owner_id
+            if owns_grant or access.gateway_server_id not in dropped_by_server:
+                dropped_by_server[access.gateway_server_id] = _agent_unmounted(
+                    access.gateway_server,
+                    access.scope,
+                    "needs_reconnect" if owns_grant else "teammate_needs_reconnect",
+                )
             continue
         healthy_by_server[access.gateway_server_id].append((access, installation))
 
@@ -301,7 +353,10 @@ def _mounts_for_agent_run(
             else []
         )
         mounts.extend(own or server_mounts)
-    return mounts
+    unmounted = [entry for server_id, entry in dropped_by_server.items() if server_id not in healthy_by_server]
+    if allowed_gateway_server_ids is not None:
+        unmounted.extend(_selected_servers_without_grants(team_id, allowed, granted_server_ids))
+    return _AgentRunMounts(mounts=mounts, unmounted=unmounted)
 
 
 def _agent_installation_infos(
@@ -371,6 +426,41 @@ def get_active_installations(team_id: int, user_id: int, *, include_shared: bool
     return results
 
 
+def _connects_from_a_link(template: MCPServerTemplate) -> bool:
+    # The authorize endpoint needs a shared OAuth client. A template that registers a client for each person only
+    # gets one during install_template, so a plain link to it fails before the provider's consent screen.
+    if template.auth_type != MCPAuthType.OAUTH:
+        return False
+    return bool(template.oauth_credentials_source or (template.oauth_credentials or {}).get("client_id"))
+
+
+def team_tools_not_connected(team_id: int, user_id: int) -> list[UnconnectedTeamTool]:
+    """Catalog servers the team turned on for its members, minus the ones this member has a working personal
+    connection to. Servers that a team only gets from the catalog default are left out, because nobody chose them."""
+    servers = (
+        MCPGatewayServer.objects.for_team(team_id)
+        .filter(is_team_enabled=True, template__isnull=False, template__is_active=True)
+        .exclude(member_revocations__user_id=user_id)
+        .select_related("template")
+    )
+    connected_urls = {
+        installation.url
+        for installation in MCPServerInstallation.objects.filter(
+            team_id=team_id, user_id=user_id, scope="personal", is_enabled=True
+        )
+        if _is_oauth_ready(installation)
+    }
+    return [
+        UnconnectedTeamTool(
+            template_id=str(server.template.id),
+            name=server.template.name,
+            connects_with_oauth=_connects_from_a_link(server.template),
+        )
+        for server in servers
+        if server.template is not None and server.url not in connected_urls
+    ]
+
+
 def get_installations_for_sandbox(
     team_id: int,
     *,
@@ -399,6 +489,7 @@ def get_installations_for_sandbox(
 
 def _member_unmounted_reason(
     installation: MCPServerInstallation,
+    user_id: int | None,
     revoked_gateway_server_ids: set[uuid.UUID],
     allowed_gateway_server_ids: set[str] | None,
     allowed_installation_ids: set[str] | None,
@@ -417,7 +508,7 @@ def _member_unmounted_reason(
     elif gateway_server_id is not None and gateway_server_id in revoked_gateway_server_ids:
         health_failure = "revoked"
     elif not _is_oauth_ready(installation):
-        health_failure = "needs_reconnect"
+        health_failure = "needs_reconnect" if installation.user_id == user_id else "teammate_needs_reconnect"
     # Healthy unselected installations stay in play until the personal-copy dedup has run.
     if (
         health_failure is not None
@@ -483,9 +574,10 @@ def resolve_installations_for_sandbox(
     binds on both paths: passing ``[]`` mounts no MCP Store servers at all, and
     passing ``None`` leaves the mounts unnarrowed.
 
-    ``unmounted`` lists the enabled member-path installations the run reached but
-    left out, with the reason, so a run can tell its user why a connection is
-    missing. The agent path reports none.
+    ``unmounted`` lists what the run reached but left out, with the reason, so a
+    run can tell its user why a connection is missing. The member path lists
+    enabled installations; the agent path lists gateway servers, see
+    ``_mounts_for_agent_run``.
     """
     allowed_installations = (
         {str(installation_id) for installation_id in allowed_installation_ids}
@@ -529,9 +621,11 @@ def resolve_installations_for_sandbox(
                         task_origin=task_origin,
                     )
                 else:
-                    agent_mounts = _mounts_for_agent_run(
+                    agent_run = _mounts_for_agent_run(
                         team_id, agent_account, credential_owner_id, allowed_gateway_server_ids
                     )
+                    agent_mounts = agent_run.mounts
+                    unmounted.extend(agent_run.unmounted)
         else:
             # list() evaluates the lazy querysets here so DB errors hit this handler.
             candidates = list(base_queryset.filter(scope="shared"))
@@ -556,7 +650,7 @@ def resolve_installations_for_sandbox(
             )
             for candidate in candidates:
                 reason = _member_unmounted_reason(
-                    candidate, revoked_gateway_server_ids, allowed_servers, allowed_installations
+                    candidate, user_id, revoked_gateway_server_ids, allowed_servers, allowed_installations
                 )
                 if reason is None:
                     installations.append(candidate)

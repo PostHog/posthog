@@ -6,15 +6,13 @@ import { Tooltip } from '@posthog/lemon-ui'
 import { ModelDownstreamSummary } from './ModelDownstreamSummary'
 import { ModelSummaryCard } from './ModelSummaryCard'
 
-export function ModelViewSummary({
-    downstreamCount,
-    lineageUrl,
-    metadata,
-}: {
+export interface ModelViewSummaryProps {
     downstreamCount: number
     lineageUrl: string
     metadata?: ReactNode
-}): JSX.Element {
+}
+
+export function ModelViewSummary({ downstreamCount, lineageUrl, metadata }: ModelViewSummaryProps): JSX.Element {
     return (
         <ModelSummaryCard metadata={metadata} dataAttr="node-detail-view-summary">
             <div className="flex flex-col gap-3">

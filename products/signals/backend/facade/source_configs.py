@@ -5,8 +5,10 @@ from collections.abc import Sequence
 
 import re2
 import structlog
+import posthoganalytics
 
 from posthog.dataclasses import frozen
+from posthog.event_usage import groups
 from posthog.models.team.team import Team
 from posthog.ph_client import feature_enabled_or_false
 
@@ -15,6 +17,7 @@ from products.signals.backend.contracts import (
     ALERT_BLOCK_PATTERNS_KEY,
     ALERT_SCOPE_KEY,
     ALERT_SCOPE_SOURCE,
+    ISSUE_FILTERS_KEY,
     AlertScope,
     alert_patterns_problem,
 )
@@ -22,6 +25,7 @@ from products.signals.backend.models import SignalSourceConfig
 
 logger = structlog.get_logger(__name__)
 
+SOURCE_FILTER_DROPPED_EVENT = "signal_source_filter_dropped"
 ANALYTICS_ALL_ALERTS_FLAG = "signals-analytics-all-alerts"
 
 
@@ -71,12 +75,73 @@ def latest_enabled_source_config(
     return _to_snapshot(row)
 
 
+def enabled_issue_filters(*, team_id: int, source_product: str, source_type: str) -> object | None:
+    """The stored issue filter of an enabled source row, or None when there is no filter to apply.
+
+    A disabled or missing row returns None, because `emit_signal` skips the signal anyway. The
+    value is returned as stored, so the caller can drop a signal whose filter is malformed.
+    """
+    config = (
+        SignalSourceConfig.objects.filter(
+            team_id=team_id, source_product=source_product, source_type=source_type, enabled=True
+        )
+        .values_list("config", flat=True)
+        .first()
+    )
+    if not isinstance(config, dict):
+        return None
+    return config.get(ISSUE_FILTERS_KEY)
+
+
+def record_source_filter_drop(
+    *, team: Team, source_product: str, source_type: str, source_id: str, reason: str
+) -> None:
+    """Count a signal that a source filter dropped before `emit_signal`.
+
+    A separate event from `signal_data_source_filtered`, which counts steering drops after
+    `signal_emission_started`. A filter drop has no started event, so it must not enter that funnel.
+    """
+    logger.info(
+        "Filtered signal by source filter",
+        team_id=team.id,
+        signal_source_product=source_product,
+        signal_source_type=source_type,
+        signal_source_id=source_id,
+        filter_reason=reason,
+    )
+    try:
+        posthoganalytics.capture(
+            event=SOURCE_FILTER_DROPPED_EVENT,
+            distinct_id=str(team.uuid),
+            properties={
+                "source_product": source_product,
+                "source_type": source_type,
+                "source_id": source_id,
+                "filter_reason": reason,
+            },
+            # The team carries its organization id, so this reads no organization row.
+            groups=groups(team=team),
+        )
+    except Exception:
+        # A lost analytics event must not fail the activity, which would retry the whole signal.
+        logger.exception("Failed to capture source filter drop", team_id=team.id, source_type=source_type)
+
+
+def analytics_source_enabled(team_id: int) -> bool:
+    """Whether the team turned on the Product analytics source, which also controls anomaly scoring."""
+    source_product, source_type = ALERT_SCOPE_SOURCE
+    return SignalSourceConfig.objects.filter(
+        team_id=team_id, source_product=source_product, source_type=source_type, enabled=True
+    ).exists()
+
+
 def get_analytics_alert_scope(*, team_id: int) -> AlertScope:
     """Which firing insight alerts the team's analytics source turns into signals.
 
     This reads only the scope. The caller still checks that the source is enabled. The result is
     `investigated_only` when the row or the key is missing, when the stored value is unknown, and when
-    the rollout flag is off for the team's organization.
+    the rollout flag is off for the team's organization. The rollout flag gates only `all_firing_alerts`,
+    so `off` applies to every team.
     """
     source_product, source_type = ALERT_SCOPE_SOURCE
     snapshot = get_source_config(team_id=team_id, source_product=source_product, source_type=source_type)
@@ -89,6 +154,8 @@ def get_analytics_alert_scope(*, team_id: int) -> AlertScope:
         scope = AlertScope(raw_scope)
     except ValueError:
         return AlertScope.INVESTIGATED_ONLY
+    if scope == AlertScope.OFF:
+        return scope
     if scope == AlertScope.INVESTIGATED_ONLY or not _analytics_all_alerts_enabled(team_id):
         return AlertScope.INVESTIGATED_ONLY
     return scope

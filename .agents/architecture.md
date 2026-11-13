@@ -7,6 +7,7 @@ Each rule is tagged with what catches a violation.
 ## Entrypoints and layering
 
 - **Keep entrypoints thin.** `[review]` The runtime calls the entrypoint first: a DRF view, a management command `handle()`, a Celery task body, an HTTP handler, a Rust `main()`, a React component. An entrypoint reads the input, connects the dependencies, and formats the output. All other logic goes in a function the entrypoint calls, so a test can call it directly. If the area already has a place for that logic, use it rather than making a new one.
+- **A decision with many branches is a pure function.** `[review]` Code that picks one outcome from several, such as dedupe, routing, eligibility, or a state transition, takes values and returns the decision. It does not read the database, call a client, or read the clock. Its caller in `logic` runs the queries, passes the values in, and carries out the decision. A test then covers each case as one row of a table, with no database. When the decision guards a write, the write still checks its condition atomically, with a conditional `UPDATE`, a unique constraint, or a row lock, because the state can change between the read and the write. A single guard clause, or a plain read or write, needs no such split.
 - **A product under `products/` is scaffolded, not hand-rolled.** `[lint: hogli product:lint --all]` Create one with `hogli product:bootstrap <name>`, because the scaffold emits a product that is isolated from its first commit. See "New products must be isolated" in [products/README.md](../products/README.md) for the isolation rules, and [products/architecture.md](../products/architecture.md) for facade and contract design.
 - **Code a single product owns belongs under `products/<product>/`** — backend, frontend, scripts, CLIs, services, packages, MCP tools, skills. `[review]` Reserve top-level `tools/`, `services/`, `packages/`, `cli/` and `hog/` for cross-product things. `product:lint` only scans `products/`, so a single-product feature parked in a top-level directory is invisible to it.
 
@@ -53,4 +54,20 @@ Each rule is tagged with what catches a violation.
 
 ## LLM gateway
 
-- **`services/llm-gateway` is under an unofficial code freeze** while callers move to [`PostHog/ai-gateway`](https://github.com/PostHog/ai-gateway). `[review]` If a task asks you to change it, tell the user about the freeze in your reply. New callers and features belong on the Go gateway. A Python gateway change needs a documented parity blocker for an active caller and stays limited to it — read [`services/llm-gateway/PARITY.md`](../services/llm-gateway/PARITY.md). Its Postgres role reads only allowlisted tables: a new table read needs the SELECT grant landed in posthog-cloud-infra for every environment first, then a declaration in `required_tables.py`. The readiness probe checks every declared grant on every probe, so a missing grant holds a rollout instead of serving 500s. Use `/auditing-llm-gateway-parity` for contract changes, `/finding-llm-gateway-migration-candidates` to pick the next caller, `/migrating-llm-gateway-callers` to move one.
+- **App code sends inference through the Go AI gateway.** `[review]`
+  A provider API key is never the client.
+- **A change to gateway behavior lands in [`PostHog/ai-gateway`](https://github.com/PostHog/ai-gateway).** `[review]`
+  Read that repo when the change is the gateway itself.
+  This monorepo only calls the gateway.
+- **A monorepo caller builds its client with a helper in `posthog/llm/gateway_client.py`.** `[review]`
+  Use `build_openai_client`, `build_async_openai_client`, `build_anthropic_client`, `build_async_anthropic_client`, `build_gemini_client`, `build_ai_gateway_openai_client`, or `build_ai_gateway_anthropic_client`.
+  Those helpers read `AI_GATEWAY_URL` and `AI_GATEWAY_API_KEY`.
+  Read [`products/tasks/backend/logic/services/title_generator.py`](../products/tasks/backend/logic/services/title_generator.py) for a real call.
+- **`services/llm-gateway` is under an unofficial code freeze.** `[review]`
+  If a task asks you to change it, tell the user about the freeze in your reply.
+  A change needs a documented parity blocker for an active caller and stays limited to that caller.
+  Read [`services/llm-gateway/PARITY.md`](../services/llm-gateway/PARITY.md) before the change.
+  Read `/auditing-llm-gateway-parity` when the gateway contract changes.
+  Its Postgres role reads only allowlisted tables.
+  A new table read needs the SELECT grant in posthog-cloud-infra for every environment first, then a declaration in `required_tables.py`.
+  The readiness probe checks every declared grant on every probe, so a missing grant holds a rollout instead of serving 500s.

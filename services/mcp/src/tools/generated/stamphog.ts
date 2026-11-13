@@ -150,6 +150,59 @@ const stamphogRepoConfigsList = (): ToolBase<
     },
 })
 
+const StamphogRepoConfigsUpdateSchema = () => {
+    const StamphogRepoConfigsPartialUpdateBody = orvalSchemas.StamphogRepoConfigsPartialUpdateBody()
+    const StamphogRepoConfigsPartialUpdateParams = orvalSchemas.StamphogRepoConfigsPartialUpdateParams()
+    return StamphogRepoConfigsPartialUpdateParams.omit({ project_id: true }).extend(
+        StamphogRepoConfigsPartialUpdateBody.shape
+    )
+}
+
+const stamphogRepoConfigsUpdate = (): ToolBase<
+    ReturnType<typeof StamphogRepoConfigsUpdateSchema>,
+    Schemas.StamphogRepoConfig
+> => ({
+    name: 'stamphog-repo-configs-update',
+    schema: StamphogRepoConfigsUpdateSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof StamphogRepoConfigsUpdateSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.provider !== undefined) {
+            body['provider'] = params.provider
+        }
+        if (params.repository !== undefined) {
+            body['repository'] = params.repository
+        }
+        if (params.enabled !== undefined) {
+            body['enabled'] = params.enabled
+        }
+        if (params.digest_enabled !== undefined) {
+            body['digest_enabled'] = params.digest_enabled
+        }
+        if (params.review_mode !== undefined) {
+            body['review_mode'] = params.review_mode
+        }
+        if (params.trigger_label !== undefined) {
+            body['trigger_label'] = params.trigger_label
+        }
+        if (params.routing_mode !== undefined) {
+            body['routing_mode'] = params.routing_mode
+        }
+        if (params.routing_fork_labels !== undefined) {
+            body['routing_fork_labels'] = params.routing_fork_labels
+        }
+        if (params.review_on_clean_external_review !== undefined) {
+            body['review_on_clean_external_review'] = params.review_on_clean_external_review
+        }
+        const result = await context.api.request<Schemas.StamphogRepoConfig>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/stamphog/repo_configs/${encodeURIComponent(String(params.id))}/`,
+            body,
+        })
+        return result
+    },
+})
+
 const StamphogReviewRunsCreateSchema = () => {
     const StamphogReviewRunsCreateBody = orvalSchemas.StamphogReviewRunsCreateBody()
     return StamphogReviewRunsCreateBody
@@ -272,10 +325,15 @@ const stamphogRoutingRunsList = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/stamphog/routing_runs/`,
             query: {
+                created_after: params.created_after,
+                created_before: params.created_before,
+                head_sha: params.head_sha,
                 limit: params.limit,
                 offset: params.offset,
+                outcome: params.outcome,
                 owner: params.owner,
                 pr_number: params.pr_number,
+                reason: params.reason,
                 repository: params.repository,
             },
         })
@@ -294,6 +352,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'stamphog-repo-configs-delete': stamphogRepoConfigsDelete,
     'stamphog-repo-configs-get': stamphogRepoConfigsGet,
     'stamphog-repo-configs-list': stamphogRepoConfigsList,
+    'stamphog-repo-configs-update': stamphogRepoConfigsUpdate,
     'stamphog-review-runs-create': stamphogReviewRunsCreate,
     'stamphog-review-runs-get': stamphogReviewRunsGet,
     'stamphog-review-runs-list': stamphogReviewRunsList,

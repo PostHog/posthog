@@ -36,9 +36,24 @@ Choices the build contract left open, with the reason for each.
 - **Overlays on the report screen are components, not routes.** The chat sheet is a route
   (`presentation: 'transparentModal'`, no stack animation) that draws its own scrim and 94% sheet,
   so it looks the same on iOS, Android and web.
-- **Inbox and Chats are tabs** (`app/(tabs)/`, `Tabs` from `expo-router/js-tabs` with a custom `tabBar`), so the
-  bottom bar renders once and stays put when the tab changes. `backBehavior="firstRoute"`: Android back from Chats
-  returns to Inbox, and back from Inbox leaves the app.
+- **Home, Inbox, Chats and Views are tabs** (`app/(tabs)/`, `Tabs` from `expo-router/js-tabs` with a custom `tabBar`),
+  so the bottom bar renders once and stays put when the tab changes. `backBehavior="firstRoute"`: Android back from
+  another tab returns to Home, and back from Home leaves the app.
+- **Home is the Live screen.** Most people open the app to see their data, so Live (`app/(tabs)/live/`, `/live`) is the
+  first tab and the default start page, and the inbox is the second tab. The tabs header keeps the title "Live". The
+  bar sends `mobile_live_opened` (`from: tab`) once per switch to Home, like the Inbox and Chats opens, because a
+  focus effect would count again each time a pushed screen, Settings or the chat sheet closes over Home.
+- **The Inbox tab shows a blue dot** while the inbox had an unread report the last time it loaded.
+  `useInboxHasUnread` (`useInboxUnread.ts`, from the same count as Live's Meanwhile) reads the first page the inbox
+  saves in the query cache (`read-inbox`) and never fetches, so there is no dot until the inbox has loaded once, on
+  this launch or an earlier one, and the dot cannot announce a new report.
+  The inbox saves that page only after the full read-state request succeeds.
+  Opening a report while that request is pending preserves the saved unread states until a full response arrives.
+  `mobile_inbox_opened` sends `had_unread`, the dot's state when the Inbox opened. iOS native tabs show the dot as an
+  empty badge.
+- **A report opened from a push on a cold start sits above the inbox.** The app would open on Home, so routing
+  navigates to `/inbox` before it pushes the report, and Back returns to the inbox. A tap while the app runs pushes
+  the report above the current screen.
 - **Menus and sheets draw through `OverlayPortal`.** The tab navigator draws its bar after the scenes, so an overlay
   inside a tab scene would draw under the bar. `FloatingCard` and `BottomSheet` render into the `OverlayHost` in
   `TabsLayout`, above the bar. Screens outside the tabs have no host, so their overlays render in place.
@@ -70,9 +85,8 @@ Choices the build contract left open, with the reason for each.
   match the prototype's wrapping of headlines, ledes, questions, PR titles and quotes.
 - **Focus ring.** Web text fields drop the browser outline; the field container is the affordance.
 - **Disabled chat tools.** Expand renders at 40% opacity because it does nothing yet.
-- **Nav pill** shows the handoff's three slots as Home, Chat and Products. The app has no Spaces or
-  Views, so the chat-bubbles slot opens the chat sheet and the grid slot opens the web app's product
-  library (`/project/{id}/library`, the web rail's Products pane), which has no product screen in the app.
+- **Nav pill** shows Home, Inbox, Chats and Views, then the Chat button.
+  On narrow screens or with larger system text, Chat shows only its icon so each tab stays at least 44pt wide (see [Navigation pins](#navigation-pins)).
 - **Bottom padding floor.** `bottomOffset()` never returns less than 16pt. The handoff's bottom paddings include the
   34pt home indicator, so on a device with a home button (inset 0) several came out between 0 and 14pt.
 
@@ -237,6 +251,7 @@ See [DATA.md](DATA.md) for the endpoint map and every adapter rule.
 - **Screens wait for the session.** `app/_layout.tsx` renders the stack only after `restore()`; until then the native splash stays up (web shows `BootSplash`). Feature hooks never see a missing token at launch.
   The native splash then also waits for the inbox's first load, data or error, so the logo hands over to a filled inbox with no spinner. Any other first screen releases it on mount. An 8 second cap (`SPLASH_TIMEOUT_MS` in `src/auth/bootGate.ts`) releases it if the load hangs.
 - **One redirect to sign in.** `useAuthRedirect()` sends every screen to `/sign-in` when the session ends and demo mode is off, including a refresh failure in the middle of a session.
+  A screen outside the tabs, such as a report a link opened, travels along as `next` and reopens after a successful sign-in. Anything else lands on the start page.
 - **In-place confirmation.** Sign out confirms inside Settings, and inside the inbox menu, instead of `Alert.alert`, which does nothing on react-native-web.
   Both use `SignOutConfirm` and `useSignOutAction`. A demo session without an account leaves the demo with no confirmation.
 - **OAuth sign in is native only.** The web build has no registered redirect, so Sign in on the web says to use the apps or the demo. The sign-in screen does not offer personal API keys, including in development builds.
@@ -307,14 +322,22 @@ See [DATA.md](DATA.md) for the endpoint map and every adapter rule.
 
 ## Navigation pins
 
-- **Errors and Sessions are Views rows, not fixed tabs.** The Browse group lists Dashboards, Insights, Web analytics, Sessions, Errors. Sessions replaces the old Recordings row, which opened the web.
-- **A pin adds one slot after Views.** Long-press the Views row, or use the list's More menu, for "Pin to navigation". Both changes confirm with the Views toast and Undo.
-- **One user slot.** Five 44pt slots and the labelled Chat button do not fit a 375pt or 393pt phone: about 199pt and 217pt are left for 220pt of slots. Four fit everywhere, so the pill has Home, Chats, Views and one pin. Pinning the other list replaces the pin, the toast says "Pinned, replacing Errors", short enough for one line beside Undo on a 393pt phone, and Undo puts the old pin back. The store keeps a list (`MAX_NAV_PINS`), so a larger cap needs no change to the saved format.
+- **The pin slot is retired.** Home became Live and the Inbox took the fourth slot, so the pill has no room after
+  Views. `MAX_NAV_PINS` in `navPinSlot.ts` is 0: every "Pin to navigation" item is hidden, the Browse rows have no
+  long-press menu, and a saved list stays on the device but loads as no pins. The pin code stays, dormant, until the
+  decision whether to remove it. `TabsLayout.test.tsx` raises the cap to 1 in one test to keep it covered. The rest
+  of this section describes the dormant behavior.
+- **Live is not a pin.** It is Home, so `NAV_PINS` has Errors, Sessions and Web analytics, and a saved Live pin is
+  dropped when the list loads.
+- **Errors, Sessions, Web analytics and Live are Views rows.** The Browse group lists Dashboards, Insights, Web analytics, Live, Sessions, Errors. Sessions replaces the old Recordings row, which opened the web. Live is also Home, so its Browse row switches to the Home tab instead of pushing a second Live screen (`browseRoutes.ts`).
+- **A pin adds one slot after Views.** Long-press the Browse row, or use the pushed screen's More menu (More sheet on Web analytics), for "Pin to navigation". Both changes confirm with the Views toast and Undo.
+- **One user slot.** Five 44pt slots and the labelled Chat button do not fit a 375pt or 393pt phone: about 199pt and 217pt are left for 220pt of slots. Four fit everywhere, so the pill has Home, Chats, Views and one pin. Pinning another list replaces the pin, the toast says "Pinned, replacing Errors" (or "Web analytics", the longest label), and Undo puts the old pin back. The store keeps a list (`MAX_NAV_PINS`), so a larger cap needs no change to the saved format.
 - **A device preference.** `navPinStore` keeps the pins in AsyncStorage for every project, and sign-out keeps them, like the pin hint: they hold no account data.
-- **Both tab routes are always registered.** `app/(tabs)/errors.tsx` and `app/(tabs)/replay.tsx` exist whether pinned or not; the bar draws a slot only for a pin. A list unpinned from its own tab keeps its slot until the person leaves it, so Undo has a place to return to.
-- **`/errors` is the pushed screen.** The tab and the stack screen share the path, and Expo Router resolves a path without a group to the stack screen. `openNavTarget` reaches the tab as `/(tabs)/errors`. `navPinRoutes.test.tsx` checks both.
-- **The lists count their own opens.** The bar sends `mobile_inbox_opened` and `mobile_chats_opened` only; `mobile_errors_opened` and `mobile_replay_opened` come from the list screens with `chrome`, because the same screens also open pushed from Views.
-- **Rows are disabled in the demo**, as Recordings was, because the demo has no issues or recordings.
+- **Every tab route is always registered.** `app/(tabs)/errors/`, `replay/` and `web-analytics/` exist whether pinned or not; the bar draws a slot only for a pin. iOS cannot select a hidden native tab, so while the slot is retired the `/errors`, `/replay` and `/web-analytics` tab paths land on Home there. A list unpinned from its own tab keeps its slot until the person leaves it, so Undo has a place to return to. The same rule shows the slot of a start page tab that is not pinned. While such a tab is focused, its tabs menu offers "Pin to navigation" and "Open on web". Route names are the folder names, so `tabRoutes.ts` maps the `web_analytics` key to the `web-analytics` route.
+- **`/errors` is the pushed screen.** The Errors and Sessions tabs share their path with the stack screens, and Expo Router resolves a path without a group to the stack screen. `openNavTarget` reaches the tab as `/(tabs)/errors`. Web analytics and Live keep their pushed `/views/web-analytics` and `/views/live` routes, which deep links open, so their tabs are `/web-analytics` and `/live` with no clash. `navPinRoutes.test.tsx` checks all four.
+- **Only Errors and Sessions have release flags.** Web analytics and Live have no flag, so `navPinEnabled` treats a pin without a flag as on.
+- **The lists count their own opens.** The bar sends `mobile_live_opened` for Home, `mobile_inbox_opened` and `mobile_chats_opened`; `mobile_errors_opened`, `mobile_replay_opened`, `mobile_view_opened` (`view_type: web_analytics`) and the pushed Live screen's `mobile_live_opened` come from the screens with `chrome`, because the same screens also open pushed from Views. A tab stays mounted, so each screen counts every visit: with a focus effect, or with `useTabVisit` for the Web analytics view event.
+- **Sessions and Errors rows are disabled in the demo**, as Recordings was, because the demo has no issues or recordings. Web analytics and Live have demo data.
 
 ## Errors
 
@@ -398,10 +421,23 @@ See [DATA.md](DATA.md) for the endpoint map and every adapter rule.
 - **"Open full replay" appears once**, in the top-right pill. More holds "Share link at m:ss" (the native share sheet
   with the web URL at the linked `t`, else the key moment, else the start) and "Copy session ID". Open full replay
   opens at the same moment: a `t` from a report or link is what the person came to see.
+  With `mobile-replay-video` on, the pill button is Watch replay, and More starts with Open in PostHog for the web player.
+- **Watch replay plays a server-rendered MP4 in `expo-video`, behind `mobile-replay-video`.**
+  The video is the web's Export to MP4 render, so the app bundles no rrweb renderer, WebView page or build step.
+  It adds one Expo-owned native module, and the player is the platform's own, with fullscreen and Picture in Picture.
+  The costs: the first watch of a session waits for the render, usually a few minutes.
+  Each render counts against the team's monthly video export cap.
+  The file expires after 30 days, and the next watch renders it again.
+  Recordings longer than 3 hours do not render.
+  The render keeps going on the server when the player closes, so the next open picks it up.
+  Playback starts at the same moment as the share link, mapped onto the video through the export's inactivity periods, because the render skips idle time.
+  The error state offers Open in PostHog, and leads with it when the export cap or the length rules out a render.
+  With the flag off, the pill button opens the web player as before.
+  Events: `mobile_replay_video_requested`, `mobile_replay_video_ready` (wait and reuse), `mobile_replay_video_failed` (the error kind, `playback` for a player error) and `mobile_replay_video_closed` (the status at close).
 - **The Chat button matches the report's.** A round ink button with the compose glyph, bottom right, the one agent
   verb on the screen. It opens the chat with `RECORDING_OBJECT_TYPE` and the person label plus the date.
-- **No "Play from" in the frame sheet.** A play button would be a second way to the web player, and the phone has no
-  clip player yet. The sheet shows the frame, the chapter, Previous and Next.
+- **No "Play from" in the frame sheet.** A play button would be a second way to the replay, next to the one in the
+  chrome. The sheet shows the frame, the chapter, Previous and Next.
 - **Opening a session does not mark it viewed.** The web PATCHes `viewed`, which needs `session_recording:write`.
 - **"See the moment" replaces "Watch a session"** on the report's replay row, which now opens the session screen at the
   signal's `seek_seconds`. The demo keeps opening its `example.com` URL, because demo sessions exist in no project.

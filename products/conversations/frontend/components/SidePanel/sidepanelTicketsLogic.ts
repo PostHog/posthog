@@ -44,6 +44,7 @@ import type {
     RestoreFlowState,
     SidePanelTicketFilter,
     SidePanelViewState,
+    TicketsLoadState,
 } from '../../types'
 import { clearSharedTickets, loadTicketsAcrossTabs } from './ticketsAcrossTabs'
 
@@ -65,23 +66,12 @@ function ticketActivityTime(ticket: ConversationTicket): number {
     return new Date(ticket.last_message_at ?? ticket.created_at).getTime() || 0
 }
 
-// Poll cadence scales with how actively the user is looking at support, so an open thread stays
-// fresh without every idle tab hammering the widget once a minute.
-const POLL_INTERVAL_BACKGROUND = 60 * 1000 // support surface not visible: only keep the unread badge fresh
+// Poll cadence scales with how actively the user is looking at support, so an open thread stays fresh.
 const POLL_INTERVAL_ACTIVE = 20 * 1000 // support surface open on the ticket list
 const POLL_INTERVAL_THREAD = 10 * 1000 // a ticket thread is open, so replies must land quickly
 
 // Panel options for a ticket deep link (#panel=support:ticket:<id>); supportRouterLogic skips this prefix
 const TICKET_OPTIONS_PREFIX = 'ticket:'
-
-// True when the person can actually see support: the side panel open on the Support tab, or the
-// full-screen tickets scene. Reads the live router so callers don't have to thread the pathname in.
-function isOnSupportSurface(sidePanelOpen: boolean, selectedTab: SidePanelTab | null): boolean {
-    return (
-        (sidePanelOpen && selectedTab === SidePanelTab.Support) ||
-        removeProjectIdIfPresent(router.values.location.pathname) === urls.myTickets()
-    )
-}
 
 function removeRestoreTokenFromUrl(): void {
     if ('ph_conv_restore' in router.values.searchParams) {
@@ -119,6 +109,7 @@ export interface sidepanelTicketsLogicValues {
         status: string
     } | null // supportLogic
     sendSupportRequest: SupportFormFields // supportLogic
+    canAccessTickets: boolean
     canCreateTicket: boolean
     currentTicket: ConversationTicket | null
     effectiveStatusFilter: SidePanelTicketFilter
@@ -129,6 +120,7 @@ export interface sidepanelTicketsLogicValues {
     messageSending: boolean
     messages: ChatMessage[]
     messagesLoading: boolean
+    myTicketsUrl: string
     newTicketContext: string | null
     newTicketDraft: JSONContent | null
     newTicketDraftRevision: number
@@ -138,7 +130,9 @@ export interface sidepanelTicketsLogicValues {
     statusFilter: SidePanelTicketFilter | null
     ticketFilterCounts: Record<SidePanelTicketFilter, number>
     tickets: ConversationTicket[]
+    ticketsLoadState: TicketsLoadState
     ticketsLoading: boolean
+    ticketsRequestsInFlight: number
     totalUnreadCount: number
     view: SidePanelViewState
 }
@@ -172,10 +166,10 @@ export interface sidepanelTicketsLogicActions {
         preserveLocation: any
         reason: string | undefined
     } // userLogic
-    grantSupportExemption: () => {
+    finishTicketsFetch: () => {
         value: true
     }
-    initTickets: () => {
+    grantSupportExemption: () => {
         value: true
     }
     loadMessages: (ticketId: string) => {
@@ -242,19 +236,19 @@ export interface sidepanelTicketsLogicActions {
     setTickets: (tickets: ConversationTicket[]) => {
         tickets: ConversationTicket[]
     }
+    setTicketsLoadFailed: () => {
+        value: true
+    }
     setTicketsLoading: (loading: boolean) => {
         loading: boolean
     }
     setView: (view: SidePanelViewState) => {
         view: SidePanelViewState
     }
-    startPolling: () => {
-        value: true
-    }
     startTicketFromSupportForm: () => {
         value: true
     }
-    stopPolling: () => {
+    startTicketsFetch: () => {
         value: true
     }
 }
@@ -282,6 +276,8 @@ export interface sidepanelTicketsLogicMeta {
             isErrorReport: boolean
         ) => boolean
         isBillingResolved: (billing: BillingType | null, billingLoading: boolean) => boolean
+        canAccessTickets: (canCreateTicket: boolean, tickets: ConversationTicket[]) => boolean
+        myTicketsUrl: (view: SidePanelViewState, currentTicket: ConversationTicket | null) => string
     }
 }
 
@@ -318,15 +314,15 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
     })),
     actions({
         grantSupportExemption: true,
-        initTickets: true,
         loadTickets: (force: boolean = false) => ({ force }),
-        startPolling: true,
-        stopPolling: true,
         setTickets: (tickets: ConversationTicket[]) => ({ tickets }),
         loadMessages: (ticketId: string) => ({ ticketId }),
         setMessages: (messages: ChatMessage[]) => ({ messages }),
         setHasMoreMessages: (hasMore: boolean) => ({ hasMore }),
         setTicketsLoading: (loading: boolean) => ({ loading }),
+        setTicketsLoadFailed: true,
+        startTicketsFetch: true,
+        finishTicketsFetch: true,
         setMessagesLoading: (loading: boolean) => ({ loading }),
         markAsRead: (ticketId: string) => ({ ticketId }),
         setMessageSending: (sending: boolean) => ({ sending }),
@@ -370,10 +366,26 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 setHasMoreMessages: (_, { hasMore }) => hasMore,
             },
         ],
+        ticketsRequestsInFlight: [
+            0,
+            {
+                startTicketsFetch: (state) => state + 1,
+                finishTicketsFetch: (state) => state - 1,
+            },
+        ],
         ticketsLoading: [
             false,
             {
                 setTicketsLoading: (_, { loading }) => loading,
+            },
+        ],
+        // Unlike ticketsLoading, this also covers the wait for the widget, so a surface can show a placeholder until
+        // the first answer instead of "no tickets". Tickets from an earlier load stay valid when a later load fails.
+        ticketsLoadState: [
+            'unknown' as TicketsLoadState,
+            {
+                setTickets: () => 'loaded',
+                setTicketsLoadFailed: (state) => (state === 'loaded' ? state : 'failed'),
             },
         ],
         currentTicket: [
@@ -553,36 +565,26 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             (s) => [s.billing, s.billingLoading],
             (billing: BillingType | null, billingLoading: boolean): boolean => !billingLoading && billing !== null,
         ],
+        // Free plans can't open new tickets, but tickets they already have (billing questions, PostHog AI
+        // bug reports) stay readable and repliable.
+        canAccessTickets: [
+            (s) => [s.canCreateTicket, s.tickets],
+            (canCreateTicket: boolean, tickets: ConversationTicket[]): boolean => canCreateTicket || tickets.length > 0,
+        ],
+        myTicketsUrl: [
+            (s) => [s.view, s.currentTicket],
+            (view: SidePanelViewState, currentTicket: ConversationTicket | null): string =>
+                urls.myTickets(view === 'ticket' ? currentTicket?.id : undefined),
+        ],
     }),
     listeners(({ actions, values, cache }) => ({
         logout: () => {
             clearSharedTickets()
         },
-        initTickets: () => {
-            if (cache.initialized) {
+        loadTickets: async ({ force }) => {
+            if (cache.restoringFromUrlToken) {
                 return
             }
-            cache.initialized = true
-
-            const restoreToken = router.values.searchParams['ph_conv_restore']
-            if (restoreToken) {
-                actions.restoreFromUrlToken(restoreToken)
-            } else {
-                actions.loadTickets()
-            }
-
-            if (!cache.onVisibilityChange) {
-                cache.onVisibilityChange = (): void => {
-                    if (document.visibilityState === 'visible') {
-                        actions.loadTickets()
-                    } else {
-                        actions.stopPolling()
-                    }
-                }
-                document.addEventListener('visibilitychange', cache.onVisibilityChange)
-            }
-        },
-        loadTickets: async ({ force }) => {
             // We don't support self-hosted, and the conversations extension is cloud-only — both the
             // panel and the tickets scene already render a community-forum message instead. This logic
             // still mounts there (the scene declares it in its SceneExport), so without this it would
@@ -619,19 +621,18 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                         can_create_ticket: values.canCreateTicket,
                     })
                 }
-                // This logic also mounts from the panel bar's unread badge, which renders on every
-                // page, so an unavailable widget (an ad blocker is enough) would otherwise raise a
-                // persistent error toast on surfaces that have nothing to do with support and block
-                // clicks on whatever sits under the toast container. Only warn while the person is
-                // actually on a support surface; opening one later re-runs loadTickets and warns then.
-                const onSupportSurface = isOnSupportSurface(values.sidePanelOpen, values.selectedTab)
+                actions.setTicketsLoadFailed()
+                // A forced load can run on any page, so an unavailable widget (an ad blocker is enough)
+                // would otherwise raise a persistent error toast on surfaces that have nothing to do with
+                // support and block clicks on whatever sits under the toast container. Only warn while the
+                // person is actually on a support surface; opening one later re-runs loadTickets and warns then.
                 // Only warn people who could act on it. A free plan has no email fallback, and the
                 // panel already shows them the community and upgrade options, so a toast offering
                 // to email us would promise a channel they don't get. Warn while entitlement is
                 // still unresolved, matching how the composer opens rather than drop a message.
                 if (
                     !cache.conversationsUnavailableWarned &&
-                    onSupportSurface &&
+                    liveTicketsLogic.isMounted() &&
                     (values.canCreateTicket || !values.isBillingResolved)
                 ) {
                     cache.conversationsUnavailableWarned = true
@@ -645,6 +646,8 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             if (!cache.ticketsFetched) {
                 actions.setTicketsLoading(true)
             }
+            actions.startTicketsFetch()
+            const requestDisposables = cache.disposables
             try {
                 const tickets = await loadTicketsAcrossTabs(
                     async () => {
@@ -653,16 +656,9 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                     },
                     { force, maxAgeMs: POLL_INTERVAL_THREAD }
                 )
-                if (tickets) {
+                if (tickets && !requestDisposables.isDisposed) {
                     cache.ticketsFetched = true
                     actions.setTickets(tickets)
-                    // With no tickets there's nothing to poll for; creating one re-runs loadTickets
-                    // and restarts polling. Otherwise (re)schedule at the cadence startPolling picks.
-                    if (tickets.length > 0) {
-                        actions.startPolling()
-                    } else {
-                        actions.stopPolling()
-                    }
                 }
             } catch (e) {
                 console.error('Failed to load tickets:', e)
@@ -674,59 +670,19 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                     error: e,
                     can_create_ticket: values.canCreateTicket,
                 })
-                // The background poll for the unread badge runs on every page, so a transient
-                // failure there would toast on surfaces that have nothing to do with support
-                if (isOnSupportSurface(values.sidePanelOpen, values.selectedTab)) {
+                if (!requestDisposables.isDisposed) {
+                    actions.setTicketsLoadFailed()
+                }
+                // A forced load can run on any page, so a transient failure there would toast on
+                // surfaces that have nothing to do with support
+                if (!requestDisposables.isDisposed && liveTicketsLogic.isMounted()) {
                     lemonToast.error('Failed to load tickets.')
                 }
             } finally {
-                actions.setTicketsLoading(false)
-            }
-        },
-        startPolling: () => {
-            // Only poll while the page is visible
-            if (document.visibilityState !== 'visible') {
-                return
-            }
-            // Nothing to poll for until the user has at least one ticket. Creating one re-runs
-            // loadTickets, which restarts polling from there.
-            if (values.tickets.length === 0) {
-                actions.stopPolling()
-                return
-            }
-            // Clear any existing poll timer
-            if (cache.pollTimer) {
-                clearTimeout(cache.pollTimer)
-            }
-            const onSupportSurface = isOnSupportSurface(values.sidePanelOpen, values.selectedTab)
-            // Only treat a thread as open when the surface showing it is actually visible — the logic
-            // stays mounted for the panel-bar unread badge, so `view` can still be 'ticket' for a
-            // panel the user has since closed.
-            const insideTicket = onSupportSurface && values.view === 'ticket' && !!values.currentTicket
-            const interval = insideTicket
-                ? POLL_INTERVAL_THREAD
-                : onSupportSurface
-                  ? POLL_INTERVAL_ACTIVE
-                  : POLL_INTERVAL_BACKGROUND
-            cache.pollTimer = window.setTimeout(() => {
-                actions.loadTickets()
-                // loadTickets only refreshes the list, so a support reply wouldn't appear while the
-                // reader sits inside the thread. Re-check on fire in case they've since navigated away,
-                // and skip when a load is already running so a slow fetch can't overlap this one.
-                if (
-                    values.currentTicket &&
-                    values.view === 'ticket' &&
-                    !values.messagesLoading &&
-                    isOnSupportSurface(values.sidePanelOpen, values.selectedTab)
-                ) {
-                    actions.loadMessages(values.currentTicket.id)
+                if (!requestDisposables.isDisposed) {
+                    actions.finishTicketsFetch()
+                    actions.setTicketsLoading(false)
                 }
-            }, interval)
-        },
-        stopPolling: () => {
-            if (cache.pollTimer) {
-                clearTimeout(cache.pollTimer)
-                cache.pollTimer = null
             }
         },
         loadMessages: async ({ ticketId }) => {
@@ -877,8 +833,6 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             if (values.sidePanelOpen && values.selectedTab === SidePanelTab.Support) {
                 actions.setSidePanelOptions(`${TICKET_OPTIONS_PREFIX}${ticket.id}`)
             }
-            // Cadence is bumped to the thread rate by the setView('ticket') dispatched above, so no
-            // startPolling here — it would just reschedule the same timer a second time.
         },
         setView: ({ view }) => {
             // Only clear our own format; other option strings belong to the support form
@@ -890,8 +844,6 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             ) {
                 actions.setSidePanelOptions(null)
             }
-            // Leaving a thread (back to the list or composer) drops polling back to the slower cadence.
-            actions.startPolling()
         },
         openTicketById: ({ ticketId }) => {
             if (values.view === 'ticket' && values.currentTicket?.id === ticketId) {
@@ -1009,6 +961,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             }
         },
         restoreFromUrlToken: async ({ token }) => {
+            cache.restoringFromUrlToken = true
             const conversations = posthog.conversations as any
             // isAvailable rather than method presence: the facade and its methods exist from
             // posthog-js init, but resolve null until the manager loads — which would consume
@@ -1019,6 +972,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                     cache.restoreRetryTimer = window.setTimeout(() => actions.restoreFromUrlToken(token), 500)
                 } else {
                     removeRestoreTokenFromUrl()
+                    cache.restoringFromUrlToken = false
                     actions.loadTickets(true)
                 }
                 return
@@ -1042,6 +996,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 console.error('Failed to restore from URL token:', e)
             } finally {
                 removeRestoreTokenFromUrl()
+                cache.restoringFromUrlToken = false
                 actions.loadTickets(true)
             }
         },
@@ -1089,22 +1044,6 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 actions.openTicketById(options.slice(TICKET_OPTIONS_PREFIX.length))
             }
         },
-        sidePanelOpen: (open: boolean) => {
-            if (open) {
-                // A fresh fetch on open; loadTickets reschedules polling at the active cadence.
-                actions.loadTickets()
-            } else {
-                // Closing doesn't fetch (nothing renders the result), but polling drops to the slow
-                // background cadence — or stops if there are no tickets.
-                actions.startPolling()
-            }
-        },
-        selectedTab: () => {
-            // Switching tabs inside an already-open panel changes the support surface without
-            // touching sidePanelOpen, so re-evaluate the cadence — otherwise the timer keeps its
-            // previous interval until it next fires (e.g. entering Support still polls at 60s).
-            actions.startPolling()
-        },
         isEmailFormOpen: (open: boolean) => {
             if (open) {
                 actions.startTicketFromSupportForm()
@@ -1116,20 +1055,20 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             }
         },
     })),
-    beforeUnmount(({ actions, cache }) => {
-        actions.stopPolling()
+    beforeUnmount(({ cache }) => {
         if (cache.conversationsRetryTimer) {
             clearTimeout(cache.conversationsRetryTimer)
         }
         if (cache.restoreRetryTimer) {
             clearTimeout(cache.restoreRetryTimer)
         }
-        if (cache.onVisibilityChange) {
-            document.removeEventListener('visibilitychange', cache.onVisibilityChange)
-        }
     }),
     afterMount(({ values, actions }) => {
-        actions.initTickets()
+        // A restore link can land on any page and its token is one-shot, so this does not wait for a support surface.
+        const restoreToken = router.values.searchParams['ph_conv_restore']
+        if (restoreToken) {
+            actions.restoreFromUrlToken(restoreToken)
+        }
         // A cold load of a `#panel=support:...:true` URL can set these before this logic mounts, so
         // the isEmailFormOpen/pendingViewTicket subscriptions above only fire on change and would
         // otherwise miss them — re-consume here too.
@@ -1145,5 +1084,86 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
         ) {
             actions.openTicketById(values.selectedTabOptions.slice(TICKET_OPTIONS_PREFIX.length))
         }
+    }),
+])
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface liveTicketsLogicValues {
+    currentTicket: ConversationTicket | null // sidepanelTicketsLogic
+    messagesLoading: boolean // sidepanelTicketsLogic
+    tickets: ConversationTicket[] // sidepanelTicketsLogic
+    view: SidePanelViewState // sidepanelTicketsLogic
+}
+
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
+export interface liveTicketsLogicActions {
+    loadMessages: (ticketId: string) => {
+        ticketId: string
+    } // sidepanelTicketsLogic
+    loadTickets: (force?: boolean | undefined) => {
+        force: boolean
+    } // sidepanelTicketsLogic
+    setTickets: (tickets: ConversationTicket[]) => {
+        tickets: ConversationTicket[]
+    } // sidepanelTicketsLogic
+    setView: (view: SidePanelViewState) => {
+        view: SidePanelViewState
+    } // sidepanelTicketsLogic
+    schedulePoll: () => {
+        value: true
+    }
+}
+
+export type liveTicketsLogicType = MakeLogicType<liveTicketsLogicValues, liveTicketsLogicActions>
+
+/**
+ * Keeps tickets fresh while a support surface is on screen, so a mounted copy of this logic means that surface exists.
+ * Every person's widget requests share one rate limit, so mount this from a surface, never from something that only
+ * reads sidepanelTicketsLogic.
+ */
+export const liveTicketsLogic = kea<liveTicketsLogicType>([
+    path(['products', 'conversations', 'frontend', 'components', 'SidePanel', 'liveTicketsLogic']),
+    connect(() => ({
+        values: [sidepanelTicketsLogic, ['tickets', 'view', 'currentTicket', 'messagesLoading']],
+        actions: [sidepanelTicketsLogic, ['loadTickets', 'loadMessages', 'setTickets', 'setView']],
+    })),
+    actions({
+        schedulePoll: true,
+    }),
+    listeners(({ actions, values, cache }) => ({
+        setTickets: () => actions.schedulePoll(),
+        // Entering or leaving a thread changes the cadence.
+        setView: () => actions.schedulePoll(),
+        schedulePoll: () => {
+            // Nothing to poll for until the user has at least one ticket. Creating one re-runs
+            // loadTickets, which schedules polling from there.
+            if (values.tickets.length === 0) {
+                cache.disposables.dispose('poll')
+                return
+            }
+            const insideTicket = values.view === 'ticket' && !!values.currentTicket
+            cache.disposables.add(() => {
+                const timer = window.setTimeout(
+                    () => {
+                        actions.loadTickets()
+                        // loadTickets only refreshes the list, so a support reply wouldn't appear while the
+                        // reader sits inside the thread. Skip when a load is already running so a slow fetch
+                        // can't overlap this one.
+                        if (values.currentTicket && values.view === 'ticket' && !values.messagesLoading) {
+                            actions.loadMessages(values.currentTicket.id)
+                        }
+                    },
+                    insideTicket ? POLL_INTERVAL_THREAD : POLL_INTERVAL_ACTIVE
+                )
+                return () => clearTimeout(timer)
+            }, 'poll')
+        },
+    })),
+    afterMount(({ actions, cache }) => {
+        // Disposables pause while the tab is hidden, so this also refreshes the tickets each time the tab returns.
+        cache.disposables.add(() => {
+            actions.loadTickets()
+            return () => {}
+        }, 'refresh')
     }),
 ])

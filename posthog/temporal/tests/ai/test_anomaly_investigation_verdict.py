@@ -36,6 +36,7 @@ from products.notebooks.backend.facade.content import is_markdown_notebook_conte
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
 from products.signals.backend.facade.source_configs import AlertNamePatterns
+from products.signals.backend.models import SignalSourceConfig
 
 
 class TestInvestigationVerdictPersistence(NonAtomicBaseTest):
@@ -150,10 +151,12 @@ class TestInvestigationVerdictPersistence(NonAtomicBaseTest):
 
     @parameterized.expand(
         [
-            ("no_patterns", AlertNamePatterns(), True),
-            ("allowed_by_the_insight_name", AlertNamePatterns(allow=("^test insight$",)), True),
-            ("blocked_by_the_alert_name", AlertNamePatterns(allow=("insight",), block=("^anomaly",)), False),
-            ("invalid_stored_patterns", AlertNamePatterns(invalid=True), False),
+            ("no_patterns", None, AlertNamePatterns(), True),
+            ("investigated_only", "investigated_only", AlertNamePatterns(), True),
+            ("scope_off", "off", AlertNamePatterns(), False),
+            ("allowed_by_the_insight_name", None, AlertNamePatterns(allow=("^test insight$",)), True),
+            ("blocked_by_the_alert_name", None, AlertNamePatterns(allow=("insight",), block=("^anomaly",)), False),
+            ("invalid_stored_patterns", None, AlertNamePatterns(invalid=True), False),
         ]
     )
     @pytest.mark.asyncio
@@ -165,6 +168,7 @@ class TestInvestigationVerdictPersistence(NonAtomicBaseTest):
     async def test_completed_investigation_emits_signal(
         self,
         _name: str,
+        alert_scope: str | None,
         patterns: AlertNamePatterns,
         expected: bool,
         mock_info,
@@ -173,6 +177,13 @@ class TestInvestigationVerdictPersistence(NonAtomicBaseTest):
         mock_emit,
         _prepare,
     ) -> None:
+        if alert_scope is not None:
+            await SignalSourceConfig.objects.acreate(
+                team=self.team,
+                source_product="analytics",
+                source_type="anomaly_investigation",
+                config={"alert_scope": alert_scope},
+            )
         mock_info.return_value.heartbeat_timeout = None
         mock_run.return_value = InvestigationRunResult(
             report=InvestigationReport(

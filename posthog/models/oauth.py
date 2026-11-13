@@ -99,6 +99,18 @@ def is_loopback_host(hostname: str | None) -> bool:
     return False
 
 
+OIDC_SIGNING_KEY_MISSING_MESSAGE = (
+    "OAuth is not set up on this PostHog instance. "
+    "Ask the instance admin to set the OIDC_RSA_PRIVATE_KEY environment variable to an RSA private key in PEM format."
+)
+
+
+def oidc_signing_key_configured() -> bool:
+    # Every OAuth client PostHog creates (CIMD, DCR, toolbar) uses RS256, and OAuthApplication.clean()
+    # rejects RS256 without this key, so no client can be created or updated while it is unset.
+    return bool(oauth2_settings.OIDC_RSA_PRIVATE_KEY)
+
+
 class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore[django-manager-missing]
     id: models.UUIDField = models.UUIDField(primary_key=True, default=UUIDT, editable=False)
 
@@ -152,6 +164,18 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
         help_text=(
             "True if this client handles an insufficient_scope challenge by asking the user for more scopes. "
             "Its tokens then get a WWW-Authenticate challenge naming the required scopes on a missing-scope 403."
+        ),
+    )
+
+    # Set only by PostHog staff in the admin, like `supports_step_up`. An admin who grants the
+    # scope makes PostHog trust this client's issuer to sign in members of their organization.
+    can_manage_ema_issuer: models.BooleanField = models.BooleanField(
+        default=False,
+        db_default=False,
+        help_text=(
+            "True if this client may request ema_issuer:manage, which registers its ID-JAG issuer as trusted "
+            "for an organization. Only grant this to clients PostHog has agreed enterprise-managed auth with. "
+            "Removing it also makes PostHog reject assertions from every issuer this client registered."
         ),
     )
 
@@ -519,7 +543,7 @@ class OAuthApplication(ModelActivityMixin, AbstractApplication):  # type: ignore
             for origin in allowed_origins:
                 origin_validator(origin)
 
-        if self.algorithm == AbstractApplication.RS256_ALGORITHM and not oauth2_settings.OIDC_RSA_PRIVATE_KEY:
+        if self.algorithm == AbstractApplication.RS256_ALGORITHM and not oidc_signing_key_configured():
             raise ValidationError("You must set OIDC_RSA_PRIVATE_KEY to use RSA algorithm")
 
         if self.algorithm == AbstractApplication.HS256_ALGORITHM and (
@@ -755,6 +779,8 @@ class OAuthDeviceGrant(AbstractDeviceGrant):
     # The scopes the client asked for, already clamped to the application's ceiling. The token
     # gets these, never the scopes the client sends when it polls.
     scope: models.TextField = models.TextField(null=True)
+    # The requested scopes the person can't remove at approval, such as the new scopes of a step-up.
+    required_scope: models.TextField = models.TextField(null=True, blank=True)
     scoped_teams: ArrayField = ArrayField(models.IntegerField(), null=True, blank=True)
     created: models.DateTimeField = models.DateTimeField(auto_now_add=True)
 

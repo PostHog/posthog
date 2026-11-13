@@ -1,5 +1,6 @@
 import json
 from datetime import UTC, datetime
+from functools import partial
 from typing import Any
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest, flush_persons_and_events
@@ -9,7 +10,7 @@ from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
-from posthog.schema import CacheMissResponse, HogQLQueryResponse, QueryStatus
+from posthog.schema import ActorsQuery, CacheMissResponse, HogQLQueryResponse, QueryStatus
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
@@ -25,22 +26,121 @@ from posthog.constants import AvailableFeature
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import API_QUERIES_BUDGET_ENFORCEMENT_FLAG, ExecutionMode, get_query_runner
-from posthog.models import OrganizationMembership, PropertyDefinition, Team, User
+from posthog.models import OrganizationMembership, Team, User
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.persons import create_person, update_person
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
+from products.customer_analytics.backend.hogql_queries.account_persons_catalog import (
+    ACCOUNT_PERSONS_CATALOG_FLAG,
+    AccountPersonsCatalog,
+)
+from products.customer_analytics.backend.logic import account_person_memberships as memberships_logic
 from products.customer_analytics.backend.logic.account_persons import AccountPersonsReader
 from products.customer_analytics.backend.models import TeamCustomerAnalyticsConfig
 from products.customer_analytics.backend.presentation.views.account_persons import AccountPersonsQuerySerializer
 from products.customer_analytics.backend.test.factories import create_account
+from products.event_definitions.backend.models import PropertyDefinition
 
 FLAG_CHECK = "products.customer_analytics.backend.logic.account_persons.posthog_feature_flag_enabled"
+CATALOG_FLAG_CHECK = (
+    "products.customer_analytics.backend.hogql_queries.account_persons_catalog.get_feature_flag_or_none"
+)
+
+
+class TestAccountPersonMembershipLimits(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ([3, 1, 1], 2, 6, [2]),
+            ([2, 2, 2], 2, 6, [1, 2]),
+            ([2], 2, 3, [1]),
+            ([2], 2, 2, []),
+        ]
+    )
+    def test_alias_budget_omits_incomplete_people(
+        self, alias_counts: list[int], person_limit: int, request_limit: int, expected_ids: list[int]
+    ) -> None:
+        aliases = {
+            person_id: [f"person-{person_id}-alias-{index}" for index in range(count)]
+            for person_id, count in enumerate(alias_counts, start=1)
+        }
+        fetched: list[str] = []
+
+        def get_aliases(team_id: int, person_ids: list[int], *, limit_per_person: int) -> dict[int, list[str]]:
+            rows = {person_id: aliases[person_id][:limit_per_person] for person_id in person_ids}
+            fetched.extend(alias for values in rows.values() for alias in values)
+            return rows
+
+        with (
+            patch.object(memberships_logic, "MAX_ALIASES_PER_PERSON", person_limit),
+            patch.object(memberships_logic, "MAX_ALIASES_PER_REQUEST", request_limit),
+            patch.object(memberships_logic, "get_distinct_ids_for_persons", side_effect=get_aliases),
+        ):
+            resolved = memberships_logic.get_person_distinct_ids(1, list(aliases))
+
+        assert resolved == {person_id: aliases[person_id] for person_id in expected_ids}
+        assert len(fetched) <= request_limit
 
 
 class TestAccountPersonsQueryValidation(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ({}, True),
+            ({"select": ["person.$delete"]}, True),
+            ({"select": ["person.$delete -- Label"]}, False),
+            ({"select": ["person.$delete -- Label\n + (SELECT count() FROM warehouse_table)"]}, False),
+            ({"select": ["persons.id", "properties.`a.b` AS value", "source.distinct_ids"]}, True),
+            ({"orderBy": ["person_display_name DESC"]}, True),
+            ({"select": ["coalesce(nullIf(toString(properties.name), ''), persons.id)"]}, True),
+            ({"orderBy": ["toString(properties.name) DESC"]}, True),
+            ({"orderBy": ["1 WITH FILL"]}, False),
+            ({"orderBy": ["1 WITH FILL FROM (SELECT count() FROM warehouse_table)"]}, False),
+            ({"select": ["toString(1)(properties.name)"]}, False),
+            ({"select": ["toString(properties.name) FILTER (WHERE (SELECT count() FROM warehouse_table))"]}, False),
+            ({"select": ["toString(properties.name ORDER BY (SELECT count() FROM warehouse_table))"]}, False),
+            (
+                {"select": ["toString(properties.name) WITHIN GROUP (ORDER BY (SELECT count() FROM warehouse_table))"]},
+                False,
+            ),
+            ({"select": ["toString(DISTINCT properties.name)"]}, False),
+            ({"orderBy": ["toString(properties.name) FILTER (WHERE (SELECT count() FROM warehouse_table))"]}, False),
+            ({"select": ["coalesce(toString(properties.name) FILTER (WHERE 1), '')"]}, False),
+            ({"select": ["persons.revenue_analytics.mrr"]}, False),
+            ({"select": ["properties.$virt_mrr"]}, False),
+            ({"select": ["(SELECT count() FROM warehouse_table)"]}, False),
+            ({"select": ["persons.custom_join.email"]}, False),
+            ({"select": ["persons.source.account_last_seen"]}, False),
+            ({"select": ["1 + 1"]}, False),
+            ({"select": ["("]}, False),
+            ({"orderBy": ["(SELECT count() FROM warehouse_table) DESC"]}, False),
+            ({"properties": [{"type": "hogql", "key": "1=1"}]}, False),
+            ({"fixedProperties": [{"type": "cohort", "key": "id", "value": 1}]}, False),
+            (
+                {
+                    "properties": {
+                        "type": "AND",
+                        "values": [{"type": "person", "key": "plan", "operator": "exact", "value": "paid"}],
+                    }
+                },
+                True,
+            ),
+            ({"properties": [{"type": "person", "key": "$virt_mrr", "operator": "gt", "value": 0}]}, False),
+            ({"modifiers": {"dataWarehouseEventsModifiers": []}}, False),
+        ]
+    )
+    def test_builtin_catalog_accepts_only_supported_inputs(self, overrides: dict, supported: bool) -> None:
+        query = ActorsQuery.model_validate(
+            {
+                "kind": "ActorsQuery",
+                "source": {"kind": "AccountUsersQuery", "accountId": "example-account"},
+                "select": ["person_display_name -- Person", "properties.plan", "source.account_last_seen"],
+                **overrides,
+            }
+        )
+        assert AccountPersonsCatalog.supports_query(query, Team()) is supported
+
     @parameterized.expand(
         [
             ({"limit": 0}, "limit"),
@@ -56,6 +156,49 @@ class TestAccountPersonsQueryValidation(SimpleTestCase):
         serializer = AccountPersonsQuerySerializer(data=parameters)
         assert not serializer.is_valid()
         assert field in serializer.errors
+
+
+class TestAccountPersonsCatalogEvents(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("control", False, True),
+            ("test", False, True),
+            ("test", True, True),
+            ("test", False, False),
+            (None, False, True),
+        ]
+    )
+    def test_exposure_and_outcome(self, variant: str | None, failed: bool, track: bool) -> None:
+        team = Team(id=123, organization_id="00000000-0000-0000-0000-000000000001")
+        user = User(distinct_id="example-reader", email="reader@example.com")
+        catalog = AccountPersonsCatalog(team, user)
+        with (
+            patch("posthog.ph_client.posthoganalytics.get_feature_flag", return_value=variant) as flag_check,
+            patch(
+                "products.customer_analytics.backend.hogql_queries.account_persons_catalog.emit_slo_started"
+            ) as started,
+            patch(
+                "products.customer_analytics.backend.hogql_queries.account_persons_catalog.emit_slo_completed"
+            ) as completed,
+        ):
+            if failed:
+                with self.assertRaises(RuntimeError), catalog.run(track=track):
+                    raise RuntimeError("Do not capture this content")
+            else:
+                with catalog.run(track=track):
+                    catalog.cache_hit = True
+            assert flag_check.call_args.kwargs["only_evaluate_locally"] is True
+            assert flag_check.call_args.kwargs["send_feature_flag_events"] is False
+            if variant is None or not track:
+                assert not started.called and not completed.called
+            else:
+                exposure = started.call_args.kwargs["extra_properties"]
+                assert started.call_args.kwargs["properties"].operation == "account_persons_query"
+                assert completed.call_args.kwargs["properties"].operation == "account_persons_query"
+                assert exposure[f"$feature/{ACCOUNT_PERSONS_CATALOG_FLAG}"] == variant
+                assert completed.call_args.kwargs["properties"].outcome == ("failure" if failed else "success")
+                assert "error_message" not in completed.call_args.kwargs["extra_properties"]
+                assert completed.call_args.kwargs["extra_properties"]["cache_hit"] is not failed
 
 
 class TestMembershipSchema(QueryMatchingTest, SimpleTestCase):
@@ -82,6 +225,7 @@ class TestAccountUsersQuery(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest)
     def setUp(self) -> None:
         super().setUp()
         self.enterContext(patch(FLAG_CHECK, return_value=True))
+        self.catalog_flag_check = self.enterContext(patch(CATALOG_FLAG_CHECK, return_value=None))
         TeamCustomerAnalyticsConfig.objects.update_or_create(team=self.team, defaults={"account_group_type_index": 0})
         self.account = create_account(team_id=self.team.pk, external_id="workspace-demo")
         self.endpoint = f"/api/projects/{self.team.pk}/accounts/{self.account.id}/persons/"
@@ -89,15 +233,21 @@ class TestAccountUsersQuery(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest)
             team=self.team,
             distinct_ids=["member-one", "member-one-alias"],
             properties={"email": "first@example.com", "name": "First member", "plan": "paid", "private_note": "hidden"},
+            is_identified=True,
         )
         self.second = create_person(
-            team=self.team, distinct_ids=["member-two"], properties={"email": "second@example.com", "plan": "free"}
+            team=self.team,
+            distinct_ids=["member-two"],
+            properties={"email": "second@example.com", "plan": "free"},
+            is_identified=True,
         )
+        create_person(team=self.team, distinct_ids=["anonymous-member"], properties={"email": "anon@example.com"})
         create_person(team=self.team, distinct_ids=["non-member"], properties={"email": "outside@example.com"})
         flush_persons_and_events()
         self._insert_membership("member-one", "2024-01-01", "2024-01-05")
         self._insert_membership("member-one-alias", "2024-01-02", "2024-01-09")
         self._insert_membership("member-two", "2024-01-03", "2024-01-06")
+        self._insert_membership("anonymous-member", "2024-01-01", "2024-01-10")
         self._insert_membership("non-member", "2024-01-01", "2024-01-10", group_key="another-workspace")
         self._insert_membership("non-member", "2024-01-01", "2024-01-10", group_type_index=1)
         self._insert_membership(
@@ -124,6 +274,7 @@ class TestAccountUsersQuery(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest)
     def test_widget_query_supports_display_names_filters_search_sort_and_pages(
         self, materialized_cte: bool, max_threads: int | None
     ) -> None:
+        self.catalog_flag_check.return_value = "test"
         self.enterContext(
             self.settings(
                 HOGQL_MATERIALIZED_CTE_SUPPORTED=materialized_cte, CLICKHOUSE_ACCOUNT_USERS_MAX_THREADS=max_threads
@@ -173,6 +324,16 @@ class TestAccountUsersQuery(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest)
         assert response.status_code == 200, response.content
         assert len(response.json()["results"]) == 1
         assert response.json()["results"][0][0]["id"] == str(self.first.uuid)
+
+    def test_widget_catalog_variants_keep_results_and_caches_separate(self) -> None:
+        self.catalog_flag_check.return_value = "control"
+        control = self._run_widget_query().json()
+        self.catalog_flag_check.return_value = "test"
+        treatment = self._run_widget_query().json()
+        cached = self._run_widget_query().json()
+        assert control["results"] == treatment["results"] == cached["results"]
+        assert not control["is_cached"] and not treatment["is_cached"]
+        assert cached["is_cached"]
 
     @parameterized.expand([("flag_disabled",), ("account_hidden",)])
     def test_widget_cached_results_repeat_access_checks(self, condition: str) -> None:
@@ -238,7 +399,13 @@ class TestAccountUsersQuery(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest)
         )
         assert isinstance(response, CacheMissResponse)
 
-    def test_widget_display_name_and_search_hide_restricted_properties(self) -> None:
+    @parameterized.expand([("control",), ("test",)])
+    def test_widget_display_name_and_search_hide_restricted_properties(self, variant: str) -> None:
+        self.catalog_flag_check.return_value = variant
+        if variant == "test":
+            self.enterContext(
+                patch.object(Database, "_fetch_sources", side_effect=AssertionError("Unexpected catalog load"))
+            )
         self._restrict_properties()
         response = self._run_widget_query()
         assert response.status_code == 200, response.content
@@ -246,6 +413,8 @@ class TestAccountUsersQuery(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest)
         response = self._run_widget_query(search="first@example.com")
         assert response.status_code == 200, response.content
         assert response.json()["results"] == []
+        assert self.catalog_flag_check.call_args.args == (ACCOUNT_PERSONS_CATALOG_FLAG, str(self.user.distinct_id))
+        assert self.catalog_flag_check.call_args.kwargs["groups"]["organization"] == str(self.team.organization_id)
 
     @parameterized.expand(
         [
@@ -255,6 +424,7 @@ class TestAccountUsersQuery(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest)
             (["persons.id AS `group`", "group"],),
             (["persons.id AS session", "session"],),
             (["(SELECT count() FROM posthog.person_group_membership)"],),
+            (["lower(properties.email)"],),
         ]
     )
     def test_widget_rejects_unsupported_columns(self, columns: list[str]) -> None:
@@ -332,6 +502,71 @@ class TestAccountUsersQuery(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest)
                 }
             ],
         )
+
+    @parameterized.expand(
+        [
+            (100, 500, 5_000, True, True),
+            (100, 1, 5_000, True, True),
+            (1, 500, 5_000, False, True),
+            (2, 1, 3, True, False),
+            (2, 500, 2, False, False),
+        ]
+    )
+    def test_membership_enrichment_resolves_aliases_and_excludes_inaccessible_accounts(
+        self,
+        alias_limit: int,
+        query_batch_size: int,
+        request_limit: int,
+        include_first: bool,
+        include_second: bool,
+    ) -> None:
+        other_key = "second-workspace"
+        hidden_key = "hidden-workspace"
+        other = create_account(team_id=self.team.pk, external_id=other_key, name="Second workspace")
+        hidden = create_account(team_id=self.team.pk, external_id=hidden_key)
+        self.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL}]
+        self.organization.save()
+        AccessControl.objects.create(
+            team=self.team,
+            resource="account",
+            resource_id=str(hidden.id),
+            access_level="none",
+            organization_member=OrganizationMembership.objects.get(user=self.user, organization=self.organization),
+        )
+        self._insert_membership("member-one-alias", "2024-01-01", "2024-01-05", group_key=other_key)
+        self._insert_membership("member-one", "2024-01-01", "2024-01-05", group_key=hidden_key)
+        self._insert_membership("member-one", "2024-01-01", "2024-01-05", group_key="untracked-workspace")
+        outside = create_person(team=self.team, distinct_ids=["outside-person"], is_identified=True)
+        self._insert_membership("outside-person", "2024-01-01", "2024-01-05", group_key=other_key)
+        flush_persons_and_events()
+        with (
+            patch.object(memberships_logic, "MAX_ALIASES_PER_PERSON", alias_limit),
+            patch.object(memberships_logic, "MAX_ALIASES_PER_REQUEST", request_limit),
+            patch.object(memberships_logic, "MEMBERSHIP_QUERY_BATCH_SIZE", query_batch_size),
+            patch.object(
+                memberships_logic, "list_membership_keys", wraps=memberships_logic.list_membership_keys
+            ) as queries,
+        ):
+            response = self.client.post(
+                self.endpoint + "memberships/",
+                {"person_ids": [str(self.first.uuid), str(self.second.uuid), str(outside.uuid)]},
+                format="json",
+            )
+        assert all(len(call.args[2]) <= query_batch_size for call in queries.call_args_list)
+        assert response.status_code == 200, response.content
+        accounts = {item["person_id"]: {account["id"] for account in item["accounts"]} for item in response.json()}
+        expected = {}
+        if include_first:
+            expected[str(self.first.uuid)] = {str(self.account.id), str(other.id)}
+        if include_second:
+            expected[str(self.second.uuid)] = {str(self.account.id)}
+        assert accounts == expected
+        assert sum(len(call.args[2]) for call in queries.call_args_list) <= request_limit
+
+    @parameterized.expand([([],), (["invalid"],), (["00000000-0000-0000-0000-000000000001"] * 501,)])
+    def test_membership_enrichment_rejects_invalid_or_oversized_requests(self, person_ids: list[str]) -> None:
+        response = self.client.post(self.endpoint + "memberships/", {"person_ids": person_ids}, format="json")
+        assert response.status_code == 400
 
     def test_persons_are_narrowed_aggregated_and_paginated(self) -> None:
         self.first.properties["email"] = "updated@example.com"
@@ -565,6 +800,11 @@ class TestAccountUsersQuery(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest)
         with patch(FLAG_CHECK, return_value=condition != "flag_disabled"):
             response = self.client.get(self.endpoint)
         assert response.status_code == 404, response.content
+        with patch(FLAG_CHECK, return_value=condition != "flag_disabled"):
+            memberships = self.client.post(
+                self.endpoint + "memberships/", {"person_ids": [str(self.first.uuid)]}, format="json"
+            )
+        assert memberships.status_code == 404, memberships.content
 
     def test_bad_parameter_returns_400(self) -> None:
         assert self.client.get(self.endpoint, {"limit": -1}).status_code == 400
@@ -576,15 +816,22 @@ class TestAccountUsersQuery(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest)
         )
         assert response.status_code == 400, response.content
 
-    @parameterized.expand([(False,), (True,)])
-    def test_get_requests_obey_concurrency_limits(self, api_key: bool) -> None:
+    @parameterized.expand([(False, False), (False, True), (True, False), (True, True)])
+    def test_reads_obey_concurrency_limits(self, api_key: bool, memberships: bool) -> None:
+        read = (
+            partial(
+                self.client.post, self.endpoint + "memberships/", {"person_ids": [str(self.first.uuid)]}, format="json"
+            )
+            if memberships
+            else partial(self.client.get, self.endpoint)
+        )
         if api_key:
             token = generate_random_token_personal()
             PersonalAPIKey.objects.create(
                 label="account persons",
                 user=self.user,
                 secure_value=hash_key_value(token),
-                scopes=["account:read", "person:read"],
+                scopes=["query:read", "account:read", "person:read"],
             )
             self.client.logout()
             self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
@@ -599,13 +846,20 @@ class TestAccountUsersQuery(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest)
             with limiter.run(
                 team_id=self.team.pk, org_id=self.organization.pk, is_api=api_key, task_id="occupied", limit=1
             ):
-                response = self.client.get(self.endpoint)
+                response = read()
             assert response.status_code == 429, response.content
             assert "Retry-After" in response
-            assert self.client.get(self.endpoint).status_code == 200
+            assert read().status_code == 200
 
-    @parameterized.expand([(False,), (True,)])
-    def test_api_get_reads_obey_the_read_budget(self, enforced: bool) -> None:
+    @parameterized.expand([(False, False), (False, True), (True, False), (True, True)])
+    def test_api_reads_obey_the_read_budget(self, enforced: bool, memberships: bool) -> None:
+        read = (
+            partial(
+                self.client.post, self.endpoint + "memberships/", {"person_ids": [str(self.first.uuid)]}, format="json"
+            )
+            if memberships
+            else partial(self.client.get, self.endpoint)
+        )
         spec = budget_spec_for(self.organization)
         refill_and_read(str(self.team.pk), spec)
         debit(str(self.team.pk), int(spec.capacity_bytes + spec.bytes_per_hour))
@@ -614,14 +868,14 @@ class TestAccountUsersQuery(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest)
             label="account persons",
             user=self.user,
             secure_value=hash_key_value(token),
-            scopes=["account:read", "person:read"],
+            scopes=["query:read", "account:read", "person:read"],
         )
         with patch(
             "posthog.hogql_queries.query_runner.posthoganalytics.feature_enabled",
             side_effect=lambda flag, *args, **kwargs: flag == API_QUERIES_BUDGET_ENFORCEMENT_FLAG and enforced,
         ):
-            assert self.client.get(self.endpoint).status_code == 200
-            response = self.client.get(self.endpoint, headers={"Authorization": f"Bearer {token}"})
+            assert read().status_code == 200
+            response = read(headers={"Authorization": f"Bearer {token}"})
         assert response.status_code == (429 if enforced else 200), response.content
         if enforced:
             assert "Retry-After" in response

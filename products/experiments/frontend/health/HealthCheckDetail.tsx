@@ -18,13 +18,13 @@ export function HealthCheckDetail({
     checkedAt: string | null
 }): JSX.Element {
     return (
-        <div className="flex flex-col gap-4" data-attr="experiment-health-check-detail">
+        <div className="flex flex-col gap-6" data-attr="experiment-health-check-detail">
             <div className="flex flex-col gap-1">
-                <h3 className="m-0 flex items-center gap-2 text-base font-semibold">
-                    <span className="flex shrink-0">{HEALTH_CHECK_STATUS_DISPLAY[check.status].icon}</span>
+                <h3 className="m-0 flex items-start gap-2 text-xl font-semibold">
+                    <span className="flex shrink-0 pt-1">{HEALTH_CHECK_STATUS_DISPLAY[check.status].icon}</span>
                     <span>{check.name}</span>
                 </h3>
-                <span className="pl-6 text-xs text-secondary">{healthCheckStatusText(check)}</span>
+                <span className="pl-7 text-xs text-secondary">{healthCheckStatusText(check)}</span>
             </div>
             {check.description && (
                 <HealthPanelSection title="What it looks for">

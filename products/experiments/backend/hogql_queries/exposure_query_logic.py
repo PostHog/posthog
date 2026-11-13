@@ -9,20 +9,29 @@ import posthoganalytics
 
 from posthog.schema import (
     ActionsNode,
+    BehavioralPropertyFilter,
+    CohortPropertyFilter,
+    EventPropertyFilter,
     ExperimentEventExposureConfig,
     ExperimentExposureCriteria,
     ExperimentWarehouseNativeExposureConfig,
+    GroupPropertyFilter,
     MultipleVariantHandling,
+    PersonMetadataPropertyFilter,
+    PersonPropertyFilter,
     PropertyOperator,
+    SessionPropertyFilter,
 )
 
 from posthog.hogql import ast
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.property import action_to_expr, operator_is_negative, property_to_expr
+from posthog.hogql.utils import map_virtual_properties
 
 from posthog.models.team.team import Team
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import get_action
+from products.actions.backend.facade.contracts import ActionNotFound
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +53,11 @@ EXPERIMENT_EXPOSURE_EVENT_FLAG = "experiment-exposure-event"
 # (exposure_event_name_filter). Only experiments whose start_date is at or after the cutoff can
 # rely on $experiment_exposure covering their whole exposure window.
 EXPERIMENT_EXPOSURE_EVENT_CUTOFF = datetime(2026, 9, 1, tzinfo=UTC)
+
+# What an SDK puts on the $experiment_exposure event it sends when a feature flag rule assigns a variant.
+# A rule-linked experiment reads these and never $feature_flag_response: two variants can return one value.
+RULE_ID_PROPERTY = "$feature_flag_rule_id"
+RULE_VARIANT_KEY_PROPERTY = "$feature_flag_variant_key"
 
 
 def resolve_default_exposure_event(team: Team, start_date: Optional[datetime]) -> str:
@@ -206,6 +220,28 @@ def is_default_exposure_config(
     )
 
 
+def rule_exposure_criteria_error(exposure_criteria: Union[ExperimentExposureCriteria, dict, None]) -> Optional[str]:
+    """Why these exposure criteria cannot apply to a rule-linked experiment, or None when they can.
+
+    Such an experiment counts only the $experiment_exposure events that carry its rule. A custom
+    exposure event or an action carries no rule, so it cannot tell the rules of one flag apart. An
+    activation event could build on the rule's exposures, but the rule analysis does not read one yet.
+    Test account filtering, the handling of multiple variants and property filters on the default
+    exposure all apply.
+    """
+    criteria = normalize_to_exposure_criteria(exposure_criteria)
+    if criteria is None:
+        return None
+    if not is_default_exposure_config(criteria.exposure_config):
+        return (
+            "An experiment on a feature flag rule counts exposures on the $experiment_exposure event of its "
+            "rule. A custom exposure event or action is not supported for it yet."
+        )
+    if criteria.activation_config is not None:
+        return "An activation event is not supported yet for an experiment on a feature flag rule."
+    return None
+
+
 def has_activation_config(exposure_criteria: Union[ExperimentExposureCriteria, dict, None]) -> bool:
     """Whether the criteria put the experiment in activation mode: an activation event on top of
     the default exposure. A custom exposure_config disables activation (validation rejects the
@@ -341,9 +377,9 @@ def _get_event_name_from_config(
 def _build_action_filter(action_id: int, team: Team) -> ast.Expr:
     """Build filter expression for an action, returning False if action not found."""
     try:
-        action = Action.objects.get(pk=action_id, team=team)
+        action = get_action(action_id=action_id, team_id=team.pk)
         return action_to_expr(action)
-    except Action.DoesNotExist:
+    except ActionNotFound:
         logger.warning(f"Action {action_id} not found for team {team.id}. Exposure query will return no results.")
         return ast.Constant(value=False)
 
@@ -414,6 +450,86 @@ def build_exposure_event_conditions(
         *_build_event_filters(exposure_config, team, feature_flag_key, default_exposure_event),
         *_build_property_filters(exposure_config, team),
     ]
+
+
+def exposure_criteria_on_the_event(
+    exposure_criteria: Union[ExperimentExposureCriteria, dict, None],
+) -> Optional[ExperimentExposureCriteria]:
+    """
+    The exposure criteria with only the filters that compare a property of the exposure event with a fixed value.
+    HogQL compiles each of them to a read of that one property, so the filter reads nothing but the event. Its match
+    can still depend on the type of the property and the timezone of the team.
+    """
+    criteria = normalize_to_exposure_criteria(exposure_criteria)
+    config = criteria.exposure_config if criteria else None
+    if criteria is None or not isinstance(config, ExperimentEventExposureConfig) or not config.properties:
+        return criteria
+    kept = [prop for prop in config.properties if _compares_an_event_value(prop)]
+    return criteria.model_copy(update={"exposure_config": config.model_copy(update={"properties": kept})})
+
+
+def exposure_filters_off_the_event_narrow_who(exposure_criteria: Union[ExperimentExposureCriteria, dict, None]) -> bool:
+    """
+    Whether every filter that `exposure_criteria_on_the_event` leaves out narrows down which persons, groups or
+    sessions count. Without such a filter a query counts more exposures than the results do, never fewer. Any other
+    filter, such as a HogQL expression or a virtual property, can read more than the event, or change its match with
+    the clock or a team setting.
+    """
+    criteria = normalize_to_exposure_criteria(exposure_criteria)
+    config = criteria.exposure_config if criteria else None
+    if not isinstance(config, ExperimentEventExposureConfig):
+        return True
+    return all(_compares_an_event_value(prop) or isinstance(prop, _FILTERS_ON_WHO) for prop in config.properties or [])
+
+
+_FILTERS_ON_WHO = (
+    PersonPropertyFilter,
+    PersonMetadataPropertyFilter,
+    CohortPropertyFilter,
+    BehavioralPropertyFilter,
+    GroupPropertyFilter,
+    SessionPropertyFilter,
+)
+
+# The operators that compare the property with the filter's own value. The others read team settings, such as the
+# path cleaning rules, read other models, such as cohorts and flags, or parse dates.
+_VALUE_OPERATORS = frozenset(
+    {
+        PropertyOperator.EXACT,
+        PropertyOperator.IS_NOT,
+        PropertyOperator.ICONTAINS,
+        PropertyOperator.NOT_ICONTAINS,
+        PropertyOperator.STARTS_WITH,
+        PropertyOperator.NOT_STARTS_WITH,
+        PropertyOperator.ENDS_WITH,
+        PropertyOperator.NOT_ENDS_WITH,
+        PropertyOperator.REGEX,
+        PropertyOperator.NOT_REGEX,
+        PropertyOperator.GT,
+        PropertyOperator.GTE,
+        PropertyOperator.LT,
+        PropertyOperator.LTE,
+        PropertyOperator.IS_SET,
+        PropertyOperator.IS_NOT_SET,
+        PropertyOperator.SEMVER_EQ,
+        PropertyOperator.SEMVER_NEQ,
+        PropertyOperator.SEMVER_GT,
+        PropertyOperator.SEMVER_GTE,
+        PropertyOperator.SEMVER_LT,
+        PropertyOperator.SEMVER_LTE,
+        PropertyOperator.SEMVER_TILDE,
+        PropertyOperator.SEMVER_CARET,
+        PropertyOperator.SEMVER_WILDCARD,
+    }
+)
+
+
+def _compares_an_event_value(prop: object) -> bool:
+    if not isinstance(prop, EventPropertyFilter):
+        return False
+    field = ast.Field(chain=["properties", prop.key])
+    # A virtual property compiles to an expression that can read persons and team settings.
+    return map_virtual_properties(field) is field and (prop.operator or PropertyOperator.EXACT) in _VALUE_OPERATORS
 
 
 def aggregates_by_group(group_type_index: object) -> bool:

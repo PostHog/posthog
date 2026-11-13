@@ -437,8 +437,8 @@
                   e.properties.`$session_id` AS `$session_id`,
                   e.properties.`$window_id` AS `$window_id`,
                   if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
-                  if(and(equals(e.event, '$pageview'), ifNull(equals(CAST(e.properties.`$current_url`, 'Nullable(String)'), 'aloha.com'), 0)), 1, 0) AS step_1,
-                  if(and(equals(e.event, '$pageview'), ifNull(equals(CAST(e.properties.`$current_url`, 'Nullable(String)'), 'aloha2.com'), 0)), 1, 0) AS step_2
+                  if(and(equals(e.event, '$pageview'), equals(e.properties.`$current_url`, 'aloha.com')), 1, 0) AS step_1,
+                  if(and(equals(e.event, '$pageview'), equals(e.properties.`$current_url`, 'aloha2.com')), 1, 0) AS step_2
            FROM events_json AS e
            LEFT OUTER JOIN
              (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -497,8 +497,8 @@
                   e.properties.`$session_id` AS `$session_id`,
                   e.properties.`$window_id` AS `$window_id`,
                   if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
-                  if(and(equals(e.event, '$pageview'), ifNull(equals(CAST(e.properties.`$current_url`, 'Nullable(String)'), 'aloha.com'), 0)), 1, 0) AS step_1,
-                  if(and(equals(e.event, '$pageview'), ifNull(equals(CAST(e.properties.`$current_url`, 'Nullable(String)'), 'aloha2.com'), 0)), 1, 0) AS step_2
+                  if(and(equals(e.event, '$pageview'), equals(e.properties.`$current_url`, 'aloha.com')), 1, 0) AS step_1,
+                  if(and(equals(e.event, '$pageview'), equals(e.properties.`$current_url`, 'aloha2.com')), 1, 0) AS step_2
            FROM events_json AS e
            LEFT OUTER JOIN
              (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -557,8 +557,8 @@
                   e.properties.`$session_id` AS `$session_id`,
                   e.properties.`$window_id` AS `$window_id`,
                   if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
-                  if(and(equals(e.event, '$pageview'), ifNull(equals(CAST(e.properties.`$current_url`, 'Nullable(String)'), 'aloha.com'), 0)), 1, 0) AS step_1,
-                  if(and(equals(e.event, '$pageview'), ifNull(equals(CAST(e.properties.`$current_url`, 'Nullable(String)'), 'aloha2.com'), 0)), 1, 0) AS step_2
+                  if(and(equals(e.event, '$pageview'), equals(e.properties.`$current_url`, 'aloha.com')), 1, 0) AS step_1,
+                  if(and(equals(e.event, '$pageview'), equals(e.properties.`$current_url`, 'aloha2.com')), 1, 0) AS step_2
            FROM events_json AS e
            LEFT OUTER JOIN
              (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -630,8 +630,8 @@
                   e.properties.`$session_id` AS `$session_id`,
                   e.properties.`$window_id` AS `$window_id`,
                   if(equals(e.event, 'user signed up'), 1, 0) AS step_0,
-                  if(and(equals(e.event, '$pageview'), ifNull(equals(CAST(e.properties.`$current_url`, 'Nullable(String)'), 'aloha.com'), 0)), 1, 0) AS step_1,
-                  if(and(equals(e.event, '$pageview'), ifNull(equals(CAST(e.properties.`$current_url`, 'Nullable(String)'), 'aloha2.com'), 0)), 1, 0) AS step_2
+                  if(and(equals(e.event, '$pageview'), equals(e.properties.`$current_url`, 'aloha.com')), 1, 0) AS step_1,
+                  if(and(equals(e.event, '$pageview'), equals(e.properties.`$current_url`, 'aloha2.com')), 1, 0) AS step_2
            FROM events_json AS e
            LEFT OUTER JOIN
              (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,

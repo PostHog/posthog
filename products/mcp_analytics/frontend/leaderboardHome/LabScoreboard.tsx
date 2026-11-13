@@ -1,10 +1,10 @@
 import { Card, CardContent, Skeleton, ToggleGroup, ToggleGroupItem } from '@posthog/quill-primitives'
 
+import { BrandMark } from 'lib/components/BrandMark/BrandMark'
 import { TileDecorations } from 'lib/components/TileDecorations/TileDecorations'
 import { formatPercentage } from 'lib/utils/numbers'
 
-import { labMark } from '../brandMarks'
-import { BrandMark } from '../components/BrandMark'
+import { labMark } from '../aiLabs'
 import { formatNumber } from '../dashboard/formatters'
 import { leadingLabs, type LabShare, type ScoreboardMetric } from './leaderboardShares'
 import { LoadErrorMessage } from './LoadErrorMessage'

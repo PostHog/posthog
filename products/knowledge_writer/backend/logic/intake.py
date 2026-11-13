@@ -1,4 +1,4 @@
-import uuid
+import dataclasses
 
 from django.db import IntegrityError
 
@@ -6,13 +6,12 @@ import structlog
 from pydantic import TypeAdapter, ValidationError
 
 from posthog.models.team import Team
-from posthog.ph_client import ph_scoped_capture
 
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.contracts import TaskDetailDTO
 
 from ..facade.contracts import AdapterVerdict, IntakeOutcome, InvalidAdapterVerdict
-from ..feature_flags import is_agent_launch_enabled
+from ..feature_flags import is_agent_launch_enabled, open_pull_requests_flag_state
 from ..settings import writer_settings
 from .caps import (
     OPEN_PULL_REQUEST_CAP,
@@ -23,7 +22,7 @@ from .caps import (
     in_flight_writer_runs,
 )
 from .launch import start_writer
-from .pull_requests import open_writer_pull_requests, source_repository_github
+from .pull_requests import capture_writer_event, open_writer_pull_requests, source_repository_github
 from .records import WriterPullRequest
 from .routing import route_request
 
@@ -43,6 +42,21 @@ def parse_verdict(payload: object) -> AdapterVerdict:
 
 def submit(payload: object, *, team_id: int) -> IntakeOutcome:
     verdict = parse_verdict(payload)
+    outcome = intake_outcome(verdict, team_id=team_id)
+    logger.info(
+        "knowledge_writer_intake_outcome",
+        source=verdict.source,
+        subject_id=verdict.subject_id,
+        team_id=team_id,
+        failure_reason=verdict.failure_reason,
+        dedupe_id=verdict.request.dedupe_id if verdict.request else None,
+        status=outcome.status,
+        task_id=str(outcome.task_id) if outcome.task_id else None,
+    )
+    return outcome
+
+
+def intake_outcome(verdict: AdapterVerdict, *, team_id: int) -> IntakeOutcome:
     writer = writer_settings()
     if writer is None or writer.team_id != team_id:
         return IntakeOutcome(status="unconfigured")
@@ -69,7 +83,11 @@ def submit(payload: object, *, team_id: int) -> IntakeOutcome:
     if open_pull_requests is None:
         alert_cap_reached("open_pull_request_lookup", team_id=team_id, dedupe_id=request.dedupe_id)
         return IntakeOutcome(status="capped")
-    joining = pull_request_to_join(open_pull_requests, routing.section)
+    joinable = pull_request_to_join(open_pull_requests, routing.section)
+    is_opening_pull_requests = open_pull_requests_flag_state(team)
+    if joinable is not None and is_opening_pull_requests is None:
+        return IntakeOutcome(status="section_busy")
+    joining = joinable if is_opening_pull_requests else None
     if joining is None and len(open_pull_requests) + in_flight.unpublished_runs >= OPEN_PULL_REQUEST_CAP:
         alert_cap_reached("open_pull_request", team_id=team_id, dedupe_id=request.dedupe_id)
         return IntakeOutcome(status="capped")
@@ -105,23 +123,26 @@ def latest_run_failed(task: TaskDetailDTO) -> bool:
 
 def capture_verdict(verdict: AdapterVerdict, *, team_id: int) -> None:
     request = verdict.request
-    try:
-        with ph_scoped_capture() as capture:
-            capture(
-                VERDICT_EVENT,
-                distinct_id=f"knowledge_writer:{team_id}",
-                uuid=uuid.uuid5(uuid.NAMESPACE_URL, f"knowledge_writer:{verdict.source}:{verdict.subject_id}"),
-                properties={
-                    "source": verdict.source,
-                    "subject_id": verdict.subject_id,
-                    "needs_docs": verdict.needs_docs,
-                    "reason": verdict.reason,
-                    "change_kind": request.change_kind if request else None,
-                    "dedupe_id": request.dedupe_id if request else None,
-                    "requested_by": request.requested_by if request else None,
-                    "requested_by_user_id": request.requested_by_user_id if request else None,
-                    "team_id": team_id,
-                },
-            )
-    except Exception:
-        logger.warning("knowledge_writer_verdict_capture_failed", team_id=team_id, exc_info=True)
+    trace = verdict.trace
+    capture_writer_event(
+        VERDICT_EVENT,
+        team_id=team_id,
+        event_key=f"{verdict.source}:{verdict.subject_id}:{verdict.check_id}",
+        failure_log="knowledge_writer_verdict_capture_failed",
+        properties={
+            "source": verdict.source,
+            "subject_id": verdict.subject_id,
+            "needs_docs": verdict.needs_docs,
+            "reason": verdict.reason,
+            "failure_reason": verdict.failure_reason,
+            "change_kind": request.change_kind if request else None,
+            "repository": trace.repository if trace else None,
+            "pull_request_number": trace.pull_request_number if trace else None,
+            "low_confidence": trace.low_confidence if trace else False,
+            "criteria": [dataclasses.asdict(row) for row in trace.criteria] if trace else [],
+            "dedupe_id": request.dedupe_id if request else None,
+            "requested_by": request.requested_by if request else None,
+            "requested_by_user_id": request.requested_by_user_id if request else None,
+            "team_id": team_id,
+        },
+    )

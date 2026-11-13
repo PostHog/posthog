@@ -211,7 +211,7 @@ can count unmerged duplicates and is suitable only for an approximate read.
 | `ai-ingestion` | `ai_events` | events | `{day}:{sha256 of event, distinct_id, uuid}` | AI ingestion consumer |
 | `error-tracking` | `exceptions` | events | `{day}:{sha256 of event, distinct_id, uuid}` | error tracking server |
 | `cdp` | `cdp_billable_invocations` | invocations | `event:{eventUuid}` / `flow:{invocationId}:{actionStepCount}:{kind}` / `webhook:{invocationId}` | CDP consumers |
-| `feature-flags` | `feature_flag_requests`, `feature_flag_local_evaluation_requests` | requests | fresh UUIDv7 per flush | feature flags service |
+| `feature-flags` | `feature_flag_requests`, `feature_flag_local_evaluation_requests`, `feature_flag_local_evaluation_not_modified_requests` | requests | fresh UUIDv7 per flush | feature flags service |
 | `ingestion` | `survey_responses` | events | `{day}:{sha256 of event, distinct_id, uuid}` | ingestion consumers, ingestion API |
 | `warehouse-sources` | `warehouse_rows_synced` | rows | the ExternalDataJob ID | warehouse sources worker |
 | `batch-exports` | `batch_export_rows` | rows | the BatchExportRun ID | batch exports worker |
@@ -220,6 +220,11 @@ can count unmerged duplicates and is suitable only for an approximate read.
 | `apm-traces` | `apm_traces_bytes`, `apm_traces_spans` | bytes, records | fresh UUIDv7 per flush | traces ingestion server |
 | `session-replay` | `session_replay_recordings`, `mobile_replay_recordings` | recordings | the session ID | session replay consumer |
 | `ingestion` | `enhanced_person_events` | events | `{day}:{sha256 of event, distinct_id, uuid}` | ingestion consumers, ingestion API |
+| `ingestion` | `historical_migration_events`, `historical_migration_enhanced_person_events` | events | `{day}:{sha256 of event, distinct_id, uuid}` | ingestion consumers, ingestion API |
+
+The `historical_migration_*` keys count analytics events sent with the `historical_migration` flag that are at least 48 hours old at capture.
+These imports are free, so billing does not read these keys.
+They replace `events` and `enhanced_person_events` for those events.
 
 Every producer reads the following environment variables. Since every producer
 is its own deployment, the same name rolls out per producer from that service's
@@ -299,9 +304,11 @@ A bounded queue drained by one owned task sends records; shutdown closes and
 awaits it within the aggregator flush timeout. A full queue drops and counts
 the drop rather than growing, while Redis retains the authoritative count.
 
-The raw `feature_flag_requests` and
-`feature_flag_local_evaluation_requests` keys stay separate because the report
-prices them differently. Remote-config requests bill on neither side.
+The raw `feature_flag_requests`,
+`feature_flag_local_evaluation_requests`, and
+`feature_flag_local_evaluation_not_modified_requests` keys stay separate. The
+report prices full local evaluation responses differently, and each key has its
+own usage counter, so a 304 on the decide key would be counted twice. Remote-config requests bill on neither side.
 
 ### Trying it locally
 

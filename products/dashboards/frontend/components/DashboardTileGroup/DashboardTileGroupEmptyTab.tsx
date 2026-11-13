@@ -1,7 +1,7 @@
 import * as peekOverPng from '@posthog/brand/hoggies/png/peek-over'
+import { Button } from '@posthog/quill'
 
 import { pngHoggie } from 'lib/brand/hoggies'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
 const HedgehogPeekOver = pngHoggie(peekOverPng)
 
@@ -30,15 +30,13 @@ export function DashboardTileGroupEmptyTab({ addAction, onRemove }: DashboardTil
                 <div className="mt-3 flex flex-wrap justify-center gap-2">
                     {addAction}
                     {onRemove && (
-                        <LemonButton
-                            type="secondary"
-                            status="danger"
-                            size="small"
+                        <Button
+                            variant="destructive-outline"
                             onClick={onRemove}
                             data-attr="dashboard-tile-group-empty-tab-remove"
                         >
                             Delete tab
-                        </LemonButton>
+                        </Button>
                     )}
                 </div>
             )}

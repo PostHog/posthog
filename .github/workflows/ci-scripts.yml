@@ -30,6 +30,8 @@ on:
             - tools/test_snob_backend_test_selection_shadow.py
             - tools/test_selection_verdict.py
             - tools/test_test_selection_verdict.py
+            - tools/test_manage_diagnostics.py
+            - manage.py
             # test_tach_map.py holds tach_map.py's pin to the locked tach version,
             # and a routine dependency bump is what moves it.
             - uv.lock
@@ -66,6 +68,7 @@ jobs:
                       /bin/report-jest-timings
                       /.depot/
                       /tools/
+                      /manage.py
                       /packages/owners-yaml/
                       /proto/
                       /rust/
@@ -100,8 +103,12 @@ jobs:
             # The preinstalled python3 runs these standalone tests, so no
             # setup-python step. defusedxml + opentelemetry + the owners resolver are
             # report_test_timings.py's script deps; coverage is coverage_report.py's.
+            # pyyaml is dependency_proof's.
             - name: Install pytest
-              run: python3 -m pip install --quiet pytest parameterized defusedxml==0.7.1 coverage==7.16.1 opentelemetry-sdk==1.33.1 opentelemetry-exporter-otlp-proto-http==1.33.1 ./packages/owners-yaml
+              run: |
+                  uv --no-config venv --python python3 "$RUNNER_TEMP/script-tests-venv"
+                  uv --no-config pip install --python "$RUNNER_TEMP/script-tests-venv/bin/python" --quiet pytest parameterized defusedxml==0.7.1 coverage==7.16.1 opentelemetry-sdk==1.33.1 opentelemetry-exporter-otlp-proto-http==1.33.1 pyyaml==6.0.3 ./packages/owners-yaml
+                  echo "$RUNNER_TEMP/script-tests-venv/bin" >> "$GITHUB_PATH"
 
             # `-c /dev/null` skips the repo pytest.ini (its --reuse-db addopt needs
             # pytest-django, which we don't install here). `--noconftest` skips the
@@ -115,13 +122,15 @@ jobs:
               run: |
                   python3 -m pytest -v -c /dev/null -p no:cacheprovider --noconftest \
                       .github/scripts/test_*.py \
+                      .github/scripts/dependency_proof/test_*.py \
                       tools/test_snob_backend_test_selection_shadow.py \
-                      tools/test_test_selection_verdict.py
+                      tools/test_test_selection_verdict.py \
+                      tools/test_manage_diagnostics.py
 
             # schema-impact.test.js shells out to schema_usage_scan.py via the same
             # preinstalled python3.
             - name: Node script tests
-              run: node --test .github/scripts/*.test.js .github/scripts/*.test.mjs
+              run: node --test .github/scripts/*.test.js .github/scripts/*.test.mjs .github/scripts/desktop/*.test.mjs
 
             # find-affected-stories decides how much of the Storybook matrix a PR
             # runs, and its test has run nowhere since it was added. The job has no

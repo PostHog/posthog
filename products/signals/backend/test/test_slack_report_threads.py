@@ -11,9 +11,7 @@ from products.signals.backend.slack_report_threads import record_report_slack_th
 def team():
     org = Organization.objects.create(name="slack-thread-org")
     team = Team.objects.create(organization=org, name="slack-thread-team")
-    yield team
-    team.delete()
-    org.delete()
+    return team
 
 
 def _integration(team: Team) -> Integration:

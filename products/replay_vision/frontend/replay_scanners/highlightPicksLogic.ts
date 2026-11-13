@@ -363,7 +363,7 @@ export const highlightPicksLogic: LogicWrapper<highlightPicksLogicType> = kea<hi
                 sessionRecordingsPlaylistLogic(props.playlistLogicProps).actions.setSelectedRecordingId(
                     observation.session_id
                 )
-                playerSettingsLogic.findMounted()?.actions.setWatchPanelTab('observations')
+                playerSettingsLogic.findMounted()?.actions.openWatchPanelSection('observations')
                 if (!markViewed) {
                     return
                 }

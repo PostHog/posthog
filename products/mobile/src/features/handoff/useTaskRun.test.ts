@@ -128,6 +128,8 @@ const HISTORICAL_PERMISSION = {
     },
 }
 
+const SCOPE = { host: 'https://app.example.com', projectId: 2 }
+
 describe('report run connection lifecycle', () => {
     beforeEach(() => {
         jest.useFakeTimers()
@@ -163,12 +165,12 @@ describe('report run connection lifecycle', () => {
             await act(async () => {
                 useConnectivity.setState({ status: 'offline' })
             })
-            expect(jest.mocked(openTaskRunStream).mock.calls[0]?.[2]?.signal?.aborted).toBe(true)
+            expect(jest.mocked(openTaskRunStream).mock.calls[0]?.[3]?.signal?.aborted).toBe(true)
             await act(async () => {
                 useConnectivity.setState({ status: 'connected' })
             })
             expect(openTaskRunStream).toHaveBeenCalledTimes(2)
-            expect(jest.mocked(openTaskRunStream).mock.calls[1]?.[2]?.lastEventId).toBe('network-100-0')
+            expect(jest.mocked(openTaskRunStream).mock.calls[1]?.[3]?.lastEventId).toBe('network-100-0')
             expect(deliverPermissionResponse).not.toHaveBeenCalled()
         } finally {
             unmount()
@@ -202,6 +204,7 @@ describe('report run connection lifecycle', () => {
             .mockRejectedValueOnce(new Error('offline'))
             .mockRejectedValueOnce(new ApiError(403, {}))
         const followed = followRun({
+            scope: SCOPE,
             reportId: REPORT,
             taskId: TASK,
             runId: RUN.id,
@@ -219,6 +222,7 @@ describe('report run connection lifecycle', () => {
         jest.mocked(getTask).mockResolvedValue({ id: TASK, title: '', signal_report: REPORT, latest_run: resumed })
         const snapshots: string[] = []
         await followRun({
+            scope: SCOPE,
             reportId: REPORT,
             taskId: TASK,
             runId: RUN.id,
@@ -245,6 +249,7 @@ describe('report run connection lifecycle', () => {
         const controller = new AbortController()
         const cacheSnapshot = jest.fn()
         const followed = followRun({
+            scope: SCOPE,
             reportId: REPORT,
             taskId: TASK,
             runId: RUN.id,
@@ -279,6 +284,7 @@ describe('report run connection lifecycle', () => {
         jest.mocked(openTaskRunStream).mockResolvedValue(endedStream())
         const refresh = jest.fn()
         await followRun({
+            scope: SCOPE,
             reportId: REPORT,
             taskId: TASK,
             runId: RUN.id,
@@ -294,7 +300,13 @@ describe('report run connection lifecycle', () => {
         const stream = controlledStream()
         jest.mocked(openTaskRunStream).mockResolvedValue(stream.response)
         const controller = new AbortController()
-        const followed = followRun({ reportId: REPORT, taskId: TASK, runId: RUN.id, signal: controller.signal })
+        const followed = followRun({
+            scope: SCOPE,
+            reportId: REPORT,
+            taskId: TASK,
+            runId: RUN.id,
+            signal: controller.signal,
+        })
         await jest.advanceTimersByTimeAsync(0)
         const publications: string[] = []
         const unsubscribe = useHandoffStore.subscribe((state) => {
@@ -336,24 +348,39 @@ describe('report run connection lifecycle', () => {
             .mockResolvedValueOnce(rotated.response)
             .mockResolvedValueOnce(reopened.response)
         const controller = new AbortController()
-        const followed = followRun({ reportId: REPORT, taskId: TASK, runId: RUN.id, signal: controller.signal })
+        const followed = followRun({
+            scope: SCOPE,
+            reportId: REPORT,
+            taskId: TASK,
+            runId: RUN.id,
+            signal: controller.signal,
+        })
         await jest.advanceTimersByTimeAsync(0)
         first.send(event('log-0', HISTORICAL_PERMISSION))
         await jest.advanceTimersByTimeAsync(HYDRATION_QUIET_MS * 2)
         first.send('event: end\ndata: {"type":"rotated"}\n\n')
         await jest.advanceTimersByTimeAsync(0)
         expect(openTaskRunStream).toHaveBeenLastCalledWith(
+            SCOPE,
             TASK,
             RUN.id,
             expect.objectContaining({ lastEventId: 'log-0' })
         )
         expect(useHandoffStore.getState().reports[REPORT]?.live?.pending).toBeUndefined()
+        expect(useHandoffStore.getState().reports[REPORT]?.live?.connection).not.toBe('reconnecting')
         controller.abort()
         await followed
         const nextController = new AbortController()
-        const next = followRun({ reportId: REPORT, taskId: TASK, runId: RUN.id, signal: nextController.signal })
+        const next = followRun({
+            scope: SCOPE,
+            reportId: REPORT,
+            taskId: TASK,
+            runId: RUN.id,
+            signal: nextController.signal,
+        })
         await jest.advanceTimersByTimeAsync(0)
         expect(openTaskRunStream).toHaveBeenLastCalledWith(
+            SCOPE,
             TASK,
             RUN.id,
             expect.objectContaining({ lastEventId: undefined })
@@ -372,7 +399,13 @@ describe('report run connection lifecycle', () => {
         const stream = controlledStream()
         jest.mocked(openTaskRunStream).mockResolvedValue(stream.response)
         const controller = new AbortController()
-        const followed = followRun({ reportId: REPORT, taskId: TASK, runId: RUN.id, signal: controller.signal })
+        const followed = followRun({
+            scope: SCOPE,
+            reportId: REPORT,
+            taskId: TASK,
+            runId: RUN.id,
+            signal: controller.signal,
+        })
         await jest.advanceTimersByTimeAsync(0)
         stream.send(event('log-0', HISTORICAL_PERMISSION))
         await jest.advanceTimersByTimeAsync(0)
@@ -398,7 +431,13 @@ describe('report run connection lifecycle', () => {
         const next = controlledStream()
         jest.mocked(openTaskRunStream).mockResolvedValueOnce(first.response).mockResolvedValueOnce(next.response)
         const controller = new AbortController()
-        const followed = followRun({ reportId: REPORT, taskId: TASK, runId: RUN.id, signal: controller.signal })
+        const followed = followRun({
+            scope: SCOPE,
+            reportId: REPORT,
+            taskId: TASK,
+            runId: RUN.id,
+            signal: controller.signal,
+        })
         await jest.advanceTimersByTimeAsync(0)
         first.send(event('1900000000010-0', turnEnd('prior-turn')))
         await jest.advanceTimersByTimeAsync(HYDRATION_QUIET_MS)
@@ -436,7 +475,13 @@ describe('report run connection lifecycle', () => {
         const second = controlledStream()
         jest.mocked(openTaskRunStream).mockResolvedValueOnce(first.response).mockResolvedValueOnce(second.response)
         const controller = new AbortController()
-        const followed = followRun({ reportId: REPORT, taskId: TASK, runId: RUN.id, signal: controller.signal })
+        const followed = followRun({
+            scope: SCOPE,
+            reportId: REPORT,
+            taskId: TASK,
+            runId: RUN.id,
+            signal: controller.signal,
+        })
         await jest.advanceTimersByTimeAsync(0)
         first.send(event('log-0', HISTORICAL_PERMISSION))
         first.close()
@@ -457,7 +502,13 @@ describe('report run connection lifecycle', () => {
         const stream = controlledStream()
         jest.mocked(openTaskRunStream).mockResolvedValue(stream.response)
         const controller = new AbortController()
-        const followed = followRun({ reportId: REPORT, taskId: TASK, runId: RUN.id, signal: controller.signal })
+        const followed = followRun({
+            scope: SCOPE,
+            reportId: REPORT,
+            taskId: TASK,
+            runId: RUN.id,
+            signal: controller.signal,
+        })
         await jest.advanceTimersByTimeAsync(0)
         const first = 'https://github.com/example/repo/pull/1'
         const second = 'https://github.com/example/repo/pull/2'
@@ -476,7 +527,13 @@ describe('report run connection lifecycle', () => {
         const stream = controlledStream()
         jest.mocked(openTaskRunStream).mockResolvedValue(stream.response)
         const controller = new AbortController()
-        const followed = followRun({ reportId: REPORT, taskId: TASK, runId: RUN.id, signal: controller.signal })
+        const followed = followRun({
+            scope: SCOPE,
+            reportId: REPORT,
+            taskId: TASK,
+            runId: RUN.id,
+            signal: controller.signal,
+        })
         await jest.advanceTimersByTimeAsync(0)
         const nextRun = { ...RUN, task: 'replacement-task', id: 'replacement-run' }
         useHandoffStore.getState().applySnapshot(REPORT, nextRun.task, nextRun)

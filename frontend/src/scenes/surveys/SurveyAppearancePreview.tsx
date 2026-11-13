@@ -1,6 +1,7 @@
-import { renderFeedbackWidgetPreview, renderSurveysPreview } from 'posthog-js/dist/surveys-preview'
+import { renderSurveysPreview } from 'posthog-js/dist/surveys-preview'
 import { useEffect, useMemo, useRef } from 'react'
 
+import { objectClean } from 'lib/utils/objects'
 import { sanitizeSurvey } from 'scenes/surveys/utils'
 
 import { Survey } from '~/types'
@@ -36,19 +37,19 @@ export function SurveyAppearancePreview({
     positionStyles = DEFAULT_POSITION_STYLES,
 }: Props): JSX.Element {
     const surveyPreviewRef = useRef<HTMLDivElement>(null)
-    const feedbackWidgetPreviewRef = useRef<HTMLDivElement>(null)
 
-    const sanitizedSurvey = useMemo(
-        () =>
-            sanitizeSurvey({
-                ...survey,
-                appearance: {
-                    ...survey.appearance,
-                    zIndex: '1',
-                },
-            }),
-        [survey]
-    )
+    const sanitizedSurvey = useMemo(() => {
+        const sanitized = sanitizeSurvey({
+            ...survey,
+            appearance: {
+                ...survey.appearance,
+                zIndex: '1',
+            },
+        })
+        // posthog-js spreads the appearance over its defaults, so an unset color must be absent, not undefined,
+        // or the preview draws a transparent survey that a site never shows.
+        return { ...sanitized, appearance: sanitized.appearance && objectClean({ ...sanitized.appearance }) }
+    }, [survey])
 
     useEffect(() => {
         if (surveyPreviewRef.current) {
@@ -59,13 +60,6 @@ export function SurveyAppearancePreview({
                 onPreviewSubmit,
                 onPreviewBack,
                 positionStyles,
-            })
-        }
-
-        if (feedbackWidgetPreviewRef.current) {
-            renderFeedbackWidgetPreview({
-                survey: sanitizedSurvey,
-                root: feedbackWidgetPreviewRef.current,
             })
         }
     }, [survey, previewPageIndex, onPreviewSubmit, onPreviewBack, positionStyles]) // oxlint-disable-line react-hooks/exhaustive-deps

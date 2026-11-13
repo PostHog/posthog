@@ -42,8 +42,14 @@ export interface ConfigurationCacheItem {
 
 export type CrawlHistoryItem = UrlCrawlHistoryItem | ConfigurationCacheItem
 
+const CONFIGURATION_CACHE_KEY_PREFIX = 'imgfetch:config:'
+
 export function configurationCacheKey(origin: string, file: ConfigurationFile): string {
-    return `imgfetch:config:${file}:${origin}`
+    return `${CONFIGURATION_CACHE_KEY_PREFIX}${file}:${origin}`
+}
+
+export function isConfigurationCacheKey(key: string): boolean {
+    return key.startsWith(CONFIGURATION_CACHE_KEY_PREFIX)
 }
 
 export interface CrawlHistoryStore {

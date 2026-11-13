@@ -8,13 +8,22 @@ loads.
 """
 
 import dataclasses
-from typing import Optional
+from collections.abc import Collection, Mapping
+from typing import Literal, Optional
+from uuid import UUID
 
 from django.db.models.signals import pre_delete
 from django.dispatch import receiver
 
-from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
+from posthog.models.activity_logging.activity_log import (
+    ActivityContextBase,
+    Change,
+    Detail,
+    changes_between,
+    log_activity,
+)
 from posthog.models.signals import model_activity_signal, mutable_receiver
+from posthog.models.user import User
 
 from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription, Threshold
 
@@ -118,25 +127,97 @@ def handle_alert_subscription_change(
         )
 
 
-@receiver(pre_delete, sender=AlertConfiguration)
-def cleanup_alert_hog_functions(sender, instance: AlertConfiguration, **kwargs) -> None:
-    from products.cdp.backend.facade.models import HogFunction, HogFunctionType
+def log_native_subscriber_changes(
+    alert: AlertConfiguration,
+    *,
+    actor: User | None,
+    was_impersonated: bool,
+    added: Collection[int],
+    removed: Collection[int],
+) -> None:
+    """The entries `handle_alert_subscription_change` and `handle_alert_subscription_delete` write, for an
+    alert with no insight row, whose subscribers have no `AlertSubscription` rows to send the signals."""
+    for user in User.objects.filter(id__in=[*added, *removed]).order_by("id"):
+        log_activity(
+            organization_id=alert.team.organization_id,
+            team_id=alert.team_id,
+            user=actor,
+            was_impersonated=was_impersonated,
+            item_id=alert.id,
+            scope="AlertConfiguration",
+            activity="created" if user.id in added else "deleted",
+            detail=Detail(
+                type="alert_subscription_change",
+                context=AlertSubscriptionContext(
+                    insight_id=alert.insight_id,
+                    insight_short_id=alert.insight.short_id,
+                    insight_name=alert.insight.name,
+                    subscriber_name=user.get_full_name(),
+                    subscriber_email=user.email,
+                    alert_name=alert.name,
+                ),
+            ),
+        )
 
-    for hog_function in HogFunction.objects.filter(
-        team_id=instance.team_id,
-        type=HogFunctionType.INTERNAL_DESTINATION,
-        deleted=False,
-        filters__contains={"properties": [{"key": "alert_id", "value": str(instance.id)}]},
-    ):
-        # nosemgrep: insight-alert-state-direct-mutation (writes HogFunction.enabled, not the alert's state)
-        hog_function.enabled = False
-        hog_function.deleted = True
-        hog_function.save()
+
+def log_destination_changes(
+    *,
+    team_id: int,
+    alert_id: UUID,
+    actor_id: int,
+    was_impersonated: bool,
+    action: Literal["created", "deleted"],
+    destination_types: Mapping[UUID, str | None],
+) -> None:
+    """Logs destinations added to or removed from an insight alert, with or without an insight row. Each
+    one is named by id and type only, because its settings hold webhook URLs and routing keys."""
+    # Deferred to keep this module import-light, because `ready()` imports it in every process.
+    from products.alerts.backend.platform_insight_alert import native_insight_alert_view  # noqa: PLC0415
+
+    if not destination_types:
+        return
+    alert = AlertConfiguration.objects.select_related("insight", "team").filter(team_id=team_id, id=alert_id).first()
+    if alert is None and (view := native_insight_alert_view(team_id, alert_id)) is not None:
+        alert = AlertConfiguration.from_platform_view(view, team_id=team_id)
+    if alert is None:
+        return
+    log_activity(
+        organization_id=alert.team.organization_id,
+        team_id=alert.team_id,
+        user=User.objects.filter(id=actor_id).first(),
+        was_impersonated=was_impersonated,
+        item_id=alert.id,
+        scope="AlertConfiguration",
+        activity="updated",
+        detail=Detail(
+            name=alert.name,
+            type="alert_destination_change",
+            changes=[
+                Change(
+                    type="AlertConfiguration",
+                    action=action,
+                    field="destinations",
+                    before=summary if action == "deleted" else None,
+                    after=summary if action == "created" else None,
+                )
+                for summary in (
+                    {"id": str(destination_id), "type": destination_type}
+                    for destination_id, destination_type in sorted(destination_types.items(), key=lambda i: str(i[0]))
+                )
+            ],
+            context=AlertConfigurationContext(
+                insight_id=alert.insight_id,
+                insight_short_id=alert.insight.short_id,
+                insight_name=alert.insight.name,
+                alert_name=alert.name,
+            ),
+        ),
+    )
 
 
 @receiver(pre_delete, sender=AlertConfiguration)
 def delete_platform_shadow_copy(sender, instance: AlertConfiguration, **kwargs) -> None:
-    # A copy the platform owns is left to `delete_moved_alert_copy`, which ends its firings first.
+    # A copy the platform owns is left to `delete_alert_destinations_and_copy`, which ends its firings first.
     if instance.platform_owned:
         return
     from products.alerts.backend.platform_ownership import delete_shadow_alert_copy

@@ -9,6 +9,7 @@ import {
     AgentModelOptionsApi,
     AgentReasoningEffortOptionApi,
     AutoresearchPipelineApi,
+    ProjectLimitsApi,
     ResearchIntervalDaysEnumApi,
 } from '../generated/api.schemas'
 import {
@@ -108,8 +109,15 @@ export function SetupTab(): JSX.Element {
 }
 
 function TrainingScheduleSetting({ pipeline }: { pipeline: AutoresearchPipelineApi }): JSX.Element {
-    const { schedule, savingSchedule, saveDisabledReason, agentModelOptions, agentModelOptionsLoading, effortOptions } =
-        useValues(trainingScheduleLogic({ id: pipeline.id }))
+    const {
+        schedule,
+        savingSchedule,
+        saveDisabledReason,
+        agentModelOptions,
+        agentModelOptionsLoading,
+        effortOptions,
+        projectLimits,
+    } = useValues(trainingScheduleLogic({ id: pipeline.id }))
     const { setResearchIntervalDays, setIterationsPerRun, setAgentModel, setAgentReasoningEffort, saveSchedule } =
         useActions(trainingScheduleLogic({ id: pipeline.id }))
     return (
@@ -126,7 +134,10 @@ function TrainingScheduleSetting({ pipeline }: { pipeline: AutoresearchPipelineA
                     />
                 </label>
                 <label className="flex flex-col gap-1">
-                    <span className="text-sm font-semibold">Experiments per run</span>
+                    <span className="text-sm font-semibold">
+                        Experiments per run
+                        {projectLimits ? ` (up to ${projectLimits.max_iterations_per_run})` : ''}
+                    </span>
                     <LemonInput
                         size="small"
                         type="number"
@@ -174,9 +185,20 @@ function TrainingScheduleSetting({ pipeline }: { pipeline: AutoresearchPipelineA
                 </LemonButton>
             </div>
             <p className="text-xs text-secondary mb-0">
-                {trainingScheduleStatus(pipeline)} A larger model or more thinking effort costs more per training run.
+                {trainingScheduleStatus(pipeline, projectLimits)} A larger model or more thinking effort costs more per
+                training run.
             </p>
+            {projectLimits && <ProjectUsage limits={projectLimits} />}
         </div>
+    )
+}
+
+function ProjectUsage({ limits }: { limits: ProjectLimitsApi }): JSX.Element {
+    return (
+        <p className="text-xs text-secondary mb-0" data-attr="autoresearch-project-limits">
+            This project has used {limits.training_runs_used} of its daily limit of {limits.max_training_runs_per_day}{' '}
+            training runs, and has {limits.live_pipelines} of {limits.max_live_pipelines} active models.
+        </p>
     )
 }
 

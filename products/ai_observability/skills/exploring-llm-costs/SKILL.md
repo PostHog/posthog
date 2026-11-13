@@ -102,6 +102,10 @@ Sum `$ai_total_cost_usd` across the returned events, grouped by span name or
 model, to show which step(s) drove the cost. The trace response already
 includes `totalCost` as a convenience.
 
+The response holds only the earliest events of a larger trace, so their costs can add up to less than `totalCost`.
+On a very large trace the request can also time out or fail with a connection error.
+In either case, use the per-trace SQL summary in [breakdown patterns](./references/breakdown-patterns.md#cost-by-trace-top-expensive-traces) instead, with its time filter set to the same 30 days.
+
 ## Workflow: debug a cost regression
 
 "Our LLM bill jumped — why?" is almost always one of: more calls, bigger

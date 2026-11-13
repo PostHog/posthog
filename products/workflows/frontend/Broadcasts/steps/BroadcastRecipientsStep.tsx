@@ -8,7 +8,6 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
-import { COHORTS_ONLY_SUPPORT_IN_PICKER_PROPS } from 'scenes/feature-flags/cohortPickerProps'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -67,7 +66,7 @@ function AudienceSizePreview(): JSX.Element | null {
                 <div className="text-danger text-xs" data-attr="broadcast-audience-over-limit">
                     This project can send a broadcast to up to {humanFriendlyNumber(limit)} people right now.
                     {channel === 'email'
-                        ? ' The limit can rise as the project keeps sending with low bounce and spam complaint rates.'
+                        ? " The project's workflows share one daily email allowance, and a larger broadcast would use it up for days, even with a slower sending rate. The limit rises as the project keeps sending with low bounce and spam complaint rates."
                         : ''}{' '}
                     Add filters to narrow the audience, or{' '}
                     <Link
@@ -219,7 +218,6 @@ export function BroadcastRecipientsStep(): JSX.Element {
                 orFiltering
                 sendAllKeyUpdates
                 allowRelativeDateOptions
-                {...COHORTS_ONLY_SUPPORT_IN_PICKER_PROPS}
                 hideBehavioralCohorts={!cohortConditionsEnabled}
                 logicalRowDivider
                 onChange={(properties) => setAudienceProperties(properties)}

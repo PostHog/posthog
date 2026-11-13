@@ -45,6 +45,8 @@ from posthog.api.tagged_item import (
     BulkUpdateTagsUUIDResponseSerializer,
     TaggedItemSerializerMixin,
     TaggedItemViewSetMixin,
+    current_tag_names,
+    normalize_tag_names,
     set_tags_on_object,
 )
 from posthog.dataclasses import frozen
@@ -481,6 +483,7 @@ class TicketSerializer(UserAccessControlSerializerMixin, TaggedItemSerializerMix
             "github_repo",
             "github_issue_number",
             "zendesk_ticket_id",
+            "intercom_conversation_id",
             "organization_id",
             "organization_id_source",
             "person",
@@ -512,6 +515,7 @@ class TicketSerializer(UserAccessControlSerializerMixin, TaggedItemSerializerMix
             "github_repo",
             "github_issue_number",
             "zendesk_ticket_id",
+            "intercom_conversation_id",
             "organization_id",
             "organization_id_source",
             "person",
@@ -531,6 +535,9 @@ class TicketSerializer(UserAccessControlSerializerMixin, TaggedItemSerializerMix
             "priority": {"help_text": "Ticket priority: low, medium, high, or critical. Null if unset."},
             "sla_due_at": {"help_text": "SLA deadline set via workflows. Null means no SLA."},
             "anonymous_traits": {"help_text": "Customer-provided traits such as name and email"},
+            "intercom_conversation_id": {
+                "help_text": "Intercom conversation id when the ticket was imported from Intercom. Null otherwise."
+            },
             "organization_id": {
                 "help_text": "Customer's PostHog organization group key, resolved at ticket creation. Null when unknown."
             },
@@ -599,6 +606,9 @@ class TicketAssigneeRequestField(serializers.Field):
             raise
 
 
+MAX_TAGS_ADDED_PER_UPDATE = 100
+
+
 class TicketUpdateRequestSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
     """Fields accepted when updating a ticket."""
 
@@ -611,7 +621,10 @@ class TicketUpdateRequestSerializer(TaggedItemSerializerMixin, serializers.Model
     tags = serializers.ListField(
         child=serializers.CharField(),
         required=False,
-        help_text="Tag names to set on the ticket.",
+        help_text=(
+            "Tag names to set on the ticket. The list replaces the ticket's current tags. "
+            f"A request can add up to {MAX_TAGS_ADDED_PER_UPDATE} new tags."
+        ),
     )
 
     class Meta:
@@ -637,15 +650,26 @@ class TicketUpdateRequestSerializer(TaggedItemSerializerMixin, serializers.Model
             "snoozed_until": {"help_text": "Time to reopen the ticket. Pass null to reopen it now."},
         }
 
+    def validate_tags(self, value: list[str]) -> list[str]:
+        # The cap counts new tags only. A client sends the whole list on every save, so a cap on
+        # its length would reject every update of a ticket that already has more tags than the cap.
+        current = current_tag_names(self.instance) if self.instance else set()
+        if len(normalize_tag_names(value) - current) > MAX_TAGS_ADDED_PER_UPDATE:
+            raise serializers.ValidationError(
+                f"A request can add up to {MAX_TAGS_ADDED_PER_UPDATE} new tags. Add the rest in another request.",
+                code="max_new_tags",
+            )
+        return value
+
     def update(self, instance: Ticket, validated_data: dict[str, Any]) -> Ticket:
         validated_data.pop("assignee", None)
-        validated_data.pop("tags", None)
+        tags = validated_data.pop("tags", None)
         for field, value in validated_data.items():
             setattr(instance, field, value)
         # Only the submitted columns. A full save writes back every column this request
         # loaded, so a delete that commits in between would be undone.
         instance.save(update_fields=[*validated_data, "updated_at"])
-        self._attempt_set_tags(self.initial_data.get("tags"), instance)
+        self._attempt_set_tags(tags, instance)
         return instance
 
 

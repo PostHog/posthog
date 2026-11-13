@@ -1,16 +1,26 @@
 import { createHash, randomUUID } from 'node:crypto'
+import { z } from 'zod'
 
 import type { ApiKeyAccess } from '@posthog/mcp/src/cli/library-types'
 
 import { HogError } from '@/core/errors'
 import { withFileLock } from '@/core/file-lock'
 import type { Runtime } from '@/core/runtime'
+import { parseOrThrow } from '@/core/schema'
+import { itemName, type LoginTarget } from '@/posthog/credential-store/item-name'
 import type { OAuthSecret, StoreChoice } from '@/posthog/credential-store/types'
 
 import type { AccessKey, AccessKeyStatus, AccessKeyStorage, LogoutOutcome } from './access-key'
 import { sendRequest, type HttpResponse } from './api'
-import { hostKey, hostUrl } from './host'
+import { hostUrl, type Host } from './host'
+import { ProjectIdSchema, type ProjectId } from './ids'
 import type { LoginRecord } from './settings'
+import {
+    OAuthAccessTokenSchema,
+    OAuthRefreshTokenSchema,
+    type OAuthAccessToken,
+    type OAuthRefreshToken,
+} from './tokens'
 
 // hog's CIMD client ID: the URL of its client metadata document, which PostHog fetches.
 export const HOG_CLIENT_ID = 'https://posthog.com/.well-known/oauth/hog/client-metadata.json'
@@ -19,17 +29,36 @@ const REQUEST_TIMEOUT_MS = 30_000
 // Refresh this long before the access token expires, so it doesn't expire during a command.
 const REFRESH_MARGIN_MS = 10 * 60_000
 
-export interface TokenResponse {
-    access_token?: string
-    refresh_token?: string
-    expires_in?: number
-    scope?: string
-    scoped_teams?: number[]
+export const TokenResponse = z.object({
+    access_token: OAuthAccessTokenSchema,
+    refresh_token: OAuthRefreshTokenSchema.optional(),
+    expires_in: z.number(),
+    scope: z.string().optional(),
+    scoped_teams: z.array(ProjectIdSchema).optional(),
+})
+
+export type TokenResponse = z.output<typeof TokenResponse>
+
+export function grantLifetime(
+    runtime: Runtime,
+    body: Pick<TokenResponse, 'expires_in' | 'scope'>,
+    scopes: string[]
+): { expiresAt: number; scopes: string[] } {
+    return {
+        expiresAt: runtime.now() + body.expires_in * 1000,
+        scopes: body.scope ? body.scope.split(' ').filter(Boolean) : scopes,
+    }
 }
+
+// An RFC 6749 error answer. hog reads `error` only when the answer is one.
+export const OAuthErrorBody = z.object({
+    error: z.string().optional().catch(undefined),
+    error_description: z.string().optional().catch(undefined),
+})
 
 export function oauthPost(
     runtime: Runtime,
-    host: string,
+    host: Host,
     path: string,
     form: Record<string, string>,
     timeoutMs = REQUEST_TIMEOUT_MS
@@ -42,10 +71,10 @@ export function oauthPost(
 }
 
 interface OAuthLoginFields {
-    host: string
-    projectId: string
-    accessToken: string
-    refreshToken: string
+    host: Host
+    projectId: ProjectId
+    accessToken: OAuthAccessToken
+    refreshToken: OAuthRefreshToken
     // Epoch milliseconds after which the access token stops working.
     expiresAt: number
     scopes: string[]
@@ -54,22 +83,23 @@ interface OAuthLoginFields {
     loginId: string
 }
 
-// Serializes the processes that renew or remove the login to one host.
-export function withLoginLock<T>(runtime: Runtime, host: string, work: () => Promise<T>): Promise<T> {
+// Serializes the processes that renew or remove the login to one host and project.
+export function withLoginLock<T>(runtime: Runtime, target: LoginTarget, work: () => Promise<T>): Promise<T> {
     // By origin, so `https://eu.posthog.com/` and `https://eu.posthog.com` take the same lock.
-    const name = createHash('sha256').update(hostKey(host)).digest('hex').slice(0, 16)
+    const name = createHash('sha256').update(itemName(target.host, target.projectId)).digest('hex').slice(0, 16)
     return withFileLock(runtime, `refresh-${name}.lock`, work)
 }
 
 // What `hog auth login` gets from the OAuth device grant. The access token works in one project.
 export class OAuthLogin implements AccessKey {
-    readonly host: string
-    readonly projectId: string
-    readonly accessToken: string
-    readonly refreshToken: string
+    readonly host: Host
+    readonly projectId: ProjectId
+    readonly accessToken: OAuthAccessToken
+    readonly refreshToken: OAuthRefreshToken
     readonly expiresAt: number
     readonly scopes: string[]
     readonly loginId: string
+    readonly identifiesPerson = true
 
     constructor(fields: OAuthLoginFields) {
         this.host = fields.host
@@ -86,12 +116,16 @@ export class OAuthLogin implements AccessKey {
     static fromTokens(
         runtime: Runtime,
         body: TokenResponse,
-        previous: Pick<OAuthLoginFields, 'host' | 'projectId' | 'refreshToken' | 'scopes'> & { loginId?: string }
+        previous: Pick<OAuthLoginFields, 'host' | 'projectId' | 'scopes'> & {
+            refreshToken?: OAuthRefreshToken
+            loginId?: string
+        }
     ): OAuthLogin {
-        if (!body.access_token || body.expires_in === undefined) {
+        const refreshToken = body.refresh_token ?? previous.refreshToken
+        if (refreshToken === undefined) {
             throw new HogError(
                 'unexpected_response',
-                'PostHog answered without an access token.',
+                'PostHog answered without a refresh token.',
                 'Run `hog auth login` to log in again.'
             )
         }
@@ -99,14 +133,21 @@ export class OAuthLogin implements AccessKey {
             host: previous.host,
             projectId: previous.projectId,
             accessToken: body.access_token,
-            refreshToken: body.refresh_token ?? previous.refreshToken,
-            expiresAt: runtime.now() + body.expires_in * 1000,
-            scopes: body.scope ? body.scope.split(' ').filter(Boolean) : previous.scopes,
+            refreshToken,
+            ...grantLifetime(runtime, body, previous.scopes),
             loginId: previous.loginId ?? randomUUID(),
         })
     }
 
-    get token(): string {
+    // In the same project a step-up keeps the stored login's id, so running commands pick up these
+    // tokens. A personal API key's login key is the secret itself, which settings.json must never hold.
+    continuing(stored: AccessKey): OAuthLogin {
+        return stored instanceof OAuthLogin && stored.projectId === this.projectId
+            ? new OAuthLogin({ ...this, loginId: stored.loginId })
+            : this
+    }
+
+    get token(): OAuthAccessToken {
         return this.accessToken
     }
 
@@ -129,7 +170,7 @@ export class OAuthLogin implements AccessKey {
         if (!needsRenewal(this)) {
             return this
         }
-        return withLoginLock(runtime, this.host, async () => {
+        return withLoginLock(runtime, this, async () => {
             const current = await storage.reread()
             if (!(current instanceof OAuthLogin)) {
                 throw new HogError(
@@ -138,8 +179,8 @@ export class OAuthLogin implements AccessKey {
                     'Run `hog auth login` to log in again.'
                 )
             }
-            // A new login, possibly to another project, replaced this one. Using it would send the
-            // rest of the command to a project it didn't plan against.
+            // A new login to this project replaced this one. It can have other scopes than the ones
+            // the command planned against, so the command stops instead of switching to it.
             if (current.loginId !== this.loginId) {
                 throw new HogError(
                     'login_changed',
@@ -180,11 +221,15 @@ export class OAuthLogin implements AccessKey {
             refresh_token: this.refreshToken,
             client_id: HOG_CLIENT_ID,
         })
-        const body = (response.json ?? {}) as TokenResponse & { error?: string }
         if (response.ok) {
+            const body = parseOrThrow(TokenResponse, response.json, {
+                code: 'unexpected_response',
+                context: "PostHog's answer to the renewal isn't what hog expects.",
+                hint: 'Run `hog auth login` to log in again.',
+            })
             return OAuthLogin.fromTokens(runtime, body, this)
         }
-        if (body.error === 'invalid_grant') {
+        if (OAuthErrorBody.safeParse(response.json).data?.error === 'invalid_grant') {
             throw new HogError(
                 'session_expired',
                 'Your hog login expired or was revoked.',
@@ -204,6 +249,8 @@ export class OAuthLogin implements AccessKey {
             scopes: this.scopes,
             expiresAt: this.expiresAt,
             rejected: 'PostHog rejected the token. Someone may have revoked it.',
+            fix: 'hog auth login',
+            provider: null,
         }
     }
 

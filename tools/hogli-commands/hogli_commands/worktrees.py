@@ -4,7 +4,7 @@ These tools each create throwaway git worktrees that accumulate over time. A
 single PostHog worktree carries multi-GB `node_modules`, Python venvs, and Rust
 build artifacts, so stale ones are by far the largest reclaimable disk on a dev
 machine. This command finds them, filters by age, and either removes the whole
-worktree or just its dependencies/build artifacts (keeping the code).
+worktree or just its dependencies and build output (keeping the code).
 
 The discovery roots and dependency patterns are PostHog-specific, but the age
 logic and deletion modes are generic.
@@ -13,13 +13,16 @@ Safety: age is a staleness heuristic, not a "no unsaved work" guarantee — edit
 made without any git operation may not move the activity signal. So `--mode full`
 skips a worktree with uncommitted/untracked changes, unpushed commits, or git
 state it cannot read (present-but-corrupt/locked) unless `--include-dirty` is
-given. Orphaned worktrees (admin gitdir pruned) are removed by default: deleting
+given. Unpushed commits whose work a squash merge landed on the default branch
+do not count, because the merge queue rewrites every pull request that way. Orphaned worktrees (admin gitdir pruned) are removed by default: deleting
 the directory never touches git refs, so committed work survives in the shared
 repo — only uncommitted edits in an already-stale tree could be lost. `--mode
-deps` only removes recreatable artifacts, so it has no such gate — it can strip
-deps from a worktree that is idle by the activity signal but still has a live
-dev server running. Both modes skip a worktree where cargo or rustc runs, and
-`--mode deps` keeps a Cargo target that a build used after the cutoff.
+deps` and `--mode build` only remove recreatable artifacts, so they have no such
+gate, so they can strip a worktree that is idle by the activity signal but still
+has a live dev server running. They never remove a path that holds a tracked
+file, and `build` removes only paths that git ignores. Every mode skips a
+worktree where cargo or rustc runs, and deps and build keep a Cargo target that
+a build used after the cutoff.
 """
 
 from __future__ import annotations
@@ -27,12 +30,15 @@ from __future__ import annotations
 import os
 import re
 import sys
+import stat
 import time
 import fcntl
 import shutil
+import itertools
 import subprocess
 from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -42,8 +48,13 @@ import click
 from hogli import telemetry
 from hogli.manifest import REPO_ROOT
 
-from .cargo_targets import last_cargo_build_epoch, unused_legacy_cargo_target, worktrees_running_cargo
-from .devbox import hogland, mutagen
+from .cargo_targets import (
+    last_cargo_build_epoch,
+    looks_like_cargo_target,
+    unused_legacy_cargo_target,
+    worktrees_running_cargo,
+)
+from .devbox import herdr, hogland, mutagen
 from .devbox.coder import (
     delete_workspace,
     ensure_runtime_ready,
@@ -59,23 +70,53 @@ from .devbox.config import (
     load_worktree_boxes,
     read_worktree_id,
     saved_worktree_box_cleanup,
+    worktree_prune_lock,
 )
+from .disk_usage import NO_USAGE, DiskUsage, measure_disk_usage
 from .doctor import _format_size
+
+WORKTREE_SOURCES = ("claude", "claude-scratchpad", "codex", "posthog-code", "phw", "other")
 
 
 # Roots that hold agent-created worktrees, keyed by the tool that owns them.
-# Claude Code and Codex nest worktrees directly under the repo; PostHog Desktop
-# keeps them in the home directory as <id>/posthog. Returned as (source, root).
-# The phw root must match WORKTREE_BASE in bin/posthog-worktree, including its
+# Claude Code nests worktrees under the repo. The Codex app and PostHog Desktop
+# keep them in the home directory as <id>/<repo>, and Claude Code agents make
+# throwaway ones in their scratchpad. Returned as (source, root). The phw root
+# must match WORKTREE_BASE in bin/posthog-worktree, including its
 # POSTHOG_WORKTREE_BASE override.
 def _worktree_roots(repo_root: Path) -> list[tuple[str, Path]]:
     phw_base = os.environ.get("POSTHOG_WORKTREE_BASE") or str(Path.home() / ".worktrees" / "posthog")
+    scratchpad_root = _claude_scratchpad_root()
     return [
         ("claude", repo_root / ".claude" / "worktrees"),
+        *([("claude-scratchpad", scratchpad_root)] if scratchpad_root is not None else []),
         ("codex", repo_root / ".codex" / "worktrees"),
+        ("codex", repo_root / ".codex-worktrees"),
+        ("codex", Path.home() / ".codex" / "worktrees"),
         ("posthog-code", Path.home() / ".posthog-code" / "worktrees"),
         ("phw", Path(phw_base).expanduser()),
     ]
+
+
+def _claude_scratchpad_root(shared_tmp: Path = Path("/tmp")) -> Path | None:
+    """The scratchpad root, or None unless it is a real folder that only this user owns and can write to.
+
+    /tmp is shared, so another user can create this name first, or make it a
+    symlink that points discovery at someone else's folders.
+    """
+
+    root = shared_tmp / f"claude-{os.getuid()}"
+    try:
+        status = root.lstat()
+    except OSError:
+        return None
+    if not stat.S_ISDIR(status.st_mode) or status.st_uid != os.getuid() or status.st_mode & 0o022:
+        return None
+    return root
+
+
+# Claude Code's scratchpad worktrees sit at <root>/<encoded project>/<session id>/scratchpad/<worktree>.
+_SCRATCHPAD_DISCOVERY_DEPTH = 4
 
 
 def worktree_source(path: Path) -> str:
@@ -90,55 +131,70 @@ def _source_under(resolved_path: Path, repo_root: Path) -> str:
     return "other"
 
 
-# Dependency/build-artifact directory names removed in --mode deps. Matched at
-# any depth and never descended into once matched, so walking stays cheap.
-DEPS_RECURSIVE_DIRS = frozenset(
-    {
-        "node_modules",
-        "target",  # Cargo — guarded by _looks_like_cargo_target
-        "__pycache__",
-        ".pytest_cache",
-        ".mypy_cache",
-        ".ruff_cache",
-        ".parcel-cache",
-        ".turbo",
-    }
-)
+ARTIFACT_KINDS = ("deps", "build")
+_DEPS = frozenset({"deps"})
+_BUILD = frozenset({"build"})
 
-# Directories never walked into when collecting deps — either handled explicitly
-# below or off-limits (git metadata).
-DEPS_WALK_SKIP = frozenset({".git", ".flox", ".venv", "venv"})
 
-# Explicit relative paths (globs allowed) removed in --mode deps. These are not
-# matched recursively, so they must name their location from the worktree root.
-DEPS_EXPLICIT_PATHS = (
-    ".venv",
-    "venv",
-    ".flox/cache/venv",
-    ".flox/cache/go",
-    ".flox/cache/go-build",
-    "frontend/dist",
-    "frontend/.cache",
-    "frontend/tmp",
-    "frontend/storybook-static",
-    "storybook-static",
-    "playwright-report",
-    "playwright/test-results",
-    "test-results",
-    "products/*/dist",
-    "products/*/storybook-static",
-)
+def _is_python_venv(path: Path) -> bool:
+    return (path / "pyvenv.cfg").is_file()
 
-# Leaf names of the explicit artifact paths above — pruned from os.walk so the
-# walk doesn't descend their interiors before the explicit-glob pass deletes
-# them wholesale.
-DEPS_WALK_PRUNE_LEAVES = frozenset({"dist", ".cache", "tmp", "storybook-static", "playwright-report", "test-results"})
+
+_BUILD_MANIFESTS = ("package.json", "pyproject.toml", "setup.py", "setup.cfg", "Cargo.toml", "go.mod", "CMakeLists.txt")
+
+
+def _beside_build_manifest(path: Path) -> bool:
+    return any((path.parent / manifest).is_file() for manifest in _BUILD_MANIFESTS)
+
+
+@dataclass(frozen=True, kw_only=True, slots=True)
+class _ArtifactRule:
+    kinds: frozenset[str]
+    applies_to: Callable[[Path], bool] = lambda path: True
+
+
+ARTIFACT_DIRS: dict[str, _ArtifactRule] = {
+    "node_modules": _ArtifactRule(kinds=_DEPS),
+    ".venv": _ArtifactRule(kinds=_DEPS, applies_to=_is_python_venv),
+    "venv": _ArtifactRule(kinds=_DEPS, applies_to=_is_python_venv),
+    ".tox": _ArtifactRule(kinds=_DEPS),
+    ".nox": _ArtifactRule(kinds=_DEPS),
+    ".pnpm-store": _ArtifactRule(kinds=_DEPS),
+    # Cargo builds the dependencies and the repo's own crates into the same target dir.
+    "target": _ArtifactRule(kinds=_DEPS | _BUILD, applies_to=looks_like_cargo_target),
+    "__pycache__": _ArtifactRule(kinds=_BUILD),
+    ".pytest_cache": _ArtifactRule(kinds=_BUILD),
+    ".mypy_cache": _ArtifactRule(kinds=_BUILD),
+    ".ruff_cache": _ArtifactRule(kinds=_BUILD),
+    ".parcel-cache": _ArtifactRule(kinds=_BUILD),
+    ".turbo": _ArtifactRule(kinds=_BUILD),
+    ".next": _ArtifactRule(kinds=_BUILD),
+    ".nuxt": _ArtifactRule(kinds=_BUILD),
+    ".svelte-kit": _ArtifactRule(kinds=_BUILD),
+    ".vite": _ArtifactRule(kinds=_BUILD),
+    ".react-router": _ArtifactRule(kinds=_BUILD),
+    "storybook-static": _ArtifactRule(kinds=_BUILD),
+    "playwright-report": _ArtifactRule(kinds=_BUILD),
+    "test-results": _ArtifactRule(kinds=_BUILD),
+    "blob-report": _ArtifactRule(kinds=_BUILD),
+    "htmlcov": _ArtifactRule(kinds=_BUILD),
+    # These names are generic, so they count only as the output of a package built in the same directory.
+    "coverage": _ArtifactRule(kinds=_BUILD, applies_to=_beside_build_manifest),
+    "dist": _ArtifactRule(kinds=_BUILD, applies_to=_beside_build_manifest),
+    "build": _ArtifactRule(kinds=_BUILD, applies_to=_beside_build_manifest),
+}
+
+# Flox keeps environment state such as a local Postgres data dir under .flox/cache, so only these children are artifacts.
+FLOX_CACHE_ARTIFACTS: dict[str, frozenset[str]] = {"venv": _DEPS, "go": _DEPS, "go-build": _BUILD}
+
+# A .tsbuildinfo left behind makes `tsc --build` skip emitting into an outDir that was removed.
+BUILD_FILE_SUFFIXES = (".tsbuildinfo", ".node")
+
+BUILD_EXPLICIT_PATHS = ("frontend/.cache", "frontend/tmp")
+
+_WALK_SKIP = frozenset({".git", ".venv", "venv"})
 
 _INTERVAL_UNITS = {"s": 1, "m": 60, "h": 3600, "d": 86400, "w": 604800}
-
-# du can hang on a stale network mount; bound it so one bad path can't stall the
-# whole sizing pool.
-_DU_TIMEOUT_SECONDS = 120.0
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -158,11 +214,11 @@ class Worktree:
     locked: bool
     branch: str
     last_activity: float
-    size: float = 0.0
-    deps_items: list[Path] = field(default_factory=list)
-    deps_sizes: dict[str, float] = field(default_factory=dict)
+    usage: DiskUsage = NO_USAGE
+    artifact_items: list[Path] = field(default_factory=list)
     dirty: bool = False
     unpushed: int = 0
+    squash_merged: str | None = None
     detached: bool = False
     state_unknown: bool = False
 
@@ -173,8 +229,9 @@ class Worktree:
         Includes worktrees whose git state we couldn't read — an orphaned or
         unreadable worktree might contain uncommitted work, so we fail closed
         and treat "can't verify it's clean" as unsafe rather than deleting it.
+        Unpushed commits that a squash merge landed are not work at risk.
         """
-        return self.dirty or self.unpushed > 0 or self.state_unknown
+        return self.dirty or (self.unpushed > 0 and self.squash_merged is None) or self.state_unknown
 
 
 @dataclass(frozen=True)
@@ -212,16 +269,19 @@ class WorktreeBox:
 )
 @click.option(
     "--mode",
-    type=click.Choice(["full", "deps"], case_sensitive=False),
     default=None,
-    help="Required. 'full' removes the whole worktree; 'deps' removes only deps/build artifacts, keeping the code.",
+    metavar="full|deps|build",
+    help="Required. 'full' removes the whole worktree. 'deps' removes installed dependencies such as node_modules, "
+    "Python venvs and Cargo target dirs. 'build' removes build output and tool caches that git ignores, such as "
+    "Cargo target, dist, .next and __pycache__. Combine deps and build with a comma: --mode deps,build.",
 )
 @click.option(
     "--source",
     "sources",
     multiple=True,
-    type=click.Choice(["claude", "codex", "posthog-code", "phw"], case_sensitive=False),
-    help="Restrict to specific tool(s). Repeatable. Default: all of them.",
+    type=click.Choice(WORKTREE_SOURCES, case_sensitive=False),
+    help="Restrict to specific tool(s). Repeatable. 'other' is a worktree that `git worktree list` registers "
+    "outside every tool's folder. Default: all of them, except that --mode full skips 'other' unless you name it.",
 )
 @click.option(
     "--repo",
@@ -242,7 +302,8 @@ class WorktreeBox:
     default=None,
     help="What to do with orphaned worktrees (admin entry pruned, not in `git worktree list`; "
     "committed work is safe in branch refs). yes=include, no=skip, ask=prompt when any are found. "
-    "Default: yes for --mode deps, ask for --mode full.",
+    "Default: yes for --mode deps and build, ask for --mode full. deps and build still remove nothing from an "
+    "orphan, because git cannot check what its branch tracks.",
 )
 @click.option(
     "--stop-boxes",
@@ -265,9 +326,10 @@ class WorktreeBox:
 @click.option(
     "--unattended",
     is_flag=True,
-    help="For a scheduler: once a day, remove worktrees idle for 14 days, then strip deps from worktrees "
+    help="For a scheduler: once a day, remove worktrees idle for 14 days, then strip deps and build output from worktrees "
     "idle for 7 days. Implies --yes and --keep-boxes.",
 )
+@click.option("--skip-hand-made", is_flag=True, hidden=True)
 @click.pass_context
 def worktrees_clean(
     ctx: click.Context,
@@ -283,6 +345,7 @@ def worktrees_clean(
     dry_run: bool,
     yes: bool,
     unattended: bool,
+    skip_hand_made: bool = False,
 ) -> None:
     """Find and clean up stale agent worktrees by age and deletion mode."""
 
@@ -305,6 +368,8 @@ def worktrees_clean(
                 mode=tier,
                 repo=repo,
                 sources=sources,
+                # A worktree outside every tool folder is often a long-lived checkout that a person made by hand.
+                skip_hand_made=True,
                 orphans=orphans,
                 dry_run=dry_run,
                 yes=True,
@@ -320,12 +385,13 @@ def worktrees_clean(
             "Both --before and --mode are required.\n\n"
             "Examples:\n"
             "  hogli worktrees:clean --before 7d --mode deps     # free deps in worktrees idle >7 days\n"
+            "  hogli worktrees:clean --before 7d --mode deps,build\n"
             "  hogli worktrees:clean --before 2026-06-01 --mode full\n"
             "  hogli worktrees:clean --before all --mode full --dry-run\n"
             "  hogli worktrees:clean --before 30d --mode full --repo ~/Projects/other-repo"
         )
 
-    mode = mode.lower()
+    mode = _parse_mode(mode)
     box_action = _resolve_box_action(stop_boxes, delete_boxes, keep_boxes, mode)
     orphan_policy = _resolve_orphan_policy(orphans, mode)
     repo_root = _resolve_repo(repo)
@@ -334,10 +400,16 @@ def worktrees_clean(
 
     selected_sources = {s.lower() for s in sources} if sources else None
     if box_action:
-        pending = _boxes_of_removed_worktrees(load_worktree_boxes(), repo_root, repo_common, selected_sources)
-        _clean_boxes_of_removed_worktrees(pending, box_action, cutoff, dry_run, yes)
+        with _prune_lock_if(not dry_run) as holds_lock:
+            if holds_lock:
+                pending = _boxes_of_removed_worktrees(load_worktree_boxes(), repo_root, repo_common, selected_sources)
+                _clean_boxes_of_removed_worktrees(pending, box_action, cutoff, dry_run, yes)
+            else:
+                click.echo(
+                    "A devbox prune is still running, so the devboxes of worktrees removed earlier were left for the next run.\n"
+                )
     # ~/.cargo/target belongs to no single worktree or repository, so a run narrowed by --source or --repo leaves it alone.
-    if mode == "deps" and selected_sources is None and repo is None:
+    if mode != "full" and selected_sources is None and repo is None:
         _clean_legacy_cargo_target(cutoff, dry_run, yes)
     protected = _protected_paths(repo_root)
 
@@ -352,35 +424,36 @@ def worktrees_clean(
     if busy is None:
         click.echo("Could not list running processes, so no worktree can be shown to be idle; aborting to stay safe.")
         return
+    leftovers = [
+        path for path in _leftover_worktree_dirs(repo_root, selected_sources, cutoff) if not _in_use(path, busy)
+    ]
+    _clean_leftover_worktree_dirs(leftovers, dry_run, yes)
     in_use: list[Path] = []
     candidates: list[Worktree] = []
-    for source, root in _worktree_roots(repo_root):
-        if selected_sources is not None and source not in selected_sources:
+    for source, path in _discover_candidate_worktrees(repo_root, registry, selected_sources, mode, skip_hand_made):
+        resolved = _resolve(path)
+        if resolved in protected:
             continue
-        for path in _discover_root_worktrees(root, registry):
-            resolved = _resolve(path)
-            if resolved in protected:
-                continue
-            # PostHog Desktop worktrees live outside the repo and the home root is
-            # shared across repos, so only act on worktrees owned by this repo.
-            if not _belongs_to_repo(resolved, repo_root, repo_common):
-                continue
-            meta = registry.get(resolved)
-            if meta and meta["locked"]:
-                continue  # never touch a git-locked worktree
-            if _in_use(resolved, busy):
-                in_use.append(path)
-                continue
-            candidates.append(
-                Worktree(
-                    source=source,
-                    path=path,
-                    registered=meta is not None,
-                    locked=bool(meta and meta["locked"]),
-                    branch=(meta["branch"] if meta else ""),
-                    last_activity=_last_activity(path),
-                )
+        # PostHog Desktop worktrees live outside the repo and the home root is
+        # shared across repos, so only act on worktrees owned by this repo.
+        if not _belongs_to_repo(resolved, repo_root, repo_common):
+            continue
+        meta = registry.get(resolved)
+        if meta and meta["locked"]:
+            continue  # never touch a git-locked worktree
+        if _in_use(resolved, busy):
+            in_use.append(path)
+            continue
+        candidates.append(
+            Worktree(
+                source=source,
+                path=path,
+                registered=meta is not None,
+                locked=bool(meta and meta["locked"]),
+                branch=(meta["branch"] if meta else ""),
+                last_activity=_last_activity(path),
             )
+        )
 
     if in_use:
         click.echo(f"Skipping {len(in_use)} worktree(s) that a running process has as its working directory:")
@@ -434,15 +507,18 @@ def worktrees_clean(
     for wt in sorted(stale, key=lambda w: w.last_activity):
         markers = _listing_markers(wt, mode)
         click.echo(
-            f"  {_format_size(wt.size):>10}  {_ago(wt.last_activity):>12} ago  {markers}  {_display_path(wt.path)}"
+            f"  {_format_size(wt.usage.freeable_bytes):>10}  {_ago(wt.last_activity):>12} ago  {markers}  {_display_path(wt.path)}"
         )
 
-    total = sum(wt.size for wt in stale)
-    action = "fully remove" if mode == "full" else "strip deps/build artifacts from"
-    click.echo(
-        f"\nWould {action} {len(stale)} worktree(s); estimated up to ~{_format_size(total)} "
-        "(cloned/hardlinked deps free less — the actual reclaimed total is measured after deletion)."
-    )
+    total = sum((wt.usage for wt in stale), NO_USAGE)
+    action = "fully remove" if mode == "full" else f"strip {_describe_artifact_kinds(mode)} from"
+    click.echo(f"\nWould {action} {len(stale)} worktree(s), which frees about {_format_size(total.freeable_bytes)}.")
+    shared_bytes = total.allocated_bytes - total.freeable_bytes
+    if shared_bytes > 0:
+        click.echo(
+            f"Another {_format_size(shared_bytes)} in them shares its blocks with copies elsewhere, "
+            "such as the pnpm or uv store, so deleting it frees nothing."
+        )
 
     registered_boxes = _match_worktree_boxes(stale, load_worktree_boxes()) if mode == "full" else []
     boxes = registered_boxes if box_action else []
@@ -465,37 +541,53 @@ def worktrees_clean(
     # A build can start, or finish, while the prompt waits.
     stale = _without_cargo_builds(stale)
     for wt in stale:
-        wt.deps_items = [item for item in wt.deps_items if not _cargo_built_since(item, cutoff)]
+        wt.artifact_items = [item for item in wt.artifact_items if not _cargo_built_since(item, cutoff)]
     if not stale:
         click.echo("Nothing left to remove.")
         return
 
-    reap = _execute(
-        stale,
-        mode,
-        repo_root,
-        before_remove=lambda wt: _stop_worktree_mirrors(
-            [box for box in registered_boxes if box.current_path == wt.path]
-        ),
-    )
-    _add_reclaimed_properties(reap.reclaimed_bytes, reap.removed)
-    if reap.reclaimed_bytes >= 0:
-        summary = f"\n✓ Done. Reclaimed ~{_format_size(reap.reclaimed_bytes)} of disk across {reap.removed}/{len(stale)} worktree(s)."
-    else:
-        summary = f"\n✓ Done. Removed {reap.removed}/{len(stale)} worktree(s) (reclaimed space could not be measured)."
-    failed = reap.failed
-    if failed:
-        summary += f" {failed} could not be fully removed (see warnings above)."
-    click.echo(summary)
+    _remove_worktrees_and_their_boxes(stale, mode, repo_root, registered_boxes, box_action)
 
-    removed_boxes = [box for box in registered_boxes if not box.checkout_path.exists()]
-    if box_action and removed_boxes:
-        _clean_worktree_boxes(removed_boxes, box_action)
-    elif removed_boxes:
-        # A box left alone on purpose must not look like a failed cleanup to a later run.
-        forget_worktree_boxes([box.worktree_path for box in removed_boxes])
-        names = " ".join(box.workspace for box in removed_boxes)
-        click.echo(f"Left these devboxes as they are. worktrees:clean no longer tracks them: {names}")
+
+def _prune_lock_if(needed: bool) -> AbstractContextManager[bool]:
+    return worktree_prune_lock(_PRUNE_LOCK_TIMEOUT_SECONDS) if needed else nullcontext(True)
+
+
+def _remove_worktrees_and_their_boxes(
+    stale: list[Worktree], mode: str, repo_root: Path, registered_boxes: list[WorktreeBox], box_action: str | None
+) -> None:
+    with _prune_lock_if(bool(registered_boxes)) as holds_lock:
+        if not holds_lock:
+            click.echo("A devbox prune is still running, so nothing was removed. Run this again in a few minutes.")
+            return
+        reap = _execute(
+            stale,
+            mode,
+            repo_root,
+            before_remove=lambda wt: _stop_worktree_mirrors(
+                [box for box in registered_boxes if box.current_path == wt.path]
+            ),
+        )
+        _add_reclaimed_properties(reap.reclaimed_bytes, reap.removed)
+        if reap.reclaimed_bytes >= 0:
+            summary = f"\n✓ Done. Reclaimed ~{_format_size(reap.reclaimed_bytes)} of disk across {reap.removed}/{len(stale)} worktree(s)."
+        else:
+            summary = (
+                f"\n✓ Done. Removed {reap.removed}/{len(stale)} worktree(s) (reclaimed space could not be measured)."
+            )
+        failed = reap.failed
+        if failed:
+            summary += f" {failed} could not be fully removed (see warnings above)."
+        click.echo(summary)
+
+        removed_boxes = [box for box in registered_boxes if not box.checkout_path.exists()]
+        if box_action and removed_boxes:
+            _clean_worktree_boxes(removed_boxes, box_action)
+        elif removed_boxes:
+            # A box left alone on purpose must not look like a failed cleanup to a later run.
+            forget_worktree_boxes({box.worktree_path: box.record for box in removed_boxes})
+            names = " ".join(box.workspace for box in removed_boxes)
+            click.echo(f"Left these devboxes as they are. worktrees:clean no longer tracks them: {names}")
 
 
 def _resolve_box_action(stop_boxes: bool, delete_boxes: bool, keep_boxes: bool, mode: str) -> str | None:
@@ -503,7 +595,7 @@ def _resolve_box_action(stop_boxes: bool, delete_boxes: bool, keep_boxes: bool, 
         raise click.UsageError("Pass at most one of --stop-boxes, --delete-boxes, --keep-boxes.")
     if (stop_boxes or delete_boxes) and mode != "full":
         raise click.UsageError(
-            "--stop-boxes and --delete-boxes need --mode full, because --mode deps keeps the worktree."
+            f"--stop-boxes and --delete-boxes need --mode full, because --mode {mode} keeps the worktree."
         )
     if keep_boxes or mode != "full":
         return None
@@ -522,10 +614,12 @@ def _boxes_of_removed_worktrees(
 ) -> list[WorktreeBox]:
     """Registered boxes whose worktree is gone, limited to the selected repo and sources.
 
-    The admin directory in the shared git dir outlives a moved or unmounted
-    checkout, so only its absence shows that the worktree was removed. A
-    record without a worktree ID cannot tell its admin directory from a
-    reused one, so any directory at that path counts as its own.
+    The admin directory in the shared git dir survives a `git worktree move`,
+    and Claude Code deletes a worktree's folder without it. So a worktree
+    counts as removed when its admin directory is gone, or when `git worktree
+    prune` would delete that directory. A record without a worktree ID cannot
+    tell its admin directory from a reused one, so any directory at that path
+    counts as its own.
     """
     if repo_common is None:
         return []
@@ -533,12 +627,110 @@ def _boxes_of_removed_worktrees(
     for path, record in registry.items():
         admin_dir = Path(record.git_dir)
         admin_dir_is_its_own = record.tracks_worktree(admin_dir) if record.worktree_id else admin_dir.exists()
-        if Path(path).exists() or admin_dir_is_its_own or _resolve(admin_dir.parent.parent) != _resolve(repo_common):
+        worktree_is_live = admin_dir_is_its_own and not _git_would_prune(admin_dir)
+        if (
+            _holds_a_worktree(Path(path))
+            or worktree_is_live
+            or _resolve(admin_dir.parent.parent) != _resolve(repo_common)
+        ):
             continue
         if selected_sources is not None and _source_under(_resolve(Path(path)), repo_root) not in selected_sources:
             continue
         boxes.append(WorktreeBox(worktree_path=Path(path), record=record))
     return boxes
+
+
+def _holds_a_worktree(path: Path) -> bool:
+    admin_dir = _gitdir_for(path)
+    return admin_dir is not None and admin_dir.is_dir() and not _git_would_prune(admin_dir)
+
+
+def _git_would_prune(admin_dir: Path) -> bool:
+    """`git worktree prune`'s rule: the worktree is not locked, and its `gitdir` file is missing or names a missing path."""
+    if (admin_dir / "locked").exists():
+        return False
+    try:
+        checkout_git_file = Path((admin_dir / "gitdir").read_text().strip())
+    except OSError:
+        return True
+    return not (admin_dir / checkout_git_file).exists()
+
+
+def prune_boxes_of_removed_worktrees(
+    repo_root: Path, box_action: str, worktree_path: Path | None, dry_run: bool
+) -> list[WorktreeBox]:
+    """Act on the boxes of this repo's worktrees that another tool already removed, or only the one at *worktree_path*.
+
+    `worktrees:clean` covers worktrees it removes itself. t3code and herdr remove
+    their own, so their boxes are found here by the same rule.
+    """
+    boxes = _boxes_of_removed_worktrees(load_worktree_boxes(), repo_root, _git_common_dir(repo_root), None)
+    if worktree_path is not None:
+        boxes = [box for box in boxes if _resolve(box.worktree_path) == _resolve(worktree_path)]
+    if not boxes:
+        return []
+    click.echo(f"{len(boxes)} devbox(es) belong to worktrees that were already removed:")
+    for box in boxes:
+        click.echo(f"  {box.workspace}  {_display_path(box.worktree_path)}")
+    if dry_run:
+        click.echo(f"[DRY-RUN] Would {box_action} them.")
+    else:
+        _clean_worktree_boxes(boxes, box_action, require_removed=True)
+    return boxes
+
+
+def teardown_worktree_box(
+    worktree_path: Path,
+    git_dir: Path,
+    box_action: str,
+    dry_run: bool,
+    keep_record: bool = False,
+    act_on_box: Callable[[WorktreeBox, str], None] | None = None,
+) -> WorktreeBox | None:
+    """Stop the mirror and act on the box of the worktree at *worktree_path*, which a tool is about to remove.
+
+    The mirror stops first, while the files still exist, for the reason in
+    `_stop_worktree_mirrors`. The record is found by the ID in *git_dir*, so a
+    moved worktree still finds its box, and a record saved for an earlier
+    worktree at the same path does not match. *keep_record* keeps the record
+    of a stopped box, for a tool that keeps the worktree and can restore it.
+    *act_on_box* replaces the box action, so a caller can move it out of a
+    tool's hook time limit.
+    """
+    worktree_id = read_worktree_id(git_dir)
+    match = next(
+        (
+            (Path(path), record)
+            for path, record in load_worktree_boxes().items()
+            if worktree_id is not None and record.worktree_id == worktree_id
+        ),
+        None,
+    )
+    if match is None:
+        return None
+    box = WorktreeBox(worktree_path=match[0], record=match[1], current_path=worktree_path)
+    if dry_run:
+        click.echo(f"[DRY-RUN] Would stop the sync mirror and {box_action} {box.workspace}.")
+        return box
+    _stop_worktree_mirrors([box])
+    if act_on_box is None:
+        _clean_worktree_boxes([box], box_action, keep_stopped_records=keep_record)
+    else:
+        act_on_box(box, box_action)
+    return box
+
+
+def clean_registered_box(worktree_path: Path, worktree_id: str, box_action: str, keep_record: bool) -> None:
+    """Act on the box registered for *worktree_path*, if the worktree with *worktree_id* still holds it.
+
+    A worktree recreated at the same path can take the box over before this
+    runs, and its record then carries its own ID.
+    """
+    record = load_worktree_boxes().get(str(worktree_path))
+    if record is not None and record.worktree_id == worktree_id:
+        _clean_worktree_boxes(
+            [WorktreeBox(worktree_path=worktree_path, record=record)], box_action, keep_stopped_records=keep_record
+        )
 
 
 def _clean_boxes_of_removed_worktrees(
@@ -558,7 +750,7 @@ def _clean_boxes_of_removed_worktrees(
         click.echo(f"[DRY-RUN] Would {box_action} {which}.\n")
         return
     if yes or click.confirm(f"{box_action.capitalize()} them now?", default=False):
-        _clean_worktree_boxes(boxes, box_action, idle_before=cutoff)
+        _clean_worktree_boxes(boxes, box_action, idle_before=cutoff, require_removed=True)
     click.echo()
 
 
@@ -607,16 +799,60 @@ def _box_last_used(workspace: Mapping[str, object]) -> float | None:
         return None
 
 
-def _clean_worktree_boxes(boxes: list[WorktreeBox], box_action: str, idle_before: float = float("inf")) -> None:
+def _clean_worktree_boxes(
+    boxes: list[WorktreeBox],
+    box_action: str,
+    idle_before: float = float("inf"),
+    keep_stopped_records: bool = False,
+    require_removed: bool = False,
+) -> None:
+    """Stop or delete *boxes* and forget their records.
+
+    With *keep_stopped_records*, a box that ends up stopped keeps its record, so
+    the worktree can start it again when a tool restores it. With
+    *require_removed*, a box whose worktree came back while the provider was
+    listed is left alone, because the new worktree may have taken the box over.
+    """
     hogland_boxes = [box for box in boxes if box.record.provider == "hogland"]
     coder_boxes = [box for box in boxes if box.record.provider != "hogland"]
     if hogland_boxes:
-        _clean_hogland_boxes(hogland_boxes, box_action, idle_before)
+        _clean_hogland_boxes(hogland_boxes, box_action, idle_before, keep_stopped_records, require_removed)
     if coder_boxes:
-        _clean_coder_boxes(coder_boxes, box_action, idle_before)
+        _clean_coder_boxes(coder_boxes, box_action, idle_before, keep_stopped_records, require_removed)
 
 
-def _clean_hogland_boxes(boxes: list[WorktreeBox], box_action: str, idle_before: float) -> None:
+def _worktree_came_back(box: WorktreeBox) -> bool:
+    return _holds_a_worktree(box.worktree_path) or load_worktree_boxes().get(str(box.worktree_path)) != box.record
+
+
+def _ready_to_act_on(
+    box: WorktreeBox,
+    listed: Mapping[str, object],
+    idle_before: float,
+    require_removed: bool,
+    handled: dict[Path, WorktreeBoxRecord],
+) -> bool:
+    if not box.record.owns(listed):
+        click.echo(f"  {box.workspace} was recreated after this worktree set it up, so it was left alone.")
+        handled[box.worktree_path] = box.record
+        return False
+    last_used = _box_last_used(listed)
+    if idle_before != float("inf") and (last_used is None or last_used >= idle_before):
+        click.echo(f"  {box.workspace} was used after the cutoff, or its last use is unknown, so it was left alone.")
+        return False
+    if require_removed and _worktree_came_back(box):
+        click.echo(f"  {box.workspace} belongs to a worktree at {box.worktree_path} again, so it was left alone.")
+        return False
+    try:
+        mutagen.sync_terminate(mutagen.workspace_label_selector(box.workspace))
+    except SystemExit:
+        click.echo(f"  ⚠️  could not remove the sync mirror for {box.workspace}; continuing.")
+    return True
+
+
+def _clean_hogland_boxes(
+    boxes: list[WorktreeBox], box_action: str, idle_before: float, keep_stopped_records: bool, require_removed: bool
+) -> None:
     try:
         hogland.ensure_cli()
         devboxes = hogland.fetch_devboxes()
@@ -624,28 +860,16 @@ def _clean_hogland_boxes(boxes: list[WorktreeBox], box_action: str, idle_before:
         names = " ".join(box.workspace for box in boxes)
         click.echo(f"  ⚠️  could not reach Hogland, so these devboxes were left as they are: {names}")
         return
-    handled: list[Path] = []
+    handled: dict[Path, WorktreeBoxRecord] = {}
     for box in boxes:
         devbox = get_workspace(box.workspace, devboxes)
         if devbox is None:
             click.echo(f"  {box.workspace} no longer exists.")
             hogland.forget_ssh_entry(box.workspace)
-            handled.append(box.worktree_path)
+            handled[box.worktree_path] = box.record
             continue
-        if not box.record.owns(devbox):
-            click.echo(f"  {box.workspace} was recreated after this worktree set it up, so it was left alone.")
-            handled.append(box.worktree_path)
+        if not _ready_to_act_on(box, devbox, idle_before, require_removed, handled):
             continue
-        last_used = _box_last_used(devbox)
-        if idle_before != float("inf") and (last_used is None or last_used >= idle_before):
-            click.echo(
-                f"  {box.workspace} was used after the cutoff, or its last use is unknown, so it was left alone."
-            )
-            continue
-        try:
-            mutagen.sync_terminate(mutagen.workspace_label_selector(box.workspace))
-        except SystemExit:
-            click.echo(f"  ⚠️  could not remove the sync mirror for {box.workspace}; continuing.")
         try:
             if box_action == "delete":
                 click.echo(f"Deleting Hogland devbox {box.workspace}...")
@@ -660,11 +884,14 @@ def _clean_hogland_boxes(boxes: list[WorktreeBox], box_action: str, idle_before:
             command = "delete" if box_action == "delete" else "hibernate"
             click.echo(f"  ⚠️  could not {box_action} {box.workspace}. Run `hogland devbox {command} {box.workspace}`.")
             continue
-        handled.append(box.worktree_path)
+        if box_action == "delete" or not keep_stopped_records:
+            handled[box.worktree_path] = box.record
     forget_worktree_boxes(handled)
 
 
-def _clean_coder_boxes(boxes: list[WorktreeBox], box_action: str, idle_before: float) -> None:
+def _clean_coder_boxes(
+    boxes: list[WorktreeBox], box_action: str, idle_before: float, keep_stopped_records: bool, require_removed: bool
+) -> None:
     try:
         ensure_runtime_ready()
     except SystemExit:
@@ -677,31 +904,20 @@ def _clean_coder_boxes(boxes: list[WorktreeBox], box_action: str, idle_before: f
         names = " ".join(box.workspace for box in boxes)
         click.echo(f"  ⚠️  could not list your devboxes, so these were left as they are: {names}")
         return
-    handled: list[Path] = []
+    handled: dict[Path, WorktreeBoxRecord] = {}
     for box in boxes:
         workspace = get_workspace(box.workspace, workspaces)
         if workspace is None:
             click.echo(f"  {box.workspace} no longer exists.")
-            handled.append(box.worktree_path)
+            handled[box.worktree_path] = box.record
             continue
-        if not box.record.owns(workspace):
-            click.echo(f"  {box.workspace} was recreated after this worktree set it up, so it was left alone.")
-            handled.append(box.worktree_path)
+        if not _ready_to_act_on(box, workspace, idle_before, require_removed, handled):
             continue
-        last_used = _box_last_used(workspace)
-        if idle_before != float("inf") and (last_used is None or last_used >= idle_before):
-            click.echo(
-                f"  {box.workspace} was used after the cutoff, or its last use is unknown, so it was left alone."
-            )
-            continue
-        try:
-            mutagen.sync_terminate(mutagen.workspace_label_selector(box.workspace))
-        except SystemExit:
-            click.echo(f"  ⚠️  could not remove the sync mirror for {box.workspace}; continuing.")
         try:
             if box_action == "delete":
                 click.echo(f"Deleting devbox {box.workspace}...")
                 delete_workspace(box.workspace)
+                herdr.forget_machine(box.workspace)
             elif get_workspace_status(workspace) != "stopped":
                 click.echo(f"Stopping devbox {box.workspace}...")
                 stop_workspace(box.workspace)
@@ -712,22 +928,24 @@ def _clean_coder_boxes(boxes: list[WorktreeBox], box_action: str, idle_before: f
             label = extract_workspace_label(box.workspace) or ""
             click.echo(f"  ⚠️  could not {box_action} {box.workspace}. Run `hogli {command} {label}`.")
             continue
-        handled.append(box.worktree_path)
+        if box_action == "delete" or not keep_stopped_records:
+            handled[box.worktree_path] = box.record
     forget_worktree_boxes(handled)
 
 
 def _resolve_orphan_policy(explicit: str | None, mode: str) -> str:
-    """Resolve --orphans, defaulting per mode: deps cleans orphans (their deps are
-    just recreatable artifacts), full prompts (it deletes the working copy)."""
+    """Resolve --orphans, defaulting per mode: deps and build clean orphans (they
+    remove only recreatable artifacts), full prompts (it deletes the working copy)."""
 
     if explicit is not None:
         return explicit.lower()
     return "ask" if mode == "full" else "yes"
 
 
-_UNATTENDED_SCHEDULE = (("14d", "full"), ("7d", "deps"))
+_UNATTENDED_SCHEDULE = (("14d", "full"), ("7d", "deps,build"))
 # .flox/env/on-activate.sh checks this file's mtime before it spawns hogli.
 _UNATTENDED_LOCK = Path.home() / ".config" / "posthog" / "worktrees-clean.lock"
+_PRUNE_LOCK_TIMEOUT_SECONDS = 300.0
 
 
 def _unattended_lock(dry_run: bool) -> IO[str] | None:
@@ -839,6 +1057,29 @@ def _git_common_dir(start: Path) -> Path | None:
     return _resolve(common)
 
 
+def _parse_mode(value: str) -> str:
+    """Normalize --mode to ``full`` or a comma list of artifact kinds in a fixed order, such as ``deps,build``."""
+
+    parts = {part.strip().lower() for part in value.split(",") if part.strip()}
+    unknown = parts - {"full", *ARTIFACT_KINDS}
+    if not parts or unknown:
+        raise click.BadParameter(f"{value!r} is not full, deps, build, or a comma list of deps and build.")
+    if "full" in parts:
+        if len(parts) > 1:
+            raise click.BadParameter("full removes the whole worktree, so it cannot be combined with deps or build.")
+        return "full"
+    return ",".join(kind for kind in ARTIFACT_KINDS if kind in parts)
+
+
+def _artifact_kinds(mode: str) -> frozenset[str]:
+    return frozenset(mode.split(",")) & frozenset(ARTIFACT_KINDS)
+
+
+def _describe_artifact_kinds(mode: str) -> str:
+    labels = {"deps": "dependencies", "build": "build output"}
+    return " and ".join(labels[kind] for kind in ARTIFACT_KINDS if kind in _artifact_kinds(mode))
+
+
 def _parse_cutoff(value: str) -> tuple[float, str]:
     """Parse --before into (cutoff_epoch, human_label). Raises click.BadParameter on garbage."""
 
@@ -895,8 +1136,36 @@ def _discover_worktrees(root: Path, max_depth: int = 2) -> list[Path]:
     return found
 
 
+def _discover_candidate_worktrees(
+    repo_root: Path,
+    registry: dict[Path, dict],
+    selected_sources: set[str] | None,
+    mode: str,
+    skip_hand_made: bool = False,
+) -> list[tuple[str, Path]]:
+    """Worktrees under the known tool roots, then the ones that `git worktree list` registers anywhere else.
+
+    A worktree outside every tool root is one a person made by hand, so --mode
+    full and the unattended run act on it only when --source other asks for it.
+    """
+
+    discovered: list[tuple[str, Path]] = []
+    resolved_roots = [_resolve(root) for _, root in _worktree_roots(repo_root)]
+    for source, root in _worktree_roots(repo_root):
+        if selected_sources is None or source in selected_sources:
+            discovered.extend((source, path) for path in _discover_root_worktrees(root, registry))
+    include_other = (
+        "other" in selected_sources if selected_sources is not None else not (mode == "full" or skip_hand_made)
+    )
+    if include_other:
+        for path in registry:
+            if path.is_dir() and not any(_is_under(path, root) for root in resolved_roots):
+                discovered.append(("other", path))
+    return discovered
+
+
 def _discover_root_worktrees(root: Path, registry: dict[Path, dict]) -> list[Path]:
-    found = _discover_worktrees(root)
+    found = _discover_worktrees(root, max_depth=_SCRATCHPAD_DISCOVERY_DEPTH if root == _claude_scratchpad_root() else 2)
     seen = {_resolve(path) for path in found}
     resolved_root = _resolve(root)
     for path in registry:
@@ -938,6 +1207,79 @@ def _registered_worktrees(repo_root: Path) -> dict[Path, dict] | None:
         elif line.startswith("locked"):
             current["locked"] = True
     return registry
+
+
+def _leftover_worktree_dirs(repo_root: Path, selected_sources: set[str] | None, cutoff: float) -> list[Path]:
+    """Folders where a worktree was, that now hold only the flox caches its removal could not delete.
+
+    Go writes its module cache without write permission, which stopped earlier
+    removals part way. A worktree root in the home directory is shared across
+    repos, so there a folder counts only when it carries this repo's name, as
+    the worktrees there do.
+    """
+
+    leftovers: list[Path] = []
+    for source, root in _worktree_roots(repo_root):
+        if source in ("phw", "claude-scratchpad") or (selected_sources is not None and source not in selected_sources):
+            continue
+        if _is_under(_resolve(root), repo_root):
+            candidates = _child_dirs(root)
+        else:
+            candidates = [child / repo_root.name for child in _child_dirs(root)]
+        for candidate in candidates:
+            if _holds_only_flox_caches(candidate) and _newest_mtime([candidate, candidate / ".flox"]) < cutoff:
+                leftovers.append(candidate)
+    return leftovers
+
+
+def _child_dirs(directory: Path) -> list[Path]:
+    try:
+        return [child for child in directory.iterdir() if child.is_dir() and not child.is_symlink()]
+    except OSError:
+        return []
+
+
+def _holds_only_flox_caches(directory: Path) -> bool:
+    try:
+        if {entry.name for entry in directory.iterdir()} != {".flox"}:
+            return False
+        if {entry.name for entry in (directory / ".flox").iterdir()} != {"cache"}:
+            return False
+        cache_entries = {entry.name for entry in (directory / ".flox" / "cache").iterdir()}
+    except OSError:
+        return False
+    return bool(cache_entries) and cache_entries <= FLOX_CACHE_ARTIFACTS.keys()
+
+
+def _newest_mtime(paths: Sequence[Path]) -> float:
+    try:
+        return max(path.stat().st_mtime for path in paths)
+    except OSError:
+        return float("inf")
+
+
+def _clean_leftover_worktree_dirs(leftovers: list[Path], dry_run: bool, yes: bool) -> None:
+    if not leftovers:
+        return
+    size = measure_disk_usage(leftovers).freeable_bytes
+    click.echo(
+        f"{len(leftovers)} folder(s) of removed worktrees hold only flox caches ({_format_size(size)} to free), "
+        "because Go's read-only module cache stopped their removal:"
+    )
+    for leftover in leftovers[:5]:
+        click.echo(f"  {_display_path(leftover)}")
+    if len(leftovers) > 5:
+        click.echo(f"  … and {len(leftovers) - 5} more")
+    if dry_run:
+        click.echo("[DRY-RUN] Not deleted.\n")
+        return
+    if not yes and not click.confirm("Delete them?", default=False):
+        click.echo()
+        return
+    failed = _delete_paths(leftovers)
+    for leftover in leftovers:
+        _cleanup_empty_parent(leftover)
+    click.echo(f"✓ Deleted {len(leftovers) - failed} folder(s).\n")
 
 
 def _protected_paths(repo_root: Path) -> set[Path]:
@@ -1139,7 +1481,8 @@ def _populate_git_state(worktrees: list[Worktree], has_remotes: bool) -> None:
 
 
 def _compute_git_state(wt: Worktree, has_remotes: bool) -> None:
-    status = _git(wt.path, ["status", "--porcelain"])
+    # status.showUntrackedFiles=no would hide new files, and --force removes them without asking.
+    status = _git(wt.path, ["status", "--porcelain", "--untracked-files=normal"])
     if status is not None and status.returncode == 0:
         wt.dirty = bool(status.stdout.strip())
 
@@ -1158,6 +1501,8 @@ def _compute_git_state(wt: Worktree, has_remotes: bool) -> None:
             else:
                 count = ahead.stdout.strip()
                 wt.unpushed = int(count) if count.isdigit() else 0
+                if wt.unpushed:
+                    wt.squash_merged = _squash_merge(wt.path)
         return
 
     # git couldn't read the worktree's status. Distinguish two cases:
@@ -1179,10 +1524,182 @@ def _repo_has_remotes(repo_root: Path) -> bool:
 
 
 def _git(cwd: Path, args: Sequence[str], timeout: float = 30.0) -> subprocess.CompletedProcess[str] | None:
+    # A plain `git status` refreshes the index, and the index mtime is one of the worktree's activity signals.
     try:
-        return subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, timeout=timeout)
+        return subprocess.run(
+            ["git", "--no-optional-locks", *args],
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            errors="surrogateescape",
+            timeout=timeout,
+        )
     except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
         return None
+
+
+# A branch with more changed files than this is no squash merge to look for, and its file list would
+# not fit one git command line.
+_SQUASH_MAX_FILES = 1000
+_SQUASH_MAX_CANDIDATES = 2000
+
+
+def _squash_merge(worktree: Path) -> str | None:
+    """Where the unpushed commits of *worktree* landed through a squash merge, or None.
+
+    The merge queue lands a pull request as one new commit on the default branch
+    and deletes the branch. The branch's own commits are then on no remote and
+    are not ancestors of the default branch, although the work is merged.
+
+    The offline check compares the patch id (a stable hash of a diff) of the
+    branch's whole change with the default-branch commits since the branch left
+    it that touch the same files. It misses a merge whose diff the queue changed,
+    for example by resolving a conflict. The GitHub CLI, when it is installed and
+    logged in, then looks for a merged pull request that contains HEAD.
+    """
+
+    head = _git(worktree, ["rev-parse", "HEAD"])
+    if head is None or head.returncode != 0:
+        return None
+    sha = head.stdout.strip()
+    default = _default_branch_ref(worktree)
+    if default is None:
+        return None
+    commit = _squash_commit(worktree, sha, default)
+    if commit is not None:
+        return commit[:10]
+    return _merged_pull_request(worktree, sha, default.removeprefix("origin/"))
+
+
+def _default_branch_ref(worktree: Path) -> str | None:
+    symbolic = _git(worktree, ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"])
+    if symbolic is not None and symbolic.returncode == 0 and symbolic.stdout.strip():
+        return symbolic.stdout.strip()
+    for candidate in ("origin/master", "origin/main"):
+        verified = _git(worktree, ["rev-parse", "--verify", "--quiet", candidate])
+        if verified is not None and verified.returncode == 0:
+            return candidate
+    return None
+
+
+def _squash_commit(worktree: Path, head: str, default: str) -> str | None:
+    base = _git(worktree, ["merge-base", default, head])
+    if base is None or base.returncode != 0:
+        return None
+    fork_point = base.stdout.strip()
+    changed = _git(worktree, ["diff", "--name-only", "--no-renames", fork_point, head])
+    if changed is None or changed.returncode != 0:
+        return None
+    files = changed.stdout.splitlines()
+    if not files or len(files) > _SQUASH_MAX_FILES:
+        return None
+    own = _patch_ids(worktree, ["diff", "--no-renames", fork_point, head])
+    if not own:
+        return None
+    candidates = _patch_ids(
+        worktree,
+        [
+            "log",
+            "-p",
+            "--no-renames",
+            "--format=commit %H",
+            "-n",
+            str(_SQUASH_MAX_CANDIDATES),
+            f"{fork_point}..{default}",
+            "--",
+            *files,
+        ],
+    )
+    commit = candidates.get(next(iter(own)))
+    if commit is None or not _contains_branch(worktree, commit, head):
+        return None
+    return commit
+
+
+def _contains_branch(worktree: Path, commit: str, head: str) -> bool:
+    """Whether merging *head* into *commit* changes nothing.
+
+    A patch id leaves out where each hunk applies, so an edit moved to another block with the same
+    context lines has the id of the squash it no longer matches. Merging catches that."""
+
+    merged = _git(worktree, ["merge-tree", "--write-tree", commit, head])
+    tree = _git(worktree, ["rev-parse", f"{commit}^{{tree}}"])
+    if merged is None or tree is None or merged.returncode != 0 or tree.returncode != 0:
+        return False
+    return merged.stdout.split("\n", 1)[0].strip() == tree.stdout.strip()
+
+
+def _patch_ids(cwd: Path, git_args: Sequence[str], timeout: float = 120.0) -> dict[str, str]:
+    """The commit of each patch id among the patches that ``git <git_args>`` prints, the first one per id.
+
+    The patches stream straight into ``git patch-id``: a long history of a big, often rewritten file
+    would not fit in memory, and several worktrees are checked at once.
+    Diffs are bytes, not text: a binary or non-UTF-8 file would make a text decode fail.
+    --verbatim keeps whitespace in the id, so a re-indent committed after the merge does not match it."""
+
+    try:
+        with subprocess.Popen(["git", *git_args], cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL) as patch:
+            try:
+                ids = subprocess.run(
+                    ["git", "patch-id", "--verbatim"],
+                    cwd=cwd,
+                    stdin=patch.stdout,
+                    capture_output=True,
+                    timeout=timeout,
+                )
+                # Closed here too, so git exits on a broken pipe instead of blocking if patch-id stopped reading.
+                patch.stdout.close()
+                if patch.wait(timeout=timeout) != 0:
+                    return {}
+            except subprocess.TimeoutExpired:
+                # Leaving the with block waits for git without a timeout, so a stalled git is killed first.
+                patch.kill()
+                return {}
+    except (FileNotFoundError, OSError):
+        return {}
+    commits: dict[str, str] = {}
+    for line in ids.stdout.decode(errors="replace").splitlines():
+        parts = line.split()
+        if len(parts) == 2:
+            commits.setdefault(parts[0], parts[1])
+    return commits
+
+
+def _merged_pull_request(worktree: Path, head: str, base: str) -> str | None:
+    """A pull request merged into *base* that contains HEAD. A stacked pull request merged into a
+    branch that never reached *base* does not count."""
+
+    gh = shutil.which("gh")
+    if gh is None:
+        return None
+    # The search also matches pull requests that only mention the hash, so HEAD must be one of the commits.
+    query = f'[.[] | select(any(.commits[]; .oid == "{head}")) | .number][0] // empty'
+    try:
+        result = subprocess.run(
+            [
+                gh,
+                "pr",
+                "list",
+                "--state",
+                "merged",
+                "--base",
+                base,
+                "--search",
+                head,
+                "--json",
+                "number,commits",
+                "--jq",
+                query,
+            ],
+            cwd=worktree,
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        return None
+    number = result.stdout.strip()
+    return f"#{number}" if result.returncode == 0 and number.isdigit() else None
 
 
 def _state_markers(wt: Worktree) -> str:
@@ -1190,7 +1707,9 @@ def _state_markers(wt: Worktree) -> str:
     if wt.dirty:
         parts.append("uncommitted changes")
     if wt.unpushed:
-        parts.append(f"{wt.unpushed} unpushed commit(s)")
+        parts.append(
+            f"{wt.unpushed} unpushed commit(s)" + (f" merged as {wt.squash_merged}" if wt.squash_merged else "")
+        )
     if wt.detached:
         parts.append("detached HEAD")
     if wt.state_unknown:
@@ -1207,7 +1726,9 @@ def _listing_markers(wt: Worktree, mode: str) -> str:
     if mode == "full":
         if wt.dirty:
             parts.append("dirty")
-        if wt.unpushed:
+        if wt.unpushed and wt.squash_merged:
+            parts.append(f"merged as {wt.squash_merged}")
+        elif wt.unpushed:
             parts.append(f"{wt.unpushed} unpushed")
         if wt.detached:
             parts.append("detached")
@@ -1217,15 +1738,15 @@ def _listing_markers(wt: Worktree, mode: str) -> str:
 
 
 def _populate_sizes(worktrees: list[Worktree], mode: str, cutoff: float) -> None:
-    """Fill in .size (and deps items/sizes for deps mode) using a thread pool."""
+    """Fill in .usage, and the artifact items outside full mode, using a thread pool."""
 
     def work(wt: Worktree) -> None:
         if mode == "full":
-            wt.deps_sizes = _du_sizes([wt.path])
+            wt.usage = measure_disk_usage([wt.path])
         else:
-            wt.deps_items = [item for item in _collect_deps_items(wt.path) if not _cargo_built_since(item, cutoff)]
-            wt.deps_sizes = _du_sizes(wt.deps_items)
-        wt.size = sum(wt.deps_sizes.values())
+            artifacts = _git_approved_artifacts(wt.path, _collect_artifacts(wt.path, _artifact_kinds(mode)))
+            wt.artifact_items = [item for item in artifacts if not _cargo_built_since(item, cutoff)]
+            wt.usage = measure_disk_usage(wt.artifact_items)
 
     if not worktrees:
         return
@@ -1233,51 +1754,135 @@ def _populate_sizes(worktrees: list[Worktree], mode: str, cutoff: float) -> None
         list(pool.map(work, worktrees))
 
 
-def _collect_deps_items(worktree: Path) -> list[Path]:
-    """Find dependency/build-artifact directories inside a worktree.
+@dataclass(frozen=True, kw_only=True, slots=True)
+class _Artifact:
+    path: Path
+    kinds: frozenset[str]
+
+
+def _collect_artifacts(worktree: Path, kinds: frozenset[str]) -> list[_Artifact]:
+    """Find the dependency and build-output paths of the selected *kinds* inside a worktree.
 
     Every returned path is resolved and confirmed to stay within the worktree, so
     a symlinked component (e.g. a `frontend` symlinked to shared storage) can
-    never cause deletion outside the worktree.
+    never cause deletion outside the worktree. The walk does not enter another
+    repository, submodule or worktree nested inside this one.
     """
 
     worktree_resolved = _resolve(worktree)
-    items: list[Path] = []
-    seen: set[Path] = set()
+    found: dict[Path, frozenset[str]] = {}
 
-    def add(candidate: Path) -> None:
+    def add(candidate: Path, rule_kinds: frozenset[str]) -> None:
+        selected = rule_kinds & kinds
+        if not selected:
+            return
+        # A symlinked artifact name points at another folder, which may be someone's work, so only real folders count.
+        if candidate.is_symlink():
+            return
         resolved = _resolve(candidate)
-        if not _is_under(resolved, worktree_resolved):
-            return  # symlink/`..` escape — refuse to delete outside the worktree
-        if resolved not in seen and resolved.exists():
-            seen.add(resolved)
-            items.append(resolved)
+        if _is_under(resolved, worktree_resolved) and resolved.exists():
+            found.setdefault(resolved, selected)
 
-    for dirpath, dirnames, _ in os.walk(worktree):
-        matched: list[str] = []
-        for name in list(dirnames):
-            if name in DEPS_RECURSIVE_DIRS:
-                full = Path(dirpath) / name
-                if name == "target" and not _looks_like_cargo_target(full):
-                    continue
-                add(full)
-                matched.append(name)
-        # Don't descend into matched artifacts, skip-listed dirs, or the
-        # explicit-path artifact dirs (handled by the glob pass below).
-        dirnames[:] = [
-            d for d in dirnames if d not in matched and d not in DEPS_WALK_SKIP and d not in DEPS_WALK_PRUNE_LEAVES
-        ]
+    for dirpath, dirnames, filenames in os.walk(worktree):
+        parent = Path(dirpath)
+        descend: list[str] = []
+        for name in dirnames:
+            child = parent / name
+            if (child / ".git").exists():
+                continue
+            if name == ".flox":
+                for cache_child, rule_kinds in FLOX_CACHE_ARTIFACTS.items():
+                    add(child / "cache" / cache_child, rule_kinds)
+                continue
+            rule = ARTIFACT_DIRS.get(name)
+            if rule is not None and rule.applies_to(child):
+                add(child, rule.kinds)
+                continue
+            if name in _WALK_SKIP:
+                continue
+            descend.append(name)
+        dirnames[:] = descend
+        for name in filenames:
+            if name.endswith(BUILD_FILE_SUFFIXES):
+                add(parent / name, _BUILD)
 
-    for pattern in DEPS_EXPLICIT_PATHS:
+    for pattern in BUILD_EXPLICIT_PATHS:
         for path in worktree.glob(pattern):
             if path.is_dir():
-                add(path)
+                add(path, _BUILD)
 
-    return items
+    outermost = sorted(found, key=lambda path: len(path.parts))
+    kept: list[_Artifact] = []
+    kept_paths: set[Path] = set()
+    for path in outermost:
+        if not any(ancestor in kept_paths for ancestor in path.parents):
+            kept_paths.add(path)
+            kept.append(_Artifact(path=path, kinds=found[path]))
+    return kept
 
 
-def _looks_like_cargo_target(path: Path) -> bool:
-    return (path / "CACHEDIR.TAG").exists() or (path / "debug").exists() or (path / "release").exists()
+def _git_approved_artifacts(worktree: Path, artifacts: list[_Artifact]) -> list[Path]:
+    """The artifacts that hold no tracked file and, unless they are dependencies, hold only files that git ignores.
+
+    A generated file that the repo commits, or a file git does not ignore, may be
+    someone's work, so a path that holds one stays. A dependency folder may be
+    outside .gitignore, because no one writes their own files into one. When
+    git cannot answer, nothing is approved, and that includes an orphaned
+    worktree, whose lost index leaves git unable to say what its branch tracks.
+    """
+
+    if not artifacts:
+        return []
+    gitdir = _gitdir_for(worktree)
+    if gitdir is None or not gitdir.is_dir():
+        click.echo(f"  {_display_path(worktree)} is orphaned, so git cannot check it and nothing in it is removed.")
+        return []
+    status = _git(
+        worktree, ["status", "--porcelain=v1", "-z", "--ignored=traditional", "--untracked-files=normal"], timeout=120.0
+    )
+    if status is None or status.returncode != 0:
+        click.echo(f"  ⚠️  git could not list what {_display_path(worktree)} ignores, so nothing in it is removed.")
+        return []
+
+    untracked: set[str] = set()
+    ignored: set[str] = set()
+    entries = iter(status.stdout.split("\0"))
+    for entry in entries:
+        code, path = entry[:2], entry[3:].rstrip("/")
+        if code == "??":
+            untracked.add(path)
+        elif code == "!!":
+            ignored.add(path)
+        elif "R" in code or "C" in code:
+            next(entries, None)
+
+    worktree_resolved = _resolve(worktree)
+    approved: list[Path] = []
+    for artifact in artifacts:
+        if _holds_nested_repo(artifact.path):
+            continue
+        relative = artifact.path.relative_to(worktree_resolved).as_posix()
+        if _is_or_is_under_any(relative, ignored) or (
+            "deps" in artifact.kinds and _is_or_is_under_any(relative, untracked)
+        ):
+            approved.append(artifact.path)
+    return approved
+
+
+def _holds_nested_repo(artifact: Path) -> bool:
+    """Whether a repo that git does not see from outside sits near the top of *artifact*, such as a pip editable install in .venv/src."""
+
+    return artifact.is_dir() and any(
+        True for pattern in ("*/.git", "*/*/.git", "*/*/*/.git") for _ in itertools.islice(artifact.glob(pattern), 1)
+    )
+
+
+def _is_or_is_under_any(relative_path: str, directories: set[str]) -> bool:
+    while relative_path:
+        if relative_path in directories:
+            return True
+        relative_path = relative_path.rpartition("/")[0]
+    return False
 
 
 def _without_cargo_builds(worktrees: list[Worktree]) -> list[Worktree]:
@@ -1295,7 +1900,7 @@ def _without_cargo_builds(worktrees: list[Worktree]) -> list[Worktree]:
 
 
 def _cargo_built_since(path: Path, cutoff: float) -> bool:
-    return path.name == "target" and _looks_like_cargo_target(path) and last_cargo_build_epoch(path) >= cutoff
+    return path.name == "target" and looks_like_cargo_target(path) and last_cargo_build_epoch(path) >= cutoff
 
 
 def _clean_legacy_cargo_target(cutoff: float, dry_run: bool, yes: bool) -> None:
@@ -1303,7 +1908,7 @@ def _clean_legacy_cargo_target(cutoff: float, dry_run: bool, yes: bool) -> None:
     if target is None:
         return
 
-    size = sum(_du_sizes([target]).values())
+    size = measure_disk_usage([target]).freeable_bytes
     click.echo(
         f"Old shared Cargo target {_display_path(target)}: {_format_size(size)}, "
         f"last build {_ago(last_cargo_build_epoch(target))} ago. Cargo built here while the Flox env set CARGO_TARGET_DIR."
@@ -1322,42 +1927,6 @@ def _clean_legacy_cargo_target(cutoff: float, dry_run: bool, yes: bool) -> None:
     click.echo()
 
 
-def _du_sizes(paths: Sequence[Path]) -> dict[str, float]:
-    """On-disk size in bytes per path via a single `du -sk`.
-
-    Keyed by the string path passed to `du` (which echoes it back). Parses
-    whatever du printed regardless of exit code, so one unreadable path doesn't
-    zero the whole batch.
-    """
-
-    existing = [str(p) for p in paths if p.exists()]
-    if not existing:
-        return {}
-    try:
-        result = subprocess.run(
-            ["du", "-sk", *existing],
-            capture_output=True,
-            text=True,
-            timeout=_DU_TIMEOUT_SECONDS,
-        )
-    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
-        return {}
-
-    sizes: dict[str, float] = {}
-    for line in result.stdout.splitlines():
-        if not line.strip():
-            continue
-        parts = line.split("\t", 1)
-        if len(parts) < 2:
-            parts = line.split(None, 1)
-        if len(parts) < 2:
-            continue
-        size_kb, path_str = parts[0].strip(), parts[1].strip()
-        if size_kb.isdigit():
-            sizes[path_str] = int(size_kb) * 1024.0
-    return sizes
-
-
 def _execute(
     worktrees: list[Worktree],
     mode: str,
@@ -1371,9 +1940,8 @@ def _execute(
 
     The reclaimed figure is measured from actual filesystem free space before/after,
     so it reflects what was genuinely freed — hardlinked (pnpm store) and
-    copy-on-write-cloned (APFS) blocks that are shared elsewhere don't count,
-    unlike the du-based pre-delete estimate. Falls back to -1.0 if free space
-    couldn't be measured.
+    copy-on-write-cloned (APFS) blocks that are shared elsewhere don't count. Falls
+    back to -1.0 if free space couldn't be measured.
     """
 
     # Anchor on each target's parent (which survives the deletion) so disk_usage
@@ -1394,8 +1962,13 @@ def _execute(
             click.echo(f"  skipped {_display_path(wt.path)}: a running process now has it as its working directory")
             continue
         before_remove(wt)
-        if mode == "deps":
-            if _delete_paths(wt.deps_items):
+        if mode != "full":
+            # Git can start tracking a path while the prompt waits, so only paths that git still approves now go.
+            still_approved = set(_git_approved_artifacts(wt.path, _collect_artifacts(wt.path, _artifact_kinds(mode))))
+            items = [item for item in wt.artifact_items if item in still_approved]
+            if not items:
+                continue
+            if _delete_paths(items):
                 failed += 1
             else:
                 removed += 1
@@ -1492,16 +2065,44 @@ def _rmtree(path: Path) -> None:
 
 
 def _delete_paths(paths: Sequence[Path]) -> int:
-    """Remove deps directories; return how many could not be removed."""
+    """Remove artifact directories and files; return how many could not be removed.
+
+    Every removal outside --mode full goes through here, so the nested-repo
+    guard sits here too. A folder that holds a `.git` entry at any depth may
+    hold commits or edits that no other copy has, and it is kept whatever rule
+    selected it.
+    """
 
     failures = 0
     for path in paths:
         try:
-            _rmtree(path)
+            if path.is_dir() and not path.is_symlink():
+                if _holds_git_entry(path):
+                    click.echo(f"  ⚠️  kept {_display_path(path)} because a git repository is inside it.")
+                    failures += 1
+                    continue
+                _rmtree(path)
+            else:
+                path.unlink(missing_ok=True)
         except OSError as err:
             click.echo(f"  ⚠️  could not remove {_display_path(path)}: {err}")
             failures += 1
     return failures
+
+
+def _holds_git_entry(directory: Path) -> bool:
+    pending = [str(directory)]
+    while pending:
+        try:
+            with os.scandir(pending.pop()) as entries:
+                for entry in entries:
+                    if entry.name == ".git":
+                        return True
+                    if entry.is_dir(follow_symlinks=False):
+                        pending.append(entry.path)
+        except OSError:
+            return True
+    return False
 
 
 def _cleanup_empty_parent(path: Path) -> None:

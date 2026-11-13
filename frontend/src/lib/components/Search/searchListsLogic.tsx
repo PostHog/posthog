@@ -141,7 +141,7 @@ export interface searchListsLogicMeta {
         showUnreleased: (isDev: boolean | undefined, user: UserType | null) => boolean
         showTerminal: (featureFlags: FeatureFlagsSet, arg: boolean) => boolean
         hasOrganizationIntegrations: (organizationIntegrations: IntegrationType[] | null) => boolean
-        starredItems: (cachedStarred: FileSystemEntry[]) => SearchItem[]
+        starredItems: (cachedStarred: FileSystemEntry[], featureFlags: FeatureFlagsSet) => SearchItem[]
         productsItems: (
             featureFlags: FeatureFlagsSet,
             showUnreleased: boolean,
@@ -249,8 +249,9 @@ export const searchListsLogic = kea<searchListsLogicType>([
             (organizationIntegrations: IntegrationType[] | null): boolean => !!organizationIntegrations?.length,
         ],
         starredItems: [
-            (s) => [s.cachedStarred],
-            (cachedStarred: FileSystemEntry[]): SearchItem[] => starredSearchItems(cachedStarred),
+            (s) => [s.cachedStarred, s.featureFlags],
+            (cachedStarred: FileSystemEntry[], featureFlags: FeatureFlagsSet): SearchItem[] =>
+                starredSearchItems(cachedStarred, featureFlags),
         ],
         productsItems: [
             (s) => [s.featureFlags, s.showUnreleased, s.sceneLogViewsByRef],

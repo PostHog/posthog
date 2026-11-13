@@ -78,4 +78,40 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "eventTime": "The time at which the change occurred.",
         },
     },
+    "network_flow_logs": {
+        "description": "Network flow log records: per-node traffic counters for each connection over a short interval. Tailscale retains the most recent 30 days; syncing to the warehouse preserves them for longer.",
+        "docs_url": "https://tailscale.com/kb/1219/network-flow-logs",
+        "columns": {
+            "logged": "The time the Tailscale logs service recorded the message, usually after `end`.",
+            "nodeId": "The stable identifier of the node that generated the record.",
+            "start": "The start of the period the traffic counters cover, as recorded by the node.",
+            "end": "The end of the period the traffic counters cover, as recorded by the node.",
+            "virtualTraffic": "Per-connection counters for traffic between Tailscale IP addresses.",
+            "subnetTraffic": "Per-connection counters for traffic to or from devices behind a subnet router.",
+            "exitTraffic": "Per-connection counters for traffic routed through an exit node.",
+            "physicalTraffic": "Per-connection counters for traffic on the node's physical network interfaces.",
+        },
+    },
+    "services": {
+        "description": "Tailscale Services defined in the tailnet, with their addresses, ports, and tags.",
+        "docs_url": "https://tailscale.com/api#tag/services",
+        "columns": {
+            "name": "The unique name of the Service, prefixed with `svc:`.",
+            "displayName": "An optional human-readable label for the Service.",
+            "addrs": "The IP addresses assigned to the Service: the IPv4 followed by the IPv6.",
+            "comment": "An optional comment for the Service.",
+            "ports": "The protocol:port pairs the Service exposes.",
+            "tags": "The tags associated with the Service.",
+        },
+    },
+    "service_devices": {
+        "description": "Devices hosting each Tailscale Service, with their approval and configuration status. Join to devices on `stableNodeID` = `nodeId`.",
+        "docs_url": "https://tailscale.com/api#tag/services",
+        "columns": {
+            "serviceName": "The name of the Service the device hosts.",
+            "stableNodeID": "The preferred identifier of the hosting device.",
+            "approvalLevel": "Whether the device is approved to host the Service (not-approved, approved:auto, approved:manual).",
+            "configured": "The configuration status of the device hosting the Service.",
+        },
+    },
 }

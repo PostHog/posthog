@@ -36,6 +36,7 @@ from products.signals.backend.report_assignments import (
 from products.signals.backend.report_claims import get_active_claim, get_active_claims, responsible_users
 from products.signals.backend.report_monitoring_attempts import complete_implementation
 from products.signals.backend.suggested_reviewer_index import sync_suggested_reviewer_index
+from products.signals.backend.task_run_artefacts import record_implementation_task
 
 
 class TestPrimaryPullRequest(SimpleTestCase):
@@ -610,6 +611,71 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
         claim = SignalReportArtefact.objects.get(report=report, type="work_claim")
         assert json.loads(claim.content)["display_name"] == expected
 
+    @parameterized.expand(
+        [
+            ("agent_without_claim_id", "codex", False, status.HTTP_409_CONFLICT, SignalActorKind.USER),
+            ("agent_with_claim_id", "codex", True, status.HTTP_200_OK, SignalActorKind.AGENT),
+            ("agent_with_overlong_client_name", "c" * 200, True, status.HTTP_200_OK, SignalActorKind.AGENT),
+            # Combining marks hide most of the length from a character count, so the cap must use the raw length.
+            ("agent_with_combining_marks", "q\u0301" * 100, True, status.HTTP_200_OK, SignalActorKind.AGENT),
+            ("person_with_claim_id", None, True, status.HTTP_200_OK, SignalActorKind.USER),
+            # The notification carries the report title, so someone who lost Inbox access gets none.
+            ("holder_without_inbox_access", None, True, status.HTTP_200_OK, SignalActorKind.USER),
+        ]
+    )
+    @patch("products.signals.backend.claim_takeover_notification.create_notification")
+    def test_taking_over_another_persons_claim_needs_claim_id_and_notifies_them(
+        self,
+        name: str,
+        agent: str | None,
+        send_claim_id: bool,
+        expected_status: int,
+        expected_kind: str,
+        mock_create_notification: MagicMock,
+    ):
+        report = self._create_report(title="Checkout fails")
+        teammate = User.objects.create_and_join(self.organization, "dana@example.com", None, first_name="Dana")
+        self.client.force_login(teammate)
+        teammate_claim = self.client.post(self._claim_url(report), data={}, format="json").json()["assignee"]
+        if name == "agent_with_combining_marks":
+            self.user.first_name = "F" * 60
+            self.user.save(update_fields=["first_name"])
+        self.client.force_login(self.user)
+
+        data: dict[str, object] = {"takeover": True}
+        if send_claim_id:
+            data["takeover_claim_id"] = teammate_claim["claim_id"]
+        with (
+            patch(
+                "products.signals.backend.claim_takeover_notification.may_read_reports",
+                return_value=name != "holder_without_inbox_access",
+            ),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self.client.post(
+                self._claim_url(report),
+                data=data,
+                format="json",
+                headers=self._agent_headers(agent) if agent else None,
+            )
+
+        assert response.status_code == expected_status
+        assignment = get_active_claim(team_id=self.team.id, report_id=report.id)
+        assert assignment is not None
+        assert assignment.actor_kind == expected_kind
+        if expected_status == status.HTTP_409_CONFLICT:
+            assert "Dana is working on this report" in response.json()["detail"]
+            assert assignment.actor_user_id == teammate.id
+            mock_create_notification.assert_not_called()
+        elif name == "holder_without_inbox_access":
+            mock_create_notification.assert_not_called()
+        else:
+            mock_create_notification.assert_called_once()
+            notification = mock_create_notification.call_args.args[0]
+            assert notification.target_id == str(teammate.id)
+            assert notification.body == "Checkout fails"
+            assert len(notification.title) <= 255
+
     def test_claimants_own_task_works_under_their_claim(self):
         Task = apps.get_model("tasks", "Task")
         report = self._create_report()
@@ -635,6 +701,34 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
         assert note.status_code == status.HTTP_201_CREATED
         assert note.json()["claim_id"] == claim_id
         assert release.status_code == status.HTTP_409_CONFLICT
+
+    # The task id is caller-supplied, so a task works under its creator's agent claim only when task creation
+    # associated it with that claim.
+    @parameterized.expand(
+        [("associated_task", True, status.HTTP_200_OK), ("named_task", False, status.HTTP_409_CONFLICT)]
+    )
+    def test_task_header_resumes_an_agent_claim_only_through_its_association(
+        self, _name: str, associated: bool, expected_status: int
+    ) -> None:
+        Task = apps.get_model("tasks", "Task")
+        report = self._create_report()
+        claim_id = self.client.post(
+            self._claim_url(report), data={}, format="json", headers=self._agent_headers("codex")
+        ).json()["assignee"]["claim_id"]
+        task = Task.objects.create(
+            team=self.team, created_by=self.user, title="Signal task", origin_product=Task.OriginProduct.SIGNAL_REPORT
+        )
+        if associated:
+            record_implementation_task(team_id=self.team.id, report_id=str(report.id), task_id=str(task.id))
+
+        resumed = self.client.post(
+            self._claim_url(report),
+            data={"claim_id": claim_id},
+            format="json",
+            headers={"X-PostHog-Task-Id": str(task.id)},
+        )
+
+        assert resumed.status_code == expected_status
 
     @parameterized.expand(
         [

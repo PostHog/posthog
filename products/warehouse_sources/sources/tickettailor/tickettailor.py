@@ -5,20 +5,24 @@ from requests import Request, Response
 
 from products.warehouse_sources.sources.sdk import (
     BasePaginator,
+    ClientConfig,
+    Endpoint,
     HttpBasicAuth,
     RESTAPIConfig,
     ResumableSourceManager,
     SourceResponse,
+    build_dependent_resource,
     make_tracked_session,
     rest_api_resource,
     validate_via_probe,
 )
-from products.warehouse_sources.sources.tickettailor.settings import TICKET_TAILOR_ENDPOINTS
+from products.warehouse_sources.sources.tickettailor.settings import (
+    PAGE_SIZE,
+    TICKET_TAILOR_ENDPOINTS,
+    TicketTailorEndpointConfig,
+)
 
 TICKET_TAILOR_BASE_URL = "https://api.tickettailor.com"
-# List endpoints cap `limit` at 100; the largest page minimises round trips against the
-# 5000 requests / 30 minutes rate limit.
-PAGE_SIZE = 100
 # Cheap endpoint used to confirm an API key is genuine. Keys are scoped to a whole box office,
 # so one probe validates access to every list endpoint.
 DEFAULT_PROBE_PATH = "/v1/events"
@@ -30,6 +34,9 @@ class TicketTailorResumeConfig:
     # `starting_after` (lists are returned newest-first). A crashed sync resumes from the page
     # after the last one yielded; merge dedupes on `id`. `None` means start from the first page.
     cursor: str | None = None
+    # Fan-out progress (finished parents plus the in-progress child cursor) for the endpoints read
+    # once per voucher or event series.
+    fanout_state: Optional[dict[str, Any]] = None
 
 
 class TicketTailorPaginator(BasePaginator):
@@ -84,6 +91,27 @@ class TicketTailorPaginator(BasePaginator):
             self._has_next_page = True
 
 
+def _client_config(api_key: str) -> ClientConfig:
+    return {
+        "base_url": TICKET_TAILOR_BASE_URL,
+        # Ticket Tailor authenticates via HTTP Basic with the API key as the username and no
+        # password. Supplied through the framework auth config so the credential is redacted.
+        "auth": {"type": "http_basic", "username": api_key, "password": ""},
+        "headers": {"Accept": "application/json"},
+        "paginator": TicketTailorPaginator(),
+    }
+
+
+def _list_endpoint_extra() -> Endpoint:
+    return {
+        "data_selector": "data",
+        # List endpoints wrap records in {"data": [...], "links": {...}}. A 200 whose body isn't
+        # that shape (non-dict, or missing/non-list `data`) is treated as a transient truncation
+        # and retried rather than ingested as a stray row.
+        "data_selector_malformed_retryable": True,
+    }
+
+
 def tickettailor_source(
     api_key: str,
     endpoint: str,
@@ -92,31 +120,18 @@ def tickettailor_source(
     job_id: str,
 ) -> SourceResponse:
     config = TICKET_TAILOR_ENDPOINTS[endpoint]
+    if config.fanout is not None:
+        return _fanout_source(api_key, endpoint, config, resumable_source_manager, team_id, job_id)
 
+    list_endpoint: Endpoint = {
+        "path": config.path,
+        "params": {"limit": PAGE_SIZE} if config.sends_limit else {},
+    }
+    list_endpoint.update(_list_endpoint_extra())
     rest_config: RESTAPIConfig = {
-        "client": {
-            "base_url": TICKET_TAILOR_BASE_URL,
-            # Ticket Tailor authenticates via HTTP Basic with the API key as the username and no
-            # password. Supplied through the framework auth config so the credential is redacted.
-            "auth": {"type": "http_basic", "username": api_key, "password": ""},
-            "headers": {"Accept": "application/json"},
-            "paginator": TicketTailorPaginator(),
-        },
+        "client": _client_config(api_key),
         "resource_defaults": {},
-        "resources": [
-            {
-                "name": endpoint,
-                "endpoint": {
-                    "path": config.path,
-                    "params": {"limit": PAGE_SIZE},
-                    "data_selector": "data",
-                    # List endpoints wrap records in {"data": [...], "links": {...}}. A 200 whose
-                    # body isn't that shape (non-dict, or missing/non-list `data`) is treated as a
-                    # transient truncation and retried rather than ingested as a stray row.
-                    "data_selector_malformed_retryable": True,
-                },
-            }
-        ],
+        "resources": [{"name": endpoint, "endpoint": list_endpoint}],
     }
 
     initial_paginator_state: Optional[dict[str, Any]] = None
@@ -151,6 +166,52 @@ def tickettailor_source(
         # Lists are returned newest-first by object id. Inert while every endpoint is full
         # refresh, but declared so a future incremental cursor can't corrupt its watermark.
         sort_mode="desc",
+    )
+
+
+def _fanout_source(
+    api_key: str,
+    endpoint: str,
+    config: TicketTailorEndpointConfig,
+    resumable_source_manager: ResumableSourceManager[TicketTailorResumeConfig],
+    team_id: int,
+    job_id: str,
+) -> SourceResponse:
+    assert config.fanout is not None
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None and resume.fanout_state:
+            initial_paginator_state = resume.fanout_state
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        resumable_source_manager.save_state(TicketTailorResumeConfig(fanout_state=state))
+
+    resource = build_dependent_resource(
+        endpoint_configs=TICKET_TAILOR_ENDPOINTS,
+        child_endpoint=endpoint,
+        fanout=config.fanout,
+        client_config=_client_config(api_key),
+        path_format_values={},
+        team_id=team_id,
+        job_id=job_id,
+        db_incremental_field_last_value=None,
+        parent_endpoint_extra=_list_endpoint_extra(),
+        child_endpoint_extra=_list_endpoint_extra(),
+        resume_hook=save_checkpoint,
+        initial_paginator_state=initial_paginator_state,
+        resume_parent_pagination=True,
+    )
+
+    return SourceResponse(
+        name=endpoint,
+        items=lambda: resource,
+        primary_keys=config.primary_keys,
+        partition_count=1,
+        partition_size=1,
+        # Rows arrive newest-first within each parent, so the table as a whole has no order.
+        sort_mode=None,
     )
 
 
