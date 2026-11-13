@@ -70,18 +70,20 @@ async function seedBacklogOf(profilePath: string, env: NodeJS.ProcessEnv): Promi
         process.stderr.write(`${new CardError(profilePath, read.problems).message}\n`)
         return EXIT_CODE.invalid
     }
-    const { backlog, settings } = read.profile
+    const { name, backlog, settings } = read.profile
     if (backlog === undefined) {
         process.stderr.write(`${profilePath} has no backlog to seed\n`)
         return EXIT_CODE.invalid
     }
     const stateDir = defaultStateDir(env)
     const [spec] = roleSpecs(env, { url: '' }, secretsOf(env), stateDir, settings)
-    const { queues, bytes, manifest } = await seedBacklog(backlog, cyclotronUrlOf(spec), stateDir)
+    const { queues, bytes, manifest } = await seedBacklog(name, backlog, cyclotronUrlOf(spec), stateDir)
     for (const { queue, target, live } of queues) {
         process.stdout.write(`${queue}: ${live} live rows of ${target}\n`)
     }
-    process.stdout.write(`bytes: table ${bytes.table}, indexes ${bytes.indexes}, toast ${bytes.toast}\n`)
+    process.stdout.write(
+        `cyclotron_jobs bytes, every row and dead tuple included: table ${bytes.table}, indexes ${bytes.indexes}, toast ${bytes.toast}\n`
+    )
     const outside = queues.filter(({ withinTolerance }) => !withinTolerance)
     for (const { queue, target, live } of outside) {
         const share = Number((backlog.tolerance * 100).toFixed(2))

@@ -14,13 +14,17 @@ export type ResidentRows = { teamId: number; status: string; rows: number }
 
 export type Footprint = { table: number; indexes: number; toast: number }
 
-export type BacklogManifest = { seededAt: string; rows: ResidentRows[]; bytes: Footprint }
+export type BacklogManifest = { profile: string; seededAt: string; rows: ResidentRows[]; bytes: Footprint }
 
 export type QueueCount = { queue: string; target: number; live: number; withinTolerance: boolean }
 
 export type SeedResult = { queues: QueueCount[]; bytes: Footprint; manifest?: string }
 
-export type ResidentBacklog = { seeded?: ResidentRows[]; found: ResidentRows[] }
+export type ResidentBacklog = {
+    profile: string
+    seeded?: { profile: string; rows: ResidentRows[] }
+    found: ResidentRows[]
+}
 
 const BATCH_JOBS = 500
 const BATCH_BYTES = 8 * 1024 * 1024
@@ -94,7 +98,7 @@ async function liveRowsPerQueue(cyclotronUrl: string): Promise<Map<string, numbe
     return await withPostgres(async (client) => {
         const { rows } = await client.query<{ queue: string; live: number }>(
             `SELECT queue_name AS queue, count(*)::int AS live
-             FROM cyclotron_jobs WHERE team_id >= $1 GROUP BY 1`,
+             FROM cyclotron_jobs WHERE team_id >= $1 AND status = 'available' AND scheduled > now() GROUP BY 1`,
             [RESIDENT_TEAMS_FROM]
         )
         return new Map(rows.map(({ queue, live }) => [queue, live]))
@@ -114,7 +118,12 @@ async function footprintOf(cyclotronUrl: string): Promise<Footprint> {
     }, cyclotronUrl)
 }
 
-export async function seedBacklog(backlog: Backlog, cyclotronUrl: string, stateDir: string): Promise<SeedResult> {
+export async function seedBacklog(
+    profile: string,
+    backlog: Backlog,
+    cyclotronUrl: string,
+    stateDir: string
+): Promise<SeedResult> {
     const now = new Date()
     const manifest = manifestPathOf(stateDir)
     rmSync(manifest, { force: true })
@@ -142,7 +151,12 @@ export async function seedBacklog(backlog: Backlog, cyclotronUrl: string, stateD
     if (queues.some(({ withinTolerance }) => !withinTolerance)) {
         return { queues, bytes }
     }
-    const written: BacklogManifest = { seededAt: now.toISOString(), rows: await residentRows(cyclotronUrl), bytes }
+    const written: BacklogManifest = {
+        profile,
+        seededAt: now.toISOString(),
+        rows: await residentRows(cyclotronUrl),
+        bytes,
+    }
     mkdirSync(stateDir, { recursive: true })
     writeFileSync(manifest, JSON.stringify(written, null, 2))
     return { queues, bytes, manifest }
@@ -153,6 +167,15 @@ export function readManifest(stateDir: string): BacklogManifest | undefined {
     return existsSync(manifest) ? (parseJSON(readFileSync(manifest, 'utf8')) as BacklogManifest) : undefined
 }
 
-export async function residentBacklogOf(stateDir: string, cyclotronUrl: string): Promise<ResidentBacklog> {
-    return { seeded: readManifest(stateDir)?.rows, found: await residentRows(cyclotronUrl) }
+export async function residentBacklogOf(
+    profile: string,
+    stateDir: string,
+    cyclotronUrl: string
+): Promise<ResidentBacklog> {
+    const manifest = readManifest(stateDir)
+    return {
+        profile,
+        seeded: manifest && { profile: manifest.profile, rows: manifest.rows },
+        found: await residentRows(cyclotronUrl),
+    }
 }

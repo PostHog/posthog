@@ -97,7 +97,7 @@ describe('seed-backlog', () => {
         })
     })
 
-    it('writes a manifest of the rows per team and status, with the table, index and TOAST bytes', async () => {
+    it('writes a manifest of the profile and the rows per team and status, with the table, index and TOAST bytes', async () => {
         expect(await seed()).toBe(EXIT_CODE.passed)
 
         const counted = await query<{ teamId: number; status: string; rows: number }>(
@@ -105,9 +105,11 @@ describe('seed-backlog', () => {
              FROM cyclotron_jobs GROUP BY 1, 2 ORDER BY 1, 2`
         )
         const manifest = parseJSON(readFileSync(manifestPath(), 'utf8')) as {
+            profile: string
             rows: unknown[]
             bytes: Record<string, number>
         }
+        expect(manifest.profile).toBe('resident')
         expect(manifest.rows).toEqual(counted)
         expect(manifest.bytes).toEqual({
             table: expect.any(Number),
@@ -126,7 +128,11 @@ describe('seed-backlog', () => {
         )
     })
 
-    it('fails and drops the earlier manifest when a queue holds fewer live rows than its tolerance allows', async () => {
+    it.each([
+        ['loses', 'RETURN NULL;'],
+        ['has a worker take', "NEW.status := 'completed'; RETURN NEW;"],
+        ['wakes', "NEW.scheduled := now() - interval '1 minute'; RETURN NEW;"],
+    ])('fails and drops the earlier manifest when the seed %s every tenth hogflow row', async (_story, tenthRow) => {
         await seed()
         await query('DROP SEQUENCE IF EXISTS loses_every_tenth')
         await query('CREATE SEQUENCE loses_every_tenth')
@@ -134,7 +140,7 @@ describe('seed-backlog', () => {
             `CREATE OR REPLACE FUNCTION loses_every_tenth() RETURNS trigger AS $$
              BEGIN
                  IF NEW.queue_name = 'hogflow' AND nextval('loses_every_tenth') % 10 = 0 THEN
-                     RETURN NULL;
+                     ${tenthRow}
                  END IF;
                  RETURN NEW;
              END $$ LANGUAGE plpgsql`

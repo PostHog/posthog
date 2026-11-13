@@ -951,10 +951,11 @@ describe('runner through seed, drive and judge', () => {
         }).toEqual({ parksPerFlow: [1], emailReplicas: [0, 1] })
     }, 30_000)
 
-    it.each<[string, Parameters<typeof environmentOf>[0], boolean, string, object]>([
+    it.each<[string, Parameters<typeof environmentOf>[0], string, boolean, string, object]>([
         [
             'passes when the roles finish every job of the run beside the resident backlog',
             'all',
+            SMOKE.profile.name,
             false,
             'passed',
             { passed: true, observed: 0 },
@@ -962,6 +963,7 @@ describe('runner through seed, drive and judge', () => {
         [
             'fails when a resident job seeded before the run is gone after it',
             'all',
+            SMOKE.profile.name,
             true,
             'failed',
             {
@@ -969,10 +971,22 @@ describe('runner through seed, drive and judge', () => {
                 violation: `team ${RESIDENT_TEAMS_FROM + 1} available: expected 2 rows, found 1`,
             },
         ],
+        [
+            'fails when the backlog was seeded for another profile',
+            'all',
+            'another',
+            false,
+            'failed',
+            {
+                passed: false,
+                violation: `the resident backlog was seeded for profile another; run seed-backlog with profile ${SMOKE.profile.name} first`,
+            },
+        ],
     ])(
         'resident_backlog_intact %s',
-        async (_story, delivering, loseOne, status, expected) => {
+        async (_story, delivering, seededFor, loseOne, status, expected) => {
             const seeded = await seedBacklog(
+                seededFor,
                 {
                     teams: 2,
                     jobs: { hogflow: 4 },
