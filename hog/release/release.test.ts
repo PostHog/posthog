@@ -13,7 +13,7 @@ import { buildManifest, sha256Sums, wrapperPackageJson } from './artifacts'
 
 const launcher = createRequire(import.meta.url)('./npm/hog.cjs') as {
     targetId: (platform: string, arch: string, musl: boolean) => string | undefined
-    libcFamily: (report: unknown) => string | undefined
+    libcFamily: (ldd: string | undefined, report: unknown) => string | undefined
     candidates: (platform: string, arch: string, libc: string | undefined) => string[]
 }
 
@@ -29,16 +29,24 @@ describe('npm launcher', () => {
         expect(launcher.targetId(platform, arch, false)).toBeUndefined()
     })
 
+    const GLIBC_LDD =
+        '#!/bin/bash\necho "ldd (GNU libc) 2.39"\n# Copyright (C) 2024 Free Software Foundation, Inc.\n# GNU C Library\n'
+    const MUSL_LDD = '#!/bin/sh\nexec /lib/ld-musl-x86_64.so.1 --list "$@"\n'
+
     test.each([
+        ['glibc, even with musl installed', GLIBC_LDD, { sharedObjects: ['/lib/ld-musl-x86_64.so.1'] }, 'glibc'],
+        ['Alpine', MUSL_LDD, {}, 'musl'],
         [
-            'glibc, even with musl installed',
-            { header: { glibcVersionRuntime: '2.39' }, sharedObjects: ['/lib/ld-musl-x86_64.so.1'] },
-            'glibc',
+            'an ldd npm does not recognize, whatever the report says',
+            '#!/bin/sh\n',
+            { header: { glibcVersionRuntime: '2.39' } },
+            undefined,
         ],
-        ['Alpine', { header: {}, sharedObjects: ['/lib/ld-musl-x86_64.so.1'] }, 'musl'],
-        ['an unknown libc', { header: {} }, undefined],
-    ])('reads the libc of %s as npm does', (_name, report, libc) => {
-        expect(launcher.libcFamily(report)).toBe(libc)
+        ['glibc without ldd', undefined, { header: { glibcVersionRuntime: '2.39' } }, 'glibc'],
+        ['musl without ldd', undefined, { header: {}, sharedObjects: ['/lib/ld-musl-x86_64.so.1'] }, 'musl'],
+        ['an unknown libc', undefined, { header: {} }, undefined],
+    ])('reads the libc of %s as npm does', (_name, ldd, report, libc) => {
+        expect(launcher.libcFamily(ldd, report)).toBe(libc)
     })
 
     test('falls back to the other libc build on Linux only', () => {

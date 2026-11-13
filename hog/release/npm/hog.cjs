@@ -3,15 +3,31 @@
 'use strict'
 
 const { spawnSync } = require('node:child_process')
+const fs = require('node:fs')
 const path = require('node:path')
 
-// npm's own test for the `libc` of optional dependencies, so the launcher finds the package npm installed.
-function libcFamily(report) {
+// npm's own test for the `libc` of optional dependencies (npm-install-checks), so the launcher finds the
+// package npm installed. npm reads /usr/bin/ldd, and reads the process report only when ldd is missing.
+function libcFamily(ldd, report) {
+    if (ldd !== undefined) {
+        if (ldd.includes('musl')) {
+            return 'musl'
+        }
+        return ldd.includes('GNU C Library') ? 'glibc' : undefined
+    }
     if (report?.header?.glibcVersionRuntime) {
         return 'glibc'
     }
     const objects = Array.isArray(report?.sharedObjects) ? report.sharedObjects : []
     return objects.some((file) => file.includes('libc.musl-') || file.includes('ld-musl-')) ? 'musl' : undefined
+}
+
+function readLdd() {
+    try {
+        return fs.readFileSync('/usr/bin/ldd', 'utf8')
+    } catch {
+        return undefined
+    }
 }
 
 function processReport() {
@@ -55,7 +71,11 @@ function candidates(platform, arch, libc) {
 }
 
 function main() {
-    const libc = process.platform === 'linux' ? libcFamily(processReport()) : undefined
+    let libc
+    if (process.platform === 'linux') {
+        const ldd = readLdd()
+        libc = libcFamily(ldd, ldd === undefined ? processReport() : undefined)
+    }
     const targets = candidates(process.platform, process.arch, libc)
     if (targets.length === 0) {
         fail(
