@@ -302,7 +302,15 @@ describe('hog setup', () => {
         })
 
         expect(reviewed.stdout.length).toBeLessThan(10_000)
-        expect(Object.keys(reviewed.json() as object)).toEqual(['step', 'status', 'code', 'next', 'done', 'context'])
+        expect(Object.keys(reviewed.json() as object)).toEqual([
+            'step',
+            'status',
+            'code',
+            'next',
+            'done',
+            'context',
+            'hog',
+        ])
         const skills = (reviewed.json() as any).context.skills
         expect(skills).toHaveLength(180)
         expect(skills).toContain('querying-posthog-data')

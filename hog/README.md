@@ -21,6 +21,30 @@ npx @posthog/hog setup                                        # run once without
 - Builds exist for macOS (Apple silicon and Intel), Linux (x64 and arm64, glibc and musl) and Windows (x64 and arm64).
 - The npm package `@posthog/hog` is a small launcher. npm, pnpm and bun install only the `@posthog/hog-<platform>` package with the binary for your machine.
 
+### Updates
+
+`hog upgrade` updates hog, and `hog upgrade --check` only says whether a newer version is out. hog never updates itself on its own.
+
+| Installed with                 | `hog upgrade`                                                                                                         |
+| ------------------------------ | --------------------------------------------------------------------------------------------------------------------- |
+| The install script, or by hand | Downloads the new build, checks its SHA-256, and replaces the binary in one rename                                    |
+| Homebrew, npm, pnpm or bun     | Shows the package manager's command, such as `brew upgrade hog`, and runs it once you say yes. Agents get the command |
+| npx, or a project dependency   | Changes nothing, and says which copy runs and how to update it                                                        |
+
+`--version <version>` installs that version instead of the latest one, except for Homebrew, which installs only the latest.
+`hog upgrade` refuses to run with `--skip-ssl-verification` or `HOG_SKIP_SSL_VERIFICATION`, because the manifest is the only check on what it installs.
+It downloads only over HTTPS, from `releases.posthog.com/hog/` (or the folder `HOG_RELEASES_URL` names) and PostHog's GitHub releases, and checks the size and checksum of each file against the manifest.
+On Windows, the running `hog.exe` can't be replaced, so hog renames it to `hog.old.exe` and the next run deletes it.
+
+hog reads the latest release from `https://releases.posthog.com/hog/latest/manifest.json` at most once a day, alongside the command it runs, and keeps the answer in hog's folder. After a failed request it waits an hour before it asks again. With TLS verification off it doesn't check at all.
+
+- A person at a terminal sees one line on stderr after the output when hog is a minor version or more behind, or when the latest release came out more than 30 days after this build. A few patch releases within a month show nothing.
+- Agents, pipes, `-o json`, CI, npx and runs from source never see that line.
+- `HOG_NO_UPDATE_CHECK=1` or `"cli": { "updateCheck": false }` in `posthog.json` stops every update request: no manifest, no notice and no `minimumVersion` warning. `hog setup` still checks, because setup needs the latest version.
+- `hog auth status` and `hog setup` give agents `hog: { version, latest, updateAvailable, command }`.
+- When a release has a problem bad enough to retire it, the manifest names a `minimumVersion`. Every hog below it warns on stderr on every command, for people and agents, unless update checks are off.
+- `hog setup` and `hog setup next` stop with `hog_outdated` when a newer release exists, even one patch newer, and the hint names the command for your install. Homebrew, npm, pnpm and bun get a release after the manifest names it, so for those installs setup stops only once the release is a day old. They read the manifest fresh, accepting an answer up to 10 minutes old, and carry on when it can't be read.
+
 ## Commands
 
 `hog` has no `exp` namespace.
@@ -57,6 +81,7 @@ The commands `posthog-cli` keeps under `exp` (`query`, `endpoints`, `logs`, `tas
 | `hog schema status`                       | Checks each generated SDK against PostHog. Exits with code 1 when one is missing or out of date.                                  |
 | `hog config check`, `hog config schema`   | Check `posthog.json` against its schema, or print the schema.                                                                     |
 | `hog commands`                            | Lists every command, its arguments, options and scopes.                                                                           |
+| `hog upgrade`                             | Updates hog. `--check` only reports, and `--version` picks a version. See [Updates](#updates).                                    |
 | `hog feedback [message]`                  | Sends feedback about hog or PostHog to the PostHog team. `-` reads it from stdin. See [Feedback](#feedback).                      |
 | Everything else                           | Not ported yet. Exits with code 1 and prints the `posthog-cli` command to run instead, with the same arguments.                   |
 
@@ -67,7 +92,7 @@ hog replaces posthog-cli in three steps: settle the CLI, ship it, then move ever
 
 First, settle the CLI:
 
-- [ ] `hog upgrade`, which updates hog to the latest version. It downloads the release binaries, so it lands with distribution. Until then it points to `posthog-cli update`.
+- [x] `hog upgrade`, which updates hog to the latest version.
 - The AGENTS.md snippet comes back as a top-level command, designed fresh rather than ported from `posthog-cli api agents-md`. Until then, hog points to it. `hog skills add` already replaces `posthog-cli api skill`.
 
 Then ship it:
@@ -109,6 +134,7 @@ The setup is built for a coding agent: it asks the person one question, and runs
 A person at a terminal gets prompts for any answer the options leave out.
 Agents get JSON: `{ step, status, code, next: { kind, command, ask, read, instructions }, done, context }`, where `next.kind` is `run`, `ask_user`, `tell_user`, `read`, `wait` or `done`. The outcome comes before `context`, so an agent that sees only the start of the output still knows where setup stands. `context.skills` lists skill names only, as `hog skills list` does, and `hog skills search` describes them.
 [src/setup/README.md](src/setup/README.md) draws the steps for a person alone and for a person with an agent.
+Setup runs only on the latest hog: it stops with `hog_outdated` and the update command when a newer release exists. See [Updates](#updates).
 
 | Step        | `hog setup next`                                                                                                                                                                                                                                               | Done when                                     |
 | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------- |
@@ -199,6 +225,7 @@ A flag beats the environment variable, which beats `posthog.json`.
 `--host` and `HOG_HOST` override the host of every credential source. `host` in `posthog.json` never sends your credentials elsewhere: `hog auth login` uses it, and other commands stop when your credentials are for another host.
 Commands that only read run as usual in a dry run, and `auth login` and `auth logout` fail.
 hog reads only the `HOG_` names. posthog-cli's `POSTHOG_CLI_` variables, `POSTHOG_HOME` and `POSTHOG_RELEASE_MODE` don't count.
+`HOG_NO_UPDATE_CHECK=1` and `cli.updateCheck: false` stop every update request except setup's. See [Updates](#updates).
 
 ## Feedback
 
@@ -383,6 +410,8 @@ pnpm --filter @posthog/hog unit             # run the tests
 pnpm --filter @posthog/hog typecheck        # check types
 pnpm --filter @posthog/hog compile          # build dist/hog for this machine
 ```
+
+A build from `pnpm compile` or a run from source reports the version in `package.json` without a build date, and never checks for updates.
 
 hog reads credentials only from the sources above. Runs from source keep their keychain items under their own name, so they never read or replace an installed hog's login. Bun would otherwise load a `.env` or `bunfig.toml` from the working folder, so the scripts turn that off. Older Bun versions ignore those flags, hence the minimum version.
 

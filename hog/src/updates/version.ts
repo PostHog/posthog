@@ -55,3 +55,32 @@ export function compareVersions(a: Version, b: Version): number {
     }
     return 0
 }
+
+export function isNewer(latest: string, current: string): boolean {
+    const a = parseVersion(latest)
+    const b = parseVersion(current)
+    return a !== undefined && b !== undefined && compareVersions(a, b) > 0
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000
+export const STALE_AFTER_MS = 30 * DAY_MS
+
+// A few patch releases within a month aren't worth a notice.
+export function isMeaningfullyBehind(
+    current: { version: string; buildDate: string },
+    latest: { version: string; publishedAt: string }
+): boolean {
+    const running = parseVersion(current.version)
+    const newest = parseVersion(latest.version)
+    if (!running || !newest || compareVersions(newest, running) <= 0) {
+        return false
+    }
+
+    if (newest.major !== running.major || newest.minor !== running.minor) {
+        return true
+    }
+
+    const built = Date.parse(current.buildDate)
+    const published = Date.parse(latest.publishedAt)
+    return !Number.isNaN(built) && !Number.isNaN(published) && published - built > STALE_AFTER_MS
+}
