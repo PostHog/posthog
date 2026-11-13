@@ -1,6 +1,10 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "dedupe": {
+            "description": "Group repeated messages into one row with count, first_seen and last_seen (default true). Set to false for the raw entries.",
+            "type": "boolean"
+        },
         "job_id": {
             "description": "Optional workflow_run_id to filter logs for a specific sync job. Get this from external-data-sources-jobs.",
             "format": "uuid",
@@ -13,13 +17,13 @@
             "type": "string"
         },
         "limit": {
-            "description": "Max number of log entries to return (default 100).",
+            "description": "Max number of raw log entries to read per table (default 100), newest first. Also caps the rows returned.",
             "maximum": 500,
             "minimum": 1,
             "type": "integer"
         },
         "schema_id": {
-            "description": "UUID of the external data schema (table) to get sync logs for.",
+            "description": "UUID of the table (schema) to get sync logs for, from external-data-schemas-list or the `schemas` of external-data-sources-retrieve. This is not the source id. Pass this or source_id.",
             "format": "uuid",
             "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$",
             "type": "string"
@@ -27,8 +31,21 @@
         "search": {
             "description": "Search string to filter log messages (case-insensitive substring match).",
             "type": "string"
+        },
+        "since": {
+            "description": "ISO 8601 timestamp. Only return entries after it (e.g. \"2025-01-01T00:00:00Z\"). Defaults to 7 days ago.",
+            "type": "string"
+        },
+        "source_id": {
+            "description": "UUID of a data warehouse source. Reads the logs of its failed or syncing tables (up to 10, failed tables first) and merges them. Pass this or schema_id.",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$",
+            "type": "string"
+        },
+        "until": {
+            "description": "ISO 8601 timestamp. Only return entries before it.",
+            "type": "string"
         }
     },
-    "required": ["schema_id"],
     "type": "object"
 }

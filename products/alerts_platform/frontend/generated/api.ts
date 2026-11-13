@@ -196,6 +196,10 @@ export const getPlatformAlertsListUrl = (projectId: string, params?: PlatformAle
         : `/api/projects/${projectId}/platform_alerts/`
 }
 
+/**
+ * List the alerts of the project that the caller can read.
+ * @summary List alerts
+ */
 export const platformAlertsList = async (
     projectId: string,
     params?: PlatformAlertsListParams,
@@ -211,6 +215,10 @@ export const getPlatformAlertsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/platform_alerts/`
 }
 
+/**
+ * Create an alert on the platform. The request body depends on source_kind, which picks the source product and the shape of source_config. The alert notifies nobody until a destination is added.
+ * @summary Create an alert
+ */
 export const platformAlertsCreate = async (
     projectId: string,
     platformAlertConfigurationCreateApi?: PlatformAlertConfigurationCreateApi,
@@ -228,6 +236,10 @@ export const getPlatformAlertsRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/platform_alerts/${id}/`
 }
 
+/**
+ * Get one alert with the runtime state of each of its groups.
+ * @summary Get an alert
+ */
 export const platformAlertsRetrieve = async (
     projectId: string,
     id: string,
@@ -243,6 +255,10 @@ export const getPlatformAlertsUpdateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/platform_alerts/${id}/`
 }
 
+/**
+ * Replace every setting of an alert the platform owns. source_kind must match the stored value.
+ * @summary Replace an alert's settings
+ */
 export const platformAlertsUpdate = async (
     projectId: string,
     id: string,
@@ -261,6 +277,10 @@ export const getPlatformAlertsPartialUpdateUrl = (projectId: string, id: string)
     return `/api/projects/${projectId}/platform_alerts/${id}/`
 }
 
+/**
+ * Change some settings of an alert the platform owns. Settings left out keep their stored value. A source_kind that is sent must match the stored value.
+ * @summary Change an alert
+ */
 export const platformAlertsPartialUpdate = async (
     projectId: string,
     id: string,
@@ -279,6 +299,10 @@ export const getPlatformAlertsDestroyUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/platform_alerts/${id}/`
 }
 
+/**
+ * Delete an alert the platform owns, with its destinations.
+ * @summary Delete an alert
+ */
 export const platformAlertsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getPlatformAlertsDestroyUrl(projectId, id), {
         ...options,

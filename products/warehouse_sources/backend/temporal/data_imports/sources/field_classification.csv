@@ -167,6 +167,7 @@ Billit,,,,,,billit
 Billomat,billomat_id api_key registered_app,,,,,billomat
 BingAds,,bing_ads_integration_id,account_id,,,bing-ads
 BingWebmasterTools,api_key site_urls,,,,,bing-webmaster-tools
+Bird,api_key,,,,,bird
 Bitbucket,workspace auth_method,,,,,bitbucket
 Bitly,,,,,,bitly
 Bitrise,api_token,,,,,bitrise
@@ -181,6 +182,7 @@ Blueshift,api_key region,,,,,blueshift
 Bluesky,actor,,,,,bluesky
 Bluetally,api_key tenant_id,,,,,bluetally
 BolRetailer,client_id client_secret,,,,,bol-retailer
+BoldDesk,domain api_key,,,,,bolddesk
 BoldSign,api_key region,,,,,bold-sign
 Boulevard,,,,,,boulevard
 Box,,,,,,box
@@ -249,7 +251,7 @@ Churnkey,api_key app_id,,,,,churnkey
 Cimis,app_key,,,targets unit_of_measure,,cimis
 Cin7,account_id application_key,,,,,cin7
 CircleCI,api_token org_slug,,,,,circle-ci
-CircleSo,,,,,,circle-so
+CircleSo,api_token,,,,,circle-so
 Circleback,api_key,,,,,circleback
 CircleciInsights,api_token project_slugs,,,reporting_window branch_scope,,circleci-insights
 CiscoDuo,api_hostname integration_key secret_key,,,,,cisco-duo
@@ -322,7 +324,7 @@ Coupa,instance_url client_id client_secret,,,,,coupa
 Courier,api_key,,,,,courier
 Coveralls,service repositories api_token,,,,,coveralls
 CratesIO,,,,crates,,crates-io
-Creem,,,,,,creem
+Creem,api_key environment,,,,,creem
 Crisp,website_id token_identifier token_key,,,,,crisp
 Criteo,client_id client_secret,,,start_date currency,,criteo
 Cronitor,api_key,,,,,cronitor
@@ -336,6 +338,7 @@ Curve,,,,,,curve
 Custom,manifest_json auth_token auth_api_key auth_password auth_oauth2_client_secret auth_oauth2_refresh_token auth_oauth2_integration_id,,,,,
 CustomerIO,app_api_key region,,,,,customer-io
 Customerly,access_token,,,,,customerly
+Cyberimpact,api_token,,,,,cyberimpact
 Cybersource,,,,,,cybersource
 D2lBrightspace,,,,,,d2l-brightspace
 DagsterCloud,organization deployment api_token,,,,,dagster-cloud
@@ -484,6 +487,7 @@ Freshdesk,subdomain api_key,,,,,freshdesk
 Freshsales,domain api_key,,,,,freshsales
 Freshservice,domain api_key,,,,,freshservice
 Frill,api_key,,,,,frill
+Frisbii,,,,,,frisbii
 Front,api_token,,,,,front
 Frontegg,client_id api_key region,,,,,frontegg
 Fulcrum,api_token,,,,,fulcrum
@@ -597,6 +601,7 @@ Height,api_key,,,,,height
 Helicone,api_key region,,,,,helicone
 Hellobaton,company api_key,,,,,hellobaton
 HelpScout,,helpscout_integration_id,,,,helpscout
+Helpin,api_token api_host,,,,,helpin
 Heroku,api_key,,,,,heroku
 Hetzner,api_token,,,,,hetzner
 Hex,api_key workspace_url,,,,,hex
@@ -709,6 +714,7 @@ Latitude,,,,,,latitude
 Lattice,region api_key,,,,,lattice
 LaunchDarkly,access_token,,,,,launch-darkly
 Lawmatics,,,,,,lawmatics
+LeadLander,,,,,,leadlander
 Leadfeeder,api_token,,,start_date,,leadfeeder
 Leantime,,,,,,leantime
 Learnworlds,,,,,,learnworlds
@@ -772,7 +778,7 @@ Meetup,,,,,,meetup
 Megaphone,api_token organization_id,,,,,megaphone
 Meltwater,,,,,,meltwater
 Mem0,api_key org_id project_id,,,,,mem0
-Memberful,,,,,,memberful
+Memberful,subdomain api_key,,,,,memberful
 Membrain,api_key subdomain,,,,,membrain
 Mendeley,,,,,,mendeley
 Mention,access_token,,,,,mention
@@ -812,7 +818,7 @@ Mindbody,,,,,,mindbody
 Mintlify,api_key project_id,,,,,mintlify
 Mirakl,,,,,,mirakl
 Miro,,,,,,miro
-Missive,,,,,,missive
+Missive,api_token,,,,,missive
 MistralAI,api_key,,,,,mistral-ai
 MixMax,api_key,,,,,mix-max
 Mixpanel,region project_id service_account_username service_account_secret,,,,,mixpanel
@@ -970,7 +976,7 @@ Plane,api_key workspace_slug base_url,,,,,plane
 PlanetScaleMySQL,host port database user password,,,schema,,planetscale-mysql
 PlanetScalePostgres,connection_string host port database user password verify_server_certificate ca_certificate client_certificate client_key,,,schema,,planetscale-postgres
 Planhat,api_key,,,,,planhat
-PlanningCenter,,,,,,planning-center
+PlanningCenter,application_id secret,,,,,planning-center
 PlatformSh,api_token platform,,,,,platform-sh
 Plausible,api_key site_id host,,,custom_property_keys,,plausible
 Plivo,auth_id auth_token,,,,,plivo
@@ -1274,7 +1280,7 @@ Tipalti,,,,,,tipalti
 Toast,,,,,,toast
 Todoist,api_token,,,,,todoist
 TogetherAI,api_key,,,,,together-ai
-Toggl,,,,,,toggl
+Toggl,api_token,,,,,toggl
 Torii,api_key,,,,,torii
 TrackPMS,,,,,,track-pms
 Tracklution,,,,,,tracklution
@@ -1296,7 +1302,7 @@ TwelveLabs,api_key,,,,,twelve-labs
 Twenty,api_key base_url,,,,,twenty
 Twilio,account_sid auth_method,,,,,twilio
 Twitch,,,,,,twitch
-Twitter,bearer_token username,,,,,twitter
+Twitter,bearer_token username,,,search_query,,twitter
 TwitterAds,,twitter_ads_integration_id,account_id,,,twitter-ads
 TwoC2p,,,,,,two-c2p
 TyntecSMS,api_key,,,request_ids,,tyntec-sms

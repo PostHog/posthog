@@ -105,16 +105,27 @@ class TestRequestShape:
         assert result.raised is None
         assert result.session_options[0]["redact_values"] == ("secret-key",)
 
-    def test_advertiser_report_requests_only_columns_the_api_accepts(self) -> None:
+    @pytest.mark.parametrize(
+        ("endpoint", "report_type", "refused_columns"),
+        [
+            ("advertiser_report", "advertiser", ["application", "app_id_external"]),
+            ("publisher_report", "publisher", ["application"]),
+        ],
+    )
+    def test_report_requests_only_columns_the_api_accepts(
+        self, endpoint: str, report_type: str, refused_columns: list[str]
+    ) -> None:
         def respond(request: RecordedRequest) -> ScriptedResponse:
-            if "application" in (request.param("columns") or "").split(","):
-                return ScriptedResponse(status=400, body=b"Invalid Column: application")
+            requested = (request.param("columns") or "").split(",")
+            for column in refused_columns:
+                if column in requested:
+                    return ScriptedResponse(status=400, body=f"Invalid Column: {column}".encode())
             return _page([])
 
-        result = _driver().run("advertiser_report", respond)
+        result = _driver().run(endpoint, respond)
 
         assert result.raised is None
-        assert {request.param("report_type") for request in result.requests} == {"advertiser"}
+        assert {request.param("report_type") for request in result.requests} == {report_type}
 
 
 class TestWindowWalking:

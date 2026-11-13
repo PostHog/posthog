@@ -16,6 +16,7 @@ from typing import Any
 _MODULES = {
     "create_data_warehouse_table_from_csv": "products.warehouse_sources.backend.test.utils",
     "create_synced_table_from_rows": "products.warehouse_sources.backend.test.utils",
+    "create_table_from_rows": "products.warehouse_sources.backend.test.utils",
     "WarehouseAccessControlTestMixin": "products.warehouse_sources.backend.facade._access_control_base",
     # The root conftest gives sources that tests save with raw `job_inputs` their credentials row and column.
     "link_raw_source_credentials": "products.warehouse_sources.backend.test.raw_source_credentials",

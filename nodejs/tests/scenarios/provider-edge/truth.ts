@@ -11,15 +11,22 @@ export type TruthMessage = Omit<SesMessage, 'attachments'> & { attachments: Trut
 export type TruthRecord = {
     seq: number
     at: string
-    kind: 'ses.send'
+    kind: 'ses.send' | 'webhook'
     unitId?: string
     actionId?: string
     status: number
     fault?: string
-    detail: { message?: TruthMessage; error?: string }
+    detail: {
+        message?: TruthMessage
+        error?: string
+        errorType?: string
+        request?: { method: string; host: string; path: string }
+    }
 }
 
 export type TruthPage = { records: TruthRecord[]; next: number }
+
+export type TruthHead = { head: number }
 
 export function truthMessageOf({ attachments, ...message }: SesMessage): TruthMessage {
     return {
@@ -39,6 +46,10 @@ export class Truth {
         const appended = { seq: this.records.length + 1, at: new Date().toISOString(), ...record }
         this.records.push(appended)
         return appended
+    }
+
+    head(): TruthHead {
+        return { head: this.records.at(-1)?.seq ?? 0 }
     }
 
     page(after: number, limit: number): TruthPage {
