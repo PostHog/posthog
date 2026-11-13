@@ -616,8 +616,8 @@ class TestErrorTracking(APIBaseTest):
                     "tag_key": BLOCKS_CHECKOUT.key,
                     "previous_tag_source": "jev",
                     "previous_tag_probability": 0.9,
-                    "previous_applied": True,
-                    "applied": False,
+                    "previous_tag_applied": True,
+                    "tag_applied": False,
                 },
             ),
             ("tag_with_the_same_answer", _issue_tag_repeated_correction, None),
@@ -628,14 +628,14 @@ class TestErrorTracking(APIBaseTest):
                     "action": "tag",
                     "previous_tag_source": None,
                     "previous_tag_probability": None,
-                    "previous_applied": False,
-                    "applied": True,
+                    "previous_tag_applied": False,
+                    "tag_applied": True,
                 },
             ),
             (
                 "tag_confirming_jev",
                 _issue_tag_confirmation,
-                {"action": "tag", "previous_tag_source": "jev", "previous_applied": True, "applied": True},
+                {"action": "tag", "previous_tag_source": "jev", "previous_tag_applied": True, "tag_applied": True},
             ),
         ]
     )

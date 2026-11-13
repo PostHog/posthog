@@ -576,8 +576,8 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
                     "tag_key": key,
                     "previous_tag_source": correction.previous_source,
                     "previous_tag_probability": correction.previous_probability,
-                    "previous_applied": correction.previous_applied,
-                    "applied": applied,
+                    "previous_tag_applied": correction.previous_applied,
+                    "tag_applied": applied,
                 },
             )
         return Response(ErrorTrackingIssueTagCorrectionSerializer({**asdict(correction.tag), "applied": applied}).data)
