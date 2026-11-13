@@ -63,4 +63,11 @@ Its `ownership` lookup reads `organization_id` against the `linear` integration 
 A state change from a workspace that no team here connects is `ELSEWHERE`, so the primary region forwards it.
 Every other delivery is `UNDECIDED`, so a ticket edit that no region acts on stays in the region it arrived in.
 The task reads the current state of every linked Linear ticket from Linear, so a delivery that arrives late or out of order cannot apply a state the ticket no longer has.
+
+`error_tracking_linear_external_references`, declared in the same file.
+It handles created tickets and `Issue` updates that change the description or the title, and queues one task per error tracking issue that the description links to.
+Its `ownership` lookup reads `organization_id` the same way, but only for a ticket whose description links to an error tracking issue in any region.
+Every other delivery is `UNDECIDED`.
+The task links the ticket only for a project that connects the ticket's workspace and whose token can read the ticket.
+
 See the [Endpoints table](../README.md#endpoints).

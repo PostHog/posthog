@@ -1,20 +1,15 @@
-import re
 from typing import Any, Literal
-from urllib.parse import unquote
-from uuid import UUID
 
-from django.conf import settings
 from django.core.cache import cache
 from django.db import transaction
 
-from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
 from posthog.integrations import IntegrationManager, IntegrationRecord
 from posthog.models.integration import GitHubIntegration
 
 from products.error_tracking.backend.facade import contracts
 from products.error_tracking.backend.logic import external_references
-from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingIssueFingerprintV2
+from products.error_tracking.backend.models import ErrorTrackingIssue
 
 # A cheap shed before we spend a Celery task and a GitHub API call, not a trust gate: OWNER and
 # MEMBER say nothing about access to this repo, and COLLABORATOR covers read/triage-only invites.
@@ -23,7 +18,6 @@ from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrac
 # downgraded. link_reference holds the authoritative gate (see _WRITE_PERMISSIONS).
 _PAYLOAD_GATE_ASSOCIATIONS = frozenset({"OWNER", "MEMBER", "COLLABORATOR", "CONTRIBUTOR"})
 _SUPPORTED_ACTIONS = frozenset({"opened", "edited"})
-_MAX_REFERENCES_PER_WEBHOOK = 20
 
 # The reference is permanent (references cannot be deleted), so linking must require someone who
 # could change the repo anyway. GitHub's legacy permission field folds maintain into write and
@@ -34,13 +28,6 @@ _MAX_REFERENCES_PER_WEBHOOK = 20
 _WRITE_PERMISSIONS = frozenset({"admin", "write"})
 _ACTOR_PERMISSION_ALLOW_CACHE_SECONDS = 60
 _ACTOR_PERMISSION_DENY_CACHE_SECONDS = 10 * 60
-
-
-@frozen
-class _PostHogIssueReference:
-    team_id: int
-    issue_id: UUID | None = None
-    fingerprint: str | None = None
 
 
 def prepare_jobs(event_type: str, payload: dict[str, Any]) -> list[contracts.GitHubExternalReferenceJob]:
@@ -108,46 +95,8 @@ def prepare_jobs(event_type: str, payload: dict[str, Any]) -> list[contracts.Git
             issue_id=reference.issue_id,
             fingerprint=reference.fingerprint,
         )
-        for reference in _extract_posthog_issue_references(body)
+        for reference in external_references.extract_posthog_issue_references(body)
     ]
-
-
-def _extract_posthog_issue_references(body: str) -> list[_PostHogIssueReference]:
-    site_url = re.escape(settings.SITE_URL.rstrip("/"))
-    pattern = re.compile(
-        rf"{site_url}/project/(?P<team_id>[1-9][0-9]*)/error[_-]tracking/"
-        rf"(?:fingerprint/(?P<fingerprint>[^/?#\s<>\]\)]+)|"
-        rf"(?P<issue_id>[0-9a-fA-F]{{8}}-[0-9a-fA-F]{{4}}-[0-9a-fA-F]{{4}}-"
-        rf"[0-9a-fA-F]{{4}}-[0-9a-fA-F]{{12}}))"
-    )
-
-    references: list[_PostHogIssueReference] = []
-    seen: set[_PostHogIssueReference] = set()
-    for match in pattern.finditer(body):
-        issue_id = match.group("issue_id")
-        reference = _PostHogIssueReference(
-            team_id=int(match.group("team_id")),
-            issue_id=UUID(issue_id) if issue_id else None,
-            fingerprint=unquote(match.group("fingerprint")) if match.group("fingerprint") else None,
-        )
-        if reference in seen:
-            continue
-        seen.add(reference)
-        references.append(reference)
-        if len(references) == _MAX_REFERENCES_PER_WEBHOOK:
-            break
-    return references
-
-
-def _resolve_issue(job: contracts.GitHubExternalReferenceJob) -> ErrorTrackingIssue | None:
-    if job.issue_id is not None:
-        return ErrorTrackingIssue.objects.filter(team_id=job.team_id, id=job.issue_id).first()
-    if job.fingerprint is None:
-        return None
-    fingerprint = ErrorTrackingIssueFingerprintV2.objects.filter(
-        team_id=job.team_id, fingerprint=job.fingerprint
-    ).first()
-    return fingerprint.issue if fingerprint is not None else None
 
 
 def _actor_lacks_write_permission(integration: IntegrationRecord, job: contracts.GitHubExternalReferenceJob) -> bool:
@@ -194,7 +143,9 @@ def link_reference(job: contracts.GitHubExternalReferenceJob) -> bool:
     if _actor_lacks_write_permission(integration, job):
         return False
 
-    issue = _resolve_issue(job)
+    issue = external_references.resolve_referenced_issue(
+        job.team_id, issue_id=job.issue_id, fingerprint=job.fingerprint
+    )
     if issue is None:
         return False
 

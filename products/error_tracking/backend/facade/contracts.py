@@ -117,6 +117,22 @@ class GitHubExternalReferenceJob:
 
 
 @dataclass(frozen=True)
+class LinearExternalReferenceJob:
+    team_id: int
+    # The Linear workspace id, which is the `integration_id` of the team's `linear` integration.
+    organization_id: str
+    # The ticket's identifier, such as ENG-123.
+    identifier: str
+    title: str | None
+    issue_id: UUID | None = None
+    fingerprint: str | None = field(default=None, repr=False)
+
+    def __post_init__(self) -> None:
+        if (self.issue_id is None) == (self.fingerprint is None):
+            raise ValueError("Provide exactly one PostHog issue identifier.")
+
+
+@dataclass(frozen=True)
 class LinearStatusSyncJob:
     # The Linear workspace id, which is the `integration_id` of the team's `linear` integration.
     organization_id: str

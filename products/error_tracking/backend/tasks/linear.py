@@ -1,5 +1,6 @@
 import random
 from typing import Any, cast
+from uuid import UUID
 
 from django.db import DatabaseError
 
@@ -12,8 +13,9 @@ from redis.exceptions import (
 )
 
 from posthog.models.integration import LinearIntegrationError, LinearRateLimitedError
+from posthog.models.scoping import with_team_scope
 
-from products.error_tracking.backend.facade import contracts
+from products.error_tracking.backend.facade import api, contracts
 
 # Linear resets its rate limit at most an hour away, and the retry waits for the reset, so a few
 # retries cover a token that stays throttled for several windows.
@@ -21,6 +23,10 @@ _RATE_LIMITED_MAX_RETRIES = 8
 # Another job holds the issue for a few Linear reads. Waiting a short, spread-out time lets it finish.
 _ISSUE_BUSY_MAX_RETRIES = 20
 _ISSUE_BUSY_RETRY_SECONDS = (5, 30)
+# A ticket that PostHog creates from an issue also arrives here, while the request that created it
+# still has to store its reference. The wait lets that request store it first, so the link finds it
+# and does not add a second reference to the same ticket.
+_LINK_DELAY_SECONDS = 60
 
 
 def enqueue_linear_status_sync(payload: dict[str, Any]) -> None:
@@ -78,3 +84,57 @@ def process_linear_status_sync(
         raise self.retry(
             exc=error, countdown=random.randint(*_ISSUE_BUSY_RETRY_SECONDS), max_retries=_ISSUE_BUSY_MAX_RETRIES
         )
+
+
+def enqueue_linear_external_references(payload: dict[str, Any]) -> None:
+    for job in api.prepare_linear_external_reference_jobs(payload):
+        cast(Any, process_linear_external_reference).apply_async(
+            kwargs={
+                "team_id": job.team_id,
+                "organization_id": job.organization_id,
+                "identifier": job.identifier,
+                "title": job.title,
+                "issue_id": str(job.issue_id) if job.issue_id is not None else None,
+                "fingerprint": job.fingerprint,
+            },
+            countdown=_LINK_DELAY_SECONDS,
+        )
+
+
+@shared_task(
+    bind=True,
+    name="products.error_tracking.backend.tasks.process_linear_external_reference",
+    ignore_result=True,
+    acks_late=True,
+    reject_on_worker_lost=True,
+    # The read of the ticket fails closed, so a transient Linear error must retry rather than drop the
+    # delivery, because a blip would otherwise lose a legitimate link for good.
+    autoretry_for=(DatabaseError, LinearIntegrationError, requests.RequestException),
+    max_retries=5,
+    retry_backoff=True,
+    retry_backoff_max=300,
+    retry_jitter=True,
+)
+@with_team_scope()
+def process_linear_external_reference(
+    self: Task,
+    *,
+    team_id: int,
+    organization_id: str,
+    identifier: str,
+    title: str | None,
+    issue_id: str | None,
+    fingerprint: str | None,
+) -> None:
+    job = contracts.LinearExternalReferenceJob(
+        team_id=team_id,
+        organization_id=organization_id,
+        identifier=identifier,
+        title=title,
+        issue_id=UUID(issue_id) if issue_id is not None else None,
+        fingerprint=fingerprint,
+    )
+    try:
+        api.link_linear_external_reference(job)
+    except LinearRateLimitedError as error:
+        raise self.retry(exc=error, countdown=error.retry_after_seconds, max_retries=_RATE_LIMITED_MAX_RETRIES)
