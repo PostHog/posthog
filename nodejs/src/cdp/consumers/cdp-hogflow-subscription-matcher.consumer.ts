@@ -58,7 +58,8 @@ import { convertToHogFunctionFilterGlobal } from '../utils/hog-function-filterin
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
 import { convertCohortMembershipChangeToGlobals } from './cdp-cohort-membership-trigger.consumer'
 import { CohortMembershipChangeSchema, isCohortMembershipControlRecord } from './cdp-cohort-membership.consumer'
-import { ParseBatchOptions, parseBatch, skipIfMalformed } from './message-parsing'
+import { ParseBatchOptions, parseBatch, readTeamIdHeader, skipIfMalformed } from './message-parsing'
+import { counterTeamIdHeaderMismatch, counterTeamIdSource } from './metrics'
 
 // A waker only needs signals that arrive after a job parks, never history. auto.offset.reset=latest
 // makes a fresh consumer group start at the tip instead of replaying the (unconsumable at prod
@@ -888,23 +889,35 @@ export class CdpHogflowSubscriptionMatcherConsumer<
     @instrumented('cdpHogflowSubscriptionMatcher.parseKafkaMessages')
     public async _parseKafkaBatch(messages: Message[]): Promise<HogFunctionInvocationGlobals[]> {
         return await this.parseMatcherBatch(messages, 'Error parsing message', (message) => {
-            const clickHouseEvent = parseJSON(message.value!.toString()) as RawClickHouseEvent
-            // A job can be parked by distinct_id or person_id, so an event needs at least
-            // one of them to match anything. Drop only events that carry neither.
-            if (!clickHouseEvent.person_id && !clickHouseEvent.distinct_id) {
-                counterHogflowMatcherEventSkipped.labels({ reason: 'no_identifiers' }).inc()
+            const toGlobals = (team: Team, clickHouseEvent: RawClickHouseEvent): HogFunctionInvocationGlobals =>
+                convertToHogFunctionInvocationGlobals(clickHouseEvent, team, this.config.SITE_URL)
+
+            const headerTeamId = readTeamIdHeader(message)
+            if (headerTeamId !== null) {
+                counterTeamIdSource.labels({ source: 'header' }).inc()
+                // The body stays unparsed until `toGlobals` runs, and it only runs for a team with an
+                // actionable flow or live watchers. Most events belong to a team with neither.
+                return {
+                    teamId: headerTeamId,
+                    toGlobals: (team) => {
+                        const clickHouseEvent = parseEvent(message)
+                        if (clickHouseEvent.team_id !== headerTeamId) {
+                            // The team loads from the header and the event comes from the body, so a
+                            // disagreement would let one team's event wake another team's parked runs.
+                            counterTeamIdHeaderMismatch.inc()
+                            throw new Error('team_id_header_mismatch')
+                        }
+                        return isMatchableEvent(clickHouseEvent) ? toGlobals(team, clickHouseEvent) : null
+                    },
+                }
+            }
+
+            counterTeamIdSource.labels({ source: 'body' }).inc()
+            const clickHouseEvent = parseEvent(message)
+            if (!isMatchableEvent(clickHouseEvent)) {
                 return null
             }
-            // Only the cohort membership topic says who joined or left a cohort. Anyone with the
-            // project token can capture an event with this name, and it would count as a conversion.
-            if (clickHouseEvent.event === COHORT_MEMBERSHIP_CHANGED_EVENT) {
-                counterHogflowMatcherEventSkipped.labels({ reason: 'reserved_event_name' }).inc()
-                return null
-            }
-            return {
-                teamId: clickHouseEvent.team_id,
-                toGlobals: (team) => convertToHogFunctionInvocationGlobals(clickHouseEvent, team, this.config.SITE_URL),
-            }
+            return { teamId: clickHouseEvent.team_id, toGlobals: (team) => toGlobals(team, clickHouseEvent) }
         })
     }
 
@@ -1381,6 +1394,26 @@ export class CdpHogflowSubscriptionMatcherConsumer<
 // analytics event. We synthesize a `$person_updated` event so wakeMatchingWorkflows can run a wait's
 // property condition against the new person.properties. Event-name `events` entries never match this
 // synthetic event name, which is correct: a person change should only satisfy property-based waits.
+function parseEvent(message: Message): RawClickHouseEvent {
+    return parseJSON(message.value!.toString()) as RawClickHouseEvent
+}
+
+function isMatchableEvent(clickHouseEvent: RawClickHouseEvent): boolean {
+    // A job can be parked by distinct_id or person_id, so an event needs at least
+    // one of them to match anything. Drop only events that carry neither.
+    if (!clickHouseEvent.person_id && !clickHouseEvent.distinct_id) {
+        counterHogflowMatcherEventSkipped.labels({ reason: 'no_identifiers' }).inc()
+        return false
+    }
+    // Only the cohort membership topic says who joined or left a cohort. Anyone with the
+    // project token can capture an event with this name, and it would count as a conversion.
+    if (clickHouseEvent.event === COHORT_MEMBERSHIP_CHANGED_EVENT) {
+        counterHogflowMatcherEventSkipped.labels({ reason: 'reserved_event_name' }).inc()
+        return false
+    }
+    return true
+}
+
 function convertClickhousePersonToWakeGlobals(
     data: ClickHousePerson,
     team: Team,
