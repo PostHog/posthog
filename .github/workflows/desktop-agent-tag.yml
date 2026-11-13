@@ -29,7 +29,9 @@ jobs:
         permissions:
             contents: write
             deployments: read
-        runs-on: depot-ubuntu-24.04
+        # The job only coordinates: it waits for the backend deploy and pushes a tag. A hosted
+        # runner keeps up to an hour of waiting off the Depot pool.
+        runs-on: ubuntu-24.04
         # Sized for the 60-minute backend deploy wait plus a margin for the checkout and the tag push.
         timeout-minutes: 75
         steps:

@@ -220,6 +220,15 @@ jobs:
                   # A break-glass run that skips Desktop Tests tags HEAD, so it waits for HEAD.
                   COMMIT_SHA="${TESTED_SHA:-$(git rev-parse HEAD)}"
                   export COMMIT_SHA
+                  # The tag step releases nothing when no desktop commit landed after the last
+                  # release tag, so the run must not wait for the backend in that case.
+                  git fetch --quiet --no-tags origin master
+                  LATEST_TAG=$(git tag --list 'desktop-v[0-9]*.[0-9]*' --sort=-v:refname | grep -E '^desktop-v[0-9]+\.[0-9]+(\.0)?$' | head -1 || true)
+                  if [ -n "$LATEST_TAG" ] && [ "$(git rev-list "$LATEST_TAG".."$COMMIT_SHA" --count -- products/desktop/ packages/agent/)" -eq 0 ]; then
+                    echo "No desktop commits since $LATEST_TAG, so there is no release to hold."
+                    echo "proceed=true" >> "$GITHUB_OUTPUT"
+                    exit 0
+                  fi
                   STATUS=0
                   .github/scripts/desktop/wait-for-backend-deploy.sh || STATUS=$?
                   case "$STATUS" in
