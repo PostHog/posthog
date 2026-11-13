@@ -15262,6 +15262,23 @@ export namespace Schemas {
       enabled: boolean;
     }
 
+    export interface AlertRouteMatch {
+      /** A route these labels match. */
+      route: AlertRoute;
+      /** The receiver the route sends to. */
+      receiver: AlertReceiver;
+    }
+
+    /**
+     * The alert's labels, by name, such as {"team": "checkout"}. Unsaved labels work too.
+     */
+    export type AlertRouteMatchingRequestLabels = {[key: string]: string};
+
+    export interface AlertRouteMatchingRequest {
+      /** The alert's labels, by name, such as {"team": "checkout"}. Unsaved labels work too. */
+      labels: AlertRouteMatchingRequestLabels;
+    }
+
     export interface AlertRouteWrite {
       /** ID of the receiver this route sends to. */
       receiver_id: string;
