@@ -5940,6 +5940,7 @@ export namespace Schemas {
      * * `static` - Static
      * * `person_properties` - Person properties
      * * `daily` - Daily
+     * * `off` - Off
      * * `building` - Building
      * * `rebuilding` - Rebuilding
      * * `ready` - Ready
@@ -5949,6 +5950,7 @@ export namespace Schemas {
         | "static"
         | "person_properties"
         | "daily"
+        | "off"
         | "building"
         | "rebuilding"
         | "ready"
@@ -5989,11 +5991,12 @@ export namespace Schemas {
         | "too_large_to_build";
     export type CohortRealtimeReadiness = {
         /**
-         * Whether feature flags can target this cohort now. `ready`: they can, and they see membership changes within about a minute. `building` / `rebuilding`: PostHog is preparing the cohort from past events, and flags cannot target it yet. `needs_attention`: the cohort qualifies but nothing is preparing it. `daily`: its criteria are not supported in realtime, so its membership only comes from the once-a-day calculation. `person_properties`: it matches on person properties, which flags read directly, so they can always target it. `static`: it is a fixed list of people.
+         * Whether feature flags can target this cohort now. `ready`: they can, and they see membership changes within about a minute. `building` / `rebuilding`: PostHog is preparing the cohort from past events, and flags cannot target it yet. `needs_attention`: the cohort qualifies but nothing is preparing it. `off`: the cohort qualifies and realtime is off for it, so feature flags cannot target it until it is turned on. `daily`: its criteria are not supported in realtime, so its membership only comes from the once-a-day calculation. `person_properties`: it matches on person properties, which flags read directly, so they can always target it. `static`: it is a fixed list of people.
          *
          * * `static` - Static
          * * `person_properties` - Person properties
          * * `daily` - Daily
+         * * `off` - Off
          * * `building` - Building
          * * `rebuilding` - Rebuilding
          * * `ready` - Ready
@@ -6057,6 +6060,7 @@ export namespace Schemas {
          * Whether feature flags can target this cohort, and the progress of the build that gets it there. Null outside the realtime cohort flag targeting rollout, on projects the realtime pipeline does not cover, and for cohorts that match on neither events nor person properties, which nothing in the flag API decides on.
          */
         realtime: CohortRealtimeReadiness | null;
+        realtime_enabled?: boolean | undefined;
         experiment_set: Array<number>;
         /**
          * How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`.
@@ -16403,6 +16407,7 @@ export namespace Schemas {
         cohort_type: CohortTypeEnum | BlankEnum | NullEnum;
         condition_type: CohortConditionTypeFlags | null;
         realtime: CohortRealtimeReadiness | null;
+        realtime_enabled: boolean;
         experiment_set: Array<number>;
         search_match_type: SearchMatchTypeEnum | NullEnum;
         _create_in_folder: string;
@@ -17215,6 +17220,20 @@ export namespace Schemas {
      * * `1` - Monday
      */
     export type WeekStartDayEnum = 0 | 1;
+    /**
+     * * `off` - Off
+     * * `serving` - Serving
+     */
+    export type RealtimeCohortsAccessEnum = "off" | "serving";
+    export type TeamRealtimeCohorts = {
+        /**
+         * `serving` when the request's user sees realtime cohorts in this project: whether feature flags can target each cohort, and the control to turn realtime on and off for it. `off` otherwise.
+         *
+         * * `off` - Off
+         * * `serving` - Serving
+         */
+        access: RealtimeCohortsAccessEnum;
+    };
     export type TeamRevenueAnalyticsConfig = Partial<{
         base_currency: BaseCurrencyEnum;
         events: unknown;
@@ -17718,6 +17737,10 @@ export namespace Schemas {
          */
         user_access_level: string | null;
         managed_viewsets: Record<string, boolean>;
+        /**
+         * Realtime cohorts as the request's user sees them in this project.
+         */
+        realtime_cohorts: TeamRealtimeCohorts & unknown;
         /**
          * Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table.
          */

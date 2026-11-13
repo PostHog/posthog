@@ -3,6 +3,7 @@
 from typing import Any, Literal, cast
 
 from django.conf import settings
+from django.db import models
 from django.utils import timezone
 
 from drf_spectacular.utils import extend_schema_field
@@ -48,6 +49,7 @@ from products.access_control.backend.presentation.access_control import UserAcce
 from products.dashboards.backend.models import Dashboard
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.facade.flags import get_flag_evaluations_read_mode
+from products.feature_flags.backend.realtime_targeting import is_realtime_cohort_flag_targeting_enabled
 from products.feature_flags.backend.session_recording_links import locked_replay_gate_write
 
 from . import (
@@ -83,6 +85,29 @@ def hide_team_secrets_from_workload_tokens(representation: dict[str, Any], reque
     return representation
 
 
+class RealtimeCohortsAccess(models.TextChoices):
+    OFF = "off", "Off"
+    SERVING = "serving", "Serving"
+
+
+class TeamRealtimeCohortsSerializer(serializers.Serializer):
+    access = serializers.ChoiceField(
+        choices=RealtimeCohortsAccess.choices,
+        help_text="`serving` when the request's user sees realtime cohorts in this project: whether feature flags "
+        "can target each cohort, and the control to turn realtime on and off for it. `off` otherwise.",
+    )
+
+
+def realtime_cohorts_for_request(request: Request | None, team: Team) -> dict[str, str]:
+    serving = is_realtime_cohort_flag_targeting_enabled(request, team=team)
+    return {"access": RealtimeCohortsAccess.SERVING if serving else RealtimeCohortsAccess.OFF}
+
+
+REALTIME_COHORTS_FIELD_SCHEMA = TeamRealtimeCohortsSerializer(
+    help_text="Realtime cohorts as the request's user sees them in this project."
+)
+
+
 class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin, UserAccessControlSerializerMixin):
     instance: Team | None
     _group_types_cache: list[dict[str, Any]] | None = None
@@ -99,6 +124,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table."
         )
     )
+    realtime_cohorts = serializers.SerializerMethodField()
     available_setup_task_ids = serializers.SerializerMethodField()
     api_host = serializers.SerializerMethodField(
         help_text=(
@@ -164,6 +190,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "product_intents",
             "managed_viewsets",
             "flag_evaluations_mode",
+            "realtime_cohorts",
             "available_setup_task_ids",
             "api_host",
         )
@@ -189,6 +216,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "product_intents",
             "managed_viewsets",
             "flag_evaluations_mode",
+            "realtime_cohorts",
             "available_setup_task_ids",
             "api_host",
         )
@@ -264,6 +292,10 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     @extend_schema_field(serializers.ChoiceField(choices=FlagEvaluationsMode.choices))
     def get_flag_evaluations_mode(self, obj: Team) -> int:
         return get_flag_evaluations_read_mode(obj.organization_id)
+
+    @extend_schema_field(REALTIME_COHORTS_FIELD_SCHEMA)
+    def get_realtime_cohorts(self, obj: Team) -> dict[str, str]:
+        return realtime_cohorts_for_request(self.context.get("request"), obj)
 
     @extend_schema_field(
         # nosemgrep: choices-need-a-class -- an existing list, moved here unchanged from posthog/api/team.py
