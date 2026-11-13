@@ -14065,6 +14065,15 @@ export namespace Schemas {
       models: AgentModelOption[];
     }
 
+    export interface AgentSource {
+      /** Distinct people whose agents ran the query, without scouts. */
+      people: number;
+      /** Agent sessions that ran the query, without scouts. */
+      sessions: number;
+      /** Query runs by agents, without scouts. */
+      runs: number;
+    }
+
     export type SpanHealthStatus = typeof SpanHealthStatus[keyof typeof SpanHealthStatus];
 
 
@@ -27397,6 +27406,25 @@ export namespace Schemas {
       insight_id: number;
       /** When the explanation was first saved. */
       created_at: string;
+    }
+
+    export interface ChartSource {
+      /** Short ID of the saved chart, for a link to it. */
+      insight_short_id: string;
+      /** Name of the saved chart. */
+      insight_name: string;
+      /**
+         * The dashboard that ran the chart, if any.
+         * @nullable
+         */
+      dashboard_id: number | null;
+      /**
+         * Name of the dashboard, if any.
+         * @nullable
+         */
+      dashboard_name: string | null;
+      /** Distinct people whose visit ran the chart. Viewers count. */
+      people: number;
     }
 
     /**
@@ -100737,6 +100765,42 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export interface SurfaceSource {
+      /** The web app area that ran the query. Empty when it is unknown. */
+      product: string;
+      /** Distinct people who ran the query there. */
+      people: number;
+      /** Query runs from that area. */
+      runs: number;
+    }
+
+    export interface ProposedMetric {
+      /** Proposed metric name. */
+      name: string;
+      /** What the proposed metric counts. */
+      description: string;
+      /** Proposed HogQL definition. */
+      definition: string;
+      /** Recurring measures that this proposal merges. */
+      measures: number;
+      /** Distinct people across the measures, without scouts. */
+      people: number;
+      /** Runs of the measure that a person saw, in the web app or an agent session. At least the built count. */
+      views: number;
+      /** Times a person or an agent wrote the most-built measure in the proposal, as on a measure. */
+      built: number;
+      /** The saved charts with the most people. */
+      charts: ChartSource[];
+      /** Saved charts that are not listed in charts. */
+      other_charts: number;
+      /** Web app areas that ran it outside a saved chart. */
+      surfaces: SurfaceSource[];
+      /** Agent use, or null when no agent ran it. */
+      agents: AgentSource | null;
+      /** How hard the query is to write by hand: 1 low, 2 medium, 3 high, 0 when it does not parse. */
+      complexity: number;
+    }
+
     /**
      * * `queued` - Waiting to start
      * * `running` - Importing
@@ -122225,10 +122289,12 @@ export namespace Schemas {
          * @nullable
          */
       matched_metric_id: string | null;
-      /** Distinct people who ran the measure, without scouts. */
+      /** People who wrote the measure or created a chart of it, directly or through an agent. Without scouts. */
       distinct_people: number;
-      /** Query runs of the measure, without scouts. */
-      runs: number;
+      /** Runs of the measure that a person saw, in the web app or an agent session. At least the built count. */
+      views: number;
+      /** Times a person or an agent wrote the measure, plus one per chart, notebook query or canvas query. */
+      built: number;
       /** One query that computes the measure. */
       sample_sql: string;
       /**
@@ -122241,6 +122307,13 @@ export namespace Schemas {
          * @nullable
          */
       draft_description: string | null;
+      /**
+         * Proposed HogQL definition, when one was drafted.
+         * @nullable
+         */
+      draft_definition: string | null;
+      /** How hard the query is to write by hand: 1 low, 2 medium, 3 high, 0 when it does not parse. */
+      complexity: number;
     }
 
     export interface UnquarantineQuery {
@@ -122532,6 +122605,11 @@ export namespace Schemas {
          * @nullable
          */
       uncovered: UncoveredGroup[] | null;
+      /**
+         * Proposed metrics with their sources. Null until drafted.
+         * @nullable
+         */
+      proposed_metrics: ProposedMetric[] | null;
     }
 
     export interface UsageSnapshot {
@@ -127962,6 +128040,111 @@ export namespace Schemas {
       events?: _SpanEvent[];
     }
 
+    /**
+     * Span count per service, largest first (top 10).
+     */
+    export type _TraceSummaryServices = {[key: string]: number};
+
+    export interface _TraceSummarySpan {
+      /** Span's ID within the trace. */
+      span_id?: string;
+      /** Span name, truncated to 120 characters. */
+      name: string;
+      /** Service that emitted the span. Omitted when it is the root span's service. */
+      service?: string;
+      /** Span duration in milliseconds. */
+      duration_ms: number;
+      /** Duration not covered by child spans, in milliseconds. */
+      self_ms: number;
+      /** Present and true when the span has error status. */
+      error?: boolean;
+    }
+
+    export interface _TraceSummaryPathEntry {
+      /** Span's ID within the trace. */
+      span_id?: string;
+      /** Span name, truncated to 120 characters. */
+      name: string;
+      /** Service that emitted the span. Omitted when it is the root span's service. */
+      service?: string;
+      /** Span duration in milliseconds. */
+      duration_ms: number;
+      /** Duration not covered by child spans, in milliseconds. */
+      self_ms: number;
+      /** Present and true when the span has error status. */
+      error?: boolean;
+      /** Nesting depth below the root, which is 0. */
+      depth: number;
+      /** Present when consecutive same-named siblings were collapsed into this entry; durations are summed. */
+      count?: number;
+    }
+
+    export interface _TraceSummaryRepeated {
+      /** Span name, truncated to 120 characters. */
+      name: string;
+      /** Service that emitted the spans. Omitted when it is the root span's service. */
+      service?: string;
+      /** How many spans in the trace have this service and name. */
+      count: number;
+      /** Summed duration of those spans, in milliseconds. */
+      total_ms: number;
+      /** Longest of those spans, in milliseconds. */
+      max_ms: number;
+    }
+
+    export interface _TraceSummaryError {
+      /** Span's ID within the trace. */
+      span_id?: string;
+      /** Span name, truncated to 120 characters. */
+      name: string;
+      /** Service that emitted the span. Omitted when it is the root span's service. */
+      service?: string;
+      /** Span duration in milliseconds. */
+      duration_ms: number;
+      /** Duration not covered by child spans, in milliseconds. */
+      self_ms: number;
+      /** Present and true when the span has error status. */
+      error?: boolean;
+      /**
+         * The exception message, or the error attribute the span carries. Null when the span records none.
+         * @nullable
+         */
+      message: string | null;
+    }
+
+    export interface _TraceSummary {
+      /** The trace ID. */
+      trace_id?: string;
+      /** When the earliest span started (ISO 8601). */
+      start?: string;
+      /** First span start to last span end, in milliseconds. */
+      duration_ms?: number;
+      /** Spans summarized. */
+      span_count: number;
+      /** Distinct services in the trace. */
+      service_count?: number;
+      /** Spans with error status. */
+      error_count?: number;
+      /** True when the trace has more spans than were summarized, so counts are lower bounds. */
+      truncated: boolean;
+      /** The trace's root span. */
+      root?: _TraceSummarySpan;
+      /** Span count per service, largest first (top 10). */
+      services?: _TraceSummaryServices;
+      /** Spans with the most self time, largest first. Self time on a parent is uninstrumented work. */
+      top_self_time?: _TraceSummarySpan[];
+      /** The spans the trace's end time waits on, in start order, walking back from the root's end. Spans that ran in parallel and finished earlier are left out. */
+      critical_path?: _TraceSummaryPathEntry[];
+      /** Spans on the critical path left out because each took under 1% of the root's duration. */
+      critical_path_omitted?: number;
+      /** True when the critical path was cut at summaryLimit entries (at most 20). */
+      critical_path_truncated?: boolean;
+      /** Service and name pairs that occur more than once, by total duration. Many fast repeats point at an N+1 pattern. */
+      repeated_spans?: _TraceSummaryRepeated[];
+      /** Error spans, earliest first. */
+      errors?: _TraceSummaryError[];
+    }
+
     export interface _TracingAggregationQueryBody {
       /** Date range for the primary window. Defaults to last hour. */
       dateRange?: _TracingDateRange;
@@ -128462,11 +128645,21 @@ export namespace Schemas {
          * @minimum 0
          */
       offset?: number;
+      /** Return a compact digest of the trace in `summary` instead of every span (`results` comes back empty): duration, root span, span/service/error counts, the top spans by self time, the critical path from the root, span names that repeat (N+1 queries), and error spans with their message. Covers the first 2000 spans; `summary.truncated` is true when the trace has more. Ignores `offset` and `excludeAttributes`. */
+      summary?: boolean;
+      /**
+         * With `summary`, how many entries each summary list keeps (1-50). Defaults to 10.
+         * @minimum 1
+         * @maximum 50
+         */
+      summaryLimit?: number;
     }
 
     export interface _TracingTraceResponse {
-      /** Spans in the trace, earliest first. */
+      /** Spans in the trace, earliest first. Empty when `summary` is requested. */
       results: _TraceSpan[];
+      /** The trace digest, present when `summary` is true. */
+      summary?: _TraceSummary;
       /** Whether a further page of spans exists. */
       hasMore: boolean;
       /**

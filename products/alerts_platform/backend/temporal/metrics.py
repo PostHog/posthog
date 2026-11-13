@@ -279,7 +279,16 @@ def record_batch_duration(source: str, duration_ms: int) -> None:
 
 
 DeliveryOutcomeLabel = Literal[
-    "sent", "failed", "misconfigured", "ambiguous", "already_delivered", "busy", "no_transport"
+    "sent",
+    "failed",
+    "misconfigured",
+    "ambiguous",
+    "already_delivered",
+    "busy",
+    "no_transport",
+    "announcement_empty",
+    "announcement_superseded",
+    "announcement_missing",
 ]
 
 _DELIVERIES_DESCRIPTION = "Transitions a delivery handled, by provider, delivery path and outcome"
