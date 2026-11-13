@@ -6,7 +6,7 @@ on:
     pull_request:
 
 concurrency:
-    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.head_ref || github.ref }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
@@ -36,29 +36,28 @@ jobs:
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
             - uses: ./.github/actions/paths-filter
               id: filter
-              if: github.event_name != 'push'
+              if: github.event_name != 'push' || (github.event.before != '' && github.event.before != '0000000000000000000000000000000000000000')
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
                   filters: |
                       ui-apps:
-                        - 'services/mcp/src/ui-apps/**'
-                        - 'services/mcp/src/resources/ui-apps.generated.ts'
-                        - 'services/mcp/vite.ui-apps.config.ts'
-                        - 'services/mcp/scripts/build-ui-apps.ts'
-                        - 'services/mcp/scripts/generate-ui-apps.ts'
-                        - 'services/mcp/scripts/post-ui-apps-size-section.mjs'
-                        - 'services/mcp/scripts/yaml-config-schema.ts'
+                        - '*'
+                        - '**/package.json'
+                        - '.github/actions/**'
+                        - '.husky/**'
+                        - 'bin/fix-rdkafka-paths'
+                        - 'patches/**'
+                        - 'frontend/**'
+                        - 'packages/**'
+                        - 'services/mcp/**'
+                        - 'tools/openapi-codegen/**'
                         - 'products/*/mcp/**'
-                        - 'services/mcp/definitions/*.yaml'
                         - 'common/mosaic/**'
                         # Compiled into the UI apps: the quill packages they render with, the
                         # product-analytics chart transforms they import, and the generated
                         # API types their views are typed against.
-                        - 'packages/quill/**'
-                        - 'products/product_analytics/frontend/insights/**'
-                        - 'products/*/frontend/generated/**'
+                        - 'products/*/frontend/**'
                         - '.github/workflows/ci-mcp-ui-apps.yml'
-                        - '.github/actions/setup-uv/**'
 
     build-and-report:
         name: Build and validate UI Apps
