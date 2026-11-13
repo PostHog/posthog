@@ -2980,6 +2980,7 @@ export const HogFlowsBulkUpdateTagsCreateBody = /* @__PURE__ */ zod
     .describe('Variant of ``BulkUpdateTagsRequestSerializer`` for resources keyed by UUID (e.g. event definitions).')
 
 export const hogFlowsUserBlastRadiusCreateBodySendsEmailDefault = true
+export const hogFlowsUserBlastRadiusCreateBodyEmailSendingRateLimitOneCountMax = 1000000
 
 export const HogFlowsUserBlastRadiusCreateBody = /* @__PURE__ */ zod.object({
     filters: zod.record(zod.string(), zod.unknown()).describe('Property filters to apply'),
@@ -2995,6 +2996,27 @@ export const HogFlowsUserBlastRadiusCreateBody = /* @__PURE__ */ zod.object({
         .default(hogFlowsUserBlastRadiusCreateBodySendsEmailDefault)
         .describe(
             'Whether the workflow contains an email step. The tiered audience limit only applies to email sends; SMS, push, and webhook batches keep the flat limit. Defaults to true.'
+        ),
+    email_sending_rate_limit: zod
+        .union([
+            zod.object({
+                count: zod
+                    .number()
+                    .min(1)
+                    .max(hogFlowsUserBlastRadiusCreateBodyEmailSendingRateLimitOneCountMax)
+                    .describe('Maximum number of emails this workflow sends per period.'),
+                period: zod
+                    .enum(['minute', 'hour'])
+                    .describe('\* `minute` - minute\n\* `hour` - hour')
+                    .describe(
+                        'Window the count applies to. Sends over the limit are delayed until capacity frees up, not dropped.\n\n\* `minute` - minute\n\* `hour` - hour'
+                    ),
+            }),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            "The workflow's email sending rate limit. A slow enough rate raises the email audience limit. The response's rate_limited field says which rates qualify."
         ),
 })
 

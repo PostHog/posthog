@@ -1,4 +1,5 @@
 import time
+from collections.abc import Iterable
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 from uuid import UUID, uuid4
@@ -12,6 +13,7 @@ import structlog
 
 from posthog.egress.github.transport import github_request, raise_if_github_rate_limited
 from posthog.egress.limiter.policies import Priority
+from posthog.egress.slack.client import SlackWebClient
 from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.github_integration_base import (
     _GITHUB_REPO_PATH_RE,
@@ -1065,3 +1067,42 @@ def user_slack_integration_from_identity(
         },
     )
     return integration
+
+
+def slack_link_scopes(integration: UserIntegration) -> frozenset[str]:
+    """The user scopes Slack granted the link. Stored space-delimited, as OIDC returns them."""
+    return frozenset(str((integration.config or {}).get("scope") or "").replace(",", " ").split())
+
+
+def slack_link_for(integration_id: str, *, user_id: int) -> UserIntegration | None:
+    """The person's Slack link with this id. None when the id belongs to another person or another kind."""
+    return UserIntegration.objects.filter(
+        id=integration_id, user_id=user_id, kind=UserIntegration.IntegrationKind.SLACK
+    ).first()
+
+
+def slack_link_fits(integration: UserIntegration, allowlist: Iterable[str]) -> bool:
+    """The link grants every scope in ``allowlist`` and nothing outside it. The MCP store sends the link's token
+    upstream, so the allowlist is a ceiling as well as a floor: a link that can read more than the server may read
+    does not connect it."""
+    allowed = set(allowlist)
+    return bool(allowed) and slack_link_scopes(integration) == allowed
+
+
+def revoke_slack_user_token(integration: UserIntegration) -> None:
+    """Revoke the link's token at Slack before the link is deleted. Never raises, so a person can always unlink."""
+    token = (integration.sensitive_config or {}).get("user_access_token")
+    if not token:
+        return
+    client = SlackWebClient(
+        token,
+        source="user_slack_unlink",
+        workspace_id=(integration.config or {}).get("slack_team_id"),
+        app_id="posthog",
+        # Slack's App Home unlink runs this before it answers Slack, which allows three seconds.
+        timeout=2,
+    )
+    try:
+        client.auth_revoke()
+    except Exception:
+        logger.warning("user_slack_integration_revoke_failed", integration_id=str(integration.id), exc_info=True)

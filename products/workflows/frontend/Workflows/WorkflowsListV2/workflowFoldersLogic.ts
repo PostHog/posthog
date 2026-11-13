@@ -137,7 +137,11 @@ export interface workflowFoldersLogicActions {
     setListFolder: (folder: string | null) => {
         folder: string | null
     } // newWorkflowLogic
-    setValue: (value: FacetSearchValue) => {
+    setValue: (
+        value: FacetSearchValue,
+        fromUrl?: boolean | undefined
+    ) => {
+        fromUrl: boolean
         value: FacetSearchValue
     } // workflowsListV2Logic
     cancelFolderDraft: () => {
@@ -631,6 +635,7 @@ function relevantFolderPaths(
             (entry) =>
                 entry.type === 'folder' &&
                 !entry.shortcut &&
+                entry.path !== 'Unfiled' &&
                 !entry.path.startsWith('Unfiled/') &&
                 !foldersWithFiles.has(entry.path) &&
                 isRelevantEmptyFolder(entry.path)

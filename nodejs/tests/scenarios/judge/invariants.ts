@@ -6,7 +6,7 @@ import type { Definition } from '../cards/definitions'
 import type { TruthRecord } from '../provider-edge'
 import type { InvariantResult, JournalEntry } from './judge'
 
-export type JudgeEvidence = { journal: readonly JournalEntry[]; truth: readonly TruthRecord[] }
+export type JudgeEvidence = { journal: readonly JournalEntry[]; truth: readonly TruthRecord[]; fetchRetries: number }
 
 export type InvariantDefinition = Definition & {
     check(evidence: JudgeEvidence, gate: number | undefined): Omit<InvariantResult, 'name'>
@@ -25,12 +25,15 @@ const isNotRetriedByTheEmailService = ({ status, detail }: TruthRecord): boolean
 
 const isNotRetriedByFetch = (status: number): boolean => !RETRIABLE_STATUS_CODES.includes(status)
 
-function endedByTerminalFault(records: TruthRecord[]): boolean {
+function endedByFault(records: TruthRecord[], fetchRetries: number): boolean {
     const last = records.at(-1)
     if (last?.fault === undefined) {
         return false
     }
-    return last.kind === 'webhook' ? isNotRetriedByFetch(last.status) : isNotRetriedByTheEmailService(last)
+    if (last.kind !== 'webhook') {
+        return isNotRetriedByTheEmailService(last)
+    }
+    return isNotRetriedByFetch(last.status) || records.length >= fetchRetries
 }
 
 type DeliveryRecord = TruthRecord & { unitId: string; actionId: string }
@@ -44,7 +47,7 @@ const recordsByDelivery = (truth: readonly TruthRecord[]): Map<string, DeliveryR
 export const atLeastOnce: InvariantDefinition = {
     name: 'at_least_once',
     params: z.object({}).strict(),
-    check: ({ journal, truth }) => {
+    check: ({ journal, truth, fetchRetries }) => {
         const byDelivery = recordsByDelivery(truth)
         const missed = journal
             .filter(({ answer }) => answer.accepted)
@@ -56,7 +59,8 @@ export const atLeastOnce: InvariantDefinition = {
                 }))
             )
             .filter(
-                ({ records }) => !records.some(({ status }) => isAccepted(status)) && !endedByTerminalFault(records)
+                ({ records }) =>
+                    !records.some(({ status }) => isAccepted(status)) && !endedByFault(records, fetchRetries)
             )
         const [first] = missed
         return {

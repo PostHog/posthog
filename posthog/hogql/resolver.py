@@ -2793,9 +2793,15 @@ class Resolver(CloningVisitor):
                         expression = ast.Call(name="tupleElement", args=[expression, ast.Constant(value=member)])
                     return self.visit(expression)
             if next_chain == "..":  # only support one level of ".."
-                previous_types.pop()
-                previous_types.pop()
-                loop_type = previous_types[-1]
+                del previous_types[-2:]
+                if previous_types:
+                    loop_type = previous_types[-1]
+                elif isinstance(loop_type, ast.VirtualTableType):
+                    loop_type = loop_type.table_type
+                else:
+                    raise QueryError(f"Cannot use '..' after '{'.'.join(str(c) for c in resolved_chain)}'")
+                if not chain_to_parse:
+                    raise QueryError("Expected a field after '..'")
                 next_chain = chain_to_parse.pop(0)
 
             try:
