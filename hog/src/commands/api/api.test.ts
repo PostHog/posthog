@@ -194,6 +194,17 @@ describe('hog api', () => {
         expect(library.calls).toEqual(calls)
     })
 
+    test('call passes a PostHog object through without reading its status as a wait', async () => {
+        const backfill = { id: 7, status: 'running' }
+        const result = await runHog(['api', 'call', 'flag-list', '{}'], {
+            env: TEST_CREDENTIALS,
+            apiTools: fakeLibrary(['*'], { callResult: { ok: true, value: backfill } }),
+        })
+
+        expect(result.exitCode).toBe(EXIT_SUCCESS)
+        expect(result.json()).toEqual(backfill)
+    })
+
     test.each([
         ['names every scope the key is missing', false, 'insight:write, query:read'],
         ['keeps the scope PostHog named when the key lookup fails', true, 'insight:write'],

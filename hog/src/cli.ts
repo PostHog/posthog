@@ -23,8 +23,6 @@ import {
     EXIT_CANCELLED,
     EXIT_CODES,
     EXIT_FAILURE,
-    EXIT_NEEDS_PERSON,
-    EXIT_PENDING,
     EXIT_SUCCESS,
     EXIT_USAGE,
     HogError,
@@ -53,19 +51,6 @@ ${EXIT_CODES.map(({ code, meaning }) => `  ${String(code).padEnd(CODE_WIDTH)}  $
 --no-fail turns ${joinList(NO_FAIL_CODES.map(String), 'and')} into ${EXIT_SUCCESS}.`
 
 const UNFINISHED_CODES: ReadonlySet<number> = new Set(NO_FAIL_CODES)
-
-// A result that waits says so in `status`, so every such command exits the same way.
-const EXIT_CODE_BY_STATUS: Readonly<Record<string, number>> = {
-    pending: EXIT_NEEDS_PERSON,
-    running: EXIT_PENDING,
-}
-
-function resultExitCode(result: unknown): number {
-    const status = typeof result === 'object' && result !== null && 'status' in result ? result.status : undefined
-    return typeof status === 'string' && Object.hasOwn(EXIT_CODE_BY_STATUS, status)
-        ? EXIT_CODE_BY_STATUS[status]!
-        : EXIT_SUCCESS
-}
 
 const LEGACY_HELP_GROUP = 'Not ported yet (each one prints the posthog-cli command to run):'
 
@@ -280,7 +265,7 @@ function createProgram(runtime: Runtime, mode: Mode, state: RunState, telemetry:
             } else if (result !== undefined) {
                 out.json(globals.raw && node.raw ? node.raw(result) : result)
             }
-            state.exitCode = node.exitCode?.(result) ?? resultExitCode(result)
+            state.exitCode = node.exitCode?.(result) ?? EXIT_SUCCESS
             state.properties = {
                 dry_run: options.dryRun === true,
                 ...node.telemetry?.({ result, args, options } as never),
@@ -386,8 +371,6 @@ interface ResolvedRoute {
     node: Command | Group | Legacy | undefined
 }
 
-// Follows the positional tokens down the command tree, group aliases included, and stops at the
-// first token that isn't a name there or at the first node that isn't a group.
 function resolveRoute(tokens: Token[]): ResolvedRoute {
     let tree: CommandTree = COMMANDS
     const route: ResolvedRoute = { names: [], indices: [], node: undefined }

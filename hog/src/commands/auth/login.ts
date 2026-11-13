@@ -3,7 +3,7 @@ import { dirname } from 'node:path'
 import { printPending, refuseInCi, resumeApproval, runApproval, type PendingResult } from '@/core/approval'
 import { defineCommand } from '@/core/command'
 import type { Context } from '@/core/context'
-import { EXIT_USAGE, HogError } from '@/core/errors'
+import { EXIT_USAGE, HogError, waitingExitCode } from '@/core/errors'
 import { escapeControls } from '@/core/output'
 import type { Prompts } from '@/core/prompts'
 import { validationError } from '@/core/schema'
@@ -139,6 +139,8 @@ export default defineCommand({
         const result = await runApproval(ctx, loginFlow(ctx.runtime, host, scopes))
         return result.status === 'pending' ? { ...result, host } : finish(ctx, result.value)
     },
+
+    exitCode: waitingExitCode,
 
     human({ result, out }) {
         if (result.status === 'pending') {
