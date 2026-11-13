@@ -90,10 +90,12 @@ describe('incoming webhook template', () => {
         ])
     })
 
-    it('should capture nothing when the event UUID is not a UUID', async () => {
+    it('should return 400 and capture nothing when the event UUID is not a UUID', async () => {
         const response = await invokeWithEventUuid('contract-42')
 
-        expect(response.error).toContain("'uuid' must be a UUID")
+        expect(response.execResult).toEqual({
+            httpResponse: { status: 400, body: { error: '"uuid" must be a UUID' } },
+        })
         expect(response.capturedPostHogEvents).toEqual([])
     })
 

@@ -56,6 +56,17 @@ if(empty(inputs.distinct_id)) {
   }
 }
 
+if(notEmpty(inputs.uuid) and not match(inputs.uuid, '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$')) {
+  return {
+    'httpResponse': {
+      'status': 400,
+      'body': {
+        'error': '"uuid" must be a UUID',
+      }
+    }
+  }
+}
+
 postHogCapture({
   'event': inputs.event,
   'distinct_id': inputs.distinct_id,
@@ -99,7 +110,7 @@ postHogCapture({
             type: 'string',
             label: 'Event UUID',
             description:
-                'A UUID that stays the same when the sender retries a delivery. PostHog keeps one event per UUID when the event name, distinct ID, and day also match. Duplicates are removed in the background, so they can show for a while. Leave empty to give each event a new UUID.',
+                'Sets the UUID of the event, such as an ID the sender repeats when it retries a delivery: {request.body.id}. The value must be a UUID, or the request fails with a 400 error. Leave empty to give each event a new UUID.',
             secret: false,
             required: false,
         },

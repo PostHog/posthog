@@ -876,6 +876,19 @@ describe('Hog Executor', () => {
             `)
         })
 
+        it('fails without capturing when the uuid is not a UUID', async () => {
+            const hog = `postHogCapture({'event': 'contract signed', 'distinct_id': 'user-1', 'uuid': 'contract-42'})`
+            const fn = createHogFunction({
+                hog,
+                bytecode: await compileHog(hog),
+                ...HOG_FILTERS_EXAMPLES.no_filters,
+            })
+
+            const result = await executor.execute(createExampleInvocation(fn))
+            expect(result.error).toContain("'uuid' must be a UUID")
+            expect(result.capturedPostHogEvents).toEqual([])
+        })
+
         it('falls back to person.id for distinct_id when event.distinct_id is empty (batch invocations)', async () => {
             const fn = createHogFunction({
                 ...HOG_EXAMPLES.posthog_capture,
