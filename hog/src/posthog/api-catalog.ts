@@ -6,7 +6,7 @@ import { hogFile } from '@/core/paths'
 import type { Runtime } from '@/core/runtime'
 import { VERSION } from '@/version'
 
-import { type Host, hostKey, hostUrl, INGESTION_HOSTS, REGION_IDS, REGIONS, sameHost } from './host'
+import { type Host, hostUrl, INGESTION_HOSTS, REGION_IDS, REGIONS, sameHost } from './host'
 
 const CATALOG_PATH = 'api/cli/catalog.json'
 const CACHE_FILE = 'api-catalog.json'
@@ -38,9 +38,14 @@ const CacheSchema = z.object({ hosts: z.record(z.string(), HostCacheSchema) })
 type Cache = z.output<typeof CacheSchema>
 
 // Each PostHog serves the catalog of the code it runs, and a Cloud region serves it from its app host.
-export function catalogUrl(host: Host): string {
+// The path stays, because two PostHogs under different paths of one origin can run different code.
+function catalogHost(host: Host): Host {
     const region = REGION_IDS.find((id) => sameHost(INGESTION_HOSTS[id], host))
-    return hostUrl(region ? REGIONS[region] : host, CATALOG_PATH).toString()
+    return region ? REGIONS[region] : host
+}
+
+export function catalogUrl(host: Host): string {
+    return hostUrl(catalogHost(host), CATALOG_PATH).toString()
 }
 
 export type CatalogOrigin = 'network' | 'cache' | 'bundled'
@@ -203,7 +208,7 @@ export async function resolveCatalog(runtime: Runtime, options: CatalogOptions):
         return bundled('no_folder', 'hog has no folder to keep the catalog in')
     }
     const cache = await readCache(runtime, path)
-    const key = hostKey(options.host)
+    const key = catalogHost(options.host)
     const entry = cache.hosts[key]
     const saved = entry?.catalog ?? undefined
     const save = (next: HostCache): Promise<void> =>
