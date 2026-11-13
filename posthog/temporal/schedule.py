@@ -171,32 +171,25 @@ from ee.billing.salesforce_enrichment.constants import DEFAULT_CHUNK_SIZE
 logger = structlog.get_logger(__name__)
 
 
+async def _delete_retired_schedules(client: Client, schedule_ids: list[str]) -> None:
+    """Delete schedules whose workflows are gone. Any in-flight run ends on its own execution timeout."""
+    for schedule_id in schedule_ids:
+        if await a_schedule_exists(client, schedule_id):
+            await a_delete_schedule(client, schedule_id)
+
+
 async def cleanup_sync_vectors_schedule(client: Client):
-    """Disabled: delete the actions embedding sync schedule. Any in-flight runs die on their own execution_timeout."""
-    if await a_schedule_exists(client, "ai-sync-vectors-schedule"):
-        await a_delete_schedule(client, "ai-sync-vectors-schedule")
+    await _delete_retired_schedules(client, ["ai-sync-vectors-schedule"])
 
 
 async def cleanup_retired_replay_vision_schedules(client: Client):
-    """Delete Replay Vision schedules whose workflows are gone. Any in-flight run ends on its own execution timeout."""
-    retired_schedule_ids = [
-        "replay-vision-search-suggestions-refresher-schedule",
-        "replay-vision-jev-watch-rank-schedule",
-    ]
-    for schedule_id in retired_schedule_ids:
-        if await a_schedule_exists(client, schedule_id):
-            await a_delete_schedule(client, schedule_id)
+    await _delete_retired_schedules(
+        client, ["replay-vision-search-suggestions-refresher-schedule", "replay-vision-jev-watch-rank-schedule"]
+    )
 
 
 async def cleanup_retired_session_replay_schedules(client: Client):
-    """Delete session replay schedules whose workflows are gone. Any in-flight run ends on its own execution timeout."""
-    retired_schedule_ids = [
-        "surfacing-scoring-sweep-batch",
-        "surfacing-score-export-sweep",
-    ]
-    for schedule_id in retired_schedule_ids:
-        if await a_schedule_exists(client, schedule_id):
-            await a_delete_schedule(client, schedule_id)
+    await _delete_retired_schedules(client, ["surfacing-scoring-sweep-batch", "surfacing-score-export-sweep"])
 
 
 async def create_run_quota_limiting_schedule(client: Client):
