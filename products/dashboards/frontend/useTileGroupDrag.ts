@@ -162,7 +162,7 @@ export function useTileGroupDrag(props: TileGroupDragProps): TileGroupDrag {
         draggingTileId,
         dropTargetKey,
         frozenSourceGrid,
-        showTakeOutDropZone: props.enabled && props.sections.at(-1)?.kind === 'group',
+        showTakeOutDropZone: props.enabled && draggingTileId !== null && props.sections.at(-1)?.kind === 'group',
         startTileDrag,
         trackTileDrag,
         finishTileDrag,
