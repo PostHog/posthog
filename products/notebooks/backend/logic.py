@@ -420,6 +420,35 @@ def list_team_account_notes(
     return list(queryset[offset : offset + limit]), queryset.count()
 
 
+def list_team_account_note_tags(
+    team_id: int,
+    *,
+    account_ids: Iterable[UUID | str] | None = None,
+    search: str | None = None,
+    offset: int = 0,
+    limit: int = 100,
+) -> tuple[list[str], int]:
+    """Names of the tags on the notes ``list_team_account_notes`` returns, in alphabetical order.
+
+    The project's other tags (on insights, tickets, tasks and so on) are not included.
+    ``account_ids`` restricts to notes on the given accounts. ``search`` keeps names that contain it.
+    Returns ``(page, total_count)``.
+    """
+    links = ResourceNotebook.objects.filter(
+        account__isnull=False,
+        notebook__team_id=team_id,
+        notebook__deleted=False,
+        notebook__visibility=Notebook.Visibility.INTERNAL,
+    )
+    if account_ids is not None:
+        links = links.filter(account_id__in=account_ids)
+    queryset = Tag.objects.filter(team_id=team_id, id__in=links.values("notebook__tagged_items__tag_id"))
+    if search:
+        queryset = queryset.filter(name__icontains=search)
+    names = queryset.order_by("name").values_list("name", flat=True)
+    return list(names[offset : offset + limit]), queryset.count()
+
+
 _TEAM_ACCOUNT_NOTE_ORDERING: dict[str, tuple[str, ...]] = {
     "last_modified_at": ("notebook__last_modified_at",),
     "-last_modified_at": ("-notebook__last_modified_at",),

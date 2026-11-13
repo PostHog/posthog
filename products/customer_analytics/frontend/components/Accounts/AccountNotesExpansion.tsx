@@ -13,6 +13,7 @@ import { urls } from 'scenes/urls'
 import type { AccountNotebookApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import { AccountNotesViewSelector } from '../AccountNotes/AccountNotesViewSelector'
+import { loadAccountNoteTags } from '../AccountNotes/loadAccountNoteTags'
 import { NotesCreatedByFilter } from '../AccountNotes/NotesCreatedByFilter'
 import { NotesTagsFilter } from '../AccountNotes/NotesTagsFilter'
 import { accountNotebooksLogic } from './accountNotebooksLogic'
@@ -98,6 +99,7 @@ export function AccountNotesExpansion({
                         tags={tags}
                         onChange={(newTags) => updateNotebook(notebook.short_id, { tags: newTags })}
                         saving={!!pendingNotebookTags[notebook.short_id]}
+                        loadTags={loadAccountNoteTags}
                         data-attr="account-note-tags"
                     />
                 )

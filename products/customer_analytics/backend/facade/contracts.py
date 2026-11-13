@@ -1292,6 +1292,13 @@ class AccountNoteView:
     tags: list[str] = field(default_factory=list)
 
 
+@dataclass(frozen=True)
+class AccountNoteTag:
+    """A tag that is on at least one account note the caller can read."""
+
+    name: str
+
+
 # --- Presentation wave: input contracts for the CRUD write paths ---
 
 

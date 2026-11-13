@@ -12,6 +12,7 @@ import type {
     AccountApi,
     AccountNotebookApi,
     AccountNotesListParams,
+    AccountNotesTagsListParams,
     AccountPersonsPageApi,
     AccountPersonsQueryRequestApi,
     AccountPresenceApi,
@@ -106,6 +107,7 @@ import type {
     PaginatedAccountEmailThreadMessageListApi,
     PaginatedAccountListApi,
     PaginatedAccountNoteListApi,
+    PaginatedAccountNoteTagListApi,
     PaginatedAccountNotebookListApi,
     PaginatedAccountRelationshipDefinitionListApi,
     PaginatedAccountSupportTicketMessageListApi,
@@ -260,6 +262,36 @@ export const accountNotesList = async (
     options?: RequestInit
 ): Promise<PaginatedAccountNoteListApi> => {
     return apiMutator<PaginatedAccountNoteListApi>(getAccountNotesListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAccountNotesTagsListUrl = (projectId: string, params?: AccountNotesTagsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/account_notes/tags/?${stringifiedParams}`
+        : `/api/projects/${projectId}/account_notes/tags/`
+}
+
+/**
+ * Tags that are on account notes, without the tags the project uses on other resources.
+ */
+export const accountNotesTagsList = async (
+    projectId: string,
+    params?: AccountNotesTagsListParams,
+    options?: RequestInit
+): Promise<PaginatedAccountNoteTagListApi> => {
+    return apiMutator<PaginatedAccountNoteTagListApi>(getAccountNotesTagsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

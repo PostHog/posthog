@@ -18,6 +18,7 @@ import type { AccountNoteApi } from 'products/customer_analytics/frontend/genera
 import { AccountsEvents } from '../Accounts/constants'
 import { accountNotesLogic, sortingToOrdering } from './accountNotesLogic'
 import { AccountNotesViewSelector } from './AccountNotesViewSelector'
+import { loadAccountNoteTags } from './loadAccountNoteTags'
 import { NotesCreatedByFilter } from './NotesCreatedByFilter'
 import { NotesTagsFilter } from './NotesTagsFilter'
 
@@ -115,6 +116,7 @@ export function AccountNotesTabContent(): JSX.Element {
                             tags={tags}
                             onChange={(newTags) => updateNoteTags(note, newTags)}
                             saving={!!pendingNoteTags[note.short_id]}
+                            loadTags={loadAccountNoteTags}
                             data-attr="account-note-tags"
                         />
                     </div>

@@ -51,6 +51,7 @@ from products.customer_analytics.backend.facade.contracts import (
     AccountChannelSummaryView,
     AccountDetails,
     AccountNotebookView,
+    AccountNoteTag,
     AccountNoteView,
     AccountPresence,
     AccountPresenceViewer,
@@ -1330,6 +1331,16 @@ class AccountNoteSerializer(DataclassSerializer):
             "created_by",
             "tags",
         ]
+
+
+class AccountNoteTagSerializer(DataclassSerializer):
+    """A tag that is on at least one account note the caller can read."""
+
+    name = serializers.CharField(read_only=True, help_text="Name of the tag.")
+
+    class Meta:
+        dataclass = AccountNoteTag
+        fields = ["name"]
 
 
 class ChannelSummaryMessageSerializer(serializers.Serializer):
