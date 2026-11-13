@@ -7,7 +7,9 @@ from rest_framework import status
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, PersonalAPIKey, Team, User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.utils import generate_short_id
 
+from products.product_analytics.backend.facade.api import get_or_create_saved_insight
 from products.release.backend.facade import api
 from products.release.backend.facade.contracts import ImportFlag
 from products.release.backend.models import Release, ReleaseImportState
@@ -159,19 +161,15 @@ class TestReleaseAPI(APIBaseTest):
             )
             assert response.status_code == status.HTTP_201_CREATED, response.json()
             return response.json()["id"], f"surveys/{response.json()['id']}"
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/insights/",
-            {
-                "name": name,
-                "query": {
-                    "kind": "InsightVizNode",
-                    "source": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
-                },
-            },
-            format="json",
+        insight_id, _ = get_or_create_saved_insight(
+            team_id=self.team.id,
+            user_id=self.user.id,
+            short_id=generate_short_id(),
+            name=name,
+            description=None,
+            query=None,
         )
-        assert response.status_code == status.HTTP_201_CREATED, response.json()
-        return response.json()["id"], f"insights/{response.json()['id']}"
+        return insight_id, f"insights/{insight_id}"
 
     @parameterized.expand(
         [
