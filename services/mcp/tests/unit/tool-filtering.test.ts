@@ -1093,6 +1093,18 @@ describe('Tool Filtering - Feature Flags', () => {
         expect(on).toContain('accounts-meetings-list')
     })
 
+    it('keeps workflow disable hidden until backend draft routing is enabled', () => {
+        const hidden = getToolsForFeatures({ features: ['workflows'] })
+        expect(hidden).not.toContain('workflows-disable')
+        expect(hidden).toContain('workflows-enable')
+
+        const enabled = getToolsForFeatures({
+            features: ['workflows'],
+            featureFlags: { 'workflows-mcp-disable': true },
+        })
+        expect(enabled).toContain('workflows-disable')
+    })
+
     it('exposes only the current notebook tools without rollout flags', () => {
         const tools = getToolsForFeatures({ featureFlags: {} })
         expect(tools).toContain('notebooks-create-markdown')
@@ -1133,6 +1145,7 @@ describe('Tool Filtering - Feature Flags', () => {
             'workflows-destination-suggestion',
             'marketing-analytics-conversion-setup-ai',
             'marketing-analytics-recommendations',
+            'workflows-mcp-disable',
             'insight-data-checks',
             'workflows-transactional-email-api',
             'workflows-email-from-code',
@@ -1140,7 +1153,6 @@ describe('Tool Filtering - Feature Flags', () => {
             'personal-inbox-ranking',
             'inbox-reports-search',
             'anomalies-search',
-            'workflows-email-domain-agent-setup',
             'feature-flag-rules-v2-mcp',
             'investigate-insight',
             'workflows-customerio-import',
@@ -1151,6 +1163,7 @@ describe('Tool Filtering - Feature Flags', () => {
             'warehouse-migration-import',
             'mcp-feature-flag-restore-version',
             'platform-alerts-source-warehouse',
+            'dwh-custom-source-ai-builder',
             'workflows-bulk-suppressions-mcp',
         ]
         expect(allFlags).toEqual(expect.arrayContaining(branchFlags))
@@ -1191,9 +1204,9 @@ describe('Tool Filtering - Feature Flags', () => {
                 'autoresearch',
                 'marketing-analytics-setup-plan-mcp',
                 'subscription-source-summaries',
-                'workflows-mcp-onboarding',
                 'aeo-citation-tracking',
                 'self-driving-usage-display',
+                'logs-agent-tools',
             ])
         )
         expect(flags).toContain('ai-observability-offline-evaluations')

@@ -148,6 +148,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/cross-project-dashboards/:id': ['CrossProjectDashboard', 'crossProjectDashboard'],
     '/customer_analytics/dashboard': ['CustomerAnalytics', 'customerAnalyticsDashboard'],
     '/customer_analytics/accounts': ['CustomerAnalytics', 'customerAnalyticsAccounts'],
+    '/customer_analytics/product-activity': ['CustomerAnalytics', 'customerAnalyticsProductActivity'],
     '/customer_analytics/accounts/by-external-id/*': ['CustomerAnalyticsAccount', 'customerAnalyticsAccount'],
     '/customer_analytics/accounts/:accountId': ['CustomerAnalyticsAccount', 'customerAnalyticsAccount'],
     '/customer_analytics/accounts/:accountId/:tab': ['CustomerAnalyticsAccount', 'customerAnalyticsAccount'],
@@ -373,8 +374,8 @@ export const productRoutes: Record<string, [string, string]> = {
         'visualReviewLegacySnapshotHistory',
     ],
     '/etl': ['PipelineOverview', 'pipelineOverview'],
-    '/web/content-autopilot': ['WebAnalytics', 'webAnalyticsContentAutopilot'],
-    '/web/content-autopilot/prompts/:promptId': ['WebAnalytics', 'webAnalyticsContentAutopilotPrompt'],
+    '/web/ai-visibility': ['WebAnalytics', 'webAnalyticsContentAutopilot'],
+    '/web/ai-visibility/prompts/:promptId': ['WebAnalytics', 'webAnalyticsContentAutopilotPrompt'],
     '/heatmaps': ['Heatmaps', 'heatmaps'],
     '/heatmaps/new': ['HeatmapNew', 'heatmapNew'],
     '/heatmaps/recording': ['HeatmapRecording', 'heatmapRecording'],
@@ -621,6 +622,10 @@ export const productRedirects: Record<
         combineUrl(urls.visualReviewRuns(), searchParams, hashParams).url,
     '/visual_review/*': ({ _ }, searchParams, hashParams): string =>
         combineUrl(`/visual-review/${_}`, searchParams, hashParams).url,
+    '/web/content-autopilot': (_, searchParams) => combineUrl(urls.webAnalyticsContentAutopilot(), searchParams).url,
+    '/web/content-autopilot/prompts/:promptId': ({ promptId }, searchParams) =>
+        combineUrl(urls.webAnalyticsContentAutopilotPrompt(promptId ?? ''), searchParams).url,
+    '/web/bots': () => urls.webAnalyticsContentAutopilot(),
 }
 
 /** This const is auto-generated, as is the whole file */
@@ -1541,6 +1546,7 @@ export const productUrls = {
     customerAnalytics: (): string => '/customer_analytics',
     customerAnalyticsDashboard: (): string => '/customer_analytics/dashboard',
     customerAnalyticsAccounts: (): string => '/customer_analytics/accounts',
+    customerAnalyticsProductActivity: (): string => '/customer_analytics/product-activity',
     customerAnalyticsAccount: (accountId: string, tab?: string): string =>
         `/customer_analytics/accounts/${accountId}${tab ? `/${encodeURIComponent(tab)}` : ''}`,
     customerAnalyticsAccountByExternalId: (externalId: string, tab?: string): string =>
@@ -1572,7 +1578,7 @@ export const productUrls = {
     sharedDashboard: (shareToken: string): string => `/shared_dashboard/${shareToken}`,
     dataCatalog: (tab?: string): string => `/data-catalog${tab ? `?tab=${tab}` : ''}`,
     dataCatalogNewMetric: (): string => '/data-catalog/new-metric',
-    dataCatalogMetric: (name: string, tab?: 'definition' | 'data-quality' | 'lineage'): string =>
+    dataCatalogMetric: (name: string, tab?: 'definition' | 'data-quality' | 'lineage' | 'usage'): string =>
         `/data-catalog/metrics/${name}${tab && tab !== 'definition' ? `?tab=${tab}` : ''}`,
     models: (tab?: ModelsSceneTab): string => (tab && tab !== 'overview' ? `/models?tab=${tab}` : '/models'),
     nodeDetail: (id: string, tab?: NodeDetailSceneTab): string => `/models/${id}${tab ? `/${tab}` : ''}`,
@@ -2067,9 +2073,8 @@ export const productUrls = {
     webAnalyticsMarketing: (): string => `/web/marketing`,
     webAnalyticsHealth: (): string => `/web/health`,
     webAnalyticsLive: (): string => `/web/live`,
-    webAnalyticsBotAnalytics: (): string => `/web/bot-analytics`,
-    webAnalyticsContentAutopilot: (): string => `/web/content-autopilot`,
-    webAnalyticsContentAutopilotPrompt: (id: string): string => `/web/content-autopilot/prompts/${id}`,
+    webAnalyticsContentAutopilot: (): string => `/web/ai-visibility`,
+    webAnalyticsContentAutopilotPrompt: (id: string): string => `/web/ai-visibility/prompts/${id}`,
     heatmaps: (params?: string): string =>
         `/heatmaps${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
     heatmapNew: (params?: string): string =>
@@ -3544,12 +3549,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
                 flag: FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT,
             },
             {
-                name: 'Bots',
-                href: urls.webAnalyticsBotAnalytics(),
-                flag: FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT,
-            },
-            {
-                name: 'Search & AI',
+                name: 'AI traffic',
                 href: urls.webAnalyticsPagePerformance(),
                 flag: FEATURE_FLAGS.WEB_ANALYTICS_PAGE_PERFORMANCE,
             },

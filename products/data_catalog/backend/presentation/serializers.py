@@ -20,7 +20,7 @@ from ..facade.api import (
     MAX_METRIC_RUN_PAGES,
     METRIC_NAME_MAX_LENGTH,
 )
-from ..facade.enums import CreatedSource, JudgeRelation, ShapeOutcome, UsageSnapshotStatus
+from ..facade.enums import CreatedSource, JudgeRelation, ShapeOutcome, UsageSection, UsageSnapshotStatus
 from ..facade.models import Metric, RelationshipProposal, TableCertification
 
 
@@ -545,24 +545,51 @@ class AdjustedRunSerializer(serializers.Serializer):
     sql = serializers.CharField(help_text="The SQL the agent ran.")
     reasoning = serializers.CharField(help_text="Why the judge matched the query to the metric.")
     occurred_at = serializers.DateTimeField(help_text="When the agent ran the query.")
-    session_id = serializers.CharField(allow_null=True, help_text="Agent session of the query, when known.")
+    session_id = serializers.CharField(
+        allow_null=True,
+        help_text="Agent conversation of the query, when known: the session id of the conversation's first piece. "
+        "Every query in one conversation carries the same id.",
+    )
     is_scout = serializers.BooleanField(help_text="True when a scout (scheduled agent) ran the query.")
 
 
 class TopicCoverageSerializer(serializers.Serializer):
-    canonical = serializers.IntegerField(help_text="Sessions that ran a catalog metric directly.")
-    adapted = serializers.IntegerField(help_text="Sessions that read a catalog metric, then changed it.")
-    silent = serializers.IntegerField(help_text="Sessions that re-derived a catalog metric without consulting it.")
-    raw_sql_only = serializers.IntegerField(help_text="Sessions that ran SQL that matches no catalog metric.")
-    no_sql = serializers.IntegerField(help_text="Sessions that ran no query.")
+    metric = serializers.IntegerField(help_text="Sessions that asked for a metric and found one that fits.")
+    table = serializers.IntegerField(
+        help_text="Sessions that asked for a metric, found none, and found a table or view description that fits."
+    )
+    nothing = serializers.IntegerField(help_text="Sessions that asked for a metric and found neither.")
 
 
 class TopicClusterSerializer(serializers.Serializer):
-    title = serializers.CharField(help_text="Short name of the topic, written by a model from sample intents.")
-    session_count = serializers.IntegerField(help_text="Agent sessions in the topic. Scout sessions are not clustered.")
-    coverage = TopicCoverageSerializer(help_text="How the topic's sessions got their numbers.")
-    sample_intents = serializers.ListField(
-        child=serializers.CharField(), help_text="A few intents from the topic's sessions."
+    title = serializers.CharField(help_text="Short name of the subject. 'Other' holds the sessions that fit no topic.")
+    description = serializers.CharField(allow_blank=True, help_text="One sentence on what the topic covers.")
+    session_count = serializers.IntegerField(help_text="Agent sessions in the topic. Scout sessions are not included.")
+    people = serializers.IntegerField(help_text="Distinct people behind the topic's sessions.")
+    coverage = TopicCoverageSerializer(help_text="What the sessions that asked for a metric ended up with.")
+
+
+class TopicDefinitionSerializer(serializers.Serializer):
+    title = serializers.CharField(help_text="Short name of the subject.")
+    description = serializers.CharField(allow_blank=True, help_text="One sentence on what the topic covers.")
+
+
+class TableSourceSerializer(serializers.Serializer):
+    name = serializers.CharField(help_text="Name of the table or view, as the agent's search returned it.")
+    sessions = serializers.IntegerField(
+        help_text="Sessions in the window that found its description and then queried it."
+    )
+    people = serializers.IntegerField(help_text="Distinct people behind those sessions.")
+
+
+class TopicSessionCountsSerializer(serializers.Serializer):
+    analysis = serializers.IntegerField(help_text="Sampled sessions that calculated or compared data.")
+    lookup = serializers.IntegerField(help_text="Sampled sessions that read or checked specific things.")
+    automation = serializers.IntegerField(help_text="Sampled sessions from a scheduled or repeated job.")
+    unclear = serializers.IntegerField(help_text="Sampled sessions whose intents did not show what they did with data.")
+    unread = serializers.IntegerField(help_text="Sampled sessions that the model failed to read.")
+    coverage_unchecked = serializers.IntegerField(
+        help_text="Analysis sessions whose coverage check failed. They count as a metric only after a direct run."
     )
 
 
@@ -577,13 +604,72 @@ class UncoveredGroupSerializer(serializers.Serializer):
     matched_metric_id = serializers.UUIDField(
         allow_null=True, help_text="The matching catalog metric, for covered and slice."
     )
-    distinct_people = serializers.IntegerField(help_text="Distinct people who ran the measure, without scouts.")
-    runs = serializers.IntegerField(help_text="Query runs of the measure, without scouts.")
+    distinct_people = serializers.IntegerField(
+        help_text="People who wrote the measure or created a chart of it, directly or through an agent. Without scouts."
+    )
+    views = serializers.IntegerField(
+        help_text="Runs of the measure that a person saw, in the web app or an agent session. At least the built count."
+    )
+    built = serializers.IntegerField(
+        help_text="Times a person or an agent wrote the measure, plus one per chart, notebook query or canvas query."
+    )
     sample_sql = serializers.CharField(help_text="One query that computes the measure.")
     draft_name = serializers.CharField(allow_null=True, help_text="Proposed metric name, when one was drafted.")
     draft_description = serializers.CharField(
         allow_null=True, help_text="Proposed metric description, when one was drafted."
     )
+    draft_definition = serializers.CharField(
+        allow_null=True, help_text="Proposed HogQL definition, when one was drafted."
+    )
+    complexity = serializers.IntegerField(
+        help_text="How hard the query is to write by hand: 1 low, 2 medium, 3 high, 0 when it does not parse."
+    )
+
+
+class ChartSourceSerializer(serializers.Serializer):
+    insight_short_id = serializers.CharField(help_text="Short ID of the saved chart, for a link to it.")
+    insight_name = serializers.CharField(help_text="Name of the saved chart.")
+    dashboard_id = serializers.IntegerField(allow_null=True, help_text="The dashboard that ran the chart, if any.")
+    dashboard_name = serializers.CharField(allow_null=True, help_text="Name of the dashboard, if any.")
+    people = serializers.IntegerField(help_text="Distinct people whose visit ran the chart. Viewers count.")
+
+
+class SurfaceSourceSerializer(serializers.Serializer):
+    product = serializers.CharField(help_text="The web app area that ran the query. Empty when it is unknown.")
+    people = serializers.IntegerField(help_text="Distinct people who ran the query there.")
+    runs = serializers.IntegerField(help_text="Query runs from that area.")
+
+
+class AgentSourceSerializer(serializers.Serializer):
+    people = serializers.IntegerField(help_text="Distinct people whose agents ran the query, without scouts.")
+    sessions = serializers.IntegerField(help_text="Agent sessions that ran the query, without scouts.")
+    runs = serializers.IntegerField(help_text="Query runs by agents, without scouts.")
+
+
+class ProposedMetricSerializer(serializers.Serializer):
+    name = serializers.CharField(help_text="Proposed metric name.")
+    description = serializers.CharField(help_text="What the proposed metric counts.")
+    definition = serializers.CharField(allow_blank=True, help_text="Proposed HogQL definition.")
+    measures = serializers.IntegerField(help_text="Recurring measures that this proposal merges.")
+    people = serializers.IntegerField(help_text="Distinct people across the measures, without scouts.")
+    views = serializers.IntegerField(
+        help_text="Runs of the measure that a person saw, in the web app or an agent session. At least the built count."
+    )
+    built = serializers.IntegerField(
+        help_text="Times a person or an agent wrote the most-built measure in the proposal, as on a measure."
+    )
+    charts = ChartSourceSerializer(many=True, help_text="The saved charts with the most people.")
+    other_charts = serializers.IntegerField(help_text="Saved charts that are not listed in charts.")
+    surfaces = SurfaceSourceSerializer(many=True, help_text="Web app areas that ran it outside a saved chart.")
+    agents = AgentSourceSerializer(allow_null=True, help_text="Agent use, or null when no agent ran it.")
+    complexity = serializers.IntegerField(
+        help_text="How hard the query is to write by hand: 1 low, 2 medium, 3 high, 0 when it does not parse."
+    )
+
+
+class SectionFailureSerializer(serializers.Serializer):
+    section = serializers.ChoiceField(choices=UsageSection.choices, help_text="The payload section whose step failed.")
+    reason = serializers.CharField(help_text="Why the scan step failed.")
 
 
 class UsageSnapshotPayloadSerializer(serializers.Serializer):
@@ -593,9 +679,29 @@ class UsageSnapshotPayloadSerializer(serializers.Serializer):
     adjusted_runs = AdjustedRunSerializer(
         many=True, allow_null=True, help_text="Agent queries that re-derived a metric. Null until judged."
     )
-    topics = TopicClusterSerializer(many=True, allow_null=True, help_text="Agent session topics. Null until clustered.")
+    topics = TopicClusterSerializer(many=True, allow_null=True, help_text="Agent session topics. Null until grouped.")
+    topic_definitions = TopicDefinitionSerializer(
+        many=True,
+        allow_null=True,
+        help_text="The whole topic list that the next scan keeps, including topics with no sessions in this scan. "
+        "Null until grouped.",
+    )
+    topic_sessions = TopicSessionCountsSerializer(
+        allow_null=True, help_text="What the sampled sessions were about, by kind. Null until grouped."
+    )
+    table_sources = TableSourceSerializer(
+        many=True,
+        allow_null=True,
+        help_text="Tables and views that agents found by description and then queried. Null until counted.",
+    )
     uncovered = UncoveredGroupSerializer(
         many=True, allow_null=True, help_text="Recurring query shapes and their catalog outcome. Null until grouped."
+    )
+    proposed_metrics = ProposedMetricSerializer(
+        many=True, allow_null=True, help_text="Proposed metrics with their sources. Null until drafted."
+    )
+    failed_sections = SectionFailureSerializer(
+        many=True, help_text="Sections whose scan step failed. Each one stays null, and the others keep their results."
     )
 
 
@@ -626,3 +732,12 @@ class MetricUsageSerializer(serializers.Serializer):
     adjusted_runs = AdjustedRunSerializer(
         many=True, help_text="Agent queries that re-derived the metric. is_scout marks the ones a scout ran."
     )
+    failed_sections = SectionFailureSerializer(
+        many=True, help_text="Failed sections that these numbers read, so a missing count is not a zero."
+    )
+
+
+class PendingReviewCountsSerializer(serializers.Serializer):
+    metrics = serializers.IntegerField(help_text="Proposed metrics you can see that wait for approval.")
+    relationships = serializers.IntegerField(help_text="Proposed joins that wait to be accepted or rejected.")
+    certifications = serializers.IntegerField(help_text="Proposed certifications that wait for review.")

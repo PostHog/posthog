@@ -342,6 +342,7 @@ const TasksCreateSchema = () => {
         origin_product: true,
         repositories: true,
         github_integration: true,
+        repository_integration: true,
         github_user_integration: true,
         signal_report: true,
         signal_report_task_relationship: true,
@@ -491,6 +492,7 @@ const tasksList = (): ToolBase<
                 sources: params.sources,
                 stage: params.stage,
                 status: params.status,
+                task_status: params.task_status,
             },
         })
         const filtered = {
@@ -507,6 +509,9 @@ const tasksList = (): ToolBase<
                     'channel',
                     'created_by.first_name',
                     'created_by.last_name',
+                    'status',
+                    'status_reason',
+                    'status_detail',
                     'latest_run.id',
                     'latest_run.status',
                     'latest_run.error_message',

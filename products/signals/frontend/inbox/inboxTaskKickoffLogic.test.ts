@@ -17,7 +17,8 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { SidePanelTab } from '~/types'
 
-import { runStreamLogic, taskRunDefaultsLogic } from 'products/posthog_ai/frontend/api/logics'
+import { taskRunDefaultsLogic } from 'products/posthog_ai/frontend/api/launch'
+import { runStreamLogic } from 'products/posthog_ai/frontend/api/logics'
 import type { SignalReportCheckApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { makeReport } from './__mocks__/inboxMocks'

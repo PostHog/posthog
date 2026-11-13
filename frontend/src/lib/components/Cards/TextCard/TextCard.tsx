@@ -50,7 +50,6 @@ function TextCardInternal(
     return (
         <DashboardTileShell
             transparent={isTransparent}
-            showResizeHandles={showResizeHandles}
             className={clsx('DashboardTileCard TextCard flex flex-col', className)}
             data-attr="text-card"
             {...divProps}
