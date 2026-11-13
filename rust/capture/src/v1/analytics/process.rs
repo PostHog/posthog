@@ -4780,13 +4780,24 @@ mod tests {
         );
     }
 
+    #[rstest::rstest]
+    #[case::listed_token_keeps_it("phc_test_token=24000000", EventResult::Ok, None)]
+    #[case::other_token_still_drops_it(
+        "phc_other=24000000",
+        EventResult::Drop,
+        Some(DETAIL_AI_EVENT_TOO_BIG)
+    )]
     #[tokio::test]
-    async fn a_raised_token_cap_keeps_an_oversize_ai_event() {
+    async fn a_raised_token_cap_keeps_an_oversize_ai_event(
+        #[case] overrides_csv: &str,
+        #[case] expected_result: EventResult,
+        #[case] expected_details: Option<&'static str>,
+    ) {
         let ts = TestStateBuilder::new()
             .with_capture_mode(CaptureMode::Ai)
             .with_ai_max_event_bytes(AiEventSizeCaps::parse(
                 700,
-                "phc_test_token=24000000",
+                overrides_csv,
                 AI_MAX_EVENT_BYTES_CEILING,
             ))
             .build();
@@ -4800,13 +4811,10 @@ mod tests {
             .await
             .unwrap();
 
-        assert!(
-            resp.entries()
-                .iter()
-                .all(|(_, e)| e.result == EventResult::Ok),
-            "{:?}",
-            resp.entries()
-        );
+        let entries = resp.entries();
+        assert_eq!(entries.len(), 1, "{entries:?}");
+        assert_eq!(entries[0].1.result, expected_result, "{entries:?}");
+        assert_eq!(entries[0].1.details, expected_details, "{entries:?}");
     }
 
     /// Option drops are per event, share one `invalid_options` warning, and lenient forms pass.
