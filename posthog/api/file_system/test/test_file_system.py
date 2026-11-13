@@ -1339,7 +1339,7 @@ class TestFileSystemAPI(APIBaseTest):
         for ordering, expected in [("-last_viewed_at", [1, 3, 0, 5, 4, 2]), ("last_viewed_at", [3, 0, 1, 5, 4, 2])]:
             next_url = f"{base}{ordering}&limit=2"
             results = []
-            counts = []
+            counts: list[int] = []
             while next_url:
                 with CaptureQueriesContext(connection) as queries:
                     response = self.client.get(next_url)
