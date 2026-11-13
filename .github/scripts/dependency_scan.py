@@ -1,3 +1,7 @@
+# /// script
+# requires-python = "==3.12.*"
+# dependencies = ["guarddog==3.2.0"]
+# ///
 from __future__ import annotations
 
 import os
@@ -11,7 +15,7 @@ from collections.abc import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
-GUARDDOG = ["uvx", "--python", "3.12", "guarddog==3.2.0"]
+GUARDDOG = [sys.executable, "-m", "guarddog"]
 SCAN_TIMEOUT_SECONDS = 180
 SCAN_WORKERS = 8
 MAX_PACKAGES = 300

@@ -8,6 +8,7 @@ on:
             - '**/Cargo.lock'
             - '**/go.mod'
             - .github/scripts/dependency_scan.py
+            - .github/scripts/dependency_scan.py.lock
             - .github/scripts/post-dependency-scan-section.mjs
             - .github/workflows/dependency-scan.yml
 
@@ -33,6 +34,7 @@ jobs:
                   filter: blob:none
                   sparse-checkout: |
                       .github/scripts/dependency_scan.py
+                      .github/scripts/dependency_scan.py.lock
                       .github/actions/setup-uv
                   sparse-checkout-cone-mode: false
 
@@ -42,7 +44,7 @@ jobs:
 
             - name: Scan added and changed packages
               id: scan
-              run: python3 -I .github/scripts/dependency_scan.py
+              run: uv run --frozen --script .github/scripts/dependency_scan.py
 
     report:
         name: Post the scan to the CI report

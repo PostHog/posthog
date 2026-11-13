@@ -5,7 +5,7 @@ rules:
       owners: team-devex
     - match: ['/scripts/deltalite_selection.py', '/scripts/test_deltalite_selection.py']
       owners: team-devex
-    - match: ['/scripts/dependency_scan.py', '/scripts/test_dependency_scan.py']
+    - match: ['/scripts/dependency_scan.py', '/scripts/dependency_scan.py.lock', '/scripts/test_dependency_scan.py']
       owners: team-devex
     - match: '/auto-assign-labels.json'
       owners: team-feature-flags
