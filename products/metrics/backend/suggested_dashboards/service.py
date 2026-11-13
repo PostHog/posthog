@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import datetime as dt
 
-from django.db.models import Count, QuerySet
+from django.db import transaction
+from django.db.models import Count, Q, QuerySet
 from django.utils import timezone
 
 import structlog
 
+from posthog.event_usage import report_user_action
 from posthog.models import Team, User
 
 from products.dashboards.backend.facade.api import unknown_dashboard_ids
@@ -51,7 +53,7 @@ def _suggestion(suggestion: MetricsDashboardSuggestion, *, dashboard_exists: boo
 def list_suggestions(team: Team) -> list[SuggestedDashboard]:
     suggestions = list(
         MetricsDashboardSuggestion.objects.for_team(team.id)
-        .filter(template__status=MetricsDashboardTemplate.Status.APPROVED)
+        .filter(template__status=MetricsDashboardTemplate.Status.APPROVED, dismissed_at__isnull=True)
         .select_related("template")
         .order_by("-coverage", "template__name")
     )
@@ -65,7 +67,7 @@ def list_suggestions(team: Team) -> list[SuggestedDashboard]:
 def _get_suggestion(team: Team, suggestion_id: str) -> MetricsDashboardSuggestion:
     suggestion = (
         MetricsDashboardSuggestion.objects.for_team(team.id)
-        .filter(id=suggestion_id, template__status=MetricsDashboardTemplate.Status.APPROVED)
+        .filter(id=suggestion_id, template__status=MetricsDashboardTemplate.Status.APPROVED, dismissed_at__isnull=True)
         .select_related("template")
         .first()
     )
@@ -81,6 +83,37 @@ def create_from_suggestion(team: Team, user: User, suggestion_id: str) -> int:
         raise SuggestedDashboardNotFound(str(error)) from error
     except review.NoPanelsWithData as error:
         raise SuggestedDashboardError(str(error)) from error
+
+
+def dismiss_suggestion(team: Team, user: User, suggestion_id: str) -> None:
+    with transaction.atomic():
+        # An analysis deletes the suggestions that no longer fit, under the same row locks. With the lock, either
+        # the analysis waits and then keeps the dismissed row, or this call finds the row gone and reports that.
+        suggestion = (
+            MetricsDashboardSuggestion.objects.for_team(team.id)
+            .select_for_update(of=("self",))
+            .filter(id=suggestion_id)
+            .select_related("template")
+            .first()
+        )
+        if suggestion is None:
+            raise SuggestedDashboardNotFound("This suggestion does not exist.")
+        if suggestion.dismissed_at is not None:
+            # A repeated call keeps the time of the first dismissal and sends no second event.
+            return
+        suggestion.dismissed_at = timezone.now()
+        suggestion.save(update_fields=["dismissed_at", "updated_at"])
+    report_user_action(
+        user,
+        "metrics suggested dashboard dismissed",
+        {
+            "template_id": str(suggestion.template_id),
+            "template_source": suggestion.template.source,
+            "coverage": suggestion.coverage,
+            "dashboard_created": suggestion.dashboard_id is not None,
+        },
+        team=team,
+    )
 
 
 def _summary(template: MetricsDashboardTemplate, suggestion_count: int = 0) -> DashboardTemplateSummary:
@@ -124,7 +157,7 @@ def _suggestion_count(template: MetricsDashboardTemplate) -> int:
 
 def _templates() -> QuerySet[MetricsDashboardTemplate]:
     return MetricsDashboardTemplate.objects.select_related("reviewed_by").annotate(
-        active_suggestions=Count("suggestions")
+        active_suggestions=Count("suggestions", filter=Q(suggestions__dismissed_at__isnull=True))
     )
 
 
