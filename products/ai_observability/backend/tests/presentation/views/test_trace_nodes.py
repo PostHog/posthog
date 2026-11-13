@@ -287,3 +287,64 @@ class TestTraceNodeDatasetItemView(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert response.status_code == 400
+
+
+class TestTraceNodeParserTestView(ClickhouseTestMixin, APIBaseTest):
+    def _url(self, node_id: str = GENERATION) -> str:
+        return (
+            f"/api/projects/{self.team.id}/ai_observability/traces/{encode_segment('trace-1')}"
+            f"/nodes/{encode_segment(node_id)}/parser_test/"
+        )
+
+    def test_a_parser_that_parses_the_unrecognized_input_passes_and_is_not_saved(self) -> None:
+        create_node_trace(self.team, extra_properties={"$ai_input": TICKET})
+
+        response = self.client.post(self._url(), {"source": TICKET_RECIPE}, format="json")
+
+        assert response.status_code == 200, response.content
+        body = response.json()
+        assert body["passed"] is True
+        assert body["input"] == {"neededFixing": True, "fixed": True, "broken": False, "error": None}
+        assert body["output"] == {"neededFixing": False, "fixed": False, "broken": False, "error": None}
+        assert [part["text"] for part in body["content"]["input"]["messages"][0]["parts"]] == [
+            "Ticket T-42: Refund requested"
+        ]
+        assert not ParserRecipe.objects.for_team(self.team.pk).exists()
+
+    def test_a_side_a_saved_parser_already_recognizes_needs_no_fixing(self) -> None:
+        create_node_trace(self.team, extra_properties={"$ai_input": TICKET})
+        ParserRecipe.objects.unscoped().create(team=self.team, name="tickets", source=TICKET_RECIPE)
+
+        response = self.client.post(self._url(), {"source": TICKET_RECIPE.replace("Ticket", "Case")}, format="json")
+
+        assert response.status_code == 200, response.content
+        assert (response.json()["passed"], response.json()["input"]["neededFixing"]) == (False, False)
+
+    def test_a_parser_that_does_not_compile_is_a_400_with_the_reason(self) -> None:
+        create_node_trace(self.team)
+
+        response = self.client.post(self._url(), {"source": "foo: bar"}, format="json")
+
+        assert response.status_code == 400, response.content
+        assert "rules" in response.json()["detail"]
+
+    def test_node_not_found(self) -> None:
+        create_node_trace(self.team)
+
+        response = self.client.post(
+            self._url("00000000-0000-0000-0000-00000000dead"), {"source": TICKET_RECIPE}, format="json"
+        )
+
+        assert response.status_code == 404, response.content
+        assert response.json()["detail"] == "Node not found."
+
+    def test_an_api_key_that_can_only_read_can_test_a_parser(self) -> None:
+        create_node_trace(self.team, extra_properties={"$ai_input": TICKET})
+        key = self.create_personal_api_key_with_scopes(["llm_analytics:read"])
+        self.client.logout()
+
+        response = self.client.post(
+            self._url(), {"source": TICKET_RECIPE}, format="json", headers={"authorization": f"Bearer {key}"}
+        )
+
+        assert response.status_code == 200, response.content

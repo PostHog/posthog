@@ -4,6 +4,7 @@ from typing import Any
 
 from django.db import models, transaction
 
+from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.tagged_items_relation import Taggable
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -19,6 +20,10 @@ class StaleScoreDefinitionVersion(Exception):
 
 
 class ScoreDefinition(Taggable, UUIDModel, CreatedMetaFields, UpdatedMetaFields):
+    class Calculation(models.TextChoices):
+        REPORTED = "reported", "Reported"
+        COMPOSITE = "composite", "Composite"
+
     class Kind(models.TextChoices):
         CATEGORICAL = "categorical", "categorical"
         NUMERIC = "numeric", "numeric"
@@ -29,6 +34,9 @@ class ScoreDefinition(Taggable, UUIDModel, CreatedMetaFields, UpdatedMetaFields)
     short_name = models.CharField(max_length=40, blank=True, default="", db_default="")
     description = models.TextField(blank=True, default="")
     kind = models.CharField(max_length=32, choices=Kind)
+    calculation = models.CharField(
+        max_length=16, choices=Calculation, default=Calculation.REPORTED, db_default="reported"
+    )
     archived = models.BooleanField(default=False)
     updated_by = models.ForeignKey(
         User, on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
@@ -53,6 +61,7 @@ class ScoreDefinition(Taggable, UUIDModel, CreatedMetaFields, UpdatedMetaFields)
         config: dict[str, Any],
         created_by: User | None,
         base_version: int | None = None,
+        composition: dict[str, Any] | None = None,
     ) -> ScoreDefinitionVersion:
         definition = (
             ScoreDefinition.objects.select_for_update(of=("self",)).select_related("current_version").get(pk=self.pk)
@@ -68,8 +77,21 @@ class ScoreDefinition(Taggable, UUIDModel, CreatedMetaFields, UpdatedMetaFields)
             definition=definition,
             version=current_version_number + 1,
             config=config,
+            composition=composition,
             created_by=created_by,
         )
+        if composition is not None:
+            ScoreDefinitionInput.objects.for_team(definition.team_id, canonical=True).bulk_create(
+                [
+                    ScoreDefinitionInput(
+                        team_id=definition.team_id,
+                        composite_version=version,
+                        input_version_id=dependency["scorer_version_id"],
+                        alias=dependency["alias"],
+                    )
+                    for dependency in composition["inputs"]
+                ]
+            )
 
         definition.current_version = version
         definition.updated_by = created_by
@@ -84,6 +106,7 @@ class ScoreDefinitionVersion(UUIDModel, CreatedMetaFields):
     definition = models.ForeignKey(ScoreDefinition, on_delete=models.CASCADE, related_name="versions")
     version = models.PositiveIntegerField()
     config = models.JSONField(default=dict)
+    composition = models.JSONField(null=True, blank=True)
 
     class Meta:
         db_table = "llm_analytics_scoredefinitionversion"
@@ -97,4 +120,17 @@ class ScoreDefinitionVersion(UUIDModel, CreatedMetaFields):
         indexes = [
             models.Index(fields=["definition", "-version"], name="llma_score_def_ver_def_idx"),
             models.Index(fields=["created_at"], name="llma_score_def_ver_created_idx"),
+        ]
+
+
+class ScoreDefinitionInput(TeamScopedRootMixin, UUIDModel):
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    composite_version = models.ForeignKey(ScoreDefinitionVersion, on_delete=models.CASCADE, related_name="inputs")
+    input_version = models.ForeignKey(ScoreDefinitionVersion, on_delete=models.RESTRICT, related_name="dependents")
+    alias = models.CharField(max_length=32)
+
+    class Meta:
+        db_table = "llm_analytics_scoredefinitioninput"
+        constraints = [
+            models.UniqueConstraint(fields=["composite_version", "alias"], name="aio_composite_input_alias_uniq"),
         ]

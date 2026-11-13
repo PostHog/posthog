@@ -43,7 +43,10 @@ function commaList(value: string | undefined): string[] {
         .filter(Boolean)
 }
 
-/** Every file on the mount, by name. Kubelet's own dot-prefixed bookkeeping is skipped. */
+/**
+ * Every file on the mount, by name. Kubelet's own dot-prefixed bookkeeping is skipped.
+ * Null when the directory or any one entry cannot be read.
+ */
 export async function readMount(dir: string): Promise<Record<string, string> | null> {
     // Kubelet swaps `..data` atomically between versions. Reading through the resolved
     // target pins one version for the whole loop, so a swap mid-read cannot hand back a
@@ -74,6 +77,9 @@ export async function readMount(dir: string): Promise<Record<string, string> | n
                 key: entry,
                 error: err instanceof Error ? err.message : String(err),
             })
+            // A partial snapshot would drop every entry that failed, such as an allowlist,
+            // which would leave its deployment unrestricted.
+            return null
         }
     }
 

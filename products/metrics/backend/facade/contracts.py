@@ -69,6 +69,13 @@ METRICS_DASHBOARD_IMPORT_FEATURE_FLAG = "metrics-dashboard-import"
 # Gates the suggested dashboards menu, and the background analysis and AI generation for a team.
 METRICS_SUGGESTED_DASHBOARDS_FEATURE_FLAG = "metrics-suggested-dashboards"
 
+# Gates recording rules, on top of METRICS_FEATURE_FLAG. It gates both the API and the evaluation, so turning it
+# off for a project also stops the rules that project already has.
+METRICS_RECORDING_RULES_FEATURE_FLAG = "metrics-recording-rules"
+
+# Each rule runs one PromQL query a minute, one after another inside the team's evaluation budget.
+MAX_RECORDING_RULES_PER_TEAM = 20
+
 # Gates the metrics that the query computes from spans and logs, on top of METRICS_FEATURE_FLAG.
 METRICS_DERIVED_SERIES_FEATURE_FLAG = "metrics-derived-series"
 
@@ -208,6 +215,9 @@ class MetricSeries:
     # Bucket upper edges a histogram quantile was estimated from, merged over every
     # point. The estimate can be anywhere between two edges. None for other aggregations.
     histogram_bounds: tuple[float, ...] | None = None
+    # Most explicit bucket layouts merged into one point of a histogram quantile. Above 1, series
+    # with different buckets were combined. None for other aggregations.
+    histogram_layout_count: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -603,3 +613,29 @@ class PromQLQueryError(ValueError):
     def __init__(self, message: str, *, transient: bool = False) -> None:
         super().__init__(message)
         self.transient = transient
+
+
+@dataclass(frozen=True, slots=True)
+class RecordingRule:
+    """A PromQL query that is evaluated every minute and written back into the team's metrics as `metric_name`."""
+
+    id: str
+    metric_name: str
+    query: str
+    description: str
+    enabled: bool
+    created_at: dt.datetime
+    updated_at: dt.datetime
+    # The minute the rule last wrote. None until the first write.
+    last_evaluated_at: dt.datetime | None = None
+    last_series_count: int | None = None
+    # Why the last evaluation wrote nothing. Cleared by the next write.
+    last_error: str | None = None
+
+
+class RecordingRuleError(ValueError):
+    """A recording rule edit that cannot be saved. The message is safe to show."""
+
+
+class RecordingRuleNotFound(RecordingRuleError):
+    pass

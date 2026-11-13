@@ -457,7 +457,10 @@ export const manifest: ProductManifest = {
             visualOrder: 1,
             type: 'llm_analytics',
             iconType: 'llm_analytics' as FileSystemIconType,
-            iconColor: ['var(--color-product-llm-analytics-light)'] as FileSystemIconColor,
+            iconColor: [
+                'var(--color-product-llm-analytics-light)',
+                'var(--color-product-llm-analytics-dark)',
+            ] as FileSystemIconColor,
             href: urls.aiObservabilityDashboard(),
             searchKeywords: ['llm analytics', 'llm observability', 'llm costs', 'token usage'],
             searchTabs: [

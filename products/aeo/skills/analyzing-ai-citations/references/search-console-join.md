@@ -92,7 +92,7 @@ WITH cited_pages AS (
                engine,
                arrayJoin(arrayMap(x -> JSONExtractString(x), JSONExtractArrayRaw(toString(target_urls)))) AS url
         FROM system.aeo_citation_checks
-        WHERE created_at >= now() - INTERVAL 30 DAY
+        WHERE created_at >= now() - INTERVAL 30 DAY AND mode = 'web_search'
           AND cited = 1
     )
     GROUP BY page_url
@@ -145,7 +145,7 @@ WITH engine_searches AS (
         SELECT prompt_id,
                arrayJoin(arrayMap(x -> JSONExtractString(x), JSONExtractArrayRaw(toString(search_queries)))) AS q
         FROM system.aeo_citation_checks
-        WHERE created_at >= now() - INTERVAL 30 DAY
+        WHERE created_at >= now() - INTERVAL 30 DAY AND mode = 'web_search'
           AND check_failed = 0
     )
     GROUP BY search_query

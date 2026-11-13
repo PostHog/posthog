@@ -109,3 +109,9 @@ export interface FeedbackStepContext {
     stepLabels: ReadonlyMap<string, string>
     focusNodeId: string | null
 }
+
+export interface TraceViewKey {
+    hostId: string
+    traceId: string
+    timestampHint: string | null
+}

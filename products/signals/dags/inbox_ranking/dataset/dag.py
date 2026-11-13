@@ -71,13 +71,12 @@ import io
 import json
 import datetime
 import resource
-from collections.abc import Collection, Iterator, Mapping
+import dataclasses
+from collections.abc import Collection, Iterable, Iterator, Mapping
 from typing import Any, cast
 from uuid import UUID
 
-from django.db.models import Case, CharField, Count, F, Func, IntegerField, Min, Value, When
-from django.db.models.functions import Coalesce
-from django.db.models.lookups import Exact
+from django.db.models import Count, Min
 
 import dagster
 import pyarrow as pa
@@ -103,7 +102,17 @@ from products.signals.backend.models import (
     SignalReportArtefact,
     SignalReportSuggestedReviewer,
 )
+from products.signals.backend.ranking.features import SCORED_AT_COLUMN
 from products.signals.backend.ranking.inventory import spine_report_filter
+from products.signals.backend.ranking.report_facts import (
+    JUDGMENT_TYPES,
+    REPORT_FACT_FIELDS,
+    ReportFacts,
+    judgment_facts,
+    no_judgment_facts,
+    report_content_annotations,
+    report_row_facts,
+)
 from products.signals.backend.ranking.serving_manifest import serving_engagement_key
 from products.signals.backend.report_embeddings import (
     EMBEDDING_DOCUMENT_TYPE,
@@ -188,6 +197,7 @@ from products.signals.dags.inbox_ranking.dataset.queries import (
     hogql_rows,
     labels_team,
     merge_label_streams,
+    report_facts_events,
     valid_report_uuids,
 )
 
@@ -209,6 +219,7 @@ USER_VECTORS_TABLE = "inbox_user_vectors"
 ENGAGEMENT_EXPORT = "inbox_engagement_export"
 ACTIVITY_SUMMARY_VECTORS_TABLE = "inbox_activity_summary_vectors"
 ACTIVITY_SUMMARY_PROFILE_VECTORS_TABLE = "inbox_activity_summary_profile_vectors"
+SCORED_FACTS_TABLE = "inbox_report_scored_facts"
 
 # The reviewers asset is a leaf with its own columns, so its schema moves apart from
 # FEATURE_SCHEMA_VERSION. The same rule applies: additive nullable columns bump it.
@@ -219,6 +230,8 @@ ENGAGEMENT_EXPORT_SCHEMA_VERSION = 2
 # The activity summary vectors are a (team, user, day) leaf, so their shape moves apart too.
 ACTIVITY_SUMMARY_VECTORS_SCHEMA_VERSION = 1
 ACTIVITY_SUMMARY_PROFILE_VECTORS_SCHEMA_VERSION = 1
+# The scored facts are a report leaf read from the scoring sweep's events, so their shape moves apart too.
+SCORED_FACTS_SCHEMA_VERSION = 1
 # Every document type that carries an activity summary vector. A backfilled type joins this tuple,
 # and its rows say so through `source`.
 ACTIVITY_SUMMARY_DOCUMENT_TYPES = (ACTIVITY_SUMMARY_DOCUMENT_TYPE,)
@@ -369,6 +382,26 @@ _ACTIVITY_SUMMARY_VECTOR_FIELDS: list[tuple[str, pa.DataType]] = [
     ("source", pa.string()),
 ]
 ACTIVITY_SUMMARY_VECTORS_SCHEMA = pa.schema(_ACTIVITY_SUMMARY_VECTOR_FIELDS)
+
+# One column per `ReportFacts` field, typed like the state snapshot's column of the same name, so a
+# fact reads the same in both. `source_products` is the one fact the state snapshot does not hold.
+SCORED_FACT_COLUMNS = tuple(field.name for field in dataclasses.fields(ReportFacts))
+_STATE_COLUMN_TYPES = dict(_REPORT_STATE_FIELDS)
+_SCORED_FACT_TYPES: dict[str, pa.DataType] = {
+    name: pa.list_(pa.string()) if name == "source_products" else _STATE_COLUMN_TYPES[name]
+    for name in SCORED_FACT_COLUMNS
+}
+_SCORED_FACTS_FIELDS: list[tuple[str, pa.DataType]] = [
+    ("snapshot_date", pa.date32()),
+    ("report_id", pa.string()),
+    ("report_team_id", pa.int64()),
+    ("report_created_at", _TIMESTAMP),
+    (SCORED_AT_COLUMN, _TIMESTAMP),
+    ("embedding_inserted_at", _TIMESTAMP),
+    ("facts_schema_version", pa.int32()),
+    *_SCORED_FACT_TYPES.items(),
+]
+SCORED_FACTS_SCHEMA = pa.schema(_SCORED_FACTS_FIELDS)
 
 # What makes one emission distinct from another, so a re-run can tell a row it already archived from
 # a genuinely new one. embedding_inserted_at is the version: the source keys a signal by
@@ -587,31 +620,6 @@ def _chunked[T](ids: list[T]) -> Iterator[list[T]]:
         yield ids[offset : offset + _ORM_ID_CHUNK]
 
 
-def _judgment_value(parsed: dict[str, Any], key: str) -> str | None:
-    # Legacy artefact content is unconstrained JSON; a non-string value must not reach the
-    # pa.string() column, where it would abort the whole partition build.
-    value = parsed.get(key)
-    return value if isinstance(value, str) else None
-
-
-def _judgment_flag(parsed: dict[str, Any], key: str) -> bool | None:
-    value = parsed.get(key)
-    return value if isinstance(value, bool) else None
-
-
-def _json_array_length(field: str) -> Case:
-    """Length of a JSON list column, computed in Postgres so the list itself is never loaded.
-    `jsonb_array_length` raises on a value that is not an array, so any other stored value counts as 0."""
-    return Case(
-        When(
-            Exact(Func(F(field), function="jsonb_typeof", output_field=CharField()), Value("array")),
-            then=Func(F(field), function="jsonb_array_length", output_field=IntegerField()),
-        ),
-        default=Value(0),
-        output_field=IntegerField(),
-    )
-
-
 def _artefact_judgments(
     report_ids: list[str], snapshot_end: datetime.datetime
 ) -> dict[str, dict[str, str | bool | None]]:
@@ -631,10 +639,7 @@ def _artefact_judgments(
         artefacts = (
             SignalReportArtefact.objects.filter(
                 report_id__in=chunk,
-                type__in=[
-                    SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
-                    SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT,
-                ],
+                type__in=JUDGMENT_TYPES,
                 created_at__lt=snapshot_end,
             )
             .order_by("report_id", "type", "-created_at")
@@ -645,21 +650,10 @@ def _artefact_judgments(
             # A null updated_at is a row predating the field, never an edit.
             if updated_at is not None and updated_at >= snapshot_end:
                 continue
-            try:
-                parsed = json.loads(content)
-            except ValueError:
+            facts = judgment_facts(artefact_type, content)
+            if facts is None:
                 continue
-            # Legacy artefact rows can hold JSON that is not an object; readers tolerate them.
-            if not isinstance(parsed, dict):
-                continue
-            entry = judgments.setdefault(
-                str(report_id), {"priority": None, "actionability": None, "already_addressed": None}
-            )
-            if artefact_type == SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT:
-                entry["priority"] = _judgment_value(parsed, "priority")
-            else:
-                entry["actionability"] = _judgment_value(parsed, "actionability")
-                entry["already_addressed"] = _judgment_flag(parsed, "already_addressed")
+            judgments.setdefault(str(report_id), no_judgment_facts()).update(facts)
     return judgments
 
 
@@ -916,16 +910,12 @@ def inbox_report_state(context: dagster.AssetExecutionContext) -> None:
     ordered_spine_ids = sorted(report_id for report_id, team_id in spine_teams.items() if team_id in consent_team_ids)
     judgments = _artefact_judgments(ordered_spine_ids, snapshot_end)
 
+    content = report_content_annotations()
     rows: list[dict[str, Any]] = []
     for spine_chunk in _chunked(ordered_spine_ids):
         for report in (
             SignalReport.objects.filter(id__in=spine_chunk)
-            .annotate(
-                chart_count=_json_array_length("charts"),
-                metric_count=_json_array_length("metrics"),
-                suggested_prompt_count=_json_array_length("suggested_prompts"),
-                tag_count=Coalesce(Func(F("tags"), function="cardinality"), Value(0), output_field=IntegerField()),
-            )
+            .annotate(**content)
             .values(
                 "id",
                 "team_id",
@@ -935,25 +925,14 @@ def inbox_report_state(context: dagster.AssetExecutionContext) -> None:
                 "promoted_at",
                 "last_run_at",
                 "updated_at",
-                "signal_count",
-                "total_weight",
-                "run_count",
-                "title",
-                "summary",
-                "chart_count",
-                "metric_count",
-                "suggested_prompt_count",
-                "tag_count",
-                "content_revision_count",
-                "corroboration_count",
-                "user_authored",
+                *REPORT_FACT_FIELDS,
+                *content,
             )
             .iterator(chunk_size=2000)
         ):
             report_id = str(report["id"])
             created_at = ensure_utc(report["created_at"])
             promoted_at = ensure_utc(report["promoted_at"])
-            judgment = judgments.get(report_id, {})
             rows.append(
                 {
                     "snapshot_date": snapshot_date,
@@ -970,21 +949,8 @@ def inbox_report_state(context: dagster.AssetExecutionContext) -> None:
                     "hours_since_promotion": (snapshot_end - promoted_at).total_seconds() / 3600
                     if promoted_at
                     else None,
-                    "signal_count": report["signal_count"],
-                    "total_weight": report["total_weight"],
-                    "run_count": report["run_count"],
-                    "priority": judgment.get("priority"),
-                    "actionability": judgment.get("actionability"),
-                    "title_chars": len(report["title"] or ""),
-                    "summary_chars": len(report["summary"] or ""),
-                    "chart_count": report["chart_count"],
-                    "metric_count": report["metric_count"],
-                    "suggested_prompt_count": report["suggested_prompt_count"],
-                    "tag_count": report["tag_count"],
-                    "content_revision_count": report["content_revision_count"] or 0,
-                    "corroboration_count": report["corroboration_count"] or 0,
-                    "user_authored": report["user_authored"],
-                    "already_addressed": judgment.get("already_addressed"),
+                    **report_row_facts(report),
+                    **judgments.get(report_id, no_judgment_facts()),
                     "features_observed_at": features_observed_at,
                 }
             )
@@ -1822,6 +1788,155 @@ def inbox_activity_summary_profile_vectors(context: dagster.AssetExecutionContex
     )
 
 
+@frozen
+class Newborn:
+    team_id: int
+    created_at: datetime.datetime
+
+
+@frozen
+class ScoredFactRows:
+    rows: list[dict[str, Any]]
+    tenant_mismatch_events: int
+
+
+_INT32_MIN, _INT32_MAX = -(2**31), 2**31 - 1
+
+
+def _as_utc(value: datetime.datetime) -> datetime.datetime:
+    return value.replace(tzinfo=datetime.UTC) if value.tzinfo is None else value.astimezone(datetime.UTC)
+
+
+def _event_moment(value: Any) -> datetime.datetime | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        return _as_utc(datetime.datetime.fromisoformat(value))
+    except ValueError:
+        return None
+
+
+def _scored_fact_value(value: Any, data_type: pa.DataType) -> Any:
+    """The event's value when it fits the column, else None. The facts events are analytics events in
+    the dogfood project, so a value of another type reads as unknown instead of aborting the build."""
+    if pa.types.is_list(data_type):
+        return sorted({item for item in value if isinstance(item, str)}) if isinstance(value, list) else None
+    if pa.types.is_boolean(data_type):
+        return value if isinstance(value, bool) else None
+    if isinstance(value, bool):
+        return None
+    if pa.types.is_int32(data_type):
+        return value if isinstance(value, int) and _INT32_MIN <= value <= _INT32_MAX else None
+    if pa.types.is_floating(data_type):
+        return float(value) if isinstance(value, int | float) else None
+    return value if isinstance(value, str) else None
+
+
+def scored_fact_rows(
+    events: Iterable[tuple[datetime.datetime, Mapping[str, Any]]],
+    newborns: Mapping[str, Newborn],
+    consent_team_ids: Collection[int],
+    *,
+    snapshot_date: datetime.date,
+) -> ScoredFactRows:
+    """One row per newborn report of a consenting team with a facts event, from its earliest `scored_at`.
+
+    `team_id` is an event property, so the tenant an event names is claimed and not proven: an event
+    that names another team than the report's own is dropped. An event without a usable `scored_at`
+    takes its event timestamp. A fact the event does not carry is null, never 0.
+    """
+    earliest: dict[str, tuple[datetime.datetime, Mapping[str, Any]]] = {}
+    mismatched = 0
+    for timestamp, properties in events:
+        raw_report_id = properties.get("report_id")
+        report_id = canonical_report_uuid(raw_report_id) if isinstance(raw_report_id, str) else None
+        newborn = newborns.get(report_id) if report_id else None
+        if report_id is None or newborn is None or newborn.team_id not in consent_team_ids:
+            continue
+        if str(properties.get("team_id")) != str(newborn.team_id):
+            mismatched += 1
+            continue
+        scored_at = _event_moment(properties.get(SCORED_AT_COLUMN)) or _as_utc(timestamp)
+        if report_id not in earliest or scored_at < earliest[report_id][0]:
+            earliest[report_id] = (scored_at, properties)
+
+    rows = [
+        {
+            "snapshot_date": snapshot_date,
+            "report_id": report_id,
+            "report_team_id": newborns[report_id].team_id,
+            "report_created_at": newborns[report_id].created_at,
+            SCORED_AT_COLUMN: scored_at,
+            "embedding_inserted_at": _event_moment(properties.get("embedding_inserted_at")),
+            "facts_schema_version": _scored_fact_value(properties.get("facts_schema_version"), pa.int32()),
+            **{
+                name: _scored_fact_value(properties.get(name), data_type)
+                for name, data_type in _SCORED_FACT_TYPES.items()
+            },
+        }
+        for report_id, (scored_at, properties) in sorted(earliest.items())
+    ]
+    return ScoredFactRows(rows=rows, tenant_mismatch_events=mismatched)
+
+
+@dagster.asset(name=SCORED_FACTS_TABLE, **COMMON_ASSET_KWARGS)
+def inbox_report_scored_facts(context: dagster.AssetExecutionContext) -> None:
+    """The report facts the scoring sweep recorded at its first score of each report created on D.
+
+    A leaf with its own schema version: nothing joins it, so a failure here leaves the training table
+    alone. `inbox_report_state` holds the same facts at the end of the report's first day; this holds
+    them as the sweep saw them when it scored, which is what a served model reads. A report the sweep
+    did not score during D has no row.
+    """
+    if skip_unconfigured(context):
+        return
+    tag_dagster_queries(context, query_type="inbox_ranking_report_scored_facts")
+    partition_key = context.partition_key
+    snapshot_start, snapshot_end = snapshot_bounds(partition_key)
+
+    newborns = {
+        str(report_id): Newborn(team_id=team_id, created_at=_as_utc(created_at))
+        for report_id, team_id, created_at in SignalReport.objects.filter(
+            created_at__gte=snapshot_start, created_at__lt=snapshot_end
+        ).values_list("id", "team_id", "created_at")
+    }
+    consent_team_ids = training_consent_team_ids()
+    events = report_facts_events(
+        labels_team(),
+        window_start=snapshot_start,
+        window_end=snapshot_end,
+        environment=settings.CLOUD_DEPLOYMENT or "",
+    )
+    assembled = scored_fact_rows(
+        events, newborns, consent_team_ids, snapshot_date=datetime.date.fromisoformat(partition_key)
+    )
+    rows = assembled.rows
+
+    bucket = dataset_bucket()
+    key = partition_object_key(settings.INBOX_RANKING_DATASET_S3_PREFIX, SCORED_FACTS_TABLE, partition_key)
+    write_parquet(
+        s3_client(),
+        bucket,
+        key,
+        pa.Table.from_pylist(rows, schema=SCORED_FACTS_SCHEMA),
+        schema_version=SCORED_FACTS_SCHEMA_VERSION,
+    )
+    consented_newborns = sum(1 for newborn in newborns.values() if newborn.team_id in consent_team_ids)
+    context.add_output_metadata(
+        {
+            "rows": dagster.MetadataValue.int(len(rows)),
+            "facts_events": dagster.MetadataValue.int(len(events)),
+            "newborn_reports": dagster.MetadataValue.int(consented_newborns),
+            "newborn_coverage": dagster.MetadataValue.float(
+                len(rows) / consented_newborns if consented_newborns else 0.0
+            ),
+            "tenant_mismatch_events": dagster.MetadataValue.int(assembled.tenant_mismatch_events),
+            "excluded_no_training_consent_reports": dagster.MetadataValue.int(len(newborns) - consented_newborns),
+            "s3_key": dagster.MetadataValue.text(f"s3://{bucket}/{key}"),
+        }
+    )
+
+
 def remote_engagement_rows(labels: pa.Table, local_report_ids: Collection[str]) -> pa.Table:
     """The label rows of reports that do not exist in this region's Postgres.
 
@@ -2120,6 +2235,7 @@ inbox_ranking_dataset_job = dagster.define_asset_job(
         ENGAGEMENT_EXPORT,
         ACTIVITY_SUMMARY_VECTORS_TABLE,
         ACTIVITY_SUMMARY_PROFILE_VECTORS_TABLE,
+        SCORED_FACTS_TABLE,
     ],
     # The light steps still run in parallel, beside the one heavy step that is running.
     executor_def=dagster.multiprocess_executor.configured(

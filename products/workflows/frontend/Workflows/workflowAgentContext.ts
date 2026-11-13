@@ -4,7 +4,8 @@ import type { AiFirstSuggestion } from 'scenes/max/aiFirstCreate/AiFirstCreateSc
 import { AttachedContextItem } from '~/layout/ai/attachedContext'
 import { CyclotronJobInputSchemaType, CyclotronJobInputType, HogFunctionTemplateType } from '~/types'
 
-import { isEmailAction, isFunctionAction, isTriggerFunction } from './hogflows/steps/types'
+import { isEmailStep } from './hogflows/steps/email/emailStepVariants'
+import { isFunctionAction, isTriggerFunction } from './hogflows/steps/types'
 import type { HogFlow } from './hogflows/types'
 
 // Each visible chip and the hidden payload items it stands for share a dismiss group, so closing
@@ -148,7 +149,7 @@ function findEmailAction(workflow: HogFlow | null, actionId: string | null): Hog
         return null
     }
     const action = workflow?.actions?.find((a) => a.id === actionId)
-    return action && isEmailAction(action) ? action : null
+    return action && isEmailStep(action) ? action : null
 }
 
 /**
@@ -179,8 +180,10 @@ function buildEmailEditingContextItems(): AttachedContextItem[] {
                 `anything earlier in the conversation. Requests about "this email" mean that action's ` +
                 `config.inputs.email.value. For content and layout changes prefer ` +
                 `workflows-patch-action-email with design operations targeting that action; use ` +
-                `workflows-patch-graph with update_action on it for other fields. The open editor reloads ` +
-                `external edits live, so the user sees applied changes immediately.`,
+                `workflows-patch-graph with update_action on it for other fields. An email_sandbox step sends ` +
+                `from PostHog's sandbox sender to verified members of the organization only, so it takes no ` +
+                `from, replyTo, cc or bcc. The open editor reloads external edits live, so the user sees ` +
+                `applied changes immediately.`,
         },
         {
             type: 'skill',
@@ -271,7 +274,7 @@ export function redactWorkflowSecretInputs(
 }
 
 function emailValueOf(action: HogFlow['actions'][number]): Record<string, unknown> | null {
-    if (!isEmailAction(action)) {
+    if (!isEmailStep(action)) {
         return null
     }
     const value = (action.config as { inputs?: Record<string, CyclotronJobInputType> | null })?.inputs?.email?.value

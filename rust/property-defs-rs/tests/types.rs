@@ -623,6 +623,12 @@ fn test_bare_utm_properties_still_string() {
     PropertyValueType::String
 )]
 #[case(
+    "$Feature_Flag_Variant_Key",
+    "$feature_flag_variant_key",
+    Value::from("true"),
+    PropertyValueType::String
+)]
+#[case(
     "$Survey_Response_2",
     "$survey_response_2",
     Value::Number(Number::from(7)),
