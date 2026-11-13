@@ -16,11 +16,14 @@ import type { FeatureFlagsSet } from '../../../../frontend/src/lib/logic/feature
 import { mcpAnalyticsIntentClustersRecompute, mcpAnalyticsIntentClustersRetrieve } from '../generated/api'
 import type {
     MCPIntentClusterApi,
+    MCPIntentClusterLongTailApi,
     MCPIntentClusterSnapshotApi,
+    MCPRecurringIntentApi,
     MCPToolOverlapApi,
     MCPToolPivotApi,
     MCPToolPivotClusterEntryApi,
 } from '../generated/api.schemas'
+import { countsTowardKpis } from './clusterRanking'
 
 const EMPTY_SNAPSHOT: MCPIntentClusterSnapshotApi = {
     status: 'idle',
@@ -244,7 +247,10 @@ export interface mcpClusteringLogicValues {
     hasSnapshot: boolean
     hasToolPivot: boolean
     intentRoutingEnabled: boolean
+    intentTextRedacted: boolean
     isComputing: boolean
+    longTail: MCPIntentClusterLongTailApi | null
+    recurring: readonly MCPRecurringIntentApi[]
     routeShapeCounts: RouteShapeCounts
     scatterPoints: ScatterPoint[]
     scopedClusters: MCPIntentClusterApi[]
@@ -399,6 +405,9 @@ export interface mcpClusteringLogicMeta {
         ) => MCPIntentClusterApi | null
         routeShapeCounts: (searchedClusters: MCPIntentClusterApi[]) => RouteShapeCounts
         isComputing: (snapshot: MCPIntentClusterSnapshotApi) => boolean
+        longTail: (snapshot: MCPIntentClusterSnapshotApi) => MCPIntentClusterLongTailApi | null
+        recurring: (snapshot: MCPIntentClusterSnapshotApi) => readonly MCPRecurringIntentApi[]
+        intentTextRedacted: (snapshot: MCPIntentClusterSnapshotApi) => boolean
         hasSnapshot: (snapshot: MCPIntentClusterSnapshotApi) => boolean
     }
 }
@@ -672,6 +681,13 @@ export const mcpClusteringLogic = kea<mcpClusteringLogicType>([
             (s) => [s.searchedClusters, s.clusterFilter],
             (searchedClusters: MCPIntentClusterApi[], clusterFilter: ClusterFilter): MCPIntentClusterApi[] => {
                 return searchedClusters.filter((cluster) => {
+                    if (clusterFilter === 'all') {
+                        return true
+                    }
+                    // The scorecards skip small clusters, so their filters must too.
+                    if (!countsTowardKpis(cluster)) {
+                        return false
+                    }
                     if (clusterFilter === 'failing') {
                         return cluster.error_count > 0
                     }
@@ -770,14 +786,15 @@ export const mcpClusteringLogic = kea<mcpClusteringLogicType>([
         routeShapeCounts: [
             (s) => [s.searchedClusters],
             (searchedClusters: MCPIntentClusterApi[]): RouteShapeCounts => {
+                const kpiClusters = searchedClusters.filter(countsTowardKpis)
                 const counts: RouteShapeCounts = {
                     concentrated: 0,
                     mixed: 0,
                     spread: 0,
                     failing: 0,
-                    total: searchedClusters.length,
+                    total: kpiClusters.length,
                 }
-                for (const cluster of searchedClusters) {
+                for (const cluster of kpiClusters) {
                     counts[routeShape(cluster)] += 1
                     if (cluster.error_count > 0) {
                         counts.failing += 1
@@ -789,6 +806,19 @@ export const mcpClusteringLogic = kea<mcpClusteringLogicType>([
         isComputing: [
             (s) => [s.snapshot],
             (snapshot: MCPIntentClusterSnapshotApi): boolean => snapshot.status === 'computing',
+        ],
+        // Older snapshots predate these fields, so each falls back to "nothing to show".
+        longTail: [
+            (s) => [s.snapshot],
+            (snapshot: MCPIntentClusterSnapshotApi): MCPIntentClusterLongTailApi | null => snapshot.long_tail ?? null,
+        ],
+        recurring: [
+            (s) => [s.snapshot],
+            (snapshot: MCPIntentClusterSnapshotApi): readonly MCPRecurringIntentApi[] => snapshot.recurring ?? [],
+        ],
+        intentTextRedacted: [
+            (s) => [s.snapshot],
+            (snapshot: MCPIntentClusterSnapshotApi): boolean => !!snapshot.intent_text_redacted,
         ],
         hasSnapshot: [
             (s) => [s.snapshot],

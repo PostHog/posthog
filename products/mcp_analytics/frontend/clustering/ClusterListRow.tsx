@@ -6,15 +6,18 @@ import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import type { MCPIntentClusterApi } from '../generated/api.schemas'
+import { clusterLabel, formatErrorRate, topToolNames } from './clusterRanking'
 import { RoutingBar } from './RoutingBar'
 
 export const ClusterListRow = memo(function ClusterListRow({
     cluster,
+    rank,
     isActive,
     onSelect,
     barColor,
 }: {
     cluster: MCPIntentClusterApi
+    rank: number
     isActive: boolean
     onSelect: (clusterId: number) => void
     barColor: string
@@ -29,7 +32,7 @@ export const ClusterListRow = memo(function ClusterListRow({
         }
     }, [isActive])
 
-    const topTool = cluster.tool_distribution[0]
+    const topTools = topToolNames(cluster)
 
     return (
         <button
@@ -45,21 +48,26 @@ export const ClusterListRow = memo(function ClusterListRow({
                     : 'border-l-transparent hover:bg-accent-highlight-secondary'
             )}
         >
-            {/* Labels run long and some are a sentence; two lines beats truncating to a stub. */}
-            <span className="font-medium line-clamp-2">{cluster.label}</span>
+            <span className="flex items-start gap-1.5">
+                <span className="shrink-0 tabular-nums text-muted">{rank}.</span>
+                {/* Labels run long and some are a sentence; two lines beats truncating to a stub. */}
+                <span className="font-medium line-clamp-2">{clusterLabel(cluster)}</span>
+            </span>
             <RoutingBar cluster={cluster} color={barColor} />
-            <div className="flex items-center justify-between gap-2 text-secondary">
-                <span className="truncate font-mono">
-                    {topTool ? `${topTool.tool} ${topTool.pct.toFixed(0)}%` : 'no tools recorded'}
-                </span>
-                <span className="flex shrink-0 items-center gap-1.5 tabular-nums">
-                    {humanFriendlyNumber(cluster.call_count)} calls
-                    {/* Pill rather than red text, matching how tool quality shows an error rate. */}
-                    {cluster.error_count > 0 ? (
-                        <Badge variant="destructive">{cluster.error_rate_pct.toFixed(1)}%</Badge>
-                    ) : null}
-                </span>
-            </div>
+            <span className="truncate font-mono text-secondary" data-attr="mcp-cluster-row-top-tools">
+                {topTools.length > 0 ? topTools.join(' · ') : 'no tools recorded'}
+            </span>
+            <span className="flex items-center gap-1.5 tabular-nums text-secondary">
+                {humanFriendlyNumber(cluster.session_count)} session{cluster.session_count === 1 ? '' : 's'}
+                <span aria-hidden>·</span>
+                {humanFriendlyNumber(cluster.call_count)} calls
+                {/* Pill rather than red text, matching how tool quality shows an error rate. */}
+                {cluster.error_count > 0 ? (
+                    <Badge variant="destructive">{formatErrorRate(cluster.error_rate_pct)}</Badge>
+                ) : (
+                    <span className="text-muted">0% errors</span>
+                )}
+            </span>
         </button>
     )
 })
