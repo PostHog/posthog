@@ -70,8 +70,9 @@ export function QuillSavedInsightsTable({
                 cell: ({ row }) => {
                     const insight = row.original
                     const displayName = insight.name || summarizeInsight(insight.query)
+                    // w-0 min-w-full: the one-line name doesn't set the column's minimum width, so the table fits the dialog
                     return (
-                        <div className="flex min-w-0 max-w-120 flex-col gap-0.5">
+                        <div className="flex w-0 min-w-full flex-col gap-0.5">
                             <Text size="xs" className="truncate font-medium" title={displayName}>
                                 {insight.name || <i>{displayName}</i>}
                             </Text>

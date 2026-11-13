@@ -132,6 +132,8 @@
     }
 
     .quill-dialog__body {
+        min-width: 0;
+
         /*
          * `min-height: 0` lets the body shrink past its content's min
          * size in the dialog grid (otherwise the `minmax(0, 1fr)` row
@@ -140,6 +142,9 @@
          * inner ScrollArea viewport when the body defaults to a
          * ScrollArea), this is what makes long content scroll inside
          * the dialog instead of stretching it past the viewport.
+         * `min-width: 0` does the same for the grid column, so wide
+         * content (a table with long rows) can't push the body past the
+         * dialog's max-width, where the content edge gets clipped.
          */
         min-height: 0;
         padding-inline: 1rem;
