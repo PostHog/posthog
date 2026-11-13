@@ -28,6 +28,10 @@ def is_private_message(item_context: object) -> bool:
     return item_context.get("is_private", False) is True
 
 
+def is_delivered_by_email(item_context: object) -> bool:
+    return isinstance(item_context, dict) and item_context.get(DELIVERED_BY_EMAIL_CONTEXT_KEY) is True
+
+
 def is_outbound_reply(item_context: object, created_by_id: int | None) -> bool:
     """True for messages that should be delivered to the customer's channel.
 
@@ -139,20 +143,20 @@ def messages_shown_in_widget(
     return messages.filter(_shown_to_widget_viewer(reader_address))
 
 
-def _context_flag_unset(key: str) -> Q:
-    # isnull keeps comments with no such key, because ~Q alone drops SQL NULL.
-    return ~Q(**{f"item_context__{key}": True}) | Q(**{f"item_context__{key}__isnull": True})
-
-
 def _shown_to_widget_viewer(reader_address: str | None) -> Q:
     """Messages of a ticket from another channel that a widget viewer may read.
 
     A viewer known only by a widget session reads neither the emails nor the replies written
     after the address was confirmed. Those replies were written for the mailbox owner.
     """
-    if reader_address is None:
-        return _context_flag_unset("from_email") & _context_flag_unset(DELIVERED_BY_EMAIL_CONTEXT_KEY)
-    return _context_flag_unset("from_email") | Q(item_context__email_from__iexact=reader_address)
+    # isnull keeps comments with no such key, because ~Q alone drops SQL NULL.
+    not_email = ~Q(item_context__from_email=True) | Q(item_context__from_email__isnull=True)
+    if reader_address is not None:
+        return not_email | Q(item_context__email_from__iexact=reader_address)
+    written_before_confirmation = ~Q(item_context__delivered_by_email=True) | Q(
+        item_context__delivered_by_email__isnull=True
+    )
+    return not_email & written_before_confirmation
 
 
 def _last_visible_contents(team_id: int, ticket_ids: list[str], reader_address: str | None) -> dict[str, str]:

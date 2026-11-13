@@ -126,6 +126,8 @@ def enqueue_email_reply(
     """
     if written_for_confirmed_address:
         merge_comment_context(ticket.team_id, comment.id, {DELIVERED_BY_EMAIL_CONTEXT_KEY: True})
+        # Also on the instance, so that a later save of it does not write the mark away.
+        comment.item_context = {**(comment.item_context or {}), DELIVERED_BY_EMAIL_CONTEXT_KEY: True}
     if message_id is None:
         domain = _message_id_domain(ticket)
         message_id = make_msgid(domain=domain) if domain else make_msgid()
@@ -282,7 +284,7 @@ def _pending_confirmation_message_id(ticket: Ticket) -> str | None:
         EmailOutboxMessage.objects.filter(
             team_id=ticket.team_id,
             ticket_id=ticket.id,
-            **{f"comment__item_context__{EMAIL_CONFIRMATION_CONTEXT_KEY}": True},
+            comment__item_context__email_delivery_confirmation=True,
         )
         .order_by("-created_at")
         .values_list("message_id", flat=True)
@@ -363,7 +365,7 @@ def enqueue_replies_awaiting_confirmation(ticket: Ticket) -> None:
             team_id=ticket.team_id,
             scope=TICKET_MESSAGE_SCOPE,
             item_id=ticket_id,
-            **{f"item_context__{EMAIL_CONFIRMATION_CONTEXT_KEY}": True},
+            item_context__email_delivery_confirmation=True,
         )
         .order_by("-created_at")
         .first()

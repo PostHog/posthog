@@ -231,6 +231,11 @@ class TestWidgetTicketEmailDelivery(MailgunWebhookTestMixin, BaseTest):
         assert [(ticket["last_message"], ticket["unread_count"]) for ticket in tickets.json()["results"]] == [
             ("Shown in the widget", 1)
         ]
+        with self.captureOnCommitCallbacks(execute=True):
+            emailed_reply = Comment.objects.get(content="Written for the confirmed address")
+            emailed_reply.deleted = True
+            emailed_reply.save()
+        assert Ticket.objects.get(id=self.ticket.id).unread_customer_count == 1
 
     def test_replies_behind_many_customer_messages_are_still_emailed_on_confirmation(self):
         confirmation = self._request_and_send_confirmation()

@@ -31,7 +31,7 @@ from .models import ConversationDeliveryPart, SigningSecret, Ticket
 from .models.constants import WORKFLOW_AUTHOR_TYPE, Channel, EmailDelivery
 from .services.delivery import enqueue_slack_body_delivery
 from .services.email_delivery import enqueue_email_reply, ticket_delivering_replies_by_email
-from .services.messages import is_outbound_reply, is_private_message, visible_ticket_messages
+from .services.messages import is_delivered_by_email, is_outbound_reply, is_private_message, visible_ticket_messages
 from .tasks.github import post_reply_to_github
 from .tasks.slack import wake_delivery_part
 from .tasks.teams import post_reply_to_teams, post_reply_to_teams_via_graph
@@ -355,7 +355,7 @@ def handle_comment_soft_delete(sender, instance: Comment, **kwargs):
 
                 # Use Greatest to prevent negative counts from race conditions or data inconsistencies
                 update_fields = {"message_count": Greatest(F("message_count") - 1, 0)}
-                if is_team_message:
+                if is_team_message and not is_delivered_by_email(item_context):
                     update_fields["unread_customer_count"] = Greatest(F("unread_customer_count") - 1, 0)
 
                 Ticket.objects.filter(id=item_id, team_id=team_id).update(**update_fields)
