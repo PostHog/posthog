@@ -4,6 +4,7 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { ApiError } from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -27,7 +28,12 @@ import {
     PlatformAlertDestinationTypeEnumApi,
 } from 'products/alerts_platform/frontend/generated/api.schemas'
 
-import { MAX_DESTINATIONS_PER_ALERT, destinationUrlError, urlInputFor } from './platformAlertDestinations'
+import {
+    MAX_DESTINATIONS_PER_ALERT,
+    describePendingDestination,
+    destinationUrlError,
+    urlInputFor,
+} from './platformAlertDestinations'
 
 export interface PlatformAlertDestinationsLogicProps {
     // Left out while the alert is being created: destinations then wait until it is saved.
@@ -43,6 +49,7 @@ export interface platformAlertDestinationsLogicValues {
     currentTeamId: number | null // teamLogic
     addDisabledReason: string | undefined
     deletingDestinationIds: Set<string>
+    destinationErrors: string[]
     destinations: PlatformAlertDestinationApi[]
     destinationsLoadFailed: boolean
     destinationsLoading: boolean
@@ -113,6 +120,9 @@ export interface platformAlertDestinationsLogicActions {
     ) => {
         deleting: boolean
         id: string
+    }
+    setDestinationErrors: (errors: string[]) => {
+        errors: string[]
     }
     setPagerDutyRegion: (pagerDutyRegion: AlertPagerDutyRegion) => {
         pagerDutyRegion: AlertPagerDutyRegion
@@ -198,6 +208,7 @@ export const platformAlertDestinationsLogic = kea<platformAlertDestinationsLogic
         setDeletingDestinationId: (id: string, deleting: boolean) => ({ id, deleting }),
         setSelectedSlackIntegrationId: (integrationId: number | null) => ({ integrationId }),
         setSavingDestinations: (saving: boolean) => ({ saving }),
+        setDestinationErrors: (errors: string[]) => ({ errors }),
     }),
 
     loaders(({ props, values }) => ({
@@ -257,6 +268,8 @@ export const platformAlertDestinationsLogic = kea<platformAlertDestinationsLogic
             { setSelectedSlackIntegrationId: (_, { integrationId }) => integrationId },
         ],
         savingDestinations: [false, { setSavingDestinations: (_, { saving }) => saving }],
+        // Why each destination in the last save was refused, such as a Teams URL the API does not accept.
+        destinationErrors: [[] as string[], { setDestinationErrors: (_, { errors }) => errors }],
         // The list stays empty on a failed load, so the editor needs this to tell it apart from no destinations.
         destinationsLoadFailed: [
             false,
@@ -378,6 +391,7 @@ export const platformAlertDestinationsLogic = kea<platformAlertDestinationsLogic
             const projectId = String(values.currentTeamId)
             const batch = values.pendingDestinations
             const failed: PlatformAlertCreateDestinationApi[] = []
+            const errors: string[] = []
             for (const destination of batch) {
                 // A destination removed while the batch was saving is not sent.
                 if (!values.pendingDestinations.includes(destination)) {
@@ -389,8 +403,10 @@ export const platformAlertDestinationsLogic = kea<platformAlertDestinationsLogic
                         source_kind: props.sourceKind,
                         destination_type: destination.type,
                     })
-                } catch {
+                } catch (error) {
                     failed.push(destination)
+                    const detail = (error as ApiError | undefined)?.detail
+                    errors.push(`${describePendingDestination(destination).title}: ${detail ?? 'the request failed'}`)
                 }
             }
             const stillPending = values.pendingDestinations
@@ -399,9 +415,10 @@ export const platformAlertDestinationsLogic = kea<platformAlertDestinationsLogic
                 ...failed.filter((destination) => stillPending.includes(destination)),
                 ...stillPending.filter((destination) => !batch.includes(destination)),
             ])
+            actions.setDestinationErrors(errors)
             actions.setSavingDestinations(false)
-            if (failed.length > 0) {
-                lemonToast.error('Could not add every notification destination. Check them and try again.')
+            if (errors.length > 0) {
+                lemonToast.error(`Could not add a destination. ${errors.join(' ')}`)
             }
             if (props.alertId) {
                 actions.loadDestinations()

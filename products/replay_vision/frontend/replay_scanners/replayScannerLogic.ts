@@ -70,7 +70,7 @@ import {
     parseSortParam,
     serializeSortParam,
 } from '../utils/urlParams'
-import { draftChanges } from './draftChanges'
+import { draftChanges, scannerModelChoice } from './draftChanges'
 import { clampDurationFilter, durationFilterError } from './durationBounds'
 import {
     ExperimentScannerContext,
@@ -1250,6 +1250,13 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                                 entry_point: values.entryPoint,
                             })
                         }
+                        // Whether a person overrode the model the AI draft or the default offered, and in which direction.
+                        posthog.capture('replay_vision_scanner_model_chosen', {
+                            scanner_id: response.id,
+                            creation_method: values.creationMethod,
+                            entry_point: values.entryPoint,
+                            ...scannerModelChoice(values.creationMethod, values.goalDraftBaseline, scanner.model),
+                        })
                         actions.scannerSaved(scanner)
                         leaveScannerEditor(props.id, urls.replayVision(response.id))
                         // First scheduled results are minutes away, so the copy matches the Overview's
