@@ -24,6 +24,12 @@ describe('redactMetricVariableUrl', () => {
         ['a BI selection', '/dashboard/1#bi_filter=%7B%22country%22%3A%22US%22%7D', '/dashboard/1'],
         ['a BI redirect', '/login?next=%2Fdashboard%2F1%23bi_filter%3Dvalue', '/login'],
         ['an autocaptured BI link', 'a:attr__href="/dashboard/1#bi_filter=value"', ''],
+        [
+            'a metric prefill',
+            '/data-catalog/metrics/new#metric_prefill=%7B%22sql%22%3A%22SELECT%201%22%7D',
+            '/data-catalog/metrics/new',
+        ],
+        ['an autocaptured metric prefill link', 'a:attr__href="/data-catalog/metrics/new#metric_prefill=value"', ''],
         ['a relative link', `/insights/abc?filters_override=${filters}`, '/insights/abc'],
         ['an element chain', `a:attr__href="/insights/abc?filters_override=${filters}"`, ''],
     ])('keeps only the path of %s', (_name, text, expected) => {
@@ -76,6 +82,8 @@ describe('redactMetricVariableUrl', () => {
             kept,
             { name: `/api/environments/1/insights/?filters_override=${filters}` },
             { name: '/api/environments/1/metrics/variable_options/', requestBody: '{"query":"SELECT 1"}' },
+            { name: '/api/projects/1/data_catalog/usage/latest/', responseBody: '{"payload":{"uncovered":[]}}' },
+            { name: '/api/projects/1/data_catalog/metrics/signups/usage/', responseBody: '{"adjusted_runs":[]}' },
             { name: '/api/dashboards/1', requestBody: JSON.stringify({ filters: { metricVariables: [] } }) },
         ]
         const snapshot = { type: 6, data: { plugin: 'rrweb/network@1', payload: { requests } } }
