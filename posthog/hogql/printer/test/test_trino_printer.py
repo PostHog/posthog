@@ -1996,6 +1996,23 @@ def test_percentage_limit_rounds_up(percentage: int, offset: int, expected: list
             "ORDER BY id DESC",
             [("b", 3), ("a", 2)],
         ),
+        # ANY JOIN ON terms that read one side only filter the match; they don't need to be equality keys.
+        (
+            "WITH l AS (SELECT 1 AS k UNION ALL SELECT 2 UNION ALL SELECT 3) "
+            "SELECT l.k, r.v FROM l LEFT ANY JOIN right_view AS r ON l.k = r.k AND r.live > 0 ORDER BY l.k",
+            [(1, 20), (2, 30), (3, None)],
+        ),
+        (
+            "WITH l AS (SELECT 1 AS k UNION ALL SELECT 2) "
+            "SELECT l.k, r.v FROM l LEFT ANY JOIN right_view AS r ON equals(l.k, r.k) AND l.k > 1 ORDER BY l.k",
+            [(1, None), (2, 30)],
+        ),
+        (
+            "WITH l AS (SELECT 1 AS k, 1 AS live UNION ALL SELECT 1, 0) "
+            "SELECT l.live, r.v FROM l ANY INNER JOIN right_view AS r ON and(equals(l.k, r.k), equals(l.live, r.live)) "
+            "ORDER BY l.live",
+            [(0, 10), (1, 20)],
+        ),
         # ClickHouse lets a projection name a part of itself, and inlining the projection must not redefine that name.
         (
             "WITH rows AS (SELECT 1 AS id UNION ALL SELECT 2) "
@@ -2006,6 +2023,22 @@ def test_percentage_limit_rounds_up(percentage: int, offset: int, expected: list
 )
 def test_relational_rewrites_preserve_results(query: str, expected: list[tuple[object, ...]]) -> None:
     context = _context_with_trino_table()
+    assert context.database is not None
+    context.database.tables.add_child(
+        TableNode(
+            name="right_view",
+            table=SavedQuery(
+                id="right_view",
+                name="right_view",
+                query="SELECT 1 AS k, 10 AS v, 0 AS live UNION ALL SELECT 1, 20, 1 UNION ALL SELECT 2, 30, 1",
+                fields={
+                    "k": IntegerDatabaseField(name="k"),
+                    "v": IntegerDatabaseField(name="v"),
+                    "live": IntegerDatabaseField(name="live"),
+                },
+            ),
+        )
+    )
     sql, _ = prepare_and_print_ast(parse_select(query), context, "trino")
     sql, values = convert_pyformat_placeholders(sql, context.values)
     with duckdb.connect(":memory:") as connection:
@@ -3113,7 +3146,16 @@ def test_curated_array_field_over_a_text_column_compares_as_text(structure: str,
     assert expected in sql
 
 
-def test_lowers_any_join_to_the_deduplicated_trino_persons_relation() -> None:
+@pytest.mark.parametrize(
+    "constraint",
+    [
+        "events.person_id = persons.id",
+        # The persons relation already has one row per id, so further terms can't add matches.
+        "events.person_id = persons.id AND events.properties.email = persons.properties.email",
+        "events.person_id = persons.id AND persons.is_identified",
+    ],
+)
+def test_lowers_any_join_to_the_deduplicated_trino_persons_relation(constraint: str) -> None:
     context = HogQLContext(
         database=Database(include_posthog_tables=True),
         modifiers=_trino_modifiers(),
@@ -3129,9 +3171,7 @@ def test_lowers_any_join_to_the_deduplicated_trino_persons_relation() -> None:
     )
 
     sql, _ = prepare_and_print_ast(
-        parse_select(
-            "SELECT persons.properties.email FROM events LEFT ANY JOIN persons ON events.person_id = persons.id"
-        ),
+        parse_select(f"SELECT persons.properties.email FROM events LEFT ANY JOIN persons ON {constraint}"),
         context,
         "trino",
     )
