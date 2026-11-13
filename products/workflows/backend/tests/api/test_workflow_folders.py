@@ -1168,11 +1168,27 @@ class TestWorkflowFolders(APIBaseTest):
         self.assertEqual(created.json()["attr"], "_create_in_folder")
         self.assertFalse(FileSystem.objects.filter(team=self.team, type="folder").exists())
 
-    def test_filing_a_template_without_renaming_it_checks_the_path_with_its_stored_name(self) -> None:
-        templates_url = f"/api/projects/{self.team.id}/messaging_templates/"
-        template = self.client.post(templates_url, {"name": "n" * 400, "type": "email"}, format="json").json()
+    @parameterized.expand(
+        [
+            ("template", "messaging_templates", {"type": "email"}),
+            (
+                "workflow",
+                "hog_flows",
+                {
+                    "actions": [{"id": "trigger", "name": "Trigger", "type": "trigger", "config": {"type": "manual"}}],
+                    "edges": [],
+                },
+            ),
+        ]
+    )
+    def test_filing_without_renaming_checks_the_path_with_the_stored_name(
+        self, _name: str, resource: str, payload: dict[str, Any]
+    ) -> None:
+        url = f"/api/projects/{self.team.id}/{resource}/"
+        created = self.client.post(url, {"name": "n" * 400, **payload}, format="json")
+        self.assertEqual(created.status_code, 201, created.content)
 
-        filed = self.client.patch(f"{templates_url}{template['id']}/", {"_create_in_folder": "a" * 3990}, format="json")
+        filed = self.client.patch(f"{url}{created.json()['id']}/", {"_create_in_folder": "a" * 3990}, format="json")
 
         self.assertEqual(filed.status_code, 400, filed.content)
         self.assertEqual(filed.json()["attr"], "_create_in_folder")
@@ -1980,6 +1996,29 @@ class TestWorkflowFolders(APIBaseTest):
         self._local_flag_answer(True)
         files = self.client.get(
             f"/api/projects/{self.team.id}/file_system/", {"type": "hog_flow", "ref": created.json()["id"]}
+        ).json()["results"]
+        self.assertEqual([file["path"] for file in files], ["Campaigns/Retention/Renewal"])
+
+    @parameterized.expand([("flag_on", True), ("local_evaluation_inconclusive", None)])
+    def test_filing_an_unfiled_workflow_on_update_puts_it_in_the_requested_folder(
+        self, _name: str, local: bool | None
+    ) -> None:
+        workflows_url = f"/api/projects/{self.team.id}/hog_flows/"
+        trigger = {"id": "trigger", "name": "Trigger", "type": "trigger", "config": {"type": "manual"}}
+        workflow_id = self.client.post(
+            workflows_url, {"name": "Renewal", "actions": [trigger], "edges": []}, format="json"
+        ).json()["id"]
+        FileSystem.objects.filter(team=self.team, type="hog_flow", ref=workflow_id).delete()
+        self._local_flag_answer(local)
+
+        filed = self.client.patch(
+            f"{workflows_url}{workflow_id}/", {"_create_in_folder": "Campaigns/Retention"}, format="json"
+        )
+
+        self.assertEqual(filed.status_code, 200, filed.content)
+        self._local_flag_answer(True)
+        files = self.client.get(
+            f"/api/projects/{self.team.id}/file_system/", {"type": "hog_flow", "ref": workflow_id}
         ).json()["results"]
         self.assertEqual([file["path"] for file in files], ["Campaigns/Retention/Renewal"])
 
