@@ -10,9 +10,14 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFinding,
     ExperimentHealthFindingActionKind,
     ExperimentHealthFindingSeverity,
+    ExperimentHealthValueKey,
 )
 from products.experiments.backend.health.checks.change_wording import RESET_EFFECT
-from products.experiments.backend.health.checks.forced_variant import forced_variant_release_condition
+from products.experiments.backend.health.checks.forced_variant import (
+    forced_variant_release_condition,
+    forced_variant_rows,
+    forced_variant_values,
+)
 from products.experiments.backend.health.condition_set_traffic import grades_by_pinned_share
 from products.experiments.backend.health.context import (
     ConditionSetTraffic,
@@ -104,7 +109,9 @@ def _history(
     return flag_history([change], start_date=datetime(2026, 9, 12, 10, 0, tzinfo=UTC))
 
 
-def _traffic(people_by_set: dict[int, int], *, remotely_evaluated: float = 1.0) -> ConditionSetTraffic:
+def _traffic(
+    people_by_set: dict[int, int], *, remotely_evaluated: float = 1.0, filters_test_accounts: bool = False
+) -> ConditionSetTraffic:
     calls = 2 * sum(people_by_set.values())
     return ConditionSetTraffic(
         since=datetime(2026, 10, 12, 13, 4, tzinfo=UTC),
@@ -114,6 +121,7 @@ def _traffic(people_by_set: dict[int, int], *, remotely_evaluated: float = 1.0) 
         calls=calls,
         remotely_evaluated_calls=round(calls * remotely_evaluated),
         people_assigned_outside=0,
+        filters_test_accounts=filters_test_accounts,
     )
 
 
@@ -267,6 +275,14 @@ class TestForcedVariantReleaseCondition(TestCase):
                 ("some_conditions_pinned", ExperimentHealthFindingSeverity.WARNING, "1", "test", 0.2143),
             ),
             (
+                "pinned_share_without_test_users",
+                _context(
+                    [{**STAFF, "variant": "test"}, EVERYONE],
+                    traffic=_traffic({1: 120, 2: 880}, filters_test_accounts=True),
+                ),
+                ("some_conditions_pinned", ExperimentHealthFindingSeverity.WARNING, "1", "test", 0.2143),
+            ),
+            (
                 "pins_to_two_variants_grade_by_the_most_affected",
                 _context(
                     [{**STAFF, "variant": "control"}, {**IOS, "variant": "test"}, EVERYONE],
@@ -361,6 +377,11 @@ class TestForcedVariantReleaseCondition(TestCase):
         )
         self.assertEqual("before launch" in finding.detail, not ctx.is_launched)
         self.assertEqual("of the users who got" in finding.detail, expected[4] is not None)
+        traffic = ctx.condition_set_traffic
+        self.assertEqual(
+            "(120 of about 560, not counting internal and test users)" in finding.detail,
+            traffic is not None and traffic.filters_test_accounts,
+        )
         self.assertEqual('Nobody gets "holdout" at random' in finding.detail, "holdout" in expected[3])
 
     @parameterized.expand(
@@ -438,6 +459,7 @@ class TestForcedVariantReleaseCondition(TestCase):
 
         assert isinstance(finding, ExperimentHealthFinding)
         self.assertEqual((finding.reason, "can't measure" in finding.detail), (expected_reason, says_not_measurable))
+        self.assertEqual("pinned_people" in finding.evidence, "pinned_share" in finding.evidence)
 
     @parameterized.expand(
         [
@@ -538,6 +560,38 @@ class TestForcedVariantReleaseCondition(TestCase):
 
         assert isinstance(finding, ExperimentHealthFinding)
         self.assertEqual((finding.title, finding.detail), (title, detail))
+
+    def test_reads_the_share_forced_in_each_variant(self) -> None:
+        # Set 1 forces 10 people into test. Set 2 splits the other 990 evenly, so test has 505 people.
+        ctx = _context(
+            [{**STAFF, "variant": "test"}, EVERYONE], traffic=_traffic({1: 10, 2: 990}, remotely_evaluated=0.8)
+        )
+
+        self.assertEqual(
+            (dict(forced_variant_values(ctx)), [dict(row) for row in forced_variant_rows(ctx)]),
+            (
+                {
+                    ExperimentHealthValueKey.FORCED_CONDITION_COUNT: 1,
+                    ExperimentHealthValueKey.MATCHED_COUNT: 1000,
+                    ExperimentHealthValueKey.TRAFFIC_SINCE_AT: "2026-10-12T13:04:00+00:00",
+                    ExperimentHealthValueKey.FLAG_SERVICE_CALL_PERCENTAGE: 80.0,
+                },
+                [
+                    {
+                        ExperimentHealthValueKey.VARIANT: "control",
+                        ExperimentHealthValueKey.VARIANT_MATCHED_COUNT: 495,
+                        ExperimentHealthValueKey.FORCED_COUNT: 0,
+                        ExperimentHealthValueKey.FORCED_PERCENTAGE: 0.0,
+                    },
+                    {
+                        ExperimentHealthValueKey.VARIANT: "test",
+                        ExperimentHealthValueKey.VARIANT_MATCHED_COUNT: 505,
+                        ExperimentHealthValueKey.FORCED_COUNT: 10,
+                        ExperimentHealthValueKey.FORCED_PERCENTAGE: 1.98,
+                    },
+                ],
+            ),
+        )
 
     def test_variants_mapped_from_a_property_say_who_assigns_them(self) -> None:
         finding = forced_variant_release_condition(

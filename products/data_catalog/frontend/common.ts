@@ -1,15 +1,18 @@
+import { combineUrl } from 'kea-router'
 import posthog from 'posthog-js'
 
 import type { Sorting } from '@posthog/lemon-ui'
 
 import { ApiError } from 'lib/api'
 import { slugify } from 'lib/utils/strings'
+import { urls } from 'scenes/urls'
 
 import type {
     DataCatalogMetricApi,
     DataCatalogMetricNameConflictApi,
     DataCatalogMetricNameConflictExistingApi,
 } from './generated/api.schemas'
+import type { NewMetricPrefill } from './proposedRows'
 
 export const METRIC_NAME_REGEX = /^[A-Za-z][A-Za-z0-9_]*$/
 
@@ -41,6 +44,12 @@ export function humanizeDefinitionKind(kind: string | null): string {
         return 'Markdown'
     }
     return kind
+}
+
+/** The form values travel in the hash, because a query can outgrow what a URL path should carry to the server.
+ * Analytics keeps only the path of a URL with this key, so the SQL stays out of autocaptured links. */
+export function newMetricUrl(prefill: NewMetricPrefill): string {
+    return combineUrl(urls.dataCatalogNewMetric(), {}, { metric_prefill: prefill }).url
 }
 
 export function sqlNameFromDisplayName(displayName: string): string {
@@ -107,4 +116,16 @@ export function existingMetricFromNameConflict(error: unknown): DataCatalogMetri
     }
     const body = error.data as DataCatalogMetricNameConflictApi | undefined
     return body?.extra?.existing_metric ?? null
+}
+
+/** A usage read answers 404 until a scan finishes, so the 404 becomes `'none'` and not an error. */
+export async function noneWhenNoScan<T>(request: Promise<T>): Promise<T | 'none'> {
+    try {
+        return await request
+    } catch (error) {
+        if (error instanceof ApiError && error.status === 404) {
+            return 'none'
+        }
+        throw error
+    }
 }

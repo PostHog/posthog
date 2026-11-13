@@ -38,6 +38,7 @@ class PosthogJwtAudience(Enum):
     CREDENTIALS_SERVICE = "posthog:credentials_service"
     CREDENTIALS_SERVICE_INTEGRATIONS = "posthog:credentials_service:integrations"
     TASKS_CREATE = "posthog:tasks:create"
+    AGENT_EGRESS_REGISTRY = "posthog:agent_egress_registry"
     CUSTOMER_TASKS_CREATE = "posthog:customer-tasks:create"
     WORKFLOW_SCOUT_RUN = "posthog:workflows:scout_run"
     WORKFLOW_CLASSIFY = "posthog:workflows:classify"

@@ -159,7 +159,7 @@ export function buildFetchRunner(
         new HttpConfigurationFetcher(webBotAuthSigner, scheduler, config.AI_RESEARCH_V4_IMAGE_FETCH_REQUEST_TIMEOUT_MS)
     )
     return new FetchRunner(
-        // The recorder sends one job per team for the same URL and month, so one fetch serves them all.
+        // The recorder sends one job per team and key month for the same URL, so one fetch serves them all.
         new SharedImageFetcher(
             new HttpImageFetcher(
                 {

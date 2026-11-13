@@ -392,6 +392,17 @@ class TestProcessDueSchedules(APIBaseTest):
         assert batch_job.variables == {"greeting": "Hello"}
         mock_dispatch.assert_called_once()
 
+    def test_due_schedule_keeps_the_batch_job_when_dispatch_times_out(self, mock_dispatch):
+        mock_dispatch.side_effect = requests.ReadTimeout()
+        hog_flow, schedule = self._create_workflow_with_schedule(next_run_at=datetime(2020, 1, 1, tzinfo=UTC))
+
+        response = self._post()
+
+        assert response.json()["failed"] == [str(schedule.id)]
+        # The resolver may have been queued before the timeout, so the run and the cap that locks the rate limit stay.
+        batch_job = HogFlowBatchJob.objects.get(hog_flow=hog_flow)
+        assert batch_job.max_audience_size == mock_dispatch.call_args.kwargs["max_audience_size"]
+
     def test_workflow_stopped_after_the_status_check_creates_no_batch_job(self, mock_dispatch):
         hog_flow, _ = self._create_workflow_with_schedule(next_run_at=datetime(2020, 1, 1, tzinfo=UTC))
         real_compute = compute_next_occurrences
@@ -614,19 +625,27 @@ class TestProcessDueScheduleTriggers(APIBaseTest):
         schedule.refresh_from_db()
         assert schedule.next_run_at is not None
 
-    def test_cdp_api_error_lands_in_failed(self, mock_invocation):
-        mock_response = unittest.mock.MagicMock()
-        mock_response.status_code = 500
-        mock_response.raise_for_status.side_effect = Exception("CDP API returned 500")
-        mock_invocation.return_value = mock_response
+    @parameterized.expand(
+        [
+            ("engine_error_fails", 500, {"error": "Internal error"}, "failed"),
+            ("over_quota_skips_the_run", 429, {"error": "The project is over its workflow quota"}, "processed"),
+        ]
+    )
+    def test_cdp_refusal_outcome(self, mock_invocation, _name, status_code, body, outcome):
+        mock_invocation.return_value = _worker_response(status_code, body)
 
         _, schedule = self._create_workflow_with_schedule(
             next_run_at=datetime(2020, 1, 1, tzinfo=UTC),
         )
         response = self._post()
         assert response.status_code == 200
-        assert str(schedule.id) in response.json()["failed"]
-        assert len(response.json()["processed"]) == 0
+        assert {key: response.json()[key] for key in ("processed", "failed")} == {
+            "processed": [str(schedule.id)] if outcome == "processed" else [],
+            "failed": [str(schedule.id)] if outcome == "failed" else [],
+        }
+        schedule.refresh_from_db()
+        assert schedule.next_run_at is not None
+        assert schedule.next_run_at > datetime(2020, 1, 1, tzinfo=UTC)
 
 
 def _worker_response(status_code: int, body: dict[str, Any]) -> requests.Response:
@@ -876,16 +895,20 @@ class TestHogFlowRun(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         mock_invocation.assert_not_called()
 
-    def test_run_surfaces_cdp_error(self, mock_invocation):
-        mock_response = unittest.mock.MagicMock()
-        mock_response.status_code = 502
-        mock_response.text = "bad gateway"
-        mock_invocation.return_value = mock_response
+    @parameterized.expand(
+        [
+            ("engine_error", 502, {"error": "bad gateway"}),
+            ("over_quota", 429, {"error": "The project is over its workflow quota"}),
+        ]
+    )
+    def test_run_surfaces_cdp_error(self, mock_invocation, _name, status_code, body):
+        mock_invocation.return_value = _worker_response(status_code, body)
         workflow = self._create_workflow()
 
         response = self.client.post(self._run_url(workflow.id))
 
-        assert response.status_code == 502
+        assert response.status_code == status_code
+        assert response.json() == {"detail": body["error"]}
 
     def test_run_accepts_null_variable_override(self, mock_invocation):
         # A null override must reach dispatch as None, not be rejected by the child field —

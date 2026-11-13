@@ -221,13 +221,9 @@ pub fn seal_block(
     block: &Block,
     key: &Key,
     team_key: &[u8; 32],
-    key_month: &str,
     object_key: &str,
 ) -> Result<SealedBlock, WriteError> {
-    seal_compressed(
-        &compress_block(block, key, team_key, key_month)?,
-        object_key,
-    )
+    seal_compressed(&compress_block(block, key, team_key)?, object_key)
 }
 
 /// Builds and compresses one block. This is most of the work of a flush, so a retry does not do it again.
@@ -235,7 +231,6 @@ pub fn compress_block(
     block: &Block,
     key: &Key,
     team_key: &[u8; 32],
-    key_month: &str,
 ) -> Result<CompressedBlock, WriteError> {
     let seal_error = |e: io::Error| WriteError::Seal(e.to_string());
     // Lines go into the encoder as they are built, so memory follows the compressed block and not its plaintext.
@@ -246,7 +241,7 @@ pub fn compress_block(
             .map(|encoder| io::BufWriter::with_capacity(BLOCK_WRITE_BUFFER, encoder))
     };
     let (lines, images, counts) =
-        write_block(block, team_key, key_month, open).map_err(seal_error)?;
+        write_block(block, team_key, &key.key_month, open).map_err(seal_error)?;
     let encoder = lines.into_inner().map_err(|e| seal_error(e.into_error()))?;
     let body = encoder.finish().map_err(seal_error)?;
     Ok(CompressedBlock {
@@ -312,14 +307,17 @@ pub fn session_keyed_frames(sealed: &[SealedBlock]) -> u64 {
     pairs.len() as u64
 }
 
-/// The flush's new images by team, each once.
-pub fn new_images(sealed: &mut [SealedBlock]) -> BTreeMap<i64, Vec<Arc<Image>>> {
-    let mut images: BTreeMap<i64, Vec<Arc<Image>>> = BTreeMap::new();
+/// The flush's new images by team month, each once.
+pub fn new_images(sealed: &mut [SealedBlock]) -> BTreeMap<(i64, String), Vec<Arc<Image>>> {
+    let mut images: BTreeMap<(i64, String), Vec<Arc<Image>>> = BTreeMap::new();
     let mut seen: HashSet<String> = HashSet::new();
     for block in sealed {
         for image in std::mem::take(&mut block.images) {
             if seen.insert(image.reference.clone()) {
-                images.entry(block.session.team_id).or_default().push(image);
+                images
+                    .entry((block.session.team_id, block.key_month.clone()))
+                    .or_default()
+                    .push(image);
             }
         }
     }
@@ -362,31 +360,34 @@ fn seal_pack(
     Ok((pack, rows))
 }
 
-/// Seals each team's images under its team month key into one pack and stores the packs concurrently. Returns the
+/// Seals each team month's images under its team month key into one pack and stores the packs concurrently. Returns the
 /// image index rows of the stored packs.
 #[allow(clippy::too_many_arguments)]
 pub async fn write_images(
-    images: BTreeMap<i64, Vec<Arc<Image>>>,
+    images: BTreeMap<(i64, String), Vec<Arc<Image>>>,
     keys: &FlushKeys,
     write_day: &str,
-    key_month: &str,
     images_bucket: &str,
     store: &Arc<dyn BlobStore>,
     at: DateTime<Utc>,
     concurrency: usize,
     permits: &Arc<Semaphore>,
 ) -> Result<Vec<ImageIndexRow>, WriteError> {
-    let packs: Vec<_> = images
+    // A pack left out would leave its blocks pointing at images that were never stored, so a missing key fails the flush.
+    let packs = images
         .into_iter()
-        .filter_map(|(team_id, team_images)| {
-            let team_key = *keys.team_months.get(&team_id)?;
+        .map(|((team_id, key_month), team_images)| {
+            let team_key = *keys.team_month(team_id, &key_month).ok_or_else(|| {
+                WriteError::Seal(format!(
+                    "team {team_id} has no team month key for {key_month}"
+                ))
+            })?;
             let pack_key = format!(
                 "images/packs/dt={write_day}/{team_id}/{}",
                 unique_suffix(at)
             );
-            let key_month = key_month.to_owned();
             let store = store.clone();
-            Some(async move {
+            Ok(async move {
                 let key = pack_key.clone();
                 let (pack, rows) = seal_blocking(permits, move || {
                     seal_pack(team_id, &team_images, &team_key, &key_month, &key)
@@ -396,7 +397,7 @@ pub async fn write_images(
                 Ok::<_, WriteError>(rows)
             })
         })
-        .collect();
+        .collect::<Result<Vec<_>, WriteError>>()?;
     Ok(stream::iter(packs)
         .buffer_unordered(concurrency.max(1))
         .try_collect::<Vec<_>>()
@@ -1586,9 +1587,9 @@ mod tests {
         let mut keys = FlushKeys::default();
         let (id, key) = session_key("kept");
         keys.sessions.insert(id, key);
-        keys.team_months.insert(7, [6; 32]);
+        keys.team_months.insert((7, "2026-10".to_owned()), [6; 32]);
         let mut stats = BlockStats::default();
-        let urls = crate::urls::FlushUrls::new([&block], &keys, "2026-10", &|_| false);
+        let urls = crate::urls::FlushUrls::new([&block], &keys, &|_| false);
         let jobs = crate::urls::fetch_jobs(&urls, [(0, &block, &mut stats)], 1, &|_| false);
         let (lines, _, _) = write_block(&block, &[6; 32], "2026-10", || Ok(Vec::new())).unwrap();
         let lines = String::from_utf8(lines).unwrap();
@@ -1631,7 +1632,7 @@ mod tests {
             },
             Key {
                 key: [5; 32],
-                key_month: "2026-09".to_owned(),
+                key_month: "2026-10".to_owned(),
             },
         )
     }
@@ -1720,7 +1721,7 @@ mod tests {
             let (id, key) = session_key(session);
             keys.sessions.insert(id, key);
         }
-        keys.team_months.insert(7, [6; 32]);
+        keys.team_months.insert((7, "2026-10".to_owned()), [6; 32]);
         let old_ref = replay_core_v4::v4_image_refs::image_ref(
             7,
             "2026-10",
@@ -1734,7 +1735,6 @@ mod tests {
                     b,
                     &keys.sessions[&session_key(&b.session.session_id).0],
                     &[6; 32],
-                    "2026-10",
                     &object,
                 )
                 .unwrap()
@@ -1769,7 +1769,6 @@ mod tests {
             new_images(&mut sealed),
             &keys,
             "2026-10-15",
-            "2026-10",
             "images-v4",
             &store,
             at(),
@@ -1792,7 +1791,7 @@ mod tests {
         let block = &written[0];
         let frame = &memory.get("rrweb-v4", &block.object_key)
             [block.byte_start as usize..=block.byte_end as usize];
-        let context = block_context(&blocks[0].session, "2026-09", &object);
+        let context = block_context(&blocks[0].session, "2026-10", &object);
         let lines = String::from_utf8(
             decompress(&open_frame(&[5; 32], Version::V4, &context, frame).unwrap()).unwrap(),
         )
@@ -1806,7 +1805,7 @@ mod tests {
             (lines.len() as u64, longest as u64)
         );
         // The frame is bound to its object: it does not open as a block of another one.
-        let elsewhere = block_context(&blocks[0].session, "2026-09", "blocks/dt=2026-10-15/other");
+        let elsewhere = block_context(&blocks[0].session, "2026-10", "blocks/dt=2026-10-15/other");
         assert!(open_frame(&[5; 32], Version::V4, &elsewhere, frame).is_err());
         let first: Value = serde_json::from_str(lines.lines().nth(1).unwrap()).unwrap();
         let reference = first[1]["data"]["node"]["attributes"]["src"]
@@ -1863,7 +1862,7 @@ mod tests {
         let aad = Context {
             team_id: 7,
             session_id: Some("kept".to_owned()),
-            key_month: Some("2026-09".to_owned()),
+            key_month: Some("2026-10".to_owned()),
             kind: "index".to_owned(),
             reference: Some("urls".to_owned()),
             ..Context::default()
@@ -1887,6 +1886,77 @@ mod tests {
                 "https://app.example.com/a"
             ]
         );
+    }
+
+    #[tokio::test]
+    async fn seals_the_images_of_each_session_under_the_team_key_of_its_own_month() {
+        let events = json!([{"type": 2, "timestamp": 1, "data": {"node": {"attributes": {"src": uri(b"same")}}}}]);
+        let months = [
+            ("october", "2026-10", [6; 32]),
+            ("november", "2026-11", [7; 32]),
+        ];
+        let mut keys = FlushKeys::default();
+        let mut sealed = Vec::new();
+        for (session, month, team_key) in months {
+            let (id, mut key) = session_key(session);
+            key.key_month = month.to_owned();
+            keys.sessions.insert(id, key.clone());
+            keys.team_months.insert((7, month.to_owned()), team_key);
+            let block = block(session, events.clone());
+            sealed.push(seal_block(&block, &key, &team_key, "blocks/dt=2026-11-01/x").unwrap());
+        }
+        let memory = Arc::new(MemoryStore::default());
+        let store: Arc<dyn BlobStore> = memory.clone();
+        let mut rows = write_images(
+            new_images(&mut sealed),
+            &keys,
+            "2026-11-01",
+            "images-v4",
+            &store,
+            at(),
+            4,
+            &Arc::new(Semaphore::new(4)),
+        )
+        .await
+        .unwrap();
+        rows.sort_by(|a, b| a.key_month.cmp(&b.key_month));
+
+        assert_eq!(rows.len(), 2);
+        for (row, (_, month, team_key)) in rows.iter().zip(months) {
+            assert!(row.image_ref.starts_with(&format!("image:v4:7:{month}:")));
+            let context = Context {
+                team_id: 7,
+                key_month: Some(month.to_owned()),
+                kind: "image".to_owned(),
+                codec: Some(Codec::None),
+                reference: Some(row.image_ref.clone()),
+                ..Context::default()
+            };
+            let pack = memory.get("images-v4", &row.pack_s3_key);
+            let frame = &pack[row.byte_start as usize..=row.byte_end as usize];
+            assert_eq!(
+                open_frame(&team_key, Version::V4, &context, frame).unwrap(),
+                png(b"same")
+            );
+        }
+
+        let (_, mut december) = session_key("december");
+        december.key_month = "2026-12".to_owned();
+        let block = block("december", events);
+        let mut unkeyed =
+            vec![seal_block(&block, &december, &[8; 32], "blocks/dt=2026-11-01/y").unwrap()];
+        let written = write_images(
+            new_images(&mut unkeyed),
+            &keys,
+            "2026-11-01",
+            "images-v4",
+            &store,
+            at(),
+            4,
+            &Arc::new(Semaphore::new(4)),
+        )
+        .await;
+        assert!(matches!(written, Err(WriteError::Seal(_))));
     }
 
     #[test]

@@ -8,6 +8,7 @@ from posthog.schema import HogQLQuery, HogQLQueryResponse
 
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
+from posthog.hogql.direct_connection import require_browser_session_for_organization_grant
 from posthog.hogql.direct_sql.trino_adapter import (
     DIRECT_TRINO_DEFAULT_STATEMENT_TIMEOUT_SECONDS,
     TrinoQueryRequest,
@@ -37,11 +38,7 @@ if TYPE_CHECKING:
 def validate_managed_trino_raw_access(team: Team, user: User | None) -> None:
     if user is None or not user.is_authenticated:
         raise ExposedHogQLError("Sign in to run a raw query against hosted Trino.")
-    # Token credentials can restrict projects while the warehouse grant spans the organization.
-    if get_query_tags().access_method is not None:
-        raise ExposedHogQLError(
-            "Raw Trino queries require a browser session. Turn off Send raw query to use HogQL with a token."
-        )
+    require_browser_session_for_organization_grant()
     if not UserAccessControl(user=user, team=team).has_project_access:
         raise ExposedHogQLError("You do not have access to this project.")
 

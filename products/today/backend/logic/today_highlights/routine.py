@@ -258,7 +258,7 @@ def _key_metric_places(context: Context) -> int:
     else:
         none: dict[str, str] = {}
         keys = list(context.guard("key metric names", partial(get_key_metric_names, team=context.team), none))
-    return sum(key not in context.pinned and key not in context.hidden for key in keys)
+    return sum(key not in context.hidden for key in keys)
 
 
 def _popular_refs(context: Context) -> list[str]:
@@ -283,7 +283,7 @@ def _with_popular(
 ) -> tuple[list[PulseChoice], int]:
     if not fill_popular:
         return own, 0
-    room = ROW_TILES - len(context.pinned) - _key_metric_places(context)
+    room = ROW_TILES - len(context.pinned) - (0 if own or context.pinned else _key_metric_places(context))
     if room <= 0:
         return own, 0
     return [*own, *_popular_choices(context, excluded, own)], room
