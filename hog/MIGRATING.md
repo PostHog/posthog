@@ -102,6 +102,19 @@ RELEASE_ID=$(posthog-cli release resolve)
 RELEASE_ID=$(hog error-tracking release -o text)
 ```
 
+`posthog-cli exp query run` prints one JSON array per row.
+`hog query run -o json` prints one object instead: `columns`, with the name and ClickHouse type of each, `rows`, as arrays in column order, and `hasMore`, which is true when PostHog cut the rows off.
+A script that read one row per line reads `.rows` instead:
+
+```bash
+# before
+posthog-cli exp query run "select event from events" | while read -r row; do echo "$row"; done
+# after
+hog query run "select event from events" -o json | jq -c '.rows[]' | while read -r row; do echo "$row"; done
+```
+
+`--raw` prints PostHog's whole response, as `--debug` did in posthog-cli.
+
 Errors go to stderr, as JSON with a stable `code` in JSON mode.
 Exit codes are 0 on success, 1 when a command fails or reports a problem, and 2 for usage errors.
 `--no-fail` turns 1 into 0, and leaves 2 alone.

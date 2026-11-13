@@ -5,6 +5,10 @@ import { runHog, TEST_CREDENTIALS } from '@/testing'
 
 const ROWS = {
     columns: ['event', 'total'],
+    types: [
+        ['event', 'String'],
+        ['total', 'UInt64'],
+    ],
     results: [
         ['$pageview', 70],
         ['signup', null],
@@ -27,7 +31,12 @@ describe('hog query', () => {
     })
 
     test.each([
-        ['a pipe gets one JSON array per row', false, [], '["$pageview",70]\n["signup",null]\n'],
+        [
+            'a pipe gets one object with the columns, the rows and whether more are left',
+            false,
+            [],
+            '{"columns":[{"name":"event","type":"String"},{"name":"total","type":"UInt64"}],"hasMore":false,"rows":[["$pageview",70],["signup",null]]}\n',
+        ],
         [
             'a terminal gets a table with numbers on the right',
             true,
@@ -38,7 +47,7 @@ describe('hog query', () => {
             '--raw prints the full response',
             false,
             ['--raw'],
-            '{"clickhouse":"SELECT 1","columns":["event","total"],"hasMore":false,"results":[["$pageview",70],["signup",null]]}\n',
+            '{"clickhouse":"SELECT 1","columns":["event","total"],"hasMore":false,"results":[["$pageview",70],["signup",null]],"types":[["event","String"],["total","UInt64"]]}\n',
         ],
     ])('run: %s', async (_name, tty, flags, expected) => {
         const result = await runHog(['query', 'run', 'select 1', ...flags], {
@@ -57,12 +66,30 @@ describe('hog query', () => {
         ])
     })
 
+    test('run keeps columns that share a name, and tells agents how to get rows PostHog cut off', async () => {
+        const result = await runHog(['query', 'run', 'select a.id, b.id from a join b on a.id = b.id'], {
+            env: TEST_CREDENTIALS,
+            respond: () => ({ status: 200, body: { columns: ['id', 'id'], results: [[1, 2]], hasMore: true } }),
+        })
+
+        expect(result.exitCode).toBe(0)
+        expect(result.json()).toEqual({
+            columns: [
+                { name: 'id', type: null },
+                { name: 'id', type: null },
+            ],
+            hasMore: true,
+            hint: expect.stringContaining('Add a LIMIT'),
+            rows: [[1, 2]],
+        })
+    })
+
     test.each([
         [
             'a pipe keeps integers beyond the safe range exact',
             false,
             '{"columns":["n"],"results":[[18446744073709551615, 1.5]]}',
-            '[18446744073709551615,1.5]\n',
+            '"rows":[[18446744073709551615,1.5]]',
         ],
         [
             'a table keeps integers beyond the safe range exact',

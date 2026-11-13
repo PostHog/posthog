@@ -20,7 +20,7 @@ The commands `posthog-cli` keeps under `exp` (`query`, `endpoints`, `logs`, `tas
 | `hog auth logout`                         | Removes the login commands in this folder use. `--all` removes every login.                                                       |
 | `hog auth migrate`                        | Moves the key `posthog-cli login` saved into hog's store, so you don't have to log in again.                                      |
 | `hog ci setup`                            | Asks an admin to trust this repository's CI jobs, so they use their OIDC token instead of a stored key.                           |
-| `hog query run <query>`                   | Runs a HogQL query. `-` reads the query from stdin.                                                                               |
+| `hog query run <query>`                   | Runs a HogQL query. `-` reads the query from stdin. Agents get one JSON object with the columns, the rows and `hasMore`.          |
 | `hog query check <query>`                 | Checks a query without running it. Exits with code 1 when the query has errors.                                                   |
 | `hog api groups`, `hog api tools [group]` | List the PostHog MCP tools by group, with the scopes the key is missing for each.                                                 |
 | `hog api search`, `info`, `schema`        | Find a tool, see what it does and the input it takes.                                                                             |
