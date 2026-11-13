@@ -116315,6 +116315,28 @@ export namespace Schemas {
       Ready: 'ready',
     } as const;
 
+    export interface SiteStyle {
+      /** Hex color of the page surface behind its main content. */
+      background_color: string;
+      /** Hex color of the page's main text. */
+      text_color: string;
+      /**
+         * Hex background color of the page's most prominent button. Null when none was found.
+         * @nullable
+         */
+      button_color: string | null;
+      /**
+         * Hex text color of that button. Null when no button was found.
+         * @nullable
+         */
+      button_text_color: string | null;
+      /**
+         * Corner radius of that button in CSS pixels. Null when no button was found.
+         * @nullable
+         */
+      button_border_radius: number | null;
+    }
+
     export interface SiteSnapshot {
       /** `ready` when the snapshot image can be loaded, `rendering` while it is being created, `unavailable` when no recent session recording matches the survey or the user cannot view recordings.
        *
@@ -116337,6 +116359,8 @@ export namespace Schemas {
          * @nullable
          */
       viewport_width: number | null;
+      /** Colors read from the snapshot's page, to suggest a survey appearance that matches the site. Null until the snapshot is ready, or when the page's colors could not be read. */
+      site_style: SiteStyle | null;
     }
 
     export interface SlackAppChannelJoinResult {

@@ -94,6 +94,30 @@ class TestImageExporter(APIBaseTest):
         bucket = s3.Bucket(OBJECT_STORAGE_BUCKET)
         bucket.objects.filter(Prefix=TEST_PREFIX).delete()
 
+    @parameterized.expand([("asked", True, {"site_style": {"text_color": "#123456"}}), ("not_asked", False, {})])
+    def test_replay_export_keeps_the_site_style_only_when_asked(
+        self,
+        _remove: Any,
+        _open: Any,
+        mock_screenshot: Any,
+        _name: str,
+        read_site_style: bool,
+        expected: dict,
+    ) -> None:
+        mock_screenshot.return_value = {"text_color": "#123456"}
+        context = {"session_recording_id": "rec-1", "timestamp": 3, "width": 1440, "height": 900}
+        if read_site_style:
+            context["read_site_style"] = True
+        asset = ExportedAsset.objects.create(
+            team=self.team, export_format=ExportedAsset.ExportFormat.PNG, export_context=context
+        )
+
+        image_exporter._export_to_png(asset)
+
+        asset.refresh_from_db()
+        assert asset.export_context == {**context, **expected}
+        assert mock_screenshot.call_args.args[-1] is read_site_style
+
     def test_export_without_renderable_target_raises_invalid_export_context(self, *args: Any) -> None:
         exported_asset = ExportedAsset.objects.create(
             team=self.team,

@@ -25,6 +25,7 @@ from products.surveys.backend.models import Survey
 from products.surveys.backend.site_snapshot import (
     PAINT_DELAY_SECONDS,
     SiteSnapshot,
+    SiteStyle,
     SnapshotDevice,
     SnapshotStatus,
     find_snapshot_moment,
@@ -37,6 +38,14 @@ MOBILE_HOME = "https://m.example.org/home"
 EARLY_START = "https://example.com/early-start"
 TWO_TABS = "https://example.com/two-tabs"
 SESSION_OFFSET_SECONDS = 10
+READ_STYLE = {
+    "background_color": "#fdf6e3",
+    "text_color": "#2a2633",
+    "button_color": "#7b3fe4",
+    "button_text_color": "#ffffff",
+    "button_border_radius": 6,
+}
+NO_BUTTON = {"button_color": None, "button_text_color": None, "button_border_radius": None}
 
 
 @time_machine.travel("2026-11-06 12:00:00", tick=False)
@@ -181,6 +190,87 @@ class TestSiteSnapshot(ClickhouseTestMixin, APIBaseTest):
         assert (second.status, second.exported_asset_id, second.page_url) == (SnapshotStatus.READY, asset.id, DOCS)
         assert ExportedAsset.objects.count() == 1
 
+    def _rendered_snapshot(self, survey: Survey, site_style: object) -> ExportedAsset:
+        get_site_snapshot(self.team, survey, SnapshotDevice.DESKTOP, self.user)
+        asset = ExportedAsset.objects.get()
+        assert asset.export_context is not None
+        asset.export_context = {**asset.export_context, "site_style": site_style}
+        asset.content = b"png"
+        asset.save()
+        return asset
+
+    @patch("products.exports.backend.facade.api.async_connect", new_callable=AsyncMock)
+    def test_asks_the_exporter_to_read_the_site_style(self, _async_connect: AsyncMock) -> None:
+        snapshot = get_site_snapshot(self.team, self._survey(None), SnapshotDevice.DESKTOP, self.user)
+
+        export_context = ExportedAsset.objects.get().export_context
+        assert export_context is not None
+        assert export_context["read_site_style"] is True
+        assert snapshot.site_style is None
+
+    @parameterized.expand(
+        [
+            ("read_in_full", READ_STYLE, SiteStyle(**READ_STYLE)),
+            ("page_without_a_button", {**READ_STYLE, **NO_BUTTON}, SiteStyle(**{**READ_STYLE, **NO_BUTTON})),
+            (
+                "button_missing_its_text_color",
+                {**READ_STYLE, "button_text_color": None},
+                SiteStyle(**{**READ_STYLE, **NO_BUTTON}),
+            ),
+            (
+                "radius_that_is_not_a_number",
+                {**READ_STYLE, "button_border_radius": "6px"},
+                SiteStyle(**{**READ_STYLE, **NO_BUTTON}),
+            ),
+            ("export_from_before_style_reading", None, None),
+            ("css_instead_of_hex", {**READ_STYLE, "background_color": "url(https://example.com/x.png)"}, None),
+            ("not_a_dict", ["#ffffff"], None),
+        ]
+    )
+    @patch("products.exports.backend.facade.api.async_connect", new_callable=AsyncMock)
+    def test_returns_only_well_formed_site_style(
+        self, _name: str, stored: object, expected: SiteStyle | None, _async_connect: AsyncMock
+    ) -> None:
+        survey = self._survey(None)
+        self._rendered_snapshot(survey, stored)
+
+        snapshot = get_site_snapshot(self.team, survey, SnapshotDevice.DESKTOP, self.user)
+
+        assert (snapshot.status, snapshot.site_style) == (SnapshotStatus.READY, expected)
+
+    @patch("products.exports.backend.facade.api.async_connect", new_callable=AsyncMock)
+    def test_site_style_needs_access_to_the_recording(self, _async_connect: AsyncMock) -> None:
+        survey = self._survey(None)
+        self._rendered_snapshot(survey, READ_STYLE)
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        AccessControl.objects.create(team=self.team, resource="session_recording", access_level="none")
+
+        snapshot = get_site_snapshot(self.team, survey, SnapshotDevice.DESKTOP, self.user)
+
+        assert snapshot == SiteSnapshot(status=SnapshotStatus.UNAVAILABLE)
+
+    @patch("products.exports.backend.facade.api.async_connect", new_callable=AsyncMock)
+    def test_site_style_needs_access_to_page_urls(self, _async_connect: AsyncMock) -> None:
+        survey = self._survey(None)
+        self._rendered_snapshot(survey, READ_STYLE)
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.PROPERTY_ACCESS_CONTROL, "name": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        current_url = PropertyDefinition.objects.create(
+            team=self.team, name="$current_url", property_type="String", type=PropertyDefinition.Type.EVENT
+        )
+        PropertyAccessControl.objects.create(
+            team=self.team, property_definition=current_url, access_level=PropertyAccessLevel.NONE.value
+        )
+
+        snapshot = get_site_snapshot(self.team, survey, SnapshotDevice.DESKTOP, self.user)
+
+        assert snapshot == SiteSnapshot(status=SnapshotStatus.UNAVAILABLE)
+
     @patch("products.exports.backend.facade.api.async_connect", new_callable=AsyncMock)
     def test_a_changed_url_condition_renders_a_new_snapshot(self, _async_connect: AsyncMock) -> None:
         survey = self._survey({"url": "docs"})
@@ -230,6 +320,19 @@ class TestSiteSnapshot(ClickhouseTestMixin, APIBaseTest):
         survey = self._survey(None)
         get_site_snapshot(self.team, survey, SnapshotDevice.DESKTOP, self.user)
         ExportedAsset.objects.update(is_system=False, content=b"planted")
+
+        snapshot = get_site_snapshot(self.team, survey, SnapshotDevice.DESKTOP, self.user)
+
+        assert snapshot.status == SnapshotStatus.RENDERING
+        assert ExportedAsset.objects.count() == 2
+
+    @patch("products.exports.backend.facade.api.async_connect", new_callable=AsyncMock)
+    def test_renders_again_when_the_cached_one_did_not_read_the_site_style(self, _async_connect: AsyncMock) -> None:
+        survey = self._survey(None)
+        asset = self._rendered_snapshot(survey, None)
+        assert asset.export_context is not None
+        asset.export_context = {k: v for k, v in asset.export_context.items() if k != "read_site_style"}
+        asset.save()
 
         snapshot = get_site_snapshot(self.team, survey, SnapshotDevice.DESKTOP, self.user)
 

@@ -1,3 +1,4 @@
+import re
 import json
 import hashlib
 from datetime import timedelta
@@ -43,6 +44,7 @@ RECORDER_START_DELAY_SECONDS = 60
 MAX_EXPORT_WIDTH = 4000
 MAX_EXPORT_HEIGHT = 5000
 PAINT_DELAY_SECONDS = 3
+HEX_COLOR = re.compile(r"#[0-9a-f]{6}")
 
 
 class SnapshotDevice(models.TextChoices):
@@ -87,11 +89,21 @@ class SnapshotMoment:
 
 
 @frozen
+class SiteStyle:
+    background_color: str
+    text_color: str
+    button_color: str | None
+    button_text_color: str | None
+    button_border_radius: int | None
+
+
+@frozen
 class SiteSnapshot:
     status: SnapshotStatus
     exported_asset_id: int | None = None
     page_url: str | None = None
     viewport_width: int | None = None
+    site_style: SiteStyle | None = None
 
 
 UNAVAILABLE = SiteSnapshot(status=SnapshotStatus.UNAVAILABLE)
@@ -288,16 +300,42 @@ def _page_url_cache_key(asset: ExportedAsset) -> str:
     return f"survey_site_snapshot_page_url:{asset.team_id}:{asset.id}"
 
 
+def _color(value: object) -> str | None:
+    return value if isinstance(value, str) and HEX_COLOR.fullmatch(value) else None
+
+
+def _site_style_of(export_context: dict) -> SiteStyle | None:
+    style = export_context.get("site_style")
+    if not isinstance(style, dict):
+        return None
+    background_color, text_color = _color(style.get("background_color")), _color(style.get("text_color"))
+    if background_color is None or text_color is None:
+        return None
+    button_color, button_text_color = _color(style.get("button_color")), _color(style.get("button_text_color"))
+    radius = style.get("button_border_radius")
+    if button_color is None or button_text_color is None or type(radius) is not int:
+        button_color = button_text_color = radius = None
+    return SiteStyle(
+        background_color=background_color,
+        text_color=text_color,
+        button_color=button_color,
+        button_text_color=button_text_color,
+        button_border_radius=radius,
+    )
+
+
 def _snapshot_of(asset: ExportedAsset) -> SiteSnapshot:
     if asset.exception and is_export_failure_final(
         exception_type=asset.exception_type, failure_type=asset.failure_type
     ):
         return UNAVAILABLE
+    export_context = asset.export_context or {}
     return SiteSnapshot(
         status=SnapshotStatus.READY if asset.has_content else SnapshotStatus.RENDERING,
         exported_asset_id=asset.id,
         page_url=cache.get(_page_url_cache_key(asset)),
-        viewport_width=(asset.export_context or {})["width"],
+        viewport_width=export_context["width"],
+        site_style=_site_style_of(export_context),
     )
 
 
@@ -312,6 +350,7 @@ def get_site_snapshot(team: Team, survey: Survey, device: SnapshotDevice, user: 
             team_id=team.id,
             export_format=ExportedAsset.ExportFormat.PNG,
             export_context__survey_site_snapshot=key,
+            export_context__read_site_style=True,
             is_system=True,
             created_at__gte=timezone.now() - SNAPSHOT_WINDOW,
         )
@@ -362,6 +401,7 @@ def _start_snapshot(
             "width": moment.viewport_width,
             "height": moment.viewport_height,
             "survey_site_snapshot": key,
+            "read_site_style": True,
         },
         expires_after=timezone.now() + SNAPSHOT_WINDOW,
         is_system=True,

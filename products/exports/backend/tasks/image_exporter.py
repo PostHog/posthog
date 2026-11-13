@@ -13,6 +13,7 @@ import structlog
 import posthoganalytics
 from playwright.sync_api import (
     Error as PlaywrightError,
+    Page,
     TimeoutError as PlaywrightTimeoutError,
     sync_playwright,
 )
@@ -80,6 +81,7 @@ MAX_HEIGHT_PIXELS = 5000  # Prevents Chrome from consuming excessive memory on v
 CONTENT_PADDING = 80  # Padding for card borders
 
 REPLAY_WRAPPER_SELECTOR = ".replayer-wrapper"
+MAX_BUTTON_HEIGHT_PIXELS = 80
 
 # The replay player mounts rrweb either in the app document or inside its own same-origin frame
 # document, and a document query never crosses into a frame, so look in both.
@@ -87,6 +89,101 @@ FIND_REPLAY_WRAPPER_JS = f"""(
     document.querySelector('{REPLAY_WRAPPER_SELECTOR}') ||
     document.querySelector('iframe.PlayerFrame__document')?.contentDocument?.querySelector('{REPLAY_WRAPPER_SELECTOR}')
 )"""
+
+# Colors go through a canvas because computed colors can be oklch, not sRGB.
+READ_SITE_STYLE_JS = f"""
+    const doc = {FIND_REPLAY_WRAPPER_JS}?.querySelector('iframe')?.contentDocument;
+    const view = doc?.defaultView;
+    if (!doc?.body || !view) {{
+        return null;
+    }}
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = 1;
+    const context = canvas.getContext('2d', {{ willReadFrequently: true }});
+    const rgbaByColor = new Map();
+    const rgba = (color) => {{
+        if (!rgbaByColor.has(color)) {{
+            context.clearRect(0, 0, 1, 1);
+            context.fillStyle = 'transparent';
+            context.fillStyle = color;
+            context.fillRect(0, 0, 1, 1);
+            rgbaByColor.set(color, context.getImageData(0, 0, 1, 1).data);
+        }}
+        return rgbaByColor.get(color);
+    }};
+    const hex = (color) => '#' + [...rgba(color).slice(0, 3)].map((c) => c.toString(16).padStart(2, '0')).join('');
+    const isOpaque = (color) => rgba(color)[3] >= 250;
+    const luminance = (color) => {{
+        const [r, g, b] = [...rgba(color).slice(0, 3)].map((c) => {{
+            c /= 255;
+            return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+        }});
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    }};
+    const contrast = (a, b) => {{
+        const [lighter, darker] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+        return (lighter + 0.05) / (darker + 0.05);
+    }};
+    const CANVAS = 'white';
+    const surfaceByElement = new Map();
+    const surfaceBehind = (element) => {{
+        const unresolved = [];
+        let surface = CANVAS;
+        for (; element; element = element.parentElement) {{
+            if (surfaceByElement.has(element)) {{
+                surface = surfaceByElement.get(element);
+                break;
+            }}
+            unresolved.push(element);
+            const background = view.getComputedStyle(element).backgroundColor;
+            if (isOpaque(background)) {{
+                surface = background;
+                break;
+            }}
+        }}
+        unresolved.forEach((resolved) => surfaceByElement.set(resolved, surface));
+        return surface;
+    }};
+
+    // Below short content the hit is <html>, which paints nothing itself. The body's background fills the canvas.
+    const hit = doc.elementFromPoint(view.innerWidth / 2, view.innerHeight / 2);
+    const center = !hit || hit === doc.documentElement ? doc.body : hit;
+    const background = surfaceBehind(center);
+    const text = view.getComputedStyle(center).color;
+    // A stylesheet the replay could not fetch leaves browser defaults, and a cross-origin sheet hides whether it loaded.
+    if (background === CANVAS && hex(text) === '#000000') {{
+        return null;
+    }}
+    let button = null;
+    let buttonWeight = 0;
+    for (const element of doc.querySelectorAll('button, a, input[type="submit"], input[type="button"], [role="button"]')) {{
+        const rect = element.getBoundingClientRect();
+        const area = rect.width * rect.height;
+        const onScreen = rect.bottom > 0 && rect.top < view.innerHeight && rect.right > 0 && rect.left < view.innerWidth;
+        if (!area || rect.height > {MAX_BUTTON_HEIGHT_PIXELS} || !onScreen) {{
+            continue;
+        }}
+        // Some design systems paint a button on an inner element that fills it.
+        const children = [...element.children];
+        const painted = [element, ...children, ...children.flatMap((child) => [...child.children])].find((candidate) => {{
+            const box = candidate.getBoundingClientRect();
+            return box.width * box.height >= area * 0.8 && isOpaque(view.getComputedStyle(candidate).backgroundColor);
+        }});
+        const style = painted && view.getComputedStyle(painted);
+        const weight = style ? area * (contrast(style.backgroundColor, surfaceBehind(element.parentElement)) - 1) : 0;
+        if (style?.visibility !== 'hidden' && weight > buttonWeight) {{
+            button = style;
+            buttonWeight = weight;
+        }}
+    }}
+    return {{
+        background_color: hex(background),
+        text_color: hex(text),
+        button_color: button && hex(button.backgroundColor),
+        button_text_color: button && hex(button.color),
+        button_border_radius: button && Math.round(parseFloat(button.borderTopLeftRadius) || 0),
+    }};
+"""
 
 MEASURE_CONTENT_HEIGHT_JS = f"""
     // The player scales the replay down to fit the viewport, so its scaled box would shrink the viewport
@@ -328,8 +425,9 @@ def _export_to_png(
         logger.info("exporting_asset", asset_id=exported_asset.id, render_url=url_to_render)
 
         render_start = time.perf_counter()
+        read_site_style = bool((exported_asset.export_context or {}).get("read_site_style"))
         try:
-            _screenshot_asset_browserless(
+            site_style = _screenshot_asset_browserless(
                 image_path,
                 url_to_render,
                 screenshot_width,
@@ -337,6 +435,7 @@ def _export_to_png(
                 screenshot_height,
                 max_height_pixels,
                 page_load_timeout,
+                read_site_style,
             )
         except Exception as e:
             IMAGE_EXPORT_RENDER_DURATION.labels(backend="browserless", outcome="failure").observe(
@@ -353,6 +452,9 @@ def _export_to_png(
         with open(image_path, "rb") as image_file:
             image_data = image_file.read()
 
+        if read_site_style:
+            exported_asset.export_context = {**(exported_asset.export_context or {}), "site_style": site_style}
+            exported_asset.save(update_fields=["export_context"])
         save_content(exported_asset, image_data)
 
         os.remove(image_path)
@@ -454,7 +556,8 @@ def _screenshot_asset_browserless(
     screenshot_height: int = 600,
     max_height_pixels: Optional[int] = None,
     page_load_timeout: int = 40,
-) -> None:
+    read_site_style: bool = False,
+) -> Optional[dict]:
     endpoint = _build_cdp_endpoint(
         settings.BROWSERLESS_CDP_URL, settings.BROWSERLESS_TOKEN, settings.BROWSERLESS_SESSION_TIMEOUT_MS
     )
@@ -525,6 +628,7 @@ def _screenshot_asset_browserless(
                 # Charts redraw their canvas after a resize, so a screenshot taken at once can catch them blank.
                 page.wait_for_timeout(500)
             page.screenshot(path=image_path)
+            return _read_site_style(page) if read_site_style else None
         except BrowserlessUnavailable:
             raise
         except PlaywrightTimeoutError:
@@ -550,6 +654,14 @@ def _screenshot_asset_browserless(
                 browser.close()
             except Exception:
                 pass
+
+
+def _read_site_style(page: Page) -> Optional[dict]:
+    try:
+        return page.evaluate(f"() => {{ {READ_SITE_STYLE_JS} }}")
+    except PlaywrightError as e:
+        capture_exception(e)
+        return None
 
 
 def export_image(
