@@ -62,6 +62,7 @@ The reputation endpoint returns the largest rate-limited batch as `rate_limited_
 Batch dispatch reads the rate limit stored on the workflow.
 The worker paces each send with the workflow's live rate limit.
 So while a batch that a rate limit raised may still be sending (`WORKFLOWS_RATE_LIMITED_BATCH_MAX_DAYS` plus one day, unless canceled or failed), the API rejects any change to that rate limit.
+Dispatch records the cap it sent on the batch job (`max_audience_size`) under the workflow's row lock, and the lock reads that record, so a later tier change or step edit does not release it.
 
 ## Decision rules the sweep applies
 

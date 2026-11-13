@@ -377,7 +377,20 @@ class TestHogFlowAPI(APIBaseTest):
         flow.actions = [*flow.actions, {**flow.actions[-1], "id": "email", "type": "function_email"}]
         flow.email_sending_rate_limit = {"count": 60, "period": "hour"}
         flow.save()
-        batch_job = HogFlowBatchJob.objects.create(team=self.team, hog_flow=flow)
+
+        def update_after_concurrent_launch(**kwargs):
+            HogFlowBatchJob.objects.create(team=self.team, hog_flow=flow)
+            return update_workflow(**kwargs)
+
+        with patch(
+            "products.workflows.backend.presentation.views.hog_flow.update_workflow",
+            side_effect=update_after_concurrent_launch,
+        ):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"email_sending_rate_limit": None}, format="json"
+            )
+        assert response.status_code == 409, response.json()
+        batch_job = HogFlowBatchJob.objects.get(hog_flow_id=flow_id)
 
         for value in (None, {"count": 500, "period": "hour"}, {"count": 30, "period": "hour"}):
             response = self.client.patch(
@@ -391,6 +404,13 @@ class TestHogFlowAPI(APIBaseTest):
             f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"actions": actions_without_email}, format="json"
         )
         assert response.status_code == 200, response.json()
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"email_sending_rate_limit": None}, format="json"
+        )
+        assert response.status_code == 400, response.json()
+
+        # A tier demotion makes the stored rate stop qualifying, but the dispatched cap still needs it.
+        TeamWorkflowsConfig.objects.filter(team=self.team).update(email_sending_tier=1)
         response = self.client.patch(
             f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"email_sending_rate_limit": None}, format="json"
         )

@@ -12,6 +12,7 @@ from posthog.models.utils import RootTeamMixin, UUIDTModel
 from posthog.plugins.plugin_server_api import create_batch_hog_flow_job_invocation
 
 from products.workflows.backend.facade.enums import HogFlowBatchJobAudienceStatus, HogFlowBatchJobState
+from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.services.batch_audience_cohorts import (
     realtime_audience_cohort,
     realtime_cohort_is_ready,
@@ -55,6 +56,8 @@ class HogFlowBatchJob(RootTeamMixin, UUIDTModel):
     )
     audience_size = models.IntegerField(null=True, blank=True)
     audience_error = models.TextField(null=True, blank=True)
+    # The audience cap dispatch sent the resolver, which locks a raising rate limit while the run may still send.
+    max_audience_size = models.IntegerField(null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     created_by = models.ForeignKey("posthog.User", on_delete=models.DO_NOTHING, null=True, blank=True, related_name="+")
@@ -97,19 +100,24 @@ def dispatch_batch_job(
         if wait_for_cohort:
             # The resolver parks until a resume wakes it, and fails the run at this instant otherwise.
             cohort_target["wait_until"] = (job.created_at + REALTIME_COHORT_WAIT_LIMIT).isoformat()
-    return create_batch_hog_flow_job_invocation(
-        team_id=job.team.id,
-        hog_flow_id=job.hog_flow.id,
-        batch_job_id=job.id,
-        max_audience_size=get_hogflow_batch_trigger_limit(
+    with transaction.atomic():
+        # Under the workflow's row lock, a rate limit edit either lands before this read or sees the cap recorded here.
+        hog_flow = HogFlow.objects.select_for_update().get(pk=job.hog_flow_id)
+        max_audience_size = get_hogflow_batch_trigger_limit(
             job.team.id,
             # The dispatch runs the live config, so the live actions decide the channel.
             # Adding an email step after this write does not re-cap the queued batch; that
             # gap is bounded by the send-time buckets, which cap every email at execution
             # regardless of the audience size dispatched here.
-            sends_email=hog_flow_sends_email(job.hog_flow.actions),
-            email_rate_limit=job.hog_flow.email_sending_rate_limit,
-        ),
+            sends_email=hog_flow_sends_email(hog_flow.actions),
+            email_rate_limit=hog_flow.email_sending_rate_limit,
+        )
+        HogFlowBatchJob.objects.filter(pk=job.pk).update(max_audience_size=max_audience_size)
+    return create_batch_hog_flow_job_invocation(
+        team_id=job.team.id,
+        hog_flow_id=job.hog_flow.id,
+        batch_job_id=job.id,
+        max_audience_size=max_audience_size,
         # The audience snapshot the confirm check validated - the resolver dispatches from
         # this, not the live trigger, so a trigger edit racing the dispatch can't widen it.
         filters=job.filters,

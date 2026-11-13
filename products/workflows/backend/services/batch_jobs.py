@@ -68,15 +68,16 @@ def rate_limit_change_unpaces_batch(*, team_id: int, hog_flow_id: UUID, current:
     until the run's sends can have drained."""
     if new == current:
         return False
-    # Sized as an email sender whatever the live steps are, so removing the email step first can't unlock the rate.
-    raised = resolve_batch_audience_limit(team_id, email_rate_limit=current).limit
-    if raised <= resolve_batch_audience_limit(team_id).limit:
-        return False
     # The resolver completes a run once it enqueues the audience, so age, not status, bounds the drain.
     # The extra day covers a run that waits for its realtime cohort before it sends.
     since = timezone.now() - timedelta(days=settings.WORKFLOWS_RATE_LIMITED_BATCH_MAX_DAYS + 1)
     return (
-        HogFlowBatchJob.objects.filter(team_id=team_id, hog_flow_id=hog_flow_id, created_at__gte=since)
+        HogFlowBatchJob.objects.filter(
+            team_id=team_id,
+            hog_flow_id=hog_flow_id,
+            created_at__gte=since,
+            max_audience_size__gt=resolve_batch_audience_limit(team_id).limit,
+        )
         .exclude(status__in=[HogFlowBatchJobState.CANCELLED, HogFlowBatchJobState.FAILED])
         .exists()
     )
