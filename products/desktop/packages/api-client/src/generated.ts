@@ -18515,6 +18515,7 @@ export namespace Schemas {
         auto_publish: boolean | null;
         channel: string | null;
         scheduled_at: string | null;
+        warm_run_id: string | null;
         start_run: boolean;
         signal_report_discussion_question: string;
         naming_source: string;
@@ -18766,6 +18767,7 @@ export namespace Schemas {
         | CodexTaskRunCreateSchema
         | TaskRunResumeRequestSchema;
     export type TaskRunErrorResponse = Partial<{
+        id: unknown;
         detail: string;
         error: string;
         type: string;

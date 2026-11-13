@@ -37,6 +37,8 @@ export const LimitTypeEnumApi = {
 } as const
 
 export interface TaskRunErrorResponseApi {
+    /** Message ID to reuse as the JSON-RPC id when retrying delivery */
+    id?: unknown
     /** Human-readable validation error */
     detail?: string
     /** Human-readable error message */
@@ -1942,6 +1944,11 @@ export interface TaskCreateApi {
      * @nullable
      */
     scheduled_at?: string | null
+    /**
+     * Target an unused warm run owned by this user. All sandbox settings must match except permission mode, which is acknowledged before the first message.
+     * @nullable
+     */
+    warm_run_id?: string | null
     /** Create the first cloud run. It starts immediately unless scheduled_at is set. */
     start_run?: boolean
     /**
@@ -5594,6 +5601,8 @@ export interface WarmTaskResponseApi {
     task_id: string
     /** Id of the idling warm Run. The normal create+run path reuses and activates it on submit. */
     run_id: string
+    /** The server can negotiate the final permission mode before activating an explicitly targeted warm run. */
+    permission_mode_mutable?: boolean
 }
 
 export type SandboxCustomImagesListParams = {
