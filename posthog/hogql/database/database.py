@@ -1282,10 +1282,6 @@ class Database(BaseModel):
             "persons",
             "sessions",
             "logs",
-            "posthog.ai_events",
-            "posthog.trace_spans",
-            "posthog.trace_attributes",
-            "posthog.metrics",
             *self.get_system_table_names(),
         ]
 

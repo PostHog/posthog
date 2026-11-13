@@ -1,6 +1,7 @@
 from typing import Optional
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest import TestCase
 from unittest.mock import patch
 
 from parameterized import parameterized
@@ -16,9 +17,11 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.autocomplete import get_hogql_autocomplete
 from posthog.hogql.database.database import Database
-from posthog.hogql.database.models import FloatDatabaseField, StringDatabaseField
+from posthog.hogql.database.models import FloatDatabaseField, StringDatabaseField, TableNode
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.persons import PERSONS_FIELDS
+
+from posthog.models.team import Team
 
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
@@ -29,6 +32,81 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSource,
 )
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
+
+
+class TestTableCatalogAutocomplete(TestCase):
+    @parameterized.expand(
+        [
+            ("", "events"),
+            ("", "posthog.static_cohort_people"),
+            ("ev", "events"),
+            ("po", "posthog.metric_samples"),
+            ("tr", "posthog.trace_spans"),
+            ("posthog.", "metric_samples"),
+            ("posthog.tr", "trace_spans"),
+            ("posthog.met", "metric_samples"),
+            ("posthog.ev", "events"),
+            ("POSTHOG.tr", "trace_spans"),
+        ]
+    )
+    def test_suggests_names_with_namespace_relative_insert_text(self, typed: str, expected: str) -> None:
+        query = f"SELECT * FROM {typed}"
+        start = len(query) - len(typed.rsplit(".", 1)[-1])
+        response = get_hogql_autocomplete(
+            HogQLAutocomplete(query=query, language=HogLanguage.HOG_QL, startPosition=start, endPosition=len(query)),
+            Team(id=1),
+            database_arg=Database(),
+        )
+        suggestion = next(item for item in response.suggestions if item.label == expected)
+        assert suggestion.insertText == expected
+        if "." not in typed:
+            assert "trace_spans" not in [item.label for item in response.suggestions]
+            assert "static_cohort_people" not in [item.label for item in response.suggestions]
+
+    @parameterized.expand([("posthog",), ("example",), ("example.nested",)])
+    def test_new_schema_tables_are_discoverable_without_an_allowlist(self, namespace: str) -> None:
+        database = Database()
+        parent = database.tables
+        for segment in namespace.split("."):
+            parent = parent.children.setdefault(segment, TableNode(name=segment))
+        parent.children["sample_table"] = TableNode(name="sample_table", table=EventsTable())
+        database.tables.add_child(
+            TableNode.create_nested_for_chain([f"other_{namespace}", "sample_table"], EventsTable())
+        )
+        query = f"SELECT * FROM {namespace}.sa"
+        response = get_hogql_autocomplete(
+            HogQLAutocomplete(
+                query=query, language=HogLanguage.HOG_QL, startPosition=len(query) - 2, endPosition=len(query)
+            ),
+            Team(id=1),
+            database_arg=database,
+        )
+        names = {item.insertText for item in response.suggestions}
+        if namespace == "posthog":
+            assert "sample_table" in names
+            assert "other_posthog.sample_table" not in names
+        else:
+            assert names == {"sample_table"}
+
+    @parameterized.expand([("hidden",), ("denied",), ("direct",)])
+    def test_unavailable_namespace_tables_are_not_suggested(self, restriction: str) -> None:
+        database = Database()
+        if restriction == "hidden":
+            database.tables.children["posthog"].children["trace_spans"].hidden = True
+        elif restriction == "denied":
+            database._denied_tables.add("posthog.trace_spans")
+        else:
+            database._connection_id = "test-connection"
+            database.apply_schema_scope()
+        query = "SELECT * FROM posthog.tr"
+        response = get_hogql_autocomplete(
+            HogQLAutocomplete(
+                query=query, language=HogLanguage.HOG_QL, startPosition=len(query) - 2, endPosition=len(query)
+            ),
+            Team(id=1),
+            database_arg=database,
+        )
+        assert {"trace_spans", "posthog.trace_spans"}.isdisjoint(item.label for item in response.suggestions)
 
 
 class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
