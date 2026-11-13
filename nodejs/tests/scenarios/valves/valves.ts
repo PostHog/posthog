@@ -6,7 +6,7 @@ import { CdpRole, ValveEntry } from '../cards/schema'
 import { durationMs } from '../duration'
 import type { Actuation, Environment } from '../environment/environment'
 import type { CyclotronProbe, Queue } from '../probe/cyclotron-probe'
-import { WEBHOOK_HOST } from '../provider-edge'
+import { SesThrottleParams, WEBHOOK_HOST } from '../provider-edge'
 import { ruleOf } from '../provider-edge/faults'
 
 export type ValveContext = {
@@ -82,7 +82,19 @@ export const destStatus: ValveDefinition = {
     },
 }
 
-export const VALVES: ValveDefinition[] = [roleKill, roleFreeze, pgDropConnections, destStatus]
+export const sesThrottle: ValveDefinition = {
+    name: 'ses.throttle',
+    params: SesThrottleParams,
+    target: z.literal('ses'),
+    strandsRunningJobs: false,
+    apply: ({ environment }, _target, dose) =>
+        environment.actuate({
+            kind: 'edge.fault',
+            rule: ruleOf({ name: 'ses.throttle', params: SesThrottleParams.parse(dose) }),
+        }),
+}
+
+export const VALVES: ValveDefinition[] = [roleKill, roleFreeze, pgDropConnections, destStatus, sesThrottle]
 
 const POLL_MS = 1000
 
@@ -159,8 +171,12 @@ export function createValves({ pollMs = POLL_MS } = {}): Valves {
             record.error = (error as Error).message
         } finally {
             if (actuation) {
-                await actuation.release()
-                record.releasedAt = now()
+                try {
+                    await actuation.release()
+                    record.releasedAt = now()
+                } catch (error) {
+                    record.error = [record.error, (error as Error).message].filter(Boolean).join('; ')
+                }
             }
         }
     }

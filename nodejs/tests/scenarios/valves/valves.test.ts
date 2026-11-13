@@ -1,3 +1,4 @@
+import { SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2'
 import { once } from 'events'
 import { setTimeout as sleep } from 'timers/promises'
 
@@ -7,6 +8,7 @@ import { ValveEntry } from '../cards/schema'
 import { Actuation } from '../environment/environment'
 import { Role } from '../environment/roles'
 import { Queue } from '../probe/cyclotron-probe'
+import { ProviderEdge, startProviderEdge } from '../provider-edge'
 import { ValveContext, createValves } from './valves'
 
 const EMAIL_WORKER = 'cdp-cyclotron-worker-email'
@@ -21,6 +23,7 @@ type StackSetup = {
     probeFailure?: string
     probeFailsFor?: number
     runningJobs?: number
+    releaseFailure?: string
     applyTakesMs?: number
     observesUntilHoldEnds?: boolean
 }
@@ -32,6 +35,7 @@ function stackOf({
     probeFailure,
     probeFailsFor = Infinity,
     runningJobs = 0,
+    releaseFailure,
     applyTakesMs = 0,
     observesUntilHoldEnds = false,
 }: StackSetup = {}) {
@@ -95,7 +99,8 @@ function stackOf({
                 }
                 return Promise.resolve({
                     observed: () => Promise.resolve(gone.includes(pid)),
-                    release: () => Promise.resolve(),
+                    release: () =>
+                        releaseFailure === undefined ? Promise.resolve() : Promise.reject(new Error(releaseFailure)),
                 })
             },
         },
@@ -177,6 +182,14 @@ const dropConnections = (schedule: Pick<ValveEntry, 'at' | 'when'>): ValveEntry 
     dose: { share: 0.5 },
     for: '10ms',
     ...schedule,
+})
+
+const throttle = (rate: number, holdFor: string): ValveEntry => ({
+    valve: 'ses.throttle',
+    target: 'ses',
+    dose: { rate },
+    at: '0ms',
+    for: holdFor,
 })
 
 const RUNNING_ON_EMAIL = { name: 'running_on_queue' as const, params: { queue: 'email' as const, atLeast: 2 } }
@@ -346,6 +359,123 @@ describe('valves', () => {
             expect.objectContaining({ error, appliedAt: expect.any(String), releasedAt: expect.any(String) }),
         ])
         expect(valves.timeline()[0].observedAt).toBeUndefined()
+    })
+
+    describe('on the provider edge', () => {
+        let edge: ProviderEdge
+        let ses: SESv2Client
+
+        beforeEach(async () => {
+            edge = await startProviderEdge({ port: 0 })
+            ses = new SESv2Client({
+                endpoint: edge.url,
+                region: 'us-east-1',
+                credentials: { accessKeyId: 'edge', secretAccessKey: 'edge' },
+                maxAttempts: 1,
+            })
+        })
+
+        afterEach(async () => {
+            ses.destroy()
+            await edge.close()
+        })
+
+        const onEdge = (): ValveContext => ({
+            ...stackOf().context,
+            environment: {
+                actuate: (action) =>
+                    action.kind === 'edge.fault'
+                        ? Promise.resolve(edge.hold(action.rule))
+                        : Promise.reject(new Error(`no ${action.kind} here`)),
+            },
+        })
+
+        const send = (): Promise<string> =>
+            ses
+                .send(
+                    new SendEmailCommand({
+                        FromEmailAddress: 'flows@www.example.com',
+                        Destination: { ToAddresses: ['run-1-1@www.example.com'] },
+                        Content: { Simple: { Subject: { Data: 'Hello' }, Body: { Text: { Data: 'Hello' } } } },
+                    })
+                )
+                .then(
+                    () => 'sent',
+                    (error: Error) => error.name
+                )
+
+        it('throttles SES sends until the drive ends, and lifts the throttle on release', async () => {
+            const valves = createValves({ pollMs: 5 })
+
+            await valves.start([throttle(1, '1m')], onEdge())
+            await waitForExpect(() => expect(valves.timeline()[0].appliedAt).toBeDefined(), 2000, 5)
+            const outcomes = [await send(), await send()]
+            await waitForExpect(() => expect(valves.timeline()[0].observedAt).toBeDefined(), 2000, 5)
+            await valves.releaseAll()
+
+            expect(outcomes).toEqual(['sent', 'TooManyRequestsException'])
+            expect(await send()).toBe('sent')
+            expect(valves.timeline()[0]).toEqual(expect.objectContaining({ releasedAt: expect.any(String) }))
+            expect(valves.timeline()[0].error).toBeUndefined()
+        })
+
+        it.each<[string, string, boolean]>([
+            ['its hold ends', '100ms', true],
+            ['the drive ends', '1m', false],
+        ])(
+            'records a throttle that no send went over as never observed once %s, and lifts it',
+            async (_story, holdFor, releasedBeforeDriveEnds) => {
+                const valves = createValves({ pollMs: 5 })
+
+                await valves.start([throttle(1, holdFor)], onEdge())
+                await waitForExpect(() => expect(valves.timeline()[0].appliedAt).toBeDefined(), 2000, 5)
+                expect(await send()).toBe('sent')
+                if (releasedBeforeDriveEnds) {
+                    await waitForExpect(() => expect(valves.timeline()[0].releasedAt).toBeDefined(), 2000, 5)
+                }
+                await valves.releaseAll()
+
+                expect(await send()).toBe('sent')
+                expect(valves.timeline()[0]).toEqual(
+                    expect.objectContaining({
+                        error: 'applied but not observed',
+                        appliedAt: expect.any(String),
+                        releasedAt: expect.any(String),
+                    })
+                )
+                expect(valves.timeline()[0].observedAt).toBeUndefined()
+            }
+        )
+    })
+
+    it('keeps both reasons when a fault it never observed fails to release', async () => {
+        const valves = createValves({ pollMs: 5 })
+        const stack = stackOf({ unkillable: true, releaseFailure: 'connection refused' })
+
+        await valves.start([kill({ at: '0ms' })], stack.context)
+        await waitForExpect(() => expect(valves.timeline()[0].error).toBeDefined(), 2000, 5)
+        await valves.releaseAll()
+
+        const { error, releasedAt, observedAt } = valves.timeline()[0]
+        expect({ error, releasedAt, observedAt }).toEqual({
+            error: 'applied but not observed; connection refused',
+            releasedAt: undefined,
+            observedAt: undefined,
+        })
+    })
+
+    it('records a release that failed, and still ends the drive', async () => {
+        const valves = createValves({ pollMs: 5 })
+        const stack = stackOf({ releaseFailure: 'connection refused' })
+
+        await valves.start([kill({ at: '0ms' })], stack.context)
+        await waitForExpect(() => expect(valves.timeline()[0].error).toBeDefined(), 2000, 5)
+        await valves.releaseAll()
+
+        expect(valves.timeline()[0]).toEqual(
+            expect.objectContaining({ observedAt: expect.any(String), error: 'connection refused' })
+        )
+        expect(valves.timeline()[0].releasedAt).toBeUndefined()
     })
 
     it('cuts an applied entry short when the drive ends before its hold does', async () => {
