@@ -63,14 +63,42 @@ export const WORKFLOW_METRICS_INFO: Record<string, { name: string; description?:
     billable_invocation: { name: 'Billable invocations' },
     message_frequency_capped: { name: 'Frequency capped' },
     message_frequency_cap_held: { name: 'Held by frequency cap' },
+    email_sandbox_sent: {
+        name: 'Sandbox emails sent',
+        description: 'Emails sent from the sandbox sender',
+        color: METRIC_COLORS['Sent'],
+    },
+    email_sandbox_failed: {
+        name: 'Sandbox emails failed',
+        description: 'Sandbox emails that could not be sent',
+        color: METRIC_COLORS['Failed'],
+    },
+    email_sandbox_blocked: {
+        name: 'Sandbox emails blocked',
+        description: 'Sandbox emails a check stopped, such as a recipient who is not a verified member',
+        color: METRIC_COLORS['Bounce prevented'],
+    },
+    email_sandbox_delivered: {
+        name: 'Sandbox emails delivered',
+        description: 'Sandbox emails the recipient mail server accepted',
+        color: METRIC_COLORS['Delivered'],
+    },
+    email_sandbox_bounced: {
+        name: 'Sandbox emails bounced',
+        description: 'Sandbox emails that bounced',
+        color: METRIC_COLORS['Bounced'],
+    },
+    email_sandbox_complained: {
+        name: 'Sandbox emails marked as spam',
+        description: 'Sandbox emails a recipient marked as spam',
+        color: METRIC_COLORS['Marked as spam'],
+    },
 }
 
-// Not all of METRIC_COLORS: its palette colors for labels like 'Skipped' would repeat the colors the chart
-// assigns by position to the other series.
+// Only the run outcome colors. A palette color, such as the one for 'Skipped' or a sandbox email color, would
+// repeat the color the chart assigns by position to another series.
 const STEP_SERIES_COLORS: Record<string, string> = Object.fromEntries(
-    Object.values(WORKFLOW_METRICS_INFO).flatMap(({ name, color }): [string, string][] =>
-        color ? [[name, color]] : []
-    )
+    ['Success', 'Failure', 'Rate Limited', 'Triggered'].map((name) => [name, METRIC_COLORS[name]])
 )
 
 export interface WorkflowMetricsProps extends WorkflowLogicProps {

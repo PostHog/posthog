@@ -51,7 +51,9 @@ class CursorSource(ResumableSource[CursorSourceConfig, CursorResumeConfig]):
             releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Cursor Admin API key to automatically pull your team's Cursor usage and spend data into the PostHog Data warehouse.
 
-You need a Cursor team plan (Business or Enterprise). A team admin can create an API key in the [Cursor dashboard](https://cursor.com/dashboard) under Settings → Cursor Admin API Keys.
+You need a Cursor team with Admin API access. A team admin can create an API key in the [Cursor dashboard](https://cursor.com/dashboard) under API Keys.
+
+Analytics API tables require a Cursor Enterprise plan. AI code tables also require AI code tracking to be turned on.
 """,
             iconPath="/static/services/cursor.svg",
             docsUrl="https://posthog.com/docs/cdp/sources/cursor",

@@ -334,6 +334,20 @@ describe('dataQualityChecksLogic', () => {
         expect(logic.values.activeSuiteRun?.id).toEqual('suite-second')
     })
 
+    it('tracks which check a manual run was started for until the run finishes', async () => {
+        ;(dataQualityChecksRunCreate as jest.Mock).mockResolvedValue(buildSuiteRun())
+        ;(dataQualityRunsRetrieve as jest.Mock).mockResolvedValue(buildSuiteRun({ status: 'completed' }))
+        await mountLogic()
+
+        jest.useFakeTimers()
+        logic.actions.runCheck('check-1')
+        await drainListeners()
+        expect(logic.values.activeSuiteCheckId).toEqual('check-1')
+
+        await advancePoll(3000)
+        expect(logic.values.activeSuiteCheckId).toBeNull()
+    })
+
     it('reloads an expanded suite run detail once the run finishes', async () => {
         // A suite adopted mid-flight can be expanded while it is still running, caching partial rows.
         ;(dataQualityRunsCreate as jest.Mock).mockResolvedValue(buildSuiteRun())

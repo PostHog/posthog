@@ -114,7 +114,9 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
             CYCLOTRON_NODE_DATABASE_URL: url,
             CYCLOTRON_SHARD_DEPTH_LIMIT: 1_000_000,
             CDP_CYCLOTRON_BATCH_DELAY_MS: 10,
+            CDP_CYCLOTRON_BATCH_DELAY_MAX_MS: 0,
             CDP_CYCLOTRON_BOUNDED_POLLS: false,
+            CDP_CYCLOTRON_BOUNDED_FAIR_DEQUEUE: false,
             CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE: 1000,
             CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES: false,
             CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: '',
@@ -691,4 +693,72 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
             expect(await leaseOf(id)).toBeGreaterThan(leaseBefore)
         }
     )
+
+    it('lets two consumers that share the queue stop it while a batch is still enqueuing jobs', async () => {
+        const applicationName = `shared-stop-${uuidv4()}`
+        const url = new URL(dbUrl(CYCLOTRON_DB.host, CYCLOTRON_DB.port))
+        url.searchParams.set('application_name', applicationName)
+        const queue = await startQueue(url.toString())
+        await enqueue(queue)
+
+        let batchStarted!: () => void
+        const batchInFlight = new Promise<void>((resolve) => (batchStarted = resolve))
+        let releaseBatch!: () => void
+        const batchReleased = new Promise<void>((resolve) => (releaseBatch = resolve))
+        let followUpId: string | undefined
+        let followUpError: unknown
+
+        await queue.startAsConsumer(queueName as CyclotronJobQueueKind, async (invocations) => {
+            if (invocations.length > 0) {
+                batchStarted()
+                await batchReleased
+                followUpId = await enqueue(queue, { queue: `${queueName}-follow-up` as CyclotronJobQueueKind }).catch(
+                    (error) => {
+                        followUpError = error
+                        return undefined
+                    }
+                )
+            }
+            return { backgroundTask: Promise.resolve() }
+        })
+        await batchInFlight
+
+        const stopLikeAWorkerConsumer = async (): Promise<void> => {
+            await queue.stopConsumer()
+            await queue.stopProducer()
+        }
+        const stops = Promise.all([stopLikeAWorkerConsumer(), stopLikeAWorkerConsumer()])
+        await new Promise((resolve) => setImmediate(resolve))
+        releaseBatch()
+        await stops
+
+        expect(followUpError).toBeUndefined()
+        expect(followUpId).toBeDefined()
+        expect(await jobRow(followUpId!)).toBeDefined()
+        await waitForExpect(async () => {
+            const { rows } = await admin.query<{ n: number }>(
+                'SELECT COUNT(*)::int AS n FROM pg_stat_activity WHERE application_name = $1',
+                [applicationName]
+            )
+            expect(rows[0].n).toBe(0)
+        })
+    })
+
+    it('lets two producers that share the queue stop it at once', async () => {
+        const applicationName = `shared-producer-stop-${uuidv4()}`
+        const url = new URL(dbUrl(CYCLOTRON_DB.host, CYCLOTRON_DB.port))
+        url.searchParams.set('application_name', applicationName)
+        const queue = await startQueue(url.toString())
+        await enqueue(queue)
+
+        await expect(Promise.all([queue.stopProducer(), queue.stopProducer()])).resolves.toBeDefined()
+
+        await waitForExpect(async () => {
+            const { rows } = await admin.query<{ n: number }>(
+                'SELECT COUNT(*)::int AS n FROM pg_stat_activity WHERE application_name = $1',
+                [applicationName]
+            )
+            expect(rows[0].n).toBe(0)
+        })
+    })
 })

@@ -196,7 +196,7 @@ describe('consumer', () => {
         let eachBatch: jest.Mock
 
         beforeEach(async () => {
-            consumer['maxBackgroundTasks'] = 3
+            consumer = new KafkaConsumer({ groupId: 'test-group', topic: 'test-topic', maxBackgroundTasks: 3 })
             eachBatch = jest.fn(() => Promise.resolve({}))
 
             // Hard test to simulate... We want to control each batch and return

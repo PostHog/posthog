@@ -1229,6 +1229,9 @@ database "posthog" {
     column "sending_domain" {
       type = "LowCardinality(String)"
     }
+    column "scheduled_at" {
+      type = "Nullable(DateTime64(6, 'UTC'))"
+    }
     column "_timestamp" {
       type = "DateTime"
     }

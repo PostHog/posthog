@@ -54,7 +54,8 @@ class EvaluationReport(UUIDTModel):
     TRIGGER_THRESHOLD_DEFAULT = 100
     COOLDOWN_MINUTES_MIN = 60
     COOLDOWN_MINUTES_MAX = 60 * 24
-    COOLDOWN_MINUTES_DEFAULT = 60
+    # Busy evaluations cross the threshold many times a day; this caps them at one report a day.
+    COOLDOWN_MINUTES_DEFAULT = 60 * 24
     # Upper bound mirrors the count of 60-minute windows in a day, so values above it are
     # unreachable in practice (cooldown_minutes is bounded below at 60).
     DAILY_RUN_CAP_MIN = 1
@@ -104,7 +105,7 @@ class EvaluationReport(UUIDTModel):
         help_text="Number of new eval results that triggers a report",
     )
     cooldown_minutes = models.IntegerField(
-        default=60,
+        default=COOLDOWN_MINUTES_DEFAULT,
         help_text="Minimum minutes between count-triggered reports",
     )
     daily_run_cap = models.IntegerField(

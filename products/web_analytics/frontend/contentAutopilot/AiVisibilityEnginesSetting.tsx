@@ -5,15 +5,12 @@ import { LemonBanner, LemonSelect, LemonSwitch, LemonTable } from '@posthog/lemo
 import type { AEOEngineSettingApi, CheckFrequencyEnumApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
 import { aiVisibilityEnginesLogic } from './aiVisibilityEnginesLogic'
-import { engineLabel } from './utils'
+import { engineLabel, unavailableEngineReason } from './utils'
 
 const FREQUENCY_OPTIONS: { value: CheckFrequencyEnumApi; label: string }[] = [
     { value: 'daily', label: 'Every day' },
     { value: 'weekly', label: 'Once a week' },
 ]
-
-const unavailableReason = (setting: AEOEngineSettingApi): string | undefined =>
-    setting.available ? undefined : "This engine isn't set up for this project yet."
 
 /** Which answer engines check the project's prompts, and how often. Each engine gets its own column in the reports. */
 export const AiVisibilityEnginesSetting = (): JSX.Element => {
@@ -60,7 +57,7 @@ export const AiVisibilityEnginesSetting = (): JSX.Element => {
                                 checked={setting.enabled && setting.available}
                                 onChange={(enabled) => updateEngine(setting.engine, { enabled })}
                                 disabledReason={
-                                    unavailableReason(setting) ??
+                                    unavailableEngineReason(setting) ??
                                     (updatingEngines.includes(setting.engine) ? 'Saving…' : undefined)
                                 }
                                 data-attr="ai-visibility-engine-enabled"
@@ -80,7 +77,7 @@ export const AiVisibilityEnginesSetting = (): JSX.Element => {
                                 options={FREQUENCY_OPTIONS}
                                 onSelect={(frequency) => frequency && updateEngine(setting.engine, { frequency })}
                                 disabledReason={
-                                    unavailableReason(setting) ??
+                                    unavailableEngineReason(setting) ??
                                     (updatingEngines.includes(setting.engine) ? 'Saving…' : undefined)
                                 }
                                 data-attr="ai-visibility-engine-frequency"

@@ -420,6 +420,28 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
         }),
     }),
 
+    z.object({
+        ..._commonActionFields,
+        type: z.literal('email_sandbox'),
+        config: z.object({
+            message_category_id: z.string().nullish(),
+            message_category_type: z.enum(['marketing', 'transactional']).nullish(),
+            inputs: z.object({
+                email: z.object({
+                    templating: z.enum(['hog', 'liquid']).optional(),
+                    value: z.object({
+                        to: z.object({ email: z.string(), name: z.string().optional() }).optional(),
+                        subject: z.string().optional(),
+                        preheader: z.string().optional(),
+                        text: z.string().optional(),
+                        html: z.string().optional(),
+                        design: z.any().optional(),
+                    }),
+                }),
+            }),
+        }),
+    }),
+
     // Exit
     z.object({
         ..._commonActionFields,
@@ -432,8 +454,11 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
 
 export const isOptOutEligibleAction = (
     action: HogFlowAction
-): action is Extract<HogFlowAction, { type: 'function_email' | 'function_sms' | 'function_push' }> => {
-    return ['function_email', 'function_sms', 'function_push'].includes(action.type)
+): action is Extract<
+    HogFlowAction,
+    { type: 'function_email' | 'function_sms' | 'function_push' | 'email_sandbox' }
+> => {
+    return ['function_email', 'function_sms', 'function_push', 'email_sandbox'].includes(action.type)
 }
 
 export const isEmailAction = (action: HogFlowAction): action is Extract<HogFlowAction, { type: 'function_email' }> => {
@@ -476,4 +501,5 @@ export interface HogflowTestResult {
     errors?: string[]
     variables?: Record<string, any>
     execResult?: unknown
+    mocked?: boolean
 }

@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url'
 const root = new URL('../', import.meta.url)
 const icons = {
     home: ['HomeIcon', 24, 2],
+    inbox: ['InboxIcon', 24, 2],
     chats: ['SpacesIcon', 24, 2],
     views: ['ViewsIcon', 24, 2],
     errors: ['ErrorTriangleIcon', 24, 2],

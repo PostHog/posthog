@@ -5,11 +5,12 @@ from typing import Any
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
-from posthog.temporal.ai_observability.evaluation_event_io import extract_event_io
 from posthog.temporal.ai_observability.evaluation_types import EvaluationActivityResult, build_skipped_sentiment_result
 from posthog.temporal.ai_observability.sentiment.extraction import extract_sentiment_eval_messages
 from posthog.temporal.ai_observability.sentiment.schema import PendingClassification, SentimentResult
 from posthog.temporal.ai_observability.sentiment.utils import build_generation_result
+
+from products.ai_observability.backend.facade.evaluation_runtime import extract_event_io
 
 
 def _build_sentiment_activity_result(
