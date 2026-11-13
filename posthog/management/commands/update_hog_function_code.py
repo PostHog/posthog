@@ -25,8 +25,7 @@ class _ReplaceOption(TypedDict):
     # would otherwise also match code deliberately left behind (e.g. a sunset version kept dead on
     # purpose), this pins the run to the intended cohort.
     only_if_contains: NotRequired[str]
-    # Skip a function unless every replacement matches. For options whose replacements rename a variable across
-    # several lines, a partial match would leave hand-edited code reading a variable that no longer exists.
+    # Skip a function unless every replacement matches, so a variable renamed across lines is never half renamed.
     all_or_nothing: NotRequired[bool]
 
 
@@ -170,9 +169,7 @@ class Command(BaseCommand):
             },
             # Existing Microsoft Ads destinations hash email and phone in a form Microsoft cannot match, and do
             # not send the required dataProvider. One replacement covers both checks, so it cannot half-apply.
-            # The header parser matched keys with an unanchored `like`, so a field such as `secret=whsec_...`
-            # was read as the timestamp. It also kept only the last `v1` signature, while Stripe sends one per
-            # active signing secret. Either way, deliveries failed with Bad signature.
+            # Stripe sends one `v1` per signing secret and fields such as `secret=`, which the old parser misread.
             "stripe-signature-header-parsing": {
                 "template_ids": ["template-source-stripe-webhook", "template-warehouse-source-stripe"],
                 "function_types": ["source_webhook", "warehouse_source_webhook"],
