@@ -18,7 +18,7 @@ const sends = (count: number): TransactionalEmailLogEntryApi[] =>
 describe('transactionalEmailLogLogic', () => {
     let logic: ReturnType<typeof transactionalEmailLogLogic.build>
     let requests: Record<string, string>[]
-    let response: [number, any]
+    let response: [number, unknown]
 
     beforeEach(async () => {
         jest.useFakeTimers({

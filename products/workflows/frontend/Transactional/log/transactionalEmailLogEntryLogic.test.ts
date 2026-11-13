@@ -85,7 +85,7 @@ describe('transactionalEmailLogEntryLogic', () => {
 
     afterEach(() => logic.unmount())
 
-    it('loads a send by its id, then its recipient, their activity, and their other emails', async () => {
+    it('opens a send with its person, activity, other emails, breadcrumbs, and expand toggles', async () => {
         await open('msg-1')
         expect(logic.values.email).toEqual(SEND)
         expect(logic.values.person).toMatchObject({ id: 'person-1', properties: { email: 'ada@example.com' } })
