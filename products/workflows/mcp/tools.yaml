@@ -409,8 +409,10 @@ tools:
             the audience filters and variable overrides the run used, plus when it was created. The status field is not
             tracked. A run's counters and logs are keyed on the run's id, not the workflow's, so workflows-stats and
             workflows-logs never show them. Read one run's counts with execute-sql: SELECT metric_name, sum(count) FROM
-            app_metrics WHERE app_source = 'hog_flow' AND app_source_id = '<run id>' GROUP BY metric_name. Read who it
-            reached or failed for with workflows-list-invocations.
+            app_metrics WHERE app_source = 'hog_flow' AND app_source_id = '<run id>' GROUP BY metric_name. Only
+            `masked` stays keyed on the workflow. Read who the run reached or failed for with execute-sql over
+            posthog.hog_invocation_results WHERE parent_run_id = '<run id>', taking argMax(status, version) per
+            invocation_id. workflows-list-invocations has no run filter, so it mixes every run of the workflow.
     workflows-list-invocations:
         operation: hog_flows_invocation_results_retrieve
         enabled: true
@@ -683,7 +685,7 @@ tools:
             the metrics you read in `name`: each named metric is returned, as zeros when it recorded nothing. This reads
             the workflow's whole history; for one published version, call workflows-version-stats. Batch runs,
             broadcasts included, key their counters on the run, not the workflow, so they never show here: a broadcast
-            that sent still reads as zeros. For its totals across runs, call workflows-version-stats for each version
+            that sent still reads as zeros. Only `masked` stays on the workflow and shows here. For its totals across runs, call workflows-version-stats for each version
             live while it sent. For one run, read its counts as workflows-list-batch-jobs describes.
     workflows-suggest:
         operation: hog_flows_proposals_create
