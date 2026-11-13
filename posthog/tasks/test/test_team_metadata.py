@@ -56,11 +56,11 @@ class TestRelatedTeamsMetadataFanoutTask(BaseTest):
 class TestEvictRotatedTokenTeamMetadataCacheTask(BaseTest):
     @parameterized.expand(
         [
-            ("unowned_token_is_deleted_from_every_tier", False, True),
-            ("token_owned_again_is_kept", True, False),
+            ("unowned_token_is_deleted_from_every_tier", False),
+            ("token_owned_again_is_kept", True),
         ]
     )
-    def test_evicts_only_an_unowned_token(self, _name: str, token_owned: bool, expect_delete: bool) -> None:
+    def test_evicts_only_an_unowned_token(self, _name: str, token_owned: bool) -> None:
         if token_owned:
             Team.objects.create(organization=self.organization, api_token="phc_rotated_token")
 
@@ -70,7 +70,7 @@ class TestEvictRotatedTokenTeamMetadataCacheTask(BaseTest):
         ):
             evict_rotated_token_team_metadata_cache_task("phc_rotated_token")
 
-        if expect_delete:
-            mock_delete.assert_called_once_with("phc_rotated_token", kinds=None)
-        else:
+        if token_owned:
             mock_delete.assert_not_called()
+        else:
+            mock_delete.assert_called_once_with("phc_rotated_token", kinds=None)

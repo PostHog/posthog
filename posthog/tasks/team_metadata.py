@@ -67,8 +67,8 @@ def evict_rotated_token_team_metadata_cache_task(old_token: str) -> None:
     """
     Delete a rotated token's team metadata entry that a scheduled cache job wrote back after the rotation.
     """
-    # The task runs an hour after the rotation. By then the team may have set this token
-    # again, or another team may have taken it, and its entry is live.
+    # The task runs an hour after the rotation. By then the team may have set this token again.
+    # Another team may also have taken it. In both cases the token's entry is live.
     if Team.objects.filter(api_token=old_token).exists():
         return
 

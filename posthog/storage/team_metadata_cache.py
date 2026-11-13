@@ -79,7 +79,7 @@ logger = structlog.get_logger(__name__)
 TEAM_METADATA_CACHE_TTL = int(os.environ.get("TEAM_METADATA_CACHE_TTL", str(60 * 60 * 24 * 7)))
 TEAM_METADATA_CACHE_MISS_TTL = int(os.environ.get("TEAM_METADATA_CACHE_MISS_TTL", str(60 * 60 * 24)))
 # Both scheduled jobs run hourly. The verification task stops at its 40-minute hard limit.
-# The refresh task has no time limit, so one hour assumes that a refresh run ends within its period.
+# The refresh task has no time limit. One hour assumes that a refresh run ends within its period.
 ROTATED_TOKEN_EVICTION_DELAY_SECONDS = 60 * 60
 
 # Sorted set key for tracking cache expirations
@@ -504,7 +504,7 @@ def evict_team_metadata_cache_after_token_change(old_token: str) -> None:
 
     A refresh or verification run that loaded the team before the rotation writes the old token's
     entry back when it reaches the team. The delayed task deletes that entry and retries a failed delete.
-    A failure here is captured and never raised, because the token change has already committed.
+    The function captures a failure and never raises it, because the token change has already committed.
     """
     from posthog.tasks.team_metadata import evict_rotated_token_team_metadata_cache_task
 
