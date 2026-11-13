@@ -384,7 +384,6 @@ export interface inboxSetupLogicMeta {
             currentTeam: TeamPublicType | TeamType | null,
             productStatusBySource: Partial<Record<AgentRosterSource, SourceProductStatus>>
         ) => ScoutSuggestionItemApi[]
-        scoutLimit: () => InboxSetupScoutLimit
         scoutChoices: (
             suggestions: ScoutSuggestionItemApi[],
             defaultScouts: ScoutSuggestionItemApi[],
