@@ -1671,14 +1671,22 @@ def test_sweep_tick_advances_the_watermark_only_when_it_has_nothing_to_dispatch(
         assert scanner.last_swept_at == before + dt.timedelta(minutes=5)
 
 
-@pytest.mark.parametrize("gate", ["capped", "in_flight_full", "budget_check_fails", "in_flight_count_fails"])
+@pytest.mark.parametrize(
+    "gate", ["capped", "in_flight_full", "budget_check_fails", "in_flight_count_fails", "in_flight_partial"]
+)
 @pytest.mark.django_db(transaction=True)
 def test_sweep_tick_gates_the_candidate_query(gate: str) -> None:
-    scanner = _make_scanner(credit_limit=20 * _OBSERVATION_CREDITS)
+    # In-flight rows reserve credits, so the partial case needs a limit they cannot reach.
+    credits = 1_000 if gate == "in_flight_partial" else 20
+    scanner = _make_scanner(credit_limit=credits * _OBSERVATION_CREDITS)
     if gate == "capped":
         seed_scanner_spend(scanner, _OBSERVATION_CREDITS, observations=20)
     elif gate == "in_flight_full":
         _seed_in_flight_observations(scanner, count=MAX_IN_FLIGHT_APPLIES_PER_SCANNER)
+    elif gate == "in_flight_partial":
+        _seed_in_flight_observations(
+            scanner, count=MAX_IN_FLIGHT_APPLIES_PER_SCANNER - ON_DEMAND_RESERVED_SCANNER_SLOTS - 10
+        )
 
     with (
         _patched_queries() as (MockQuery, _),
@@ -1695,7 +1703,54 @@ def test_sweep_tick_gates_the_candidate_query(gate: str) -> None:
         output = sweep_scanner_tick_activity(SweepScannerInputs(scanner_id=scanner.id, team_id=scanner.team_id))
 
     assert output.dispatch is None
-    assert MockQuery.return_value.run_batch.called is (gate == "budget_check_fails")
+    assert MockQuery.return_value.run_batch.called is (gate in ("budget_check_fails", "in_flight_partial"))
+    if gate == "in_flight_partial":
+        assert MockQuery.call_args.kwargs["candidate_limit"] == 10
+
+
+@pytest.mark.parametrize(
+    "in_flight, expected_headroom",
+    [
+        (InFlightApplyCounts(scanner=MAX_IN_FLIGHT_APPLIES_PER_SCANNER, team=0), None),  # scanner cap → throttled
+        (InFlightApplyCounts(scanner=MAX_IN_FLIGHT_APPLIES_PER_SCANNER + 10, team=0), None),  # over → throttled
+        (InFlightApplyCounts(scanner=0, team=MAX_IN_FLIGHT_APPLIES_PER_TEAM), None),  # team cap → throttled
+        (
+            # At the reserved scanner ceiling the sweep throttles even though on-demand still admits.
+            InFlightApplyCounts(scanner=MAX_IN_FLIGHT_APPLIES_PER_SCANNER - ON_DEMAND_RESERVED_SCANNER_SLOTS, team=0),
+            None,
+        ),
+        (
+            # Same for the reserved team ceiling.
+            InFlightApplyCounts(scanner=0, team=MAX_IN_FLIGHT_APPLIES_PER_TEAM - ON_DEMAND_RESERVED_TEAM_SLOTS),
+            None,
+        ),
+        (
+            # Partial scanner headroom below the reserved ceiling.
+            InFlightApplyCounts(
+                scanner=MAX_IN_FLIGHT_APPLIES_PER_SCANNER - ON_DEMAND_RESERVED_SCANNER_SLOTS - 10, team=0
+            ),
+            10,
+        ),
+        (
+            # Team headroom smaller than scanner headroom → team cap binds.
+            InFlightApplyCounts(scanner=0, team=MAX_IN_FLIGHT_APPLIES_PER_TEAM - ON_DEMAND_RESERVED_TEAM_SLOTS - 5),
+            5,
+        ),
+        (
+            # Idle → full scheduled headroom, i.e. the scanner cap minus the on-demand reserve.
+            InFlightApplyCounts(scanner=0, team=0),
+            MAX_IN_FLIGHT_APPLIES_PER_SCANNER - ON_DEMAND_RESERVED_SCANNER_SLOTS,
+        ),
+    ],
+)
+def test_in_flight_headroom_takes_the_tighter_cap_minus_the_on_demand_reserve(
+    in_flight: InFlightApplyCounts, expected_headroom: int | None
+) -> None:
+    headroom = in_flight_headroom(in_flight.scanner, in_flight.team)
+    if expected_headroom is None:
+        assert headroom <= 0
+    else:
+        assert headroom == expected_headroom
 
 
 # SweepScannerWorkflow (mocked-Temporal)
@@ -1741,21 +1796,9 @@ def _sweep_inputs() -> SweepScannerInputs:
 
 
 async def _run_sweep(mocks: _SweepMocks, inputs: SweepScannerInputs | None = None) -> None:
-    # `workflow.logger` reaches into the workflow runtime, which isn't set up here.
-    fake_logger = type(
-        "Logger",
-        (),
-        {
-            "info": staticmethod(lambda *_a, **_kw: None),
-            "warning": staticmethod(lambda *_a, **_kw: None),
-            "exception": staticmethod(lambda *_a, **_kw: None),
-        },
-    )()
     with (
         patch("temporalio.workflow.execute_activity", side_effect=mocks.execute_activity),
         patch("temporalio.workflow.start_child_workflow", side_effect=mocks.start_child_workflow),
-        patch("temporalio.workflow.logger", fake_logger),
-        patch("temporalio.workflow.unsafe.is_replaying", return_value=False),
         patch("temporalio.workflow.deprecate_patch"),
     ):
         await SweepScannerWorkflow().run(inputs or _sweep_inputs())
@@ -1892,51 +1935,6 @@ async def test_child_start_failure_propagates_and_skips_advance() -> None:
         await _run_sweep(mocks, inputs)
 
     assert [call for fn, call in mocks.activity_calls if fn == advance_scanner_watermark_activity] == []
-
-
-@pytest.mark.parametrize(
-    "in_flight, expected_candidate_limit",
-    [
-        (InFlightApplyCounts(scanner=MAX_IN_FLIGHT_APPLIES_PER_SCANNER, team=0), None),  # scanner cap → throttled
-        (InFlightApplyCounts(scanner=MAX_IN_FLIGHT_APPLIES_PER_SCANNER + 10, team=0), None),  # over → throttled
-        (InFlightApplyCounts(scanner=0, team=MAX_IN_FLIGHT_APPLIES_PER_TEAM), None),  # team cap → throttled
-        (
-            # At the reserved scanner ceiling the sweep throttles even though on-demand still admits.
-            InFlightApplyCounts(scanner=MAX_IN_FLIGHT_APPLIES_PER_SCANNER - ON_DEMAND_RESERVED_SCANNER_SLOTS, team=0),
-            None,
-        ),
-        (
-            # Same for the reserved team ceiling.
-            InFlightApplyCounts(scanner=0, team=MAX_IN_FLIGHT_APPLIES_PER_TEAM - ON_DEMAND_RESERVED_TEAM_SLOTS),
-            None,
-        ),
-        (
-            # Partial scanner headroom below the reserved ceiling.
-            InFlightApplyCounts(
-                scanner=MAX_IN_FLIGHT_APPLIES_PER_SCANNER - ON_DEMAND_RESERVED_SCANNER_SLOTS - 10, team=0
-            ),
-            10,
-        ),
-        (
-            # Team headroom smaller than scanner headroom → team cap binds the fetch.
-            InFlightApplyCounts(scanner=0, team=MAX_IN_FLIGHT_APPLIES_PER_TEAM - ON_DEMAND_RESERVED_TEAM_SLOTS - 5),
-            5,
-        ),
-        (
-            # Idle → full scheduled headroom, i.e. the scanner cap minus the on-demand reserve.
-            InFlightApplyCounts(scanner=0, team=0),
-            MAX_IN_FLIGHT_APPLIES_PER_SCANNER - ON_DEMAND_RESERVED_SCANNER_SLOTS,
-        ),
-    ],
-)
-def test_in_flight_headroom_gates_the_sweep(
-    in_flight: InFlightApplyCounts, expected_candidate_limit: int | None
-) -> None:
-    headroom = in_flight_headroom(in_flight.scanner, in_flight.team)
-    if expected_candidate_limit is None:
-        assert headroom <= 0
-    else:
-        assert headroom == expected_candidate_limit
 
 
 @pytest.mark.parametrize("found", [False, True])
