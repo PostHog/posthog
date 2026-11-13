@@ -63,6 +63,7 @@ describe('InternalCaptureService', () => {
             team_token: 'token',
             event: 'event-name',
             timestamp: '2025-03-03T03:03:03.000Z',
+            uuid: '8a1f6c3e-2b7d-5e4a-9c10-3f2e1d0b9a87',
             distinct_id: 'distinct-id',
             properties: {
                 capture_internal: false,
@@ -81,6 +82,7 @@ describe('InternalCaptureService', () => {
               },
               "sent_at": "2025-01-01T00:00:00.000Z",
               "timestamp": "2025-03-03T03:03:03.000Z",
+              "uuid": "8a1f6c3e-2b7d-5e4a-9c10-3f2e1d0b9a87",
             }
         `)
     })

@@ -59,6 +59,7 @@ if(empty(inputs.distinct_id)) {
 postHogCapture({
   'event': inputs.event,
   'distinct_id': inputs.distinct_id,
+  'uuid': inputs.uuid,
   'properties': inputs.properties
 })
 `,
@@ -90,6 +91,15 @@ postHogCapture({
                 $lib: 'posthog-webhook',
                 $source_url: '{source.url}',
             },
+            secret: false,
+            required: false,
+        },
+        {
+            key: 'uuid',
+            type: 'string',
+            label: 'Event UUID',
+            description:
+                'A UUID that stays the same when the sender retries a delivery. PostHog keeps one event per UUID when the event name, distinct ID, and day also match. Duplicates are removed in the background, so they can show for a while. Leave empty to give each event a new UUID.',
             secret: false,
             required: false,
         },

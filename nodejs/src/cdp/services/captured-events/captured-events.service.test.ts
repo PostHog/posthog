@@ -115,7 +115,14 @@ describe('CapturedEventsService', () => {
                     buildCapturedEvent(1, { event: 'a', distinct_id: 'u1', timestamp: 't1' }),
                     buildCapturedEvent(2, { event: 'b', distinct_id: 'u2', timestamp: 't2' }),
                 ]),
-                buildResult([buildCapturedEvent(1, { event: 'c', distinct_id: 'u3', timestamp: 't3' })]),
+                buildResult([
+                    buildCapturedEvent(1, {
+                        event: 'c',
+                        distinct_id: 'u3',
+                        timestamp: 't3',
+                        uuid: '8a1f6c3e-2b7d-5e4a-9c10-3f2e1d0b9a87',
+                    }),
+                ]),
             ]
 
             await service.queueInvocationResults(results)
@@ -141,6 +148,7 @@ describe('CapturedEventsService', () => {
                 event: 'c',
                 distinct_id: 'u3',
                 timestamp: 't3',
+                uuid: '8a1f6c3e-2b7d-5e4a-9c10-3f2e1d0b9a87',
                 properties: { foo: 'bar' },
             })
         })
