@@ -228,6 +228,29 @@ def insights_including_soft_deleted_for_team(*, team_id: int, insight_ids: Colle
     return logic.insights_including_soft_deleted_for_team(team_id=team_id, insight_ids=insight_ids)
 
 
+def _visible_insight_rows(
+    insight_ids: Collection[int],
+    *,
+    project_id: int,
+    access_control: UserAccessControl | None,
+    include_deleted: bool,
+    fields: tuple[str, ...],
+) -> list[dict[str, Any]]:
+    manager = Insight.objects_including_soft_deleted if include_deleted else Insight.objects
+    queryset = manager.filter(team__project_id=project_id, id__in=list(insight_ids))
+    if not include_deleted:
+        queryset = queryset.filter(deleted=False)
+    rows = list(queryset.values("id", "team_id", "created_by_id", *fields))
+    if access_control is None:
+        return rows
+    denied = set(
+        access_control.denied_object_ids(
+            "insight", [(str(row["id"]), row["team_id"], row["created_by_id"]) for row in rows], "viewer"
+        )
+    )
+    return [row for row in rows if str(row["id"]) not in denied]
+
+
 def existing_insight_ids(
     insight_ids: Collection[int],
     *,
@@ -235,32 +258,32 @@ def existing_insight_ids(
     access_control: UserAccessControl | None = None,
     include_deleted: bool = False,
 ) -> set[int]:
-    manager = Insight.objects_including_soft_deleted if include_deleted else Insight.objects
-    queryset = manager.filter(team__project_id=project_id, id__in=list(insight_ids))
-    if not include_deleted:
-        queryset = queryset.filter(deleted=False)
-    if access_control is not None:
-        queryset = access_control.filter_queryset_by_access_level(queryset, include_all_if_admin=True)
-    return set(queryset.values_list("id", flat=True))
+    rows = _visible_insight_rows(
+        insight_ids, project_id=project_id, access_control=access_control, include_deleted=include_deleted, fields=()
+    )
+    return {row["id"] for row in rows}
 
 
 def insight_summaries(
     insight_ids: Collection[int], *, project_id: int, access_control: UserAccessControl
 ) -> list[InsightSummary]:
-    queryset = Insight.objects_including_soft_deleted.filter(team__project_id=project_id, id__in=list(insight_ids))
-    queryset = access_control.filter_queryset_by_access_level(queryset, include_all_if_admin=True)
+    rows = _visible_insight_rows(
+        insight_ids,
+        project_id=project_id,
+        access_control=access_control,
+        include_deleted=True,
+        fields=("short_id", "name", "derived_name", "created_at", "last_modified_at", "deleted"),
+    )
     return [
         InsightSummary(
-            id=insight.id,
-            short_id=insight.short_id,
-            name=insight.name or insight.derived_name or "Untitled insight",
-            created_at=insight.created_at,
-            last_modified_at=insight.last_modified_at,
-            deleted=insight.deleted,
+            id=row["id"],
+            short_id=row["short_id"],
+            name=row["name"] or row["derived_name"] or "Untitled insight",
+            created_at=row["created_at"],
+            last_modified_at=row["last_modified_at"],
+            deleted=row["deleted"],
         )
-        for insight in queryset.only(
-            "id", "short_id", "name", "derived_name", "created_at", "last_modified_at", "deleted"
-        )
+        for row in rows
     ]
 
 

@@ -36,7 +36,7 @@ class InsightSummary:
     id: int
     short_id: str
     name: str
-    created_at: datetime
+    created_at: datetime | None
     last_modified_at: datetime | None
     deleted: bool
 

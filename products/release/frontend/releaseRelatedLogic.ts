@@ -7,10 +7,10 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { hogql } from 'lib/utils/hogql'
 import { urls } from 'scenes/urls'
 
+import { insightsList } from 'products/product_analytics/frontend/generated/api'
 import { surveysCreate, surveysList } from 'products/surveys/frontend/generated/api'
 import type { SurveyApi } from 'products/surveys/frontend/generated/api.schemas'
 
-import { releasesPartialUpdate } from './generated/api'
 import type { ReleaseDTOApi } from './generated/api.schemas'
 import { releaseLogic } from './releaseLogic'
 import { TrackRelated, relatedFor } from './releaseTracks'
@@ -173,6 +173,17 @@ async function inBatches<T, R>(
     return { results, failed }
 }
 
+async function searchInsights(projectId: string, search: string, limit: number): Promise<RelatedInsight[]> {
+    const page = await insightsList(projectId, { search: search || undefined, saved: true, basic: true, limit })
+    return page.results.map((insight) => ({
+        id: insight.id,
+        shortId: insight.short_id,
+        name: insight.name || insight.derived_name || 'Untitled insight',
+        createdAt: insight.created_at ?? '',
+        lastModifiedAt: insight.last_modified_at ?? null,
+    }))
+}
+
 async function queryInsights(query: ReturnType<typeof hogql>): Promise<RelatedInsight[]> {
     const response = await api.queryHogQL(query, { scene: 'Releases', productKey: 'feature_flags' })
     return (response.results ?? []).map(toInsight)
@@ -230,11 +241,7 @@ export const releaseRelatedLogic = kea<releaseRelatedLogicType>([
                                 failed = true
                                 return [] as RelatedSurvey[]
                             }),
-                        queryInsights(
-                            hogql`SELECT id, short_id, name, created_at, last_modified_at FROM system.insights
-                            WHERE deleted = 0 AND saved = 1 AND positionCaseInsensitive(coalesce(name, ''), ${term}) > 0
-                            ORDER BY last_modified_at DESC LIMIT 8`
-                        ).catch(() => {
+                        searchInsights(projectId, term, 8).catch(() => {
                             failed = true
                             return [] as RelatedInsight[]
                         }),
@@ -284,13 +291,11 @@ export const releaseRelatedLogic = kea<releaseRelatedLogicType>([
                                   ORDER BY last_modified_at DESC LIMIT 20`
                               ).catch(() => fail<RelatedInsight>())
                             : Promise.resolve([] as RelatedInsight[]),
-                        tokens.length
-                            ? queryInsights(
-                                  hogql`SELECT id, short_id, name, created_at, last_modified_at FROM system.insights
-                                  WHERE deleted = 0 AND saved = 1 AND multiSearchAnyCaseInsensitive(name, ${tokens})
-                                  ORDER BY last_modified_at DESC LIMIT 20`
-                              ).catch(() => fail<RelatedInsight>())
-                            : Promise.resolve([] as RelatedInsight[]),
+                        Promise.all(
+                            tokens.map((token) =>
+                                searchInsights(projectId, token, 10).catch(() => fail<RelatedInsight>())
+                            )
+                        ).then((pages) => pages.flat()),
                     ])
                     breakpoint()
                     const wanted = new Set(tokens)
@@ -485,18 +490,10 @@ export const releaseRelatedLogic = kea<releaseRelatedLogicType>([
                     ],
                     []
                 )
-                const release = values.releases.find((item) => item.id === row.id)
-                const surveyIds = [...(release?.survey_ids ?? []), survey.id]
-                try {
-                    await releasesPartialUpdate(String(values.currentProjectId), row.id, { survey_ids: surveyIds })
-                } catch {
-                    lemonToast.error(
-                        'The survey was created but could not be linked to the release. Add it from "In this release".'
-                    )
-                    return
-                }
-                releaseLogic.actions.setReleaseLocally({ id: row.id, changes: { survey_ids: surveyIds } })
-                router.actions.push(urls.survey(survey.id))
+                actions.linkRelated(row.id, 'survey', survey.id)
+                lemonToast.success('Survey created and linked to the release.', {
+                    button: { label: 'Open survey', action: () => router.actions.push(urls.survey(survey.id)) },
+                })
             } catch {
                 lemonToast.error('Could not create the survey. Try again.')
             } finally {

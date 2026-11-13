@@ -67223,7 +67223,8 @@ export namespace Schemas {
       id: number;
       short_id: string;
       name: string;
-      created_at: string;
+      /** @nullable */
+      created_at: string | null;
       /** @nullable */
       last_modified_at: string | null;
     }
