@@ -18,7 +18,8 @@ class _Replacement(TypedDict):
 
 
 class _ReplaceOption(TypedDict):
-    template_id: str
+    template_ids: list[str]
+    function_types: NotRequired[list[str]]
     replacements: list[_Replacement]
     # Skip a destination entirely unless its hog contains this string. For options whose replacements
     # would otherwise also match code deliberately left behind (e.g. a sunset version kept dead on
@@ -47,7 +48,7 @@ class Command(BaseCommand):
 
         replaceOptions: dict[str, _ReplaceOption] = {
             "linked-api-version-update": {
-                "template_id": "template-linkedin-ads",
+                "template_ids": ["template-linkedin-ads"],
                 "replacements": [
                     {
                         "from_string": "'LinkedIn-Version': '202409'",
@@ -74,7 +75,7 @@ class Command(BaseCommand):
             # collect-and-guard form. only_if_contains keeps the userInfo replacements, which match
             # both eras' code, from touching the excluded 202409 destinations.
             "linkedin-api-version-update-202607": {
-                "template_id": "template-linkedin-ads",
+                "template_ids": ["template-linkedin-ads"],
                 "only_if_contains": "'LinkedIn-Version': '202508'",
                 "replacements": [
                     {
@@ -96,7 +97,7 @@ class Command(BaseCommand):
                 ],
             },
             "meta-ads-api-version-update": {
-                "template_id": "template-meta-ads",
+                "template_ids": ["template-meta-ads"],
                 "replacements": [
                     {
                         "from_string": "graph.facebook.com/v21.0/",
@@ -112,7 +113,7 @@ class Command(BaseCommand):
             # separately with customer awareness. Destinations carry whatever version the template
             # pinned at creation; only one matches per destination, and a v24 no-op is skipped.
             "google-ads-api-version-update": {
-                "template_id": "template-google-ads",
+                "template_ids": ["template-google-ads"],
                 "replacements": [
                     {"from_string": f"googleads.googleapis.com/v{v}/", "to_string": "googleads.googleapis.com/v24/"}
                     for v in range(19, 24)
@@ -124,7 +125,7 @@ class Command(BaseCommand):
             # standard 4-branch and the powerplatform.com:443 variant share the same tail, and the
             # original single-branch (logic.azure.com only) block is replaced whole.
             "microsoft-teams-powerplatform-url": {
-                "template_id": "template-microsoft-teams",
+                "template_ids": ["template-microsoft-teams"],
                 "replacements": [
                     {
                         "from_string": "not match(inputs.webhookUrl, '^https://[^/]+.flow.microsoft.com/[^/]+')) {\n    throw Error('Invalid URL. The URL should match either Azure Logic Apps format (https://<region>.logic.azure.com:443/workflows/...), Power Platform format (https://<tenant>.webhook.office.com/webhookb2/...), or Power Automate format (https://<region>.powerautomate.com/... or https://<region>.flow.microsoft.com/...)')",
@@ -141,7 +142,7 @@ class Command(BaseCommand):
             # `direct/workflows/` regex rejected valid URLs. Widen the path to allow those segments
             # on functions already deployed with the stale pattern.
             "microsoft-teams-powerplatform-cu-path": {
-                "template_id": "template-microsoft-teams",
+                "template_ids": ["template-microsoft-teams"],
                 "replacements": [
                     {
                         "from_string": "automations/direct/workflows/.*')",
@@ -156,7 +157,7 @@ class Command(BaseCommand):
             # Numeric external IDs (e.g. a numeric user ID) crashed in trim() before the fetch, so the
             # conversion was never sent. Functions created earlier keep the frozen code without toString().
             "openai-ads-numeric-external-id": {
-                "template_id": "template-openai-ads",
+                "template_ids": ["template-openai-ads"],
                 "replacements": [
                     {
                         "from_string": "sha256Hex(trim(inputs.externalId))",
@@ -166,8 +167,24 @@ class Command(BaseCommand):
             },
             # Existing Microsoft Ads destinations hash email and phone in a form Microsoft cannot match, and do
             # not send the required dataProvider. One replacement covers both checks, so it cannot half-apply.
+            # The header parser matched keys with an unanchored `like`, so a new header field such as
+            # `attempt=2` was read as the timestamp and every delivery carrying it failed with Bad signature.
+            "stripe-signature-header-parsing": {
+                "template_ids": ["template-source-stripe-webhook", "template-warehouse-source-stripe"],
+                "function_types": ["source_webhook", "warehouse_source_webhook"],
+                "replacements": [
+                    {
+                        "from_string": "if (trimmed like 't=%') {",
+                        "to_string": "if (startsWith(trimmed, 't=')) {",
+                    },
+                    {
+                        "from_string": "if (trimmed like 'v1=%') {",
+                        "to_string": "if (startsWith(trimmed, 'v1=')) {",
+                    },
+                ],
+            },
             "microsoft-ads-capi-normalization": {
-                "template_id": "template-microsoft-ads",
+                "template_ids": ["template-microsoft-ads"],
                 "replacements": [
                     {
                         "from_string": """if (not empty(inputs.email)) {
@@ -249,7 +266,9 @@ if (not empty(inputs.phone)) {
         replaceOption = replaceOptions[replace_key]
 
         queryset = HogFunction.objects.filter(
-            type="destination", deleted=False, template_id=replaceOption["template_id"]
+            type__in=replaceOption.get("function_types", ["destination"]),
+            deleted=False,
+            template_id__in=replaceOption["template_ids"],
         )
 
         updated_count = 0
@@ -287,7 +306,7 @@ if (not empty(inputs.phone)) {
 
                 # A single destination with uncompilable (e.g. hand-edited) hog must not abort the whole run.
                 try:
-                    # The queryset filters on type="destination", so the type is set.
+                    # The queryset filters on type, so the type is set.
                     new_bytecode = compile_hog(new_hog, cast(str, destination.type))
                 except Exception as e:
                     failed.append((str(destination.id), destination.team_id, destination.enabled, str(e)))

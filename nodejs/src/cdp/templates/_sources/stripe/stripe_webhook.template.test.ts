@@ -131,6 +131,25 @@ describe('stripe webhook template', () => {
         })
     })
 
+    it.each([
+        ['an unknown field after the signature', (t: number, v1: string) => `t=${t},v1=${v1},attempt=2`],
+        ['an unknown field before the timestamp', (t: number, v1: string) => `sdk_hint=abc,t=${t},v1=${v1}`],
+        ['the signature before the timestamp', (t: number, v1: string) => `v1=${v1},t=${t}`],
+        ['a v0 signature', (t: number, v1: string) => `t=${t},v1=${v1},v0=deadbeef`],
+    ])('should accept a stripe-signature header with %s', async (_, formatHeader) => {
+        const response = await tester.invoke(
+            {
+                signing_secret: 'whsec_testsecret',
+            },
+            {
+                request: createStripeWebhook('whsec_testsecret', undefined, formatHeader),
+            }
+        )
+
+        expect(response.execResult).toBeUndefined()
+        expect(response.capturedPostHogEvents).toHaveLength(1)
+    })
+
     it.each([null, '', undefined])(
         'should return 400 if signing_secret is %s and bypass_signature_check is false',
         async (signing_secret) => {
@@ -195,7 +214,11 @@ describe('stripe webhook template', () => {
     })
 })
 
-const createStripeWebhook = (secret: string, body?: Record<string, any>) => {
+const createStripeWebhook = (
+    secret: string,
+    body?: Record<string, any>,
+    formatHeader = (timestamp: number, signature: string): string => `t=${timestamp},v1=${signature}`
+) => {
     const payload = JSON.stringify({
         ...(body ? body : stripeWebhook),
     })
@@ -203,7 +226,7 @@ const createStripeWebhook = (secret: string, body?: Record<string, any>) => {
     const timestamp = Math.floor(Date.now() / 1000)
     const signature = crypto.createHmac('sha256', secret).update(`${timestamp}.${payload}`, 'utf8').digest('hex')
 
-    const sigHeader = `t=${timestamp},v1=${signature}`
+    const sigHeader = formatHeader(timestamp, signature)
 
     return {
         method: 'POST',

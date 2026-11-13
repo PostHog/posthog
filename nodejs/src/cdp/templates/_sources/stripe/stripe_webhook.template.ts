@@ -48,13 +48,13 @@ if (not inputs.bypass_signature_check) {
   
   for (let _, part in headerParts) {
       let trimmed := trim(part)
-      if (trimmed like 't=%') {
+      if (startsWith(trimmed, 't=')) {
           let tParts := splitByString('=', trimmed, 2)
           if (length(tParts) = 2) {
               timestamp := tParts[2]
           }
       }
-      if (trimmed like 'v1=%') {
+      if (startsWith(trimmed, 'v1=')) {
           let v1Parts := splitByString('=', trimmed, 2)
           if (length(v1Parts) = 2) {
               v1Signature := v1Parts[2]

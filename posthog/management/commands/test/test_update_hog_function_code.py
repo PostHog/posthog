@@ -385,7 +385,7 @@ class TestUpdateHogFunctionCode(BaseTest):
         self.assertIn("Failed: 1", output)
         self.assertIn(str(bad_function.id), output)
 
-    @patch("products.cdp.backend.validation.compile_hog")
+    @patch("posthog.management.commands.update_hog_function_code.compile_hog")
     def test_invalid_replace_key(self, mock_compile_hog):
         """Test handling of invalid replace key."""
         out = StringIO()
@@ -405,7 +405,7 @@ class TestUpdateHogFunctionCode(BaseTest):
         output = out.getvalue()
         self.assertIn("Invalid replace key provided: None", output)
 
-    @patch("products.cdp.backend.validation.compile_hog")
+    @patch("posthog.management.commands.update_hog_function_code.compile_hog")
     def test_no_matching_functions(self, mock_compile_hog):
         """Test when no functions match the criteria."""
         # Delete all LinkedIn functions
@@ -619,3 +619,43 @@ class TestUpdateHogFunctionCode(BaseTest):
         assert "'dataProvider': 'posthog'" in stale.hog
         assert edited.hog == edited_hog
         compile_hog_for_check(stale.hog, "destination")
+
+    @parameterized.expand(
+        [
+            ("source_webhook", "template-source-stripe-webhook"),
+            ("warehouse_source_webhook", "template-warehouse-source-stripe"),
+        ]
+    )
+    def test_stripe_signature_header_parsing_migration(self, function_type, template_id) -> None:
+        stale_hog = (
+            "let timestamp := null\n"
+            "let v1Signature := null\n"
+            "for (let _, part in splitByString(',', request.headers['stripe-signature'])) {\n"
+            "    let trimmed := trim(part)\n"
+            "    if (trimmed like 't=%') {\n"
+            "        timestamp := splitByString('=', trimmed, 2)[2]\n"
+            "    }\n"
+            "    if (trimmed like 'v1=%') {\n"
+            "        v1Signature := splitByString('=', trimmed, 2)[2]\n"
+            "    }\n"
+            "}\n"
+        )
+        with patch("products.cdp.backend.models.hog_functions.hog_function.reload_hog_functions_on_workers"):
+            function = HogFunction.objects.create(
+                team=self.team,
+                name="Stripe webhook",
+                type=function_type,
+                template_id=template_id,
+                hog=stale_hog,
+                enabled=True,
+            )
+
+            for expected in ("Updated: 1", "Updated: 0"):
+                out = StringIO()
+                call_command("update_hog_function_code", replace_key="stripe-signature-header-parsing", stdout=out)
+                self.assertIn(expected, out.getvalue())
+
+        function.refresh_from_db()
+        assert "if (startsWith(trimmed, 't=')) {" in function.hog
+        assert "if (startsWith(trimmed, 'v1=')) {" in function.hog
+        assert function.bytecode == compile_hog_for_check(function.hog, function_type)
