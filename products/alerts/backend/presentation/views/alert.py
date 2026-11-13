@@ -1867,7 +1867,14 @@ def _show_copy_settings(alerts: list[AlertConfiguration]) -> None:
                 created_at=alert.created_at,
             )
         else:
-            alert.threshold.configuration = settings.threshold
+            # A new object, because a threshold that embeds this alert can share the one it holds.
+            alert.threshold = Threshold(
+                id=alert.threshold.id,
+                team_id=alert.team_id,
+                insight_id=alert.threshold.insight_id,
+                configuration=settings.threshold,
+                created_at=alert.threshold.created_at,
+            )
 
 
 def _show_platform_status(alerts: list[AlertConfiguration], *, now: datetime) -> None:
