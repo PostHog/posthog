@@ -1400,7 +1400,6 @@ def _stop_run_for_runtime_handoff(
     Two runs that both answer the thread are worse than a refusal.
     """
     from products.slack_app.backend.facade.run_preferences import describe_run_model, resolve_live_run_override
-    from products.slack_app.backend.feature_flags import is_slack_app_runtime_handoff_enabled
     from products.tasks.backend.facade import cancellation as tasks_cancellation
 
     if override is None or not override.model:
@@ -1428,11 +1427,6 @@ def _stop_run_for_runtime_handoff(
         slack_user_id=slack_user_id,
         actor_user=actor_user,
     )
-    # Captured with the flag off too, so the refusals show how many people ask for a runtime change.
-    if not is_slack_app_runtime_handoff_enabled(integration, actor_user.distinct_id if actor_user else None):
-        capture("flag_off")
-        return None
-
     try:
         outcome, _ = tasks_cancellation.cancel_task_run(
             task_run.id,

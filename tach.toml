@@ -1021,6 +1021,7 @@ depends_on = [
     "products.feature_flags",
     "products.notebooks",
     "products.product_analytics",
+    "products.security",
     "products.signals",
     "products.surveys",
     "products.tasks", "products.access_control",

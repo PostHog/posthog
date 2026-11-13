@@ -80,8 +80,12 @@ function checkNames(card: Card, definitions: Definitions): string[] {
             if (!definition) {
                 return [`valves.${i}.valve: unknown valve ${entry.valve}`]
             }
+            const target = definition.target.safeParse(entry.target)
             const dose = definition.params.safeParse(entry.dose)
-            return dose.success ? [] : problemsOf(dose.error, `valves.${i}.dose`)
+            return [
+                ...(target.success ? [] : problemsOf(target.error, `valves.${i}.target`)),
+                ...(dose.success ? [] : problemsOf(dose.error, `valves.${i}.dose`)),
+            ]
         }),
     ]
 }

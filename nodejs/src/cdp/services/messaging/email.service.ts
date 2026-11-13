@@ -7,6 +7,7 @@ import { Counter, Histogram } from 'prom-client'
 import { CyclotronInvocationQueueParametersEmailType, EmailAttachmentMetadata } from '~/cdp/schema/cyclotron'
 import { HogFlowEmailSendingRateLimit, HogFlowEmailSendingRateLimitSchema } from '~/cdp/schema/hogflow'
 import {
+    CyclotronJobInvocation,
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
     HogFunctionType,
@@ -62,7 +63,7 @@ import {
     TRACKING_CODE_HEADER_NAME,
 } from './helpers/tracking-code'
 import { transactionalEmailIdentity, transactionalEmailIdentityTags } from './helpers/transactional-email-identity'
-import { callsSettledBefore, declaredFileBytes, exceedsLargestSend } from './in-flight-registry'
+import { callsSettledBefore, declaredFileBytes, exceedsLargestSend, settledBeforeAbort } from './in-flight-registry'
 import { MessageAssetsService } from './message-assets.service'
 import { MESSAGE_MAX_BYTES, estimateMessageBytes } from './message-estimate'
 import {
@@ -143,6 +144,12 @@ const sesSendResultsTotal = new Counter({
     labelNames: ['result'],
 })
 
+const emailSendsStoppedForJobOwnershipTotal = new Counter({
+    name: 'cdp_email_sends_stopped_for_job_ownership_total',
+    help: 'Emails a worker did not send right before the send, by reason: lost_job (a janitor reset gave the job to another worker, which sends it) or check_failed (the ownership read failed or did not answer in time, so the send waits for a retry).',
+    labelNames: ['reason'],
+})
+
 const sesSendDurationMs = new Histogram({
     name: 'cdp_ses_send_duration_ms',
     help: 'Duration of the SES SendEmail call in milliseconds, by whether SES accepted the email (success or error).',
@@ -196,7 +203,9 @@ const EMAIL_ATTACHMENTS_MISSING = 'attachments_missing'
 const EMAIL_ATTACHMENT_UNAVAILABLE = 'attachment_unavailable'
 const EMAIL_MESSAGE_TOO_LARGE = 'message_too_large'
 const MAX_ATTACHMENT_LOAD_RETRIES = 10
+const MAX_OWNERSHIP_CHECK_RETRIES = 5
 export const ATTACHMENT_SEND_DEADLINE_MS = 17_000
+const OWNERSHIP_CHECK_TIMEOUT_MS = 5_000
 
 class EmailSendDeadlineError extends Error {
     constructor(cause: unknown) {
@@ -204,6 +213,8 @@ class EmailSendDeadlineError extends Error {
         this.name = 'EmailSendDeadlineError'
     }
 }
+
+export type JobOwnershipCheck = (invocation: CyclotronJobInvocation) => Promise<boolean>
 
 class MessageTooLargeError extends Error {
     constructor() {
@@ -482,6 +493,7 @@ export interface EmailServiceConfig {
     workflowRunLinkTagTeams?: string
     templateTagsTeams?: string
     attachmentSendDeadlineMs?: number
+    ownershipCheckTimeoutMs?: number
 }
 
 /**
@@ -565,6 +577,7 @@ export class EmailService {
 
     private recipientTokensService: RecipientTokensService
     private workflowRunLinkTagTeams: ValueMatcher<number>
+    private stillOwnsJob: JobOwnershipCheck = () => Promise.resolve(true)
     private templateTagsTeams: ValueMatcher<number>
 
     constructor(
@@ -594,6 +607,26 @@ export class EmailService {
         this.recipientTokensService = new RecipientTokensService(encryptionSaltKeys, siteUrl)
         this.workflowRunLinkTagTeams = buildIntegerMatcher(this.sesConfig.workflowRunLinkTagTeams, true)
         this.templateTagsTeams = buildIntegerMatcher(this.sesConfig.templateTagsTeams, true)
+    }
+
+    public checkJobOwnershipBeforeSend(stillOwnsJob: JobOwnershipCheck): void {
+        this.stillOwnsJob = stillOwnsJob
+    }
+
+    private async jobOwnershipBeforeSend(
+        invocation: CyclotronJobInvocation,
+        deadline: AbortSignal
+    ): Promise<'owner' | 'lost_job' | 'check_failed'> {
+        try {
+            const owns = await settledBeforeAbort(deadline, this.stillOwnsJob(invocation))
+            return owns ? 'owner' : 'lost_job'
+        } catch (error) {
+            logger.warn('Could not check job ownership before an email send', {
+                invocationId: invocation.id,
+                error: String(error),
+            })
+            return 'check_failed'
+        }
     }
 
     private utmTaggingFor(
@@ -839,7 +872,11 @@ export class EmailService {
             // limiter's Valkey is down claimUpTo returns 0, so sends wait (never drop) until it
             // recovers — same fail-closed stance as the global SES gate.
             const workflowRateLimit = parseWorkflowEmailRateLimit(invocation.hogFunction.metadata)
-            if (workflowRateLimit && this.workflowEmailRateLimiter && !isTest) {
+            const sendStep = invocation.state.actionId
+                ? `${invocation.state.actionId}:${invocation.state.actionStepCount ?? 0}`
+                : invocation.id
+            let workflowRateClaimed = invocation.queueMetadata?.workflowRateClaimed === sendStep
+            if (workflowRateLimit && this.workflowEmailRateLimiter && !isTest && !workflowRateClaimed) {
                 const periodSeconds = workflowRateLimit.period === 'minute' ? 60 : 3600
                 const refillPerSecond = workflowRateLimit.count / periodSeconds
                 // Burst capacity is about one second of budget, not the full count: a bucket that
@@ -876,6 +913,7 @@ export class EmailService {
                     )
                     return result
                 }
+                workflowRateClaimed = true
             }
 
             // Project-wide pacing from the team's trust tier. Sits next to the per-workflow limit
@@ -928,10 +966,44 @@ export class EmailService {
                   }
                 : paramsWithReplyTo
 
-            const deadline = params.attachments?.length
-                ? AbortSignal.timeout(this.sesConfig.attachmentSendDeadlineMs ?? ATTACHMENT_SEND_DEADLINE_MS)
-                : undefined
+            const sendDeadlineMs = this.sesConfig.attachmentSendDeadlineMs ?? ATTACHMENT_SEND_DEADLINE_MS
+            const sendDeadlineAt = Date.now() + sendDeadlineMs
+            const deadline = params.attachments?.length ? AbortSignal.timeout(sendDeadlineMs) : undefined
             const files = deadline ? await this.loadAttachments(invocation.teamId, params.attachments!, deadline) : []
+            const ownershipCheckRetries: number = invocation.queueMetadata?.ownershipCheckRetries ?? 0
+            const ownershipCheckTimeoutMs = this.sesConfig.ownershipCheckTimeoutMs ?? OWNERSHIP_CHECK_TIMEOUT_MS
+            const halfTheSendTimeLeftMs = Math.max(0, Math.floor((sendDeadlineAt - Date.now()) / 2))
+            const ownership = isTest
+                ? 'owner'
+                : await this.jobOwnershipBeforeSend(
+                      invocation,
+                      AbortSignal.timeout(
+                          deadline ? Math.min(ownershipCheckTimeoutMs, halfTheSendTimeLeftMs) : ownershipCheckTimeoutMs
+                      )
+                  )
+            const sendsAfterFailedChecks =
+                ownership === 'check_failed' && ownershipCheckRetries >= MAX_OWNERSHIP_CHECK_RETRIES
+            if (ownership !== 'owner' && !sendsAfterFailedChecks) {
+                const retries = ownershipCheckRetries + 1
+                emailSendsStoppedForJobOwnershipTotal.inc({ reason: ownership })
+                logger.warn('Stopped an email send right before it because this worker may not hold its job', {
+                    invocationId: invocation.id,
+                    teamId: invocation.teamId,
+                    reason: ownership,
+                })
+                result.finished = false
+                result.invocation.queueParameters = params
+                result.invocation.queueMetadata = {
+                    ...invocation.queueMetadata,
+                    ownershipCheckRetries: retries,
+                    ...(teamBudgetCharged ? { teamBudgetClaimed: true } : {}),
+                    ...(workflowRateClaimed ? { workflowRateClaimed: sendStep } : {}),
+                }
+                result.invocation.queueScheduledAt = DateTime.utc().plus({
+                    milliseconds: pickAttachmentLoadRetryDelayMs(retries),
+                })
+                return result
+            }
 
             if (provider === 'maildev') {
                 await this.sendEmailWithMaildev(result, sendParams, from, trackingEnabled, isTest, files)
