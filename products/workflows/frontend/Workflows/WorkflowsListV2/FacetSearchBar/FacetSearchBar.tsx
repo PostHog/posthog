@@ -15,6 +15,11 @@ import {
 } from './facetQuery'
 import { facetSearchBarLogic } from './facetSearchBarLogic'
 
+/**
+ * Pass `facets`, `items` and `matchesText` as the same references on every render, such as module constants or
+ * memoized values. The bar caches its value counts per reference, so a new reference recounts every item on each
+ * keystroke.
+ */
 export interface FacetSearchBarProps<TItem> {
     facets: FacetDefinition<TItem>[]
     /** Loaded items. Suggestions and their counts come from these; the bar never fetches. */
