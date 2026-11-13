@@ -62804,6 +62804,18 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `app` - App
+     * * `agent` - Agent
+     */
+    export type InboxOnboardingOriginEnum = typeof InboxOnboardingOriginEnum[keyof typeof InboxOnboardingOriginEnum];
+
+
+    export const InboxOnboardingOriginEnum = {
+      App: 'app',
+      Agent: 'agent',
+    } as const;
+
+    /**
      * * `signals` - Signals
      * * `scouts` - Scouts
      * * `github` - GitHub
@@ -63367,6 +63379,11 @@ export namespace Schemas {
     }
 
     export interface InboxOnboardingDraft {
+      /** Where setup started: the app or a link from an agent.
+       *
+       * * `app` - App
+       * * `agent` - Agent */
+      onboarding_origin?: InboxOnboardingOriginEnum;
       /** Activate the GitHub-optional pilot. Requires project eligibility and leaves automatic implementation off.
        *
        * * `github_optional` - GitHub optional */
@@ -63407,6 +63424,14 @@ export namespace Schemas {
        * * `P3` - P3
        * * `P4` - P4 */
       implementation_priority: AutonomyPriorityEnum;
+    }
+
+    export interface InboxOnboardingExposure {
+      /** Where setup started: the app or a link from an agent.
+       *
+       * * `app` - App
+       * * `agent` - Agent */
+      onboarding_origin?: InboxOnboardingOriginEnum;
     }
 
     /**

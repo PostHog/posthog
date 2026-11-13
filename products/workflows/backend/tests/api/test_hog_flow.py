@@ -9439,7 +9439,7 @@ class TestRunScoutActionValidation(APIBaseTest):
             assert live_inputs["note"]["value"] == "PR #{event.properties.pr_number}"
         else:
             assert publish.status_code == status.HTTP_400_BAD_REQUEST, publish.json()
-            assert publish.json()["attr"] == "actions__1__inputs__note"
+            assert "requires editor access to skills" in publish.json()["detail"], publish.json()
             assert "note" not in live_inputs
 
 
