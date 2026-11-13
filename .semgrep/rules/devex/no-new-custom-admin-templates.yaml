@@ -1,0 +1,26 @@
+rules:
+    - id: no-new-custom-admin-templates
+      message: |
+          Django admin loads a template under templates/admin/ by its path alone, and a widget or a
+          Media class loads files under static/admin/. So this file adds a custom admin page, widget or
+          script without the Python rule seeing it. New staff pages and editors go in the PostHog
+          Admin console; see posthog/admin/console/AGENTS.md. Django admin stays for plain CRUD with
+          its default widgets.
+          Pre-existing findings are grandfathered; only newly introduced findings block CI.
+      languages: [generic]
+      severity: WARNING
+      # One finding per file, starting on its first line, so leading blank lines cannot hide a file. A
+      # leading "ruleid:" or "ok:" line is a semgrep test annotation, so fixtures report the line after it.
+      pattern-regex: \A(?:[^\n]*(?:ruleid|ok)\:[^\n]*\n)?\K\s*\S
+      paths:
+          include:
+              - '**/templates/admin/**'
+              - '**/static/admin/**'
+          exclude:
+              # Admin chrome on every page: the favicon, the impersonation banner and the link to PostHog Admin.
+              # It adds no staff page or workflow, so it stays when the other overrides are gone.
+              - posthog/templates/admin/base_site.html
+      metadata:
+          category: maintainability
+          subcategory: audit
+          confidence: HIGH
