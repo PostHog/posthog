@@ -21,6 +21,9 @@ import { KpiTiles } from '../dashboard/KpiTiles'
 import { ModelBarChart } from '../dashboard/ModelBarChart'
 import { NotableSessionsTable } from '../dashboard/NotableSessionsTable'
 import { ToolErrorRateChart } from '../dashboard/ToolErrorRateChart'
+import { MCP_ANALYTICS_DASHBOARD_FEEDBACK_PROMPT } from '../feedback/constants'
+import { MCPAnalyticsFeedbackPrompt } from '../feedback/MCPAnalyticsFeedbackPrompt'
+import { MCPAnalyticsFirstLook } from '../firstLook/MCPAnalyticsFirstLook'
 import { mcpDashboardOverviewLogic, rankedToolsEmptyMessage, rankToolsByErrorRate } from '../mcpDashboardOverviewLogic'
 import { FacetShareCard } from './FacetShareCard'
 import { LabScoreboard } from './LabScoreboard'
@@ -50,6 +53,8 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
         toolRows,
         failedLoads,
         loadingSections,
+        canShowFeedback,
+        feedbackContextKey,
     } = useValues(mcpDashboardOverviewLogic)
     const { setDateFilter, reloadAll, markFilterInteraction, openToolReport, loadSections } =
         useActions(mcpDashboardOverviewLogic)
@@ -119,6 +124,12 @@ export function MCPAnalyticsLeaderboardHome(): JSX.Element {
                     dataAttr="mcp-dashboard-date-filter"
                 />
             </McpSharedFilters>
+            <MCPAnalyticsFeedbackPrompt
+                contextKey={feedbackContextKey}
+                eligible={canShowFeedback}
+                prompt={MCP_ANALYTICS_DASHBOARD_FEEDBACK_PROMPT}
+            />
+            <MCPAnalyticsFirstLook />
 
             <Section title="Key metrics">
                 <KpiTiles

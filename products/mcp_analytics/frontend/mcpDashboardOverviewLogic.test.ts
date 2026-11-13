@@ -28,14 +28,11 @@ import {
     buildKPIs,
     rankToolsByErrorRate,
     rankToolsByP95,
-    buildToolDailySeries,
-    type DashboardLayout,
     deltaPct,
     mcpDashboardOverviewLogic,
     pickNotableSessions,
     type SessionRow,
     type ToolRow,
-    type ToolDailyRow,
 } from './mcpDashboardOverviewLogic'
 
 jest.mock('lib/api')
@@ -102,9 +99,8 @@ function queriesSince(callIndex: number): MCPDashboardQuery[] {
     return mockApi.query.mock.calls.slice(callIndex).map((call) => call[0] as MCPDashboardQuery)
 }
 
-function useLayout(layout: DashboardLayout, batched = true): void {
+function useBatch(batched = true): void {
     const flags: Record<string, boolean> = {
-        [FEATURE_FLAGS.MCP_ANALYTICS_LEADERBOARD_HOME]: layout === 'leaderboard',
         [FEATURE_FLAGS.MCP_ANALYTICS_DASHBOARD_BATCH]: batched,
     }
     featureFlagLogic.actions.setFeatureFlags(
@@ -226,59 +222,6 @@ describe('mcpDashboardOverviewLogic', () => {
             [100, 0, null],
         ])('deltaPct(%s, %s) = %s', (current, previous, expected) => {
             expect(deltaPct(current, previous)).toBe(expected)
-        })
-    })
-
-    describe('buildToolDailySeries', () => {
-        it('pivots flat rows into sorted day labels and per-tool series ordered by volume', () => {
-            const rows: ToolDailyRow[] = [
-                { day: '2024-01-02', tool: 'a', calls: 5 },
-                { day: '2024-01-01', tool: 'a', calls: 3 },
-                { day: '2024-01-01', tool: 'b', calls: 10 },
-            ]
-            expect(buildToolDailySeries(rows)).toEqual({
-                labels: ['2024-01-01', '2024-01-02'],
-                tools: [
-                    { tool: 'b', data: [10, 0] },
-                    { tool: 'a', data: [3, 5] },
-                ],
-            })
-        })
-
-        it('keeps the top 8 tools and folds the rest into a single "Other" series', () => {
-            // 10 tools on one day, each with a distinct volume (tool-0 busiest … tool-9 quietest).
-            const rows: ToolDailyRow[] = Array.from({ length: 10 }, (_, i) => ({
-                day: '2024-01-01',
-                tool: `tool-${i}`,
-                calls: 100 - i,
-            }))
-            const { tools } = buildToolDailySeries(rows)
-            expect(tools).toHaveLength(9) // 8 named + Other
-            expect(tools.slice(0, 8).map((t) => t.tool)).toEqual([
-                'tool-0',
-                'tool-1',
-                'tool-2',
-                'tool-3',
-                'tool-4',
-                'tool-5',
-                'tool-6',
-                'tool-7',
-            ])
-            // Other = tool-8 (92) + tool-9 (91)
-            expect(tools[8]).toEqual({ tool: 'Other', data: [183] })
-        })
-
-        it('spans the supplied bucket keys and zero-fills days without calls', () => {
-            const rows: ToolDailyRow[] = [{ day: '2024-01-02', tool: 'a', calls: 5 }]
-            const bucketKeys = ['2024-01-01', '2024-01-02', '2024-01-03']
-            expect(buildToolDailySeries(rows, bucketKeys)).toEqual({
-                labels: bucketKeys,
-                tools: [{ tool: 'a', data: [0, 5, 0] }],
-            })
-        })
-
-        it('returns empty tools with the supplied labels when there are no rows', () => {
-            expect(buildToolDailySeries([], ['2024-01-01'])).toEqual({ labels: ['2024-01-01'], tools: [] })
         })
     })
 
@@ -489,7 +432,7 @@ describe('mcpDashboardOverviewLogic', () => {
         beforeEach(() => {
             jest.clearAllMocks()
             initKeaTests()
-            useLayout('overview')
+            useBatch()
             mockSections()
         })
 
@@ -501,38 +444,36 @@ describe('mcpDashboardOverviewLogic', () => {
             return logic
         }
 
-        // The leaderboard renders its own protocol and tool facets, so it must not pay for the
-        // overview-only breakdowns. It keeps modelRows as the model chart's fallback.
-        it.each([
-            {
-                layout: 'overview' as const,
-                includes: [
-                    MCPDashboardSection.Kpis,
-                    MCPDashboardSection.PeriodTotals,
-                    MCPDashboardSection.ToolDailyRows,
-                ],
-                excludes: [MCPDashboardSection.Reliability, MCPDashboardSection.Model],
-            },
-            {
-                layout: 'leaderboard' as const,
-                includes: [MCPDashboardSection.Kpis, MCPDashboardSection.ModelRows, MCPDashboardSection.Reliability],
-                excludes: [MCPDashboardSection.ProtocolVersionRows, MCPDashboardSection.ToolDailyRows],
-            },
-        ])('loads the $layout layout in one request', async ({ layout, includes, excludes }) => {
-            useLayout(layout)
+        // The leaderboard renders its own protocol and tool facets, so it must not pay for the protocol
+        // version and daily tool breakdowns. It keeps modelRows as the model chart's fallback.
+        it('records one dashboard view per visit', async () => {
+            await mountDashboard()
+
+            const views = (posthog.capture as jest.Mock).mock.calls.filter(
+                ([event]) => event === 'mcp analytics dashboard viewed'
+            )
+            expect(views).toHaveLength(1)
+        })
+
+        it('loads the leaderboard sections in one request', async () => {
             await mountDashboard()
 
             const queries = queriesSince(0)
             expect(queries).toHaveLength(1)
-            expect(queries[0].sections).toEqual(expect.arrayContaining(includes))
-            expect(queries[0].sections.filter((section) => excludes.includes(section))).toEqual([])
+            expect(queries[0].sections).toEqual(
+                expect.arrayContaining([
+                    MCPDashboardSection.Kpis,
+                    MCPDashboardSection.ModelRows,
+                    MCPDashboardSection.Reliability,
+                ])
+            )
+            expect(queries[0].sections).not.toContain(MCPDashboardSection.ProtocolVersionRows)
+            expect(queries[0].sections).not.toContain(MCPDashboardSection.ToolDailyRows)
         })
 
-        it.each([
-            { layout: 'overview' as const, requests: 9 },
-            { layout: 'leaderboard' as const, requests: 14 },
-        ])('sends one request per section in the $layout baseline arm', async ({ layout, requests }) => {
-            useLayout(layout, false)
+        it('sends one request per section in the baseline arm', async () => {
+            const requests = 14
+            useBatch(false)
             mockSections((section) => (section === MCPDashboardSection.PeriodTotals ? [[42, 30, 900, 600]] : []))
             const logic = await mountDashboard()
 
@@ -544,7 +485,7 @@ describe('mcpDashboardOverviewLogic', () => {
         })
 
         it('shows a section in the baseline arm while slower sections are still loading', async () => {
-            useLayout('overview', false)
+            useBatch(false)
             const pending = deferQueries()
             const logic = mcpDashboardOverviewLogic()
             logic.mount()
@@ -594,9 +535,7 @@ describe('mcpDashboardOverviewLogic', () => {
                 { failing: MCPDashboardSection.SessionRows, toasts: false },
                 { failing: MCPDashboardSection.HarnessRows, toasts: false },
                 { failing: MCPDashboardSection.ModelRows, toasts: true },
-                { failing: MCPDashboardSection.ProtocolVersionRows, toasts: true },
                 { failing: MCPDashboardSection.ActivityRows, toasts: false },
-                { failing: MCPDashboardSection.ToolDailyRows, toasts: false },
             ].flatMap((row) => [
                 { ...row, batched: true, captured: 0 },
                 { ...row, batched: false, captured: 1 },
@@ -604,7 +543,7 @@ describe('mcpDashboardOverviewLogic', () => {
         )(
             'flags and retries only the $failing card when its section fails (batched $batched)',
             async ({ failing, toasts, batched, captured }) => {
-                useLayout('overview', batched)
+                useBatch(batched)
                 const toastError = jest.spyOn(lemonToast, 'error')
                 const answers: Partial<Record<MCPDashboardSection, unknown[]>> = {
                     [MCPDashboardSection.PeriodTotals]: [[42, 30, 900, 600]],
@@ -637,31 +576,15 @@ describe('mcpDashboardOverviewLogic', () => {
         )
 
         it.each([
-            { layout: 'overview' as const, batched: true, error: new Error('Failed to fetch'), failed: 9 },
-            {
-                layout: 'overview' as const,
-                batched: true,
-                error: { status: 403, detail: 'You do not have access.' },
-                failed: 9,
-            },
-            { layout: 'overview' as const, batched: true, error: { status: 500, detail: 'Server error' }, failed: 9 },
-            { layout: 'overview' as const, batched: false, error: new Error('Failed to fetch'), failed: 9 },
-            {
-                layout: 'overview' as const,
-                batched: false,
-                error: { status: 403, detail: 'You do not have access.' },
-                failed: 9,
-            },
-            {
-                layout: 'leaderboard' as const,
-                batched: true,
-                error: { status: 500, detail: 'Server error' },
-                failed: 14,
-            },
+            { batched: true, error: new Error('Failed to fetch') },
+            { batched: true, error: { status: 403, detail: 'You do not have access.' } },
+            { batched: true, error: { status: 500, detail: 'Server error' } },
+            { batched: false, error: new Error('Failed to fetch') },
+            { batched: false, error: { status: 403, detail: 'You do not have access.' } },
         ])(
-            'clears the previous rows without a toast when the $layout request fails: batched $batched, $error',
-            async ({ layout, batched, error, failed }) => {
-                useLayout(layout, batched)
+            'clears the previous rows without a toast when the request fails: batched $batched, $error',
+            async ({ batched, error }) => {
+                useBatch(batched)
                 const toastError = jest.spyOn(lemonToast, 'error')
                 const answers: Partial<Record<MCPDashboardSection, unknown[]>> = {
                     [MCPDashboardSection.ToolRows]: [['search_docs', 4, 1, 25, 120]],
@@ -676,7 +599,7 @@ describe('mcpDashboardOverviewLogic', () => {
 
                 expect(logic.values.toolRows).toEqual([])
                 expect(mcpLeaderboardHomeLogic.values.facets.tool).toEqual([])
-                expect(Object.keys(logic.values.failedLoads)).toHaveLength(failed)
+                expect(Object.keys(logic.values.failedLoads)).toHaveLength(14)
                 expect(toastError).not.toHaveBeenCalled()
                 expect(timeToSeeDataEvents().map((event) => event.status)).toEqual(['success', 'failure'])
             }
@@ -704,7 +627,7 @@ describe('mcpDashboardOverviewLogic', () => {
                 { ...row, batched: false },
             ])
         )('flags only the leaderboard $failing card when its section fails (batched $batched)', async (row) => {
-            useLayout('leaderboard', row.batched)
+            useBatch(row.batched)
             const toastError = jest.spyOn(lemonToast, 'error')
             const answers: Partial<Record<MCPDashboardSection, unknown[]>> = {
                 [MCPDashboardSection.Model]: [['2026-11-01', 'claude-sonnet-5', 4]],
@@ -723,11 +646,11 @@ describe('mcpDashboardOverviewLogic', () => {
 
         it.each([
             { batched: true, requests: 1 },
-            { batched: false, requests: 9 },
+            { batched: false, requests: 14 },
         ])(
             'ignores the failure of a request a newer load replaced (batched $batched)',
             async ({ batched, requests }) => {
-                useLayout('overview', batched)
+                useBatch(batched)
                 const rejects: ((error: Error) => void)[] = []
                 mockApi.query.mockImplementation(() => new Promise((_, reject) => rejects.push(reject)))
                 const logic = mcpDashboardOverviewLogic()
@@ -743,29 +666,6 @@ describe('mcpDashboardOverviewLogic', () => {
                 expect(timeToSeeDataEvents()).toEqual([])
             }
         )
-
-        it('reloads with the leaderboard sections when its flag resolves after mount', async () => {
-            await mountDashboard()
-
-            await expectLogic(mcpDashboardOverviewLogic, () => useLayout('leaderboard')).toFinishAllListeners()
-
-            const queries = queriesSince(1)
-            expect(queries).toHaveLength(1)
-            expect(queries[0].sections).toContain(MCPDashboardSection.Reliability)
-        })
-
-        it('stops counting the sections of a replaced layout as loading', async () => {
-            const pending = deferQueries()
-            const logic = mcpDashboardOverviewLogic()
-            logic.mount()
-
-            useLayout('leaderboard')
-            pending.answerAt(1)
-            await expectLogic(logic).delay(0)
-
-            expect(logic.values.loadingSections).toEqual({})
-            expect(logic.values.dashboardLoading).toBe(false)
-        })
 
         it.each([{ searchParams: {} }, { searchParams: { date_from: '-30d' } }])(
             'reports a load the dashboard leaves unfinished as cancelled: $searchParams',
@@ -787,18 +687,18 @@ describe('mcpDashboardOverviewLogic', () => {
         // The time to see data event carries the flag's value when it is sent, so the load it measures must
         // be the batched one, not the baseline load the late flag replaced.
         it('reloads in one request when the batch flag resolves after mount', async () => {
-            useLayout('overview', false)
+            useBatch(false)
             const pending = deferQueries()
             const logic = mcpDashboardOverviewLogic()
             logic.mount()
-            expect(queriesSince(0)).toHaveLength(9)
+            expect(queriesSince(0)).toHaveLength(14)
 
-            useLayout('overview', true)
-            const reload = queriesSince(9)
+            useBatch(true)
+            const reload = queriesSince(14)
             expect(reload).toHaveLength(1)
-            expect(reload[0].sections).toHaveLength(9)
+            expect(reload[0].sections).toHaveLength(14)
 
-            pending.answerAt(9)
+            pending.answerAt(14)
             await expectLogic(logic).delay(0)
             expect(timeToSeeDataEvents().map((event) => event.status)).toEqual(['success'])
 
@@ -813,7 +713,7 @@ describe('mcpDashboardOverviewLogic', () => {
             { batched: false, failing: null, status: 'success' },
             { batched: false, failing: MCPDashboardSection.HarnessRows, status: 'failure' },
         ])('reports time to see data as $status once per load (batched $batched)', async (row) => {
-            useLayout('overview', row.batched)
+            useBatch(row.batched)
             mockSections((section) => (section === row.failing ? new Error('Query failed') : []))
             await mountDashboard()
 
@@ -853,21 +753,11 @@ describe('mcpDashboardOverviewLogic', () => {
                 rows: [{ model: 'claude-sonnet-5', total_calls: 0 }],
                 visible: false,
             },
-            { section: MCPDashboardSection.ProtocolVersionRows, rows: [], visible: false },
-            {
-                section: MCPDashboardSection.ProtocolVersionRows,
-                rows: [{ protocol_version: 'Unknown', is_current: false, total_calls: 12 }],
-                visible: true,
-            },
         ])('shows $section coverage only when calls exist: $rows', async ({ section, rows, visible }) => {
             mockSections((requested) => (requested === section ? rows : []))
             const logic = await mountDashboard()
 
-            const shown =
-                section === MCPDashboardSection.ModelRows
-                    ? logic.values.hasModelData
-                    : logic.values.hasProtocolVersionData
-            expect(shown).toBe(visible)
+            expect(logic.values.hasModelData).toBe(visible)
         })
     })
 
@@ -875,7 +765,7 @@ describe('mcpDashboardOverviewLogic', () => {
         beforeEach(() => {
             jest.clearAllMocks()
             initKeaTests()
-            useLayout('overview')
+            useBatch()
             mockSections()
         })
 
@@ -891,7 +781,7 @@ describe('mcpDashboardOverviewLogic', () => {
 
             const queries = queriesSince(callsBefore)
             expect(queries).toHaveLength(1)
-            expect(queries[0].sections).toHaveLength(9)
+            expect(queries[0].sections).toHaveLength(14)
             expect(queries[0].dateRange).toEqual({ date_from: '-30d', date_to: null })
             // The KPI tiles compare against an absolute window one period earlier.
             expect(dayjs(queries[0].comparison.dateFrom).isValid()).toBe(true)

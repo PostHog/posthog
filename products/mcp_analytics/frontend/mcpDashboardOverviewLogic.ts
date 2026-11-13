@@ -45,8 +45,6 @@ import {
     MCPDashboardSectionResult,
     MCPHarnessBreakdownItem,
     MCPModelBreakdownItem,
-    MCPProtocolVersionBreakdownItem,
-    MCPToolCallBreakdownItem,
     MCPToolCallsAndErrorsItem,
     NodeKind,
 } from '~/queries/schema/schema-general'
@@ -83,9 +81,9 @@ function dashboardUrlMovesDate(dateFilter: DateFilter): boolean {
 const MCP_DASHBOARD_DATA_COLLECTION_ID = pageCollectionId('mcp-analytics-dashboard')
 const DASHBOARD_TILE_ID = 'mcp-dashboard'
 
-export type DashboardLayout = 'overview' | 'leaderboard'
-
-const SHARED_SECTIONS: MCPDashboardSection[] = [
+// The leaderboard draws protocol versions and tools from its own facets. It keeps modelRows as the model
+// chart's fallback when the model facet fails.
+const DASHBOARD_SECTIONS: readonly MCPDashboardSection[] = [
     MCPDashboardSection.Kpis,
     MCPDashboardSection.PeriodTotals,
     MCPDashboardSection.ToolRows,
@@ -93,26 +91,17 @@ const SHARED_SECTIONS: MCPDashboardSection[] = [
     MCPDashboardSection.HarnessRows,
     MCPDashboardSection.ModelRows,
     MCPDashboardSection.ActivityRows,
+    MCPDashboardSection.Model,
+    MCPDashboardSection.ProtocolVersion,
+    MCPDashboardSection.Tool,
+    MCPDashboardSection.ErrorType,
+    MCPDashboardSection.LabUsers,
+    MCPDashboardSection.NamedModelUsers,
+    MCPDashboardSection.Reliability,
 ]
 
-// The leaderboard draws protocol versions and tools from its own facets. It keeps modelRows as the model
-// chart's fallback when the model facet fails.
-const LAYOUT_SECTIONS: Record<DashboardLayout, readonly MCPDashboardSection[]> = {
-    overview: [...SHARED_SECTIONS, MCPDashboardSection.ProtocolVersionRows, MCPDashboardSection.ToolDailyRows],
-    leaderboard: [
-        ...SHARED_SECTIONS,
-        MCPDashboardSection.Model,
-        MCPDashboardSection.ProtocolVersion,
-        MCPDashboardSection.Tool,
-        MCPDashboardSection.ErrorType,
-        MCPDashboardSection.LabUsers,
-        MCPDashboardSection.NamedModelUsers,
-        MCPDashboardSection.Reliability,
-    ],
-}
-
 // These cards hide when they have no rows, so a failure would read as no data without a toast.
-const SECTIONS_WITHOUT_ERROR_STATE = [MCPDashboardSection.ModelRows, MCPDashboardSection.ProtocolVersionRows]
+const SECTIONS_WITHOUT_ERROR_STATE = [MCPDashboardSection.ModelRows]
 
 export interface LoadedSection extends MCPDashboardSectionResult {
     /** The KPI split point of the window the section was computed on. */
@@ -224,17 +213,6 @@ export interface DailyActivity {
     errors: number[]
 }
 
-export interface ToolDailyRow {
-    day: string
-    tool: string
-    calls: number
-}
-
-export interface ToolDailySeries {
-    labels: string[]
-    tools: { tool: string; data: number[] }[]
-}
-
 export interface HarnessRow {
     category: string
     total_calls: number
@@ -301,38 +279,6 @@ const EMPTY_KPIS: KPIData = {
     toolCalls: { ...EMPTY_METRIC, goodDirection: 'up' },
     errorRatePct: { ...EMPTY_METRIC, goodDirection: 'down' },
     p95LatencyMs: { ...EMPTY_METRIC, goodDirection: 'down' },
-}
-
-// Keep the stacked bar legible: only the busiest tools get their own segment; the long tail is
-// folded into a single "Other" series so the chart can't sprout dozens of repeating-colour bands.
-const TOOL_SERIES_LIMIT = 8
-
-// Pivot flat (day, tool, calls) rows into a label array + one data series per tool, tools ordered
-// by total volume (biggest first) so the stack and legend read consistently. When `bucketKeys` is
-// supplied the labels span the full selected window (zero-filling empty buckets) so the x-axis
-// matches the date range instead of collapsing to the days that happened to have calls; without it
-// the labels fall back to the days present in the rows (a plain pivot, used in tests).
-export function buildToolDailySeries(rows: ToolDailyRow[], bucketKeys?: string[]): ToolDailySeries {
-    const days = bucketKeys ?? [...new Set(rows.map((r) => r.day))].sort()
-    const totalByTool = new Map<string, number>()
-    const byToolDay = new Map<string, Map<string, number>>()
-    for (const row of rows) {
-        totalByTool.set(row.tool, (totalByTool.get(row.tool) ?? 0) + row.calls)
-        let dayMap = byToolDay.get(row.tool)
-        if (!dayMap) {
-            dayMap = new Map<string, number>()
-            byToolDay.set(row.tool, dayMap)
-        }
-        dayMap.set(row.day, (dayMap.get(row.day) ?? 0) + row.calls)
-    }
-    const seriesFor = (tool: string): number[] => days.map((day) => byToolDay.get(tool)!.get(day) ?? 0)
-    const ranked = [...totalByTool.entries()].sort((a, b) => b[1] - a[1]).map(([tool]) => tool)
-    const tools = ranked.slice(0, TOOL_SERIES_LIMIT).map((tool) => ({ tool, data: seriesFor(tool) }))
-    const rest = ranked.slice(TOOL_SERIES_LIMIT)
-    if (rest.length > 0) {
-        tools.push({ tool: 'Other', data: days.map((_, i) => rest.reduce((sum, t) => sum + seriesFor(t)[i], 0)) })
-    }
-    return { labels: days, tools }
 }
 
 export function deltaPct(current: number, previous: number): number | null {
@@ -469,7 +415,6 @@ export interface mcpDashboardOverviewLogicValues {
     canShowFeedback: boolean
     dailyActivity: DailyActivity
     dashboardBatched: boolean
-    dashboardLayout: DashboardLayout
     dashboardLoading: boolean
     dateFilter: DateFilter
     failedLoads: SectionFlags
@@ -478,7 +423,6 @@ export interface mcpDashboardOverviewLogicValues {
     harnessRows: HarnessRow[]
     hasFilterInteraction: boolean
     hasModelData: boolean
-    hasProtocolVersionData: boolean
     headlineKpis: KPIData
     intentClusterCount: KPIMetric
     interval: IntervalType
@@ -488,12 +432,9 @@ export interface mcpDashboardOverviewLogicValues {
     modelRows: ModelRow[]
     notableSessions: NotableSession[]
     periodTotals: PeriodTotals
-    protocolVersionRows: MCPProtocolVersionBreakdownItem[]
     queryFilters: HogQLFilters
     sections: SectionResults
     sessionRows: SessionRow[]
-    toolDailyRows: ToolDailyRow[]
-    toolDailySeries: ToolDailySeries
     toolRows: ToolRow[]
 }
 
@@ -569,13 +510,9 @@ export interface mcpDashboardOverviewLogicActions {
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface mcpDashboardOverviewLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
-        dashboardLayout: (featureFlags: FeatureFlagsSet) => DashboardLayout
         dashboardBatched: (featureFlags: FeatureFlagsSet) => boolean
         dashboardLoading: (loadingSections: Partial<Record<MCPDashboardSection, boolean>>) => boolean
-        failedLoads: (
-            sections: Partial<Record<MCPDashboardSection, LoadedSection>>,
-            dashboardLayout: DashboardLayout
-        ) => SectionFlags
+        failedLoads: (sections: Partial<Record<MCPDashboardSection, LoadedSection>>) => SectionFlags
         feedbackLoadFailed: (failedLoads: Partial<Record<MCPDashboardSection, boolean>>) => boolean
         kpis: (sections: Partial<Record<MCPDashboardSection, LoadedSection>>) => KPIData
         periodTotals: (sections: Partial<Record<MCPDashboardSection, LoadedSection>>) => PeriodTotals
@@ -583,11 +520,7 @@ export interface mcpDashboardOverviewLogicMeta {
         sessionRows: (sections: Partial<Record<MCPDashboardSection, LoadedSection>>) => SessionRow[]
         harnessRows: (sections: Partial<Record<MCPDashboardSection, LoadedSection>>) => HarnessRow[]
         modelRows: (sections: Partial<Record<MCPDashboardSection, LoadedSection>>) => ModelRow[]
-        protocolVersionRows: (
-            sections: Partial<Record<MCPDashboardSection, LoadedSection>>
-        ) => MCPProtocolVersionBreakdownItem[]
         activityRows: (sections: Partial<Record<MCPDashboardSection, LoadedSection>>) => ActivityRow[]
-        toolDailyRows: (sections: Partial<Record<MCPDashboardSection, LoadedSection>>) => ToolDailyRow[]
         canShowFeedback: (
             hasFilterInteraction: boolean,
             dashboardLoading: boolean,
@@ -605,10 +538,8 @@ export interface mcpDashboardOverviewLogicMeta {
         headlineKpis: (kpis: KPIData, periodTotals: PeriodTotals) => KPIData
         kpiIncompleteTail: (kpis: KPIData, timezone: string, interval: IntervalType) => boolean
         dailyActivity: (activityRows: ActivityRow[], bucketKeys: string[]) => DailyActivity
-        toolDailySeries: (toolDailyRows: ToolDailyRow[], bucketKeys: string[]) => ToolDailySeries
         notableSessions: (sessionRows: SessionRow[]) => NotableSession[]
         hasModelData: (modelRows: ModelRow[]) => boolean
-        hasProtocolVersionData: (protocolVersionRows: MCPProtocolVersionBreakdownItem[]) => boolean
         intentClusterCount: (totalClusterCount: number) => KPIMetric
     }
 }
@@ -691,11 +622,6 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
         ],
     }),
     selectors({
-        dashboardLayout: [
-            () => [featureFlagLogic.selectors.featureFlags],
-            (featureFlags: FeatureFlagsSet): DashboardLayout =>
-                featureFlags[FEATURE_FLAGS.MCP_ANALYTICS_LEADERBOARD_HOME] ? 'leaderboard' : 'overview',
-        ],
         dashboardBatched: [
             () => [featureFlagLogic.selectors.featureFlags],
             (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.MCP_ANALYTICS_DASHBOARD_BATCH],
@@ -705,12 +631,10 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
             (loadingSections: SectionFlags): boolean => Object.values(loadingSections).some(Boolean),
         ],
         failedLoads: [
-            (s) => [s.sections, s.dashboardLayout],
-            (sections: SectionResults, layout: DashboardLayout): SectionFlags =>
+            (s) => [s.sections],
+            (sections: SectionResults): SectionFlags =>
                 Object.fromEntries(
-                    LAYOUT_SECTIONS[layout]
-                        .filter((section) => !!sections[section]?.error)
-                        .map((section) => [section, true])
+                    DASHBOARD_SECTIONS.filter((section) => !!sections[section]?.error).map((section) => [section, true])
                 ),
         ],
         feedbackLoadFailed: [
@@ -787,11 +711,6 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
             (sections: SectionResults): ModelRow[] =>
                 sectionRows<MCPModelBreakdownItem>(sections, MCPDashboardSection.ModelRows),
         ],
-        protocolVersionRows: [
-            (s) => [s.sections],
-            (sections: SectionResults): MCPProtocolVersionBreakdownItem[] =>
-                sectionRows<MCPProtocolVersionBreakdownItem>(sections, MCPDashboardSection.ProtocolVersionRows),
-        ],
         activityRows: [
             (s) => [s.sections],
             (sections: SectionResults): ActivityRow[] =>
@@ -799,15 +718,6 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
                     day: normalizeBucket(r.bucket),
                     successes: r.successes,
                     errors: r.errors,
-                })),
-        ],
-        toolDailyRows: [
-            (s) => [s.sections],
-            (sections: SectionResults): ToolDailyRow[] =>
-                sectionRows<MCPToolCallBreakdownItem>(sections, MCPDashboardSection.ToolDailyRows).map((r) => ({
-                    day: normalizeBucket(r.bucket),
-                    tool: r.tool,
-                    calls: r.calls,
                 })),
         ],
         canShowFeedback: [
@@ -862,10 +772,6 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
             (s) => [s.activityRows, s.bucketKeys],
             (rows: ActivityRow[], bucketKeys: string[]): DailyActivity => buildDailyActivity(rows, bucketKeys),
         ],
-        toolDailySeries: [
-            (s) => [s.toolDailyRows, s.bucketKeys],
-            (rows: ToolDailyRow[], bucketKeys: string[]): ToolDailySeries => buildToolDailySeries(rows, bucketKeys),
-        ],
         notableSessions: [
             (s) => [s.sessionRows],
             (sessionRows: SessionRow[]): NotableSession[] => pickNotableSessions(sessionRows),
@@ -873,10 +779,6 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
         hasModelData: [
             (s) => [s.modelRows],
             (modelRows: ModelRow[]): boolean => modelRows.some((row) => row.total_calls > 0),
-        ],
-        hasProtocolVersionData: [
-            (s) => [s.protocolVersionRows],
-            (protocolVersionRows: MCPProtocolVersionBreakdownItem[]): boolean => protocolVersionRows.length > 0,
         ],
         intentClusterCount: [
             // The snapshot only stores the top clusters by call volume — report
@@ -906,14 +808,11 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
             setPropertyFilters: () => {
                 actions.markFilterInteraction()
             },
-            // Flags can resolve after the first load. The layout decides which sections a load asks for, and a
-            // load's time to see data must be reported under the batch arm that ran it.
+            // Flags can resolve after the first load, and a load's time to see data must be reported under the
+            // batch arm that ran it.
             setFeatureFlags: () => {
                 const { requestedArm } = cache
-                if (
-                    requestedArm &&
-                    (requestedArm.layout !== values.dashboardLayout || requestedArm.batched !== values.dashboardBatched)
-                ) {
+                if (requestedArm && requestedArm.batched !== values.dashboardBatched) {
                     actions.loadDashboard()
                 }
             },
@@ -921,9 +820,9 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
                 actions.loadDashboard()
             },
             loadDashboard: () => {
-                cache.requestedArm = { layout: values.dashboardLayout, batched: values.dashboardBatched }
+                cache.requestedArm = { batched: values.dashboardBatched }
                 actions.collectionNodeLoadData(DASHBOARD_TILE_ID, NodeKind.MCPDashboardQuery)
-                actions.loadSections([...LAYOUT_SECTIONS[values.dashboardLayout]], true)
+                actions.loadSections([...DASHBOARD_SECTIONS], true)
             },
             // Each section belongs to the load that last asked for it, so a reload or retry drops a slower,
             // older answer for that section, even a failure.

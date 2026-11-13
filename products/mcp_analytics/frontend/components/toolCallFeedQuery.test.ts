@@ -6,8 +6,6 @@ import {
     MCP_ACTIVITY_COLUMNS,
     MCP_ACTIVITY_MAX_ROWS,
     MCP_ACTIVITY_PAGE_SIZE,
-    MCP_RECENT_TOOL_CALLS_LIMIT,
-    buildRecentToolCallsQuery,
     withFailedCallsOnly,
 } from './toolCallFeedQuery'
 
@@ -57,36 +55,6 @@ describe('tool call feed queries', () => {
         expect(once.source.kind).toBe(NodeKind.EventsQuery)
         expect(twice.source).toMatchObject({
             properties: [toolFilter, personFilter, { key: '$mcp_is_error', value: ['true', '1'] }],
-        })
-    })
-
-    it('scopes the dashboard glance to the dashboard filters and drops the toolbar', () => {
-        const toolFilter: AnyPropertyFilter = {
-            key: '$mcp_tool_name',
-            value: ['search'],
-            operator: PropertyOperator.Exact,
-            type: PropertyFilterType.Event,
-        }
-
-        const query = buildRecentToolCallsQuery({
-            dateRange: { date_from: '-7d', date_to: '-1d' },
-            properties: [toolFilter],
-            filterTestAccounts: true,
-        })
-
-        expect(query).toMatchObject({
-            embedded: false,
-            showDateRange: false,
-            showPropertyFilter: false,
-            showReload: false,
-            source: {
-                select: MCP_ACTIVITY_COLUMNS,
-                after: '-7d',
-                before: '-1d',
-                properties: [toolFilter],
-                filterTestAccounts: true,
-                limit: MCP_RECENT_TOOL_CALLS_LIMIT,
-            },
         })
     })
 })
