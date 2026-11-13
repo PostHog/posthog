@@ -35,36 +35,43 @@ fi
 EOF
 chmod +x "$fake_bin/gh"
 
-# A real linear history, so the ancestry check runs against real git.
-repo="$workdir/repo"
-git init --quiet "$repo"
-for n in 1 2 3 4; do
-    git -C "$repo" -c user.name=test -c user.email=test@example.com -c commit.gpgsign=false \
-        commit --quiet --allow-empty -m "commit $n"
-done
-c1=$(git -C "$repo" rev-parse HEAD~3)
-c2=$(git -C "$repo" rev-parse HEAD~2)
-c3=$(git -C "$repo" rev-parse HEAD~1)
-c4=$(git -C "$repo" rev-parse HEAD)
+# A linear master: c1 is the oldest commit and c4 the newest. The waiter asks
+# whether a deployment contains c2.
+c1=1111111111111111111111111111111111111111
+c2=2222222222222222222222222222222222222222
+c3=3333333333333333333333333333333333333333
+c4=4444444444444444444444444444444444444444
+compares="$workdir/compares"
+mkdir -p "$compares"
+register_compare() {
+    jq -n --arg status "$2" '{status: $status}' \
+        >"$compares/repos_PostHog_posthog_compare_$c2...$1.json"
+}
+register_compare "$c1" behind
+register_compare "$c2" identical
+register_compare "$c3" ahead
+register_compare "$c4" ahead
+register_compare master ahead
 
-# Registers deployments for one environment, newest first. Each argument is
-# "<id>:<sha>:<statuses>", with statuses comma-separated, newest first.
-register_environment() {
-    local fixtures="$1" environment="$2" entry id sha states
-    shift 2
+# Registers one page of deployments for an environment, newest first. Each
+# argument is "<id>:<sha>:<statuses>", with statuses comma-separated, newest first.
+register_page() {
+    local fixtures="$1" environment="$2" page="$3" entry id sha states
+    shift 3
     mkdir -p "$fixtures"
     for entry in "$@"; do
         IFS=: read -r id sha states <<<"$entry"
         jq -n --arg id "$id" --arg sha "$sha" '{id: ($id | tonumber), sha: $sha}'
         jq -n --arg states "$states" '$states | split(",") | map({state: .})' \
             >"$fixtures/repos_PostHog_posthog_deployments_${id}_statuses_per_page_100.json"
-    done | jq -s . >"$fixtures/repos_PostHog_posthog_deployments_environment_${environment}_task_deploy_per_page_30.json"
+    done | jq -s . >"$fixtures/repos_PostHog_posthog_deployments_environment_${environment}_task_deploy_per_page_30_page_${page}.json"
 }
 
 assert_result() {
     local name="$1" fixtures="$2" expected_status="$3" needle="$4" output status
+    cp "$compares"/* "$fixtures"/
     set +e
-    output=$(cd "$repo" && PATH="$fake_bin:$PATH" GH_FIXTURE_DIR="$fixtures" \
+    output=$(PATH="$fake_bin:$PATH" GH_FIXTURE_DIR="$fixtures" \
         REPOSITORY="PostHog/posthog" COMMIT_SHA="$c2" \
         TIMEOUT_SECONDS=1 INTERVAL_SECONDS=1 "$waiter" 2>&1)
     status=$?
@@ -77,27 +84,34 @@ assert_result() {
     echo "ok: $name"
 }
 
-register_environment "$workdir/live" prod-us "11:$c3:success"
-register_environment "$workdir/live" prod-eu "21:$c4:success"
+register_page "$workdir/live" prod-us 1 "11:$c3:success"
+register_page "$workdir/live" prod-eu 1 "21:$c4:success"
 assert_result "both environments live on a descendant" "$workdir/live" 0 "Every environment runs"
 
 # A rollback deploys an older sha and gets its own success, so it is live again.
-register_environment "$workdir/rollback" prod-us "12:$c3:success"
-register_environment "$workdir/rollback" prod-eu "23:$c1:success" "22:$c4:inactive,success"
+register_page "$workdir/rollback" prod-us 1 "12:$c3:success"
+register_page "$workdir/rollback" prod-eu 1 "23:$c1:success" "22:$c4:inactive,success"
 assert_result "a rollback to an older sha holds the release" "$workdir/rollback" 3 "prod-eu: live ${c1:0:12}, contains: no"
 
-register_environment "$workdir/rolling" prod-us "14:$c4:in_progress" "13:$c3:success,in_progress"
-register_environment "$workdir/rolling" prod-eu "24:$c2:success"
+register_page "$workdir/rolling" prod-us 1 "14:$c4:in_progress" "13:$c3:success,in_progress"
+register_page "$workdir/rolling" prod-eu 1 "24:$c2:success"
 assert_result "an in-progress deploy leaves the previous success live" "$workdir/rolling" 0 "prod-us: live ${c3:0:12}, contains: yes"
 
 # A deploy of another task in the same environment marks the live Django
 # deployment inactive, and it stays live.
-register_environment "$workdir/other-task" prod-us "16:$c3:inactive,success,in_progress"
-register_environment "$workdir/other-task" prod-eu "26:$c4:success"
+register_page "$workdir/other-task" prod-us 1 "16:$c3:inactive,success,in_progress"
+register_page "$workdir/other-task" prod-eu 1 "26:$c4:success"
 assert_result "another task's deploy does not hide the live build" "$workdir/other-task" 0 "prod-us: live ${c3:0:12}, contains: yes"
 
-register_environment "$workdir/api-failure" prod-us "15:$c4:success"
-touch "$workdir/api-failure/repos_PostHog_posthog_deployments_environment_prod-eu_task_deploy_per_page_30.fail"
+# A run of failed deploys can push the live one past the first page.
+register_page "$workdir/paged" prod-us 1 "18:$c4:failure" "17:$c4:error,in_progress"
+register_page "$workdir/paged" prod-us 2 "19:$c3:inactive,success"
+register_page "$workdir/paged" prod-eu 1 "27:$c4:success"
+assert_result "the live deployment on a later page is found" "$workdir/paged" 0 "prod-us: live ${c3:0:12}, contains: yes"
+
+register_page "$workdir/api-failure" prod-us 1 "15:$c4:success"
+mkdir -p "$workdir/api-failure"
+touch "$workdir/api-failure/repos_PostHog_posthog_deployments_environment_prod-eu_task_deploy_per_page_30_page_1.fail"
 assert_result "an API failure is not read as deployed" "$workdir/api-failure" 1 "prod-eu: GitHub API request failed"
 
 echo "Backend deploy wait regression cases passed."

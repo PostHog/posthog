@@ -9,14 +9,16 @@
 # live build of an environment is the newest deployment of that task that ever
 # reached `success`. A newer deployment that is in progress or failed does not
 # replace it. A rollback is a newer deployment that succeeds, so its older sha
-# becomes the live one.
+# becomes the live one. A rollback done outside the charts deploy writes no
+# record, so the script cannot see it.
 #
 # The script ignores `inactive`. GitHub marks every older deployment in the
 # same environment `inactive` when any deployment succeeds, whatever its task,
 # so a deploy of another service would hide the live Django build.
 #
 # master is linear, so the live build contains COMMIT_SHA when COMMIT_SHA is
-# an ancestor of the live sha.
+# an ancestor of the live sha. The compare API answers that, so the script
+# needs no git history and no credential other than GH_TOKEN.
 #
 # Exit codes: 0 every environment contains the commit, 3 timed out, 1 error.
 # A GitHub API error during polling counts as "not yet". The script exits 1
@@ -34,6 +36,8 @@ INTERVAL_SECONDS="${INTERVAL_SECONDS:-60}"
 
 EXIT_ERROR=1
 EXIT_TIMED_OUT=3
+DEPLOYMENTS_PER_PAGE=30
+MAX_DEPLOYMENT_PAGES=10
 
 # Bash arithmetic evaluates a variable's value as an expression, which can run a command.
 require_whole_number() {
@@ -45,41 +49,45 @@ require_whole_number() {
     esac
 }
 
-has_commit() {
-    git cat-file -e "$1^{commit}" 2>/dev/null
+# Prints the compare status of HEAD against BASE: `ahead` or `identical` means
+# HEAD contains BASE, `behind` or `diverged` means it does not.
+compare_status() {
+    gh api "repos/$REPOSITORY/compare/$1...$2" | jq -r '.status'
 }
 
-# A deployment can be newer than the checkout, so fetch master once before a
-# sha is reported as unknown.
-ensure_commit() {
-    if has_commit "$1"; then
-        return 0
-    fi
-    git fetch --quiet --no-tags origin master >&2 || return 1
-    has_commit "$1"
+contains_status() {
+    case "$1" in
+        ahead | identical) return 0 ;;
+        *) return 1 ;;
+    esac
 }
 
-# Prints the sha of the live deployment, or nothing when no recent deployment
-# reached `success`. Returns 1 on an API failure.
+# Prints the sha of the live deployment, or nothing when no deployment in the
+# first MAX_DEPLOYMENT_PAGES pages reached `success`. An empty answer holds the
+# release. Returns 1 on an API failure.
 find_live_sha() {
-    local environment="$1" deployments id sha succeeded
-    deployments=$(gh api "repos/$REPOSITORY/deployments?environment=$environment&task=$TASK&per_page=30" |
-        jq -r '.[] | "\(.id) \(.sha)"') || return 1
-    while read -r id sha; do
-        [ -n "$id" ] || continue
-        succeeded=$(gh api "repos/$REPOSITORY/deployments/$id/statuses?per_page=100" |
-            jq -r 'any(.[]; .state == "success")') || return 1
-        if [ "$succeeded" = "true" ]; then
-            echo "$sha"
+    local environment="$1" page deployments id sha succeeded
+    for ((page = 1; page <= MAX_DEPLOYMENT_PAGES; page++)); do
+        deployments=$(gh api "repos/$REPOSITORY/deployments?environment=$environment&task=$TASK&per_page=$DEPLOYMENTS_PER_PAGE&page=$page" |
+            jq -r '.[] | "\(.id) \(.sha)"') || return 1
+        if [ -z "$deployments" ]; then
             return 0
         fi
-    done <<<"$deployments"
+        while read -r id sha; do
+            succeeded=$(gh api "repos/$REPOSITORY/deployments/$id/statuses?per_page=100" |
+                jq -r 'any(.[]; .state == "success")') || return 1
+            if [ "$succeeded" = "true" ]; then
+                echo "$sha"
+                return 0
+            fi
+        done <<<"$deployments"
+    done
 }
 
 # Returns 0 when every environment contains the commit, 1 when one does not
 # yet, and 2 when a lookup failed.
 check_environments() {
-    local environment live result=0
+    local environment live status result=0
     for environment in $ENVIRONMENTS; do
         if ! live=$(find_live_sha "$environment"); then
             echo "$environment: GitHub API request failed, contains: unknown"
@@ -91,12 +99,12 @@ check_environments() {
             [ "$result" -eq 2 ] || result=1
             continue
         fi
-        if ! ensure_commit "$live"; then
-            echo "$environment: live ${live:0:12} is not in master, contains: unknown"
+        if ! status=$(compare_status "$COMMIT_SHA" "$live"); then
+            echo "$environment: live ${live:0:12}, GitHub API request failed, contains: unknown"
             result=2
             continue
         fi
-        if git merge-base --is-ancestor "$COMMIT_SHA" "$live"; then
+        if contains_status "$status"; then
             echo "$environment: live ${live:0:12}, contains: yes"
             continue
         fi
@@ -109,7 +117,7 @@ check_environments() {
 require_whole_number TIMEOUT_SECONDS "$TIMEOUT_SECONDS"
 require_whole_number INTERVAL_SECONDS "$INTERVAL_SECONDS"
 
-if ! ensure_commit "$COMMIT_SHA"; then
+if ! master_status=$(compare_status "$COMMIT_SHA" master) || ! contains_status "$master_status"; then
     echo "::error::Commit $COMMIT_SHA is not in master, so the backend deploy cannot be checked." >&2
     exit "$EXIT_ERROR"
 fi
