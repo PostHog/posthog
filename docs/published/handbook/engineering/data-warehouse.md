@@ -56,6 +56,13 @@ The totals cover measured runs only; missing measurements and days without measu
 The current UTC day is excluded because usage is updated daily.
 These measurements describe query work and are not billing amounts.
 
+## SQL heatmaps
+
+For a 2D heatmap, **X-axis order** in the Series settings sorts columns ascending or descending by their labels, with numeric labels in numeric order.
+Ascending order places numeric labels before text labels; descending order reverses both groups.
+**Query order** keeps the order in which values first appear in the results.
+Clicking a column header sorts rows by that column's values independently of the X-axis order.
+
 ## SQL editor drafts
 
 Saving a view infers its column types with LIMIT 0 on the outer SELECT branches and explicit IN subqueries.
