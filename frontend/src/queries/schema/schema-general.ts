@@ -2097,6 +2097,7 @@ export interface ResultCustomizationByPosition extends ResultCustomizationBase {
 
 export interface ResultCustomizationByValue extends ResultCustomizationBase {
     customColor?: string
+    label?: string
     assignmentBy: ResultCustomizationBy.Value
 }
 
@@ -4907,6 +4908,13 @@ export interface ErrorTrackingPendingFingerprintIssueStateUpdate {
     version: integer
 }
 
+export interface ErrorTrackingIssueTagFilter {
+    /** Key of the tag definition. */
+    key: string
+    /** True matches the issues the tag is applied to. False matches every other issue. */
+    applied: boolean
+}
+
 export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse> {
     kind: NodeKind.ErrorTrackingQuery
     /** Filter to a specific error tracking issue by ID. */
@@ -4921,6 +4929,8 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     status?: ErrorTrackingQueryStatus
     /** Filter by issue severity. */
     severity?: ErrorTrackingQueryIssueSeverity | null
+    /** Filter by whether one issue tag is applied. Ignored when issue tags or this tag are off for the project. */
+    issueTag?: ErrorTrackingIssueTagFilter | null
     assignee?: ErrorTrackingIssueAssignee | null
     filterGroup?: PropertyGroupFilter
     /** Whether to filter out test accounts. */
@@ -5124,6 +5134,17 @@ export type ErrorTrackingIssueStatus = 'archived' | 'active' | 'resolved' | 'pen
 /** @title ErrorTrackingQueryStatus */
 export type ErrorTrackingQueryStatus = ErrorTrackingIssueStatus | 'all'
 
+export interface ErrorTrackingIssueTag {
+    /** Key of the tag definition. */
+    key: string
+    /** Short name of the tag. */
+    label: string
+    /** What the tag means, for a tooltip. */
+    description: string
+    /** The tagger that applied the tag: `jev` for AI, `manual` for a person. Issue detail sets it, list results send null. */
+    source?: string | null
+}
+
 export interface ErrorTrackingRelationalIssue {
     id: string
     name: string | null
@@ -5135,6 +5156,8 @@ export interface ErrorTrackingRelationalIssue {
     first_seen: string
     external_issues?: ErrorTrackingExternalReference[]
     cohort?: ErrorTrackingIssueCohort
+    /** The enabled tags that are applied to the issue, on issue list results and issue detail. Null or absent when the project has no enabled tag. */
+    tags?: ErrorTrackingIssueTag[] | null
 }
 
 export type ErrorTrackingIssue = ErrorTrackingRelationalIssue & {
@@ -9121,6 +9144,11 @@ export interface MarketingAnalyticsRecommendationsQuery extends DataNode<Marketi
     /** Tables to read. Omit to read every synced Google Ads and Google Search Console source in the project. */
     sources?: MarketingAnalyticsRecommendationsSource[]
     /**
+     * Also return recommendations that someone in the project dismissed or marked as applied, with their `resolution`.
+     * @default false
+     */
+    includeResolved?: boolean
+    /**
      * Resource names of the Google Ads conversion actions that count as conversions, such as
      * `customers/123/conversionActions/456`. Each ad account uses the actions under its own customer ID, and an
      * account with none of them counts its primary actions. Selected actions count every conversion, including
@@ -9176,6 +9204,16 @@ export interface MarketingAnalyticsRecommendationIdentity {
     subject: string
 }
 
+export type MarketingAnalyticsRecommendationResolutionState = 'dismissed' | 'applied'
+
+export interface MarketingAnalyticsRecommendationResolution {
+    /** The resolution id. Delete it through the resolutions API to show the recommendation again. */
+    id: string
+    resolution: MarketingAnalyticsRecommendationResolutionState
+    /** When someone last dismissed the recommendation or marked it as applied, as an ISO 8601 timestamp. */
+    resolved_at: string
+}
+
 /**
  * The benchmark a recommendation compares a CPA with, in this order of preference:
  * - `target_cpa`: the campaign's target CPA in Google Ads, when the campaign bids to one.
@@ -9225,6 +9263,8 @@ export interface MarketingAnalyticsRecommendation {
     identity: MarketingAnalyticsRecommendationIdentity
     /** Opaque id of `identity`, the same as the `key` of its resolution in the resolutions API. Compare it as is. */
     key: string
+    /** Set only when the query includes resolved recommendations and someone dismissed this one or marked it as applied. */
+    resolution?: MarketingAnalyticsRecommendationResolution | null
     action: string
     reason: string
     /** Monthly money impact in the account currency. Null when the rule has no money impact. */

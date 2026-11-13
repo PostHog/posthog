@@ -6251,8 +6251,12 @@ class TestCalendarAlignedQuerySplitting(SimpleTestCase):
             ],
         )
 
+    # The materialized-column lookup reads an instance setting from Postgres, which this class forbids.
+    @patch("posthog.models.property.util.get_materialized_column_for_property", return_value=None)
     @patch("posthog.tasks.usage_report.sync_execute")
-    def test_mcp_analytics_counts_sum_per_metric_across_splits_and_teams(self, mock_sync_execute: MagicMock) -> None:
+    def test_mcp_analytics_counts_sum_per_metric_across_splits_and_teams(
+        self, mock_sync_execute: MagicMock, _mock_materialized_column: MagicMock
+    ) -> None:
         # A period spanning 3 days splits 3 ways, so a team's count for one event arrives in
         # pieces that must be added, not overwritten, and kept separate per team and per event.
         mock_sync_execute.side_effect = [
