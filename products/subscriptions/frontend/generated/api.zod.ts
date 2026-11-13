@@ -212,6 +212,13 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
                     .describe(
                         "Slack subscriptions only. Insight and dashboard subscriptions: when true, upload all insight images together in the main Slack message instead of posting the first image in the main message and the rest as threaded replies. Prompt subscriptions: when true, post the chart images in the main message with the summary; when false, post them in the first thread reply. Defaults to false. The request is rejected when target_type is not 'slack', or when an insight or dashboard subscription's Slack integration does not hold the files:write permission. Omit it unless the user asks for all images or charts in the main message."
                     ),
+                insight_criteria: zod
+                    .enum(['has_data'])
+                    .describe('\* `has_data` - Has data')
+                    .optional()
+                    .describe(
+                        "Insight and dashboard subscriptions only: a check each insight must pass at delivery time to be sent. 'has_data' sends only insights whose query returned at least one non-zero, non-empty value; an insight whose query errors is still sent. When no insight passes, the delivery is skipped. Omit to send every selected insight.\n\n\* `has_data` - Has data"
+                    ),
                 include_images: zod
                     .boolean()
                     .optional()
@@ -447,6 +454,13 @@ export const SubscriptionsUpdateBody = /* @__PURE__ */ zod
                     .default(subscriptionsUpdateBodyDeliveryConfigOnePostAllInsightsInMainMessageDefault)
                     .describe(
                         "Slack subscriptions only. Insight and dashboard subscriptions: when true, upload all insight images together in the main Slack message instead of posting the first image in the main message and the rest as threaded replies. Prompt subscriptions: when true, post the chart images in the main message with the summary; when false, post them in the first thread reply. Defaults to false. The request is rejected when target_type is not 'slack', or when an insight or dashboard subscription's Slack integration does not hold the files:write permission. Omit it unless the user asks for all images or charts in the main message."
+                    ),
+                insight_criteria: zod
+                    .enum(['has_data'])
+                    .describe('\* `has_data` - Has data')
+                    .optional()
+                    .describe(
+                        "Insight and dashboard subscriptions only: a check each insight must pass at delivery time to be sent. 'has_data' sends only insights whose query returned at least one non-zero, non-empty value; an insight whose query errors is still sent. When no insight passes, the delivery is skipped. Omit to send every selected insight.\n\n\* `has_data` - Has data"
                     ),
                 include_images: zod
                     .boolean()
@@ -688,6 +702,13 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
                     .default(subscriptionsPartialUpdateBodyDeliveryConfigOnePostAllInsightsInMainMessageDefault)
                     .describe(
                         "Slack subscriptions only. Insight and dashboard subscriptions: when true, upload all insight images together in the main Slack message instead of posting the first image in the main message and the rest as threaded replies. Prompt subscriptions: when true, post the chart images in the main message with the summary; when false, post them in the first thread reply. Defaults to false. The request is rejected when target_type is not 'slack', or when an insight or dashboard subscription's Slack integration does not hold the files:write permission. Omit it unless the user asks for all images or charts in the main message."
+                    ),
+                insight_criteria: zod
+                    .enum(['has_data'])
+                    .describe('\* `has_data` - Has data')
+                    .optional()
+                    .describe(
+                        "Insight and dashboard subscriptions only: a check each insight must pass at delivery time to be sent. 'has_data' sends only insights whose query returned at least one non-zero, non-empty value; an insight whose query errors is still sent. When no insight passes, the delivery is skipped. Omit to send every selected insight.\n\n\* `has_data` - Has data"
                     ),
                 include_images: zod
                     .boolean()

@@ -35,6 +35,33 @@ import { TARGET_TYPE_LABEL } from './subscriptionLabels'
 type DeliveryListStatusFilter =
     (typeof SubscriptionDeliveriesListStatusByValue)[keyof typeof SubscriptionDeliveriesListStatusByValue]
 
+/** Shape written by create_export_assets when the subscription filters insights by a criteria. */
+interface InsightCriteriaSummary {
+    checked_count: number
+    sent_count: number
+    excluded: { name: string }[]
+}
+
+export function insightCriteriaNote(row: SubscriptionDeliveryApi): string | null {
+    const summary = (row.content_snapshot as { insight_criteria?: InsightCriteriaSummary } | null)?.insight_criteria
+    if (!summary) {
+        return null
+    }
+    const { checked_count, sent_count, excluded } = summary
+    if (row.status === SubscriptionDeliveryStatusEnumApi.Skipped && sent_count === 0) {
+        return checked_count === 1
+            ? 'The insight checked had no data, so nothing was sent.'
+            : `None of the ${checked_count} insights checked had data, so nothing was sent.`
+    }
+    if (row.status === SubscriptionDeliveryStatusEnumApi.Completed && excluded.length > 0) {
+        // At least one sent and one left out, so checked_count is always plural here.
+        return `Sent ${sent_count} of ${checked_count} insights checked. Left out with no data: ${excluded
+            .map((insight) => insight.name)
+            .join(', ')}.`
+    }
+    return null
+}
+
 function deliveryStatusTag(row: SubscriptionDeliveryApi): JSX.Element {
     let label: string
     let tagType: 'success' | 'danger' | 'warning' | 'default'
@@ -60,13 +87,15 @@ function deliveryStatusTag(row: SubscriptionDeliveryApi): JSX.Element {
             tagType = 'default'
     }
     const failureMessage = (row.error as { message?: unknown } | null)?.message
-    if (
-        row.status === SubscriptionDeliveryStatusEnumApi.Failed &&
-        typeof failureMessage === 'string' &&
-        failureMessage
-    ) {
+    const tooltip =
+        row.status === SubscriptionDeliveryStatusEnumApi.Failed
+            ? typeof failureMessage === 'string' && failureMessage
+                ? failureMessage
+                : null
+            : insightCriteriaNote(row)
+    if (tooltip) {
         return (
-            <Tooltip title={failureMessage}>
+            <Tooltip title={tooltip}>
                 <LemonTag type={tagType} className="cursor-help">
                     {label}
                 </LemonTag>

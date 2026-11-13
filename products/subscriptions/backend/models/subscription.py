@@ -164,6 +164,10 @@ class Subscription(ModelActivityMixin, models.Model):
         LAST_N_DAYS = "last_n_days", "Last N days"
         DAYS_AGO_RANGE = "days_ago_range", "Between X and Y days ago"
 
+    # Stored in delivery_config["insight_criteria"]; applied in logic/insight_criteria.py.
+    class InsightCriteria(models.TextChoices):
+        HAS_DATA = "has_data", "Has data"
+
     RRULE_FIELDS = {"frequency", "count", "interval", "start_date", "until_date", "bysetpos", "byweekday"}
 
     _FREQ_MAP: dict[str, int] = {

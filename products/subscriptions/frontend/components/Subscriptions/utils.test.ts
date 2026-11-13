@@ -251,6 +251,19 @@ describe('AI subscription display options', () => {
         expect(coerceDeliveryConfigForScope(subscription, [])?.include_images).toBe(expected)
     })
 
+    it.each([
+        ['dashboard', 'has_data'],
+        ['ai_prompt', undefined],
+    ] as const)('a %s subscription sends insight_criteria as %s', (resourceType, expected) => {
+        const subscription = {
+            resource_type: resourceType,
+            target_type: 'email',
+            delivery_config: { insight_criteria: 'has_data' },
+        } as SubscriptionType
+
+        expect(coerceDeliveryConfigForScope(subscription, [])?.insight_criteria).toBe(expected)
+    })
+
     it('keeps the other delivery options when it drops the AI ones', () => {
         const subscription = {
             resource_type: 'insight',

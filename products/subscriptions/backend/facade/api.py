@@ -64,6 +64,7 @@ FREQUENCY_CHOICES = Subscription.SubscriptionFrequency.choices
 WEEKDAY_CHOICES = Subscription.SubscriptionByWeekDay.choices
 RESOURCE_TYPE_CHOICES = Subscription.ResourceType.choices
 AI_WINDOW_MODE_CHOICES = Subscription.AIWindowMode.choices
+INSIGHT_CRITERIA_CHOICES = Subscription.InsightCriteria.choices
 AI_QUERY_PLAN_STATUS_CHOICES = AIQueryPlanStatus.choices
 DELIVERY_STATUS_CHOICES = SubscriptionDelivery.Status.choices
 
@@ -86,6 +87,7 @@ __all__ = [
     "AI_WINDOW_MODE_SINCE_LAST_SENT",
     "DELIVERY_STATUS_CHOICES",
     "FREQUENCY_CHOICES",
+    "INSIGHT_CRITERIA_CHOICES",
     "MAX_AI_SUBSCRIPTION_CONTEXTS",
     "MAX_INSIGHTS",
     "RESOURCE_TYPE_CHOICES",

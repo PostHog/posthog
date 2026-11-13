@@ -36,7 +36,9 @@ import { FEATURE_FLAGS } from '~/lib/constants'
 import { membersLogic } from '~/models/membersLogic'
 import { DashboardType, InsightShortId, SubscriptionResourceTypes, SubscriptionType } from '~/types'
 
+import { SubscriptionInsightCriteriaEnumApi } from '../../generated/api.schemas'
 import { AiPromptFields, AiPromptSubscriptionIntroduction } from './AiPromptFields'
+import { InsightCriteriaField } from './InsightCriteriaField'
 import { InsightSelector } from './InsightSelector'
 import { getNextDeliveryDate } from './nextDeliveryDate'
 import { SubscriptionDayPicker } from './SubscriptionDayPicker'
@@ -527,16 +529,19 @@ function SubscriptionContentStep({
                 />
             ) : null}
             {dashboard?.tiles && !isAiPrompt ? (
-                <LemonField name="dashboard_export_insights" label="Insights to include">
-                    {({ value, onChange }) => (
-                        <InsightSelector
-                            tiles={dashboard.tiles}
-                            selectedInsightIds={value ?? []}
-                            onChange={onChange}
-                            onDefaultsApplied={applyDefaultSelectedInsights}
-                        />
-                    )}
-                </LemonField>
+                <>
+                    <LemonField name="dashboard_export_insights" label="Insights to include">
+                        {({ value, onChange }) => (
+                            <InsightSelector
+                                tiles={dashboard.tiles}
+                                selectedInsightIds={value ?? []}
+                                onChange={onChange}
+                                onDefaultsApplied={applyDefaultSelectedInsights}
+                            />
+                        )}
+                    </LemonField>
+                    <InsightCriteriaField />
+                </>
             ) : null}
             <SubscriptionSettingsStep subscription={subscription} logicProps={logicProps} />
         </div>
@@ -786,7 +791,11 @@ function SubscriptionReviewStep({
             ? [
                   {
                       label: 'Insights',
-                      value: `${selectedInsightsCount} ${selectedInsightsCount === 1 ? 'insight' : 'insights'} included`,
+                      value:
+                          `${selectedInsightsCount} ${selectedInsightsCount === 1 ? 'insight' : 'insights'} included` +
+                          (subscription.delivery_config?.insight_criteria === SubscriptionInsightCriteriaEnumApi.HasData
+                              ? ', only those with data'
+                              : ''),
                   },
               ]
             : []),

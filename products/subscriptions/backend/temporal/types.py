@@ -76,6 +76,8 @@ class DeliveryStatus:
 class ExportAssetPreparationStatus:
     READY = "ready"
     NO_EXPORTABLE_INSIGHTS = "no_exportable_insights"
+    # Every candidate insight failed the subscription's insight_criteria; the delivery is skipped.
+    NO_INSIGHTS_MATCH_CRITERIA = "no_insights_match_criteria"
 
 
 class NoExportableInsightsReason:

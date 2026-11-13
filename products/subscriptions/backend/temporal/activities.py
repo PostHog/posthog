@@ -33,6 +33,7 @@ from products.subscriptions.backend.logic.failure_notifications import (
     create_subscription_delivery_failure_notification,
     send_subscription_delivery_failure_email,
 )
+from products.subscriptions.backend.logic.insight_criteria import insight_matches_criteria
 from products.subscriptions.backend.logic.slack_subscriptions import send_slack_message_with_integration_async
 from products.subscriptions.backend.logic.subscription_utils import (
     ASSET_GENERATION_FAILED_MESSAGE,
@@ -111,6 +112,15 @@ def _insight_tiles_in_layout_order(
     return [(tile, insights[tile.insight_id]) for tile in tiles if tile.insight_id in insights]
 
 
+@frozen
+class _InsightSelection:
+    """Insights to export, their snapshots in the same order, and the ones the criteria left out."""
+
+    export_pairs: list[tuple[DashboardTile | None, Insight]]
+    snapshots: list[dict[str, typing.Any]]
+    excluded: list[dict[str, typing.Any]]
+
+
 async def _resolve_exportable_insights(subscription: Subscription) -> ResolvedExportableInsights:
     dashboard = (
         await database_sync_to_async(dashboards_api.get_dashboard, thread_sensitive=False)(
@@ -184,6 +194,7 @@ async def _persist_content_snapshot(
     delivery_id: uuid.UUID,
     total_insight_count: int,
     insight_snapshots: list[dict[str, typing.Any]],
+    extra_fields: dict[str, typing.Any] | None = None,
 ) -> int:
     """Merge insight snapshots onto SubscriptionDelivery.content_snapshot.
 
@@ -202,6 +213,7 @@ async def _persist_content_snapshot(
             **(delivery.content_snapshot or {}),
             "total_insight_count": total_insight_count,
             "insights": insight_snapshots,
+            **(extra_fields or {}),
         }
         delivery.save(update_fields=["content_snapshot", "last_updated_at"])
 
@@ -351,7 +363,81 @@ async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExport
             failure_context=failure_context,
         )
 
-    export_pairs = tile_insight_pairs[:max_asset_count]
+    delivery_config = subscription.delivery_config if isinstance(subscription.delivery_config, dict) else {}
+    insight_criteria = delivery_config.get("insight_criteria")
+
+    # Snapshots run each insight's query, so the criteria check reads them instead of querying
+    # again. With criteria set, walk past insights that fail until the export limit is filled.
+    @database_sync_to_async(thread_sensitive=False)
+    def select_and_snapshot() -> _InsightSelection:
+        selection = _InsightSelection(export_pairs=[], snapshots=[], excluded=[])
+        for tile, insight in tile_insight_pairs:
+            if len(selection.export_pairs) >= max_asset_count:
+                break
+            snapshot = build_insight_delivery_snapshot(
+                insight=insight,
+                team=team,
+                dashboard=dashboard,
+                tile=tile,
+                user=subscription.created_by,
+            )
+            if not insight_matches_criteria(insight_criteria, snapshot):
+                selection.excluded.append(
+                    {"id": insight.id, "short_id": snapshot["short_id"], "name": snapshot["name"]}
+                )
+                continue
+            selection.export_pairs.append((tile, insight))
+            selection.snapshots.append(snapshot)
+        return selection
+
+    selection = await select_and_snapshot()
+    export_pairs = selection.export_pairs
+    insight_snapshots = selection.snapshots
+    excluded_by_criteria = selection.excluded
+    total_insight_count -= len(excluded_by_criteria)
+    # Lets delivery history explain a skip or a short delivery. Insights past the export limit
+    # are never checked, so checked_count can be below the dashboard's insight count.
+    criteria_fields = (
+        {
+            "insight_criteria": {
+                "criteria": insight_criteria,
+                "checked_count": len(export_pairs) + len(excluded_by_criteria),
+                "sent_count": len(export_pairs),
+                "excluded": excluded_by_criteria,
+            }
+        }
+        if insight_criteria
+        else None
+    )
+
+    if excluded_by_criteria:
+        await LOGGER.ainfo(
+            "create_export_assets.insights_excluded_by_criteria",
+            subscription_id=inputs.subscription_id,
+            insight_criteria=insight_criteria,
+            excluded_count=len(excluded_by_criteria),
+            kept_count=len(export_pairs),
+        )
+
+    if not export_pairs:
+        if inputs.delivery_id is not None:
+            await _persist_content_snapshot(
+                delivery_id=inputs.delivery_id,
+                total_insight_count=0,
+                insight_snapshots=[],
+                extra_fields=criteria_fields,
+            )
+        return CreateExportAssetsResult(
+            exported_asset_ids=[],
+            total_insight_count=0,
+            team_id=team.id,
+            distinct_id=str(subscription.created_by.distinct_id) if subscription.created_by else str(team.id),
+            target_type=subscription.target_type,
+            available_insight_count=resolved_insights.available_insight_count,
+            selected_insight_count=resolved_insights.selected_insight_count,
+            insight_limit=max_asset_count,
+            status=ExportAssetPreparationStatus.NO_INSIGHTS_MATCH_CRITERIA,
+        )
 
     expiry = ExportedAsset.compute_expires_after(ExportedAsset.ExportFormat.PNG)
     assets = [
@@ -369,21 +455,6 @@ async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExport
     ]
     await database_sync_to_async(ExportedAsset.objects.bulk_create, thread_sensitive=False)(assets)
 
-    @database_sync_to_async(thread_sensitive=False)
-    def build_insight_snapshots() -> list[dict[str, typing.Any]]:
-        return [
-            build_insight_delivery_snapshot(
-                insight=insight,
-                team=team,
-                dashboard=dashboard,
-                tile=tile,
-                user=subscription.created_by,
-            )
-            for tile, insight in export_pairs
-        ]
-
-    insight_snapshots = await build_insight_snapshots()
-
     # Persist insight snapshots directly on SubscriptionDelivery.content_snapshot
     # instead of returning them across the Temporal activity boundary — per-insight
     # query_results can reach multi-MB and will trip Temporal's ~2 MiB payload cap.
@@ -395,6 +466,7 @@ async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExport
             delivery_id=target_delivery_id,
             total_insight_count=total_insight_count,
             insight_snapshots=insight_snapshots,
+            extra_fields=criteria_fields,
         )
         await LOGGER.ainfo(
             "create_export_assets.content_snapshot_persisted",
