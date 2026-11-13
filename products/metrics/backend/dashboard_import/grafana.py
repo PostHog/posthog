@@ -440,6 +440,10 @@ class GrafanaDashboardParser:
         else:
             minimum, maximum = axis_bound(defaults.get("min")), axis_bound(defaults.get("max"))
             log_scale = _dict(custom.get("scaleDistribution")).get("type") == "log"
+        if grafana_type == "singlestat":
+            sparkline = _dict(panel.get("sparkline")).get("show") is True
+        else:
+            sparkline = options.get("graphMode") != "none"
         return DisplaySpec(
             type=display_type,
             unit=unit,
@@ -448,6 +452,7 @@ class GrafanaDashboardParser:
             min=minimum,
             max=maximum,
             log_scale=log_scale,
+            sparkline=sparkline,
         )
 
     @staticmethod

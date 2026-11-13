@@ -44147,6 +44147,11 @@
                     "default": "last",
                     "description": "How scalar panels and legend calcs collapse a series to one number."
                 },
+                "statSparkline": {
+                    "default": true,
+                    "description": "`stat` display only: whether a graph of the series shows under the value.",
+                    "type": "boolean"
+                },
                 "statSummary": {
                     "$ref": "#/definitions/MetricsStatSummary",
                     "default": "latest",
