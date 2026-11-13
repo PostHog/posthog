@@ -9706,6 +9706,8 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
             ("hogql_expression", [{"key": "1 = 1", "type": "hogql"}]),
             ("nested_hogql_expression", {"type": "AND", "values": [{"key": "1 = 1", "type": "hogql"}]}),
             ("unknown_type", [{"key": "x", "type": "bogus", "value": "y", "operator": "exact"}]),
+            ("hogql_expression_with_values_key", [{"key": "1 = 1", "type": "hogql", "values": []}]),
+            ("legacy_dict_shaped_like_a_person_property", {"key": "email", "type": "person", "value": "a"}),
         ]
     )
     def test_user_blast_radius_endpoint_rejects_unsupported_property_types(self, _name, properties):
