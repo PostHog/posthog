@@ -47,16 +47,19 @@ const SESSION_EVENT_COLUMNS = hogql.raw(
     'uuid, event, timestamp, elements_chain, properties.$window_id, properties.$current_url, properties.$event_type, properties.$viewport_width, properties.$viewport_height, properties.$screen_name, distinct_id'
 )
 
-async function queryFlagEvaluations(query: HogQLQueryString): Promise<{ results: any[] }> {
+async function queryFlagEvaluations(query: HogQLQueryString | null): Promise<any[]> {
+    if (!query) {
+        return []
+    }
     try {
         const response = await api.queryHogQL(query, TAGS)
         if (response.error) {
             throw new Error(response.error)
         }
-        return response
+        return response.results
     } catch (error) {
         posthog.captureException(error, { feature: 'session-recording-flag-evaluations' })
-        return { results: [] }
+        return []
     }
 }
 
@@ -274,15 +277,15 @@ LIMIT 1000000`
                         // since posthog-js must always add session id we can also
                         // take advantage of lib being materialized and further filter
                         api.queryHogQL(relatedEventsQuery, TAGS),
-                        flagCallsQuery ? queryFlagEvaluations(flagCallsQuery) : null,
+                        queryFlagEvaluations(flagCallsQuery),
                     ])
 
                     breakpoint()
 
                     // Flag calls from before the organization moved to flag_evaluations can be in both tables.
                     // Both copies carry the same uuid.
-                    const sessionRows = flagCalls?.results.length
-                        ? uniqueBy([...sessionEvents.results, ...flagCalls.results], (event: any) => event[0])
+                    const sessionRows = flagCalls.length
+                        ? uniqueBy([...sessionEvents.results, ...flagCalls], (event: any) => event[0])
                         : sessionEvents.results
 
                     return [...sessionRows, ...relatedEvents.results].map((event: any): RecordingEventType => {
@@ -343,9 +346,9 @@ LIMIT 1000000`
                     const timestamps = existingEvents.map((ee) => dayjs(ee.timestamp).utc().valueOf())
                     const eventNames = Array.from(new Set(existingEvents.map((ee) => ee.event)))
                     const eventIds = existingEvents.map((ee) => ee.id)
-                    const flagCallIds = values.flagCallsOnlyInFlagEvaluations
-                        ? existingEvents.filter((ee) => ee.event === FEATURE_FLAG_CALLED_EVENT).map((ee) => ee.id)
-                        : []
+                    const flagCallIds = existingEvents
+                        .filter((ee) => values.flagCallsOnlyInFlagEvaluations && ee.event === FEATURE_FLAG_CALLED_EVENT)
+                        .map((ee) => ee.id)
                     const earliestTimestamp = timestamps.reduce((a, b) => Math.min(a, b))
                     const latestTimestamp = timestamps.reduce((a, b) => Math.max(a, b))
 
@@ -361,24 +364,26 @@ LIMIT 1000000`
                             AND timestamp < ${dayjs(latestTimestamp).add(1, 'day')}
                             AND event in ${eventNames}
                             AND uuid in ${eventIds}`
-                        const flagCallsQuery = hogql`
+                        const flagCallsQuery = flagCallIds.length
+                            ? hogql`
                             SELECT properties, uuid
                             FROM ${hogql.raw(FLAG_EVALUATIONS_TABLE)}
                             WHERE timestamp > ${dayjs(earliestTimestamp).subtract(1, 'day')}
                             AND timestamp < ${dayjs(latestTimestamp).add(1, 'day')}
                             AND session_id = ${props.sessionRecordingId}
                             AND uuid in ${flagCallIds}`
+                            : null
 
                         const [response, flagCalls] = await Promise.all([
                             api.queryHogQL(query, TAGS),
-                            flagCallIds.length ? queryFlagEvaluations(flagCallsQuery) : null,
+                            queryFlagEvaluations(flagCallsQuery),
                         ])
                         breakpoint()
                         if (response.error) {
                             throw new Error(response.error)
                         }
                         // A flag call that the events table holds wins, because its result comes first.
-                        const results = [...response.results, ...(flagCalls?.results ?? [])]
+                        const results = [...response.results, ...flagCalls]
 
                         for (const event of existingEvents) {
                             const result = results.find((x: any) => {
