@@ -44,8 +44,10 @@ export const isProdEnv = (): boolean => determineNodeEnv() === NodeEnv.Productio
 // "dev" refers to the hosted development environment, not local development (which is "local").
 // The deployed environments, where DEBUG is never allowed. Matches assert_debug_not_in_production in posthog/settings/utils.py,
 // so a local stack on CLOUD_DEPLOYMENT=E2E still counts as local.
-export const isHostedCloud = (cloudDeployment: string | null | undefined = process.env.CLOUD_DEPLOYMENT): boolean =>
+export const isHostedCloudDeployment = (cloudDeployment: string | null): boolean =>
     ['EU', 'US', 'DEV'].includes((cloudDeployment ?? '').toUpperCase())
+
+export const isHostedCloud = (): boolean => isHostedCloudDeployment(process.env.CLOUD_DEPLOYMENT ?? null)
 
 export const isCloud = (): boolean =>
     ['EU', 'US', 'DEV', 'E2E'].includes((process.env.CLOUD_DEPLOYMENT ?? '').toUpperCase())

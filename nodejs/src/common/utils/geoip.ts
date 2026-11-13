@@ -5,7 +5,7 @@ import { Counter } from 'prom-client'
 
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 
-import { isHostedCloud, isTestEnv, stringToBoolean } from './env-utils'
+import { isHostedCloudDeployment, isTestEnv, stringToBoolean } from './env-utils'
 import { parseJSON } from './json-parse'
 import { logger } from './logger'
 
@@ -74,7 +74,7 @@ export function resolveMmdbMode(mmdbEnabled: string, serverDefault: MmdbMode): M
 
 // The node image has no MMDB, so on hosted cloud a missing mount must stop the server.
 export function geoipServerDefaultMode(cloudDeployment: string | null): MmdbMode {
-    return isHostedCloud(cloudDeployment) ? 'required' : 'optional'
+    return isHostedCloudDeployment(cloudDeployment) ? 'required' : 'optional'
 }
 
 export type MmdbSource = { kind: 'file'; path: string } | { kind: 'disabled' }
