@@ -781,6 +781,8 @@ describe('EmailTrackingService', () => {
                 snsMessageId = new UUIDT().toString(),
                 topicArn = 'arn:aws:sns:us-east-1:123456789012:ses-events',
                 sesMessage,
+                bounceType = 'Permanent',
+                recipient = 'user@example.com',
             }: {
                 functionId: string
                 parentRunId?: string
@@ -794,6 +796,8 @@ describe('EmailTrackingService', () => {
                 snsMessageId?: string
                 topicArn?: string
                 sesMessage?: string
+                bounceType?: 'Permanent' | 'Transient'
+                recipient?: string
             }): Promise<supertest.Response> => {
                 const trackingCode = signer.generate(
                     {
@@ -814,18 +818,18 @@ describe('EmailTrackingService', () => {
                         timestamp: '2024-01-01T00:00:00.000Z',
                         source: 'sender@posthog.com',
                         messageId: 'ses-message-id',
-                        destination: ['user@example.com'],
+                        destination: [recipient],
                         headers: [{ name: TRACKING_CODE_HEADER_NAME, value: headerCode ?? trackingCode }],
                         ...(transactionalMessageId
                             ? {
-                                  commonHeaders: { to: ['user@example.com'] },
+                                  commonHeaders: { to: [recipient] },
                                   tags: { ph_email_status: ['true'], ...sentTags },
                               }
                             : {}),
                     },
                     bounce: {
-                        bounceType: 'Permanent',
-                        bouncedRecipients: [{ emailAddress: 'user@example.com' }],
+                        bounceType,
+                        bouncedRecipients: [{ emailAddress: recipient }],
                         timestamp: '2024-01-01T00:00:00.000Z',
                     },
                 }
@@ -1085,6 +1089,22 @@ describe('EmailTrackingService', () => {
                     expect(recordedMetrics()).toEqual(bounceMetrics)
                 }
             )
+
+            it('counts a soft bounce once when Kafka redelivers its batch', async () => {
+                await postBounce({ functionId: hogFunction.id, recipient: 'soft@example.com', bounceType: 'Transient' })
+                const batch = queuedSesNotifications()
+
+                await consumer.processBatch(batch)
+                await consumer.processBatch(batch)
+
+                const rows = await hub.postgres.query(
+                    PostgresUse.COMMON_READ,
+                    `SELECT identifier, transient_bounce_count FROM posthog_messagesuppression WHERE team_id = $1`,
+                    [team.id],
+                    'test-read-suppression'
+                )
+                expect(rows.rows).toEqual([{ identifier: 'soft@example.com', transient_bounce_count: 1 }])
+            })
 
             it('answers 200 and queues the envelope by its MessageId without recording it', async () => {
                 const snsMessageId = new UUIDT().toString()

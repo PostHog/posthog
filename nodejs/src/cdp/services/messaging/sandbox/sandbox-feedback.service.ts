@@ -172,7 +172,7 @@ export class SandboxFeedbackService {
         const feedback: SandboxFeedback[] = []
         try {
             for (const record of verdict.records) {
-                const recorded = await this.recordFeedback(record)
+                const recorded = await this.recordFeedback(record, verdict.messageId)
                 if (recorded) {
                     feedback.push(recorded)
                 }
@@ -186,7 +186,7 @@ export class SandboxFeedbackService {
         return { status: 200 }
     }
 
-    private async recordFeedback(record: SesEventRecord): Promise<SandboxFeedback | null> {
+    private async recordFeedback(record: SesEventRecord, snsMessageId?: string): Promise<SandboxFeedback | null> {
         const count = (outcome: string): void => feedbackCounter.inc({ event_type: record.eventType, outcome })
 
         if (!this.isSandboxSender(record.mail.source)) {
@@ -242,7 +242,7 @@ export class SandboxFeedbackService {
                         addresses,
                         diagnostic,
                         record.bounce.timestamp,
-                        strict
+                        { ...strict, eventId: snsMessageId }
                     )
                 }
                 count('processed')

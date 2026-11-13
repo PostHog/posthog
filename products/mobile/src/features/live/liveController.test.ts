@@ -77,6 +77,27 @@ describe('LiveController', () => {
         expect(reads).toHaveLength(4)
     })
 
+    test('focus back reads at once only when the data is older than the read interval', async () => {
+        controller.setVisible(true)
+        await answer({ data: 'a', complete: true })
+
+        await jest.advanceTimersByTimeAsync(10_000)
+        controller.setVisible(false)
+        await jest.advanceTimersByTimeAsync(5000)
+        controller.setVisible(true)
+        expect(reads).toHaveLength(1)
+        await jest.advanceTimersByTimeAsync(14_999)
+        expect(reads).toHaveLength(1)
+        await jest.advanceTimersByTimeAsync(1)
+        expect(reads).toHaveLength(2)
+        await answer({ data: 'b', complete: true })
+
+        controller.setVisible(false)
+        await jest.advanceTimersByTimeAsync(30_000)
+        controller.setVisible(true)
+        expect(reads).toHaveLength(3)
+    })
+
     test.each(['timer fired', 'JavaScript suspended'])(
         'the foreground reads at once after the background grace (%s)',
         async (background) => {
