@@ -60,6 +60,8 @@ class BackfillOptions:
     limits: RenderLimits = DEFAULT_LIMITS
     min_units: int = MIN_UNITS
     exclude_inbox: bool = False
+    # One model for every job, so the vectors of one backfill run compare across pairs and dates.
+    model: str = DEFAULT_MODEL
 
 
 @frozen
@@ -128,22 +130,22 @@ def document_id(job: BackfillJob, exclude_inbox: bool) -> str:
     return f"{base}{EXCLUDE_INBOX_SUFFIX}" if exclude_inbox else base
 
 
-def _emit_embedding(job: BackfillJob, update: ActivitySummaryUpdate, exclude_inbox: bool) -> None:
+def _emit_embedding(job: BackfillJob, update: ActivitySummaryUpdate, options: BackfillOptions) -> None:
     if update.summary is None:
         return
     emit_summary_embedding(
         job.team_id,
         content=summary_text(update.summary),
         document_type=BACKFILL_DOCUMENT_TYPE,
-        document_id=document_id(job, exclude_inbox),
+        document_id=document_id(job, options.exclude_inbox),
         # The as-of moment, so a rerun of the same job replaces its own row.
         timestamp=job.as_of,
         metadata={
             "prompt_version": PROMPT_VERSION,
             "render_version": RENDER_VERSION,
-            "model": DEFAULT_MODEL,
+            "model": options.model,
             "source": SOURCE_BACKFILL,
-            "exclude_inbox": exclude_inbox,
+            "exclude_inbox": options.exclude_inbox,
         },
     )
 
@@ -158,15 +160,16 @@ def run_job(job: BackfillJob, options: BackfillOptions) -> ActivitySummaryUpdate
         min_units=options.min_units,
         exclude_products=_excluded_products(options),
         trace_variant=f"{SOURCE_BACKFILL}:{document_id(job, options.exclude_inbox)}",
+        model=options.model,
     )
     if update.status == UpdateStatus.OK:
         try:
-            _emit_embedding(job, update, options.exclude_inbox)
+            _emit_embedding(job, update, options)
         except Exception:
             logger.exception("activity_summary_backfill_embedding_failed", team_id=job.team_id, user_id=job.user_id)
     if update.status in (UpdateStatus.OK, UpdateStatus.FAILED):
         try:
-            capture_generated(job.team_id, job.user_id, update, None, source=SOURCE_BACKFILL)
+            capture_generated(job.team_id, job.user_id, update, None, model=options.model, source=SOURCE_BACKFILL)
         except Exception:
             logger.exception("activity_summary_backfill_capture_failed", team_id=job.team_id, user_id=job.user_id)
     return update
@@ -180,7 +183,9 @@ def plan_backfill(jobs: Sequence[BackfillJob], options: BackfillOptions) -> Back
             job.team_id, job.user_id, job.as_of, limits=options.limits, exclude_products=_excluded_products(options)
         )
         builds += built is not None and built.rendered.units >= options.min_units
-    return BackfillPlan(jobs=len(jobs), builds=builds, max_cost_usd=builds * max_update_cost_usd(options.limits))
+    return BackfillPlan(
+        jobs=len(jobs), builds=builds, max_cost_usd=builds * max_update_cost_usd(options.limits, options.model)
+    )
 
 
 def _run_job_in_thread(job: BackfillJob, options: BackfillOptions) -> ActivitySummaryUpdate:
@@ -212,7 +217,7 @@ def run_backfill(
     """Run the jobs in batches of `concurrency`, and stop between batches when the cost reaches `max_cost_usd`.
 
     A build without a cost, or a build that raised, counts at the highest cost of one update."""
-    bound = max_update_cost_usd(options.limits)
+    bound = max_update_cost_usd(options.limits, options.model)
     statuses: Counter[str] = Counter()
     cost = 0.0
     attempted = 0

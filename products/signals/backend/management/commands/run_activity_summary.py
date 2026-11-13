@@ -9,6 +9,7 @@ from django.core.management.base import BaseCommand
 
 from products.signals.backend.activity_summary.config import parse_limits
 from products.signals.backend.activity_summary.logic import update_activity_summary
+from products.signals.backend.activity_summary.summaries import DEFAULT_MODEL, MODEL_PRICES
 
 
 class Command(BaseCommand):
@@ -31,6 +32,12 @@ class Command(BaseCommand):
             default=None,
             help="Read this many days of the MCP intent buffer into the input. Off by default.",
         )
+        parser.add_argument(
+            "--model",
+            choices=sorted(MODEL_PRICES),
+            default=DEFAULT_MODEL,
+            help="The model of the update, in place of the model split of the flag. Any model with prices.",
+        )
 
     def handle(self, *args, **options):
         result = update_activity_summary(
@@ -40,6 +47,7 @@ class Command(BaseCommand):
             force=options["force"],
             limits=parse_limits(options["limits"]),
             mcp_buffer_days=options["mcp_buffer_days"],
+            model=options["model"],
         )
         self.stdout.write(f"status: {result.status}")
         if result.rendered_input is not None:

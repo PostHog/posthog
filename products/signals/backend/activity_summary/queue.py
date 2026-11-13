@@ -217,8 +217,9 @@ def daily_usage(now: datetime.datetime) -> DailyUsage:
 
     One row holds the latest update of a pair, so an earlier update of the same pair in the same 24
     hours is not counted. With the minimum update interval that happens only after a failure.
-    A row without a cost counts as the most one update can cost under the largest limits the flag allows,
-    because the row can come from a tick with larger limits than now. So missing usage cannot pass the cap.
+    A row without a cost counts as the most one update can cost under the largest limits the flag allows and the most
+    expensive priced model, because the row can come from a tick with larger limits or another model split than now.
+    So missing usage cannot pass the cap.
     An update that raised before it called the model is not counted, unless the row holds an earlier paid update.
     """
     rows = (
@@ -233,7 +234,8 @@ def daily_usage(now: datetime.datetime) -> DailyUsage:
     )
     return DailyUsage(
         updates=rows["updates"],
-        cost_usd=(rows["cost"] or 0.0) + rows["unpriced"] * max_update_cost_usd(MAX_LIMITS),
+        cost_usd=(rows["cost"] or 0.0)
+        + rows["unpriced"] * max(max_update_cost_usd(MAX_LIMITS, model) for model in MODEL_PRICES),
     )
 
 

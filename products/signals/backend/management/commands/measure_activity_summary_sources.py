@@ -24,6 +24,7 @@ from products.signals.backend.activity_summary.measure import (
     scope_team_ids,
 )
 from products.signals.backend.activity_summary.render import WINDOW_DAYS
+from products.signals.backend.activity_summary.summaries import DEFAULT_MODEL, MODEL_PRICES
 
 MODE_COVERAGE = "coverage"
 MODE_LEAVE_ONE_OUT = "leave-one-out"
@@ -42,6 +43,12 @@ class Command(BaseCommand):
         parser.add_argument("--seed", type=int, help="Seed of the pair sample, for a repeatable run.")
         parser.add_argument("--window-days", type=int, default=WINDOW_DAYS)
         parser.add_argument("--min-units", type=int, default=MIN_UNITS)
+        parser.add_argument(
+            "--model",
+            choices=sorted(MODEL_PRICES),
+            default=DEFAULT_MODEL,
+            help="The model of the leave-one-out summaries. Any model with prices.",
+        )
         parser.add_argument(
             "--output",
             type=Path,
@@ -76,7 +83,9 @@ class Command(BaseCommand):
         records = []
         with options["output"].open("w") as output:
             for pair in pairs:
-                for record in leave_one_out_pair(pair, start=start, now=now, min_units=options["min_units"]):
+                for record in leave_one_out_pair(
+                    pair, start=start, now=now, min_units=options["min_units"], model=options["model"]
+                ):
                     output.write(json.dumps(record, ensure_ascii=False, default=str) + "\n")
                     records.append(record)
         self.stderr.write(f"wrote {len(records)} records to {options['output']}")

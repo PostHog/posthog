@@ -27,7 +27,13 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
-from products.signals.backend.activity_summary.config import read_config
+from products.signals.backend.activity_summary.config import (
+    DEFAULT_MODEL_SPLIT_SALT,
+    ModelVariant,
+    model_for_pair,
+    read_config,
+    split_models,
+)
 from products.signals.backend.activity_summary.logic import (
     CALLED_MODEL_STATUSES,
     MAX_SKIP_BACKOFF,
@@ -63,7 +69,7 @@ from products.signals.backend.activity_summary.queue import (
     sync_pair_state,
 )
 from products.signals.backend.activity_summary.render import DEFAULT_LIMITS, RENDER_VERSION, RenderLimits
-from products.signals.backend.activity_summary.summaries import DEFAULT_MODEL, PIPELINE_DISTINCT_ID
+from products.signals.backend.activity_summary.summaries import PIPELINE_DISTINCT_ID
 from products.signals.backend.models import UserActivitySummary
 from products.signals.backend.personal_ranking_tasks import start_first_summary_build
 from products.signals.backend.report_embeddings import EMBEDDING_PRODUCT
@@ -142,6 +148,8 @@ class ActivitySummaryTickPlan:
     mcp_feed: McpFeed = dataclasses.field(default_factory=McpFeed)
     outdated_pairs: int = 0
     current_version_share: float | None = None
+    model_variants: tuple[ModelVariant, ...] = ()
+    model_split_salt: str = DEFAULT_MODEL_SPLIT_SALT
 
 
 @frozen
@@ -163,6 +171,9 @@ class ActivitySummaryPairInput:
     view_update_interval_hours: float | None = None
     mcp_buffer_days: int | None = None
     emit_profile_embeddings: bool = False
+    # The split of the plan, not of the flag at dispatch, so the pair calls only models inside the plan's cost bound.
+    model_variants: tuple[ModelVariant, ...] = ()
+    model_split_salt: str = DEFAULT_MODEL_SPLIT_SALT
 
 
 @frozen
@@ -242,7 +253,10 @@ def plan_tick(limit: int | None, now: datetime.datetime) -> ActivitySummaryTickP
         candidates=due_pairs,
         updates_left=updates_left,
         cost_left_usd=cost_left,
-        max_update_cost_usd=max_update_cost_usd(config.limits),
+        # The most expensive model of the split, so a costly candidate cannot pass `max_cost_usd_per_day`.
+        max_update_cost_usd=max(
+            max_update_cost_usd(config.limits, model) for model in split_models(config.model_variants)
+        ),
         max_concurrency=config.max_concurrency,
         min_units=config.min_units,
         min_update_interval_hours=config.min_update_interval_hours,
@@ -263,6 +277,8 @@ def plan_tick(limit: int | None, now: datetime.datetime) -> ActivitySummaryTickP
         max_versions=config.max_versions,
         mcp_buffer_days=config.mcp_buffer_days if config.mcp_render_enabled else None,
         mcp_feed=mcp_feed,
+        model_variants=config.model_variants,
+        model_split_salt=config.model_split_salt,
     )
 
 
@@ -331,8 +347,16 @@ def _emit_embedding(team_id: int, user_id: int, *, emit_profile: bool) -> None:
 
 
 def capture_generated(
-    team_id: int, user_id: int, update: ActivitySummaryUpdate, trigger: str | None, *, source: str = SOURCE_LIVE
+    team_id: int,
+    user_id: int,
+    update: ActivitySummaryUpdate,
+    trigger: str | None,
+    *,
+    model: str,
+    model_split_salt: str | None = None,
+    source: str = SOURCE_LIVE,
 ) -> None:
+    """`model_split_salt` is null when no model split picked `model`."""
     team = Team.objects.only("uuid", "organization_id").get(id=team_id)
     inputs_used = update.inputs_used or {}
     # Counts and accounting only. The summary and the rendered input are user content.
@@ -345,7 +369,8 @@ def capture_generated(
             "deployment": settings.CLOUD_DEPLOYMENT,
             "status": update.status.value,
             "error": update.error,
-            "model": DEFAULT_MODEL,
+            "model": model,
+            "model_split_salt": model_split_salt,
             "prompt_version": PROMPT_VERSION,
             "render_version": RENDER_VERSION,
             "tokens_in": update.tokens_in,
@@ -377,6 +402,7 @@ def run_pair(input: ActivitySummaryPairInput, *, last_attempt: bool = True) -> A
         return ActivitySummaryPairResult(
             status=UpdateStatus.SKIPPED_NOT_ENROLLED.value, cost_usd=None, called_model=False
         )
+    model = model_for_pair(input.model_variants, input.model_split_salt, input.team_id, input.user_id)
     interval_hours = input.min_update_interval_hours
     if input.trigger in VIEW_TRIGGERS and input.view_update_interval_hours is not None:
         interval_hours = input.view_update_interval_hours
@@ -391,6 +417,7 @@ def run_pair(input: ActivitySummaryPairInput, *, last_attempt: bool = True) -> A
             max_versions=input.max_versions,
             max_skip_backoff=datetime.timedelta(hours=input.max_skip_backoff_hours),
             mcp_buffer_days=input.mcp_buffer_days,
+            model=model,
         )
         called_model = update.status in CALLED_MODEL_STATUSES
     except Exception as error:
@@ -420,7 +447,14 @@ def run_pair(input: ActivitySummaryPairInput, *, last_attempt: bool = True) -> A
             logger.exception("activity_summary_embedding_failed", team_id=input.team_id, user_id=input.user_id)
     if update.status in CALLED_MODEL_STATUSES and input.capture_events:
         try:
-            capture_generated(input.team_id, input.user_id, update, input.trigger)
+            capture_generated(
+                input.team_id,
+                input.user_id,
+                update,
+                input.trigger,
+                model=model,
+                model_split_salt=input.model_split_salt if input.model_variants else None,
+            )
         except Exception:
             logger.exception("activity_summary_capture_failed", team_id=input.team_id, user_id=input.user_id)
     return ActivitySummaryPairResult(
@@ -558,6 +592,8 @@ class ActivitySummaryTickWorkflow:
                             trigger=pair.trigger,
                             view_update_interval_hours=plan.view_update_interval_hours,
                             mcp_buffer_days=plan.mcp_buffer_days,
+                            model_variants=plan.model_variants,
+                            model_split_salt=plan.model_split_salt,
                         ),
                         start_to_close_timeout=_PAIR_TIMEOUT,
                         heartbeat_timeout=_PAIR_HEARTBEAT_TIMEOUT,

@@ -267,7 +267,12 @@ def leave_one_out_inputs(
 
 
 def leave_one_out_pair(
-    pair: ActivitySummaryPair, *, start: datetime.datetime, now: datetime.datetime, min_units: int
+    pair: ActivitySummaryPair,
+    *,
+    start: datetime.datetime,
+    now: datetime.datetime,
+    min_units: int,
+    model: str = DEFAULT_MODEL,
 ) -> list[dict[str, Any]]:
     """One record per variant. With no previous summary, so each summary reflects its input only."""
     tasks = user_tasks(pair.team_id, pair.user_id, start, now)
@@ -293,7 +298,7 @@ def leave_one_out_pair(
             client,
             rendered_input=rendered.text,
             previous_summary=None,
-            model=DEFAULT_MODEL,
+            model=model,
             as_of=now.date(),
             computed=compute_fields(variant_tasks, variant_activity, []).with_line_refs(rendered).as_json(),
         )
@@ -307,7 +312,7 @@ def leave_one_out_pair(
                 "input_chars": rendered.input_chars,
                 "tokens_in": outcome.tokens_in,
                 "tokens_out": outcome.tokens_out,
-                "cost_usd": cost_usd(outcome.tokens_in, outcome.tokens_out, MODEL_PRICES.get(DEFAULT_MODEL)),
+                "cost_usd": cost_usd(outcome.tokens_in, outcome.tokens_out, MODEL_PRICES.get(model)),
                 "latency_ms": outcome.latency_ms,
                 "error": outcome.error,
                 "summary": outcome.summary,

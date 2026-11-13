@@ -264,19 +264,20 @@ def _call_model(
     previous: dict[str, Any] | None,
     as_of: datetime.datetime,
     limits: RenderLimits,
+    model: str,
     trace_variant: str | None = None,
 ) -> tuple[SummaryOutcome, float | None]:
     outcome = summarize(
         gateway_client(team_id, user_id, as_of.date(), variant=trace_variant),
         rendered_input=rendered.text,
         previous_summary=previous,
-        model=DEFAULT_MODEL,
+        model=model,
         as_of=as_of.date(),
         max_completion_tokens=limits.max_completion_tokens,
         profile_max_chars=limits.profile_max_chars,
         computed=computed,
     )
-    return outcome, cost_usd(outcome.tokens_in, outcome.tokens_out, MODEL_PRICES.get(DEFAULT_MODEL))
+    return outcome, cost_usd(outcome.tokens_in, outcome.tokens_out, MODEL_PRICES.get(model))
 
 
 def _back_off(
@@ -412,6 +413,7 @@ def update_activity_summary(
     max_versions: int = MAX_VERSIONS,
     max_skip_backoff: datetime.timedelta = MAX_SKIP_BACKOFF,
     mcp_buffer_days: int | None = None,
+    model: str = DEFAULT_MODEL,
 ) -> ActivitySummaryUpdate:
     """Update the stored activity summary of one user in one project.
 
@@ -427,6 +429,8 @@ def update_activity_summary(
     A skip of an outdated summary's update keeps it served.
     A successful update also appends a `UserActivitySummaryVersion` and keeps the latest `max_versions`.
     With `mcp_buffer_days`, the update also reads up to that many UTC days of the MCP intent buffer.
+    `model` builds the summary and prices the call. A summary from another model is not outdated, so the next
+    normal update moves it to `model`.
     """
     team = Team.objects.select_related("organization").get(id=team_id)
     if team.organization.is_ai_data_processing_approved is not True:
@@ -481,7 +485,9 @@ def update_activity_summary(
         fields = compute_fields(full.tasks, full.activity, full.views)
     computed = fields.with_line_refs(rendered).as_json()
     previous = stored.summary if stored is not None and not full_window else None
-    outcome, cost = _call_model(team_id, user_id, rendered, computed, previous=previous, as_of=now, limits=limits)
+    outcome, cost = _call_model(
+        team_id, user_id, rendered, computed, previous=previous, as_of=now, limits=limits, model=model
+    )
     if outcome.summary is not None:
         status = UpdateStatus.OK
     elif outcome.empty_profile:
@@ -553,7 +559,7 @@ def update_activity_summary(
                 "summary_text": summary_text(outcome.summary),
                 "computed": computed,
                 "generated_at": now,
-                "model": DEFAULT_MODEL,
+                "model": model,
                 "prompt_version": PROMPT_VERSION,
                 "render_version": RENDER_VERSION,
                 "input_watermark": watermark,
@@ -626,6 +632,7 @@ def build_summary_as_of(
     exclude_products: frozenset[Product] = frozenset(),
     trace_variant: str | None = None,
     mcp_buffer_days: int | None = None,
+    model: str = DEFAULT_MODEL,
 ) -> ActivitySummaryUpdate:
     """A summary of one user in one project as of `as_of`, from the inputs before it only.
 
@@ -647,6 +654,7 @@ def build_summary_as_of(
         previous=None,
         as_of=as_of,
         limits=limits,
+        model=model,
         trace_variant=trace_variant,
     )
     return ActivitySummaryUpdate(

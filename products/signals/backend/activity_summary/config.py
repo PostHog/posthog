@@ -4,6 +4,8 @@ The parse fails closed: a missing, malformed or unreadable payload turns the tic
 field falls back to its default, and no default is unbounded.
 """
 
+import math
+import hashlib
 import datetime
 import dataclasses
 from typing import Any
@@ -22,6 +24,7 @@ from products.signals.backend.activity_summary.logic import (
     VIEW_UPDATE_INTERVAL,
 )
 from products.signals.backend.activity_summary.render import DEFAULT_LIMITS, RenderLimits
+from products.signals.backend.activity_summary.summaries import DEFAULT_MODEL, MODEL_PRICES
 from products.signals.backend.scout_harness.team_limits import read_flag_payload
 
 logger = structlog.get_logger(__name__)
@@ -33,6 +36,10 @@ ACTIVITY_SUMMARY_FLAG_DISTINCT_ID = "signals_activity_summary"
 MAX_SOURCE_WEIGHT = 10.0
 MAX_MCP_CALLS_PER_DAY = 500
 MAX_MCP_BUFFER_DAYS = 30
+# A new salt reassigns every pair to a model, so change it only to start a new model comparison.
+DEFAULT_MODEL_SPLIT_SALT = "activity-summary-model-split-v1"
+# 48 bits of the hash, so the unit draw of `model_for_pair` is exact in a float and never reaches 0 or 1.
+_MODEL_SPLIT_BITS = 48
 
 
 @frozen
@@ -50,6 +57,13 @@ class SourceWeights:
     scene_views: float = 0.0
     # A distinct MCP session after the pair's watermark, without plumbing routes.
     mcp: float = 1.0
+
+
+@frozen
+class ModelVariant:
+    model: str
+    # Relative to the weights of the other variants, so the weights do not have to add up to 100.
+    weight: float
 
 
 @frozen
@@ -122,6 +136,9 @@ class ActivitySummaryConfig:
     mcp_render_enabled: bool = False
     # Drains the buffer's dirty set into the queue, so a pair with only MCP calls can come due. Needs `mcp_render_enabled`.
     mcp_queue_enabled: bool = False
+    # The models of the summary updates and their weights. Empty means every update uses `DEFAULT_MODEL`.
+    model_variants: tuple[ModelVariant, ...] = ()
+    model_split_salt: str = DEFAULT_MODEL_SPLIT_SALT
 
 
 DISABLED = ActivitySummaryConfig()
@@ -174,6 +191,52 @@ def parse_source_weights(payload: Any) -> SourceWeights:
             for field in dataclasses.fields(SourceWeights)
         }
     )
+
+
+def parse_model_variants(payload: Any) -> tuple[ModelVariant, ...]:
+    """The `model_variants` list of the payload, in payload order, with the weights of a repeated model added up.
+
+    An entry is dropped when its model has no `MODEL_PRICES` entry or its weight is not a positive finite number.
+    A model without prices has no cost bound for the daily cap, and a typo in the payload must not call any model.
+    """
+    if not isinstance(payload, list):
+        return ()
+    weights: dict[str, float] = {}
+    for entry in payload:
+        if not isinstance(entry, dict):
+            continue
+        model = entry.get("model")
+        weight = _positive_number(entry.get("weight"), 0.0)
+        if isinstance(model, str) and model in MODEL_PRICES and math.isfinite(weight) and weight > 0:
+            weights[model] = weights.get(model, 0.0) + weight
+    return tuple(ModelVariant(model=model, weight=weight) for model, weight in weights.items())
+
+
+def split_models(variants: tuple[ModelVariant, ...]) -> tuple[str, ...]:
+    """Every model that an update can call."""
+    return tuple(variant.model for variant in variants) or (DEFAULT_MODEL,)
+
+
+def model_for_pair(variants: tuple[ModelVariant, ...], salt: str, team_id: int, user_id: int) -> str:
+    """The model of every update of the pair, so one summary never mixes the output of two models.
+
+    Weighted rendezvous hashing: each variant gets a fixed score from the salt, the pair and its model, and the
+    highest score wins with a probability of its weight over the total weight. Raising the weight of one variant,
+    or adding a variant, moves pairs only into that variant, whatever the order of the variants.
+    """
+    if not variants:
+        return DEFAULT_MODEL
+
+    def score(variant: ModelVariant) -> float:
+        digest = hashlib.sha256(f"{salt}:{team_id}:{user_id}:{variant.model}".encode()).digest()
+        unit = (int.from_bytes(digest[: _MODEL_SPLIT_BITS // 8], "big") + 1) / (2**_MODEL_SPLIT_BITS + 1)
+        return -variant.weight / math.log(unit)
+
+    return max(variants, key=score).model
+
+
+def _salt(value: Any, default: str) -> str:
+    return value if isinstance(value, str) and value else default
 
 
 def _team_ids(value: Any) -> tuple[int, ...]:
@@ -275,6 +338,8 @@ def parse_config(payload: Any) -> ActivitySummaryConfig:
         ),
         mcp_render_enabled=_bool(payload.get("mcp_render_enabled"), defaults.mcp_render_enabled),
         mcp_queue_enabled=_bool(payload.get("mcp_queue_enabled"), defaults.mcp_queue_enabled),
+        model_variants=parse_model_variants(payload.get("model_variants")),
+        model_split_salt=_salt(payload.get("model_split_salt"), defaults.model_split_salt),
     )
 
 
@@ -287,5 +352,7 @@ def read_config() -> ActivitySummaryConfig:
         organizations=len(config.organization_ids),
         self_driving_organization_percentage=config.self_driving_organization_percentage,
         denied_organizations=len(config.deny_organization_ids),
+        model_variants=[dataclasses.asdict(variant) for variant in config.model_variants],
+        model_split_salt=config.model_split_salt,
     )
     return config

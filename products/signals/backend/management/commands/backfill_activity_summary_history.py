@@ -20,6 +20,7 @@ from products.signals.backend.activity_summary.backfill import (
 )
 from products.signals.backend.activity_summary.config import parse_limits
 from products.signals.backend.activity_summary.logic import MIN_UNITS
+from products.signals.backend.activity_summary.summaries import DEFAULT_MODEL, MODEL_PRICES
 
 
 def _date(value: str) -> datetime.date:
@@ -80,6 +81,12 @@ class Command(BaseCommand):
         parser.add_argument(
             "--dry-run", action="store_true", help="Count the builds and their highest cost. No model call."
         )
+        parser.add_argument(
+            "--model",
+            choices=sorted(MODEL_PRICES),
+            default=DEFAULT_MODEL,
+            help="The model of every build in the run. Any model with prices.",
+        )
 
     def handle(self, *args, **options):
         has_pair = options["team_id"] is not None and options["user_id"] is not None
@@ -96,6 +103,7 @@ class Command(BaseCommand):
             limits=parse_limits(options["limits"]),
             min_units=options["min_units"],
             exclude_inbox=options["exclude_inbox"],
+            model=options["model"],
         )
         if options["dry_run"]:
             plan = plan_backfill(jobs, backfill_options)

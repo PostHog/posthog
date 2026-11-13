@@ -32,7 +32,14 @@ from products.signals.backend.activity_summary import (
     tick,
 )
 from products.signals.backend.activity_summary.computed import MAX_OWNED, MAX_WATCHED
-from products.signals.backend.activity_summary.config import ActivitySummaryConfig, SourceWeights, parse_config
+from products.signals.backend.activity_summary.config import (
+    DEFAULT_MODEL_SPLIT_SALT,
+    ActivitySummaryConfig,
+    ModelVariant,
+    SourceWeights,
+    model_for_pair,
+    parse_config,
+)
 from products.signals.backend.activity_summary.mcp_buffer import DIRTY_KEY, build_record, records_key
 from products.signals.backend.activity_summary.prompt import (
     MAX_HEADLINE_CHARS,
@@ -73,6 +80,7 @@ from products.signals.backend.activity_summary.schedule import (
     ACTIVITY_SUMMARY_TICK_SCHEDULE_ID,
     create_activity_summary_tick_schedule,
 )
+from products.signals.backend.activity_summary.summaries import DEFAULT_MODEL, MODEL_PRICES, SummaryPrices, cost_usd
 from products.signals.backend.activity_summary.tick import (
     STOP_ERROR_RATE,
     STOP_GATEWAY_NOT_CONFIGURED,
@@ -90,7 +98,12 @@ from products.signals.backend.activity_summary.tick import (
     plan_tick,
     run_pair,
 )
-from products.signals.backend.models import SignalSourceConfig, UserActivitySummary, UserActivitySummaryQueueState
+from products.signals.backend.models import (
+    SignalSourceConfig,
+    UserActivitySummary,
+    UserActivitySummaryQueueState,
+    UserActivitySummaryVersion,
+)
 from products.signals.backend.personal_ranking_tasks import build_lock_key
 from products.signals.backend.test.test_activity_summary_render import FakeLLM
 from products.tasks.backend.facade.user_task_summaries import UserTaskTime
@@ -106,6 +119,9 @@ ANSWER = json.dumps(
     }
 )
 EMPTY_PROFILE_ANSWER = json.dumps({**json.loads(ANSWER), "profile": "", "themes": [], "modes": []})
+CANDIDATE_MODEL = "candidate-model"
+# Ten times the prices of the default model, so a cost from the wrong prices shows.
+CANDIDATE_PRICES = SummaryPrices(input_price_per_million_tokens=1.0, output_price_per_million_tokens=5.0)
 
 
 _CONFIG_CASES: list[tuple[str, Any, ActivitySummaryConfig]] = [
@@ -238,11 +254,52 @@ _CONFIG_CASES: list[tuple[str, Any, ActivitySummaryConfig]] = [
         {"enabled": True, "rebuild_before": "2026-10-20T00:00:00+00:00"},
         ActivitySummaryConfig(enabled=True),
     ),
+    (
+        "model variants keep the priced models with positive weights and add up a repeated model",
+        {
+            "enabled": True,
+            "model_variants": [
+                {"model": DEFAULT_MODEL, "weight": 60},
+                {"model": "unpriced-model", "weight": 20},
+                {"model": CANDIDATE_MODEL, "weight": 15},
+                {"model": DEFAULT_MODEL, "weight": 5},
+                {"model": CANDIDATE_MODEL, "weight": 0},
+                {"model": CANDIDATE_MODEL, "weight": True},
+                {"model": CANDIDATE_MODEL, "weight": "5"},
+                {"model": 7, "weight": 5},
+                "not an object",
+            ],
+            "model_split_salt": "v2",
+        },
+        ActivitySummaryConfig(
+            enabled=True,
+            model_variants=(
+                ModelVariant(model=DEFAULT_MODEL, weight=65.0),
+                ModelVariant(model=CANDIDATE_MODEL, weight=15.0),
+            ),
+            model_split_salt="v2",
+        ),
+    ),
+    (
+        "model variants with no valid entry give no split",
+        {
+            "enabled": True,
+            "model_variants": [{"model": "unpriced-model", "weight": 50}, {"model": CANDIDATE_MODEL, "weight": -1}],
+            "model_split_salt": "",
+        },
+        ActivitySummaryConfig(enabled=True),
+    ),
+    (
+        "model variants that are not a list give no split",
+        {"enabled": True, "model_variants": {"model": CANDIDATE_MODEL, "weight": 1}, "model_split_salt": 3},
+        ActivitySummaryConfig(enabled=True),
+    ),
 ]
 
 
 @parameterized.expand(_CONFIG_CASES)
 @time_machine.travel(NOW, tick=False)
+@patch.dict(MODEL_PRICES, {CANDIDATE_MODEL: CANDIDATE_PRICES})
 def test_parse_config(_name: str, payload: Any, expected: ActivitySummaryConfig) -> None:
     assert parse_config(payload) == expected
 
@@ -266,6 +323,68 @@ def test_a_higher_percentage_keeps_the_organizations_of_a_lower_one(lower: float
         return {o for o in organization_ids if organization_rollout_bucket(o) < percentage * 100}
 
     assert members(lower) < members(higher)
+
+
+_PAIRS = [(team_id, user_id) for team_id in range(1, 5) for user_id in range(2500)]
+
+
+def _models(variants: tuple[ModelVariant, ...], salt: str = DEFAULT_MODEL_SPLIT_SALT) -> list[str]:
+    return [model_for_pair(variants, salt, team_id, user_id) for team_id, user_id in _PAIRS]
+
+
+@parameterized.expand(
+    [
+        ("no split", (), DEFAULT_MODEL_SPLIT_SALT, 1, 2, DEFAULT_MODEL),
+        ("one variant", (ModelVariant(model="a", weight=1),), DEFAULT_MODEL_SPLIT_SALT, 1, 2, "a"),
+        (
+            "two variants",
+            (ModelVariant(model="a", weight=80), ModelVariant(model="b", weight=20)),
+            DEFAULT_MODEL_SPLIT_SALT,
+            1,
+            2,
+            "b",
+        ),
+        (
+            "two variants, other pair",
+            (ModelVariant(model="a", weight=80), ModelVariant(model="b", weight=20)),
+            DEFAULT_MODEL_SPLIT_SALT,
+            1,
+            3,
+            "a",
+        ),
+    ]
+)
+def test_the_model_of_a_pair_does_not_change(
+    _name: str, variants: tuple[ModelVariant, ...], salt: str, team_id: int, user_id: int, model: str
+) -> None:
+    assert model_for_pair(variants, salt, team_id, user_id) == model
+
+
+def test_the_model_shares_follow_the_weights() -> None:
+    models = _models(
+        (ModelVariant(model="a", weight=6), ModelVariant(model="b", weight=3), ModelVariant(model="c", weight=1))
+    )
+
+    shares = {model: models.count(model) / len(models) for model in "abc"}
+    assert shares == pytest.approx({"a": 0.6, "b": 0.3, "c": 0.1}, abs=0.02)
+
+
+def test_a_new_salt_reassigns_the_pairs() -> None:
+    variants = (ModelVariant(model="a", weight=1), ModelVariant(model="b", weight=1))
+
+    moved = sum(old != new for old, new in zip(_models(variants), _models(variants, salt="v2")))
+    assert moved / len(_PAIRS) == pytest.approx(0.5, abs=0.03)
+
+
+@parameterized.expand([("the last variant", 2), ("the first variant", 0), ("a middle variant", 1)])
+def test_raising_one_weight_moves_pairs_only_into_that_variant(_name: str, raised: int) -> None:
+    weights = [50.0, 30.0, 20.0]
+    before = _models(tuple(ModelVariant(model=model, weight=weight) for model, weight in zip("abc", weights)))
+    weights[raised] += 30
+    after = _models(tuple(ModelVariant(model=model, weight=weight) for model, weight in zip("abc", weights)))
+
+    moves = {(old, new) for old, new in zip(before, after) if old != new}
+    assert moves and {new for _old, new in moves} == {"abc"[raised]}
 
 
 @time_machine.travel(NOW, tick=False)
@@ -747,6 +866,7 @@ class TestActivitySummaryQueue(BaseTest):
         gateway.assert_not_called()
         assert not UserActivitySummary.objects.for_team(self.team.id).exists()
 
+    @patch.dict(MODEL_PRICES, {CANDIDATE_MODEL: CANDIDATE_PRICES})
     def test_daily_usage_counts_model_calls_and_prices_a_missing_cost_at_the_bound(self) -> None:
         priced, unpriced, skipped = (self._user(f"{name}@example.com") for name in ("priced", "unpriced", "skipped"))
         self._summary(priced, cost_usd=0.25)
@@ -760,7 +880,8 @@ class TestActivitySummaryQueue(BaseTest):
         usage = daily_usage(NOW)
 
         assert usage.updates == 2
-        assert usage.cost_usd == pytest.approx(0.25 + max_update_cost_usd(MAX_LIMITS))
+        # The row can come from any priced model, so it counts at the bound of the most expensive one.
+        assert usage.cost_usd == pytest.approx(0.25 + max_update_cost_usd(MAX_LIMITS, CANDIDATE_MODEL))
         with time_machine.travel(NOW + datetime.timedelta(days=1, minutes=1), tick=False):
             assert daily_usage(NOW + datetime.timedelta(days=1, minutes=1)).updates == 0
 
@@ -795,6 +916,30 @@ class TestActivitySummaryQueue(BaseTest):
             plan = plan_tick(None, NOW)
 
         assert (plan.stop_reason, len(plan.pairs), plan.enabled) == (stop_reason, pairs, bool(gateway_key))
+
+    @parameterized.expand(
+        [
+            ("no split", (), DEFAULT_MODEL),
+            ("default and candidate", ((DEFAULT_MODEL, 90.0), (CANDIDATE_MODEL, 10.0)), CANDIDATE_MODEL),
+            ("candidate first", ((CANDIDATE_MODEL, 10.0), (DEFAULT_MODEL, 90.0)), CANDIDATE_MODEL),
+        ]
+    )
+    @patch.dict(MODEL_PRICES, {CANDIDATE_MODEL: CANDIDATE_PRICES})
+    def test_the_plan_bounds_an_update_at_the_most_expensive_model_of_the_split(
+        self, _name: str, variants: tuple[tuple[str, float], ...], bound_model: str
+    ) -> None:
+        model_variants = tuple(ModelVariant(model=model, weight=weight) for model, weight in variants)
+        with (
+            override_settings(AI_GATEWAY_URL="https://ai-gateway.example/v1", AI_GATEWAY_API_KEY="phs_test"),
+            patch.object(
+                tick, "read_config", return_value=self._config(model_variants=model_variants, model_split_salt="v2")
+            ),
+            patch("products.signals.backend.activity_summary.queue.list_user_task_times", return_value=[]),
+        ):
+            plan = plan_tick(None, NOW)
+
+        assert plan.max_update_cost_usd == max_update_cost_usd(DEFAULT_LIMITS, bound_model)
+        assert (plan.model_variants, plan.model_split_salt) == (model_variants, "v2")
 
     @parameterized.expand(
         [
@@ -1177,6 +1322,48 @@ class TestActivitySummaryQueue(BaseTest):
 
     @parameterized.expand(
         [
+            ("no split", (), DEFAULT_MODEL, None),
+            ("a candidate split", ((CANDIDATE_MODEL, 1.0),), CANDIDATE_MODEL, "v2"),
+        ]
+    )
+    @patch.dict(MODEL_PRICES, {CANDIDATE_MODEL: CANDIDATE_PRICES})
+    def test_an_update_calls_stores_prices_and_reports_the_model_of_the_pair(
+        self, _name: str, variants: tuple[tuple[str, float], ...], model: str, salt: str | None
+    ) -> None:
+        self._changes(self.user, 3)
+        llm = FakeLLM([ANSWER])
+        capture = MagicMock()
+        with (
+            patch("products.signals.backend.activity_summary.logic.gateway_client", return_value=llm),
+            patch.object(tick, "ph_background_capture", return_value=capture),
+            patch.object(tick, "start_first_summary_build"),
+        ):
+            result = run_pair(
+                ActivitySummaryPairInput(
+                    team_id=self.team.id,
+                    user_id=self.user.id,
+                    min_units=3,
+                    min_update_interval_hours=24,
+                    emit_embeddings=False,
+                    capture_events=True,
+                    model_variants=tuple(ModelVariant(model=name, weight=weight) for name, weight in variants),
+                    model_split_salt="v2",
+                )
+            )
+
+        expected_cost = cost_usd(100, 20, MODEL_PRICES[model])
+        assert result.status == "ok"
+        assert result.cost_usd == pytest.approx(expected_cost)
+        assert [request["model"] for request in llm.requests] == [model]
+        stored = UserActivitySummary.objects.for_team(self.team.id).get(user_id=self.user.id)
+        assert stored.model == model
+        assert stored.cost_usd == pytest.approx(expected_cost)
+        assert UserActivitySummaryVersion.objects.for_team(self.team.id).get(summary_row=stored).model == model
+        properties = capture.call_args.kwargs["properties"]
+        assert (properties["model"], properties["model_split_salt"]) == (model, salt)
+
+    @parameterized.expand(
+        [
             ("both switches on", True, True, False, ["summary_text", "summary_profile"]),
             ("profile switch off", True, False, False, ["summary_text"]),
             ("embeddings off stops both", False, True, False, []),
@@ -1268,6 +1455,8 @@ def _plan(pairs: int, **overrides: Any) -> ActivitySummaryTickPlan:
         "current_version_share": 0.75,
         "stop_reason": None,
         "mcp_buffer_days": 10,
+        "model_variants": (ModelVariant(model="a", weight=80.0), ModelVariant(model="b", weight=20.0)),
+        "model_split_salt": "v2",
     }
     return ActivitySummaryTickPlan(**{**fields, **overrides})
 
@@ -1340,9 +1529,16 @@ async def test_the_tick_bounds_concurrency_and_stops_at_the_daily_caps_and_the_e
     result, peak, captured, pair_inputs = await _run_tick(plan, pair_cost, pair_status)
 
     assert peak <= plan.max_concurrency
-    assert {(pair.trigger, pair.view_update_interval_hours, pair.mcp_buffer_days) for pair in pair_inputs} == {
-        ("views", 168.0, 10)
-    }
+    assert {
+        (
+            pair.trigger,
+            pair.view_update_interval_hours,
+            pair.mcp_buffer_days,
+            pair.model_variants,
+            pair.model_split_salt,
+        )
+        for pair in pair_inputs
+    } == {("views", 168.0, 10, plan.model_variants, "v2")}
     assert result.due_by_trigger == plan.due_by_trigger
     assert (result.outdated_pairs, result.current_version_share) == (2, 0.75)
     assert (result.picked, result.statuses, result.stop_reason) == (picked, {pair_status: picked}, stop_reason)
