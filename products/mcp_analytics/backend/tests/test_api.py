@@ -1,10 +1,12 @@
+import re
 import json
 import hashlib
+from contextlib import nullcontext
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
 import time_machine
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events, materialized
 from unittest.mock import patch
 
 from django.core.cache import cache
@@ -21,6 +23,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql.database.database import Database
+from posthog.hogql.query import execute_hogql_query
 
 from posthog.constants import AvailableFeature
 from posthog.models.utils import uuid7
@@ -234,6 +237,40 @@ class TestListMCPSessions(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin,
 
         assert listed(None, False) == {"kept", "dropped"}
         assert listed(properties, filter_test_accounts) == expected
+
+    @parameterized.expand(
+        [
+            ("no_filter", None, False, 2),
+            ("json_property_filter", _tool_name_filter("query_run"), False, 3),
+            ("materialized_property_filter", _tool_name_filter("query_run"), True, 2),
+        ]
+    )
+    def test_narrows_to_window_sessions_only_when_a_filter_reads_the_properties_json(
+        self,
+        _name: str,
+        properties: list[AnyPropertyFilterDiscriminated] | None,
+        materialize_tool_name: bool,
+        event_scans: int,
+    ) -> None:
+        session_id = str(uuid7())
+        self._seed_session(session_id, ["query_run"])
+        flush_persons_and_events()
+
+        printed: list[str] = []
+
+        def execute_and_record(*args: Any, **kwargs: Any) -> Any:
+            response = execute_hogql_query(*args, **kwargs)
+            printed.append(response.clickhouse or "")
+            return response
+
+        with (
+            materialized("events", "$mcp_tool_name") if materialize_tool_name else nullcontext(),
+            patch.object(logic, "execute_hogql_query", side_effect=execute_and_record),
+        ):
+            page = api.list_mcp_sessions(self.team, limit=50, offset=0, properties=properties)
+
+        assert [s.session_id for s in page.results] == [session_id]
+        assert [len(re.findall(r"\bFROM\s+events\b", sql)) for sql in printed] == [event_scans]
 
     @parameterized.expand(
         [
