@@ -70,6 +70,7 @@ from products.alerts_platform.backend.logic.alert_destinations import (
     enabled_alert_destinations,
 )
 from products.alerts_platform.backend.logic.platform_alert_events import announced_kinds, announcement
+from products.alerts_platform.backend.logic.platform_reads import rule_metadata
 from products.alerts_platform.backend.models import PlatformAlertConfiguration
 from products.alerts_platform.backend.temporal.metrics import DeliveryOutcomeLabel, increment_deliveries, safe_record
 
@@ -186,6 +187,7 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
     )
     if announced is None:
         return DeliveryOutcome(live=True, sent=0, skipped_without_transport=0)
+    announced = replace(announced, rule=rule_metadata(request.team_id, request.configuration_id))
     if stale := delivery_holds.stale_held_triggers(request, announced.transitions):
         logger.info(
             "alerts_platform_delivery_stale_trigger_dropped",

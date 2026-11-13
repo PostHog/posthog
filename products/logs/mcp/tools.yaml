@@ -49,6 +49,7 @@ tools:
                 - snooze_until
                 - grouping
                 - labels
+                - annotations
                 - platform_owned
                 - next_check_at
                 - last_notified_at
@@ -176,6 +177,7 @@ tools:
                 - schedule_restriction
                 - grouping
                 - labels
+                - annotations
                 - platform_owned
                 - created_at
                 - updated_at
@@ -221,6 +223,7 @@ tools:
                 - snooze_until
                 - grouping
                 - labels
+                - annotations
                 - platform_owned
                 - next_check_at
                 - last_notified_at
@@ -260,6 +263,7 @@ tools:
                 - snooze_until
                 - grouping
                 - labels
+                - annotations
                 - platform_owned
                 - next_check_at
                 - last_notified_at

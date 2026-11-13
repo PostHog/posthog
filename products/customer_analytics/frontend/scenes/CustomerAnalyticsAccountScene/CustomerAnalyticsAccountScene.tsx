@@ -17,13 +17,13 @@ import { TodayPeoplePinButton } from '~/layout/today/TodayPeoplePinButton'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { AccountLogo } from '../../components/Accounts/AccountLogo'
-import { CustomerAnalyticsScene } from '../../CustomerAnalyticsScene'
 import { customerAnalyticsFeaturePreviewGate } from '../../featurePreviewGate'
 import type { AccountApi } from '../../generated/api.schemas'
 import { AccountDetailActions } from './AccountDetailActions'
 import { AccountDetailNavigation } from './AccountDetailNavigation'
 import { AccountExternalId } from './AccountExternalId'
 import { AccountPresence } from './AccountPresence'
+import { AccountProductActivitySetup } from './AccountProductActivitySetup'
 import { AccountSidebar } from './AccountSidebar'
 import { AccountStatusTags } from './AccountStatusTags'
 import { AccountViewEditorModal } from './AccountViewEditorModal'
@@ -33,11 +33,7 @@ import {
     CustomerAnalyticsAccountSceneLogicProps,
     customerAnalyticsAccountSceneLogic,
 } from './customerAnalyticsAccountSceneLogic'
-import {
-    isExternalAccountPath,
-    parseExternalAccountPath,
-    shouldRenderLegacyCustomerAnalyticsScene,
-} from './customerAnalyticsAccountSceneUtils'
+import { parseExternalAccountPath } from './customerAnalyticsAccountSceneUtils'
 
 export const scene: SceneExport<CustomerAnalyticsAccountSceneLogicProps> = {
     component: CustomerAnalyticsAccountScene,
@@ -60,25 +56,7 @@ function getAccountLogoDomain(account: AccountApi): string | null {
 }
 
 export function CustomerAnalyticsAccountScene(): JSX.Element {
-    const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
-    const { location } = useValues(router)
-    const externalRouteRequested = isExternalAccountPath(location.pathname)
-
-    if (
-        shouldRenderLegacyCustomerAnalyticsScene(
-            location.pathname,
-            !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNT_SCENE]
-        )
-    ) {
-        return <CustomerAnalyticsScene />
-    }
-
-    if (!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNT_SCENE] && externalRouteRequested) {
-        if (!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP]) {
-            return !receivedFeatureFlags ? <CustomerAnalyticsAccountSceneContent /> : <NotFound object="page" />
-        }
-        return <CustomerAnalyticsAccountSceneContent />
-    }
+    const { featureFlags } = useValues(featureFlagLogic)
 
     if (!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP]) {
         return <NotFound object="page" />
@@ -145,6 +123,7 @@ function CustomerAnalyticsAccountSceneContent(): JSX.Element {
                 }
             />
             {account.external_id ? <AccountExternalId externalId={account.external_id} /> : null}
+            {projectId ? <AccountProductActivitySetup projectId={projectId} /> : null}
             <SceneDivider />
             <div className="@container/account-detail flex flex-1 min-h-0 overflow-y-auto -mt-4 -mr-4 [scrollbar-gutter:stable] @min-[60rem]:-ml-4 @min-[60rem]:[scrollbar-gutter:auto]">
                 <div className="flex min-h-full w-full flex-col gap-4 @min-[60rem]/account-detail:h-full @min-[60rem]/account-detail:min-h-0 @min-[60rem]/account-detail:flex-row">

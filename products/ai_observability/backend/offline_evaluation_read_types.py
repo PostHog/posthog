@@ -120,6 +120,8 @@ class OfflineExperimentRead:
 
 @frozen
 class OfflineScorerVersionRead:
+    calculation: str = "reported"
+    composition: dict[str, JSONValue] | None = None
     id: UUID
     definition_id: UUID
     version: int
@@ -133,6 +135,7 @@ class OfflineScorerVersionRead:
 
 @frozen
 class OfflineResultRead:
+    input_result_ids: list[UUID] | None = None
     id: UUID
     item_id: UUID
     scorer: OfflineScorerVersionRead
@@ -201,6 +204,7 @@ class OfflineCategorySummary:
 
 @frozen
 class OfflineScorerSummary:
+    not_requested_count: int = 0
     scorer: OfflineScorerVersionRead
     observed_item_count: int
     result_count: int

@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconRabbit, IconTortoise } from '@posthog/icons'
 import { Button, DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@posthog/quill'
 
+import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import {
     PLAYBACK_SPEEDS,
@@ -13,6 +14,7 @@ import { QuillMenuItems } from 'scenes/session-recordings/playlist/QuillMenuItem
 export function QuillSetPlaybackSpeed({ filled = false }: { filled?: boolean }): JSX.Element {
     const { speed, sessionPlayerData } = useValues(sessionRecordingPlayerLogic)
     const { setSpeed } = useActions(sessionRecordingPlayerLogic)
+    const floatingContainer = useFloatingContainer()
     const Icon = speed === 0.5 ? IconTortoise : IconRabbit
 
     return (
@@ -29,7 +31,7 @@ export function QuillSetPlaybackSpeed({ filled = false }: { filled?: boolean }):
                 <Icon className="text-lg" style={{ stroke: 'currentColor', strokeWidth: '0.5' }} />
                 Speed {speed}x
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
+            <DropdownMenuContent align="end" container={floatingContainer}>
                 <QuillMenuItems
                     items={PLAYBACK_SPEEDS.map((speedToggle) => ({
                         label: (

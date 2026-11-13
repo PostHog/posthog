@@ -285,8 +285,8 @@ importers:
         specifier: 1.1.0
         version: 1.1.0(patch_hash=4dfdf785f5ac51a03f5d6032371cebe89036381acd403621f250a896245647c5)
       posthog-node:
-        specifier: ^5.69.0
-        version: 5.69.0(@opentelemetry/api@1.9.1)(rxjs@7.8.2)
+        specifier: ^5.70.0
+        version: 5.70.0(@opentelemetry/api@1.9.1)(rxjs@7.8.2)
       react:
         specifier: 19.2.6
         version: 19.2.6
@@ -11173,8 +11173,8 @@ packages:
       react:
         optional: true
 
-  posthog-node@5.69.0:
-    resolution: {integrity: sha512-sNTR0Ld3WfgXvdOtKw2K6f44MADcDED+35wId+ZJlk3qUt8CoKKBT4uP4jWMPuC9knCc9HWURXexJVY+/gat4g==}
+  posthog-node@5.70.0:
+    resolution: {integrity: sha512-uZ2n7g2KtzIbJH+L6UW6mzY6U08jvo6RoWlUNq05YqoeOAxFUJP6wOQJb/Q/voAHD7kwr3AHj4tE/DTDNa4zOA==}
     engines: {node: ^20.20.0 || >=22.22.0}
     peerDependencies:
       '@opentelemetry/api': ^1.2.0
@@ -23762,7 +23762,7 @@ snapshots:
     transitivePeerDependencies:
       - preact-render-to-string
 
-  posthog-node@5.69.0(@opentelemetry/api@1.9.1)(rxjs@7.8.2):
+  posthog-node@5.70.0(@opentelemetry/api@1.9.1)(rxjs@7.8.2):
     dependencies:
       '@posthog/core': 1.67.1
     optionalDependencies:

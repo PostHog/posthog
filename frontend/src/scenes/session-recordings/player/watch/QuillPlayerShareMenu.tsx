@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconExternal, IconGlobe, IconShare, IconShield } from '@posthog/icons'
 import { Button, DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@posthog/quill'
 
+import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
@@ -18,6 +19,7 @@ export function QuillPlayerShareMenu({ filled = false }: { filled?: boolean }): 
     const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
     const { setPause, setIsFullScreen } = useActions(sessionRecordingPlayerLogic)
     const { closeSessionPlayer } = useActions(sessionPlayerModalLogic())
+    const floatingContainer = useFloatingContainer()
     const sharingDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.SharingConfiguration,
         AccessControlLevel.Viewer
@@ -69,7 +71,7 @@ export function QuillPlayerShareMenu({ filled = false }: { filled?: boolean }): 
             >
                 <IconShare />
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end">
+            <DropdownMenuContent align="end" container={floatingContainer}>
                 <QuillMenuItems
                     items={[
                         {

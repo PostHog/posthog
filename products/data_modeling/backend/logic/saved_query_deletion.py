@@ -9,8 +9,8 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import Detail, Trigger, log_activity
 
-from products.data_modeling.backend.logic.node_materialization import SavedQueryNotFoundError
-from products.data_modeling.backend.logic.saved_query_dag_sync import HasDependentsError, check_saved_query_deletable
+from products.data_modeling.backend.facade.contracts import HasDependentsError, SavedQueryNotFoundError
+from products.data_modeling.backend.logic.saved_query_dag_sync import check_saved_query_deletable
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_tools.backend.facade.models import DataWarehouseJoin
 

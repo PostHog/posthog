@@ -680,6 +680,8 @@ SPECTACULAR_SETTINGS = {
             # The anomaly and explain bodies keep this name; the metrics query clause's own
             # aggregation adds 'none' and is named by its MetricQueryAggregation class.
             "AggregationEnum": ["sum", "avg", "count", "min", "max", "p95", "rate", "increase", "histogram_quantile"],
+            # The AEO prompt and keyword suggestion jobs share this status class, and another class has the same pairs.
+            "AEOSuggestionJobStatusEnum": "products.aeo.backend.facade.contracts.SuggestionJobStatus.choices",
             # AutoresearchRun.Status and AutoresearchTrainingRun.Status share this set.
             "ZendeskImportJobStatusEnum": "products.conversations.backend.models.zendesk_import_job.ZendeskImportJob.Status",
             # Matches the workflows WorkflowImportSource (customerio), the source of an automation import.
@@ -1482,8 +1484,8 @@ DEV_GATEWAY_MINT_KEY = get_from_env("DEV_GATEWAY_MINT_KEY", "")
 DEV_GATEWAY_TEAM_ID = get_from_env("DEV_GATEWAY_TEAM_ID", 0, type_cast=int)
 DEV_GATEWAY_TOKEN_CAP_USD = get_from_env("DEV_GATEWAY_TOKEN_CAP_USD", "25")
 DEV_GATEWAY_TOKEN_TTL_SECONDS = get_from_env("DEV_GATEWAY_TOKEN_TTL_SECONDS", 8 * 60 * 60, type_cast=int)
-# Caps minted in the trailing 24 hours count against this, so the gateway's reserved cap per token
-# makes it a hard ceiling on what one user can spend in a day.
+# Caps minted in the trailing 24 hours count against this until revoked, then only what the token
+# spent. The limit is approximate, because cost that settles after a revoke is not counted.
 DEV_GATEWAY_DAILY_CAP_USD = get_from_env("DEV_GATEWAY_DAILY_CAP_USD", "50")
 DEV_GATEWAY_MINTS_PER_HOUR = get_from_env("DEV_GATEWAY_MINTS_PER_HOUR", 20, type_cast=int)
 
@@ -1512,8 +1514,6 @@ MCP_STORE_SLACK_DEV_ALLOWED_TEAM_IDS = get_list(get_from_env("MCP_STORE_SLACK_DE
 # AEO citation-tracking POC (products/aeo). The scheduled runner only covers
 # teams in this allowlist AND with the `aeo-citation-tracking` flag enabled.
 AEO_CITATION_TEAM_IDS = get_list(get_from_env("AEO_CITATION_TEAM_IDS", ""))
-# Scores brand sentiment on the evals Temporal queue after each run. Off until that worker carries the model.
-AEO_BRAND_SENTIMENT_ENABLED = get_from_env("AEO_BRAND_SENTIMENT_ENABLED", False, type_cast=str_to_bool)
 AEO_ANTHROPIC_MODEL = get_from_env("AEO_ANTHROPIC_MODEL", "claude-sonnet-5")
 AEO_OPENAI_MODEL = get_from_env("AEO_OPENAI_MODEL", "gpt-5")
 AEO_PERPLEXITY_MODEL = get_from_env("AEO_PERPLEXITY_MODEL", "posthog/perplexity/sonar")

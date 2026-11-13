@@ -45,6 +45,13 @@ export const CyclotronV2JobInitSchema = z.object({
 
 export type CyclotronV2JobInit = z.infer<typeof CyclotronV2JobInitSchema>
 
+export type CyclotronV2IdempotentJobInit = {
+    job: CyclotronV2JobInit & { id: string }
+    fingerprint: string
+}
+
+export type CyclotronV2IdempotentOutcome = 'created' | 'replayed' | 'mismatch'
+
 export const CyclotronV2RescheduleOptionsSchema = z.object({
     scheduledAt: z.date().optional(),
     state: z.instanceof(Buffer).nullish(),

@@ -17,6 +17,7 @@ from posthog.test.base import (
     _create_person,
     also_test_with_materialized_columns,
     flush_persons_and_events,
+    materialized,
     run_clickhouse_statement_in_parallel,
     snapshot_clickhouse_queries,
 )
@@ -739,6 +740,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "ruby_mcp_events_count_in_period": 0,
                     "godot_events_count_in_period": 0,
                     "unreal_events_count_in_period": 0,
+                    "web_mcp_events_count_in_period": 0,
                     "mcp_tool_call_events_count_in_period": 0,
                     "mcp_missing_capability_events_count_in_period": 0,
                     "mcp_initialize_events_count_in_period": 0,
@@ -846,6 +848,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "ruby_mcp_events_count_in_period": 0,
                             "godot_events_count_in_period": 0,
                             "unreal_events_count_in_period": 0,
+                            "web_mcp_events_count_in_period": 0,
                             "mcp_tool_call_events_count_in_period": 0,
                             "mcp_missing_capability_events_count_in_period": 0,
                             "mcp_initialize_events_count_in_period": 0,
@@ -947,6 +950,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "ruby_mcp_events_count_in_period": 0,
                             "godot_events_count_in_period": 0,
                             "unreal_events_count_in_period": 0,
+                            "web_mcp_events_count_in_period": 0,
                             "mcp_tool_call_events_count_in_period": 0,
                             "mcp_missing_capability_events_count_in_period": 0,
                             "mcp_initialize_events_count_in_period": 0,
@@ -1071,6 +1075,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "ruby_mcp_events_count_in_period": 0,
                     "godot_events_count_in_period": 0,
                     "unreal_events_count_in_period": 0,
+                    "web_mcp_events_count_in_period": 0,
                     "mcp_tool_call_events_count_in_period": 0,
                     "mcp_missing_capability_events_count_in_period": 0,
                     "mcp_initialize_events_count_in_period": 0,
@@ -1178,6 +1183,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "ruby_mcp_events_count_in_period": 0,
                             "godot_events_count_in_period": 0,
                             "unreal_events_count_in_period": 0,
+                            "web_mcp_events_count_in_period": 0,
                             "mcp_tool_call_events_count_in_period": 0,
                             "mcp_missing_capability_events_count_in_period": 0,
                             "mcp_initialize_events_count_in_period": 0,
@@ -1800,7 +1806,12 @@ class TestQueryUsageReportSQL:
         mock_execute_split_query: MagicMock,
         _mock_use_new_events_schema: MagicMock,
     ) -> None:
-        mock_get_property_string_expr.side_effect = [("lib_expr", True), ("ai_lib_expr", True)]
+        mock_get_property_string_expr.side_effect = [
+            ("lib_expr", True),
+            ("ai_lib_expr", True),
+            ("interface_expr", True),
+            ("mcp_lib_expr", True),
+        ]
         # 1st _execute_split_query call is the main per-$lib scan; 2nd is the AI sub-SDK rows
         # (team_id, $lib, $ai_lib, count) used to remove sub-SDK events from each parent metric.
         mock_execute_split_query.side_effect = [
@@ -1828,13 +1839,7 @@ class TestQueryUsageReportSQL:
                 (1, "posthog-aspnetcore", "posthog-ai", 2),
             ],
         ]
-        # Both MCP scans are calendar-aligned, so they reach sync_execute directly: 1st is
-        # `$mcp_tool_call`, 2nd is the grouped (team_id, event, count) scan over the other 7 events.
-        # A single day spans one calendar-aligned split, hence one call each.
-        mock_sync_execute.side_effect = [
-            [(1, 4)],
-            [(1, "$mcp_missing_capability", 6), (1, "$mcp_initialize", 7)],
-        ]
+        mock_sync_execute.return_value = [(1, 4, 6, 7, 0, 0, 0, 0, 0, 2)]
         begin = datetime(2026, 6, 15, tzinfo=tzutc())
         end = begin + timedelta(days=1)
 
@@ -1874,24 +1879,17 @@ class TestQueryUsageReportSQL:
         assert "'posthog-ai'" in ai_query
         assert "'posthog-opencode'" in ai_query
 
-        dedup_expression = "uniqExact(tuple(toDate(timestamp), cityHash64(distinct_id), cityHash64(uuid)))"
+        dedup_expression = "tuple(toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid))"
 
-        mcp_query = mock_sync_execute.call_args_list[0].args[0]
-        assert "event = '$mcp_tool_call'" in mcp_query
+        mcp_query = mock_sync_execute.call_args.args[0]
         assert dedup_expression in mcp_query
+        assert "GROUP BY team_id" in mcp_query
+        assert "FROM events" in mcp_query
+        assert "interface_expr" in mcp_query
+        assert "interface_expr" not in main_query
+        assert mock_sync_execute.call_count == 1
         assert result["mcp_tool_call_events"] == [(1, 4)]
-
-        # The other 7 MCP Analytics events share one grouped query, and reuse `$mcp_tool_call`'s
-        # dedup expression and table so every MCP metric is counted the same way.
-        mcp_analytics_query = mock_sync_execute.call_args_list[1].args[0]
-        assert dedup_expression in mcp_analytics_query
-        assert "GROUP BY team_id, event" in mcp_analytics_query
-        assert "FROM events" in mcp_analytics_query
-        # `$mcp_tool_call` keeps its own untouched query; `$mcp_custom` is never emitted verbatim.
-        assert "'$mcp_tool_call'" not in mcp_analytics_query
-        assert "'$mcp_custom'" not in mcp_analytics_query
-        # One grouped query for the 7, not one query each.
-        assert mock_sync_execute.call_count == 2
+        assert result["web_mcp_events"] == [(1, 2)]
 
         # Subtract AI sub-SDK counts so each event belongs to one SDK metric.
         assert result["posthog_ai_events"] == [(1, 2)]
@@ -6248,9 +6246,9 @@ class TestCalendarAlignedQuerySplitting(SimpleTestCase):
         # A period spanning 3 days splits 3 ways, so a team's count for one event arrives in
         # pieces that must be added, not overwritten, and kept separate per team and per event.
         mock_sync_execute.side_effect = [
-            [(1, "$mcp_initialize", 2), (2, "$mcp_initialize", 5)],
-            [(1, "$mcp_initialize", 3), (1, "$mcp_tools_list", 7)],
-            [(1, "$mcp_initialize", 4), ("unexpected", "$mcp_not_a_real_event", 9)],
+            [(1, 0, 0, 2, 0, 0, 0, 0, 0, 1), (2, 0, 0, 5, 0, 0, 0, 0, 0, 0)],
+            [(1, 0, 0, 3, 7, 0, 0, 0, 0, 2)],
+            [(1, 0, 0, 4, 0, 0, 0, 0, 0, 0), (4, 0, 0, 0, 0, 0, 0, 0, 0, 0), (3, 0, 0, 0, 0, 0, 0, 0, 0, 4)],
         ]
 
         result = _get_mcp_analytics_event_metric_counts(
@@ -6262,7 +6260,8 @@ class TestCalendarAlignedQuerySplitting(SimpleTestCase):
         # Every metric key is present even when no row mentioned it, so `_get_all_usage_data`
         # never KeyErrors on a quiet event.
         self.assertEqual(result["mcp_prompts_list_events"], [])
-        self.assertEqual(set(result), set(MCP_ANALYTICS_EVENT_METRICS.values()))
+        self.assertEqual(sorted(result["web_mcp_events"]), [(1, 3), (3, 4)])
+        self.assertEqual(set(result), {*MCP_ANALYTICS_EVENT_METRICS.values(), "web_mcp_events"})
 
 
 class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, TestCase):
@@ -6516,6 +6515,102 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         self.assertEqual(dict(event_metrics[metric_name]).get(self.team.id), 3)
         self.assertEqual(dict(event_metrics["mcp_tool_call_events"]).get(self.team.id), 2)
         self.assertIsNone(dict(event_metrics[parent_metric]).get(self.team.id))
+
+    @parameterized.expand([(False,), (True,)])
+    def test_web_mcp_events_are_filtered_deduplicated_and_reported_per_team(self, materialize_interface: bool) -> None:
+        if materialize_interface:
+            self.enterContext(materialized("events", "$mcp_interface"))
+            self.enterContext(materialized("events", "$lib"))
+        sync_execute("SYSTEM STOP MERGES")
+        self.addCleanup(sync_execute, "SYSTEM START MERGES")
+
+        for lib, event in [
+            ("web", "$mcp_tool_call"),
+            ("web", "$mcp_tools_list"),
+            ("js", "$mcp_tool_call"),
+            ("custom-browser", "$mcp_tool_call"),
+        ]:
+            event_uuid = _create_event(
+                event=event,
+                team=self.team,
+                distinct_id="webmcp_user",
+                timestamp=self.begin + relativedelta(hours=1),
+                properties={"$lib": lib, "$mcp_interface": "webmcp"},
+            )
+            if lib == "web":
+                _create_event(
+                    event=event,
+                    team=self.team,
+                    distinct_id="webmcp_user",
+                    event_uuid=event_uuid,
+                    timestamp=self.begin + relativedelta(hours=5),
+                    properties={"$lib": lib, "$mcp_interface": "webmcp"},
+                )
+
+        for event, interface, hours in [
+            ("$pageview", "webmcp", 2),
+            ("$exception", "webmcp", 2),
+            ("$mcp_tool_call", "mcp", 2),
+            ("$mcp_tool_call", None, 2),
+            ("$mcp_tool_call", "webmcp", -1),
+            ("$mcp_tool_call", "webmcp", 24),
+        ]:
+            _create_event(
+                event=event,
+                team=self.team,
+                distinct_id="other_event_user",
+                timestamp=self.begin + relativedelta(hours=hours),
+                properties={"$lib": "web", "$mcp_interface": interface},
+            )
+        _create_event(
+            event="$mcp_tool_call",
+            team=self.analytics_team,
+            distinct_id="other_team_webmcp_user",
+            timestamp=self.begin,
+            properties={"$lib": "web", "$mcp_interface": "webmcp"},
+        )
+        flush_persons_and_events()
+
+        metrics = get_all_event_metrics_in_period(self.begin, self.end)
+        assert dict(metrics["web_mcp_events"]) == {self.team.id: 2, self.analytics_team.id: 1}
+        assert dict(metrics["web_events"])[self.analytics_team.id] == 1
+        assert dict(metrics["web_lite_events"]) == {self.team.id: 1}
+        assert dict(metrics["mcp_tool_call_events"]) == {self.team.id: 5, self.analytics_team.id: 1}
+        assert dict(metrics["mcp_tools_list_events"]) == {self.team.id: 1}
+
+        all_data: dict[str, dict[int, int]] = {
+            destination: {}
+            for spec in QUERY_INDEX.values()
+            for destination in (spec.multi_keys_mapping.values() if spec.output == "multi" else [spec.name])
+        }
+        for metric, destination in QUERY_INDEX["all_event_metrics"].multi_keys_mapping.items():
+            all_data[destination] = dict(metrics[metric])
+        for team, expected_count in [(self.team, 2), (self.analytics_team, 1)]:
+            report = dataclasses.asdict(_get_team_report(all_data, team))
+            assert report["web_mcp_events_count_in_period"] == expected_count
+
+    def test_mcp_metric_rows_are_bounded_for_unknown_event_names(self) -> None:
+        event_uuid = uuid4()
+        event_names = ["$mcp_tool_call", *(f"$mcp_custom_{index}" for index in range(32))]
+        for event in event_names:
+            _create_event(
+                event=event,
+                team=self.team,
+                distinct_id="webmcp_cardinality_user",
+                event_uuid=event_uuid,
+                timestamp=self.begin + relativedelta(hours=1),
+                properties={"$lib": "web", "$mcp_interface": "webmcp"},
+            )
+        flush_persons_and_events()
+
+        with patch("posthog.tasks.usage_report.sync_execute", wraps=sync_execute) as execute:
+            metrics = _get_mcp_analytics_event_metric_counts(self.begin, self.end)
+
+        assert dict(metrics["web_mcp_events"]) == {self.team.id: len(event_names)}
+        assert dict(metrics["mcp_tool_call_events"]) == {self.team.id: 1}
+        for query in execute.call_args_list:
+            rows = sync_execute(*query.args, **query.kwargs)
+            assert len(rows) <= len(MCP_ANALYTICS_EVENT_METRICS) + 1
 
     def test_mcp_event_count_deduplicates_copies_hours_apart_on_the_same_day(self) -> None:
         # make sure we don't collapse duplicate rows

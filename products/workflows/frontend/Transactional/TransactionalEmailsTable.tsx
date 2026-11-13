@@ -26,16 +26,17 @@ import { EmailMetricsIncidentBanner } from '../EmailMetricsIncidentBanner'
 import { CodeBadge } from './code/CodeBadge'
 import { ManagedBy, TransactionalEmailRow } from './transactionalEmailRows'
 import { transactionalEmailsLogic } from './transactionalEmailsLogic'
+import { TransactionalTemplatesLoadError } from './TransactionalTemplatesLoadError'
 
 // Below this width the table keeps only the name and the sparkline, so it fits beside an open side panel.
 const COLUMN_BREAKPOINTS = { 0: 'narrow', 760: 'wide' } as const
 
 export function TransactionalEmailsTable(): JSX.Element {
     const {
-        transactionalTemplates,
-        codeEmails,
+        hasNoEmails,
+        transactionalTemplatesFailed,
         filteredTransactionalEmails,
-        templatesLoading,
+        transactionalTemplatesLoading,
         codeEmailsLoading,
         filters,
         isFiltered,
@@ -51,7 +52,7 @@ export function TransactionalEmailsTable(): JSX.Element {
         AccessControlLevel.Editor
     )
 
-    if (!templatesLoading && transactionalTemplates.length === 0 && codeEmails?.length === 0) {
+    if (hasNoEmails) {
         return (
             <ProductIntroduction
                 thingName="transactional email"
@@ -72,6 +73,10 @@ export function TransactionalEmailsTable(): JSX.Element {
                     .tz(currentTeam?.timezone ?? 'UTC')
                     .subtract(7, 'day')
                     .startOf('day')}
+            />
+            <TransactionalTemplatesLoadError
+                message="Your emails couldn't load. Check your connection and try again."
+                dataAttr="transactional-emails-templates-retry"
             />
             <div className="flex flex-wrap items-center justify-between gap-2">
                 <LemonInput
@@ -123,7 +128,7 @@ export function TransactionalEmailsTable(): JSX.Element {
             </div>
             <LemonTable<TransactionalEmailRow>
                 dataSource={filteredTransactionalEmails}
-                loading={templatesLoading || codeEmailsLoading}
+                loading={transactionalTemplatesLoading || codeEmailsLoading}
                 pagination={{ pageSize: 50, hideOnSinglePage: true }}
                 rowKey="id"
                 data-attr="transactional-emails-table"
@@ -168,7 +173,7 @@ export function TransactionalEmailsTable(): JSX.Element {
                                         <span className="flex flex-wrap items-center gap-1">
                                             {row.name || 'Unnamed template'}
                                             {sensitive}
-                                            {row.template.draft_content && (
+                                            {row.template.has_draft && (
                                                 <LemonTag type="warning" size="small">
                                                     Unpublished changes
                                                 </LemonTag>
@@ -283,7 +288,13 @@ export function TransactionalEmailsTable(): JSX.Element {
                     },
                 ]}
                 defaultSorting={{ columnKey: 'updated_at', order: -1 }}
-                emptyState={isFiltered ? 'No transactional emails match these filters' : 'No transactional emails'}
+                emptyState={
+                    transactionalTemplatesFailed
+                        ? "Your emails couldn't load"
+                        : isFiltered
+                          ? 'No transactional emails match these filters'
+                          : 'No transactional emails'
+                }
             />
         </div>
     )

@@ -16,7 +16,7 @@ import { useShortcut } from 'lib/components/Shortcuts/useShortcut'
 import { TileDecorations } from 'lib/components/TileDecorations/TileDecorations'
 import { objectsEqual } from 'lib/utils/objects'
 import { reportDashboardTileRepositioned } from 'scenes/dashboard/dashboardEvents'
-import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { DashboardLoadAction, dashboardLogic, type TileDisplayOptions } from 'scenes/dashboard/dashboardLogic'
 import {
     BREAKPOINTS,
     BREAKPOINT_COLUMN_COUNTS,
@@ -135,6 +135,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         showImageTileModal,
         showButtonTileModal,
         addWidgetModalOpen,
+        tileDisplayOptionsSavingIds,
     } = useValues(dashboardLogic)
     const canCrossFilter = placement === DashboardPlacement.Dashboard && !isSharedView()
     useMountedLogic(
@@ -148,6 +149,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         stageLayouts,
         updateContainerWidth,
         toggleTileDescription,
+        updateTileDisplayOptions,
         removeTile,
         duplicateTile,
         loadDashboard,
@@ -469,6 +471,8 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                             await updateWidgetTile({ tile, ...patch })
                         },
                         toggleDescription: (): void => toggleTileDescription(tile.id),
+                        updateDisplayOptions: (displayOptions: TileDisplayOptions): void =>
+                            updateTileDisplayOptions(tile.id, displayOptions),
                         moveToTileGroup: (sectionKey: string | null): void =>
                             moveTileToSection(tile.id, sectionKey, null, 'menu'),
                     },
@@ -486,6 +490,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             refreshDashboardWidgets,
             updateWidgetTile,
             toggleTileDescription,
+            updateTileDisplayOptions,
             moveTileToSection,
         ]
     )
@@ -799,6 +804,8 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                     onMoveToTileGroup={commonTileProps.moveToTileGroup}
                     onCopyToDashboard={commonTileProps.copyToDashboard}
                     onDuplicate={tileActions.duplicate}
+                    onUpdateDisplayOptions={tileActions.updateDisplayOptions}
+                    displayOptionsSaving={tileDisplayOptionsSavingIds.includes(tile.id)}
                     onRemove={commonTileProps.removeFromDashboard}
                     showResizeHandles={commonTileProps.showResizeHandles}
                     showEditingControls={commonTileProps.showEditingControls}

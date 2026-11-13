@@ -376,7 +376,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                         label: 'Configuration',
                         'data-attr': 'llma-evaluation-configuration-tab',
                         content: (
-                            <div className="max-w-4xl mx-auto">
+                            <div className="max-w-6xl mx-auto">
                                 <EvaluationConfigurationForm />
                                 <div className="flex justify-end mt-6">
                                     <AccessControlAction

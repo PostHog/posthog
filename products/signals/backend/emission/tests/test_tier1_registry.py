@@ -92,6 +92,8 @@ TIER1_SOURCES = [
     (ExternalDataSourceType.HELPSCOUT, "conversations", "helpscout", "ticket"),
     (ExternalDataSourceType.DECAGON, "conversations", "decagon", "ticket"),
     (ExternalDataSourceType.VITALLY, "Conversations", "vitally", "ticket"),
+    (ExternalDataSourceType.INTERCOM, "tickets", "intercom_tickets", "ticket"),
+    (ExternalDataSourceType.PYLON, "issues", "pylon", "ticket"),
     # Tier-2 security tools
     (ExternalDataSourceType.LACEWORK, "alerts", "lacework", "scanner_finding"),
     (ExternalDataSourceType.ORCASECURITY, "alerts", "orca_security", "scanner_finding"),
@@ -126,6 +128,10 @@ TIER1_SOURCES = [
     (ExternalDataSourceType.AZUREAPPLICATIONINSIGHTS, "exceptions", "azure_application_insights", "issue"),
     (ExternalDataSourceType.APPSIGNAL, "exception_incidents", "appsignal", "issue"),
     (ExternalDataSourceType.CURSOR, "bugbot_reviews", "cursor", "issue"),
+    # GitHub security alerts
+    (ExternalDataSourceType.GITHUB, "dependabot_alerts", "github_dependabot", "scanner_finding"),
+    (ExternalDataSourceType.GITHUB, "code_scanning_alerts", "github_code_scanning", "scanner_finding"),
+    (ExternalDataSourceType.GITHUB, "secret_scanning_alerts", "github_secret_scanning", "scanner_finding"),
 ]
 
 IDS = [product for _, _, product, _ in TIER1_SOURCES]

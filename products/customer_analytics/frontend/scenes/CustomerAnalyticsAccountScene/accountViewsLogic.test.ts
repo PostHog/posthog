@@ -2,9 +2,7 @@ import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import { ApiError } from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { initKeaTests } from '~/test/init'
 
@@ -226,8 +224,6 @@ describe('accountViewsLogic tracking', () => {
     beforeEach(async () => {
         jest.clearAllMocks()
         initKeaTests(false)
-        featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNT_VIEWS]: true })
         jest.mocked(accountViewsList).mockResolvedValue([view])
         jest.mocked(accountViewsRetrieve).mockResolvedValue(updatedView)
         jest.mocked(userCustomerAnalyticsConfigRetrieve).mockResolvedValue(userConfig)
@@ -244,7 +240,6 @@ describe('accountViewsLogic tracking', () => {
 
     afterEach(() => {
         logic.unmount()
-        featureFlagLogic.unmount()
         jest.restoreAllMocks()
     })
 
