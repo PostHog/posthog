@@ -163,6 +163,23 @@ export interface PatchedAlertRouteWriteApi {
 }
 
 /**
+ * The alert's labels, by name, such as {"team": "checkout"}. Unsaved labels work too.
+ */
+export type AlertRouteMatchingRequestApiLabels = { [key: string]: string }
+
+export interface AlertRouteMatchingRequestApi {
+    /** The alert's labels, by name, such as {"team": "checkout"}. Unsaved labels work too. */
+    labels: AlertRouteMatchingRequestApiLabels
+}
+
+export interface AlertRouteMatchApi {
+    /** A route these labels match. */
+    route: AlertRouteApi
+    /** The receiver the route sends to. */
+    receiver: AlertReceiverApi
+}
+
+/**
  * * `logs` - Logs
  * * `insight` - Insight
  * * `warehouse_source` - Warehouse source

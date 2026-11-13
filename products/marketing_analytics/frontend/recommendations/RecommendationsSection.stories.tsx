@@ -12,6 +12,7 @@ import { Mocks } from '~/mocks/utils'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import {
     MarketingAnalyticsRecommendation,
+    MarketingAnalyticsRecommendationResolutionState,
     MarketingAnalyticsRecommendationCpa,
     MarketingAnalyticsRecommendationCpaBenchmarkSource,
 } from '~/queries/schema/schema-general'
@@ -73,6 +74,14 @@ function recommendation(
         impactDirection: 'save',
         impactType: 'measured',
         currency: 'USD',
+        identity: {
+            rule: overrides.rule,
+            source_type: 'google_ads',
+            customer_id: '1234567890',
+            campaign_id: '',
+            subject: overrides.subject,
+        },
+        key: `${overrides.rule}:${overrides.subject}`,
         ...overrides,
     }
 }
@@ -390,5 +399,117 @@ export const MissingTablesInModal: Story = {
         await userEvent.click(await canvas.findByText('Recommendations', { selector: 'button *' }))
         const modal = within(canvasElement.ownerDocument.body)
         await userEvent.click(await modal.findByText('Spend without conversions', { selector: 'button *' }))
+    },
+}
+
+function withResolved(
+    state: (row: MarketingAnalyticsRecommendation) => MarketingAnalyticsRecommendationResolutionState | null
+): Mocks {
+    const results = RESULTS.map((row) => {
+        const resolved = state(row)
+        return resolved
+            ? {
+                  ...row,
+                  resolution: {
+                      id: `resolution-${row.subject}`,
+                      resolution: resolved,
+                      resolved_at: '2025-02-14T12:00:00Z',
+                  },
+              }
+            : row
+    })
+    return {
+        ...MOCKS,
+        post: {
+            '/api/environments/:team_id/query/MarketingAnalyticsRecommendationsQuery/': () => [
+                200,
+                { results, disclaimer: DISCLAIMER },
+            ],
+        },
+    }
+}
+
+const BRAND_OVERLAP = RESULTS.filter((row) => row.rule === 'brand_overlap')
+
+export const ResolvedInModal: Story = {
+    parameters: {
+        msw: {
+            mocks: withResolved((row) =>
+                row === BRAND_OVERLAP[0] ? 'dismissed' : row === BRAND_OVERLAP[1] ? 'applied' : null
+            ),
+        },
+    },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await userEvent.click(await canvas.findByText('Recommendations', { selector: 'button *' }))
+        const modal = within(canvasElement.ownerDocument.body)
+        await userEvent.click(await modal.findByText('Review 2 dismissed or applied'))
+        await userEvent.click(await modal.findByText('Brand overlap', { selector: 'button *' }))
+    },
+}
+
+const ALL_DISMISSED = withResolved(() => 'dismissed')
+
+export const AllDismissed: Story = {
+    parameters: { msw: { mocks: ALL_DISMISSED } },
+}
+
+export const AllDismissedInModal: Story = {
+    parameters: { msw: { mocks: ALL_DISMISSED } },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await userEvent.click(await canvas.findByText('Recommendations', { selector: 'button *' }))
+    },
+}
+
+const RESOLUTIONS_URL = '/api/projects/:team_id/marketing_analytics_recommendation_resolutions/'
+
+async function dismissHighCostCampaign(canvasElement: HTMLElement): Promise<void> {
+    const canvas = within(canvasElement)
+    await userEvent.click(await canvas.findByText('Recommendations', { selector: 'button *' }))
+    const modal = within(canvasElement.ownerDocument.body)
+    await userEvent.click(await modal.findByText('High cost per conversion', { selector: 'button *' }))
+    await userEvent.click(await modal.findByLabelText('Dismiss Search - Competitors'))
+}
+
+export const ResolvingInModal: Story = {
+    parameters: {
+        msw: { mocks: { ...MOCKS, post: { ...MOCKS.post, [RESOLUTIONS_URL]: () => new Promise(() => {}) } } },
+        // The request never finishes, so the buttons keep their spinner.
+        testOptions: { waitForLoadersToDisappear: false },
+    },
+    play: async ({ canvasElement }) => dismissHighCostCampaign(canvasElement),
+}
+
+export const RuleResolvedInModal: Story = {
+    parameters: {
+        msw: {
+            mocks: {
+                ...MOCKS,
+                post: {
+                    ...MOCKS.post,
+                    [RESOLUTIONS_URL]: async ({ request }) => {
+                        const body = (await request.json()) as Record<string, unknown>
+                        return [
+                            201,
+                            {
+                                id: 'resolution-review',
+                                ...body,
+                                key: 'review_campaign:Search - Competitors',
+                                resolved_by: null,
+                                resolved_at: '2025-02-15T12:00:00Z',
+                                created_at: '2025-02-15T12:00:00Z',
+                            },
+                        ]
+                    },
+                },
+            },
+        },
+    },
+    play: async ({ canvasElement }) => {
+        await dismissHighCostCampaign(canvasElement)
+        await within(canvasElement.ownerDocument.body).findByText(
+            'Every recommendation in this rule is dismissed or applied. Review them to restore one.'
+        )
     },
 }

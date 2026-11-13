@@ -17,9 +17,12 @@ import { urls } from 'scenes/urls'
 import { notebooksModel } from '~/models/notebooksModel'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { notebookExportLogic } from 'products/notebooks/frontend/notebookExportLogic'
+
 import { NotebookLogicProps, notebookLogic } from './Notebook/notebookLogic'
 
 export function NotebookMenu({ shortId, inPanel }: NotebookLogicProps & { inPanel?: boolean }): JSX.Element {
+    const { preparePrint } = useActions(notebookExportLogic({ shortId }))
     const { notebook, showHistory, isLocalOnly } = useValues(notebookLogic({ shortId }))
     const { openShareModal, duplicateNotebook, downloadMarkdown, copyMarkdown, setShowHistory } = useActions(
         notebookLogic({ shortId })
@@ -54,6 +57,12 @@ export function NotebookMenu({ shortId, inPanel }: NotebookLogicProps & { inPane
                         <ButtonPrimitive onClick={() => copyMarkdown()} menuItem>
                             <IconCopy />
                             Copy markdown
+                        </ButtonPrimitive>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem asChild>
+                        <ButtonPrimitive onClick={preparePrint} menuItem data-attr="notebook-print-pdf">
+                            <IconDownload />
+                            Print / save PDF
                         </ButtonPrimitive>
                     </DropdownMenuItem>
                     <DropdownMenuItem asChild>

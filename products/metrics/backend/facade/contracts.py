@@ -188,6 +188,14 @@ class MetricQueryRequest:
 
 
 @dataclass(frozen=True, slots=True)
+class MetricInstantWindow:
+    """The range an instant builder query reads: its value is the bucket that ends at `date_to`."""
+
+    date_from: dt.datetime
+    date_to: dt.datetime
+
+
+@dataclass(frozen=True, slots=True)
 class MetricPoint:
     """One bucketed datapoint. `time` is the bucket start, ISO 8601.
     `value` is None when the bucket's aggregate isn't representable (e.g.
@@ -256,6 +264,8 @@ class MetricAnomalyReport:
     onset_time: str | None
     top_movers: tuple[MetricAnomalyDimension, ...]
     series: MetricSeries
+    # Start of the trailing bucket that was still filling: plotted in `series`, left out of the stats.
+    partial_bucket_time: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

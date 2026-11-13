@@ -9,6 +9,7 @@ import requests
 
 from products.warehouse_sources.sources.applovin._config import AppLovinSourceConfig
 from products.warehouse_sources.sources.applovin.applovin import (
+    ADVERTISER_KEY_ON_PUBLISHER_REPORT_PREFIX,
     AUTH_ERROR_PREFIX,
     BAD_REQUEST_ERROR_PREFIX,
     MANAGEMENT_AUTH_ERROR_PREFIX,
@@ -105,16 +106,27 @@ class TestRequestShape:
         assert result.raised is None
         assert result.session_options[0]["redact_values"] == ("secret-key",)
 
-    def test_advertiser_report_requests_only_columns_the_api_accepts(self) -> None:
+    @pytest.mark.parametrize(
+        ("endpoint", "report_type", "refused_columns"),
+        [
+            ("advertiser_report", "advertiser", ["application", "app_id_external"]),
+            ("publisher_report", "publisher", ["application"]),
+        ],
+    )
+    def test_report_requests_only_columns_the_api_accepts(
+        self, endpoint: str, report_type: str, refused_columns: list[str]
+    ) -> None:
         def respond(request: RecordedRequest) -> ScriptedResponse:
-            if "application" in (request.param("columns") or "").split(","):
-                return ScriptedResponse(status=400, body=b"Invalid Column: application")
+            requested = (request.param("columns") or "").split(",")
+            for column in refused_columns:
+                if column in requested:
+                    return ScriptedResponse(status=400, body=f"Invalid Column: {column}".encode())
             return _page([])
 
-        result = _driver().run("advertiser_report", respond)
+        result = _driver().run(endpoint, respond)
 
         assert result.raised is None
-        assert {request.param("report_type") for request in result.requests} == {"advertiser"}
+        assert {request.param("report_type") for request in result.requests} == {report_type}
 
 
 class TestWindowWalking:
@@ -212,6 +224,23 @@ class TestErrorClassification:
         assert isinstance(result.raised, AppLovinAPIError)
         assert str(result.raised).startswith(BAD_REQUEST_ERROR_PREFIX)
         assert "Invalid column" in str(result.raised)
+
+    @pytest.mark.parametrize(
+        ("endpoint", "body", "expected_prefix"),
+        [
+            ("publisher_report", b"Invalid Advertiser Column: package_name", ADVERTISER_KEY_ON_PUBLISHER_REPORT_PREFIX),
+            ("publisher_report", b"Invalid Column: zone", BAD_REQUEST_ERROR_PREFIX),
+            ("advertiser_report", b"Invalid Advertiser Column: campaign", BAD_REQUEST_ERROR_PREFIX),
+        ],
+    )
+    def test_advertiser_key_on_the_publisher_report_gets_its_own_prefix(
+        self, endpoint: str, body: bytes, expected_prefix: str
+    ) -> None:
+        result = _driver().run(endpoint, [ScriptedResponse(status=400, body=body)])
+
+        assert isinstance(result.raised, AppLovinAPIError)
+        assert str(result.raised).startswith(expected_prefix)
+        assert body.decode() in str(result.raised)
 
     @pytest.mark.parametrize("status_code", [429, 500, 502, 503])
     def test_throttling_and_upstream_failures_stay_retryable(self, status_code: int) -> None:

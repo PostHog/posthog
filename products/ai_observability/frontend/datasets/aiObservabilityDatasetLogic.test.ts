@@ -46,6 +46,7 @@ jest.mock('./datasetsApi', () => ({
         restoreItem: jest.fn(),
         exportDataset: jest.fn(),
         getExport: jest.fn(),
+        getTraceStepItem: jest.fn(),
     },
 }))
 jest.mock('lib/lemon-ui/LemonToast/LemonToast')
@@ -737,9 +738,17 @@ describe('aiObservabilityDatasetLogic', () => {
                 mockDatasetsApi.listDatasets.mockResolvedValue({ results: [targetDataset], count: 1 })
                 const logic = aiObservabilityDatasetLogic({ datasetId: mockDataset.id })
                 logic.mount()
+                mockDatasetsApi.getTraceStepItem.mockResolvedValue({
+                    client_item_id: 'n-1',
+                    source_trace_id: 't-1',
+                    source_event_id: 'n-1',
+                    source_timestamp: '2026-09-01T10:00:00Z',
+                    input: { message: 'hello' },
+                    source_output: null,
+                    metadata: {},
+                })
                 const button = saveToDatasetButtonLogic({
-                    partialDatasetItem: { input: { message: 'hello' } },
-                    step: null,
+                    step: { traceId: 't-1', nodeId: 'n-1', timestamp: '2026-09-01T10:00:00Z' },
                 })
                 button.mount()
                 await expectLogic(logic).toFinishAllListeners()

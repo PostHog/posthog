@@ -41,7 +41,7 @@ class Command(BaseCommand):
         profiles = ContentAutopilotSiteProfile.objects.for_team(team.id).filter(deleted=False).order_by("created_at")
         profile = profiles.filter(id=options["profile_id"]).first() if options["profile_id"] else profiles.first()
         if profile is None:
-            raise CommandError("No content autopilot site profile found. Add the site in /web/content-autopilot first.")
+            raise CommandError("No content autopilot site profile found. Add the site in /web/ai-visibility first.")
 
         opportunities = refresh_opportunities(team=team, profile_id=str(profile.id))
         selected = self._select(opportunities, options["prompt_hash"], options["limit"])
@@ -83,7 +83,7 @@ class Command(BaseCommand):
         )
         generate_run(run.team_id, str(run.id))
         run.refresh_from_db()
-        self.stdout.write(f"Run {run.id} finished as {run.run_status}. Review it in /web/content-autopilot.")
+        self.stdout.write(f"Run {run.id} finished as {run.run_status}. Review it in /web/ai-visibility.")
 
     def _select(
         self, opportunities: list[ContentAutopilotOpportunity], prompt_hashes: list[str], limit: int

@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 
-import { IconClock, IconWarning } from '@posthog/icons'
-import { Badge, Spinner, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
+import { IconClock } from '@posthog/icons'
+import { Badge, CardDescription, CardTitle, Spinner, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
@@ -28,15 +28,14 @@ export function QuillInsightMetaContent({
     loadingQueued,
     showDescription,
     infoPopover,
-    dataRetentionWarning,
     queryScanTooltip,
     queryScanActionable,
     warehouseSyncTooltip,
 }: InsightMetaContentProps): JSX.Element {
-    const hasTitleIndicator = !!(infoPopover || dataRetentionWarning || queryScanTooltip || warehouseSyncTooltip)
+    const hasTitleIndicator = !!(infoPopover || queryScanTooltip || warehouseSyncTooltip)
     const titleContent = (
         <>
-            <span className={clsx('text-primary', hasTitleIndicator && 'truncate')}>
+            <span className={clsx(hasTitleIndicator && 'truncate')}>
                 {title || <i>{fallbackTitle || 'Untitled'}</i>}
             </span>
             {(loading || loadingQueued) && (
@@ -55,21 +54,18 @@ export function QuillInsightMetaContent({
 
     return (
         <>
-            <h4
+            <CardTitle
+                role="heading"
+                aria-level={4}
                 data-attr="insight-card-title"
-                className={clsx(hasTitleIndicator && 'inline-flex items-center overflow-visible')}
+                className={clsx('flex min-h-7 min-w-0 items-center', hasTitleIndicator && 'overflow-visible')}
             >
                 {link ? (
-                    <LinkPrimitive to={link} className="max-w-full truncate hover:underline">
+                    <LinkPrimitive to={link} className="max-w-full truncate text-foreground">
                         {titleContent}
                     </LinkPrimitive>
                 ) : (
                     titleContent
-                )}
-                {dataRetentionWarning && (
-                    <TitleIndicator tooltip={dataRetentionWarning}>
-                        <IconWarning className="text-base text-warning" />
-                    </TitleIndicator>
                 )}
                 {queryScanTooltip && (
                     <TitleIndicator tooltip={queryScanTooltip}>
@@ -90,11 +86,13 @@ export function QuillInsightMetaContent({
                     </TitleIndicator>
                 )}
                 {infoPopover}
-            </h4>
+            </CardTitle>
             {showDescription !== false && !!description && (
-                <LemonMarkdown className="CardMeta__description" lowKeyHeadings>
-                    {description}
-                </LemonMarkdown>
+                <CardDescription className="leading-4">
+                    <LemonMarkdown className="CardMeta__description" lowKeyHeadings>
+                        {description}
+                    </LemonMarkdown>
+                </CardDescription>
             )}
         </>
     )
