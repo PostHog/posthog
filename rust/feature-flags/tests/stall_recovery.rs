@@ -46,6 +46,7 @@ const SETTLE: Duration = Duration::from_secs(5);
 /// flags pods, and the write pool to a fifth of that.
 const POOLER_READ_POOL_SIZE: u32 = 8;
 const POOLER_WRITE_POOL_SIZE: u32 = 2;
+const POOLER_SERVER_CONNECTIONS: usize = (POOLER_READ_POOL_SIZE + POOLER_WRITE_POOL_SIZE) as usize;
 /// Longer than the 3 s acquire timeout and PgBouncer's 5 s server_connect_timeout.
 const SLOW_CONNECT: Duration = Duration::from_secs(6);
 
@@ -66,7 +67,8 @@ async fn test_cancels_heard_late(
     report.assert_degrades_then_recovers();
     report.assert_connections_reopen();
     if let Topology::PgBouncer = topology {
-        report.assert_database_logins_bounded();
+        // Straight to Postgres, the 30 s fault exceeds this limit.
+        report.assert_database_logins_at_most(POOLER_SERVER_CONNECTIONS);
     }
 }
 
@@ -82,7 +84,8 @@ async fn test_lock_wait_for_16s(
     report.assert_degrades_then_recovers();
     report.assert_connections_reopen();
     if let Topology::PgBouncer = topology {
-        report.assert_database_logins_bounded();
+        // Straight to Postgres, this fault exceeds this limit.
+        report.assert_database_logins_at_most(POOLER_SERVER_CONNECTIONS);
     }
 }
 
@@ -107,7 +110,7 @@ async fn test_connects_slower_than_the_acquire_timeout_for_16s(
             "today no connect succeeds during the fault; #122930 and #122931 change this"
         ),
         Topology::PgBouncer => {
-            report.assert_database_logins_bounded();
+            report.assert_database_logins_at_most(2 * POOLER_SERVER_CONNECTIONS);
             assert!(
                 report.connections_opened_during() > 0,
                 "today PgBouncer accepts each connect and closes it while its own logins fail, so the pool reconnects in a loop"
@@ -128,7 +131,7 @@ async fn test_silent_pooler_connections(#[values(16, 30)] fault_secs: u64) {
     .run()
     .await;
     report.assert_degrades_then_recovers();
-    report.assert_database_logins_bounded();
+    report.assert_database_logins_at_most(2 * POOLER_SERVER_CONNECTIONS);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -142,7 +145,7 @@ async fn test_pooler_restart() {
     .run()
     .await;
     report.assert_degrades_then_recovers();
-    report.assert_database_logins_bounded();
+    report.assert_database_logins_at_most(2 * POOLER_SERVER_CONNECTIONS);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -777,10 +780,9 @@ impl Report {
         );
     }
 
-    /// Logins at Postgres stay within twice PgBouncer's server connections, whatever the
-    /// request rate. Straight to Postgres, a slow-connect fault makes about 100.
-    fn assert_database_logins_bounded(&self) {
-        let limit = 2 * (POOLER_READ_POOL_SIZE + POOLER_WRITE_POOL_SIZE) as usize;
+    /// The limit is a multiple of PgBouncer's server connections, so it holds whatever the
+    /// request rate. Straight to Postgres, a slow-connect fault makes about 100 logins.
+    fn assert_database_logins_at_most(&self, limit: usize) {
         let logins = self.connect_attempts_during() + self.connect_attempts_after();
         assert!(
             logins <= limit,
