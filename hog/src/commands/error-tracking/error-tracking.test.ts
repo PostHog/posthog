@@ -402,6 +402,31 @@ describe('hog error-tracking upload', () => {
     })
 
     test.each([
+        ['nothing is skipped', false, '• Uploaded 0 symbol sets, 1 already present'],
+        ['a native file has no debug info', true, '! Uploaded 0 symbol sets, 1 already present, 1 skipped'],
+    ])('upload marks the result partial only when a file is unusable: %s', async (_name, withNative, summary) => {
+        const folder = project({ 'mapping.txt': SMALL_MAPPING })
+        mkdirSync(join(folder, 'bin'))
+        if (withNative) {
+            writeFileSync(join(folder, 'bin/native'), readFileSync(join(NATIVE, 'linux/checkout-no-debug')))
+        }
+
+        const result = await runHog(['et', 'upload', 'bin', 'mapping.txt', '--map-id', 'map-1'], {
+            env: { ...TEST_CREDENTIALS, NO_COLOR: '1' },
+            stdoutIsTTY: true,
+            cwd: folder,
+            useDisk: true,
+            respond: (url) =>
+                url.endsWith('/bulk_check_upload')
+                    ? { status: 200, body: { chunk_ids_to_upload: [] } }
+                    : { status: 404, body: { detail: 'Not found.' } },
+        })
+
+        expect(result.exitCode).toBe(0)
+        expect(result.stdout.split('\n')[0]).toBe(summary)
+    })
+
+    test.each([
         ['skips a dSYM member that matches an ignore glob', ['Shop.app.dSYM/Contents/Resources/DWARF/**'], false],
         ['follows a dSYM member that is a symlink, as posthog-cli does', [], true],
     ])('upload %s', async (_name, ignore, linkOutside) => {

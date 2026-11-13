@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonDialog, LemonDivider } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 import { urls } from 'scenes/urls'
@@ -9,6 +9,7 @@ import type { DashboardWidgetComponentProps } from 'products/dashboards/frontend
 
 import { NotebookWidgetTrustControls } from '../NotebookNodeGeneratedWidget/NotebookWidgetTrustControls'
 import { notebookDashboardWidgetLogic } from './notebookDashboardWidgetLogic'
+import { NOTEBOOK_WIDGET_NO_SNAPSHOT_REASON, openRefreshFromNotebookDialog } from './openRefreshFromNotebookDialog'
 
 export function NotebookDashboardWidgetMenu({
     tileId,
@@ -34,16 +35,8 @@ export function NotebookDashboardWidgetMenu({
                 <LemonButton
                     fullWidth
                     loading={refreshing}
-                    disabledReason={!snapshot ? 'Load the saved results first' : undefined}
-                    onClick={() =>
-                        LemonDialog.open({
-                            title: 'Refresh from notebook?',
-                            description:
-                                'This runs all saved data cells using the notebook’s variables. Python compute may incur charges. Dashboard filters do not change these results.',
-                            primaryButton: { children: 'Run notebook', onClick: refresh },
-                            secondaryButton: { children: 'Cancel' },
-                        })
-                    }
+                    disabledReason={!snapshot ? NOTEBOOK_WIDGET_NO_SNAPSHOT_REASON : undefined}
+                    onClick={() => openRefreshFromNotebookDialog(refresh)}
                 >
                     Refresh from notebook
                 </LemonButton>
@@ -56,7 +49,7 @@ export function NotebookDashboardWidgetMenu({
             <LemonButton
                 fullWidth
                 loading={sourceLoading}
-                disabledReason={!snapshot ? 'Load the saved results first' : undefined}
+                disabledReason={!snapshot ? NOTEBOOK_WIDGET_NO_SNAPSHOT_REASON : undefined}
                 onClick={() => setSourceOpen(true)}
                 data-attr="notebook-widget-view-source"
             >

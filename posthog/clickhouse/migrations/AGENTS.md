@@ -50,13 +50,12 @@ The way this is done:
 
 If a destination table is non-sharded, we pick only one node as data for the Distributed table.
 
-The `ingestion-apm` nodes (`NodeRole.APM`) run the same pattern for metrics: a Kafka table feeds a
-`Null` input table, materialized views fan it out to writable `Distributed` tables, and those write
-into the storage tables on the `logs` cluster (`NodeRole.LOGS`).
-
-The `ingestion-metrics` nodes (`NodeRole.INGESTION_METRICS`) run the same chain into the `metrics` cluster
-(`NodeRole.METRICS`) under their own consumer group, so every row reaches both clusters. Until reads
-cut over, a metrics4 change has to target both pairs of roles.
+The `ingestion-metrics` nodes (`NodeRole.INGESTION_METRICS`) run the same pattern for metrics: a Kafka
+table feeds a `Null` input table, materialized views fan it out to writable `Distributed` tables, and
+those write into the metrics4 storage tables on the `metrics` cluster (`NodeRole.METRICS`). In cloud,
+a metrics4 change targets those two roles. Migrations 0376 and 0379 removed metrics4 from the
+`ingestion-apm` and `logs` nodes in cloud. The local stacks still run it there, so a metrics4 change
+also targets `APM` and `LOGS`.
 
 # Local setup parity
 

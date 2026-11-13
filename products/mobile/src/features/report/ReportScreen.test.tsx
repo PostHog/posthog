@@ -69,8 +69,9 @@ describe('ReportScreen', () => {
             expect(screen.getByTestId('action-chat')).toBeTruthy()
             expect(screen.queryByTestId('inbox-chat')).toBeNull()
             if (navigation) {
+                expect(screen.getByTestId('nav-inbox').props.accessibilityState).toEqual({ selected: true })
                 fireEvent.press(screen.getByTestId('inbox-nav-home'))
-                expect(mockNavigate).toHaveBeenCalledWith('/inbox')
+                expect(mockNavigate).toHaveBeenCalledWith('/live')
             } else {
                 expect(screen.queryByTestId('inbox-nav-home')).toBeNull()
             }

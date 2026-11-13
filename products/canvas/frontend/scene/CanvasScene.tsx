@@ -1,6 +1,6 @@
 import { BindLogic, useActions, useValues } from 'kea'
 
-import { IconWarning } from '@posthog/icons'
+import { IconLock, IconWarning } from '@posthog/icons'
 import {
     Button,
     Empty,
@@ -21,7 +21,6 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { canvasEditLogic } from '../editing/canvasEditLogic'
 import { CanvasEditorRenderer } from '../editing/CanvasEditorRenderer'
 import { CanvasBrowsedCanvas } from '../history/CanvasBrowsedCanvas'
-import { CanvasHistoryConfirmDialog } from '../history/CanvasHistoryConfirmDialog'
 import { canvasHistoryLogic } from '../history/canvasHistoryLogic'
 import { canvasCommentsLogic } from '../sidePanel/comments/canvasCommentsLogic'
 import { CanvasCommentThreadPopover } from '../sidePanel/comments/CanvasCommentThreadPopover'
@@ -84,10 +83,10 @@ function CanvasBody(): JSX.Element {
     const { browseVersionId } = useValues(canvasHistoryLogic)
     const { editing } = useValues(canvasEditLogic)
 
-    if (browseVersionId && bodyState !== 'missing' && bodyState !== 'error') {
+    if (browseVersionId && bodyState !== 'missing' && bodyState !== 'error' && bodyState !== 'forbidden') {
         return <CanvasBrowsedCanvas />
     }
-    if (editing && bodyState !== 'missing' && bodyState !== 'error') {
+    if (editing && bodyState !== 'missing' && bodyState !== 'error' && bodyState !== 'forbidden') {
         return <CanvasEditBody />
     }
     switch (bodyState) {
@@ -120,11 +119,23 @@ function CanvasBody(): JSX.Element {
                     </EmptyContent>
                 </Empty>
             )
+        case 'forbidden':
+            return (
+                <Empty className="h-full border-0">
+                    <EmptyHeader>
+                        <EmptyMedia variant="icon">
+                            <IconLock />
+                        </EmptyMedia>
+                        <EmptyTitle>You don't have access to this canvas</EmptyTitle>
+                        <EmptyDescription>Ask the person who made it to share it with you.</EmptyDescription>
+                    </EmptyHeader>
+                </Empty>
+            )
         case 'empty':
             return <CanvasEmptyBody />
         case 'generation-ended':
             return (
-                <CanvasEmptyBody notice="The last run finished without a canvas to show. Describe it again to start a new run." />
+                <CanvasEmptyBody notice="The last run finished without a canvas to show. Ask your agent to try again with the PostHog MCP server." />
             )
         case 'generating':
             return <CanvasGeneratingState />
@@ -138,7 +149,7 @@ function CanvasBody(): JSX.Element {
                         <EmptyTitle>This draft can't be shown here</EmptyTitle>
                         <EmptyDescription>
                             Drafts render from a separate canvas origin, and this PostHog instance doesn't have one set
-                            up. The canvas shows here once it's built, or you can open it in PostHog Desktop.
+                            up. The canvas shows here once it's built.
                         </EmptyDescription>
                     </EmptyHeader>
                 </Empty>
@@ -187,7 +198,6 @@ export function CanvasScene({ id }: CanvasSceneLogicProps): JSX.Element {
                                 <CanvasSceneHeader />
                                 <CanvasMain />
                                 <CanvasSelectionCommentAction />
-                                <CanvasHistoryConfirmDialog />
                             </div>
                         </BindLogic>
                     </BindLogic>

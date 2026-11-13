@@ -12,9 +12,13 @@ from posthog.models import Team
 from posthog.utils import absolute_uri
 
 from products.alerts_platform.backend.delivery.dispatch import deliver
-from products.alerts_platform.backend.delivery.evaluation import _TRANSPORTS
+from products.alerts_platform.backend.delivery.evaluation import _TRANSPORTS, announcement_to_deliver
 from products.alerts_platform.backend.delivery.thread_store import DatabaseThreadStore, ThreadBusy
-from products.alerts_platform.backend.delivery.transport import DeliveryError
+from products.alerts_platform.backend.delivery.transport import (
+    DeliveryError,
+    DestinationMisconfigured,
+    RefusedEverywhere,
+)
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
     AnnouncedTransition,
@@ -30,8 +34,7 @@ from products.alerts_platform.backend.logic.alert_routes import (
     routed_receivers,
     routing_is_enabled,
 )
-from products.alerts_platform.backend.logic.platform_alert_events import announcement
-from products.alerts_platform.backend.models import PlatformAlertConfiguration
+from products.alerts_platform.backend.logic.platform_reads import rule_metadata
 
 logger = structlog.get_logger(__name__)
 
@@ -61,27 +64,14 @@ def deliver_routes(request: AlertDeliveryRequest) -> int:
     team = _routing_team(request)
     if team is None:
         return 0
-    labels = (
-        PlatformAlertConfiguration.objects.for_team(request.team_id)
-        .filter(id=request.configuration_id)
-        .values_list("labels", flat=True)
-        .first()
-    )
-    receivers = routed_receivers(team_id=request.team_id, labels=labels or {})
+    rule = rule_metadata(request.team_id, request.configuration_id)
+    receivers = routed_receivers(team_id=request.team_id, labels=rule.labels)
     # A delivery that exists only for its incident actions has nothing for a chat receiver.
     if not request.sends_messages:
         receivers = tuple(r for r in receivers if r.data.get("type") in INCIDENT_DESTINATION_TYPES)
     if not receivers:
         return 0
-    announced = announcement(
-        request.team_id,
-        request.configuration_id,
-        request.evaluation_key,
-        source=request.source,
-        incident_grouping_keys=request.incident_actions.keys(),
-        part=request.part,
-        parts=request.parts,
-    )
+    announced = announcement_to_deliver(request, path="routed")
     if announced is None:
         return 0
     pages = any(receiver.data.get("type") in INCIDENT_DESTINATION_TYPES for receiver in receivers)
@@ -90,7 +80,7 @@ def deliver_routes(request: AlertDeliveryRequest) -> int:
             request,
             incident_actions={key: action for key, action in request.incident_actions.items() if key not in stale},
         )
-    return _deliver_to(receivers, request=request, team=team, announced=announced)
+    return _deliver_to(receivers, request=request, team=team, announced=replace(announced, rule=rule))
 
 
 def _sends(
@@ -126,6 +116,7 @@ def _deliver_to(
     sent = 0
     busy: list[str] = []
     failures: list[str] = []
+    retryable = False
     for receiver in receivers:
         transport_class = _TRANSPORTS.get(receiver.data.get("type"))
         sends = [(transitions, action) for transitions, action in _sends(receiver, request, announced) if transitions]
@@ -150,9 +141,11 @@ def _deliver_to(
             busy.append(str(error))
         except DeliveryError as error:
             failures.append(str(error))
+            retryable = retryable or not isinstance(error, DestinationMisconfigured)
         except Exception as error:
             # Named by class only, because an exception's text can carry a credential URL.
             failures.append(type(error).__name__)
+            retryable = True
         else:
             sent += 1
     # A held thread wins over a failure, as in `deliver_evaluation`: the workflow waits it out and
@@ -160,5 +153,6 @@ def _deliver_to(
     if busy:
         raise ThreadBusy("; ".join([*busy, *failures]))
     if failures:
-        raise DeliveryError(f"{len(failures)} receiver(s) failed: " + "; ".join(failures))
+        failed = DeliveryError if retryable else RefusedEverywhere
+        raise failed(f"{len(failures)} receiver(s) failed: " + "; ".join(failures))
     return sent

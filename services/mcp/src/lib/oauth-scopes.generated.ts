@@ -228,8 +228,6 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'usage_metric:write',
     'user:read',
     'user:write',
-    'user_interview:read',
-    'user_interview:write',
     'vision_action:read',
     'vision_action:write',
     'vision_alert:read',

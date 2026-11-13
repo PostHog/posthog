@@ -9,6 +9,7 @@ import parserRecipeReference from './aiObservability/parserRecipeReference'
 import debugMcpUiApps from './debug/debugMcpUiApps'
 // Experiments (hand-written — CRUD + lifecycle are codegen in generated/experiments.ts)
 import experimentGetByFlagKey from './experiments/getByFlagKey'
+import getExperimentHealth from './experiments/getHealth'
 import getExperimentResults from './experiments/getResults'
 // Feature flags
 import featureFlagGetDefinitionByKey from './featureFlags/getDefinitionByKey'
@@ -28,7 +29,6 @@ import { mergeToolFactories } from './mergeToolFactories'
 import notebookAddCell from './notebooks/addCell'
 import notebookCreateMarkdown from './notebooks/createMarkdown'
 import notebookDeleteCell from './notebooks/deleteCell'
-import notebookEdit from './notebooks/edit'
 import notebookRunCell from './notebooks/runCell'
 import notebookRun from './notebooks/runNotebook'
 import notebookRunStatus from './notebooks/runNotebookStatus'
@@ -69,14 +69,8 @@ import {
 import type { Context, Tool, ToolBase, ZodObjectAny } from './types'
 // Workflows (batch — orchestration over existing REST endpoints with a blast-radius guard)
 import { workflowsBlastRadius, workflowsRunBatch, workflowsScheduleCreate } from './workflows/batch'
-// Workflows (lifecycle — CRUD lives in generated/workflows.ts). workflows-disable is intentionally not
-// registered: draft routing is gated on ACTIVE status, so disable→edit→enable lands the edit straight on
-// the live row and resumes it, skipping the impact preview and signed confirm token that workflows-publish
-// makes unskippable. A tool description telling the agent not to do that isn't enforcement — prompt
-// injection reaching the agent would just ignore it. Register this only once edits made while disabled
-// stage a draft too, or re-enabling a workflow edited while disabled requires publish confirmation.
-// The factory stays in lifecycle.ts for that day.
-import { workflowsArchive, workflowsEnable } from './workflows/lifecycle'
+// Workflows (lifecycle — CRUD lives in generated/workflows.ts).
+import { workflowsArchive, workflowsDisable, workflowsEnable } from './workflows/lifecycle'
 
 // Map of tool names to tool factory functions
 export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
@@ -97,8 +91,9 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
 
     'path-cleaning-rules-update': updatePathCleaning,
 
-    // Experiments (results and get-by-flag-key are hand-written; CRUD + lifecycle are codegen)
+    // Experiments (results, health and get-by-flag-key are hand-written; CRUD + lifecycle are codegen)
     'experiment-results-get': getExperimentResults,
+    'experiment-health-get': getExperimentHealth,
     'experiment-get-by-flag-key': experimentGetByFlagKey,
 
     // Insights
@@ -116,7 +111,6 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     'llma-parser-recipe-reference': parserRecipeReference,
 
     // Notebooks
-    'notebook-edit': notebookEdit,
     'notebooks-add-cell': notebookAddCell,
     'notebooks-create-markdown': notebookCreateMarkdown,
     'notebooks-delete-cell': notebookDeleteCell,
@@ -149,6 +143,7 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
 
     // Workflows lifecycle (thin wrappers over hog_flows_partial_update so MCP gets
     // an idiomatic enable/disable/archive surface without three new REST endpoints).
+    'workflows-disable': workflowsDisable,
     'workflows-enable': workflowsEnable,
     'workflows-archive': workflowsArchive,
 

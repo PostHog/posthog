@@ -1,13 +1,13 @@
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { LemonBanner, LemonButton, LemonCard, LemonSkeleton, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonCard, LemonTable, Link } from '@posthog/lemon-ui'
 import { TimeSeriesLineChart } from '@posthog/quill-charts'
 import type { Series, TimeSeriesLineChartConfig } from '@posthog/quill-charts'
 
 import { useChartTheme } from 'lib/charts/hooks'
 import { percentage } from 'lib/utils/numbers'
-import { urls } from 'scenes/urls'
+import { parseWebAnalyticsURL } from 'scenes/web-analytics/common'
 import { PagePerformanceCard } from 'scenes/web-analytics/PagePerformanceCard'
 import { PagePerformanceCardHeader } from 'scenes/web-analytics/PagePerformanceCardHeader'
 
@@ -17,10 +17,14 @@ import type {
     AEORankedPageApi,
 } from 'products/web_analytics/frontend/generated/api.schemas'
 
+import { pageReportPath } from '../pageReports/pageReportsUtils'
 import { ContentAutopilotBrandedSegmentControl } from './ContentAutopilotBrandedSegmentControl'
+import { ContentAutopilotKpiDelta } from './ContentAutopilotKpiDelta'
 import { contentAutopilotLogic } from './contentAutopilotLogic'
 import { ContentAutopilotPromptsDisabled } from './ContentAutopilotPromptsDisabled'
 import { RANKINGS_DAYS, contentAutopilotRankingsLogic } from './contentAutopilotRankingsLogic'
+import { ContentAutopilotRankingsSkeleton } from './ContentAutopilotRankingsSkeleton'
+import { ContentAutopilotSiteLabel } from './ContentAutopilotSiteLabel'
 import { visibilityChange } from './rankingsReport'
 import { brandedAnswersNote, segmentPrompts } from './utils'
 
@@ -32,17 +36,6 @@ const CHART_CONFIG: TimeSeriesLineChartConfig = {
     // Straight segments, because a curve invents values between days.
     curve: 'linear',
 }
-
-const SiteTag = ({ isTarget, isCompetitor }: { isTarget: boolean; isCompetitor: boolean }): JSX.Element | null =>
-    isTarget ? (
-        <LemonTag type="success" size="small">
-            Your site
-        </LemonTag>
-    ) : isCompetitor ? (
-        <LemonTag type="warning" size="small">
-            Competitor
-        </LemonTag>
-    ) : null
 
 const VisibilityChart = (): JSX.Element | null => {
     const { chart } = useValues(contentAutopilotRankingsLogic)
@@ -80,7 +73,7 @@ export const ContentAutopilotRankings = (): JSX.Element => {
         )
     }
     if (!rankings) {
-        return <LemonSkeleton className="h-32 w-full" />
+        return <ContentAutopilotRankingsSkeleton />
     }
     const header = (
         <div className="flex flex-wrap items-start justify-between gap-2">
@@ -92,16 +85,13 @@ export const ContentAutopilotRankings = (): JSX.Element => {
                     {rankings.competitors_confirmed ? (
                         <>
                             Competitors are the ones you confirmed in{' '}
-                            <Link to={urls.settings('environment-web-analytics', 'ai-visibility-brands')}>
-                                AI visibility brands
-                            </Link>
-                            .
+                            <Link onClick={() => setWorkspaceTab('settings')}>settings</Link>.
                         </>
                     ) : (
                         <>
                             Competitors are guessed from the sites the engines cite most.{' '}
                             <Link
-                                to={urls.settings('environment-web-analytics', 'ai-visibility-brands')}
+                                onClick={() => setWorkspaceTab('settings')}
                                 data-attr="content-autopilot-rankings-confirm-competitors"
                             >
                                 Confirm your competitors
@@ -178,21 +168,22 @@ export const ContentAutopilotRankings = (): JSX.Element => {
                                 {
                                     title: 'Brand',
                                     key: 'domain',
-                                    render: (_, brand) => (
-                                        <span className="flex items-center gap-2">
-                                            <span className="flex flex-col">
-                                                <span className="font-semibold">
-                                                    {rankings.competitors_confirmed && !brand.is_target
-                                                        ? brand.name
-                                                        : brand.domain}
-                                                </span>
-                                                {rankings.competitors_confirmed && !brand.is_target ? (
-                                                    <span className="text-xs text-muted">{brand.domain}</span>
+                                    render: (_, brand) => {
+                                        const named = rankings.competitors_confirmed && !brand.is_target
+                                        return (
+                                            <span className="flex flex-col min-w-0">
+                                                <ContentAutopilotSiteLabel
+                                                    domain={brand.domain}
+                                                    isTarget={brand.is_target}
+                                                >
+                                                    {named ? brand.name : brand.domain}
+                                                </ContentAutopilotSiteLabel>
+                                                {named ? (
+                                                    <span className="pl-6 text-xs text-muted">{brand.domain}</span>
                                                 ) : null}
                                             </span>
-                                            <SiteTag isTarget={brand.is_target} isCompetitor={false} />
-                                        </span>
-                                    ),
+                                        )
+                                    },
                                 },
                                 {
                                     title: 'Visibility',
@@ -215,13 +206,16 @@ export const ContentAutopilotRankings = (): JSX.Element => {
                                             return <span className="text-muted">-</span>
                                         }
                                         return (
-                                            <LemonTag
-                                                size="small"
-                                                type={change > 0 ? 'success' : change < 0 ? 'danger' : 'default'}
-                                            >
-                                                {change > 0 ? '+' : ''}
-                                                {change} pts
-                                            </LemonTag>
+                                            <ContentAutopilotKpiDelta
+                                                delta={{
+                                                    label:
+                                                        change === 0
+                                                            ? 'No change'
+                                                            : `${change > 0 ? '+' : ''}${change} pts`,
+                                                    direction: change > 0 ? 'up' : change < 0 ? 'down' : 'flat',
+                                                    tooltip: `${change > 0 ? '+' : ''}${change} percentage points against the ${RANKINGS_DAYS} days before`,
+                                                }}
+                                            />
                                         )
                                     },
                                 },
@@ -256,10 +250,11 @@ export const ContentAutopilotRankings = (): JSX.Element => {
                                     title: 'Site',
                                     key: 'domain',
                                     render: (_, domain) => (
-                                        <span className="flex items-center gap-2 font-semibold">
-                                            {domain.domain}
-                                            <SiteTag isTarget={domain.is_target} isCompetitor={domain.is_competitor} />
-                                        </span>
+                                        <ContentAutopilotSiteLabel
+                                            domain={domain.domain}
+                                            isTarget={domain.is_target}
+                                            isCompetitor={domain.is_competitor}
+                                        />
                                     ),
                                 },
                                 {
@@ -295,11 +290,15 @@ export const ContentAutopilotRankings = (): JSX.Element => {
                                     title: 'Page',
                                     key: 'url',
                                     render: (_, page) => (
-                                        <span className="flex items-center gap-2 min-w-0 max-w-120">
-                                            <Link to={page.url} target="_blank" className="truncate" title={page.url}>
-                                                {page.url.replace(/^https?:\/\//, '')}
-                                            </Link>
-                                            <SiteTag isTarget={page.is_target} isCompetitor={false} />
+                                        <span className="block max-w-120">
+                                            <ContentAutopilotSiteLabel
+                                                domain={parseWebAnalyticsURL(page.url).host ?? page.url}
+                                                isTarget={page.is_target}
+                                            >
+                                                <Link to={page.url} target="_blank" title={page.url}>
+                                                    {page.url.replace(/^https?:\/\//, '')}
+                                                </Link>
+                                            </ContentAutopilotSiteLabel>
                                         </span>
                                     ),
                                 },
@@ -311,6 +310,23 @@ export const ContentAutopilotRankings = (): JSX.Element => {
                                     render: (_, page) => (
                                         <span className="tabular-nums">{percentage(page.share_of_answers, 1)}</span>
                                     ),
+                                },
+                                {
+                                    key: 'page_report',
+                                    // Only your own pages have traffic in web analytics to report on.
+                                    render: (_, page) =>
+                                        page.is_target ? (
+                                            <LemonButton
+                                                size="xsmall"
+                                                type="secondary"
+                                                className="whitespace-nowrap"
+                                                to={pageReportPath(page.url)}
+                                                tooltip="See this page's traffic, including visits from AI assistants"
+                                                data-attr="content-autopilot-rankings-page-report"
+                                            >
+                                                Page report
+                                            </LemonButton>
+                                        ) : null,
                                 },
                             ]}
                         />

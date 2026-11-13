@@ -1,6 +1,6 @@
 import dataclasses
 from collections.abc import Callable
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 
 from dateutil import parser as dateutil_parser
@@ -9,12 +9,14 @@ from requests.auth import HTTPBasicAuth
 
 from products.warehouse_sources.sources.sdk import (
     BaseNextUrlPaginator,
+    ClientConfig,
     EndpointResource,
     RESTAPIConfig,
     ResumableSourceManager,
     SourceResponse,
     make_tracked_session,
     rest_api_resource,
+    rest_api_resources,
     validate_via_probe,
 )
 from products.warehouse_sources.sources.twilio.settings import (
@@ -22,6 +24,7 @@ from products.warehouse_sources.sources.twilio.settings import (
     TWILIO_API_HOST,
     TWILIO_ENDPOINTS,
     TwilioEndpointConfig,
+    TwilioFanoutConfig,
 )
 
 # The legacy Account API host. Kept as an alias so the legacy paginator can resolve that API's
@@ -68,7 +71,9 @@ TWILIO_UNREACHABLE_MESSAGE = "Could not reach Twilio to validate credentials."
 
 @dataclasses.dataclass(frozen=False)
 class TwilioResumeConfig:
-    next_url: str
+    next_url: Optional[str] = None
+    # Framework fan-out checkpoint, for fan-out endpoints only.
+    fanout_state: Optional[dict[str, Any]] = None
 
 
 class TwilioNextPageUriPaginator(BaseNextUrlPaginator):
@@ -148,13 +153,15 @@ def _build_initial_params(
             chosen = next(iter(config.incremental_filter_params))
         if chosen is not None:
             filter_base = config.incremental_filter_params[chosen]
+            value = db_incremental_field_last_value
+            if config.max_lookback_days is not None:
+                floor = datetime.now(UTC).date() - timedelta(days=config.max_lookback_days - 1)
+                value = max(date.fromisoformat(_format_filter_date(value)), floor)
             # On the legacy API the operator lives in the parameter NAME (e.g. `DateSent>`); the query
             # separator `=` then yields Twilio's documented `DateSent>=<date>` (inclusive, on-or-after)
             # form. The Verify API instead names its param `DateCreatedAfter` outright and takes no
             # operator. Either way the value stays plain — inlining an operator triggers error 20001.
-            params[f"{filter_base}{config.filter_operator}"] = _format_filter_value(
-                config, db_incremental_field_last_value
-            )
+            params[f"{filter_base}{config.filter_operator}"] = _format_filter_value(config, value)
 
     return params
 
@@ -192,6 +199,9 @@ def _endpoint_denied_message(schema_name: str) -> str:
 def _probe_status(auth: TwilioAuth, account_sid: str, schema_name: str) -> int | None:
     """GET one list resource with PageSize=1 and report the HTTP status, or None on transport failure."""
     config = TWILIO_ENDPOINTS[schema_name]
+    if config.fanout is not None:
+        # The child path needs a parent sid, and the parent list is read with the same permission.
+        config = TWILIO_ENDPOINTS[config.fanout.parent]
     url = f"{_endpoint_url(config, account_sid)}?PageSize=1"
     _ok, status = validate_via_probe(
         lambda: make_tracked_session(redact_values=(auth[1],)),
@@ -263,6 +273,25 @@ def twilio_source(
     incremental_field: str | None = None,
 ) -> SourceResponse:
     config = TWILIO_ENDPOINTS[endpoint]
+    client_config: ClientConfig = {
+        "base_url": config.base_url,
+        # HTTP basic auth via the framework so the secret is redacted from logs and errors.
+        "auth": {"type": "http_basic", "username": auth[0], "password": auth[1]},
+        "paginator": TwilioNextPageUriPaginator(),
+    }
+
+    if config.fanout is not None:
+        return _fanout_source(
+            config,
+            config.fanout,
+            client_config,
+            account_sid,
+            team_id,
+            job_id,
+            resumable_source_manager,
+            should_use_incremental_field,
+            db_incremental_field_last_value,
+        )
 
     params = _build_initial_params(
         config, should_use_incremental_field, db_incremental_field_last_value, incremental_field
@@ -280,12 +309,7 @@ def twilio_source(
         resource_config["data_map"] = _drop_fields(config.excluded_fields)
 
     rest_config: RESTAPIConfig = {
-        "client": {
-            "base_url": config.base_url,
-            # HTTP basic auth via the framework so the secret is redacted from logs and errors.
-            "auth": {"type": "http_basic", "username": auth[0], "password": auth[1]},
-            "paginator": TwilioNextPageUriPaginator(),
-        },
+        "client": client_config,
         "resource_defaults": {},
         "resources": [resource_config],
     }
@@ -293,7 +317,7 @@ def twilio_source(
     initial_paginator_state: Optional[dict[str, Any]] = None
     if resumable_source_manager.can_resume():
         resume = resumable_source_manager.load_state()
-        if resume is not None:
+        if resume is not None and resume.next_url:
             initial_paginator_state = {"next_url": resume.next_url}
 
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
@@ -311,8 +335,96 @@ def twilio_source(
         initial_paginator_state=initial_paginator_state,
     )
 
+    return _source_response(config, resource)
+
+
+def _has_children(count_field: str) -> Callable[[dict[str, Any]], bool]:
+    def keep(row: dict[str, Any]) -> bool:
+        # Twilio sends counts as strings. A missing count is not proof of no children.
+        return str(row.get(count_field)) != "0"
+
+    return keep
+
+
+def _fanout_source(
+    config: TwilioEndpointConfig,
+    fanout: TwilioFanoutConfig,
+    client_config: ClientConfig,
+    account_sid: str,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[TwilioResumeConfig],
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Optional[Any],
+) -> SourceResponse:
+    parent_config = TWILIO_ENDPOINTS[fanout.parent]
+
+    # The watermark is a child timestamp, but only the parent list can be filtered. A child is created
+    # with its parent, at or before the parent's filter field, and the filter is day-granular and
+    # inclusive, so every parent that can hold a newer child is listed again.
+    parent_params = _build_initial_params(
+        parent_config, should_use_incremental_field, db_incremental_field_last_value, fanout.parent_incremental_field
+    )
+    child_params: dict[str, Any] = {
+        fanout.resolve_param: {"type": "resolve", "resource": fanout.parent, "field": "sid"},
+    }
+    if config.page_size is not None:
+        child_params["PageSize"] = config.page_size
+
+    rest_config: RESTAPIConfig = {
+        "client": client_config,
+        "resource_defaults": {},
+        "resources": [
+            {
+                "name": fanout.parent,
+                "endpoint": {
+                    "path": _build_resource_path(parent_config, account_sid),
+                    "params": parent_params,
+                    "data_selector": parent_config.response_key,
+                },
+            },
+            {
+                "name": config.name,
+                "endpoint": {
+                    "path": _build_resource_path(config, account_sid),
+                    "params": child_params,
+                    "data_selector": config.response_key,
+                },
+                "resume_parent_pagination": True,
+            },
+        ],
+    }
+
+    initial_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None and resume.fanout_state is not None:
+            initial_state = resume.fanout_state
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        if state is not None:
+            resumable_source_manager.save_state(TwilioResumeConfig(fanout_state=state))
+
+    resources = {
+        resource.name: resource
+        for resource in rest_api_resources(
+            rest_config,
+            team_id,
+            job_id,
+            db_incremental_field_last_value,
+            resume_hook=save_checkpoint,
+            initial_paginator_state=initial_state,
+        )
+    }
+    if fanout.parent_count_field:
+        resources[fanout.parent].add_filter(_has_children(fanout.parent_count_field))
+
+    return _source_response(config, resources[config.name])
+
+
+def _source_response(config: TwilioEndpointConfig, resource: Any) -> SourceResponse:
     return SourceResponse(
-        name=endpoint,
+        name=config.name,
         items=lambda: resource,
         primary_keys=[config.primary_key],
         sort_mode=config.sort_mode,
