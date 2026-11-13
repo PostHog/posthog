@@ -1,0 +1,217 @@
+import { parseJSON } from '~/common/utils/json-parse'
+
+import { durationMs } from '../duration'
+import { EXIT_CODE } from '../runner/status'
+import { Controller } from './admission'
+import { AwsError } from './aws'
+import { Manifest, evidenceOf, keyOf } from './lease'
+import { CloudProfile, REGION } from './profile'
+import { POLL_MS } from './stack'
+
+const REPO = '/opt/posthog'
+const SCRIPTS = `${REPO}/nodejs/tests/scenarios/cloud`
+const START_TIMEOUT_S = 60
+const STOP_TIMEOUT_S = 300
+const STOP_WAIT_MS = (STOP_TIMEOUT_S + START_TIMEOUT_S) * 1000
+const SETTLED = new Set(['Success', 'Failed', 'Cancelled', 'TimedOut'])
+const EXIT_CODES = new Set<number>(Object.values(EXIT_CODE))
+
+type Invocation = { Status: string; ResponseCode: number }
+
+const quoted = (value: string): string => `'${value.replace(/'/g, `'\\''`)}'`
+
+const unitOf = (manifest: Manifest): string => `scenario-card-${manifest.runId}`
+
+function hostEnv(profile: CloudProfile, manifest: Manifest): Record<string, string> {
+    return {
+        SCENARIO_RUN_ID: manifest.runId,
+        SCENARIO_EVIDENCE_BUCKET: profile.baseline.evidenceBucket,
+        AWS_REGION: REGION,
+    }
+}
+
+const lastWorkAt = (profile: CloudProfile, manifest: Manifest): number =>
+    Date.parse(manifest.expiresAt) - durationMs(profile.admission.teardownAllowance)
+
+async function hostOf({ aws }: Controller, manifest: Manifest): Promise<string | undefined> {
+    try {
+        const { StackResources } = (await aws.call([
+            'cloudformation',
+            'describe-stack-resources',
+            '--stack-name',
+            manifest.stackName,
+        ])) as { StackResources: { LogicalResourceId: string; PhysicalResourceId: string }[] }
+        return StackResources.find(({ LogicalResourceId }) => LogicalResourceId === 'Host')?.PhysicalResourceId
+    } catch (error) {
+        if (error instanceof AwsError && error.code === 'ValidationError' && error.stderr.includes('does not exist')) {
+            return undefined
+        }
+        throw error
+    }
+}
+
+async function runOnHost(
+    controller: Controller,
+    instanceId: string,
+    commands: string[],
+    timeoutSeconds: number,
+    until: number,
+    signal?: AbortSignal
+): Promise<Invocation> {
+    const { aws } = controller
+    const { Command } = (await aws.call([
+        'ssm',
+        'send-command',
+        '--instance-ids',
+        instanceId,
+        '--document-name',
+        'AWS-RunShellScript',
+        '--parameters',
+        JSON.stringify({ commands, executionTimeout: [String(timeoutSeconds)] }),
+    ])) as { Command: { CommandId: string } }
+    for (;;) {
+        await controller.sleep(POLL_MS)
+        let invocation: Invocation | undefined
+        try {
+            invocation = (await aws.call([
+                'ssm',
+                'get-command-invocation',
+                '--command-id',
+                Command.CommandId,
+                '--instance-id',
+                instanceId,
+            ])) as Invocation
+        } catch (error) {
+            if (!(error instanceof AwsError && error.code === 'InvocationDoesNotExist')) {
+                throw error
+            }
+        }
+        signal?.throwIfAborted()
+        if (invocation && SETTLED.has(invocation.Status)) {
+            return invocation
+        }
+        if (controller.now().getTime() >= until) {
+            throw new Error(`The host command did not finish by ${new Date(until).toISOString()}.`)
+        }
+    }
+}
+
+async function requireHost(controller: Controller, manifest: Manifest): Promise<string> {
+    const host = await hostOf(controller, manifest)
+    if (host === undefined) {
+        throw new Error(`Stack ${manifest.stackName} has no run host.`)
+    }
+    return host
+}
+
+export async function prepareDatabase(
+    controller: Controller,
+    profile: CloudProfile,
+    manifest: Manifest,
+    signal: AbortSignal
+): Promise<void> {
+    const until = lastWorkAt(profile, manifest)
+    const remainingSeconds = Math.floor((until - controller.now().getTime()) / 1000)
+    if (remainingSeconds <= 0) {
+        throw new Error(`The lease ends at ${manifest.expiresAt}, too soon to seed the backlog.`)
+    }
+    const host = await requireHost(controller, manifest)
+    const env = Object.entries(hostEnv(profile, manifest)).map(([name, value]) => `${name}=${quoted(value)}`)
+    const { Status, ResponseCode } = await runOnHost(
+        controller,
+        host,
+        [`cd ${REPO}`, `${env.join(' ')} bash ${SCRIPTS}/host-prepare.sh`],
+        remainingSeconds,
+        until,
+        signal
+    )
+    if (Status !== 'Success') {
+        throw new Error(
+            `Migrating and seeding the backlog ended ${Status} (exit ${ResponseCode}). Its log is s3://${profile.baseline.evidenceBucket}/${keyOf(manifest.runId, 'host/prepare.log')}.`
+        )
+    }
+}
+
+export async function startCard(
+    controller: Controller,
+    profile: CloudProfile,
+    manifest: Manifest,
+    signal: AbortSignal
+): Promise<void> {
+    const until = lastWorkAt(profile, manifest)
+    if (controller.now().getTime() >= until) {
+        throw new Error(`The lease ends at ${manifest.expiresAt}, too soon to start the card.`)
+    }
+    const host = await requireHost(controller, manifest)
+    const env = Object.entries(hostEnv(profile, manifest)).map(([name, value]) => `--setenv=${name}=${quoted(value)}`)
+    const { Status, ResponseCode } = await runOnHost(
+        controller,
+        host,
+        [
+            [
+                'systemd-run',
+                `--unit=${unitOf(manifest)}`,
+                '--property=KillMode=mixed',
+                `--property=TimeoutStopSec=${STOP_TIMEOUT_S}`,
+                `--working-directory=${REPO}`,
+                ...env,
+                'bash',
+                `${SCRIPTS}/host-run-card.sh`,
+            ].join(' '),
+        ],
+        START_TIMEOUT_S,
+        until,
+        signal
+    )
+    if (Status !== 'Success') {
+        throw new Error(`Starting the card ended ${Status} (exit ${ResponseCode}).`)
+    }
+}
+
+export async function awaitCard(
+    controller: Controller,
+    profile: CloudProfile,
+    manifest: Manifest,
+    signal: AbortSignal
+): Promise<number> {
+    const evidence = evidenceOf(controller.aws, profile.baseline.evidenceBucket)
+    const done = keyOf(manifest.runId, 'host/done')
+    const until = lastWorkAt(profile, manifest)
+    for (;;) {
+        const markers = await evidence.keys(keyOf(manifest.runId, 'host/'))
+        signal.throwIfAborted()
+        if (markers.includes(done)) {
+            const { exitCode } = parseJSON(await evidence.get(done)) as { exitCode?: unknown }
+            if (typeof exitCode !== 'number' || !EXIT_CODES.has(exitCode)) {
+                throw new Error(`The card reported done without a runner exit code: ${JSON.stringify(exitCode)}.`)
+            }
+            return exitCode
+        }
+        if (controller.now().getTime() >= until) {
+            throw new Error(`The card did not finish by ${new Date(until).toISOString()}.`)
+        }
+        await controller.sleep(POLL_MS)
+    }
+}
+
+export async function stopCard(controller: Controller, profile: CloudProfile, manifest: Manifest): Promise<void> {
+    const evidence = evidenceOf(controller.aws, profile.baseline.evidenceBucket)
+    const started = keyOf(manifest.runId, 'host/started')
+    const done = keyOf(manifest.runId, 'host/done')
+    const markers = await evidence.keys(keyOf(manifest.runId, 'host/'))
+    if (!markers.includes(started) || markers.includes(done)) {
+        return
+    }
+    const host = await hostOf(controller, manifest)
+    if (host === undefined) {
+        return
+    }
+    const until = controller.now().getTime() + STOP_WAIT_MS
+    await runOnHost(controller, host, [`systemctl stop ${unitOf(manifest)}`], STOP_TIMEOUT_S + START_TIMEOUT_S, until)
+    while (!(await evidence.keys(keyOf(manifest.runId, 'host/'))).includes(done)) {
+        if (controller.now().getTime() >= until) {
+            throw new Error(`the card did not report done by ${new Date(until).toISOString()}`)
+        }
+        await controller.sleep(POLL_MS)
+    }
+}

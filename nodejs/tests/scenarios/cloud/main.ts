@@ -1,6 +1,7 @@
 import { EXIT_CODE } from '../runner/status'
 import { Controller, admit, refuseOutsideDev } from './admission'
 import { awsCli } from './aws'
+import { awaitCard, prepareDatabase, startCard } from './host'
 import { lease, manifestOf } from './lease'
 import { githubOrigin } from './origin'
 import { CloudProfile, REGION, RunInputs, loadCloudProfile, loadRunInputs } from './profile'
@@ -54,7 +55,10 @@ async function run(controller: Controller, loaded: RunInputs): Promise<number> {
     let outcome: number = EXIT_CODE.passed
     try {
         const parameters = await createRunStack(controller, profile, manifest, interruption.signal)
+        await prepareDatabase(controller, profile, manifest, interruption.signal)
         await addReader(controller, profile, manifest, parameters, interruption.signal)
+        await startCard(controller, profile, manifest, interruption.signal)
+        outcome = await awaitCard(controller, profile, manifest, interruption.signal)
     } catch (error) {
         controller.warn(`Run ${manifest.runId} is invalid: ${(error as Error).message}`)
         outcome = EXIT_CODE.invalid

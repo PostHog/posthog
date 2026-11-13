@@ -715,6 +715,14 @@ describe('cloud controller', () => {
         ],
         ['the stack rolls back its creation', { cloud: { rollsBack: 'create' } }, 'not CREATE_COMPLETE'],
         ['the stack rolls back the reader', { cloud: { rollsBack: 'update' } }, 'not UPDATE_COMPLETE'],
+        ['the seed refuses its footprint', { cloud: { seed: { exitCode: 1 } } }, 'host/prepare.log'],
+        ['the seed outlasts the lease', { cloud: { seed: { takesMs: 10 * HOUR_MS } } }, 'TimedOut'],
+        ['the card outlasts the lease', { cloud: { card: { takesMs: 10 * HOUR_MS } } }, 'did not finish by'],
+        [
+            'the card reports an exit code the runner never uses',
+            { cloud: { card: { exitCode: 7 } } },
+            'without a runner exit',
+        ],
     ])('makes the run invalid and tears down when %s', async (_, setup, reason) => {
         const { controller } = prepare(setup)
 
@@ -722,6 +730,62 @@ describe('cloud controller', () => {
 
         expect(err.join('\n')).toContain(reason)
         expect(cloud.deleteStackRequests).toEqual([])
+        expect(cloud.billable()).toEqual([])
+        expect(cloud.schedules.size).toBe(0)
+    })
+
+    it.each([
+        ['passes', 0],
+        ['fails', 1],
+        ['cannot write its scorecard', 3],
+    ])('seeds before it adds the reader, and exits as the card does when it %s', async (_, exitCode) => {
+        const { controller } = prepare({ cloud: { card: { exitCode } } })
+        let seededBeforeReader = false
+        cloud.beforeCall('update-stack', () => {
+            seededBeforeReader = cloud.commands.some(
+                ({ script, status, settlesAt }) =>
+                    script.includes('host-prepare.sh') && status === 'Success' && settlesAt <= now.getTime()
+            )
+        })
+
+        await expect(main(['run', profilePath()], controller)).resolves.toBe(exitCode)
+
+        const runId = leasedRunId()
+        expect(seededBeforeReader).toBe(true)
+        expect(parseJSON(cloud.objects.get(`runs/${runId}/host/done`)!)).toMatchObject({ exitCode })
+        expect(cloud.objects.has(`runs/${runId}/evidence/SHA256SUMS`)).toBe(true)
+        expect(cloud.billable()).toEqual([])
+    })
+
+    it.each<[string, Partial<FakeCloudOptions>, (fake: FakeCloud) => void, boolean]>([
+        ['it is interrupted while the card runs', {}, () => undefined, true],
+        ['the card ignores the stop', { card: { ignoresStop: true } }, () => undefined, false],
+        ['the stop command fails', {}, (fake) => fake.failOnCall('send-command', 3), false],
+    ])('stops the card, then deletes the stack, when %s', async (_, options, arrange, uploaded) => {
+        const { controller } = prepare({ cloud: options })
+        arrange(cloud)
+        let startedAt: number | undefined
+        let interruptedAt: number | undefined
+        let evidenceAtDelete: boolean | undefined
+        let deletedAt: number | undefined
+        onSleep = () => {
+            if (startedAt === undefined && [...cloud.objects.keys()].some((key) => key.endsWith('/host/started'))) {
+                startedAt = now.getTime()
+            }
+            if (interruptedAt === undefined && startedAt !== undefined && now.getTime() - startedAt >= HOUR_MS / 6) {
+                interruptedAt = now.getTime()
+                interrupt?.()
+            }
+        }
+        cloud.beforeCall('delete-stack', () => {
+            deletedAt ??= now.getTime()
+            evidenceAtDelete ??= cloud.objects.has(`runs/${leasedRunId()}/evidence/SHA256SUMS`)
+        })
+
+        await expect(main(['run', profilePath()], controller)).resolves.toBe(2)
+
+        expect(evidenceAtDelete).toBe(uploaded)
+        expect(deletedAt! - interruptedAt!).toBeLessThan(HOUR_MS / 6)
         expect(cloud.billable()).toEqual([])
         expect(cloud.schedules.size).toBe(0)
     })
@@ -793,30 +857,34 @@ describe('cloud controller', () => {
         expect(cloud.schedules.size).toBe(0)
     })
 
-    it.each([
-        ['the stack', 'get-schedule', 'too soon to create the stack'],
-        ['the stack after it reads the host image', 'get-parameter', 'too soon to create the stack'],
-        ['the stack after it records the stack request', 'put-object', 'too soon to create the stack'],
-        ['the reader', 'update-stack', 'too soon to add the reader'],
-    ])('creates nothing more once the lease is too close to expiry to create %s', async (_, operation, reason) => {
+    it.each<[string, string, () => boolean, string, boolean]>([
+        ['create the stack', 'get-schedule', () => true, 'too soon to create the stack', false],
+        ['create the stack after it reads the host image', 'get-parameter', () => true, 'too soon to create', false],
+        [
+            'create the stack after it records the stack request',
+            'put-object',
+            () => true,
+            'too soon to create the stack',
+            false,
+        ],
+        ['seed the backlog', 'list-objects-v2', () => cloud.stacks.size > 0, 'too soon to seed the backlog', false],
+        ['add the reader', 'get-command-invocation', () => true, 'too soon to add the reader', false],
+        ['start the card', 'update-stack', () => true, 'too soon to start the card', true],
+    ])('does not %s once the lease is too close to expiry', async (_, operation, ready, reason, readerAdded) => {
         const { controller } = prepare()
         let jumped = false
-        const jump = (): void => {
-            if (!jumped && cloud.schedules.size === 2) {
+        cloud.beforeCall(operation, () => {
+            if (!jumped && cloud.schedules.size === 2 && ready()) {
                 jumped = true
                 now = new Date(now.getTime() + 5.5 * HOUR_MS)
             }
-        }
-        if (operation === 'update-stack') {
-            cloud.beforeCall('list-objects-v2', () => cloud.stacks.size > 0 && jump())
-        } else {
-            cloud.beforeCall(operation, jump)
-        }
+        })
 
         await expect(main(['run', profilePath()], controller)).resolves.toBe(2)
 
         expect(err.join('\n')).toContain(reason)
-        expect(cloud.resources.map(({ id }) => id).filter((id) => id.endsWith('-reader'))).toEqual([])
+        expect(cloud.resources.some(({ id }) => id.endsWith('-reader'))).toBe(readerAdded)
+        expect([...cloud.objects.keys()].some((key) => key.endsWith('/host/started'))).toBe(false)
         expect(cloud.billable()).toEqual([])
     })
 
@@ -1073,6 +1141,31 @@ describe('cloud controller', () => {
         expect(cloud.resources).toEqual(resources)
         expect(cloud.stacks.size).toBe(0)
         expect(cloud.schedules.size).toBe(0)
+    })
+
+    it('stops a card the dead controller left running before cleanup deletes the stack', async () => {
+        const { controller } = prepare()
+        let cardStarted!: () => void
+        const died = new Promise<void>((resolve) => (cardStarted = resolve))
+        onSleep = () => {
+            if ([...cloud.objects.keys()].some((key) => key.endsWith('/host/started'))) {
+                cardStarted()
+                return new Promise(() => undefined)
+            }
+        }
+        void main(['run', profilePath()], controller)
+        await died
+        onSleep = undefined
+        const runId = leasedRunId()
+        let evidenceAtDelete: boolean | undefined
+        cloud.beforeCall('delete-stack', () => {
+            evidenceAtDelete ??= cloud.objects.has(`runs/${runId}/evidence/SHA256SUMS`)
+        })
+
+        await expect(main(['cleanup', profilePath(), runId], controller)).resolves.toBe(0)
+
+        expect(evidenceAtDelete).toBe(true)
+        expect(cloud.billable()).toEqual([])
     })
 
     it('deletes the stack by schedule when the controller dies after creating it', async () => {
