@@ -11,23 +11,24 @@ Call `provider-imports-providers` first. It lists the tools this project can imp
 
 ## What moves
 
-| Data                     | In PostHog                        | What the team does                                  |
-| ------------------------ | --------------------------------- | --------------------------------------------------- |
-| Suppression list         | Suppression list                  | Reads the summary                                   |
-| Unsubscribed contacts    | Opted out of all marketing email  | Nothing                                             |
-| Topics and topic choices | Marketing categories and opt-outs | Checks topics that only send to people who opted in |
-| Templates                | Library templates, keyed by alias | Fixes what the notes mention, then sends a test     |
-| Automations              | Draft workflows                   | Sends trigger events to PostHog, reviews, enables   |
-| Domains                  | A list only                       | Adds each domain and publishes new DNS records      |
+| Data                     | In PostHog                                                | What the team does                                  |
+| ------------------------ | --------------------------------------------------------- | --------------------------------------------------- |
+| Suppression list         | Suppression list                                          | Reads the summary                                   |
+| Contacts and segments    | People, matched by email, and a static cohort per segment | Checks the people and cohorts                       |
+| Unsubscribed contacts    | Opted out of all marketing email                          | Nothing                                             |
+| Topics and topic choices | Marketing categories and opt-outs                         | Checks topics that only send to people who opted in |
+| Templates                | Library templates, keyed by alias                         | Fixes what the notes mention, then sends a test     |
+| Automations              | Draft workflows                                           | Sends trigger events to PostHog, reviews, enables   |
+| Domains                  | A list only                                               | Adds each domain and publishes new DNS records      |
 
-API keys, webhooks, send history and stats stay with the old provider. Contacts never become people. Importing people has a separate list upload, and it creates billable events, so only mention it if the user asks.
+API keys, webhooks, send history and stats stay with the old provider. The `contacts` step updates the person whose email matches each contact, and `new_people` creates a person for each contact no one matches, with the email as the ID. Each person written counts as one billable event.
 
 ## Steps
 
 1. **Confirm the project.** Read it with `project-get`, tell the user its name and id, and ask whether the data belongs there. If not, switch with `switch-project`.
 2. **Get a key.** Resend has no read-only keys, so the import needs a full access key. Ask the user to create one at https://resend.com/api-keys, just for this import. Tell them PostHog only reads from their account and deletes the key when the run ends. Treat the key as a secret: don't repeat it, log it or write it to a file. They can also run the import themselves in the app under Workflows, Opt-outs, Import from another tool.
 3. **Check for a running import.** `provider-imports-list`. A new start while one is active returns 409, so report on that run instead.
-4. **Choose the steps.** Take them all unless the user says otherwise. Automations also need `cohort:write` on a PostHog key with limited scopes. On a refusal that names it, drop `automations` or ask the user for that scope. `topic_opt_outs` reads contacts one at a time, about 7,000 an hour. On a very large list, say so and offer to skip it. A run stops after 24 hours, about 150,000 contacts into that step. The next import from Resend continues from where it stopped, but only with the same key, so the user keeps the key until every step has finished.
+4. **Choose the steps.** Take them all unless the user says otherwise. Before including `new_people`, tell the user how many contacts they have and that each new person counts as one event, and leave it out if they'd rather not create people. Automations also need `cohort:write` on a PostHog key with limited scopes. On a refusal that names it, drop `automations` or ask the user for that scope. `topic_opt_outs` reads contacts one at a time, about 7,000 an hour. On a very large list, say so and offer to skip it. A run stops after 24 hours, about 150,000 contacts into that step. The next import from Resend continues from where it stopped, but only with the same key, so the user keeps the key until every step has finished.
 5. **Start.** `provider-imports-create` with `provider`, `steps` and `api_key`.
 6. **Follow it.** Poll `provider-imports-get` every minute or so. A `running` step with a `last_error` is retrying by itself, so don't start again. Report each step's `counts`.
 7. **Handle failure.** `status: failed` means the key is gone too. Read `last_error`: a rejected key needs a new key, anything else can run again. Importing again adds what's missing and doesn't duplicate anything.

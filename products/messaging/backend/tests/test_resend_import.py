@@ -3,10 +3,10 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 from uuid import uuid4
 
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_person, flush_persons_and_events
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
@@ -34,6 +34,7 @@ from products.messaging.backend.provider_imports import resend, runs
 from products.messaging.backend.provider_imports.base import ImportCredentialsInvalid, ImportProviderUnavailable
 from products.messaging.backend.provider_imports.resend_templates import convert_template, convert_text
 from products.messaging.backend.services.suppression import remove_suppressions
+from products.messaging.backend.tests.people_import_recorder import PeopleImportRecorder
 from products.workflows.backend.facade.workflows import get_workflow
 
 FIXTURES = json.loads((Path(__file__).parent / "fixtures" / "resend_account.json").read_text())
@@ -71,6 +72,9 @@ class FakeResend:
         if self.failures.get(path):
             status, headers = self.failures[path].pop(0)
             return self._response(status, {"name": "rate_limit_exceeded", "message": "Too many"}, headers)
+        if path == "/contacts" and (segment_ids := parse_qs(urlparse(url).query).get("segment_id")):
+            members = set(self.data["segment_contacts"].get(segment_ids[0], []))
+            return self._page([row for row in self.data["contacts"] if row["id"] in members], params)
         if match := re.fullmatch(r"/contacts/([^/]+)/topics", path):
             return self._page(self.data["contact_topics"].get(match.group(1), []), params)
         if match := re.fullmatch(r"/(templates|domains|automations|segments)/([^/]+)", path):
@@ -549,6 +553,77 @@ class TestResendImport(BaseTest):
         assert [item.label for item in domains.items] == [domain["name"] for domain in FIXTURES["domains"]]
         org_domain = next(item for item in domains.items if item.label == "mail.example.org")
         assert any("feedback" in note for note in org_domain.notes)
+
+
+class TestResendContacts(ClickhouseTestMixin, BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.resend = FakeResend()
+        _sync_email_template()
+        client = "products.messaging.backend.services.resend_client"
+        for target, kwargs in (
+            (f"{client}.requests.get", {"side_effect": self.resend.get}),
+            (f"{client}.REQUESTS_PER_SECOND", {"new": 100000}),
+            ("products.messaging.backend.provider_imports.runs.start_provider_import_workflow", {}),
+        ):
+            patcher = patch(target, **kwargs)
+            self.addCleanup(patcher.stop)
+            patcher.start()
+        self.people = PeopleImportRecorder(self)
+
+    @parameterized.expand(
+        [
+            (
+                "with_new_people",
+                ["contacts", "new_people", "automations"],
+                [
+                    ("send Resend contacts", ["unsubscribed@example.com", "left-a-topic@example.com", "user-hal"]),
+                    ("fill Pro customers (from Resend)", ["user-hal"]),
+                ],
+                # The people import only takes addresses Django validates, which leaves out Björk's.
+                {"people": 3, "new_people": 2, "skipped_new_people": 0, "dropped": 1},
+            ),
+            (
+                "matching_people_only",
+                ["contacts", "automations"],
+                [("send Resend contacts", ["user-hal"]), ("fill Pro customers (from Resend)", ["user-hal"])],
+                {"people": 1, "new_people": 0, "skipped_new_people": 2, "dropped": 1},
+            ),
+        ]
+    )
+    def test_contacts_become_people_once_and_fill_the_cohort_automations_use(
+        self, _name: str, steps: list[str], sent: list[tuple[str, list[str]]], counts: dict[str, int]
+    ) -> None:
+        _create_person(team=self.team, distinct_ids=["user-hal"], properties={"email": "Happy@Example.com"})
+        flush_persons_and_events()
+
+        run = runs.start_run(self.team.id, "resend", steps, API_KEY, self.user.id)
+        for step in run.steps:
+            runs.run_step(self.team.id, run.id, step, attempt=1)
+        runs.finish_run(self.team.id, run.id)
+        run.refresh_from_db()
+
+        assert self.people.imports == sent
+        assert self.people.properties["user-hal"] == {
+            "email": "happy@example.com",
+            "first_name": "Hal",
+            "last_name": "Happy",
+        }
+        assert run.progress["contacts"]["counts"] == counts
+        segment_cohorts = Cohort.objects.filter(team_id=self.team.id, description="Imported from Resend segment seg-1.")
+        assert segment_cohorts.count() == 1
+        workflow = get_workflow(
+            team_id=self.team.id,
+            workflow_id=next(
+                item["url"].split("/")[2]
+                for item in run.progress["automations"]["items"]
+                if item["label"] == "Welcome series"
+            ),
+            user_access_control=None,
+            required_level=None,
+        )
+        tag = next(action for action in cast(list[dict[str, Any]], workflow.actions) if action["id"] == "tag")
+        assert tag["config"]["inputs"]["cohort_id"]["value"] == segment_cohorts.get().id
 
 
 class TestResendTemplateConversion(SimpleTestCase):
