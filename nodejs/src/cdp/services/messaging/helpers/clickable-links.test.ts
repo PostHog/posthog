@@ -1,4 +1,10 @@
-import { TREE_MAX_DEPTH, TREE_MAX_ELEMENTS, TREE_MAX_LENGTH, clickableHrefs } from './clickable-links'
+import {
+    TREE_MAX_DEPTH,
+    TREE_MAX_ELEMENTS,
+    TREE_MAX_LENGTH,
+    TREE_MAX_SIBLING_SCANS,
+    clickableHrefs,
+} from './clickable-links'
 
 const manyAttributes = Array.from({ length: 1_000 }, (_, index) => `data-${index}="x"`).join(' ')
 
@@ -153,12 +159,27 @@ describe('clickableHrefs', () => {
                 '</div>' +
                 '<div>x</div>'.repeat(TREE_MAX_ELEMENTS / 100),
         ],
+        [
+            'that moves more elements out of a table than the parser scans past',
+            '<table>' + '<i></i>'.repeat(Math.ceil(Math.sqrt(2 * TREE_MAX_SIBLING_SCANS))),
+        ],
+        [
+            'that moves more text out of a table than the parser scans past',
+            '<table>' + 'x<br>'.repeat(Math.ceil(Math.sqrt(TREE_MAX_SIBLING_SCANS / 2))),
+        ],
+        [
+            'that moves more elements out of a misnested tag than the parser scans past',
+            '<b><div>' + '<i></i>'.repeat(Math.ceil(Math.sqrt(2 * TREE_MAX_SIBLING_SCANS))) + '</b>',
+        ],
     ])('finds no anchor after an SVG drawing in markup %s', (_name, filler) => {
         expect(clickableHrefs('<svg></svg>' + filler + '<a href="https://example.com/bye">Unsubscribe</a>')).toEqual([])
     })
 
-    it('finds the anchor after deeply nested markup', () => {
-        expect(clickableHrefs('<div>'.repeat(40_000) + '<a href="https://example.com/bye">Unsubscribe</a>')).toEqual([
+    it.each([
+        ['deeply nested markup', '<div>'.repeat(40_000)],
+        ['an SVG drawing and a table it moves elements out of', '<svg></svg><table>' + '<i></i>'.repeat(1_000)],
+    ])('finds the anchor after %s', (_name, filler) => {
+        expect(clickableHrefs(filler + '<a href="https://example.com/bye">Unsubscribe</a>')).toEqual([
             'https://example.com/bye',
         ])
     })
