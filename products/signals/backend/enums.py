@@ -207,6 +207,8 @@ class SignalSourceProduct(StrEnum):
     HELPSCOUT = "helpscout"
     DECAGON = "decagon"
     VITALLY = "vitally"
+    INTERCOM_TICKETS = "intercom_tickets"
+    PYLON = "pylon"
     # Tier-2 feedback and surveys
     USERSNAP = "usersnap"
     TYPEFORM = "typeform"
@@ -224,6 +226,10 @@ class SignalSourceProduct(StrEnum):
     AZURE_APPLICATION_INSIGHTS = "azure_application_insights"
     APPSIGNAL = "appsignal"
     CURSOR = "cursor"
+    # GitHub security alerts, one product per table so each has its own toggle
+    GITHUB_DEPENDABOT = "github_dependabot"
+    GITHUB_CODE_SCANNING = "github_code_scanning"
+    GITHUB_SECRET_SCANNING = "github_secret_scanning"
 
 
 class SignalSourceType(StrEnum):
@@ -364,6 +370,8 @@ SIGNAL_SOURCE_PRODUCT_LABELS: dict[SignalSourceProduct, str] = {
     SignalSourceProduct.HELPSCOUT: "Help Scout",
     SignalSourceProduct.DECAGON: "Decagon",
     SignalSourceProduct.VITALLY: "Vitally",
+    SignalSourceProduct.INTERCOM_TICKETS: "Intercom tickets",
+    SignalSourceProduct.PYLON: "Pylon",
     SignalSourceProduct.USERSNAP: "Usersnap",
     SignalSourceProduct.TYPEFORM: "Typeform",
     SignalSourceProduct.QUALTRICS: "Qualtrics",
@@ -378,6 +386,9 @@ SIGNAL_SOURCE_PRODUCT_LABELS: dict[SignalSourceProduct, str] = {
     SignalSourceProduct.AZURE_APPLICATION_INSIGHTS: "Azure Application Insights",
     SignalSourceProduct.APPSIGNAL: "AppSignal",
     SignalSourceProduct.CURSOR: "Cursor",
+    SignalSourceProduct.GITHUB_DEPENDABOT: "GitHub Dependabot",
+    SignalSourceProduct.GITHUB_CODE_SCANNING: "GitHub code scanning",
+    SignalSourceProduct.GITHUB_SECRET_SCANNING: "GitHub secret scanning",
 }
 
 

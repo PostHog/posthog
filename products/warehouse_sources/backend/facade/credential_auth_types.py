@@ -260,7 +260,7 @@ CREDENTIAL_AUTH_TYPES: Mapping[str, str] = {
     "cimis": "token",
     "cin7": "credentials",
     "circle-ci": "credentials",
-    "circle-so": "credentials",
+    "circle-so": "token",
     "circleback": "token",
     "circleci-insights": "credentials",
     "cisco-duo": "credentials",

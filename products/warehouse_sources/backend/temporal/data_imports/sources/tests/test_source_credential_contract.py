@@ -299,6 +299,7 @@ ACCEPTED: dict[str, dict[str, str]] = {
         "Pinecone": "scope",
         "Pipedrive": "scope",
         "Pipeliner": "scope",
+        "PlanningCenter": "scope",
         "Productboard": "scope",
         "Productive": "scope",
         "PromptingCompany": "scope",

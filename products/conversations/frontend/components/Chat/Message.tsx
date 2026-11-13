@@ -210,7 +210,7 @@ export function Message({
                                     content={message.richContent as JSONContent}
                                     className="text-sm"
                                     fallbackContent={message.content}
-                                    fallbackDisableImages={message.fromZendesk}
+                                    fallbackDisableImages={message.fromExternalImport}
                                 />
                             ) : (
                                 <SupportMarkdown className="text-sm" disableImages literalHtml={!message.fromGithub}>

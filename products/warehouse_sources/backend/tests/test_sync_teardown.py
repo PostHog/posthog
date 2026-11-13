@@ -1,6 +1,6 @@
 from collections.abc import Generator
 from contextlib import contextmanager
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
 
@@ -44,6 +44,9 @@ from products.warehouse_sources_queue.backend.testing import (
 )
 
 pytestmark = [pytest.mark.django_db]
+
+# A fixed stop time: these tests compare it as stored and never against the clock.
+HALTED_AT = datetime(2026, 1, 5, 12, 0, tzinfo=UTC)
 
 TASK_DELAY = "products.warehouse_sources.backend.tasks.cleanup_disabled_external_data_schema.delay"
 
@@ -228,6 +231,49 @@ class TestDisableChokepointDispatch:
 
         schema.refresh_from_db()
         assert schema.auto_disabled_at is None
+
+    @pytest.mark.parametrize(
+        "disable_error_message,stamp_kept",
+        [(None, False), ("Your account does not have access to this table", True)],
+        ids=["decision_to_keep_off", "another_halt"],
+    )
+    def test_disable_of_a_halted_schema_keeps_the_halt_only_for_another_error(
+        self, disable_error_message, stamp_kept, team
+    ):
+        # Staff tools re-enable only halted schemas. A later disable that is not a halt is a decision to
+        # keep the schema off, so the earlier halt must not keep it eligible.
+        schema, _job = _create_schema_with_running_job(team)
+        halted_at = HALTED_AT
+        with (
+            patch(TASK_DELAY),
+            patch(
+                "products.data_warehouse.backend.logic.data_load.service.external_data_workflow_exists",
+                return_value=False,
+            ),
+        ):
+            ExternalDataSchema.objects.filter(pk=schema.pk).update(should_sync=False, auto_disabled_at=halted_at)
+            update_should_sync(
+                schema_id=str(schema.id),
+                team_id=team.pk,
+                should_sync=False,
+                disable_error_message=disable_error_message,
+            )
+
+        schema.refresh_from_db()
+        assert schema.auto_disabled_at == (halted_at if stamp_kept else None)
+
+    def test_a_deleted_schema_cannot_be_turned_back_on(self, team):
+        schema, _job = _create_schema_with_running_job(team)
+        with patch(TASK_DELAY):
+            ExternalDataSchema.objects.filter(pk=schema.pk).update(
+                should_sync=False, auto_disabled_at=HALTED_AT, deleted=True
+            )
+
+            with pytest.raises(ValueError, match="is deleted"):
+                update_should_sync(schema_id=str(schema.id), team_id=team.pk, should_sync=True)
+
+        schema.refresh_from_db()
+        assert schema.should_sync is False
 
 
 class TestSweepStoppedSchemaSyncs:

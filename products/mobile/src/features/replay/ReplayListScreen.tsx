@@ -2,6 +2,7 @@ import { useFocusEffect, useRouter } from 'expo-router'
 import { type ReactElement, useCallback, useEffect, useState } from 'react'
 import { FlatList, Linking, RefreshControl, Text, View } from 'react-native'
 import { changeNavPin } from '@/features/tabs/navPinActions'
+import { NAV_PINS_ENABLED } from '@/features/tabs/navPinSlot'
 import { useIsNavPinned } from '@/features/tabs/navPinStore'
 import { TABS_HEADER_BOTTOM } from '@/features/tabs/TabsHeader'
 import { useTabHeader } from '@/features/tabs/tabHeaderStore'
@@ -234,12 +235,16 @@ function ReplayListBody({ chrome }: { chrome: 'tab' | 'stack' }): ReactElement {
                         onClose={() => setMenuOpen(false)}
                         testID="replay-menu"
                         items={[
-                            {
-                                key: pinned ? 'unpin' : 'pin',
-                                label: pinned ? 'Unpin from navigation' : 'Pin to navigation',
-                                Icon: PinIcon,
-                                onPress: () => changeNavPin('replay', !pinned, 'list_menu', toasts.show),
-                            },
+                            ...(NAV_PINS_ENABLED
+                                ? [
+                                      {
+                                          key: pinned ? 'unpin' : 'pin',
+                                          label: pinned ? 'Unpin from navigation' : 'Pin to navigation',
+                                          Icon: PinIcon,
+                                          onPress: () => changeNavPin('replay', !pinned, 'list_menu', toasts.show),
+                                      },
+                                  ]
+                                : []),
                             {
                                 key: 'web',
                                 label: 'Open on web',

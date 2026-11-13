@@ -10,7 +10,7 @@ import { TodayWorkItem, shortTimeAgo } from '~/layout/today/todayWorkItems'
 
 import { TaskUserBasicInfoApi } from '../generated/api.schemas'
 import { pullRequestLinkLabel, pullRequestStateMeta } from './TaskPullRequestChip'
-import { TaskPullRequest } from './taskPullRequests'
+import { TaskPullRequest, pullRequestReference } from './taskPullRequests'
 import { TaskUserAvatar, taskUserName } from './TaskUserAvatar'
 
 function IconGitMerge(props: IconProps): JSX.Element {
@@ -30,7 +30,7 @@ interface SpaceFeedPullRequestRowProps {
     listRow: boolean
 }
 
-/** A pull request in the feed's PRs view, as a card or a list row, like PostHog Desktop's. It opens on GitHub. */
+/** A pull request in the feed's PRs view, as a card or a list row, like PostHog Desktop's. It opens on GitHub or GitLab. */
 export function SpaceFeedPullRequestRow({
     pullRequest,
     pullRequestTitle,
@@ -46,7 +46,7 @@ export function SpaceFeedPullRequestRow({
     const icon = <Icon className={cn('size-3.5 shrink-0', known ? known.iconClassName : 'opacity-50')} />
     const number = (
         <Text render={<span />} size="xs" variant="muted" className="shrink-0">
-            {`#${pullRequest.number}`}
+            {pullRequestReference(pullRequest)}
         </Text>
     )
     const age = session.timestamp ? shortTimeAgo(session.timestamp) : null
