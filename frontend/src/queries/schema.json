@@ -58181,6 +58181,9 @@
                 },
                 "hidden": {
                     "type": "boolean"
+                },
+                "label": {
+                    "type": "string"
                 }
             },
             "required": ["assignmentBy"],

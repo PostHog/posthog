@@ -3453,6 +3453,7 @@ class ResultCustomizationByValue(BaseModel):
     color: DataColorToken | None = None
     customColor: str | None = None
     hidden: bool | None = None
+    label: str | None = None
 
 
 class RetentionValue(BaseModel):
