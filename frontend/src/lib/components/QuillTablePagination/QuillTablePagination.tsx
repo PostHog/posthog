@@ -30,7 +30,7 @@ export function QuillTablePagination({
 
     return (
         <div className="flex flex-wrap items-center justify-between gap-2 px-3 pb-2">
-            <span className="text-xs tabular-nums text-muted-foreground">
+            <span className="text-xs tabular-nums text-muted-foreground" translate="no">
                 {start}–{end} of {total}
             </span>
             <Pagination className="w-auto">

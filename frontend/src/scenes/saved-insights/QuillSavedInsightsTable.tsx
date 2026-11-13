@@ -151,7 +151,7 @@ export function QuillSavedInsightsTable({
                                       data-attr="add-insight-to-dashboard-toggle"
                                   >
                                       {selected ? <IconCheck /> : <IconPlus />}
-                                      {selected ? 'Added' : 'Add'}
+                                      <span>{selected ? 'Added' : 'Add'}</span>
                                   </Button>
                               )
                           },
