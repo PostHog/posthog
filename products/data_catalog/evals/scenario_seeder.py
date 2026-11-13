@@ -11,7 +11,7 @@ import json
 import uuid
 import hashlib
 from collections.abc import Iterable
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 from django.utils import timezone
@@ -19,9 +19,14 @@ from django.utils import timezone
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import Workload
 from posthog.models.event.util import bulk_create_events
+from posthog.models.group import Group
+from posthog.models.group.util import get_groups_by_identifiers
 from posthog.models.person import Person
-from posthog.models.person.util import create_person, create_person_distinct_id, get_persons_mapped_by_distinct_id
+from posthog.models.person.sql import BULK_INSERT_PERSON_DISTINCT_ID2, INSERT_PERSON_BULK_SQL
+from posthog.models.person.util import get_persons_mapped_by_distinct_id
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.persons_db import persons_db_connection
@@ -121,6 +126,58 @@ def _at(now: datetime, days_ago: int, minute_of_day: int = 720) -> datetime:
     return day_start + timedelta(minutes=minute_of_day)
 
 
+# Rows per bulk insert, so a large needle does not build one huge statement.
+_PERSON_INSERT_BATCH = 1_000
+# bulk_create_events copies its parameters on every row, so one large call takes quadratic time.
+_EVENT_INSERT_BATCH = 1_000
+
+
+def _clickhouse_time(value: datetime) -> str:
+    return value.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S.%f")
+
+
+def _insert_clickhouse_persons(
+    team: Team,
+    needle: EventNeedle,
+    person_properties: dict[str, dict[str, Any]],
+    *,
+    created_at: datetime,
+    last_seen: datetime,
+) -> None:
+    """Write the needle's persons and distinct ids to ClickHouse in a few bulk inserts, not two inserts per person."""
+    for offset in range(0, len(needle.persons), _PERSON_INSERT_BATCH):
+        params: dict[str, Any] = {
+            "team": team.id,
+            "created_at": _clickhouse_time(created_at),
+            "last_seen": _clickhouse_time(last_seen),
+        }
+        person_values: list[str] = []
+        distinct_id_values: list[str] = []
+        for index, person in enumerate(needle.persons[offset : offset + _PERSON_INSERT_BATCH]):
+            params.update(
+                {
+                    f"id{index}": str(_person_uuid(team.id, person.distinct_id)),
+                    f"distinct{index}": person.distinct_id,
+                    f"props{index}": json.dumps(person_properties[person.distinct_id]),
+                    f"identified{index}": int(bool(person.email)),
+                }
+            )
+            person_values.append(
+                f"(%(id{index})s, %(created_at)s, %(team)s, %(props{index})s, %(identified{index})s, now(), 0, 0, 0, "
+                "%(last_seen)s)"
+            )
+            distinct_id_values.append(f"(%(distinct{index})s, %(id{index})s, %(team)s, 0, 0, now(), 0, 0)")
+        sync_execute(
+            INSERT_PERSON_BULK_SQL + ",".join(person_values), params, workload=Workload.OFFLINE, team_id=team.id
+        )
+        sync_execute(
+            BULK_INSERT_PERSON_DISTINCT_ID2 + ",".join(distinct_id_values),
+            params,
+            workload=Workload.OFFLINE,
+            team_id=team.id,
+        )
+
+
 def _plant_needle(team: Team, needle: EventNeedle, now: datetime) -> int:
     """Create the needle's persons in ClickHouse and the persons database, then write its events."""
     first_seen = min((_at(now, event.days_ago, event.minute_of_day) for event in needle.events), default=now)
@@ -157,17 +214,9 @@ def _plant_needle(team: Team, needle: EventNeedle, now: datetime) -> int:
             properties=person_properties[person.distinct_id],
             created_at=created_at,
         )
-        create_person(
-            team_id=team.id,
-            version=0,
-            uuid=person_uuid,
-            properties=person_properties[person.distinct_id],
-            is_identified=bool(person.email),
-            created_at=created_at,
-            last_seen_at=last_seen,
-        )
-        create_person_distinct_id(team_id=team.id, distinct_id=person.distinct_id, person_id=person_uuid)
-    bulk_create_events(
+    _insert_clickhouse_persons(team, needle, person_properties, created_at=created_at, last_seen=last_seen)
+    _write_events(
+        team,
         [
             {
                 "event": event.event,
@@ -178,7 +227,7 @@ def _plant_needle(team: Team, needle: EventNeedle, now: datetime) -> int:
             }
             for event in needle.events
         ],
-        person_mapping=person_mapping,
+        person_mapping,
     )
     return len(needle.events)
 
@@ -222,6 +271,30 @@ def _all_rows(response: Any, query_name: str) -> list[Any]:
             f"The {query_name} seed query hit the {_MAX_SEED_ROWS}-row cap, so the planted truth would be partial."
         )
     return rows
+
+
+def _write_events(team: Team, events: list[dict[str, Any]], person_mapping: dict[str, Person]) -> None:
+    """Write the events in bounded batches, with each person and group resolved once for all of them."""
+    group_mapping = _group_mapping(team, events)
+    for offset in range(0, len(events), _EVENT_INSERT_BATCH):
+        bulk_create_events(
+            events[offset : offset + _EVENT_INSERT_BATCH], person_mapping=person_mapping, group_mapping=group_mapping
+        )
+
+
+def _group_mapping(team: Team, events: list[dict[str, Any]]) -> dict[tuple[int, str], Group]:
+    """Resolve each ``$group_N`` value once, because ``bulk_create_events`` otherwise looks it up per event."""
+    keys: dict[int, set[str]] = {}
+    for event in events:
+        for key, value in event["properties"].items():
+            index = key.removeprefix("$group_")
+            if index != key and index.isdigit() and isinstance(value, str):
+                keys.setdefault(int(index), set()).add(value)
+    return {
+        (index, group.group_key): group
+        for index, group_keys in keys.items()
+        for group in get_groups_by_identifiers(team.id, index, sorted(group_keys))
+    }
 
 
 def _person_mapping(team: Team, distinct_ids: Iterable[str]) -> dict[str, Person]:
@@ -299,7 +372,7 @@ def _plant_upload_double_count(team: Team, user: User, now: datetime) -> dict[st
                 "person_id": person_id,
             }
         )
-    bulk_create_events(events, person_mapping=_person_mapping(team, (event["distinct_id"] for event in events)))
+    _write_events(team, events, _person_mapping(team, (event["distinct_id"] for event in events)))
     return {
         "event": spec.event,
         "duplicated": len(events),
@@ -450,7 +523,7 @@ def seed_preview_adoption(context: CustomPromptSandboxContext) -> dict[str, Any]
                     "person_id": person_id,
                 }
             )
-    bulk_create_events(events, person_mapping=_person_mapping(team, (event["distinct_id"] for event in events)))
+    _write_events(team, events, _person_mapping(team, (event["distinct_id"] for event in events)))
     return {
         "preview_adoption": {
             "event": spec.event,
