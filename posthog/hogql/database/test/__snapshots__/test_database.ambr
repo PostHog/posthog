@@ -3667,11 +3667,11 @@
       },
       "system.alerts": {
           "certification": null,
-          "description": "Insight alert configurations that notify users when an insight's value crosses a threshold; one row per alert.",
+          "description": "Insight alert configurations that notify users when an insight's value crosses a threshold; one row per alert. An alert the alerts platform owns shows its settings and state from the platform.",
           "fields": {
               "id": {
                   "chain": null,
-                  "description": "Alert UUID.",
+                  "description": "Alert UUID: the insight alert's id, or the platform alert's id for an alert created on the platform.",
                   "fields": null,
                   "hogql_value": "id",
                   "id": null,
@@ -3759,7 +3759,7 @@
               },
               "created_at": {
                   "chain": null,
-                  "description": "When the alert was created.",
+                  "description": "When the alert was created. For an alert moved to the alerts platform, when it moved.",
                   "fields": null,
                   "hogql_value": "created_at",
                   "id": null,
@@ -3781,7 +3781,7 @@
               },
               "last_checked_at": {
                   "chain": null,
-                  "description": "When the alert was last evaluated.",
+                  "description": "When the alert was last evaluated. NULL for an alert the alerts platform evaluates.",
                   "fields": null,
                   "hogql_value": "last_checked_at",
                   "id": null,
@@ -12341,11 +12341,11 @@
       },
       "system.logs_alerts": {
           "certification": null,
-          "description": "Alerts that fire when matching log volume crosses a threshold; one row per logs alert.",
+          "description": "Alerts that fire when matching log volume crosses a threshold; one row per logs alert. An alert the alerts platform owns shows its settings and state from the platform.",
           "fields": {
               "id": {
                   "chain": null,
-                  "description": "Alert UUID.",
+                  "description": "Alert UUID: the logs alert's id, or the platform alert's id for an alert created on the platform.",
                   "fields": null,
                   "hogql_value": "id",
                   "id": null,
@@ -12510,7 +12510,7 @@
               },
               "last_checked_at": {
                   "chain": null,
-                  "description": "When the alert was last evaluated.",
+                  "description": "When the alert was last evaluated. NULL for an alert the alerts platform evaluates.",
                   "fields": null,
                   "hogql_value": "last_checked_at",
                   "id": null,
@@ -12532,7 +12532,7 @@
               },
               "created_at": {
                   "chain": null,
-                  "description": "When the alert was created.",
+                  "description": "When the alert was created. For an alert moved to the alerts platform, when it moved.",
                   "fields": null,
                   "hogql_value": "created_at",
                   "id": null,
@@ -20422,11 +20422,11 @@
       },
       "system.alerts": {
           "certification": null,
-          "description": "Insight alert configurations that notify users when an insight's value crosses a threshold; one row per alert.",
+          "description": "Insight alert configurations that notify users when an insight's value crosses a threshold; one row per alert. An alert the alerts platform owns shows its settings and state from the platform.",
           "fields": {
               "id": {
                   "chain": null,
-                  "description": "Alert UUID.",
+                  "description": "Alert UUID: the insight alert's id, or the platform alert's id for an alert created on the platform.",
                   "fields": null,
                   "hogql_value": "id",
                   "id": null,
@@ -20514,7 +20514,7 @@
               },
               "created_at": {
                   "chain": null,
-                  "description": "When the alert was created.",
+                  "description": "When the alert was created. For an alert moved to the alerts platform, when it moved.",
                   "fields": null,
                   "hogql_value": "created_at",
                   "id": null,
@@ -20536,7 +20536,7 @@
               },
               "last_checked_at": {
                   "chain": null,
-                  "description": "When the alert was last evaluated.",
+                  "description": "When the alert was last evaluated. NULL for an alert the alerts platform evaluates.",
                   "fields": null,
                   "hogql_value": "last_checked_at",
                   "id": null,
@@ -29096,11 +29096,11 @@
       },
       "system.logs_alerts": {
           "certification": null,
-          "description": "Alerts that fire when matching log volume crosses a threshold; one row per logs alert.",
+          "description": "Alerts that fire when matching log volume crosses a threshold; one row per logs alert. An alert the alerts platform owns shows its settings and state from the platform.",
           "fields": {
               "id": {
                   "chain": null,
-                  "description": "Alert UUID.",
+                  "description": "Alert UUID: the logs alert's id, or the platform alert's id for an alert created on the platform.",
                   "fields": null,
                   "hogql_value": "id",
                   "id": null,
@@ -29265,7 +29265,7 @@
               },
               "last_checked_at": {
                   "chain": null,
-                  "description": "When the alert was last evaluated.",
+                  "description": "When the alert was last evaluated. NULL for an alert the alerts platform evaluates.",
                   "fields": null,
                   "hogql_value": "last_checked_at",
                   "id": null,
@@ -29287,7 +29287,7 @@
               },
               "created_at": {
                   "chain": null,
-                  "description": "When the alert was created.",
+                  "description": "When the alert was created. For an alert moved to the alerts platform, when it moved.",
                   "fields": null,
                   "hogql_value": "created_at",
                   "id": null,

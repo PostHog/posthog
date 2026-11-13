@@ -158,6 +158,7 @@ from posthog.hogql.database.schema.web_stats_frustration_preaggregated import We
 from posthog.hogql.database.schema.web_stats_paths_preaggregated import WebStatsPathsPreaggregatedTable
 from posthog.hogql.database.schema.web_stats_preaggregated import WebStatsPreaggregatedTable
 from posthog.hogql.database.schema.web_vitals_paths_preaggregated import WebVitalsPathsPreaggregatedTable
+from posthog.hogql.database.scoped_lazy_table import ScopedLazyTable
 from posthog.hogql.database.sources_cache import (
     SOURCES_CACHE_EVENTS,
     SourcesCacheKey,
@@ -705,8 +706,8 @@ def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
 
 
 @cache
-def _scoped_system_tables() -> Mapping[str, PostgresTable]:
-    """Table name -> the access-controlled Postgres system table itself.
+def _scoped_system_tables() -> Mapping[str, PostgresTable | ScopedLazyTable]:
+    """Table name -> the access-controlled system table itself, Postgres-backed or a scoped select over them.
 
     Cached for the process lifetime — this result directly gates table visibility in access-control
     decisions, so every entry here MUST remain process-static. Do NOT make a system table's
@@ -719,7 +720,8 @@ def _scoped_system_tables() -> Mapping[str, PostgresTable]:
         {
             name: table_node.table
             for name, table_node in SystemTables().children.items()
-            if isinstance(table_node.table, PostgresTable) and table_node.table.access_scope is not None
+            if isinstance(table_node.table, PostgresTable | ScopedLazyTable)
+            and table_node.table.access_scope is not None
         }
     )
 

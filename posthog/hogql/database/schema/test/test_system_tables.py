@@ -1,6 +1,6 @@
 import json
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import time_machine
@@ -9,6 +9,8 @@ from posthog.test.base import BaseTest, NonAtomicBaseTest
 from django.utils import timezone
 
 from parameterized import parameterized
+
+from posthog.schema import HogQLQuery
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
@@ -22,6 +24,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.auth import ProjectSecretAPIKeyUser
 from posthog.constants import AvailableFeature
+from posthog.hogql_queries.access_controlled_resources import queried_access_controlled_resources
 from posthog.models import (
     DataDeletionRequest,
     Group,
@@ -55,6 +58,7 @@ from products.ai_observability.backend.models.review_queues import ReviewQueue, 
 from products.ai_observability.backend.models.score_definitions import ScoreDefinition
 from products.ai_observability.backend.models.trace_reviews import TraceReview, TraceReviewScore
 from products.alerts.backend.models.alert import AlertConfiguration
+from products.alerts_platform.backend.facade import testing as alerts_platform_testing
 from products.annotations.backend.facade import testing as annotations_testing
 from products.autoresearch.backend.facade import testing as autoresearch_testing
 from products.batch_exports.backend.facade import testing as batch_exports_testing
@@ -152,7 +156,20 @@ ALL_SYSTEM_TABLE_NAMES = sorted(
 )
 
 # {table_name: "sql_alias.column_name"} for team_id filter assertion
-TEAM_ID_FILTER_PATTERNS = {
+TEAM_ID_FILTER_PATTERNS: dict[str, str | tuple[str, ...]] = {
+    # A union over the rows its own stack evaluates and the alerts the platform holds; each read is guarded
+    "alerts": (
+        "system___insight_alert_rows.team_id",
+        "c.team_id",
+        "system___platform_insight_alert_instances.team_id",
+        "system___platform_insight_alerts.team_id",
+    ),
+    "logs_alerts": (
+        "system___logs_alert_rows.team_id",
+        "c.team_id",
+        "system___platform_logs_alert_instances.team_id",
+        "system___platform_logs_alerts.team_id",
+    ),
     "ingestion_warnings": "ingestion_warnings.team_id",  # ClickHouse-native table, no system__ prefix
     "teams": "system__teams.id",  # team_id is aliased to id column
     # Junction tables without team_id; isolation is enforced via an account_id IN system.accounts predicate
@@ -191,8 +208,9 @@ class TestSystemTablesTeamScoping(BaseTest):
         sql = f"SELECT * FROM system.{table_name}"
         query, prepared = prepare_and_print_ast(parse_select(sql), context, dialect="clickhouse")
 
-        pattern = TEAM_ID_FILTER_PATTERNS.get(table_name, f"system__{table_name}.team_id")
-        assert f"equals({pattern}, {self.team.pk})" in query
+        patterns = TEAM_ID_FILTER_PATTERNS.get(table_name, f"system__{table_name}.team_id")
+        for pattern in (patterns,) if isinstance(patterns, str) else patterns:
+            assert f"equals({pattern}, {self.team.pk})" in query
 
         assert isinstance(prepared, ast.SelectQuery) and prepared.type is not None
         assert prepared.type.columns
@@ -225,6 +243,13 @@ class TestSystemTablesTeamScoping(BaseTest):
             # relationships/data_types) computed per-query from the caller's own Database object,
             # so it has no team_id column to isolate; behaviour is covered by TestInformationSchema.
             "information_schema",
+            # Hidden tables backing system.alerts and system.logs_alerts; covered by TestSystemAlertTablesReadPlatform.
+            "_insight_alert_rows",
+            "_platform_insight_alerts",
+            "_platform_insight_alert_instances",
+            "_logs_alert_rows",
+            "_platform_logs_alerts",
+            "_platform_logs_alert_instances",
         }
 
         untested = all_tables - tested_tables - excluded_tables
@@ -346,6 +371,30 @@ def _create_batch_export_run_on_demand(team: Team, label: str) -> uuid.UUID:
 def _create_alert(team: Team, label: str) -> AlertConfiguration:
     insight = Insight.objects.create(team=team, name=f"insight_for_alert_{label}")
     return AlertConfiguration.objects.create(team=team, insight=insight, name=f"alert_{label}")
+
+
+def _create_native_insight_alert(team: Team, label: str) -> uuid.UUID:
+    with team_scope(team.pk):
+        return alerts_platform_testing.create_configuration(
+            team_id=team.pk,
+            name=f"native_alert_{label}",
+            source_kind="insight",
+            source_config={"insight_id": 1},
+            check_interval_minutes=60,
+            owner="platform",
+        ).id
+
+
+def _create_native_logs_alert(team: Team, label: str) -> uuid.UUID:
+    with team_scope(team.pk):
+        return alerts_platform_testing.create_configuration(
+            team_id=team.pk,
+            name=f"native_logs_alert_{label}",
+            source_kind="logs",
+            source_config={"filters": {}, "condition": {"threshold_count": 5}},
+            check_interval_minutes=5,
+            owner="platform",
+        ).id
 
 
 def _create_activity_log(team: Team, label: str) -> ActivityLog:
@@ -1126,6 +1175,7 @@ SYSTEM_TABLE_FACTORIES = [
     ("activity_logs", _create_activity_log),
     ("actions", _create_action),
     ("alerts", _create_alert),
+    ("alerts", _create_native_insight_alert),
     ("annotations", _create_annotation),
     ("autoresearch_iterations", _create_autoresearch_iteration),
     ("autoresearch_models", _create_autoresearch_model),
@@ -1202,6 +1252,7 @@ SYSTEM_TABLE_FACTORIES = [
     ("inbox_reports", _create_inbox_report),
     ("integration_repository_cache", _create_integration_repository_cache_entry),
     ("logs_alerts", _create_logs_alert),
+    ("logs_alerts", _create_native_logs_alert),
     ("property_definitions", _create_property_definition),
     ("replay_scanners", _create_replay_scanner),
     ("revenue_analytics_config", _create_revenue_analytics_config),
@@ -1313,6 +1364,104 @@ class TestSystemTablesTeamIsolation(NonAtomicBaseTest):
         ids = {str(row[0]) for row in response.results}
 
         assert ids == {str(visible.pk)}
+
+
+class TestSystemAlertTablesAccess(BaseTest):
+    @parameterized.expand(
+        [
+            ("alerts", "alert:read", "alert"),
+            ("logs_alerts", "logs:read", "logs"),
+        ]
+    )
+    def test_alert_tables_keep_their_scope_gate(self, table_name: str, scope: str, resource: str) -> None:
+        psak = ProjectSecretAPIKey.objects.create(
+            team=self.team, label=table_name, secure_value="sha256$" + "f" * 64, scopes=["insight:read"]
+        )
+        _, denied = _compute_system_table_access_decision(self.team, ProjectSecretAPIKeyUser(psak))
+        assert table_name in denied
+
+        psak.scopes = [scope]
+        psak.save()
+        _, denied = _compute_system_table_access_decision(self.team, ProjectSecretAPIKeyUser(psak))
+        assert table_name not in denied
+
+        resources = queried_access_controlled_resources(
+            HogQLQuery(query=f"SELECT id FROM system.{table_name}"), self.team
+        )
+        assert resources is not None and resource in resources
+
+
+class TestSystemAlertTablesReadPlatform(NonAtomicBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def _platform_alert(self, **fields) -> uuid.UUID:
+        with team_scope(self.team.pk):
+            return alerts_platform_testing.create_configuration(team_id=self.team.pk, **fields).id
+
+    def _copy(self, legacy_id: uuid.UUID, **fields) -> uuid.UUID:
+        return self._platform_alert(legacy_configuration_id=legacy_id, **fields)
+
+    def _rows(self, sql: str) -> dict[str, tuple]:
+        response = execute_hogql_query(sql, team=self.team, user=self.user)
+        ids = [str(row[0]) for row in response.results]
+        assert len(ids) == len(set(ids)), f"an alert shows more than once: {ids}"
+        return {str(row[0]): tuple(row[1:]) for row in response.results}
+
+    def test_alerts_shows_each_insight_alert_once_with_platform_settings_and_state(self):
+        insight = Insight.objects.create(team=self.team, name="watched")
+        own = AlertConfiguration.objects.create(
+            team=self.team, insight=insight, name="row alert", calculation_interval="daily"
+        )
+        moved = AlertConfiguration.objects.create(
+            team=self.team, insight=insight, name="stale row name", calculation_interval="daily", owner="platform"
+        )
+        source = {
+            "source_kind": "insight",
+            "source_config": {"insight_id": insight.id, "config": {"series_index": 0}},
+        }
+        copy = self._copy(moved.id, name="copy name", check_interval_minutes=60, owner="platform", **source)
+        with team_scope(self.team.pk):
+            alerts_platform_testing.start_firing(copy, team_id=self.team.pk, at=timezone.now())
+        self._copy(own.id, name="shadow copy", check_interval_minutes=60, owner="source", **source)
+        native = self._platform_alert(
+            name="native alert",
+            check_interval_minutes=10080,
+            owner="platform",
+            snooze_until=timezone.now() + timedelta(days=1),
+            **source,
+        )
+
+        rows = self._rows("SELECT id, name, insight_id, state, calculation_interval, config FROM system.alerts")
+
+        assert rows == {
+            str(own.id): ("row alert", insight.id, "Not firing", "daily", "{}"),
+            str(moved.id): ("copy name", insight.id, "Firing", "hourly", '{"series_index":0}'),
+            str(native): ("native alert", insight.id, "Snoozed", "weekly", '{"series_index":0}'),
+        }
+
+    def test_logs_alerts_shows_each_logs_alert_once_with_platform_settings_and_state(self):
+        own = LogsAlertConfiguration.objects.create(team=self.team, name="row alert", threshold_count=10)
+        moved = LogsAlertConfiguration.objects.create(
+            team=self.team, name="stale row name", threshold_count=10, owner="platform"
+        )
+        source = {
+            "source_kind": "logs",
+            "source_config": {"filters": {"severityLevels": ["error"]}, "condition": {"threshold_count": 7}},
+            "check_interval_minutes": 5,
+        }
+        copy = self._copy(moved.id, name="copy name", owner="platform", **source)
+        with team_scope(self.team.pk):
+            alerts_platform_testing.set_check_status(copy, "errored")
+        self._copy(own.id, name="shadow copy", owner="source", **source)
+        native = self._platform_alert(name="native alert", owner="platform", **source)
+
+        rows = self._rows("SELECT id, name, threshold_count, state, enabled FROM system.logs_alerts")
+
+        assert rows == {
+            str(own.id): ("row alert", 10, "not_firing", 1),
+            str(moved.id): ("copy name", 7, "errored", 1),
+            str(native): ("native alert", 7, "not_firing", 1),
+        }
 
 
 class TestDataWarehouseSourcesLiveQueryability(BaseTest):
