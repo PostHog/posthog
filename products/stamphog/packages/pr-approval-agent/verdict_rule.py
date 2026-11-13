@@ -106,6 +106,8 @@ class RejectedConcern:
             return f"a {self.category.replace('_', ' ')} finding needs a code fix or a person's sign-off"
         if not self.rejection_holds:
             return f"the author's rejection does not hold: {self.evidence.rstrip('.')}"
+        if not self.evidence:
+            return "the reviewer gave no evidence that the author's rejection holds"
         return None
 
 
