@@ -10,16 +10,24 @@ from django.db.models import QuerySet
 from posthog.dataclasses import frozen
 from posthog.models import Organization, Team
 
-from products.experiments.backend.facade import count_running_experiments_on_feature_flag_called
+from products.experiments.backend.facade import count_running_experiments_needing_flag_calls_in_events
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.facade.flags import get_organization_flag_evaluations_mode
 from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
 
 FLAG_EVALUATIONS_MODES_HELP = (
     "0 reads events. 1 reads flag_evaluations for the flag Usage tab, the per-project counts on a flag's Projects "
-    "tab, and events lists filtered to only $feature_flag_called, such as the Activity page. 2 reads the same way "
-    "as 1, and ingestion stops writing $feature_flag_called to events for teams in the ingestion allowlist. "
-    "On PostHog Cloud the table is available in SQL on every mode. Self-hosted, it is available on 1 and 2."
+    "tab, events lists filtered to only $feature_flag_called, such as the Activity page, and the flag call and "
+    "experiment enrollment counts on the home page. On 1, a HogQL query, such as an insight, also reads "
+    "flag_evaluations when it pins $feature_flag_called and $feature_flag to string keys, and its date range starts "
+    "within the table's coverage. Other queries, including default experiment exposures, read events. 1 also hides "
+    "$feature_flag_called from event pickers, and refuses a new action step on it and a new cohort criterion on it "
+    "that the batch calculation would read from events. 2 also stops ingestion writing $feature_flag_called to "
+    "events for the teams it copies to flag_evaluations, which on PostHog Cloud is every team outside "
+    "INGESTION_FLAG_EVALUATIONS_EXCLUDED_TEAMS. On 2, a HogQL query reads flag_evaluations for any date range and "
+    "fails when it can't, realtime cohorts refuse new flag-call criteria, and flags keep no last called time unless "
+    "it syncs from flag_evaluations. On PostHog Cloud the table is available in SQL on every mode. Self-hosted, it "
+    "is available on 1 and 2."
 )
 
 
@@ -30,9 +38,9 @@ class OrganizationModeChange:
     organization_created_at: datetime
     # Teams of the organization, for display only. The write never touches team rows.
     team_count: int
-    # On FLAG_EVALUATIONS_ONLY these experiments stop gaining exposures for teams in the ingestion
-    # allowlist, because ingestion stops writing $feature_flag_called to events for those teams.
-    running_experiments_on_feature_flag_called: int
+    # Running experiments that read $feature_flag_called from events without its $experiment_exposure copy.
+    # FLAG_EVALUATIONS_ONLY stops those events writes, so those reads find no new calls.
+    running_experiments_needing_flag_calls_in_events: int
     current_mode: int
     target_mode: int
     # True when the write moved the organization to target_mode, or would on a dry run.
@@ -119,7 +127,9 @@ def set_organization_flag_evaluations_mode(
         organization_name=organization.name,
         organization_created_at=organization.created_at,
         team_count=Team.objects.filter(organization_id=organization.id).count(),
-        running_experiments_on_feature_flag_called=count_running_experiments_on_feature_flag_called(organization.id),
+        running_experiments_needing_flag_calls_in_events=count_running_experiments_needing_flag_calls_in_events(
+            organization.id
+        ),
         current_mode=current_mode,
         target_mode=mode,
         changed=changed,

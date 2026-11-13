@@ -227,7 +227,7 @@ def query_condition_set_traffic(
 
 
 def _reads_exposure_copies(organization_id: UUID) -> bool:
-    # On FLAG_EVALUATIONS_ONLY, events hold no `$feature_flag_called` for the teams in ingestion's allowlist. The
+    # On FLAG_EVALUATIONS_ONLY, events hold no `$feature_flag_called` for the teams that ingestion copies. The
     # `$experiment_exposure` copy carries every property, the reason and the version included. A team can still
     # write both, and then each person counts once under their latest set.
     return get_organization_flag_evaluations_mode(organization_id) == FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY

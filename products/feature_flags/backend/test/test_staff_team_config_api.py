@@ -34,6 +34,11 @@ from products.feature_flags.backend.models.team_feature_flags_config import (
 LIST_URL = "/api/feature_flags_staff_team_config/"
 SET_URL = "/api/feature_flags_staff_team_config/set/"
 SET_FLAG_EVALUATIONS_MODE_URL = "/api/feature_flags_staff_team_config/set_flag_evaluations_mode/"
+FLAG_CALL_METRIC = {
+    "kind": "ExperimentMetric",
+    "metric_type": "mean",
+    "source": {"kind": "EventsNode", "event": "$feature_flag_called"},
+}
 
 
 def _list_url(team_ids: list[int]) -> str:
@@ -419,8 +424,9 @@ class TestFeatureFlagsStaffTeamConfigAPI(APIBaseTest):
         create_experiment(
             team_id=sibling.id,
             feature_flag_id=FeatureFlag.objects.create(team=sibling, key="experiment-flag", created_by=self.user).id,
-            name="Started before the cutoff",
+            name="Metric on flag calls",
             start_date=datetime(2026, 8, 1, tzinfo=UTC),
+            metrics=[FLAG_CALL_METRIC],
         )
 
         response = self.client.post(
@@ -446,7 +452,7 @@ class TestFeatureFlagsStaffTeamConfigAPI(APIBaseTest):
                         "organization_id": str(self.organization.id),
                         "organization_name": self.organization.name,
                         "team_count": 3,
-                        "running_experiments_on_feature_flag_called": 1,
+                        "running_experiments_needing_flag_calls_in_events": 1,
                         "current_mode": FlagEvaluationsMode.EVENTS,
                         "target_mode": FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
                         "changed": expected_changed[0],
@@ -456,7 +462,7 @@ class TestFeatureFlagsStaffTeamConfigAPI(APIBaseTest):
                         "organization_id": str(above_organization.id),
                         "organization_name": above_organization.name,
                         "team_count": 1,
-                        "running_experiments_on_feature_flag_called": 0,
+                        "running_experiments_needing_flag_calls_in_events": 0,
                         "current_mode": FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
                         "target_mode": FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
                         "changed": expected_changed[1],

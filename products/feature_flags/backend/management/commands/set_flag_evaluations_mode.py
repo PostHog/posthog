@@ -4,8 +4,8 @@ New organizations take FLAG_EVALUATIONS_NEW_ORG_MODE when they are created. This
 the organizations that existed before that setting changed: a list of ids, or every organization
 created after an instant.
 
-On mode 2, ingestion stops writing $feature_flag_called to events for the organization's teams in
-the ingestion allowlist.
+On mode 2, ingestion stops writing $feature_flag_called to events for the organization's teams that it
+copies to flag_evaluations.
 """
 
 import argparse
@@ -65,8 +65,8 @@ class Command(BaseCommand):
             action="store_true",
             help=(
                 "Also lower organizations that are above --mode. Lowering an organization from mode 2 restarts "
-                "the events writes that ingestion stopped for its teams in the ingestion allowlist. The events "
-                "table keeps a gap for those teams for the time the organization spent on 2."
+                "the events writes that ingestion stopped for its teams. The events table keeps a gap for those "
+                "teams for the time the organization spent on 2."
             ),
         )
 
@@ -88,7 +88,7 @@ class Command(BaseCommand):
         self.stdout.write(f"{verb} mode {mode.value} ({mode.label}) on {len(organizations)} organization(s).")
         changed_count = 0
         left_above_count = 0
-        stopped_experiments_count = 0
+        experiments_needing_flag_calls_count = 0
         with transaction.atomic():
             for organization in organizations:
                 change = set_organization_flag_evaluations_mode(
@@ -97,7 +97,7 @@ class Command(BaseCommand):
                 changed_count += change.changed
                 left_above_count += change.left_above_mode
                 if change.changed and mode == FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY:
-                    stopped_experiments_count += change.running_experiments_on_feature_flag_called
+                    experiments_needing_flag_calls_count += change.running_experiments_needing_flag_calls_in_events
                 outcome = (
                     f"mode {change.current_mode} -> {change.target_mode}"
                     if change.changed
@@ -106,7 +106,8 @@ class Command(BaseCommand):
                 self.stdout.write(
                     f"  organization {change.organization_id} (created {change.organization_created_at:%Y-%m-%d}, "
                     f"{change.team_count} team(s), "
-                    f"{change.running_experiments_on_feature_flag_called} experiment(s) on $feature_flag_called): {outcome}"
+                    f"{change.running_experiments_needing_flag_calls_in_events} experiment(s) reading $feature_flag_called "
+                    f"from events): {outcome}"
                 )
 
         self.stdout.write(f"{verb} mode {mode.value} on {changed_count} organization(s).")
@@ -115,8 +116,8 @@ class Command(BaseCommand):
                 f"Left {left_above_count} organization(s) above mode {mode.value}. "
                 "Pass --allow-downgrade to lower them."
             )
-        if stopped_experiments_count:
+        if experiments_needing_flag_calls_count:
             self.stdout.write(
-                f"{stopped_experiments_count} running experiment(s) count exposures on $feature_flag_called. "
-                "On teams in the ingestion allowlist, those exposures stop on this mode."
+                f"{experiments_needing_flag_calls_count} running experiment(s) read $feature_flag_called from events "
+                "through an exposure action, an activation, or a metric. Those reads find no new calls on this mode."
             )

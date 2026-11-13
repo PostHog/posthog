@@ -17,13 +17,10 @@ import { pluralize } from 'lib/utils/strings'
 import { FlagEvaluationsModeEnumApi, StaffOrganizationModeChangeApi } from '../generated/api.schemas'
 import { FLAG_EVALUATIONS_MODE_LABELS, featureFlagsStaffToolsLogic } from './featureFlagsStaffToolsLogic'
 
-const FLAG_CALL_READERS =
-    "The Usage tab, the per-project counts on a flag's Projects tab, and any events list filtered to $feature_flag_called"
-
 const MODE_DESCRIPTIONS: Record<FlagEvaluationsModeEnumApi, string> = {
-    0: `${FLAG_CALL_READERS} read the events table.`,
-    1: `${FLAG_CALL_READERS} read the flag_evaluations table. While the FLAG_EVALUATIONS_READS_FORCE_EVENTS instance setting is on, they read the events table instead.`,
-    2: `${FLAG_CALL_READERS} read the flag_evaluations table. For teams in the ingestion allowlist, ingestion also stops writing $feature_flag_called to the events table.`,
+    0: 'Every reader of $feature_flag_called reads the events table.',
+    1: "The Usage tab, the per-project counts on a flag's Projects tab, events lists filtered to $feature_flag_called, and the home page flag call and enrollment counts read the flag_evaluations table. So does a HogQL query that pins $feature_flag_called to flag keys within the table's coverage. Other queries, including default experiment exposures, read the events table. Event pickers hide $feature_flag_called. New action steps on it are refused, and so are new cohort criteria on it that the cohort calculation would read from the events table. While the FLAG_EVALUATIONS_READS_FORCE_EVENTS instance setting is on, all of this uses the events table instead.",
+    2: "Reads as mode 1. Ingestion also stops writing $feature_flag_called to the events table for the teams it copies to flag_evaluations. HogQL queries read flag_evaluations for any date range and fail when they can't, realtime cohorts refuse new $feature_flag_called criteria, and flags keep no last called time unless it syncs from flag_evaluations.",
 }
 
 export function StaffFlagEvaluationsModeModal(): JSX.Element {
@@ -46,7 +43,10 @@ export function StaffFlagEvaluationsModeModal(): JSX.Element {
     const columns: LemonTableColumns<StaffOrganizationModeChangeApi> = [
         { title: 'Organization', dataIndex: 'organization_name' },
         { title: 'Teams', dataIndex: 'team_count' },
-        { title: 'Experiments on $feature_flag_called', dataIndex: 'running_experiments_on_feature_flag_called' },
+        {
+            title: 'Experiments needing $feature_flag_called in events',
+            dataIndex: 'running_experiments_needing_flag_calls_in_events',
+        },
         {
             title: 'Current mode',
             key: 'current_mode',
@@ -120,9 +120,10 @@ export function StaffFlagEvaluationsModeModal(): JSX.Element {
 
                 {mode === FlagEvaluationsModeEnumApi.Number2 && (
                     <LemonBanner type="warning">
-                        For teams in the ingestion allowlist, ingestion writes $feature_flag_called only to
-                        flag_evaluations, so a failed write there loses the event. Other teams still write to the events
-                        table, and so does every team while INGESTION_FLAG_EVALUATIONS_ONLY_DISABLED is on.
+                        For the teams ingestion copies to flag_evaluations, it writes $feature_flag_called only there,
+                        so a failed write loses the event. Teams in INGESTION_FLAG_EVALUATIONS_EXCLUDED_TEAMS still
+                        write to the events table, and so does every team while INGESTION_FLAG_EVALUATIONS_ONLY_DISABLED
+                        is on.
                     </LemonBanner>
                 )}
 
@@ -152,11 +153,12 @@ export function StaffFlagEvaluationsModeModal(): JSX.Element {
                             columns={columns}
                             rowKey="organization_id"
                         />
-                        {summary.experimentsLosingExposures > 0 && (
+                        {summary.experimentsNeedingFlagCallsInEvents > 0 && (
                             <LemonBanner type="warning">
-                                These organizations run {pluralize(summary.experimentsLosingExposures, 'experiment')}{' '}
-                                whose exposures come from $feature_flag_called. On teams in the ingestion allowlist,
-                                those exposures stop once the organization moves to{' '}
+                                These organizations run{' '}
+                                {pluralize(summary.experimentsNeedingFlagCallsInEvents, 'experiment')} that read
+                                $feature_flag_called from the events table through an exposure action, an activation
+                                event, or a metric. Those reads find no new calls once the organization moves to{' '}
                                 {FLAG_EVALUATIONS_MODE_LABELS[FlagEvaluationsModeEnumApi.Number2]}.
                             </LemonBanner>
                         )}
