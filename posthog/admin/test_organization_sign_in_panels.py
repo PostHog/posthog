@@ -209,6 +209,23 @@ class TestChangeMemberEmails(BaseTest):
         assert self.member.email == "i@new.example.com"
         assert grace.email == "grace@old.example.com"
 
+    def test_skips_a_member_on_a_domain_that_provisions_accounts_automatically(self, _send: MagicMock) -> None:
+        OrganizationDomain.objects.create(
+            organization=self.organization,
+            domain="jit.example.com",
+            verified_at=timezone.now(),
+            jit_provisioning_enabled=True,
+        )
+        grace = self._create_user("grace@jit.example.com")
+
+        response = self._change("ada@old.example.com\ngrace@jit.example.com")
+
+        assert "Automatic provisioning is on for jit.example.com" in response.content.decode()
+        grace.refresh_from_db()
+        assert grace.email == "grace@jit.example.com"
+        self.member.refresh_from_db()
+        assert self.member.email == "ada@new.example.com"
+
     def test_an_email_that_differs_only_by_case_is_not_a_change(self, _send: MagicMock) -> None:
         grace = self._create_user("grace@new.example.com")
         User.objects.filter(pk=grace.pk).update(email="Grace@new.example.com")

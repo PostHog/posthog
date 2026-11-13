@@ -79,6 +79,14 @@ class MemberEmailMigration:
         return {domain.lower() for domain in domains.values_list("domain", flat=True)}
 
     @staticmethod
+    def provisioning_domains(organization: Organization) -> set[str]:
+        """Verified domains of the organization that create an account on the first SSO sign-in."""
+        domains = OrganizationDomain.objects.verified_domains().filter(
+            organization=organization, jit_provisioning_enabled=True
+        )
+        return {domain.lower() for domain in domains.values_list("domain", flat=True)}
+
+    @staticmethod
     def eligible_emails(organization: Organization, limit: int) -> list[str]:
         """Emails of members on a verified domain of the organization, in email order."""
         on_verified_domain = Q()
@@ -91,6 +99,7 @@ class MemberEmailMigration:
 
     def plan(self) -> list[MemberEmailChange]:
         verified = self.verified_domains(self.organization)
+        provisioning = self.provisioning_domains(self.organization)
         # Legacy accounts can differ only by case, so one folded address can hold more than one member.
         members: dict[str, list[User]] = {}
         typed = {request.current_email for request in self.requested}
@@ -113,6 +122,13 @@ class MemberEmailMigration:
                 skip_reason: str | None = AMBIGUOUS_MEMBER
             else:
                 skip_reason = self._skip_reason(user, new_email, verified, seen_users, seen_targets)
+            # The change removes the member's SSO links. With automatic provisioning on, the next SSO
+            # sign-in with the old email finds no account and creates a new one for the same person.
+            if skip_reason is None and user is not None and _domain(user.email) in provisioning:
+                skip_reason = (
+                    f"Automatic provisioning is on for {_domain(user.email)}. Turn it off first, "
+                    "or a sign-in with the old email creates a new account"
+                )
             if user is not None:
                 seen_users.add(user.pk)
             if skip_reason is None and new_email is not None:
