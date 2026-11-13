@@ -90,6 +90,7 @@ def http_default_fields() -> list[BatchExportField]:
         BatchExportField(expression="_inserted_at", alias="_inserted_at"),
         BatchExportField(expression="event", alias="event"),
         BatchExportField(expression="nullIf(properties, '')", alias="properties"),
+        BatchExportField(expression="person_properties", alias="person_properties"),
         BatchExportField(expression="distinct_id", alias="distinct_id"),
         BatchExportField(expression="elements_chain", alias="elements_chain"),
     ]
@@ -310,6 +311,10 @@ async def insert_into_http_activity(inputs: HttpInsertInputs) -> BatchExportResu
 
                         properties = row["properties"]
                         properties = json.loads(properties) if properties else {}
+                        if "$set" not in properties and row["person_properties"]:
+                            person_properties = json.loads(row["person_properties"])
+                            if person_properties:
+                                properties["$set"] = person_properties
                         properties["$geoip_disable"] = True
 
                         if row["event"] == "$autocapture" and row["elements_chain"] is not None:
