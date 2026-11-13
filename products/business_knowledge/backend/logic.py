@@ -27,6 +27,7 @@ from django.db import (
 from django.db.models import (
     BigIntegerField,
     Count,
+    DateTimeField,
     Exists,
     F,
     Func,
@@ -113,6 +114,7 @@ from .models import (
     KnowledgeDocument,
     KnowledgeGapSuggestion,
     KnowledgeLibrarySource,
+    KnowledgeRunCitation,
     KnowledgeSource,
     RefreshInterval,
     SafetyVerdict,
@@ -607,7 +609,34 @@ def _source_list_annotations() -> dict[str, object]:
         "_learned_ticket_number": _learned_ticket_number_subquery(),
         "_learned_source_team_id": _learned_source_team_id_subquery(),
         "_library_ids": _library_ids_subquery(),
+        "_cited_run_count": _cited_run_count_subquery(),
+        "_last_cited_at": _last_cited_at_subquery(),
     }
+
+
+def _source_citations_qs() -> QuerySet[KnowledgeRunCitation]:
+    return KnowledgeRunCitation.objects.filter(source_id=OuterRef("pk"), team_id=OuterRef("team_id"))
+
+
+def _cited_run_count_subquery() -> Coalesce:
+    return Coalesce(
+        Subquery(
+            _source_citations_qs()
+            .order_by()
+            .values("source_id")
+            .annotate(_runs=Count("run_id", distinct=True))
+            .values("_runs")[:1],
+            output_field=IntegerField(),
+        ),
+        Value(0),
+    )
+
+
+def _last_cited_at_subquery() -> Subquery:
+    return Subquery(
+        _source_citations_qs().order_by("-created_at").values("created_at")[:1],
+        output_field=DateTimeField(),
+    )
 
 
 def _library_ids_subquery() -> Subquery:

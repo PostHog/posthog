@@ -190,6 +190,8 @@ tools:
                 - created_at
                 - updated_at
                 - library_ids
+                - cited_run_count
+                - last_cited_at
     business-knowledge-sources-partial-update:
         operation: business_knowledge_sources_partial_update
         enabled: true

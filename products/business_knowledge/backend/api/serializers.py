@@ -33,6 +33,7 @@ from ..models import (
 )
 from ..models.constants import SearchMatch
 from ..sandbox import SandboxPollStatus, SandboxToolName
+from ..usage import USAGE_DEFAULT_DAYS, USAGE_MAX_DAYS
 
 
 def _derive_scope_globs(url: str) -> list[str]:
@@ -123,6 +124,19 @@ class KnowledgeSourceSerializer(serializers.ModelSerializer):
     library_ids = serializers.SerializerMethodField(
         help_text="Libraries this source belongs to. Empty when the source is in none.",
     )
+    cited_run_count = serializers.IntegerField(
+        source="_cited_run_count",
+        read_only=True,
+        default=0,
+        help_text="Number of support agent runs that cited this source.",
+    )
+    last_cited_at = serializers.DateTimeField(
+        source="_last_cited_at",
+        read_only=True,
+        allow_null=True,
+        default=None,
+        help_text="When a support agent run last cited this source. Null when none has.",
+    )
 
     class Meta:
         model = KnowledgeSource
@@ -155,6 +169,8 @@ class KnowledgeSourceSerializer(serializers.ModelSerializer):
             "file_size_bytes",
             "always_include",
             "library_ids",
+            "cited_run_count",
+            "last_cited_at",
         ]
         read_only_fields = fields
 
@@ -640,6 +656,63 @@ class CreateFileSourceSerializer(_NameValidationMixin, serializers.Serializer):
         if value.size and value.size > MAX_FILE_SIZE_BYTES:
             raise serializers.ValidationError(f"File exceeds the {MAX_FILE_SIZE_BYTES // (1024 * 1024)} MB cap.")
         return value
+
+
+# ---------------------------------------------------------------------------
+# Usage
+# ---------------------------------------------------------------------------
+
+
+class KnowledgeUsageQuerySerializer(serializers.Serializer):
+    days = serializers.IntegerField(
+        required=False,
+        default=USAGE_DEFAULT_DAYS,
+        min_value=1,
+        max_value=USAGE_MAX_DAYS,
+        help_text=f"Number of days to report, counting back from today. From 1 to {USAGE_MAX_DAYS}.",
+    )
+
+
+class DailyCitedRunsSerializer(serializers.Serializer):
+    date = serializers.DateField(read_only=True, help_text="Day, in UTC.")
+    cited_run_count = serializers.IntegerField(
+        read_only=True, help_text="Support agent runs that cited knowledge on this day."
+    )
+
+
+class SourceUsageSerializer(serializers.Serializer):
+    source_id = serializers.UUIDField(read_only=True, help_text="ID of the knowledge source.")
+    name = serializers.CharField(read_only=True, help_text="Name of the knowledge source.")
+    is_generated = serializers.BooleanField(
+        read_only=True, help_text="True when the source was learned from a past support ticket."
+    )
+    cited_run_count = serializers.IntegerField(
+        read_only=True, help_text="Support agent runs that cited this source in the period."
+    )
+    last_cited_at = serializers.DateTimeField(
+        read_only=True, help_text="When a run last cited this source in the period."
+    )
+
+
+class KnowledgeUsageSerializer(serializers.Serializer):
+    """How much support agent runs used the knowledge base in a period."""
+
+    days = serializers.IntegerField(read_only=True, help_text="Number of days the report covers, today included.")
+    cited_run_count = serializers.IntegerField(
+        read_only=True, help_text="Support agent runs that cited at least one knowledge source."
+    )
+    learned_cited_run_count = serializers.IntegerField(
+        read_only=True,
+        help_text="Runs that cited at least one source learned from a past support ticket.",
+    )
+    source_count = serializers.IntegerField(read_only=True, help_text="Knowledge sources in the project.")
+    cited_source_count = serializers.IntegerField(
+        read_only=True, help_text="Knowledge sources that at least one run cited in the period."
+    )
+    daily = DailyCitedRunsSerializer(many=True, read_only=True, help_text="One entry per day, oldest first.")
+    top_sources = SourceUsageSerializer(
+        many=True, read_only=True, help_text="The most cited sources in the period, most cited first."
+    )
 
 
 # ---------------------------------------------------------------------------

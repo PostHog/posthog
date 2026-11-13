@@ -302,6 +302,8 @@ const businessKnowledgeSourcesList = (): ToolBase<
                     'created_at',
                     'updated_at',
                     'library_ids',
+                    'cited_run_count',
+                    'last_cited_at',
                 ])
             ),
         } as typeof result

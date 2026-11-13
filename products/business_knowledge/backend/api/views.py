@@ -44,6 +44,7 @@ from ..llm_telemetry import RetrievalTrace
 from ..models import AddedBy, GapStatus, KnowledgeDocument, KnowledgeGapSuggestion, KnowledgeSource, SourceType
 from ..models.constants import CrawlMode
 from ..temporal.coordinator import IngestSourceInputs, RefreshSourceInputs
+from ..usage import knowledge_usage
 from .serializers import (
     AggregatedGapSerializer,
     CreateCrawlSourceSerializer,
@@ -59,6 +60,8 @@ from .serializers import (
     KnowledgeSearchResultSerializer,
     KnowledgeSourceDocumentSerializer,
     KnowledgeSourceSerializer,
+    KnowledgeUsageQuerySerializer,
+    KnowledgeUsageSerializer,
     UpdateTextSourceSerializer,
     UpdateUrlSourceSerializer,
 )
@@ -503,6 +506,29 @@ class KnowledgeSourceViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 }
             ).data
         )
+
+    @extend_schema(
+        parameters=[KnowledgeUsageQuerySerializer],
+        responses={200: KnowledgeUsageSerializer},
+        description="How much support agent runs cited the project's knowledge sources over a period.",
+    )
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="usage",
+        pagination_class=None,
+        required_scopes=["business_knowledge:read"],
+    )
+    def usage(self, request: Request, **kwargs) -> Response:
+        # A grant on one source passes this viewset's permissions, but usage describes the whole resource.
+        if not (
+            self.user_access_control.check_access_level_for_resource("business_knowledge", "viewer")
+            and _can_read_parent_knowledge(self, request)
+        ):
+            raise exceptions.PermissionDenied(detail="You need access to business knowledge in this project.")
+        query = KnowledgeUsageQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        return Response(KnowledgeUsageSerializer(knowledge_usage(self.team_id, days=query.validated_data["days"])).data)
 
     @extend_schema(responses={200: KnowledgeSourceDocumentSerializer(many=True)})
     @action(
