@@ -115,7 +115,7 @@ export default defineCommand({
     notes: [
         'Prints a table in a terminal. Agents and pipes get one JSON object: `columns` with the name and ClickHouse type of each, `rows` as arrays in column order, and `hasMore`.',
         'When `hasMore` is true, PostHog cut the results off, and `hint` says how to get the rest. --raw prints the full response.',
-        'Agents and pipes wait up to a minute. A query still running then returns `status` "running", its `queryId`, and in `next` the `hog query run --wait <query-id>` command that waits for it again. It exits with code 4.',
+        `Agents and pipes wait up to a minute. A query still running then returns \`status\` "running", its \`queryId\`, and in \`next\` the \`hog query run --wait <query-id>\` command that waits for it again. It exits with code ${EXIT_PENDING}.`,
         'A person at a terminal and a CI job wait until the query finishes.',
     ].join('\n'),
     examples: [

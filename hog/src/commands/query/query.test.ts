@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { styleText } from 'node:util'
 
-import { EXIT_FAILURE, EXIT_SUCCESS } from '@/core/errors'
+import { EXIT_FAILURE, EXIT_PENDING, EXIT_SUCCESS, EXIT_USAGE } from '@/core/errors'
 import { runHog, TEST_CREDENTIALS } from '@/testing'
 
 const ROWS = {
@@ -107,7 +107,7 @@ describe('hog query', () => {
             respond: () => ({ status: 200, body: { columns: ['id', 'id'], results: [[1, 2]], hasMore: true } }),
         })
 
-        expect(result.exitCode).toBe(0)
+        expect(result.exitCode).toBe(EXIT_SUCCESS)
         expect(result.json()).toEqual({
             columns: [
                 { name: 'id', type: null },
@@ -148,7 +148,7 @@ describe('hog query', () => {
             respond: slowQueries(polls),
         })
 
-        expect(result.exitCode).toBe(0)
+        expect(result.exitCode).toBe(EXIT_SUCCESS)
         expect(result.stdout).toContain(expected)
         expect(result.requests.at(-1)?.url).toBe(statusUrl(FIRST_ID))
     })
@@ -159,7 +159,7 @@ describe('hog query', () => {
             respond: slowQueries(Infinity),
         })
 
-        expect(first.exitCode).toBe(4)
+        expect(first.exitCode).toBe(EXIT_PENDING)
         expect(first.json()).toEqual({
             status: 'running',
             queryId: FIRST_ID,
@@ -173,7 +173,7 @@ describe('hog query', () => {
             respond: slowQueries(Infinity),
         })
 
-        expect(second.exitCode).toBe(4)
+        expect(second.exitCode).toBe(EXIT_PENDING)
         expect(second.json()).toMatchObject({ queryId: SECOND_ID, next: `hog query run --wait ${SECOND_ID}` })
 
         const resumed = await runHog(['query', 'run', '--wait', FIRST_ID], {
@@ -181,7 +181,7 @@ describe('hog query', () => {
             respond: slowQueries(2),
         })
 
-        expect(resumed.exitCode).toBe(0)
+        expect(resumed.exitCode).toBe(EXIT_SUCCESS)
         expect(resumed.json()).toMatchObject({ rows: ROWS.results, hasMore: false })
         expect(resumed.requests.map((request) => request.url)).toEqual([statusUrl(FIRST_ID), statusUrl(FIRST_ID)])
     })
@@ -192,7 +192,7 @@ describe('hog query', () => {
             respond: slowQueries(Infinity),
         })
 
-        expect(started.exitCode).toBe(4)
+        expect(started.exitCode).toBe(EXIT_PENDING)
         expect(started.json()).toMatchObject({
             queryId: JOINED_ID,
             next: `hog query run --wait 'nightly'\\''s:run#1'`,
@@ -203,7 +203,7 @@ describe('hog query', () => {
             respond: slowQueries(1),
         })
 
-        expect(resumed.exitCode).toBe(0)
+        expect(resumed.exitCode).toBe(EXIT_SUCCESS)
         expect(resumed.json()).toMatchObject({ rows: [['joined', 1]] })
         expect(resumed.requests.map((request) => request.url)).toEqual([statusUrl(JOINED_ID)])
     })
@@ -216,7 +216,7 @@ describe('hog query', () => {
     ])('run --wait %s is a usage error that sends nothing', async (_name, flags, error) => {
         const result = await runHog(['query', 'run', ...flags], { env: TEST_CREDENTIALS, respond: slowQueries(1) })
 
-        expect(result.exitCode).toBe(2)
+        expect(result.exitCode).toBe(EXIT_USAGE)
         expect(result.error()).toMatchObject(error)
         expect(result.requests).toEqual([])
     })
@@ -249,7 +249,7 @@ describe('hog query', () => {
             respond: slowQueries(1, final),
         })
 
-        expect(resumed.exitCode).toBe(1)
+        expect(resumed.exitCode).toBe(EXIT_FAILURE)
         expect(resumed.error()).toMatchObject(error)
     })
 
