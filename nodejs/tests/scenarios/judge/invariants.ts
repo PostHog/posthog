@@ -152,8 +152,25 @@ export const bouncedSuppressed: InvariantDefinition = {
         const refusedOutright = new Set(
             rejectedSends.filter(({ status }) => !isAccepted(status)).map(({ unitId }) => unitId)
         )
+        const lastBounce = rejectedSends.filter(({ status }) => isAccepted(status)).at(-1)?.seq
+        const takenAfterTheFault = new Set(
+            truth
+                .filter(
+                    ({ kind, fault, status, seq }) =>
+                        lastBounce !== undefined &&
+                        kind === 'ses.send' &&
+                        fault === undefined &&
+                        isAccepted(status) &&
+                        seq > lastBounce
+                )
+                .map(({ unitId }) => unitId)
+        )
         const unsuppressed = journal.flatMap(({ unitId, followUp }) => {
-            const skipped = followUp !== undefined && 'notSent' in followUp && !refusedOutright.has(unitId)
+            const skipped =
+                followUp !== undefined &&
+                'notSent' in followUp &&
+                !refusedOutright.has(unitId) &&
+                !takenAfterTheFault.has(unitId)
             if (!bounced.has(unitId) && !skipped) {
                 return []
             }

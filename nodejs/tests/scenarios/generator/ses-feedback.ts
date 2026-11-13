@@ -17,6 +17,7 @@ export type SesFeedbackOptions = {
 }
 
 const FEEDBACK_ANSWERED = 200
+const SEND_TAKEN = 200
 
 async function truthHead(edgeUrl: string): Promise<number> {
     const response = await internalFetch(`${edgeUrl}/_truth/head`)
@@ -34,6 +35,7 @@ export async function watchSesFeedback({
     pollMs = 500,
 }: SesFeedbackOptions): Promise<SesFeedback> {
     const answers = new Map<string, Pick<TruthRecord, 'status' | 'detail'>>()
+    const takenWithoutFault = new Set<string>()
     let cursor = await truthHead(edgeUrl)
     let reading: Promise<boolean> | undefined
     let readsDone = 0
@@ -45,9 +47,12 @@ export async function watchSesFeedback({
             throw new Error(`The edge answered /_truth with ${response.status}: ${text}`)
         }
         const page = parseJSON(text) as TruthPage
-        for (const { kind, unitId, status, detail } of page.records) {
+        for (const { kind, unitId, status, fault, detail } of page.records) {
             if (kind === 'ses.feedback' && unitId !== undefined) {
                 answers.set(unitId, { status, detail })
+            }
+            if (kind === 'ses.send' && unitId !== undefined && fault === undefined && status === SEND_TAKEN) {
+                takenWithoutFault.add(unitId)
             }
         }
         cursor = page.next
@@ -84,6 +89,9 @@ export async function watchSesFeedback({
                 }
                 if (answer !== undefined) {
                     return `the SES feedback was not taken: ${answer.detail.error ?? `cdp-api answered ${answer.status}`}`
+                }
+                if (takenWithoutFault.has(unitId)) {
+                    return 'the edge took the first send without a bounce'
                 }
                 if (Date.now() >= deadline) {
                     return `the edge recorded no SES feedback within ${withinMs / 1000}s`

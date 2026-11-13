@@ -431,6 +431,30 @@ describe('judge', () => {
         expect(result).toMatchObject({ name: 'bounced_suppressed', ...expected })
     })
 
+    it.each<[string, string[], object]>([
+        ['after the last bounce', ['run-a-2', UNIT], { passed: true, observed: 0 }],
+        ['before a later bounce', [UNIT, 'run-a-2'], { passed: false, observed: 1, unitIds: [UNIT] }],
+    ])(
+        'bounced_suppressed for a unit the edge took without a bounce %s, then not followed up',
+        async (_story, deliveryOrder, expected) => {
+            for (const unitId of deliveryOrder) {
+                if (unitId === 'run-a-2') {
+                    await internalFetch(`${edge.url}/_faults`, {
+                        method: 'POST',
+                        headers: { 'content-type': 'application/json' },
+                        body: JSON.stringify({ name: 'ses.reject', params: { type: 'bounce' }, dose: { count: 1 } }),
+                    })
+                }
+                await deliver(unitId)
+            }
+            judge.record({ ...offered(), followUp: { notSent: 'the edge took the first send without a bounce' } })
+
+            const [result] = await judge.check([{ name: 'bounced_suppressed', params: {} }], {})
+
+            expect(result).toMatchObject(expected)
+        }
+    )
+
     it.each<[string, () => Judge]>([
         ['reopened', () => judge],
         ['opened fresh', judgeOf],

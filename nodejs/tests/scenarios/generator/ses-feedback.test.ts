@@ -8,7 +8,7 @@ import { watchSesFeedback } from './ses-feedback'
 const UNIT = 'run-a-1'
 const NEVER_ABORTED = new AbortController().signal
 
-type Feedback = Pick<TruthRecord, 'unitId' | 'status' | 'detail'> & Partial<Pick<TruthRecord, 'kind'>>
+type Feedback = Pick<TruthRecord, 'unitId' | 'status' | 'detail'> & Partial<Pick<TruthRecord, 'kind' | 'fault'>>
 
 function truthRecord(seq: number, record: Feedback): TruthRecord {
     return { seq, at: new Date(0).toISOString(), kind: 'ses.feedback', fault: 'ses.reject', ...record }
@@ -74,6 +74,12 @@ describe('watchSesFeedback', () => {
             [{ kind: 'ses.send', unitId: UNIT, status: 200, detail: {} }],
             [0],
             'the edge recorded no SES feedback within 1s',
+        ],
+        [
+            'answers at once when the edge took the send without a bounce',
+            [{ kind: 'ses.send', unitId: UNIT, status: 200, fault: undefined, detail: {} }],
+            [0],
+            'the edge took the first send without a bounce',
         ],
         [
             'gives up when only feedback recorded before it opened names the unit',
