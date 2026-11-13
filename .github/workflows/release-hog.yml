@@ -178,9 +178,9 @@ jobs:
               run: git pull --ff-only origin master
 
             # The release ships every change to hog's sources since the last release, so nobody who
-            # authored or merged one of those pull requests may approve it. The range ends at the commit
-            # checked out here. The release job checks what merged after it, while the release pull
-            # request waited in the merge queue.
+            # opened, merged or pushed commits to one of those pull requests may approve it. The range
+            # ends at the commit checked out here. The release job checks what merged after it, while
+            # the release pull request waited in the merge queue.
             - name: Check approvers against every change since the last release
               id: range-guard
               env:
@@ -220,7 +220,7 @@ jobs:
                   slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
                   slack_channel_id: ${{ vars.SLACK_APPROVALS_HOG_CHANNEL_ID }}
                   thread_ts: ${{ needs.notify-approval-needed.outputs.slack_ts }}
-                  message: '🚫 Approval by ${{ steps.range-guard.outputs.violations }} rejected: they authored or merged a hog change this release ships. <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|Re-run the failed jobs> and have someone else approve.'
+                  message: '🚫 Approval by ${{ steps.range-guard.outputs.violations }} rejected: they opened, merged or pushed commits to a hog change this release ships. <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|Re-run the failed jobs> and have someone else approve.'
                   emoji_reaction: 'no_entry'
 
             - name: Check for remaining changesets
@@ -251,16 +251,10 @@ jobs:
                   toolchain: 1.91.1
                   components: cargo
 
-            - name: Cache Sampo CLI
-              id: cache-sampo
-              if: steps.recheck-changesets.outputs.has-changesets == 'true'
-              uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-              with:
-                  path: ~/.cargo/bin/sampo
-                  key: sampo-${{ runner.os }}-${{ runner.arch }}-${{ env.SAMPO_VERSION }}
-
+            # Built from crates.io on every run. Other workflows write the shared sampo cache entry,
+            # and this job holds the releaser App key.
             - name: Install Sampo CLI
-              if: steps.recheck-changesets.outputs.has-changesets == 'true' && steps.cache-sampo.outputs.cache-hit != 'true'
+              if: steps.recheck-changesets.outputs.has-changesets == 'true'
               run: cargo install sampo --version "$SAMPO_VERSION" --locked
 
             # While the version is a prerelease, sampo bumps the prerelease number and moves the
@@ -270,7 +264,8 @@ jobs:
               if: steps.recheck-changesets.outputs.has-changesets == 'true'
               working-directory: hog
               env:
-                  GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+                  # sampo only reads public pull request data, which the job token covers.
+                  GITHUB_TOKEN: ${{ github.token }}
               run: |
                   sampo release
                   new_version=$(jq -r '.version' package.json)
@@ -281,7 +276,8 @@ jobs:
               if: steps.prepare-release.outputs.new-version != ''
               uses: ./.github/actions/pnpm-install
               with:
-                  install-command: pnpm install --frozen-lockfile --filter=@posthog/root
+                  install-command: pnpm install --frozen-lockfile --ignore-scripts --filter=@posthog/root
+                  cache: 'false'
 
             # The same passes as `hogli format:markdown`. The last command re-runs the gate, so an
             # unfixable violation stops the release before the pull request opens.
@@ -778,10 +774,14 @@ jobs:
               uses: ./.github/actions/pnpm-install
               with:
                   install-command: pnpm --filter='@posthog/hog...' install --frozen-lockfile
+                  # The installed packages are compiled into the signed binary, so they come from the
+                  # registry, checked against the lockfile, and not from a cache other jobs can write.
+                  cache: 'false'
 
             - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
               with:
                   bun-version: ${{ env.BUN_VERSION }}
+                  no-cache: true
 
             - name: Build the MCP library
               working-directory: hog
@@ -888,13 +888,22 @@ jobs:
             - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
               with:
                   bun-version: ${{ env.BUN_VERSION }}
+                  no-cache: true
 
             # Files under a version never change. A rerun after the upload reuses what the bucket has,
             # because signing again would give the same version different bytes.
             - name: Check whether the bucket has this version
               id: existing
+              # head-object fails the same way for a missing marker and for a timeout or a denied
+              # read, and a read error must not let a rerun sign and upload over a finished version.
+              # A listing tells them apart: an error stops the job, and an empty listing is absent.
               run: |
-                  if aws s3api head-object --bucket "$BUCKET" --key "hog/v$VERSION/.upload-complete" >/dev/null 2>&1; then
+                  set -euo pipefail
+                  key="hog/v$VERSION/.upload-complete"
+                  listing=$(aws s3api list-objects-v2 --bucket "$BUCKET" --prefix "$key" --output json)
+                  [ -n "$listing" ] || listing='{}'
+                  found=$(jq --arg key "$key" '[.Contents[]? | select(.Key == $key)] | length' <<<"$listing")
+                  if [ "$found" -gt 0 ]; then
                       echo "uploaded=true" >> "$GITHUB_OUTPUT"
                   else
                       echo "uploaded=false" >> "$GITHUB_OUTPUT"
@@ -1068,6 +1077,7 @@ jobs:
             - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
               with:
                   bun-version: ${{ env.BUN_VERSION }}
+                  no-cache: true
 
             - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
               with:
