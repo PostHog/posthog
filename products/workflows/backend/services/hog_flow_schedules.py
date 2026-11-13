@@ -1,17 +1,20 @@
+import json
 from collections.abc import Collection, Mapping
 from datetime import datetime
-from itertools import batched
 from typing import Any
 from uuid import UUID
 
-from django.core.exceptions import ValidationError
+from django.core.exceptions import ImproperlyConfigured, ValidationError
 from django.db import transaction
 from django.utils import timezone
 
 import structlog
 
 from posthog.dataclasses import frozen
-from posthog.plugins.plugin_server_api import create_hog_flow_scheduled_invocations
+from posthog.plugins.plugin_server_api import (
+    WORKFLOWS_SCHEDULED_RUNS_JWT_PURPOSE,
+    create_hog_flow_scheduled_invocations,
+)
 
 from products.workflows.backend.facade.contracts import ProcessedSchedules, WorkflowSchedule, WorkflowScheduleNotFound
 from products.workflows.backend.facade.enums import HogFlowScheduleStatus
@@ -24,6 +27,7 @@ logger = structlog.get_logger(__name__)
 
 WRITABLE_SCHEDULE_FIELDS = frozenset({"rrule", "starts_at", "timezone", "variables"})
 SCHEDULED_RUNS_PER_DISPATCH = 100
+SCHEDULED_RUN_BYTES_PER_DISPATCH = 4 * 1024 * 1024
 
 
 @frozen
@@ -138,24 +142,41 @@ def _resolve_variables(hog_flow: HogFlow, schedule: HogFlowSchedule) -> dict[str
     return variables
 
 
-def _dispatch_scheduled_runs(runs: list[ScheduledRun]) -> tuple[list[str], list[str]]:
-    dispatched: list[str] = []
-    not_dispatched: list[str] = []
-    for chunk in batched(runs, SCHEDULED_RUNS_PER_DISPATCH, strict=False):
+class _ScheduledRunDispatch:
+    """Sends claimed runs to the CDP API as they come, in requests far below its JSON body limit."""
+
+    def __init__(self) -> None:
+        self.dispatched: list[str] = []
+        self.failed: list[str] = []
+        self._pending: list[ScheduledRun] = []
+        self._pending_bytes = 0
+
+    def add(self, run: ScheduledRun) -> None:
+        run_bytes = len(json.dumps(run.variables))
+        if self._pending_bytes + run_bytes > SCHEDULED_RUN_BYTES_PER_DISPATCH:
+            self.flush()
+        self._pending.append(run)
+        self._pending_bytes += run_bytes
+        if len(self._pending) == SCHEDULED_RUNS_PER_DISPATCH:
+            self.flush()
+
+    def flush(self) -> None:
+        chunk, self._pending, self._pending_bytes = self._pending, [], 0
+        if not chunk:
+            return
         try:
             response = create_hog_flow_scheduled_invocations(
-                sorted({run.team_id for run in chunk}),
-                [{"team_id": run.team_id, "hog_flow_id": run.hog_flow_id, "variables": run.variables} for run in chunk],
+                [{"team_id": run.team_id, "hog_flow_id": run.hog_flow_id, "variables": run.variables} for run in chunk]
             )
             response.raise_for_status()
             outcomes = list(zip(chunk, [result["status"] for result in response.json()["results"]], strict=True))
         except Exception:
             logger.exception("Error dispatching scheduled runs", schedule_ids=[run.schedule_id for run in chunk])
-            not_dispatched.extend(run.schedule_id for run in chunk)
-            continue
+            self.failed.extend(run.schedule_id for run in chunk)
+            return
         for run, outcome in outcomes:
             if outcome == "queued":
-                dispatched.append(run.schedule_id)
+                self.dispatched.append(run.schedule_id)
             elif outcome == "quota_limited":
                 logger.info(
                     "Skipped a scheduled run over the workflow quota",
@@ -163,11 +184,21 @@ def _dispatch_scheduled_runs(runs: list[ScheduledRun]) -> tuple[list[str], list[
                     team_id=run.team_id,
                     hog_flow_id=run.hog_flow_id,
                 )
-                dispatched.append(run.schedule_id)
+                self.dispatched.append(run.schedule_id)
             else:
                 logger.warning("CDP refused a scheduled run", schedule_id=run.schedule_id, outcome=outcome)
-                not_dispatched.append(run.schedule_id)
-    return dispatched, not_dispatched
+                self.failed.append(run.schedule_id)
+
+
+def _scheduled_run(schedule: HogFlowSchedule, hog_flow: HogFlow) -> ScheduledRun:
+    if not WORKFLOWS_SCHEDULED_RUNS_JWT_PURPOSE.enabled():
+        raise ImproperlyConfigured("Set WORKFLOWS_CANCEL_JWT_SECRET on the web tier to send scheduled runs")
+    return ScheduledRun(
+        schedule_id=str(schedule.id),
+        team_id=schedule.team_id,
+        hog_flow_id=str(hog_flow.id),
+        variables=_resolve_variables(hog_flow, schedule),
+    )
 
 
 def process_due_schedules() -> ProcessedSchedules:
@@ -175,7 +206,7 @@ def process_due_schedules() -> ProcessedSchedules:
     processed: list[str] = []
     initialized: list[str] = []
     failed: list[str] = []
-    scheduled_runs: list[ScheduledRun] = []
+    dispatch = _ScheduledRunDispatch()
 
     # 1. Process due schedules (next_run_at <= now)
     # nosemgrep: idor-lookup-without-team (internal endpoint processes all teams)
@@ -188,6 +219,7 @@ def process_due_schedules() -> ProcessedSchedules:
     for schedule_id in due_schedule_ids:
         try:
             batch_job_params: dict | None = None
+            scheduled_run: ScheduledRun | None = None
             with transaction.atomic():
                 # Per-schedule transaction: lock only one row at a time to minimize
                 # lock duration and allow concurrent replicas via skip_locked.
@@ -221,16 +253,12 @@ def process_due_schedules() -> ProcessedSchedules:
                         "filters": (hog_flow.trigger or {}).get("filters", {}),
                     }
                 else:
-                    scheduled_runs.append(
-                        ScheduledRun(
-                            schedule_id=str(schedule_id),
-                            team_id=schedule.team_id,
-                            hog_flow_id=str(hog_flow.id),
-                            variables=_resolve_variables(hog_flow, schedule),
-                        )
-                    )
+                    scheduled_run = _scheduled_run(schedule, hog_flow)
 
+            if scheduled_run:
+                dispatch.add(scheduled_run)
             if batch_job_params:
+                dispatch.flush()
                 with transaction.atomic():
                     # Re-read the status under the flow's lock, so a stop that committed after
                     # the check above wins, and a stop that lands later sees this job.
@@ -250,10 +278,9 @@ def process_due_schedules() -> ProcessedSchedules:
             logger.exception("Error processing schedule", schedule_id=str(schedule_id))
             failed.append(str(schedule_id))
 
-    # Outside every transaction, so the CDP call holds no row lock.
-    dispatched, not_dispatched = _dispatch_scheduled_runs(scheduled_runs)
-    processed.extend(dispatched)
-    failed.extend(not_dispatched)
+    dispatch.flush()
+    processed.extend(dispatch.dispatched)
+    failed.extend(dispatch.failed)
 
     # 2. Initialize next_run_at for schedules that need it
     # nosemgrep: idor-lookup-without-team (internal endpoint processes all teams)

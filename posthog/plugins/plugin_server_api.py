@@ -1,7 +1,7 @@
 import re
 import json
 from datetime import timedelta
-from typing import Optional, Union
+from typing import Any, Optional, Union
 
 import requests
 import structlog
@@ -151,10 +151,10 @@ WORKFLOWS_SCHEDULED_RUNS_JWT_PURPOSE = ScopedServiceJwtPurpose(
 )
 
 
-def create_hog_flow_scheduled_invocations(team_ids: list[int], runs: list[dict[str, object]]) -> requests.Response:
-    """Queue scheduled runs of `team_ids` in one request. Raises RuntimeError when the signing key is
-    not set. CdpApi.postHogflowScheduledInvocations verifies the token."""
-    token = WORKFLOWS_SCHEDULED_RUNS_JWT_PURPOSE.mint({"team_ids": team_ids})
+def create_hog_flow_scheduled_invocations(runs: list[dict[str, Any]]) -> requests.Response:
+    """Queue scheduled runs in one request, with a token for their teams. Raises RuntimeError when the
+    signing key is not set. CdpApi.postHogflowScheduledInvocations verifies the token."""
+    token = WORKFLOWS_SCHEDULED_RUNS_JWT_PURPOSE.mint({"team_ids": sorted({run["team_id"] for run in runs})})
     return internal_requests.post(
         CDP_API_URL + "/api/hog_flows/scheduled_invocations",
         json={"runs": runs},

@@ -565,6 +565,10 @@ class FakeCdpScheduledRuns:
         return 200, {}, json.dumps({"results": results})
 
 
+class _WorkerKilled(BaseException):
+    pass
+
+
 @override_settings(INTERNAL_API_SECRET="test-secret")
 class TestProcessDueScheduleTriggers(APIBaseTest):
     INTERNAL_URL = "/api/internal/hog_flows/process_due_schedules"
@@ -609,19 +613,89 @@ class TestProcessDueScheduleTriggers(APIBaseTest):
             {"team_id": self.team.id, "hog_flow_id": str(hog_flow.id), "variables": {"greeting": "Hello"}}
         ]
 
-    def test_due_schedule_triggers_share_one_cdp_request_per_chunk(self):
+    @parameterized.expand(
+        [
+            ("by_run_count", "SCHEDULED_RUNS_PER_DISPATCH", 2, [2, 1]),
+            ("by_variable_bytes", "SCHEDULED_RUN_BYTES_PER_DISPATCH", 30, [1, 1, 1]),
+        ]
+    )
+    def test_due_schedule_triggers_share_one_cdp_request_per_chunk(self, _name, limit, value, request_sizes):
         schedules = [
             self._create_workflow_with_schedule(next_run_at=datetime(2020, 1, 1, tzinfo=UTC))[1] for _ in range(3)
         ]
 
-        with unittest.mock.patch(
-            "products.workflows.backend.services.hog_flow_schedules.SCHEDULED_RUNS_PER_DISPATCH", 2
-        ):
+        with unittest.mock.patch(f"products.workflows.backend.services.hog_flow_schedules.{limit}", value):
             response = self._post()
 
         assert response.status_code == 200
         assert sorted(response.json()["processed"]) == sorted(str(schedule.id) for schedule in schedules)
-        assert [len(request) for request in self.cdp.requests] == [2, 1]
+        assert [len(request) for request in self.cdp.requests] == request_sizes
+
+    def test_full_chunks_reach_the_cdp_api_before_the_poll_ends(self):
+        for _ in range(3):
+            self._create_workflow_with_schedule(next_run_at=datetime(2020, 1, 1, tzinfo=UTC))
+        claims = 0
+
+        def worker_dies_on_third_claim(*args, **kwargs):
+            nonlocal claims
+            claims += 1
+            if claims == 3:
+                raise _WorkerKilled
+            return compute_next_occurrences(*args, **kwargs)
+
+        with (
+            unittest.mock.patch(
+                "products.workflows.backend.services.hog_flow_schedules.SCHEDULED_RUNS_PER_DISPATCH", 2
+            ),
+            unittest.mock.patch(
+                "products.workflows.backend.services.hog_flow_schedules.compute_next_occurrences",
+                side_effect=worker_dies_on_third_claim,
+            ),
+            self.assertRaises(_WorkerKilled),
+        ):
+            self._post()
+
+        assert [len(request) for request in self.cdp.requests] == [2]
+
+    def test_claimed_runs_reach_the_cdp_api_before_a_batch_job_hands_off(self):
+        self._create_workflow_with_schedule(next_run_at=datetime(2020, 1, 1, tzinfo=UTC))
+        batch_flow = HogFlow.objects.create(
+            team=self.team, name="Batch Workflow", status="active", trigger=BATCH_TRIGGER, actions=[]
+        )
+        HogFlowSchedule.objects.create(
+            team=self.team,
+            hog_flow=batch_flow,
+            rrule="FREQ=HOURLY;INTERVAL=1",
+            starts_at=datetime(2026, 1, 1, 9, 0, 0, tzinfo=UTC),
+            timezone="UTC",
+            status="active",
+            next_run_at=datetime(2020, 1, 1, tzinfo=UTC),
+        )
+        runs_received_at_handoff: list[int] = []
+
+        def hand_off(*args, **kwargs):
+            runs_received_at_handoff.append(len(self.cdp.received_runs))
+            return unittest.mock.DEFAULT
+
+        with unittest.mock.patch(
+            "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation",
+            side_effect=hand_off,
+        ):
+            response = self._post()
+
+        assert len(response.json()["processed"]) == 2
+        assert runs_received_at_handoff == [1]
+
+    def test_schedule_trigger_without_the_signing_key_fails_and_stays_due(self):
+        _, schedule = self._create_workflow_with_schedule(next_run_at=datetime(2020, 1, 1, tzinfo=UTC))
+
+        with override_settings(WORKFLOWS_CANCEL_JWT_SECRETS=[]):
+            response = self._post()
+
+        assert response.json()["failed"] == [str(schedule.id)]
+        schedule.refresh_from_db()
+        assert schedule.next_run_at == datetime(2020, 1, 1, tzinfo=UTC)
+        assert self.cdp.requests == []
 
     def test_schedule_trigger_advances_next_run_at(self):
         _, schedule = self._create_workflow_with_schedule(
@@ -671,28 +745,30 @@ class TestProcessDueScheduleTriggers(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("engine_error_fails", 500, None, "failed"),
-            ("over_quota_skips_the_run", 200, "quota_limited", "processed"),
-            ("refused_run_fails", 200, "workflow_not_found", "failed"),
+            ("engine_error_fails", 500, None, "failed", "failed"),
+            ("over_quota_skips_the_run", 200, "quota_limited", "processed", "processed"),
+            ("refused_run_fails", 200, "workflow_not_found", "failed", "processed"),
         ]
     )
-    def test_cdp_refusal_outcome(self, _name, status_code, run_outcome, outcome):
-        hog_flow, schedule = self._create_workflow_with_schedule(
-            next_run_at=datetime(2020, 1, 1, tzinfo=UTC),
-        )
+    def test_cdp_refusal_outcome(self, _name, status_code, run_outcome, outcome, neighbour_outcome):
+        _, neighbour = self._create_workflow_with_schedule(next_run_at=datetime(2020, 1, 1, tzinfo=UTC))
+        hog_flow, schedule = self._create_workflow_with_schedule(next_run_at=datetime(2020, 1, 1, tzinfo=UTC))
         self.cdp.status_code = status_code
         if run_outcome:
             self.cdp.outcome_by_hog_flow[str(hog_flow.id)] = run_outcome
 
         response = self._post()
         assert response.status_code == 200
-        assert {key: response.json()[key] for key in ("processed", "failed")} == {
-            "processed": [str(schedule.id)] if outcome == "processed" else [],
-            "failed": [str(schedule.id)] if outcome == "failed" else [],
+        expected: dict[str, list[str]] = {"processed": [], "failed": []}
+        expected[outcome].append(str(schedule.id))
+        expected[neighbour_outcome].append(str(neighbour.id))
+        assert {key: sorted(response.json()[key]) for key in expected} == {
+            key: sorted(ids) for key, ids in expected.items()
         }
-        schedule.refresh_from_db()
-        assert schedule.next_run_at is not None
-        assert schedule.next_run_at > datetime(2020, 1, 1, tzinfo=UTC)
+        for due in (neighbour, schedule):
+            due.refresh_from_db()
+            assert due.next_run_at is not None
+            assert due.next_run_at > datetime(2020, 1, 1, tzinfo=UTC)
 
 
 def _worker_response(status_code: int, body: dict[str, Any]) -> requests.Response:
