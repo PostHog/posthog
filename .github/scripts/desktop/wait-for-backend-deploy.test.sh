@@ -53,17 +53,23 @@ register_compare "$c3" ahead
 register_compare "$c4" ahead
 register_compare master ahead
 
-# Registers one page of deployments for an environment, newest first. Each
-# argument is "<id>:<sha>:<statuses>", with statuses comma-separated, newest first.
+trusted="deployment-status-posthog[bot]"
+
+# Registers one page of deployments for an environment, newest created first.
+# Each argument is "<id>:<sha>:<updated minute>:<statuses>[:<status creator>[:<deployment creator>]]",
+# with statuses comma-separated, newest first. The stub serves the whole status
+# history even for per_page=1, so the waiter must read only the first entry.
+# The updated minute becomes updated_at, and both creators default to the trusted App.
 register_page() {
-    local fixtures="$1" environment="$2" page="$3" entry id sha states
+    local fixtures="$1" environment="$2" page="$3" entry id sha minute states status_by deploy_by
     shift 3
     mkdir -p "$fixtures"
     for entry in "$@"; do
-        IFS=: read -r id sha states <<<"$entry"
-        jq -n --arg id "$id" --arg sha "$sha" '{id: ($id | tonumber), sha: $sha}'
-        jq -n --arg states "$states" '$states | split(",") | map({state: .})' \
-            >"$fixtures/repos_PostHog_posthog_deployments_${id}_statuses_per_page_100.json"
+        IFS=: read -r id sha minute states status_by deploy_by <<<"$entry"
+        jq -n --arg id "$id" --arg sha "$sha" --arg minute "$minute" --arg by "${deploy_by:-$trusted}" \
+            '{id: ($id | tonumber), sha: $sha, updated_at: "2026-11-13T10:\($minute):00Z", creator: {login: $by}}'
+        jq -n --arg states "$states" --arg by "${status_by:-$trusted}" '$states | split(",") | map({state: ., creator: {login: $by}})' \
+            >"$fixtures/repos_PostHog_posthog_deployments_${id}_statuses_per_page_1.json"
     done | jq -s . >"$fixtures/repos_PostHog_posthog_deployments_environment_${environment}_task_deploy_per_page_30_page_${page}.json"
 }
 
@@ -84,33 +90,47 @@ assert_result() {
     echo "ok: $name"
 }
 
-register_page "$workdir/live" prod-us 1 "11:$c3:success"
-register_page "$workdir/live" prod-eu 1 "21:$c4:success"
+register_page "$workdir/live" prod-us 1 "11:$c3:10:success"
+register_page "$workdir/live" prod-eu 1 "21:$c4:10:success"
 assert_result "both environments live on a descendant" "$workdir/live" 0 "Every environment runs"
 
-# A rollback deploys an older sha and gets its own success, so it is live again.
-register_page "$workdir/rollback" prod-us 1 "12:$c3:success"
-register_page "$workdir/rollback" prod-eu 1 "23:$c1:success" "22:$c4:inactive,success"
+# A rollback to a sha never deployed before gets a new record, and that record is live.
+register_page "$workdir/rollback" prod-us 1 "12:$c3:10:success"
+register_page "$workdir/rollback" prod-eu 1 "23:$c1:50:success" "22:$c4:40:inactive,success"
 assert_result "a rollback to an older sha holds the release" "$workdir/rollback" 3 "prod-eu: live ${c1:0:12}, contains: no"
 
-register_page "$workdir/rolling" prod-us 1 "14:$c4:in_progress" "13:$c3:success,in_progress"
-register_page "$workdir/rolling" prod-eu 1 "24:$c2:success"
+# A rollback to a sha deployed before posts success on that sha's older record.
+register_page "$workdir/reused" prod-us 1 "32:$c4:50:inactive,success" "31:$c1:55:success,inactive,success"
+register_page "$workdir/reused" prod-eu 1 "33:$c4:10:success"
+assert_result "a rollback that reuses an older record holds the release" "$workdir/reused" 3 "prod-us: live ${c1:0:12}, contains: no"
+
+# charts writes the inactive status best-effort, so two records can end on success.
+# The one updated last is live.
+register_page "$workdir/missed-inactive" prod-us 1 "35:$c4:50:success" "34:$c1:55:success"
+register_page "$workdir/missed-inactive" prod-eu 1 "36:$c4:10:success"
+assert_result "the most recently updated success is live" "$workdir/missed-inactive" 3 "prod-us: live ${c1:0:12}, contains: no"
+
+register_page "$workdir/rolling" prod-us 1 "14:$c4:60:in_progress" "13:$c3:50:success,in_progress"
+register_page "$workdir/rolling" prod-eu 1 "24:$c2:10:success"
 assert_result "an in-progress deploy leaves the previous success live" "$workdir/rolling" 0 "prod-us: live ${c3:0:12}, contains: yes"
 
-# A deploy of another task in the same environment marks the live Django
-# deployment inactive, and it stays live.
-register_page "$workdir/other-task" prod-us 1 "16:$c3:inactive,success,in_progress"
-register_page "$workdir/other-task" prod-eu 1 "26:$c4:success"
-assert_result "another task's deploy does not hide the live build" "$workdir/other-task" 0 "prod-us: live ${c3:0:12}, contains: yes"
+# A full first page of failed deploys pushes the live record to page 2.
+failed=()
+for id in $(seq 100 129); do
+    failed+=("$id:$c4:40:failure")
+done
+register_page "$workdir/paged" prod-us 1 "${failed[@]}"
+register_page "$workdir/paged" prod-us 2 "19:$c3:30:success"
+register_page "$workdir/paged" prod-eu 1 "27:$c4:10:success"
+assert_result "the live deployment on page 2 is found" "$workdir/paged" 0 "prod-us: live ${c3:0:12}, contains: yes"
 
-# A run of failed deploys can push the live one past the first page.
-register_page "$workdir/paged" prod-us 1 "18:$c4:failure" "17:$c4:error,in_progress"
-register_page "$workdir/paged" prod-us 2 "19:$c3:inactive,success"
-register_page "$workdir/paged" prod-eu 1 "27:$c4:success"
-assert_result "the live deployment on a later page is found" "$workdir/paged" 0 "prod-us: live ${c3:0:12}, contains: yes"
+# Any token with deployments: write can post a success, so only the charts App counts.
+register_page "$workdir/forged" prod-us 1 \
+    "43:$c4:61:success:someone-else" "41:$c4:60:success::someone-else" "42:$c1:50:success"
+register_page "$workdir/forged" prod-eu 1 "44:$c4:10:success"
+assert_result "a success from another creator does not count" "$workdir/forged" 3 "prod-us: live ${c1:0:12}, contains: no"
 
-register_page "$workdir/api-failure" prod-us 1 "15:$c4:success"
-mkdir -p "$workdir/api-failure"
+register_page "$workdir/api-failure" prod-us 1 "15:$c4:10:success"
 touch "$workdir/api-failure/repos_PostHog_posthog_deployments_environment_prod-eu_task_deploy_per_page_30_page_1.fail"
 assert_result "an API failure is not read as deployed" "$workdir/api-failure" 1 "prod-eu: GitHub API request failed"
 

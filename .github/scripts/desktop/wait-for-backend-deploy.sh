@@ -5,16 +5,18 @@
 # do not exist yet.
 #
 # The charts deploy writes a GitHub Deployment for the Django image in each
-# environment, with task TASK, and marks it `success` after the rollout. So the
-# live build of an environment is the newest deployment of that task that ever
-# reached `success`. A newer deployment that is in progress or failed does not
-# replace it. A rollback is a newer deployment that succeeds, so its older sha
-# becomes the live one. A rollback done outside the charts deploy writes no
-# record, so the script cannot see it.
+# environment, with task TASK. It posts `success` after the rollout and marks
+# the previous record of the same task `inactive`. A deploy of a sha that was
+# deployed before reuses that sha's old record, so a rollback posts `success`
+# on an old record. A record's updated_at is the time of its newest status.
+# So the live build is the most recently updated record whose newest status is
+# `success`. A newer record that is in progress or failed does not replace it.
+# A rollback done outside the charts deploy writes no record, so the script
+# cannot see it.
 #
-# The script ignores `inactive`. GitHub marks every older deployment in the
-# same environment `inactive` when any deployment succeeds, whatever its task,
-# so a deploy of another service would hide the live Django build.
+# Any token with `deployments: write`, for example in a pull request workflow,
+# can create a record or a status. So the script reads only records and
+# statuses that TRUSTED_CREATOR, the App of the charts deploy, created.
 #
 # master is linear, so the live build contains COMMIT_SHA when COMMIT_SHA is
 # an ancestor of the live sha. The compare API answers that, so the script
@@ -31,13 +33,14 @@ REPOSITORY="${REPOSITORY:?}"
 COMMIT_SHA="${COMMIT_SHA:?}"
 ENVIRONMENTS="${ENVIRONMENTS:-prod-us prod-eu}"
 TASK="${TASK:-deploy}"
+TRUSTED_CREATOR="${TRUSTED_CREATOR:-deployment-status-posthog[bot]}"
 TIMEOUT_SECONDS="${TIMEOUT_SECONDS:-3600}"
 INTERVAL_SECONDS="${INTERVAL_SECONDS:-60}"
 
 EXIT_ERROR=1
 EXIT_TIMED_OUT=3
 DEPLOYMENTS_PER_PAGE=30
-MAX_DEPLOYMENT_PAGES=10
+MAX_DEPLOYMENT_PAGES=2
 
 # Bash arithmetic evaluates a variable's value as an expression, which can run a command.
 require_whole_number() {
@@ -62,26 +65,53 @@ contains_status() {
     esac
 }
 
-# Prints the sha of the live deployment, or nothing when no deployment in the
-# first MAX_DEPLOYMENT_PAGES pages reached `success`. An empty answer holds the
+# Prints the trusted deployments of an environment as "<id> <sha>", most
+# recently updated first. Reads up to MAX_DEPLOYMENT_PAGES pages of the list.
+list_deployments() {
+    local environment="$1" page page_json all_json='[]' count
+    for ((page = 1; page <= MAX_DEPLOYMENT_PAGES; page++)); do
+        page_json=$(gh api "repos/$REPOSITORY/deployments?environment=$environment&task=$TASK&per_page=$DEPLOYMENTS_PER_PAGE&page=$page") || return 1
+        all_json=$(jq -c --argjson page "$page_json" '. + $page' <<<"$all_json") || return 1
+        count=$(jq 'length' <<<"$page_json") || return 1
+        if [ "$count" -lt "$DEPLOYMENTS_PER_PAGE" ]; then
+            break
+        fi
+    done
+    jq -r --arg creator "$TRUSTED_CREATOR" '
+        map(select(.creator.login == $creator))
+        | sort_by(.updated_at) | reverse
+        | .[] | "\(.id) \(.sha)"' <<<"$all_json"
+}
+
+# Prints the sha of the live deployment, or nothing when no listed deployment
+# has a trusted `success` as its newest status. An empty answer holds the
 # release. Returns 1 on an API failure.
 find_live_sha() {
-    local environment="$1" page deployments id sha succeeded
-    for ((page = 1; page <= MAX_DEPLOYMENT_PAGES; page++)); do
-        deployments=$(gh api "repos/$REPOSITORY/deployments?environment=$environment&task=$TASK&per_page=$DEPLOYMENTS_PER_PAGE&page=$page" |
-            jq -r '.[] | "\(.id) \(.sha)"') || return 1
-        if [ -z "$deployments" ]; then
+    local environment="$1" deployments id sha state
+    deployments=$(list_deployments "$environment") || return 1
+    while read -r id sha; do
+        [ -n "$id" ] || continue
+        state=$(gh api "repos/$REPOSITORY/deployments/$id/statuses?per_page=1" |
+            jq -r --arg creator "$TRUSTED_CREATOR" '.[0] | select(.creator.login == $creator) | .state') || return 1
+        if [ "$state" = "success" ]; then
+            echo "$sha"
             return 0
         fi
-        while read -r id sha; do
-            succeeded=$(gh api "repos/$REPOSITORY/deployments/$id/statuses?per_page=100" |
-                jq -r 'any(.[]; .state == "success")') || return 1
-            if [ "$succeeded" = "true" ]; then
-                echo "$sha"
-                return 0
-            fi
-        done <<<"$deployments"
-    done
+    done <<<"$deployments"
+}
+
+# Returns 0 when COMMIT_SHA is in master, 1 when it is not, and 2 when the
+# lookup failed.
+check_commit_in_master() {
+    local status
+    if ! status=$(compare_status "$COMMIT_SHA" master); then
+        echo "master: GitHub API request failed, contains ${COMMIT_SHA:0:12}: unknown"
+        return 2
+    fi
+    if contains_status "$status"; then
+        return 0
+    fi
+    return 1
 }
 
 # Returns 0 when every environment contains the commit, 1 when one does not
@@ -117,16 +147,24 @@ check_environments() {
 require_whole_number TIMEOUT_SECONDS "$TIMEOUT_SECONDS"
 require_whole_number INTERVAL_SECONDS "$INTERVAL_SECONDS"
 
-if ! master_status=$(compare_status "$COMMIT_SHA" master) || ! contains_status "$master_status"; then
-    echo "::error::Commit $COMMIT_SHA is not in master, so the backend deploy cannot be checked." >&2
-    exit "$EXIT_ERROR"
-fi
-
 echo "Waiting for $ENVIRONMENTS to run a backend build that contains ${COMMIT_SHA:0:12}."
 deadline=$(($(date +%s) + TIMEOUT_SECONDS))
+commit_in_master=false
 while true; do
     result=0
-    check_environments || result=$?
+    if [ "$commit_in_master" = false ]; then
+        check_commit_in_master || result=$?
+        if [ "$result" -eq 1 ]; then
+            echo "::error::Commit $COMMIT_SHA is not in master, so the backend deploy cannot be checked." >&2
+            exit "$EXIT_ERROR"
+        fi
+        if [ "$result" -eq 0 ]; then
+            commit_in_master=true
+        fi
+    fi
+    if [ "$commit_in_master" = true ]; then
+        check_environments || result=$?
+    fi
     if [ "$result" -eq 0 ]; then
         echo "Every environment runs a backend build that contains ${COMMIT_SHA:0:12}."
         exit 0
