@@ -18,7 +18,8 @@ let payload := {
 }
 
 if (not empty(inputs.signing_secret)) {
-  payload['standard_webhooks'] := {
+  let signing := inputs.signing_format == 'hmac_sha256' ? 'hmac_sha256' : 'standard_webhooks'
+  payload[signing] := {
     'secret_input': 'signing_secret'
   }
 }
@@ -116,7 +117,27 @@ if (inputs.debug) {
             label: 'Signing secret',
             secret: true,
             required: false,
-            description: 'Signs each request following the [Standard Webhooks](https://www.standardwebhooks.com) spec.',
+            description: 'Signs each request in the signature format below.',
+        },
+        {
+            key: 'signing_format',
+            type: 'choice',
+            label: 'Signature format',
+            secret: false,
+            choices: [
+                {
+                    label: 'Standard Webhooks',
+                    value: 'standard_webhooks',
+                },
+                {
+                    label: 'HMAC-SHA256 of the body',
+                    value: 'hmac_sha256',
+                },
+            ],
+            default: 'standard_webhooks',
+            required: false,
+            description:
+                'Only applies when a signing secret is set. [Standard Webhooks](https://www.standardwebhooks.com) sends the webhook-id, webhook-timestamp and webhook-signature headers. HMAC-SHA256 of the body sends the hex digest as `X-Hub-Signature-256: sha256=<digest>` and a webhook-id header that stays the same across retries.',
         },
         {
             key: 'debug',
