@@ -259,10 +259,22 @@ class TestListsMatchCurrentRules(BaseTest):
         assert entries.exists()
         assert not filtered.exists()
 
-    @parameterized.expand([("member", False, False), ("private_project", True, False), ("org_admin", True, True)])
-    def test_project_list_matches_visible_teams(self, _name: str, private: bool, admin: bool) -> None:
+    @parameterized.expand(
+        [
+            ("member", False, False, False),
+            ("private_project", True, False, False),
+            ("org_admin", True, True, False),
+            ("member_of_another_organization", True, False, True),
+        ]
+    )
+    def test_project_list_matches_visible_teams(
+        self, _name: str, private: bool, admin: bool, member_elsewhere: bool
+    ) -> None:
         private_team = Team.objects.create(organization=self.organization, name="Private")
-        Team.objects.create(organization=Organization.objects.create(name="Elsewhere"), name="Foreign")
+        elsewhere = Organization.objects.create(name="Elsewhere")
+        Team.objects.create(organization=elsewhere, name="Foreign")
+        if member_elsewhere:
+            self.user.join(organization=elsewhere)
         if private:
             self._rule("project", "none", str(private_team.id), team=private_team)
         if admin:
