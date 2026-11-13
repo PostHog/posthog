@@ -137,6 +137,8 @@ class ListedEmailStatus(LabeledStrEnum):
 
 _EARLIEST_CLICKHOUSE_TIME = datetime(1900, 1, 1, tzinfo=UTC)
 _LATEST_CLICKHOUSE_TIME_EXCLUSIVE = datetime(2300, 1, 1, tzinfo=UTC)
+_LONGEST_CURSOR = 128
+_UNKNOWN_CURSOR = "This cursor isn't one a page returned. Start again without it."
 
 
 class ScheduledEmailListQuerySerializer(serializers.Serializer):
@@ -145,7 +147,10 @@ class ScheduledEmailListQuerySerializer(serializers.Serializer):
         help_text="Which emails to list. Only `scheduled` is supported: the emails that wait for their time.",
     )
     cursor = serializers.CharField(
-        required=False, help_text="The `next` value of the page before. Leave it out for the first page."
+        required=False,
+        max_length=_LONGEST_CURSOR,
+        error_messages={"max_length": _UNKNOWN_CURSOR},
+        help_text="The `next` value of the page before. Leave it out for the first page.",
     )
     limit = serializers.IntegerField(
         required=False, default=100, min_value=1, max_value=100, help_text="How many emails a page holds, 1 to 100."
@@ -164,7 +169,7 @@ class ScheduledEmailListQuerySerializer(serializers.Serializer):
                 raise ValueError
             return ScheduledEmailCursor(scheduled_at=due_at, message_id=str(UUID(message_id)))
         except (binascii.Error, UnicodeDecodeError, TypeError, ValueError, OverflowError):
-            raise serializers.ValidationError("This cursor isn't one a page returned. Start again without it.")
+            raise serializers.ValidationError(_UNKNOWN_CURSOR)
 
 
 class ScheduledEmailSerializer(serializers.Serializer):

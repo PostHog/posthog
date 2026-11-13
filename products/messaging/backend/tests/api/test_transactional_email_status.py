@@ -913,6 +913,12 @@ class TestListScheduledEmails(EmailsApiTestBase):
                 "cursor",
                 "invalid_input",
             ),
+            (
+                "a_cursor_nested_deeper_than_python_parses",
+                f"status=scheduled&cursor={base64.urlsafe_b64encode(('[' * 100_000 + ']' * 100_000).encode()).decode()}",
+                "cursor",
+                "max_length",
+            ),
             ("too_many", "status=scheduled&limit=101", "limit", "max_value"),
         ]
     )
