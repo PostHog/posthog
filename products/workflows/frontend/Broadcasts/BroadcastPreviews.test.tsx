@@ -296,6 +296,7 @@ describe('broadcast previews', () => {
         await waitFor(() => expect(sent).toHaveLength(1))
         expect(el('broadcast-send-test-email')).toHaveAttribute('aria-disabled', 'true')
         release()
+        await waitFor(() => expect(el('broadcast-send-test-email')).toBeNull())
     })
 
     it('sends the test email to the typed address only, rendered for the preview person', async () => {
