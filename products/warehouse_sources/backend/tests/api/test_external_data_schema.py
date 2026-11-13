@@ -5661,27 +5661,34 @@ class TestAvailableColumnsAcrossSqlSources(APIBaseTest):
 
 
 class TestExternalDataSchemaRetrieveSource(APIBaseTest):
-    def _create(self, source_type: ExternalDataSourceType = ExternalDataSourceType.STRIPE):
+    def _create(
+        self, source_type: ExternalDataSourceType = ExternalDataSourceType.STRIPE, direct_query_enabled: bool = False
+    ):
         source = ExternalDataSource.objects.create(
             team=self.team,
             source_type=source_type,
             job_inputs={"auth_method": {"selection": "api_key", "stripe_secret_key": "123"}},
+            direct_query_enabled=direct_query_enabled,
         )
         schema = ExternalDataSchema.objects.create(name="Customers", team=self.team, source=source)
         return source, schema
 
     @parameterized.expand(
         [
-            # source_type, expected supports_column_selection, expected supports_row_filters.
+            # source_type, expected supports_column_selection, expected supports_row_filters, direct_query_enabled.
             # Stripe is a managed-schema source (no column selection); row filters are SQL-only.
-            (ExternalDataSourceType.STRIPE, False, False),
-            (ExternalDataSourceType.POSTGRES, True, True),
+            (ExternalDataSourceType.STRIPE, False, False, False),
+            (ExternalDataSourceType.POSTGRES, True, True, True),
         ]
     )
     def test_retrieve_includes_source_summary(
-        self, source_type: ExternalDataSourceType, expected_column_selection: bool, expected_row_filters: bool
+        self,
+        source_type: ExternalDataSourceType,
+        expected_column_selection: bool,
+        expected_row_filters: bool,
+        direct_query_enabled: bool,
     ):
-        source, schema = self._create(source_type=source_type)
+        source, schema = self._create(source_type=source_type, direct_query_enabled=direct_query_enabled)
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/")
         assert response.status_code == 200, response.json()
         summary = response.json()["source"]
@@ -5691,6 +5698,7 @@ class TestExternalDataSchemaRetrieveSource(APIBaseTest):
         assert summary["access_method"] == source.access_method
         assert summary["supports_column_selection"] is expected_column_selection
         assert summary["supports_row_filters"] is expected_row_filters
+        assert summary["direct_query_enabled"] is direct_query_enabled
         assert "user_access_level" in summary
 
     @parameterized.expand(

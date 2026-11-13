@@ -5,7 +5,6 @@ import api from 'lib/api'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { pluralize } from 'lib/utils/strings'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { initKeaTests } from '~/test/init'
@@ -372,119 +371,6 @@ describe('sourceSettingsLogic', () => {
             expect(successToastSpy).toHaveBeenCalledTimes(1 - warnings)
         }
     )
-
-    describe('live queries', () => {
-        const liveSource = (schemas: ExternalDataSourceSchema[], direct_query_enabled = true): ExternalDataSource =>
-            ({ ...makeSource(schemas), access_method: 'warehouse', direct_query_enabled }) as ExternalDataSource
-
-        const mountWith = async (schemas: ExternalDataSourceSchema[], direct_query_enabled = true): Promise<void> => {
-            jest.spyOn(api.externalDataSources, 'get').mockResolvedValue(liveSource(schemas, direct_query_enabled))
-            logic = sourceSettingsLogic({ id: 'source-1' })
-            logic.mount()
-            await expectLogic(logic).toFinishAllListeners()
-        }
-
-        it('saves only the latest choice when a table leaves sync and is turned off before the save', async () => {
-            const schema = makeSchema({ should_sync: true, sync_type: 'full_refresh' })
-            const bulkUpdateSchemasSpy = jest
-                .spyOn(api.externalDataSources, 'bulkUpdateSchemas')
-                .mockImplementation(async (_id, updates) => updates.map((update) => ({ ...schema, ...update })))
-            await mountWith([schema])
-            jest.useFakeTimers()
-
-            logic.actions.updateSchema({ ...schema, should_sync: false, live_query_enabled: true })
-            logic.actions.setSchemaLiveQuery(logic.values.source!.schemas[0], false)
-            await jest.advanceTimersByTimeAsync(500)
-
-            expect(bulkUpdateSchemasSpy).toHaveBeenCalledTimes(1)
-            expect(bulkUpdateSchemasSpy).toHaveBeenCalledWith('source-1', [
-                expect.objectContaining({ id: 'schema-1', should_sync: false, live_query_enabled: false }),
-            ])
-        })
-
-        it('sends one request for a table bulk-enabled twice while it saves', async () => {
-            const schema = makeSchema()
-            let resolveSave: (schemas: ExternalDataSourceSchema[]) => void = () => {}
-            const bulkUpdateSchemasSpy = jest
-                .spyOn(api.externalDataSources, 'bulkUpdateSchemas')
-                .mockReturnValue(new Promise((resolve) => (resolveSave = resolve)))
-            await mountWith([schema])
-
-            logic.actions.bulkSetLiveQuery([schema], true)
-            logic.actions.bulkSetLiveQuery([schema], true)
-            expect(logic.values.liveQuerySavingIds).toEqual({ 'schema-1': true })
-
-            resolveSave([{ ...schema, live_query_enabled: true }])
-            await expectLogic(logic).toFinishAllListeners()
-
-            expect(bulkUpdateSchemasSpy).toHaveBeenCalledTimes(1)
-            expect(bulkUpdateSchemasSpy).toHaveBeenCalledWith('source-1', [
-                { id: 'schema-1', live_query_enabled: true },
-            ])
-            expect(logic.values.source?.schemas[0].live_query_enabled).toBe(true)
-            expect(logic.values.liveQuerySavingIds).toEqual({})
-        })
-
-        it('shows the API reason and reloads the source when a save fails', async () => {
-            const schema = makeSchema()
-            jest.spyOn(api.externalDataSources, 'bulkUpdateSchemas').mockRejectedValue(
-                new Error('This table has no column information yet.')
-            )
-            const errorToastSpy = jest.spyOn(lemonToast, 'error')
-            await mountWith([schema])
-            const getSpy = jest.spyOn(api.externalDataSources, 'get')
-            getSpy.mockClear()
-
-            logic.actions.bulkSetLiveQuery([schema], true)
-            await expectLogic(logic).toFinishAllListeners()
-
-            expect(errorToastSpy).toHaveBeenCalledWith('This table has no column information yet.')
-            expect(getSpy).toHaveBeenCalled()
-            expect(logic.values.liveQuerySavingIds).toEqual({})
-        })
-
-        it('bulk enable sends only eligible rows and counts the rows it saved', async () => {
-            const saving = makeSchema({ id: 'saving' })
-            const off = makeSchema({ id: 'off' })
-            const synced = makeSchema({ id: 'synced', should_sync: true })
-            const excluded = makeSchema({ id: 'excluded', live_query_unavailable_reason: 'Has row filters' })
-            const pendingSaves: ((schemas: ExternalDataSourceSchema[]) => void)[] = []
-            const bulkUpdateSchemasSpy = jest
-                .spyOn(api.externalDataSources, 'bulkUpdateSchemas')
-                .mockImplementation(() => new Promise((resolve) => pendingSaves.push(resolve)))
-            const successToastSpy = jest.spyOn(lemonToast, 'success')
-            await mountWith([saving, off, synced, excluded])
-
-            logic.actions.bulkSetLiveQuery([saving], true)
-            logic.actions.bulkSetLiveQuery([saving, off, synced, excluded], true)
-            pendingSaves.forEach((resolve) => resolve([]))
-            await expectLogic(logic).toFinishAllListeners()
-
-            expect(bulkUpdateSchemasSpy).toHaveBeenLastCalledWith('source-1', [{ id: 'off', live_query_enabled: true }])
-            const oneTable = pluralize(1, 'table', 'tables')
-            expect(successToastSpy).toHaveBeenCalledWith(
-                `Enabled live queries for ${oneTable}. Skipped ${oneTable} that can't be queried live.`
-            )
-        })
-
-        it.each([
-            { case: 'keeps live-only rows when the source serves live queries', direct: true, ids: ['synced', 'live'] },
-            { case: 'drops live-only rows when the source has live queries off', direct: false, ids: ['synced'] },
-        ])('"Show enabled only" $case', async ({ direct, ids }) => {
-            await mountWith(
-                [
-                    makeSchema({ id: 'synced', should_sync: true }),
-                    makeSchema({ id: 'live', live_query_enabled: true }),
-                    makeSchema({ id: 'off' }),
-                ],
-                direct
-            )
-
-            logic.actions.setShowEnabledSchemasOnly(true)
-
-            expect(logic.values.filteredSchemas.map((schema) => schema.id)).toEqual(ids)
-        })
-    })
 
     it('keys the logic by source id', () => {
         expect(sourceSettingsLogic({ id: 'source-1' }).key).toEqual('source-1')

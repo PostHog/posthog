@@ -42,7 +42,10 @@ import {
 } from '~/types'
 
 import { failedDestinationFor } from 'products/data_warehouse/frontend/shared/components/destinationFailure'
-import { splitQualifiedTableName } from 'products/data_warehouse/frontend/shared/components/forms/schemaGroupingUtils'
+import {
+    splitQualifiedTableName,
+    supportsDirectQuery,
+} from 'products/data_warehouse/frontend/shared/components/forms/schemaGroupingUtils'
 import { DATA_WAREHOUSE_APP_SOURCE } from 'products/data_warehouse/frontend/shared/components/metrics/DataWarehouseMetrics'
 import {
     SchemaEditorAction,
@@ -66,19 +69,7 @@ import type { ExternalDataDestinationApi } from 'products/warehouse_sources/fron
 import { DirectQuerySchemasTab } from './DirectQuerySchemasTab'
 import { replaceFileDisabledReason, replaceFileLogic, replaceFileTarget } from './replaceFileLogic'
 import { ReplaceFileModal } from './ReplaceFileModal'
-import { SchemaAvailabilitySelect } from './SchemaAvailabilitySelect'
-import {
-    availabilityChange,
-    BulkSyncMethod,
-    bulkSyncMethodDisabledReason,
-    isSchemaEnabled,
-    SchemaAvailability,
-    schemaAvailability,
-    sourceServesLiveQueries,
-    sourceSettingsLogic,
-} from './sourceSettingsLogic'
-
-const AVAILABILITY_ORDER: SchemaAvailability[] = ['off', 'live', 'synced']
+import { BulkSyncMethod, bulkSyncMethodDisabledReason, sourceSettingsLogic } from './sourceSettingsLogic'
 
 const frequencyRank = (frequency: DataWarehouseSyncInterval | null | undefined): number =>
     frequency ? SYNC_FREQUENCY_ORDER.indexOf(frequency) : -1
@@ -216,7 +207,6 @@ function ManagedSchemasTab({ id }: { id: string }): JSX.Element {
     // which an upload's schema never matches) must not hide its table.
     const visibleSchemas = isFileUpload ? (source?.schemas ?? []) : filteredSchemas
     const visibleSchemaGroups = isFileUpload ? [] : groupedFilteredSchemas
-    const servesLiveQueries = sourceServesLiveQueries(source)
 
     useEffect(() => {
         if (showDestinations) {
@@ -321,7 +311,7 @@ function ManagedSchemasTab({ id }: { id: string }): JSX.Element {
                             </LemonButton>
                         </SchemaEditorAction>
                     )}
-                    {servesLiveQueries && (
+                    {source?.direct_query_enabled && supportsDirectQuery(source.source_type) && (
                         <LemonButton
                             type="secondary"
                             to={urls.sqlEditor({ connectionId: id })}
@@ -397,8 +387,7 @@ function ManagedSchemasTab({ id }: { id: string }): JSX.Element {
                                 <div className="flex items-center justify-between gap-3 w-full">
                                     <span className="font-semibold truncate">{schemaName}</span>
                                     <span className="text-xs text-muted-alt whitespace-nowrap">
-                                        {tables.filter((schema) => isSchemaEnabled(schema, servesLiveQueries)).length}{' '}
-                                        of {tables.length}
+                                        {tables.filter((schema) => schema.should_sync).length} of {tables.length}{' '}
                                         enabled
                                     </span>
                                 </div>
@@ -496,8 +485,8 @@ function ManagedSchemaTable({
     inSchemaGroup = false,
 }: ManagedSchemaTableProps): JSX.Element {
     const { schemaReloadingById } = useValues(sourceManagementLogic)
-    const { inProgressRowsBySchema, liveQuerySavingIds } = useValues(sourceSettingsLogic)
-    const { setSelectedSchemas, setSchemaLiveQuery } = useActions(sourceSettingsLogic)
+    const { inProgressRowsBySchema } = useValues(sourceSettingsLogic)
+    const { setSelectedSchemas } = useActions(sourceSettingsLogic)
     const [initialLoad, setInitialLoad] = useState(true)
 
     useEffect(() => {
@@ -507,71 +496,6 @@ function ManagedSchemaTable({
     }, [isLoading, initialLoad])
 
     const isFileUpload = !!onReplaceFile
-    const showLiveQuery = sourceServesLiveQueries(source)
-
-    const changeSync = (
-        schema: ExternalDataSourceSchema,
-        active: boolean,
-        extra: Partial<ExternalDataSourceSchema> = {}
-    ): void => {
-        if (active && (!schema.sync_type || schema.incremental_sync_blocked)) {
-            // No sync method saved yet — send the user to set one up
-            // before the schema can be enabled. A schema whose sync
-            // method a run proved unusable goes to the same place,
-            // because the sync settings hold every resolution and
-            // re-enabling here would only repeat the failure.
-            router.actions.push(
-                urls.dataWarehouseSourceSchema(prefixedSourceId, schema.id, 'configuration', 'sync-method')
-            )
-            return
-        }
-        if (!active && schema.sync_type === 'cdc') {
-            LemonDialog.open({
-                title: 'Disable CDC table?',
-                content: (
-                    <div className="text-sm text-secondary space-y-2">
-                        <p>
-                            Disabling <strong>{schema.table?.name ?? schema.name}</strong> will remove it from the
-                            replication publication. Changes made while disabled will be permanently lost.
-                        </p>
-                        <p>
-                            Re-enabling this table will require a <strong>full resync</strong> to ensure data
-                            consistency.
-                        </p>
-                    </div>
-                ),
-                primaryButton: {
-                    children: 'Disable',
-                    status: 'danger',
-                    onClick: () => updateSchema({ ...schema, should_sync: false, ...extra }),
-                },
-                secondaryButton: { children: 'Cancel', type: 'tertiary' },
-            })
-        } else if (!active && schema.sync_type === 'webhook') {
-            LemonDialog.open({
-                title: 'Disable webhook sync?',
-                description:
-                    'Turning off this table will stop the webhook from consuming any more data. When you re-enable it, a full refresh sync will need to be completed to ensure no data is missing.',
-                primaryButton: {
-                    children: 'Disable',
-                    status: 'danger',
-                    onClick: () => updateSchema({ ...schema, should_sync: false, ...extra }),
-                },
-                secondaryButton: { children: 'Cancel' },
-            })
-        } else {
-            updateSchema({ ...schema, should_sync: active, ...extra })
-        }
-    }
-
-    const changeAvailability = (schema: ExternalDataSourceSchema, availability: SchemaAvailability): void => {
-        const change = availabilityChange(schema, availability)
-        if (change.kind === 'sync') {
-            changeSync(schema, change.active, change.extra)
-        } else {
-            setSchemaLiveQuery(schema, change.enabled)
-        }
-    }
 
     return (
         <LemonTable
@@ -589,13 +513,9 @@ function ManagedSchemaTable({
                               return reason ? { disabledReason: reason } : true
                           },
                           noun: ['schema', 'schemas'],
-                          barClassName: 'mb-2 flex-wrap',
+                          barClassName: 'mb-2',
                           renderActions: (ctx) => (
-                              <SchemaBulkActions
-                                  schemas={ctx.selectedRecords}
-                                  clearSelection={ctx.clearSelection}
-                                  showLiveQuery={showLiveQuery}
-                              />
+                              <SchemaBulkActions schemas={ctx.selectedRecords} clearSelection={ctx.clearSelection} />
                           ),
                       }
             }
@@ -846,63 +766,77 @@ function ManagedSchemaTable({
                           },
                       ]
                     : []),
-                showLiveQuery
-                    ? {
-                          title: (
-                              <Tooltip
-                                  title={
-                                      <div className="flex flex-col gap-1">
-                                          <span>How you can use each table:</span>
-                                          <span>
-                                              Synced: copied to PostHog on the sync schedule, and queryable live.
-                                          </span>
-                                          <span>
-                                              Live only: queried straight from your database. Nothing is copied.
-                                          </span>
-                                          <span>
-                                              Off: not synced or queried live. Data synced before stays until you delete
-                                              it.
-                                          </span>
-                                      </div>
-                                  }
-                              >
-                                  <span className="inline-flex items-center gap-1">
-                                      Availability
-                                      <IconInfo className="text-muted-alt text-base" />
-                                  </span>
-                              </Tooltip>
-                          ),
-                          key: 'should_sync',
-                          sorter: (a, b) =>
-                              AVAILABILITY_ORDER.indexOf(schemaAvailability(a)) -
-                              AVAILABILITY_ORDER.indexOf(schemaAvailability(b)),
-                          render: function RenderAvailability(_, schema) {
-                              return (
-                                  <SchemaEditorAction schema={schema}>
-                                      <SchemaAvailabilitySelect
-                                          schema={schema}
-                                          saving={!!liveQuerySavingIds[schema.id]}
-                                          onChange={(availability) => changeAvailability(schema, availability)}
-                                      />
-                                  </SchemaEditorAction>
-                              )
-                          },
-                      }
-                    : {
-                          title: 'Enabled',
-                          key: 'should_sync',
-                          sorter: (a, b) => Number(a.should_sync) - Number(b.should_sync),
-                          render: function RenderShouldSync(_, schema) {
-                              return (
-                                  <SchemaEditorAction schema={schema}>
-                                      <LemonSwitch
-                                          checked={schema.should_sync}
-                                          onChange={(active) => changeSync(schema, active)}
-                                      />
-                                  </SchemaEditorAction>
-                              )
-                          },
-                      },
+                {
+                    title: 'Enabled',
+                    key: 'should_sync',
+                    sorter: (a, b) => Number(a.should_sync) - Number(b.should_sync),
+                    render: function RenderShouldSync(_, schema) {
+                        return (
+                            <SchemaEditorAction schema={schema}>
+                                <LemonSwitch
+                                    checked={schema.should_sync}
+                                    onChange={(active) => {
+                                        if (active && (!schema.sync_type || schema.incremental_sync_blocked)) {
+                                            // No sync method saved yet — send the user to set one up
+                                            // before the schema can be enabled. A schema whose sync
+                                            // method a run proved unusable goes to the same place,
+                                            // because the sync settings hold every resolution and
+                                            // re-enabling here would only repeat the failure.
+                                            router.actions.push(
+                                                urls.dataWarehouseSourceSchema(
+                                                    prefixedSourceId,
+                                                    schema.id,
+                                                    'configuration',
+                                                    'sync-method'
+                                                )
+                                            )
+                                            return
+                                        }
+                                        if (!active && schema.sync_type === 'cdc') {
+                                            LemonDialog.open({
+                                                title: 'Disable CDC table?',
+                                                content: (
+                                                    <div className="text-sm text-secondary space-y-2">
+                                                        <p>
+                                                            Disabling{' '}
+                                                            <strong>{schema.table?.name ?? schema.name}</strong> will
+                                                            remove it from the replication publication. Changes made
+                                                            while disabled will be permanently lost.
+                                                        </p>
+                                                        <p>
+                                                            Re-enabling this table will require a{' '}
+                                                            <strong>full resync</strong> to ensure data consistency.
+                                                        </p>
+                                                    </div>
+                                                ),
+                                                primaryButton: {
+                                                    children: 'Disable',
+                                                    status: 'danger',
+                                                    onClick: () => updateSchema({ ...schema, should_sync: false }),
+                                                },
+                                                secondaryButton: { children: 'Cancel', type: 'tertiary' },
+                                            })
+                                        } else if (!active && schema.sync_type === 'webhook') {
+                                            LemonDialog.open({
+                                                title: 'Disable webhook sync?',
+                                                description:
+                                                    'Turning off this table will stop the webhook from consuming any more data. When you re-enable it, a full refresh sync will need to be completed to ensure no data is missing.',
+                                                primaryButton: {
+                                                    children: 'Disable',
+                                                    status: 'danger',
+                                                    onClick: () => updateSchema({ ...schema, should_sync: false }),
+                                                },
+                                                secondaryButton: { children: 'Cancel' },
+                                            })
+                                        } else {
+                                            updateSchema({ ...schema, should_sync: active })
+                                        }
+                                    }}
+                                />
+                            </SchemaEditorAction>
+                        )
+                    },
+                },
                 {
                     key: 'actions',
                     width: 0,
@@ -952,11 +886,9 @@ function ManagedSchemaTable({
 function SchemaBulkActions({
     schemas,
     clearSelection,
-    showLiveQuery,
 }: {
     schemas: readonly ExternalDataSourceSchema[]
     clearSelection: () => void
-    showLiveQuery: boolean
 }): JSX.Element {
     const {
         bulkEnable,
@@ -964,7 +896,6 @@ function SchemaBulkActions({
         bulkSetFrequency,
         bulkSetSyncMethod,
         bulkSyncNow,
-        bulkSetLiveQuery,
         bulkResync,
         bulkDeleteData,
         pausePolling,
@@ -1059,26 +990,6 @@ function SchemaBulkActions({
             <LemonButton type="secondary" size="small" onClick={onDisable}>
                 Disable
             </LemonButton>
-            {showLiveQuery && (
-                <>
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        onClick={() => run(() => bulkSetLiveQuery(selected, true))}
-                        data-attr="schemas-tab-bulk-enable-live-query"
-                    >
-                        Enable live queries
-                    </LemonButton>
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        onClick={() => run(() => bulkSetLiveQuery(selected, false))}
-                        data-attr="schemas-tab-bulk-disable-live-query"
-                    >
-                        Disable live queries
-                    </LemonButton>
-                </>
-            )}
             <LemonMenu
                 items={frequencyOptions.map((interval) => ({
                     label: SyncFrequencyLabelMap[interval],

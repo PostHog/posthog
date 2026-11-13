@@ -35,10 +35,7 @@ import {
     ExternalDataSourceSchema,
 } from '~/types'
 
-import {
-    groupTablesBySchema,
-    supportsDirectQuery,
-} from 'products/data_warehouse/frontend/shared/components/forms/schemaGroupingUtils'
+import { groupTablesBySchema } from 'products/data_warehouse/frontend/shared/components/forms/schemaGroupingUtils'
 import { confirmPendingSelfManagedSync } from 'products/data_warehouse/frontend/shared/confirmPendingSelfManagedSync'
 import { sourceTypeLabel } from 'products/data_warehouse/frontend/shared/fileUploadSources'
 import {
@@ -48,10 +45,7 @@ import {
 } from 'products/data_warehouse/frontend/shared/sourceFieldFiles'
 import type { SourceFieldConfig } from 'products/data_warehouse/frontend/types'
 import { SYNC_FREQUENCY_ORDER, SyncTypeLabelMap, clampSyncFrequency } from 'products/data_warehouse/frontend/utils'
-import type {
-    ExternalDataSourceBulkUpdateSchemaApi,
-    SourceConfigResponseApi,
-} from 'products/warehouse_sources/frontend/generated/api.schemas'
+import { SourceConfigResponseApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import { sourcesDataLogic } from '../../../shared/logics/sourcesDataLogic'
 import { availableSourcesLogic } from '../../NewSourceScene/availableSourcesLogic'
@@ -116,60 +110,6 @@ export function bulkSyncMethodDisabledReason(
         return 'Append needs an incremental field, which some selected tables have not got'
     }
     return undefined
-}
-
-export type LiveQueryUpdate = Required<Pick<ExternalDataSourceBulkUpdateSchemaApi, 'id' | 'live_query_enabled'>>
-
-export function sourceServesLiveQueries(source: ExternalDataSource | null): boolean {
-    return !!source?.direct_query_enabled && supportsDirectQuery(source.source_type)
-}
-
-export function isQueryableLive(schema: ExternalDataSourceSchema): boolean {
-    return !schema.live_query_unavailable_reason && (schema.should_sync || !!schema.live_query_enabled)
-}
-
-export function isSchemaEnabled(schema: ExternalDataSourceSchema, servesLiveQueries: boolean): boolean {
-    return schema.should_sync || (servesLiveQueries && isQueryableLive(schema))
-}
-
-export type SchemaAvailability = 'synced' | 'live' | 'off'
-
-export function schemaAvailability(schema: ExternalDataSourceSchema): SchemaAvailability {
-    return schema.should_sync ? 'synced' : isQueryableLive(schema) ? 'live' : 'off'
-}
-
-export type AvailabilityChange =
-    | { kind: 'sync'; active: boolean; extra: Pick<ExternalDataSourceSchema, 'live_query_enabled'> }
-    | { kind: 'live'; enabled: boolean }
-
-// Anything that touches syncing goes through the sync toggle, so its confirm dialogs and
-// sync-method redirect still apply; leaving sync carries the live choice in the same save.
-export function availabilityChange(schema: ExternalDataSourceSchema, target: SchemaAvailability): AvailabilityChange {
-    if (target === 'synced') {
-        return { kind: 'sync', active: true, extra: {} }
-    }
-    if (schema.should_sync) {
-        return { kind: 'sync', active: false, extra: { live_query_enabled: target === 'live' } }
-    }
-    return { kind: 'live', enabled: target === 'live' }
-}
-
-// Enabling skips tables that can't be live; disabling skips synced tables, which stay live.
-// Rows already in the requested state are left out of the request and of the skipped count.
-export function buildLiveQueryPayloads(
-    schemas: ExternalDataSourceSchema[],
-    enabled: boolean
-): { payloads: LiveQueryUpdate[]; skipped: number } {
-    const skipped = enabled
-        ? schemas.filter((schema) => schema.live_query_unavailable_reason)
-        : schemas.filter((schema) => schema.should_sync && isQueryableLive(schema))
-    return {
-        payloads: schemas
-            .filter((schema) => !skipped.includes(schema) && !schema.should_sync)
-            .filter((schema) => !!schema.live_query_enabled !== enabled)
-            .map((schema) => ({ id: schema.id, live_query_enabled: enabled })),
-        skipped: skipped.length,
-    }
 }
 
 const NON_WRITABLE_SCHEMA_FIELDS = new Set<keyof ExternalDataSourceSchema>([
@@ -457,7 +397,6 @@ export interface sourceSettingsLogicValues {
     isSourceConfigValid: boolean
     jobs: ExternalDataJob[]
     jobsLoading: boolean
-    liveQuerySavingIds: Record<string, boolean>
     pollPauseCount: number
     refreshingSchemas: boolean
     schemaFilterOptions: {
@@ -516,13 +455,6 @@ export interface sourceSettingsLogicActions {
         frequency: DataWarehouseSyncInterval
     ) => {
         frequency: DataWarehouseSyncInterval
-        schemas: ExternalDataSourceSchema[]
-    }
-    bulkSetLiveQuery: (
-        schemas: ExternalDataSourceSchema[],
-        enabled: boolean
-    ) => {
-        enabled: boolean
         schemas: ExternalDataSourceSchema[]
     }
     bulkSetSyncMethod: (
@@ -655,22 +587,8 @@ export interface sourceSettingsLogicActions {
     setIsProjectTime: (isProjectTime: boolean) => {
         isProjectTime: boolean
     }
-    setLiveQuerySaving: (
-        ids: string[],
-        saving: boolean
-    ) => {
-        ids: string[]
-        saving: boolean
-    }
     setRefreshingSchemas: (refreshing: boolean) => {
         refreshing: boolean
-    }
-    setSchemaLiveQuery: (
-        schema: ExternalDataSourceSchema,
-        enabled: boolean
-    ) => {
-        enabled: boolean
-        schema: ExternalDataSourceSchema
     }
     setSchemaNameFilter: (schemaNameFilter: string) => {
         schemaNameFilter: string
@@ -815,9 +733,6 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
             syncType,
         }),
         bulkSyncNow: (schemas: ExternalDataSourceSchema[]) => ({ schemas }),
-        setSchemaLiveQuery: (schema: ExternalDataSourceSchema, enabled: boolean) => ({ schema, enabled }),
-        bulkSetLiveQuery: (schemas: ExternalDataSourceSchema[], enabled: boolean) => ({ schemas, enabled }),
-        setLiveQuerySaving: (ids: string[], saving: boolean) => ({ ids, saving }),
         bulkResync: (schemas: ExternalDataSourceSchema[]) => ({ schemas }),
         bulkDeleteData: (schemas: ExternalDataSourceSchema[]) => ({ schemas }),
         setCanLoadMoreJobs: (canLoadMoreJobs: boolean) => ({ canLoadMoreJobs }),
@@ -1034,22 +949,6 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                 setBulkEnableLoading: (_, { loading }) => loading,
             },
         ],
-        liveQuerySavingIds: [
-            {} as Record<string, boolean>,
-            {
-                setLiveQuerySaving: (state, { ids, saving }) => {
-                    const next = { ...state }
-                    for (const id of ids) {
-                        if (saving) {
-                            next[id] = true
-                        } else {
-                            delete next[id]
-                        }
-                    }
-                    return next
-                },
-            },
-        ],
         pollPauseCount: [
             0 as number,
             {
@@ -1123,8 +1022,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                 }
                 let schemas = source.schemas
                 if (showEnabledSchemasOnly) {
-                    const servesLiveQueries = sourceServesLiveQueries(source)
-                    schemas = schemas.filter((schema) => isSchemaEnabled(schema, servesLiveQueries))
+                    schemas = schemas.filter((schema) => schema.should_sync)
                 }
                 if (schemaNameFilter) {
                     const filter = schemaNameFilter.toLowerCase()
@@ -1457,76 +1355,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
             scheduleSchemaUpdateFlush()
         }
 
-        // Saved right away instead of through the debounced queue, so the API's reason for a
-        // rejection reaches the user and each row can show that it is saving.
-        // Returns how many rows were sent, or null when the request failed.
-        const saveLiveQuery = async (payloads: LiveQueryUpdate[]): Promise<number | null> => {
-            // Rows already saving are left out, so a double click sends one request.
-            const toSave = payloads.filter((payload) => !values.liveQuerySavingIds[payload.id])
-            if (toSave.length === 0) {
-                return 0
-            }
-            const ids = toSave.map((payload) => payload.id)
-            actions.setLiveQuerySaving(ids, true)
-            try {
-                const updatedSchemas = await api.externalDataSources.bulkUpdateSchemas(values.sourceId, toSave)
-                const nextSource = applySchemasToSource(values.source, updatedSchemas)
-                if (nextSource) {
-                    actions.loadSourceSuccess(nextSource)
-                }
-                posthog.capture('schema live query toggled', {
-                    sourceType: values.source?.source_type,
-                    enabled: toSave[0].live_query_enabled,
-                    count: toSave.length,
-                    bulk: true,
-                })
-                return toSave.length
-            } catch (e: any) {
-                // Other tables in the batch may have saved; reload to show what applied.
-                actions.loadSource()
-                lemonToast.error(e?.message || "Can't update live queries at this time")
-                return null
-            } finally {
-                actions.setLiveQuerySaving(ids, false)
-            }
-        }
-
         return {
-            // Same queue as every other row edit, so a later choice for the table replaces an earlier one still waiting to save.
-            setSchemaLiveQuery: ({ schema, enabled }) => {
-                actions.updateSchema({ ...schema, live_query_enabled: enabled })
-                posthog.capture('schema live query toggled', {
-                    sourceType: values.source?.source_type,
-                    enabled,
-                    count: 1,
-                    bulk: false,
-                })
-            },
-            bulkSetLiveQuery: async ({ schemas, enabled }) => {
-                const { payloads, skipped } = buildLiveQueryPayloads(schemas, enabled)
-                const skipNote =
-                    skipped === 0
-                        ? ''
-                        : enabled
-                          ? ` Skipped ${pluralize(skipped, 'table', 'tables')} that can't be queried live.`
-                          : ` Skipped ${pluralize(skipped, 'synced table', 'synced tables')}, which can always be queried live.`
-                if (payloads.length === 0) {
-                    lemonToast.info(
-                        skipped > 0
-                            ? `No tables changed.${skipNote}`
-                            : enabled
-                              ? 'The selected tables can already be queried live'
-                              : 'Live queries are already off for the selected tables'
-                    )
-                    return
-                }
-                const saved = await saveLiveQuery(payloads)
-                if (saved) {
-                    lemonToast.success(
-                        `${enabled ? 'Enabled' : 'Disabled'} live queries for ${pluralize(saved, 'table', 'tables')}.${skipNote}`
-                    )
-                }
-            },
             updateSchema: (schema) => {
                 const current = values.source?.schemas.find((s) => s.id === schema.id)
                 const turnsSyncingOn = schema.should_sync && !current?.should_sync
