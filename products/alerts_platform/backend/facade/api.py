@@ -275,12 +275,28 @@ def owned_copies(
 
 
 def native_configuration_matches(
-    *, team_id: int, source_kind: SourceKind, search: str | None = None
+    *,
+    team_id: int,
+    source_kind: SourceKind,
+    search: str | None = None,
+    owned_copies: bool = False,
+    source_config_contains: Mapping[str, Any] | None = None,
+    created_by_id: int | None = None,
 ) -> tuple[NativeConfigurationMatch, ...]:
     """Every alert of a kind with no source row, with what a source's list filters, sorts and pages
-    them on beside its own rows. With `search`, only the ones whose name matches it, exact and
-    similar alike: the source keeps only the exact tier when any row of either kind is exact."""
-    return platform_reads.native_configuration_matches(team_id=team_id, source_kind=source_kind.value, search=search)
+    them on beside its own rows. With `owned_copies`, also the copies the platform owns, so a source
+    lists such an alert from its copy's settings. With `search`, only the ones whose name matches it,
+    exact and similar alike: the source keeps only the exact tier when any row of either kind is exact.
+    With `source_config_contains` or `created_by_id`, only the ones whose `source_config` holds that
+    object or that user created, filtered in the database before anything is read."""
+    return platform_reads.native_configuration_matches(
+        team_id=team_id,
+        source_kind=source_kind.value,
+        search=search,
+        owned_copies=owned_copies,
+        source_config_contains=source_config_contains,
+        created_by_id=created_by_id,
+    )
 
 
 def enabled_native_configurations(
