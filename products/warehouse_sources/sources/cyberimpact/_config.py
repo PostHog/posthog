@@ -6,4 +6,4 @@ from products.warehouse_sources.sources.sdk import config
 
 @config.config
 class CyberimpactSourceConfig(config.Config):
-    api_token: str
+    pass
