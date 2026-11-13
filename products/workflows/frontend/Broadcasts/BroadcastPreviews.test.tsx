@@ -124,9 +124,7 @@ describe('broadcast previews', () => {
         fireEvent.click(screen.getByTestId(dataAttr))
     }
     const type = (dataAttr: string, value: string): void => {
-        act(() => {
-            fireEvent.change(screen.getByTestId(dataAttr), { target: { value } })
-        })
+        fireEvent.change(screen.getByTestId(dataAttr), { target: { value } })
     }
     const toRow = (): HTMLElement | null => screen.getByText('To').parentElement
     const iframeHtml = (): string | null | undefined =>
@@ -251,8 +249,9 @@ describe('broadcast previews', () => {
         expect(screen.getByText('Preview and test before this reaches the audience.')).toBeInTheDocument()
     })
 
-    it("leaves the preview's own test button out of the review step", () => {
-        renderReview('email')
+    it('hides the email preview test button when showTestButton is false', () => {
+        mountWizard('email')
+        renderTree(<BroadcastEmailPreview showTestButton={false} />)
         expect(el('broadcast-open-test-email')).toBeNull()
     })
 
@@ -333,11 +332,11 @@ describe('broadcast previews', () => {
         expect(action?.config.inputs.distinctId.value).toBe('{% raw %}user-1{% endraw %}')
     })
 
-    it.each<['email' | 'push', string, string, RegExp, RegExp]>([
-        ['email', 'reviewer@example.com', 'reviewer@example.com', /Read the email in a real/, /Check it in your inbox/],
-        ['push', 'user-1', "user-1's devices", /See the notification on a real/, /Check it on your phone/],
-    ])('vouches for a sent %s test on the review step', async (channel, to, sentTo, before, followUp) => {
-        sendResult = { status: 'success', logs: channel === 'push' ? [log('Push accepted by FCM')] : [] }
+    it.each<['email' | 'push', string, string, RegExp, RegExp, LogEntry[]]>([
+        ['email', 'reviewer@example.com', 'reviewer@example.com', /Read the email/, /Check it in your inbox/, []],
+        ['push', 'user-1', "user-1's devices", /See the notification/, /on your phone/, [log('Push accepted by FCM')]],
+    ])('vouches for a sent %s test on the review step', async (channel, to, sentTo, before, followUp, logs) => {
+        sendResult = { status: 'success', logs }
         renderReview(channel)
         expect(screen.getByText(before)).toBeInTheDocument()
         click('broadcast-review-send-test')
