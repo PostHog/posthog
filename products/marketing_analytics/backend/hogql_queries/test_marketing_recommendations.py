@@ -4,6 +4,8 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from posthog.schema import MarketingAnalyticsRecommendationResolution
+
 from products.marketing_analytics.backend.hogql_queries.marketing_recommendations import (
     SEARCH_CONSOLE_PERFORMANCE_URL,
     CampaignStats,
@@ -13,6 +15,7 @@ from products.marketing_analytics.backend.hogql_queries.marketing_recommendation
     RecommendationInputs,
     SearchTermStats,
     TermKeywordStats,
+    apply_resolutions,
     brands_from_site_urls,
     dedupe_account_agnostic_rules,
     recommend,
@@ -310,6 +313,71 @@ class TestMarketingRecommendations(SimpleTestCase):
         for rec in before:
             validate_identity(rec.identity)
 
+    def test_per_rule_limit_shows_the_top_unresolved_recommendations(self) -> None:
+        terms = (
+            *(_term(f"waste term {i:02d}", "c1", cost=500 + i, conversions=0) for i in range(12)),
+            _term("product analytics", "c1", cost=500, conversions=100),
+        )
+        candidates = recommend(_inputs((_campaign(),), terms))
+
+        def wasted(
+            resolutions: dict[str, MarketingAnalyticsRecommendationResolution], include_resolved: bool
+        ) -> list[tuple[str, str | None]]:
+            return [
+                (rec.subject, rec.resolution.resolution if rec.resolution else None)
+                for rec in apply_resolutions(candidates, resolutions, include_resolved=include_resolved)
+                if rec.rule == "spend_without_conversions"
+            ]
+
+        first = wasted({}, include_resolved=False)
+        assert len(first) == 10
+        dismissed = {
+            rec.key: MarketingAnalyticsRecommendationResolution(
+                id=str(i), resolution="dismissed", resolved_at="2026-01-01T00:00:00+00:00"
+            )
+            for i, rec in enumerate(candidates)
+            if (rec.subject, None) in first
+        }
+
+        assert wasted(dismissed, include_resolved=False) == [("waste term 01", None), ("waste term 00", None)]
+        annotated = wasted(dismissed, include_resolved=True)
+        assert annotated[:2] == [("waste term 01", None), ("waste term 00", None)]
+        assert sorted(annotated[2:]) == sorted((subject, "dismissed") for subject, _ in first)
+
+        organic = tuple(
+            OrganicQueryStats(query=f"{word} analysis", clicks=20, impressions=2000, position=12.0)
+            for word in (
+                *("funnel", "cohort", "retention", "trend", "path", "lifecycle"),
+                *("stickiness", "survey", "experiment", "heatmap", "replay", "warehouse"),
+            )
+        )
+        cheap_account = recommend(
+            _inputs(
+                (_campaign(),),
+                tuple(_term(query.query, "c1", cost=100, conversions=5) for query in organic[:6]),
+                organic,
+            )
+        )
+        costly_account = recommend(
+            replace(
+                _inputs(
+                    (_campaign(),),
+                    tuple(_term(query.query, "c1", cost=900, conversions=5) for query in organic[6:]),
+                    organic,
+                ),
+                customer_id="9876543210",
+            )
+        )
+        striking = [
+            rec.subject
+            for rec in apply_resolutions(
+                dedupe_account_agnostic_rules(cheap_account + costly_account), {}, include_resolved=False
+            )
+            if rec.rule == "striking_distance"
+        ]
+        assert len(striking) == 10
+        assert {query.query for query in organic[6:]} <= set(striking)
+
     @parameterized.expand(
         [
             ("domain_property", "sc-domain:example.com", {"example"}),
@@ -342,6 +410,34 @@ class TestMarketingRecommendations(SimpleTestCase):
         assert (leak.subject, leak.action) == ("Generic", 'Add "example" as a negative keyword')
         assert [step.copyValue for step in leak.steps or [] if step.copyValue] == ["Generic", '"example"']
         assert not any(rec.rule == "scale_campaign" and rec.subject == "Generic" for rec in recs)
+
+    @parameterized.expand(
+        [
+            ("misspelling_is_blocked_too", "NONE", '"example"\n"exampel"'),
+            ("misspelling_bought_on_purpose", "ADDED", '"example"'),
+        ]
+    )
+    def test_brand_leak_negates_the_brand_when_the_top_search_is_a_misspelling(
+        self, _name: str, misspelling_status: str, negatives: str
+    ) -> None:
+        campaign = _campaign(id="generic", name="Generic", cost=2000, conversions=20)
+        terms = (
+            replace(_term("exampel", "generic", cost=600, conversions=1), status=misspelling_status),
+            _term("example pricing", "generic", cost=200, conversions=1),
+            _term("analytics tool", "generic", cost=100, conversions=1),
+            _term("product analytics", "generic", cost=1200, conversions=18),
+        )
+        # A generic search the site ranks first for also counts as brand, but it is no misspelling.
+        organic = (
+            OrganicQueryStats(query="exampel", clicks=100, impressions=200, position=1.0),
+            OrganicQueryStats(query="analytics tool", clicks=90, impressions=200, position=1.0),
+        )
+
+        recs = recommend(_inputs((campaign,), terms, organic))
+
+        leak = next(rec for rec in recs if rec.rule == "brand_leak")
+        assert leak.action == 'Add "example" as a negative keyword'
+        assert [step.copyValue for step in leak.steps or [] if step.copyValue] == ["Generic", negatives]
 
     def test_review_campaign_steps_start_with_the_searches_that_waste_spend(self) -> None:
         good = _campaign(id="c1", name="Good", cost=1000, conversions=10)

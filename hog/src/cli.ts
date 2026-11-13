@@ -313,6 +313,7 @@ type Token = ReturnType<typeof parseArgs>['tokens'] extends (infer T)[] | undefi
 
 interface PreParsed {
     format: OutputFormat | undefined
+    debug: boolean
     noFail: boolean
     noTelemetry: boolean
     tokens: Token[]
@@ -337,7 +338,13 @@ function preParse(argv: readonly string[]): PreParsed {
     })
     const output = values.output
     const format = GLOBAL_OPTIONS.output.choices.find((choice) => choice === output)
-    return { format, noFail: values['no-fail'] === true, noTelemetry: values['no-telemetry'] === true, tokens }
+    return {
+        format,
+        debug: values.debug === true,
+        noFail: values['no-fail'] === true,
+        noTelemetry: values['no-telemetry'] === true,
+        tokens,
+    }
 }
 
 function findLegacy(tokens: Token[]): LegacyRoute | undefined {
@@ -513,7 +520,7 @@ function captureFailure(telemetry: Telemetry, command: string | undefined, error
 }
 
 export async function run(argv: readonly string[], runtime: Runtime): Promise<number> {
-    const { format, noFail, noTelemetry, tokens } = preParse(argv)
+    const { format, debug, noFail, noTelemetry, tokens } = preParse(argv)
     const terminal = { isTTY: runtime.stdoutIsTTY, hasColors: runtime.stdoutHasColors, columns: runtime.stdoutColumns }
     const envFormat = GLOBAL_OPTIONS.output.choices.find((choice) => choice === runtime.env.HOG_OUTPUT)
     const mode = resolveMode(runtime.env, terminal, format ?? envFormat)
@@ -572,6 +579,7 @@ export async function run(argv: readonly string[], runtime: Runtime): Promise<nu
         options: state.options ?? [],
         ...state.properties,
     })
-    await telemetry.flush(state.debug)
+    // A run that failed before its command started has no state.debug, but --debug still applies.
+    await telemetry.flush(state.debug ?? (debug || safeEnvFlag(runtime.env, GLOBAL_OPTIONS.debug.env)))
     return exitCode
 }

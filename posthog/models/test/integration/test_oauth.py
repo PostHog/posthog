@@ -41,8 +41,6 @@ from posthog.models.integration import (
     refresh_backoff_active,
 )
 from posthog.models.integration.model import integration_model
-from posthog.models.integration.oauth import posthog_slack_scope
-from posthog.schema_enums import SlackIntegrationScope, SlackIntegrationScopeInReview
 
 
 def get_db_field_value(field, model_id):
@@ -59,27 +57,15 @@ def test_slack_oauth_requests_the_recently_approved_scopes_on_every_instance():
 
     requested = set(POSTHOG_SLACK_SCOPE.split(","))
 
-    assert {"assistant:write", "im:history", "canvases:write", "files:write", "channels:manage"} <= requested
-
-
-@pytest.mark.parametrize(
-    "debug, cloud_deployment, requests_in_review",
-    [
-        (False, "US", False),
-        (False, "EU", False),
-        (False, None, False),
-        (False, "DEV", True),
-        (True, None, True),
-    ],
-)
-def test_slack_oauth_requests_in_review_scopes_only_on_dev_and_local(
-    debug: bool, cloud_deployment: str | None, requests_in_review: bool
-) -> None:
-    with override_settings(DEBUG=debug, CLOUD_DEPLOYMENT=cloud_deployment):
-        requested = set(posthog_slack_scope().split(","))
-
-    assert {scope.value for scope in SlackIntegrationScope} <= requested
-    assert ({scope.value for scope in SlackIntegrationScopeInReview} <= requested) is requests_in_review
+    assert {
+        "assistant:write",
+        "im:history",
+        "canvases:read",
+        "canvases:write",
+        "channels:join",
+        "files:write",
+        "channels:manage",
+    } <= requested
 
 
 class TestOauthIntegrationModel(BaseTest):
