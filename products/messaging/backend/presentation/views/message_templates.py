@@ -2,10 +2,13 @@ import re
 import time
 from collections.abc import Callable, Mapping, Sequence
 from contextlib import AbstractContextManager, nullcontext
-from dataclasses import fields as dataclass_fields
+from dataclasses import (
+    asdict,
+    fields as dataclass_fields,
+)
 from email.utils import parseaddr
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 from uuid import UUID
 
 from django.core.exceptions import (
@@ -62,6 +65,8 @@ from products.messaging.backend.facade.api import (
     render_design_html,
     validate_design,
 )
+from products.messaging.backend.facade.categories import MESSAGE_CATEGORY_TYPE_CHOICES
+from products.messaging.backend.facade.preferences import ALL_MESSAGE_PREFERENCE_CATEGORY_ID
 from products.messaging.backend.facade.templates import (
     MessageCategoryNotInTeam,
     MessageTemplateBasicRow,
@@ -83,6 +88,7 @@ from products.messaging.backend.facade.transactional_email import (
     SENDER_ADDRESS_PATTERN,
     AttachmentNotUploaded,
     AttachmentsRefused,
+    CategoriesNotEnabled,
     CodeEmail,
     DeliveryUnavailable,
     EmailAttachment,
@@ -90,6 +96,7 @@ from products.messaging.backend.facade.transactional_email import (
     FieldNotAccepted,
     MessageTooLarge,
     QueuedEmail,
+    SendCategoryDefinition,
     TransactionalEmailError,
     TransactionalEmailStage,
     check_transactional_update,
@@ -497,6 +504,8 @@ IDEMPOTENCY_KEY_PARAMETER = OpenApiParameter(
 
 
 TRANSACTIONAL_EMAIL_API_FLAG = "workflows-transactional-email-api"
+CODE_SEND_CATEGORIES_FLAG = "workflows-code-send-categories"
+TRANSACTIONAL_CATEGORY = "transactional"
 FIRST_CODE_SEND_EVENT = "email first code send"
 INTEGRATION_MARKER = re.compile(r"([a-z0-9-]{1,40})/[0-9A-Za-z.+-]{1,40}", re.ASCII)
 USER_AGENT_PRODUCT = re.compile(r"([!#$%&'*+.^_`|~0-9A-Za-z-]+)(?:/|\s|\Z)", re.ASCII)
@@ -507,6 +516,73 @@ DISTINCT_ID_HELP_TEXT = (
     "bounced) and the send itself are recorded against that person. Defaults to the recipient's email address. "
     "The template can't read the person's properties, so pass everything it needs in `message_data`."
 )
+
+
+SEND_CATEGORY_KEY_HELP = (
+    "The category's key, unique within the project, such as `newsletter`. Opt-outs and the preferences page refer "
+    "to the category by it."
+)
+SEND_CATEGORY_TYPE_HELP = (
+    "`marketing`: recipients can opt out, and the send skips those who did. `transactional`: for email a recipient "
+    "must get, which skips opt-outs."
+)
+SEND_CATEGORY_NAME_HELP = (
+    "The category's name, shown in the PostHog app. Used only when the send creates the category: rename it in the app."
+)
+SEND_CATEGORY_DESCRIPTION_HELP = "Notes about which emails belong to the category. Recipients don't see it."
+
+
+class SendCategoryDefinitionSerializer(serializers.Serializer):
+    key = serializers.CharField(max_length=64, help_text=SEND_CATEGORY_KEY_HELP)
+    type = serializers.ChoiceField(choices=MESSAGE_CATEGORY_TYPE_CHOICES, help_text=SEND_CATEGORY_TYPE_HELP)
+    name = serializers.CharField(max_length=128, help_text=SEND_CATEGORY_NAME_HELP)
+    description = serializers.CharField(required=False, allow_blank=True, help_text=SEND_CATEGORY_DESCRIPTION_HELP)
+
+    def validate_key(self, key: str) -> str:
+        if key == ALL_MESSAGE_PREFERENCE_CATEGORY_ID:
+            raise serializers.ValidationError(
+                f"`{key}` stands for all marketing email in opt-outs, so it can't be a category key."
+            )
+        return key
+
+
+@extend_schema_field(
+    {
+        "oneOf": [
+            {"type": "string", "enum": [TRANSACTIONAL_CATEGORY]},
+            {
+                "type": "object",
+                "properties": {
+                    "key": {"type": "string", "maxLength": 64, "description": SEND_CATEGORY_KEY_HELP},
+                    "type": {
+                        "type": "string",
+                        "enum": [value for value, _label in MESSAGE_CATEGORY_TYPE_CHOICES],
+                        "description": SEND_CATEGORY_TYPE_HELP,
+                    },
+                    "name": {"type": "string", "maxLength": 128, "description": SEND_CATEGORY_NAME_HELP},
+                    "description": {"type": "string", "description": SEND_CATEGORY_DESCRIPTION_HELP},
+                },
+                "required": ["key", "type", "name"],
+            },
+        ]
+    }
+)
+class SendCategoryField(serializers.Field):
+    default_error_messages = {
+        "invalid": f"Send `{TRANSACTIONAL_CATEGORY}`, or a category object with `key`, `type` and `name`.",
+    }
+
+    def to_internal_value(self, data: Any) -> Literal["transactional"] | SendCategoryDefinition:
+        if data == TRANSACTIONAL_CATEGORY:
+            return "transactional"
+        if not isinstance(data, Mapping):
+            self.fail("invalid")
+        definition = SendCategoryDefinitionSerializer(data=data)
+        definition.is_valid(raise_exception=True)
+        return SendCategoryDefinition(**definition.validated_data)
+
+    def to_representation(self, value: Any) -> Any:
+        return value if isinstance(value, str) else asdict(value)
 
 
 class TransactionalEmailIdentifiersSerializer(serializers.Serializer):
@@ -523,6 +599,20 @@ class TransactionalEmailMessageSerializer(serializers.Serializer):
         default=dict,
         help_text="Data for the template's Liquid placeholders, available as `variables`. "
         'For example `{"reset_link": "https://..."}` fills `{{ variables.reset_link }}`.',
+    )
+    category = SendCategoryField(
+        required=False,
+        allow_null=True,
+        help_text="Message category of the email. Leave it out or send `transactional` for a transactional email with "
+        "no category, which skips opt-outs. Or define the category in code with `key`, `type`, `name` and an optional "
+        "`description`. The send creates the category when the project has none with that key, and restores it when "
+        "it was archived. It never changes an existing category's name or description. An existing category must "
+        "have the same `type`. A `marketing` email skips recipients who opted out of its category or of all marketing, gets "
+        "unsubscribe headers, and can't have `cc` or `bcc`. Its `html` needs a link whose `href` is "
+        "`{{ unsubscribe_url }}`, or its `text` needs `{{ unsubscribe_url }}` when it has no `html`. PostHog replaces "
+        "the placeholder with the recipient's unsubscribe link. A send with "
+        "`template_id`, or with a `template_key` that names a template, follows the template's category: leave it out "
+        "there, or send the template's own.",
     )
 
 
@@ -759,6 +849,7 @@ class TransactionalEmailRejected(exceptions.ValidationError):
         "sending_suspended": 422,
         "sending_paused": 422,
         "recipient_suppressed": 422,
+        "recipient_opted_out": 422,
         "recipient_unreachable": 422,
     }
     # The caller has to change the request. Without this the error handler types it `validation_error`.
@@ -862,15 +953,18 @@ SEND_RESPONSES: dict[int, ResponseDeclaration] = {
     202: OpenApiResponse(response=SendTransactionalEmailResponseSerializer, description="Email queued"),
     400: OpenApiResponse(
         description="A field is invalid, the template isn't transactional or its email is paused, the sender isn't "
-        "verified, the recipient can't be used, the Idempotency-Key is invalid, the email is too large to send, or "
-        "the project has reached its limit of template keys and the `template_key` is new"
+        "verified, the recipient can't be used, the Idempotency-Key is invalid, the email is too large to send, "
+        "the project has reached its limit of template keys and the `template_key` is new, `category` doesn't match "
+        "the existing category's type or the template's category (`category_mismatch`), the send would create a "
+        "category past the project's limit (`too_many_categories`), or a marketing email has no link a reader can "
+        "click to `{{ unsubscribe_url }}` (`unsubscribe_link_required`) or has `cc` or `bcc` (`copies_not_allowed`)"
     ),
     404: OpenApiResponse(description="Template not found"),
     409: OpenApiResponse(description="A request with the same Idempotency-Key is still in progress"),
     422: OpenApiResponse(
-        description="The email can't go out: the recipient is suppressed or can't receive email, sending is "
-        "suspended for the project or paused for this transactional email, or the Idempotency-Key was already "
-        "used for a different request"
+        description="The email can't go out: the recipient is suppressed or can't receive email, the recipient "
+        "opted out of the marketing email's category (`recipient_opted_out`), sending is suspended for the project "
+        "or paused for this transactional email, or the Idempotency-Key was already used for a different request"
     ),
     429: OpenApiResponse(description="Rate limited, or the project is over its email quota"),
     503: OpenApiResponse(description="The email pipeline did not confirm the send"),
@@ -975,7 +1069,7 @@ class TransactionalEmailSendMixin(RequestBodyCapMixin):
     def _body_properties(self, request: Any) -> dict[str, Any]:
         # Only the single send route takes content your code rendered, so only its body names a key and carries files.
         if not self._takes_code_sends():
-            return {"attachment_count": 0, "attachment_bytes": 0}
+            return {"attachment_count": 0, "attachment_bytes": 0, "category_type": "transactional"}
         body = request.validated_data if hasattr(request, "validated_data") else request.data
         size = attachment_size(body)
         names_a_key = isinstance(body, Mapping) and bool(body.get("template_key"))
@@ -983,6 +1077,7 @@ class TransactionalEmailSendMixin(RequestBodyCapMixin):
             **({"addressed_by": "template_key"} if names_a_key else {}),
             "attachment_count": size.count,
             "attachment_bytes": size.bytes,
+            "category_type": _requested_category_type(body.get("category") if names_a_key else None),
         }
 
     def _end_request_validation(self) -> None:
@@ -998,6 +1093,9 @@ class TransactionalEmailSendMixin(RequestBodyCapMixin):
             if template.transactional_hog_flow_id:
                 self._require_workflow_editor(template.transactional_hog_flow_id)
         data = request.validated_data
+        categories_enabled = isinstance(data.get("category"), SendCategoryDefinition) and _flag_enabled(
+            self.team, CODE_SEND_CATEGORIES_FLAG
+        )
         return self._queue_send(
             request,
             lambda idempotency_key: send_transactional_email(
@@ -1007,6 +1105,7 @@ class TransactionalEmailSendMixin(RequestBodyCapMixin):
                 distinct_id=_distinct_id(data),
                 message_data=data["message_data"],
                 idempotency_key=idempotency_key,
+                category=_enabled_category(data.get("category"), categories_enabled),
             ),
             usage_properties={"template_id": str(template.id)},
         )
@@ -1086,7 +1185,9 @@ class TransactionalEmailSendMixin(RequestBodyCapMixin):
         if is_authenticated_via_project_secret_api_key(self.request):
             return
         if not self.user_access_control.check_access_level_for_resource("hog_flow", "editor"):
-            raise exceptions.PermissionDenied("You need editor access to workflows to send under a new key.")
+            raise exceptions.PermissionDenied(
+                "You need editor access to workflows to send under a new key or with a `category` object."
+            )
 
     def _report_first_code_send_after_commit(self, request: Any, addressed_by: str) -> None:
         if not self._takes_code_sends() or not isinstance(request.user, ProjectSecretAPIKeyUser):
@@ -1530,7 +1631,10 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
             "Send one transactional email to one recipient. Name a template made transactional in `template_id`, "
             "and `message_data` fills its `{{ variables.* }}` placeholders. Or send content your code rendered with "
             "a `template_key`, a `subject` and `html` or `text`: PostHog sends it as is, and its metrics and run "
-            "history group under the key. Transactional emails skip opt-outs and frequency caps. Send an "
+            "history group under the key. Transactional emails skip opt-outs and frequency caps. A code send can define "
+            "its message `category` by key, and PostHog creates that category if it's missing. In a marketing category it "
+            "goes out as marketing email: it skips recipients who opted out, needs a link to `{{ unsubscribe_url }}` "
+            "in its body, and can't have `cc` or `bcc`. Send an "
             "`Idempotency-Key` header to retry safely without sending the email twice. Needs the "
             "`transactional_email:write` scope. A key with `hog_flow:write` also works, but that scope reaches the "
             "rest of Workflows too."
@@ -1553,6 +1657,7 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
             require_email_from_code(self.team)
         data = request.validated_data
         key = data["template_key"]
+        categories_enabled = _flag_enabled(self.team, CODE_SEND_CATEGORIES_FLAG)
         with transactional_email_stage("workflow_access"):
             require_code_email_access(
                 self.team_id,
@@ -1560,38 +1665,61 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
                 require_workflow_editor=self._require_workflow_editor,
                 require_workflow_create=self._require_workflow_create,
             )
-        email = CodeEmail(
-            key=key,
+            if categories_enabled and isinstance(data.get("category"), SendCategoryDefinition):
+                self._require_workflow_create()
+        tracking = _tracking(data)
+        return self._queue_send(
+            request,
+            lambda idempotency_key: send_code_email(
+                self.team,
+                self._code_email(data, categories_enabled),
+                to=data["to"],
+                distinct_id=_distinct_id(data),
+                idempotency_key=idempotency_key,
+                categories_enabled=categories_enabled,
+            ),
+            usage_properties={
+                "addressed_by": "template_key",
+                "tracking_opens": tracking.opens,
+                "tracking_clicks": tracking.clicks,
+                "tracking_engagement": tracking.engagement,
+            },
+            unavailable=unconfirmed_email_send,
+        )
+
+    def _code_email(self, data: Mapping[str, Any], categories_enabled: bool) -> CodeEmail:
+        return CodeEmail(
+            key=data["template_key"],
             subject=data["subject"],
             html=data.get("html", ""),
             text=data.get("text", ""),
             sender=data.get("from"),
             reply_to=tuple(data.get("reply_to", ())),
-            tracking=data["tracking"]
-            if "tracking" in data
-            else EmailTracking(engagement=data.get("capture_engagement", True)),
+            tracking=_tracking(data),
             sensitive=data.get("sensitive"),
             cc=tuple(data.get("cc") or ()),
             bcc=tuple(data.get("bcc") or ()),
             attachments=tuple(EmailAttachment(**attachment) for attachment in data.get("attachments") or ()),
+            category=_enabled_category(data.get("category"), categories_enabled),
         )
-        return self._queue_send(
-            request,
-            lambda idempotency_key: send_code_email(
-                self.team,
-                email,
-                to=data["to"],
-                distinct_id=_distinct_id(data),
-                idempotency_key=idempotency_key,
-            ),
-            usage_properties={
-                "addressed_by": "template_key",
-                "tracking_opens": email.tracking.opens,
-                "tracking_clicks": email.tracking.clicks,
-                "tracking_engagement": email.tracking.engagement,
-            },
-            unavailable=unconfirmed_email_send,
-        )
+
+
+def _enabled_category(category: Any, categories_enabled: bool) -> Any:
+    if isinstance(category, SendCategoryDefinition) and not categories_enabled:
+        raise CategoriesNotEnabled()
+    return category
+
+
+def _requested_category_type(category: Any) -> str:
+    if isinstance(category, SendCategoryDefinition):
+        return category.type
+    if isinstance(category, Mapping) and category.get("type") == "marketing":
+        return "marketing"
+    return "transactional"
+
+
+def _tracking(data: Mapping[str, Any]) -> EmailTracking:
+    return data["tracking"] if "tracking" in data else EmailTracking(engagement=data.get("capture_engagement", True))
 
 
 def _distinct_id(data: Mapping[str, Any]) -> str | None:

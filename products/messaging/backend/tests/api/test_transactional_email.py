@@ -1,14 +1,16 @@
 import json
+import threading
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, get_args
 from uuid import UUID, uuid4
 
 import pytest
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, NonAtomicAPIBaseTest
 from unittest.mock import MagicMock, _Call, call, patch
 
 from django.conf import settings
-from django.db import connection
+from django.db import connection, transaction
 from django.test.utils import CaptureQueriesContext
 
 import requests
@@ -25,6 +27,7 @@ from posthog.models.file_system.file_system import FileSystem
 from posthog.models.integration import Integration
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal, generate_random_token_secret
+from posthog.test.waiting import wait_until
 
 from products.access_control.backend.facade.testing import create_access_control
 from products.messaging.backend.facade.transactional_email import report_first_code_send
@@ -33,11 +36,12 @@ from products.messaging.backend.models.message_category import MessageCategory, 
 from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.models.transactional_email_key import TransactionalEmailKey
 from products.messaging.backend.presentation.views.message_templates import (
+    CODE_SEND_CATEGORIES_FLAG,
     CODE_SEND_FIELDS,
     EMAIL_FROM_CODE_FLAG,
     TRANSACTIONAL_EMAIL_API_FLAG,
 )
-from products.messaging.backend.services import transactional_email
+from products.messaging.backend.services import send_categories, transactional_email
 from products.messaging.backend.services.code_email_source import SOURCE_DETECTION_FLAG
 from products.messaging.backend.services.transactional_email import TransactionalEmailStage, make_transactional
 from products.messaging.backend.tasks.tasks import detect_code_email_source_task
@@ -48,6 +52,10 @@ from products.workflows.backend.facade.team_extension import TeamWorkflowsConfig
 
 CSV, NOTES = "c" * 64, "d" * 64
 TWO_FILES = [{"sha256": CSV, "filename": "a.csv"}, {"sha256": NOTES, "filename": "notes.txt"}]
+MARKETING_SEND = {
+    "category": {"key": "newsletter", "type": "marketing", "name": "Newsletter"},
+    "html": '<a href="{{ unsubscribe_url }}">Unsubscribe</a>',
+}
 CDP_ACCEPTS = {"return_value": MagicMock(status_code=202, json=lambda: {"invocation_id": "invocation-1"})}
 CDP_REPLAYS = MagicMock(status_code=202, json=lambda: {"invocation_id": "first-send", "replayed": True})
 
@@ -113,6 +121,10 @@ class TestTransactionalEmail(APIBaseTest):
             "identifiers": {"distinct_id": "user-1"},
             "message_data": {"link": "https://example.com/reset", "nickname": None},
         }
+
+    def _use_fakes(self, cdp_post: MagicMock, capture: MagicMock) -> None:
+        self.cdp = self.enterContext(FakeCdpApi().serving(cdp_post))
+        self.events = CapturedEvents(capture)
 
     def _template(self, content: dict | None = None) -> MessageTemplate:
         return MessageTemplate.objects.create(
@@ -406,6 +418,25 @@ class TestTransactionalEmail(APIBaseTest):
         assert [event["client"] for event in analytics.properties_of("transactional email api send")] == [
             expected_client
         ]
+
+    def test_a_categorized_code_send_records_its_client_and_queues_its_category(self, mock_post, _flag, capture):
+        pipeline, analytics = FakeCdpApi(), FakeAnalytics()
+        mock_post.side_effect, capture.side_effect = pipeline.post, analytics.capture
+
+        response = self._psak_client(["transactional_email:write"]).post(
+            self.send_email_url,
+            self._code_send(**MARKETING_SEND),
+            format="json",
+            headers={"X-PostHog-Integration": "django-anymail/13.1"},
+        )
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        newsletter = MessageCategory.objects.get(team=self.team, key="newsletter")
+        assert pipeline.categories() == [{"id": str(newsletter.id), "type": "marketing"}]
+        assert [
+            (event["client"], event["category_type"])
+            for event in analytics.properties_of("transactional email api send")
+        ] == [("django-anymail", "marketing")]
 
     def test_a_personal_api_key_with_the_send_scope_cannot_change_the_template(self, mock_post, _flag, _capture):
         self._cdp_accepts(mock_post)
@@ -839,6 +870,409 @@ class TestTransactionalEmail(APIBaseTest):
         sender = {**delivered.get("from", {}), "integrationId": newer_default.id}
         assert cdp.emails() == [{**delivered, "from": sender}]
 
+    UNSUBSCRIBE_HTML = '<a href="{{ unsubscribe_url }}">Unsubscribe</a>'
+    NEWSLETTER = {"key": "newsletter", "type": "marketing", "name": "Newsletter"}
+
+    def _at_key_limit(self) -> None:
+        patcher = patch.object(transactional_email, "TRANSACTIONAL_EMAIL_KEY_LIMIT", 0)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def _archived_key_workflow(self) -> None:
+        hog_flow_id = transactional_email._key_workflow_id(self.team.id, self._code_send()["template_key"])
+        HogFlow.objects.filter(team=self.team, id=hog_flow_id).update(status="archived")
+
+    def _category(self, key: str = "newsletter", **fields: Any) -> MessageCategory:
+        return MessageCategory.objects.create(
+            team=self.team,
+            key=key,
+            name=fields.pop("name", "Newsletter"),
+            category_type=fields.pop("category_type", MessageCategoryType.MARKETING),
+            **fields,
+        )
+
+    @parameterized.expand(
+        [
+            ("left_out", {}, None),
+            ("null", {"category": None}, None),
+            ("transactional", {"category": "transactional", "html": UNSUBSCRIBE_HTML}, None),
+            ("marketing", {"category": NEWSLETTER, "html": UNSUBSCRIBE_HTML}, "marketing"),
+            (
+                "transactional_category_needs_no_link",
+                {"category": {"key": "receipts", "type": "transactional", "name": "Receipts"}},
+                "transactional",
+            ),
+        ]
+    )
+    def test_a_code_sends_category_decides_how_it_goes_out(self, cdp_post, _flag, capture, _name, fields, kind):
+        self._use_fakes(cdp_post, capture)
+
+        response = self._psak_client(["transactional_email:write"]).post(
+            self.send_email_url, self._code_send(**fields), format="json"
+        )
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        if kind is None:
+            assert self.cdp.categories() == [None]
+            assert not MessageCategory.objects.filter(team=self.team).exists()
+        else:
+            category = MessageCategory.objects.get(team=self.team, key=fields["category"]["key"])
+            assert self.cdp.categories() == [{"id": str(category.id), "type": kind}]
+            assert category.category_type == kind
+        [email] = self.cdp.emails()
+        assert ("{{ unsubscribe_url }}" in email["text"]) == (kind == "marketing")
+        assert [send["category_type"] for send in self.events.properties("transactional email api send")] == [
+            kind or "transactional"
+        ]
+
+    @parameterized.expand(
+        [
+            ("link_in_the_html", {"html": UNSUBSCRIBE_HTML}, status.HTTP_202_ACCEPTED),
+            ("link_in_the_text_of_an_email_without_html", {"html": "", "text": "Bye: {{unsubscribe_url}}"}, 202),
+            ("no_link", {"html": "<p>Hi</p>", "text": "Hi"}, status.HTTP_400_BAD_REQUEST),
+            ("link_only_in_the_text_beside_html", {"html": "<p>Hi</p>", "text": "{{ unsubscribe_url }}"}, 400),
+        ]
+    )
+    def test_a_marketing_code_send_needs_the_unsubscribe_placeholder(
+        self, cdp_post, _flag, capture, _name, body, expected_status
+    ):
+        self._use_fakes(cdp_post, capture)
+
+        response = self._psak_client(["transactional_email:write"]).post(
+            self.send_email_url, self._code_send(category=self.NEWSLETTER, **body), format="json"
+        )
+
+        assert response.status_code == expected_status, response.json()
+        sent = expected_status == status.HTTP_202_ACCEPTED
+        assert len(self.cdp.emails()) == (1 if sent else 0)
+        assert MessageCategory.objects.filter(team=self.team, key="newsletter").exists() == sent
+        if not sent:
+            assert response.json()["code"] == "unsubscribe_link_required"
+
+    @parameterized.expand(
+        [
+            ("unknown_key_creates_it", None, ("Newsletter", "Monthly news")),
+            (
+                "existing_category_keeps_its_name_and_description",
+                {"name": "News", "description": "Old"},
+                ("News", "Old"),
+            ),
+            ("archived_category_is_restored", {"name": "News", "deleted": True}, ("News", "")),
+        ]
+    )
+    def test_a_code_send_creates_its_category_by_key_and_never_renames_it(
+        self, cdp_post, _flag, capture, _name, existing, expected
+    ):
+        self._use_fakes(cdp_post, capture)
+        before = self._category(**existing) if existing is not None else None
+
+        response = self._psak_client(["transactional_email:write"]).post(
+            self.send_email_url,
+            self._code_send(category={**self.NEWSLETTER, "description": "Monthly news"}, html=self.UNSUBSCRIBE_HTML),
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        category = MessageCategory.objects.get(team=self.team, key="newsletter")
+        if before is not None:
+            assert category.id == before.id
+        assert (category.name, category.description, category.deleted) == (*expected, False)
+        assert self.cdp.categories() == [{"id": str(category.id), "type": "marketing"}]
+
+    @parameterized.expand(
+        [
+            (
+                "existing_category_of_another_type",
+                lambda test: test._category(category_type=MessageCategoryType.TRANSACTIONAL),
+                {"category": NEWSLETTER, "html": UNSUBSCRIBE_HTML},
+                "category_mismatch",
+            ),
+            (
+                "archived_category_of_another_type",
+                lambda test: test._category(category_type=MessageCategoryType.TRANSACTIONAL, deleted=True),
+                {"category": NEWSLETTER, "html": UNSUBSCRIBE_HTML},
+                "category_mismatch",
+            ),
+            (
+                "copies_on_marketing",
+                None,
+                {"category": NEWSLETTER, "html": UNSUBSCRIBE_HTML, "cc": ["copy@example.com"]},
+                "copies_not_allowed",
+            ),
+            (
+                "blind_copies_on_marketing",
+                None,
+                {"category": NEWSLETTER, "html": UNSUBSCRIBE_HTML, "bcc": ["copy@example.com"]},
+                "copies_not_allowed",
+            ),
+            (
+                "category_limit_reached",
+                lambda test: test._category(key="promos"),
+                {"category": NEWSLETTER, "html": UNSUBSCRIBE_HTML},
+                "too_many_categories",
+            ),
+            (
+                "archived_category_beyond_the_limit",
+                lambda test: (test._category(key="promos"), test._category(deleted=True)),
+                {"category": NEWSLETTER, "html": UNSUBSCRIBE_HTML},
+                "too_many_categories",
+            ),
+            (
+                "key_limit_reached",
+                lambda test: test._at_key_limit(),
+                {"category": NEWSLETTER, "html": UNSUBSCRIBE_HTML},
+                "too_many_keys",
+            ),
+            (
+                "workflow_archived",
+                lambda test: test._archived_key_workflow(),
+                {"category": NEWSLETTER, "html": UNSUBSCRIBE_HTML},
+                "transactional_email_paused",
+            ),
+            ("bare_key", None, {"category": "newsletter"}, "invalid_input"),
+            (
+                "opt_out_sentinel_key",
+                None,
+                {"category": {**NEWSLETTER, "key": "$all"}, "html": UNSUBSCRIBE_HTML},
+                "invalid_input",
+            ),
+            (
+                "missing_name",
+                None,
+                {"category": {"key": "newsletter", "type": "marketing"}, "html": UNSUBSCRIBE_HTML},
+                "required",
+            ),
+        ]
+    )
+    def test_refuses_a_code_send_in_a_category_it_cant_send_in(
+        self, cdp_post, _flag, capture, _name, make_category, fields, expected_code
+    ):
+        self._use_fakes(cdp_post, capture)
+        if make_category:
+            make_category(self)
+        categories_before = set(
+            MessageCategory.objects.filter(team=self.team).values_list("key", "category_type", "deleted")
+        )
+        keys_before = set(TransactionalEmailKey.objects.for_team(self.team.id, canonical=True).values_list("key"))
+        workflows_before = HogFlow.objects.filter(team=self.team).count()
+
+        with patch.object(send_categories, "SEND_CATEGORY_LIMIT", 1):
+            response = self._psak_client(["transactional_email:write"]).post(
+                self.send_email_url, self._code_send(**fields), format="json"
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["code"] == expected_code
+        assert self.cdp.received == []
+        assert (
+            set(MessageCategory.objects.filter(team=self.team).values_list("key", "category_type", "deleted"))
+            == categories_before
+        )
+        assert (
+            set(TransactionalEmailKey.objects.for_team(self.team.id, canonical=True).values_list("key")) == keys_before
+        )
+        assert HogFlow.objects.filter(team=self.team).count() == workflows_before
+        assert [send["error_code"] for send in self.events.properties("transactional email api send")] == [
+            expected_code
+        ]
+
+    @parameterized.expand(
+        [
+            ("code_send_link", "code", {}, (400, "unsubscribe_link_required")),
+            ("code_send_copies", "code", {}, (400, "copies_not_allowed")),
+            ("code_send_with_files_link", "code", {"attachments": TWO_FILES}, (400, "unsubscribe_link_required")),
+            ("code_send_with_files_copies", "code", {"attachments": TWO_FILES}, (400, "copies_not_allowed")),
+            ("code_send_with_files_opted_out", "code", {"attachments": TWO_FILES}, (422, "recipient_opted_out")),
+            ("template_send_link", "template", {}, (400, "unsubscribe_link_required")),
+            ("template_send_copies", "template", {}, (400, "copies_not_allowed")),
+            ("template_send_opted_out", "template", {}, (422, "recipient_opted_out")),
+        ]
+    )
+    def test_the_email_pipelines_refusal_reaches_the_caller(
+        self, cdp_post, _flag, capture, _name, form, fields, refusal
+    ):
+        self.cdp = self.enterContext(FakeCdpApi(refusal=refusal).serving(cdp_post))
+        client = self._psak_client(["transactional_email:write"])
+
+        if form == "code":
+            response = client.post(
+                self.send_email_url,
+                self._code_send(category=self.NEWSLETTER, html=self.UNSUBSCRIBE_HTML, **fields),
+                format="json",
+            )
+        else:
+            response = client.post(self.url, self.body, format="json")
+
+        assert (response.status_code, response.json()["code"]) == refusal
+
+    def test_a_category_another_project_owns_is_not_this_projects(self, cdp_post, _flag, capture):
+        self._use_fakes(cdp_post, capture)
+        theirs = MessageCategory.objects.create(
+            team=self._other_team_template().team, key="newsletter", name="Newsletter", category_type="transactional"
+        )
+
+        response = self._psak_client(["transactional_email:write"]).post(
+            self.send_email_url, self._code_send(category=self.NEWSLETTER, html=self.UNSUBSCRIBE_HTML), format="json"
+        )
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        ours = MessageCategory.objects.get(team=self.team, key="newsletter")
+        assert ours.id != theirs.id
+        assert self.cdp.categories() == [{"id": str(ours.id), "type": "marketing"}]
+
+    @parameterized.expand(
+        [
+            ("code_send_with_a_category", "code", NEWSLETTER, "categories_not_enabled"),
+            ("template_send_with_a_category", "template", NEWSLETTER, "categories_not_enabled"),
+            ("code_send_named_transactional", "code", "transactional", None),
+            ("code_send_under_a_categorized_templates_key", "template_key", None, None),
+            ("transactional_under_a_categorized_templates_key", "template_key", "transactional", "category_mismatch"),
+        ]
+    )
+    def test_with_the_categories_flag_off_a_send_carries_no_category(
+        self, cdp_post, flag, capture, _name, form, category, refusal
+    ):
+        self._use_fakes(cdp_post, capture)
+        flag.side_effect = lambda key, *_args, **_kwargs: key != CODE_SEND_CATEGORIES_FLAG
+
+        if form == "code":
+            response = self.client.post(
+                self.send_email_url, self._code_send(category=category, html=self.UNSUBSCRIBE_HTML), format="json"
+            )
+        elif form == "template_key":
+            receipts = self._category(key="receipts", name="Receipts", category_type=MessageCategoryType.TRANSACTIONAL)
+            MessageTemplate.objects.filter(id=self.template.id).update(key="password-reset", message_category=receipts)
+            response = self.client.post(
+                self.send_email_url,
+                self._code_send(template_key="password-reset", **({"category": category} if category else {})),
+                format="json",
+            )
+        else:
+            response = self.client.post(self.url, {**self.body, "category": category}, format="json")
+
+        if refusal is None:
+            assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        else:
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+            assert (response.json()["code"], response.json()["attr"]) == (refusal, "category")
+        assert not MessageCategory.objects.filter(team=self.team, key="newsletter").exists()
+        assert self.cdp.categories() == ([None] if refusal is None else [])
+
+    @parameterized.expand(
+        [
+            ("no_category_left_out", None, "template", {}, None),
+            ("no_category_transactional", None, "template", {"category": "transactional"}, None),
+            ("no_category_object", None, "send_email", {"category": NEWSLETTER}, "category_mismatch"),
+            ("own_category_left_out", "receipts", "template", {}, "receipts"),
+            (
+                "own_category_renamed_does_not_rename_it",
+                "receipts",
+                "send_email",
+                {"category": {"key": "receipts", "type": "transactional", "name": "Renamed"}},
+                "receipts",
+            ),
+            (
+                "own_category_named_transactional",
+                "receipts",
+                "template",
+                {"category": "transactional"},
+                "category_mismatch",
+            ),
+            (
+                "own_category_other_key",
+                "receipts",
+                "send_email",
+                {"category": {"key": "orders", "type": "transactional", "name": "Orders"}},
+                "category_mismatch",
+            ),
+        ]
+    )
+    def test_a_template_send_follows_its_templates_category(
+        self, cdp_post, _flag, capture, _name, template_category, route, fields, expected
+    ):
+        self._use_fakes(cdp_post, capture)
+        if template_category:
+            own = self._category(
+                key=template_category, name="Receipts", category_type=MessageCategoryType.TRANSACTIONAL
+            )
+            MessageTemplate.objects.filter(id=self.template.id).update(message_category=own)
+
+        response = self._send(self._psak_client(["transactional_email:write"]), route, {**self.body, **fields})
+
+        if expected == "category_mismatch":
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+            assert (response.json()["code"], response.json()["attr"]) == ("category_mismatch", "category")
+            assert self.cdp.received == []
+        else:
+            assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+            assert len(self.cdp.categories()) == 1
+        assert set(MessageCategory.objects.filter(team=self.team).values_list("key", "name")) == (
+            {("receipts", "Receipts")} if template_category else set()
+        )
+
+    @parameterized.expand(
+        [
+            ("left_out", {}, status.HTTP_202_ACCEPTED),
+            (
+                "own_category",
+                {"category": {"key": "receipts", "type": "transactional", "name": "Receipts"}},
+                status.HTTP_202_ACCEPTED,
+            ),
+            ("another_category", {"category": NEWSLETTER, "html": UNSUBSCRIBE_HTML}, status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_a_code_send_under_a_templates_key_follows_the_templates_category(
+        self, cdp_post, _flag, capture, _name, fields, expected_status
+    ):
+        self._use_fakes(cdp_post, capture)
+        own = self._category(key="receipts", name="Receipts", category_type=MessageCategoryType.TRANSACTIONAL)
+        MessageTemplate.objects.filter(id=self.template.id).update(key="password-reset", message_category=own)
+
+        response = self._psak_client(["transactional_email:write"]).post(
+            self.send_email_url, self._code_send(template_key="password-reset", **fields), format="json"
+        )
+
+        assert response.status_code == expected_status, response.json()
+        if expected_status == status.HTTP_202_ACCEPTED:
+            assert self.cdp.categories() == [{"id": str(own.id), "type": "transactional"}]
+        else:
+            assert response.json()["code"] == "category_mismatch"
+            assert self.cdp.received == []
+        assert not MessageCategory.objects.filter(team=self.team, key="newsletter").exists()
+
+    @parameterized.expand(
+        [
+            ("opted_out_of_the_category", "newsletter", NEWSLETTER, "recipient_opted_out"),
+            ("opted_out_of_all_marketing", None, NEWSLETTER, "recipient_opted_out"),
+            ("opted_out_of_another_category", "promos", NEWSLETTER, None),
+            ("transactional_send_to_someone_opted_out_of_all_marketing", None, "transactional", None),
+        ]
+    )
+    def test_a_marketing_code_send_skips_a_recipient_who_opted_out(
+        self, cdp_post, _flag, capture, _name, opted_out_of, category, expected_code
+    ):
+        self._use_fakes(cdp_post, capture)
+        self._category()
+        self._category(key="promos", name="Promos")
+        opted_out = self.client.post(
+            f"/api/environments/{self.team.id}/messaging_preferences/add_opt_out/",
+            {"identifier": "user@example.com", **({"category_key": opted_out_of} if opted_out_of else {})},
+            format="json",
+        )
+        assert opted_out.status_code == status.HTTP_201_CREATED, opted_out.json()
+
+        response = self._psak_client(["transactional_email:write"]).post(
+            self.send_email_url, self._code_send(category=category, html=self.UNSUBSCRIBE_HTML), format="json"
+        )
+
+        if expected_code:
+            assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY, response.json()
+            assert response.json()["code"] == expected_code
+            assert self.cdp.emails() == []
+        else:
+            assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+            assert len(self.cdp.emails()) == 1
+
     def test_a_form_encoded_code_send_without_capture_engagement_captures_engagement(self, mock_post, _flag, _capture):
         with FakeCdpApi().serving(mock_post) as cdp:
             response = self._psak_client(["hog_flow:write"]).post(
@@ -1263,25 +1697,33 @@ class TestTransactionalEmail(APIBaseTest):
             for event in analytics.properties_of("transactional email api send")
         ] == [("field_not_accepted", 0, 0)]
 
-    def test_a_code_send_an_older_pipeline_does_not_take_is_refused_on_that_field(self, mock_post, _flag, capture):
+    @parameterized.expand(
+        [
+            ("attachments", {"attachments": TWO_FILES}, {"takes_attachments": False}, "attachments", "attachments", 2),
+            ("category", MARKETING_SEND, {"takes_categories": False}, "category", "message_category", 0),
+        ]
+    )
+    def test_a_code_send_an_older_pipeline_does_not_take_is_refused_on_that_field(
+        self, mock_post, _flag, capture, _name, fields, pipeline, field, wire_field, attachment_count
+    ):
         events = CapturedEvents(capture)
 
-        with FakeCdpApi(takes_attachments=False).serving(mock_post) as cdp:
-            response = self._psak_client(["hog_flow:write"]).post(
-                self.send_email_url, self._code_send(attachments=TWO_FILES), format="json"
+        with FakeCdpApi(**pipeline).serving(mock_post) as cdp:
+            response = self._psak_client(["transactional_email:write"]).post(
+                self.send_email_url, self._code_send(**fields), format="json"
             )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         body = response.json()
-        assert (body["code"], body["attr"]) == ("field_not_accepted", "attachments")
+        assert (body["code"], body["attr"]) == ("field_not_accepted", field)
         assert "doesn't take the field yet" in body["why"]
         assert "Send the email without this field" in body["fix"]
         assert cdp.emails() == []
-        assert [payload["send"]["attachments"] for payload in cdp.received] == [TWO_FILES]
+        assert [wire_field in payload["send"] for payload in cdp.received] == [True]
         assert [
-            (sent["outcome"], sent["error_code"], sent["attachment_count"], sent["attachment_bytes"])
+            (sent["outcome"], sent["error_code"], sent["attachment_count"])
             for sent in events.properties("transactional email api send")
-        ] == [("rejected", "field_not_accepted", 2, None)]
+        ] == [("rejected", "field_not_accepted", attachment_count)]
 
     @parameterized.expand(
         [
@@ -2153,6 +2595,37 @@ class TestTransactionalEmailWorkflowAccess(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("no_category", [True], {}, status.HTTP_202_ACCEPTED),
+            ("category_object", [True], MARKETING_SEND, status.HTTP_403_FORBIDDEN),
+            ("category_object_with_categories_off", [False], MARKETING_SEND, status.HTTP_400_BAD_REQUEST),
+            ("category_object_while_categories_turn_on", [False, True], MARKETING_SEND, status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_editor_access_to_a_keys_workflow_cannot_create_categories(
+        self, cdp_post, flag, _name, categories_answers, fields, expected_status
+    ):
+        flag.side_effect = lambda key, *_args, **_kwargs: (
+            key != CODE_SEND_CATEGORIES_FLAG
+            or (categories_answers.pop(0) if len(categories_answers) > 1 else categories_answers[0])
+        )
+        cdp = self.enterContext(FakeCdpApi().serving(cdp_post))
+        hog_flow_id = transactional_email._key_workflow_id(self.team.id, "weekly")
+        self._login_member("viewer@example.com", {None: "viewer", str(hog_flow_id): "editor"})
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/messaging/send/email/",
+            {"to": "user@example.com", "template_key": "weekly", "subject": "Weekly", "html": "<p>Hi</p>", **fields},
+            format="json",
+        )
+
+        assert response.status_code == expected_status, response.json()
+        if expected_status == status.HTTP_400_BAD_REQUEST:
+            assert response.json()["code"] == "categories_not_enabled"
+        assert not MessageCategory.objects.filter(team=self.team).exists()
+        assert len(cdp.emails()) == (1 if expected_status == status.HTTP_202_ACCEPTED else 0)
+
+    @parameterized.expand(
+        [
             ("linked_workflows_present", False, False),
             ("linked_workflows_deleted", True, False),
             ("beside_a_malformed_template_ref", False, True),
@@ -2351,3 +2824,161 @@ class TestTransactionalEmailWorkflowAccess(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
         template.refresh_from_db()
         assert template.transactional_hog_flow_id == linked_hog_flow_id
+
+
+@patch("products.messaging.backend.presentation.views.message_templates.posthoganalytics.capture")
+@patch(
+    "products.messaging.backend.presentation.views.message_templates.posthoganalytics.feature_enabled",
+    return_value=True,
+)
+@patch("posthog.plugins.plugin_server_api.internal_requests.post")
+class TestSendCategoryCreatedConcurrently(NonAtomicAPIBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def setUp(self):
+        super().setUp()
+        sender = Integration.objects.create(
+            team=self.team, kind="email", integration_id="hello@example.com", config={"verified": True}
+        )
+        set_default_email_sender_if_unset(self.team.id, sender.id)
+        raw_token = generate_random_token_secret()
+        ProjectSecretAPIKey.objects.create(
+            team=self.team,
+            label="transactional email",
+            secure_value=hash_key_value(raw_token),
+            scopes=["transactional_email:write"],
+            mask_value=f"{raw_token[:4]}...{raw_token[-4:]}",
+        )
+        self.client = APIClient()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {raw_token}")
+
+    def _commit_once_the_send_waits(
+        self, send_pid: int, write: Callable[[], Any], written: threading.Event, *, under_the_send_lock: bool
+    ) -> Any:
+        try:
+            with transaction.atomic():
+                if under_the_send_lock:
+                    with connection.cursor() as cursor:
+                        cursor.execute(
+                            "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+                            [f"{send_categories.SEND_CATEGORY_LOCK}:{self.team.id}"],
+                        )
+                result = write()
+                written.set()
+                wait_until(
+                    lambda: self._send_is_blocked_by_this_session(send_pid),
+                    timeout=30,
+                    interval=0.05,
+                    message="the send never waited on the other write, so the two did not race",
+                )
+            return result
+        finally:
+            written.set()
+            connection.close()
+
+    def _send_pid(self) -> int:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT pg_backend_pid()")
+            return cursor.fetchone()[0]
+
+    def _send_is_blocked_by_this_session(self, send_pid: int) -> bool:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT pg_backend_pid() = ANY(pg_blocking_pids(%s))", [send_pid])
+            return bool(cursor.fetchone()[0])
+
+    def _send_newsletter(self) -> Any:
+        return self.client.post(
+            f"/api/projects/{self.team.id}/messaging/send/email/",
+            {
+                "to": "user@example.com",
+                "template_key": "welcome",
+                "subject": "Welcome",
+                "html": '<a href="{{ unsubscribe_url }}">Unsubscribe</a>',
+                "category": {"key": "newsletter", "type": "marketing", "name": "Newsletter"},
+            },
+            format="json",
+        )
+
+    @parameterized.expand([("restores", True), ("creates", False)])
+    def test_a_category_another_send_makes_at_the_limit_is_used(self, cdp_post, _flag, _capture, _name, archived):
+        cdp = self.enterContext(FakeCdpApi().serving(cdp_post))
+        if archived:
+            category = MessageCategory.objects.create(
+                team=self.team, key="newsletter", name="Newsletter", category_type="marketing", deleted=True
+            )
+
+            def write() -> Any:
+                MessageCategory.objects.filter(id=category.id).update(deleted=False)
+                return category.id
+
+        else:
+
+            def write() -> Any:
+                return MessageCategory.objects.create(
+                    team=self.team, key="newsletter", name="Newsletter", category_type="marketing"
+                ).id
+
+        written = threading.Event()
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            other_send = pool.submit(
+                self._commit_once_the_send_waits, self._send_pid(), write, written, under_the_send_lock=True
+            )
+            assert written.wait(timeout=30)
+            with patch.object(send_categories, "SEND_CATEGORY_LIMIT", 1):
+                response = self._send_newsletter()
+            category_id = other_send.result(timeout=30)
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        assert cdp.categories() == [{"id": str(category_id), "type": "marketing"}]
+
+    def test_a_send_cannot_restore_into_the_last_slot_another_send_is_restoring_into(self, cdp_post, _flag, _capture):
+        cdp = self.enterContext(FakeCdpApi().serving(cdp_post))
+        promos, _newsletter = (
+            MessageCategory.objects.create(
+                team=self.team, key=key, name=key.title(), category_type="marketing", deleted=True
+            )
+            for key in ("promos", "newsletter")
+        )
+        restored = threading.Event()
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            other_send = pool.submit(
+                self._commit_once_the_send_waits,
+                self._send_pid(),
+                lambda: MessageCategory.objects.filter(id=promos.id).update(deleted=False),
+                restored,
+                under_the_send_lock=True,
+            )
+            assert restored.wait(timeout=30)
+            with patch.object(send_categories, "SEND_CATEGORY_LIMIT", 1):
+                response = self._send_newsletter()
+            other_send.result(timeout=30)
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["code"] == "too_many_categories"
+        assert cdp.received == []
+        assert set(MessageCategory.objects.filter(team=self.team, deleted=False).values_list("key", flat=True)) == {
+            "promos"
+        }
+
+    def test_a_key_the_app_creates_while_the_send_inserts_it_is_the_one_used(self, cdp_post, _flag, _capture):
+        cdp = self.enterContext(FakeCdpApi().serving(cdp_post))
+        inserted = threading.Event()
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            app = pool.submit(
+                self._commit_once_the_send_waits,
+                self._send_pid(),
+                lambda: (
+                    MessageCategory.objects.create(
+                        team=self.team, key="newsletter", name="Made in the app", category_type="marketing"
+                    ).id
+                ),
+                inserted,
+                under_the_send_lock=False,
+            )
+            assert inserted.wait(timeout=30)
+            response = self._send_newsletter()
+            category_id = app.result(timeout=30)
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        assert cdp.categories() == [{"id": str(category_id), "type": "marketing"}]
+        assert MessageCategory.objects.filter(team=self.team, key="newsletter").count() == 1

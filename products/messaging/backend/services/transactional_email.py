@@ -34,6 +34,7 @@ from products.messaging.backend.facade.contracts import (
     AttachmentUploadTarget,
     CodeEmail,
     ContentTooLarge,
+    CopiesNotAllowed,
     DeliveryUnavailable,
     EmailAttachment,
     EmailTracking,
@@ -44,13 +45,16 @@ from products.messaging.backend.facade.contracts import (
     InvalidRecipient,
     InvalidRequest,
     MarketingTemplate,
+    MessageCategoryKind,
     MessageTooLarge,
     NamedSenderNotVerified,
     PresentAttachment,
     QueuedEmail,
     QuotaLimited,
+    RecipientOptedOut,
     RecipientSuppressed,
     RecipientUnreachable,
+    SendCategory,
     SenderNotVerified,
     SenderRequired,
     SenderUnavailable,
@@ -62,12 +66,20 @@ from products.messaging.backend.facade.contracts import (
     TooManyKeys,
     TransactionalEmailError,
     TransactionalEmailPaused,
+    UnsubscribeLinkRequired,
     UploadQuotaExceeded,
 )
 from products.messaging.backend.models import FirstCodeSend, MessageCategory, MessageTemplate, TransactionalEmailKey
 from products.messaging.backend.models.message_category import MessageCategoryType
 from products.messaging.backend.services.code_email_source import source_detection_enabled
-from products.messaging.backend.services.html_text import text_from_html
+from products.messaging.backend.services.html_text import UNSUBSCRIBE_PLACEHOLDER, text_from_html
+from products.messaging.backend.services.send_categories import (
+    RequestedCategory,
+    code_send_category,
+    requested_kind,
+    template_category,
+    template_send_category,
+)
 from products.messaging.backend.tasks import detect_code_email_source_task
 from products.workflows.backend.facade.api import WorkflowNotFound, get_workflow_summary
 from products.workflows.backend.facade.transactional_emails import (
@@ -154,6 +166,13 @@ def _observe_cdp_call(seconds: float) -> None:
     observe_transactional_email_stage("cdp_call", seconds)
 
 
+UNSUBSCRIBE_LINK_REQUIRED = (
+    "A marketing email needs an unsubscribe link that readers can click. Use `{{ unsubscribe_url }}` as a link's "
+    'whole `href`, such as `<a href="{{ unsubscribe_url }}">Unsubscribe</a>`, and PostHog fills in the recipient\'s '
+    "link. An email with no `html` can put it in its `text`."
+)
+COPIES_NOT_ALLOWED = "A marketing email can't have `cc` or `bcc` recipients. Send each recipient their own email."
+
 # The CDP service names the reason it refused a send in the body's `error`. A retry of the same request gets the
 # same refusal, so each of these reaches the caller as a 4xx and not as a retryable 503.
 PIPELINE_REFUSALS: dict[str, tuple[type[TransactionalEmailError], str]] = {
@@ -180,6 +199,12 @@ PIPELINE_REFUSALS: dict[str, tuple[type[TransactionalEmailError], str]] = {
         "The recipient is on this project's suppression list after a hard bounce or a spam complaint, so the "
         "email can't be sent. Remove the address from the suppression list if it can receive email again.",
     ),
+    "recipient_opted_out": (
+        RecipientOptedOut,
+        "The recipient opted out of this message category or of all marketing email, so the email can't be sent.",
+    ),
+    "unsubscribe_link_required": (UnsubscribeLinkRequired, UNSUBSCRIBE_LINK_REQUIRED),
+    "copies_not_allowed": (CopiesNotAllowed, COPIES_NOT_ALLOWED),
     "recipient_unreachable": (
         RecipientUnreachable,
         "The recipient's address can't receive email: it isn't a valid address, or its domain has no mail servers, "
@@ -452,18 +477,12 @@ def _require_active(team_id: int, hog_flow_id: UUID) -> None:
         raise TransactionalEmailPaused("This email's workflow isn't active. Turn it back on to send.")
 
 
-def _code_email_workflow_id(team_id: int, key: str, sensitive: bool | None) -> UUID:
-    template = _template_for_key(team_id, key)
-    if template is not None:
-        if sensitive is False and template.sensitive:
-            raise SensitiveTemplate(
-                "This email's template is marked sensitive, so `sensitive` can't be false. "
-                "Leave `sensitive` out, or unmark the template."
-            )
-        return _transactional_workflow_id(team_id, template)
-    hog_flow_id = _key_workflow_id(team_id, key)
-    _require_active(team_id, hog_flow_id)
-    return hog_flow_id
+def _require_template_takes_sensitivity(template: MessageTemplate, sensitive: bool | None) -> None:
+    if sensitive is False and template.sensitive:
+        raise SensitiveTemplate(
+            "This email's template is marked sensitive, so `sensitive` can't be false. "
+            "Leave `sensitive` out, or unmark the template."
+        )
 
 
 def _template_for_key(team_id: int, key: str) -> MessageTemplate | None:
@@ -556,6 +575,7 @@ def send_transactional_email(
     distinct_id: str | None,
     message_data: dict[str, Any],
     idempotency_key: str | None = None,
+    category: RequestedCategory = None,
     timeout: float = 10,
 ) -> QueuedEmail:
     _check_send_request(to, idempotency_key)
@@ -564,8 +584,12 @@ def send_transactional_email(
         if isinstance(template, UUID):
             model = MessageTemplate.objects.get(team_id=team.id, id=template, deleted=False)
             hog_flow_id = _transactional_workflow_id(team.id, model)
+            category_id = model.message_category_id
         else:
             hog_flow_id = _transactional_workflow_id(team.id, template)
+            category_id = template.message_category_id
+        if category is not None:
+            template_send_category(template_category(team.id, category_id), category)
     payload = _send_payload(to, distinct_id, message_data, idempotency_key)
     return _queue(team.id, hog_flow_id, payload, run_transactional_workflow, timeout=timeout)
 
@@ -577,11 +601,31 @@ def send_code_email(
     to: str,
     distinct_id: str | None,
     idempotency_key: str | None = None,
+    categories_enabled: bool = False,
 ) -> QueuedEmail:
     _check_send_request(to, idempotency_key, (*email.cc, *email.bcc))
     with transactional_email_stage("workflow_lookup"):
-        accepted_send = _accepted_send(team.id, email)
-        hog_flow_id = _code_email_workflow_id(team.id, email.key, email.sensitive)
+        template = _template_for_key(team.id, email.key)
+        category: SendCategory | None = None
+        if template is not None:
+            _require_template_takes_sensitivity(template, email.sensitive)
+            hog_flow_id = _transactional_workflow_id(team.id, template)
+            if categories_enabled or email.category is not None:
+                category = template_send_category(
+                    template_category(team.id, template.message_category_id), email.category
+                )
+            kind = "transactional" if category is None else category.type
+        else:
+            kind = requested_kind(email.category)
+        _require_marketing_rules(email, kind)
+        accepted_send = _accepted_send(team.id, email, kind)
+        if template is None:
+            with transaction.atomic():
+                hog_flow_id = _key_workflow_id(team.id, email.key)
+                _require_active(team.id, hog_flow_id)
+                category = code_send_category(team.id, email.category)
+    if category is not None:
+        accepted_send["message_category"] = {"id": str(category.id), "type": category.type}
     payload = {**_send_payload(to, distinct_id, {}, idempotency_key), "send": accepted_send}
     return _queue(team.id, hog_flow_id, payload, send_accepted_transactional_email)
 
@@ -613,10 +657,23 @@ def _send_payload(
     return payload
 
 
-def _accepted_send(team_id: int, email: CodeEmail) -> dict[str, Any]:
+def _require_marketing_rules(email: CodeEmail, kind: MessageCategoryKind) -> None:
+    if kind != "marketing":
+        return
+    if not UNSUBSCRIBE_PLACEHOLDER.search(email.html or email.text):
+        raise UnsubscribeLinkRequired(UNSUBSCRIBE_LINK_REQUIRED)
+    if email.cc or email.bcc:
+        raise CopiesNotAllowed(COPIES_NOT_ALLOWED)
+
+
+def _accepted_send(team_id: int, email: CodeEmail, kind: MessageCategoryKind) -> dict[str, Any]:
     accepted: dict[str, Any] = {
         "content": _without_empty(
-            {"subject": email.subject, "html": email.html, "text": email.text or text_from_html(email.html)}
+            {
+                "subject": email.subject,
+                "html": email.html,
+                "text": email.text or text_from_html(email.html, keep_unsubscribe_link=kind == "marketing"),
+            }
         ),
         "from": _without_empty(_code_send_sender(team_id, email.sender)),
         "tracking": _accepted_tracking(email.tracking),
@@ -772,6 +829,9 @@ def _attachment_bytes(answer: dict[str, Any]) -> int | None:
     return total if isinstance(total, int) and not isinstance(total, bool) and total >= 0 else None
 
 
+SEND_FIELDS_BY_WIRE_FIELD = {"message_category": "category"}
+
+
 def _send_field_an_older_pipeline_refused(error: str | None) -> str | None:
     try:
         issues = json.loads(error or "")
@@ -785,7 +845,7 @@ def _send_field_an_older_pipeline_refused(error: str | None) -> str | None:
         if issue.get("path") == ["send"]:
             keys = issue.get("keys")
             if isinstance(keys, list) and keys and isinstance(keys[0], str):
-                return keys[0]
+                return SEND_FIELDS_BY_WIRE_FIELD.get(keys[0], keys[0])
     return None
 
 
