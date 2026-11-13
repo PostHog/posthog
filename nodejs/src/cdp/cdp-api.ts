@@ -1207,6 +1207,10 @@ export class CdpApi {
         if (parsed.data.runs.some((run) => !allowedTeamIds.has(run.team_id))) {
             return res.status(401).json({ error: 'Unauthorized: Invalid scheduled runs token' })
         }
+        const maxRuns = this.config.CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE
+        if (parsed.data.runs.length > maxRuns) {
+            return res.status(400).json({ error: `A batch holds at most ${maxRuns} runs, one queue insert` })
+        }
         try {
             const outcomes = await this.scheduledRuns().queue(
                 parsed.data.runs.map((run) => ({
