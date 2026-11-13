@@ -102,12 +102,17 @@ describe('schema check', () => {
             ['a lower version merged late is not applied', [{ version: 20260201000001, success: true }], 'missing'],
             ['no version applied', [], 'missing'],
             [
-                'a failed migration on the database',
+                'a required version failed',
                 [
-                    { version: 20260201000001, success: true },
-                    { version: 20260301000001, success: false },
+                    { version: 20260101000001, success: true },
+                    { version: 20260201000001, success: false },
                 ],
                 'dirty',
+            ],
+            [
+                'only a version the image does not need failed',
+                [...CYCLOTRON_APPLIED, { version: 20260301000001, success: false }],
+                'satisfied',
             ],
         ])('%s', (_case, rows, expectedStatus) => {
             expect(evaluateSqlxRows(CYCLOTRON, rows).status).toBe(expectedStatus)
@@ -244,9 +249,19 @@ describe('schema check', () => {
             [
                 'dirty',
                 { CYCLOTRON_NODE_DATABASE_URL: 'postgres://c' },
-                [...CYCLOTRON_APPLIED, { version: 20260301000001, success: false }],
+                [
+                    { version: 20260101000001, success: true },
+                    { version: 20260201000001, success: false },
+                ],
                 EXIT_MISSING,
                 'cyclotron-node dirty',
+            ],
+            [
+                'applied with a failed version the image does not need',
+                { CYCLOTRON_NODE_DATABASE_URL: 'postgres://c' },
+                [...CYCLOTRON_APPLIED, { version: 20260301000001, success: false }],
+                EXIT_SATISFIED,
+                'Warning: sqlx database cyclotron-node: failed migrations recorded that this image does not need: 20260301000001',
             ],
             [
                 'unreadable',

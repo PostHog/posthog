@@ -98,6 +98,7 @@ export interface SqlxResult {
     requirement: SqlxRequirement
     status: SqlxStatus
     detail: string
+    warning?: string
 }
 
 export interface SqlxCheck {
@@ -106,16 +107,27 @@ export interface SqlxCheck {
 }
 
 // sqlx writes success = false when a migration without a transaction fails halfway. sqlx refuses to run on such a database.
+// Only a failed version this image needs holds the rollout. A failed version the image does not need
+// leaves the image safe to run, so it only produces a warning that keeps the cause visible.
 export function evaluateSqlxRows(requirement: SqlxRequirement, rows: SqlxMigrationRow[]): SqlxResult {
+    const required = new Set(requirement.versions)
     const failed = rows.filter((row) => !row.success).map((row) => row.version)
-    if (failed.length > 0) {
+    const failedRequired = failed.filter((version) => required.has(version))
+    const failedOther = failed.filter((version) => !required.has(version))
+    const warning =
+        failedOther.length > 0
+            ? `failed migrations recorded that this image does not need: ${failedOther.join(', ')}`
+            : undefined
+
+    if (failedRequired.length > 0) {
         return {
             requirement,
             status: 'dirty',
-            detail: `failed migrations recorded: ${failed.join(', ')}, sqlx-migrate stops until someone repairs them`,
+            detail: `failed migrations recorded: ${failedRequired.join(', ')}, sqlx-migrate stops until someone repairs them`,
+            warning,
         }
     }
-    const applied = new Set(rows.map((row) => row.version))
+    const applied = new Set(rows.filter((row) => row.success).map((row) => row.version))
     const missing = requirement.versions.filter((version) => !applied.has(version))
     if (missing.length === 0) {
         const latest = requirement.versions[requirement.versions.length - 1]
@@ -123,9 +135,10 @@ export function evaluateSqlxRows(requirement: SqlxRequirement, rows: SqlxMigrati
             requirement,
             status: 'satisfied',
             detail: `all ${requirement.versions.length} versions are applied, latest ${latest}`,
+            warning,
         }
     }
-    return { requirement, status: 'missing', detail: `versions not applied: ${missing.join(', ')}` }
+    return { requirement, status: 'missing', detail: `versions not applied: ${missing.join(', ')}`, warning }
 }
 
 export async function checkSqlxOnce({ requirement, store }: SqlxCheck): Promise<SqlxResult> {
@@ -198,6 +211,9 @@ export async function waitForRequirements(
 
     for (;;) {
         const result = await checkAllOnce(djangoRequirements, store, sqlxChecks)
+        for (const sqlx of result.sqlx.filter((item) => item.warning)) {
+            log(`Warning: sqlx database ${sqlx.requirement.database}: ${sqlx.warning}`)
+        }
         if (isWaitSatisfied(result)) {
             return result
         }

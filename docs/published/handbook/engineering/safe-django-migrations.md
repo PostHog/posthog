@@ -1025,7 +1025,8 @@ Node Jest CI fails when Node SQL reads a table of an app that `products/db_routi
 ClickHouse tables are out of scope.
 The hook holds the rollout in the same wait until each sqlx database the app connects to has the sqlx versions the image needs.
 A sqlx database that the app has no URL for is skipped, because the app does not connect to it.
-A failed sqlx migration also holds the rollout, and someone has to repair it before sqlx-migrate runs again.
+A failed sqlx migration of a version the image needs also holds the rollout, and someone has to repair it before sqlx-migrate runs again.
+A failed version the image does not need only logs a warning.
 A sqlx version does not count when every table its migration names is one that Node does not read, so a drop of a table Node no longer uses does not hold anything.
 The hook pushes its Django and sqlx results to the Prometheus Pushgateway as `node_schema_check_` metrics, so alerts can fire on a missing migration that the logs alone would hide.
 Column and table drops are the opposite case and stay code-first: remove every reader, deploy, then drop.
