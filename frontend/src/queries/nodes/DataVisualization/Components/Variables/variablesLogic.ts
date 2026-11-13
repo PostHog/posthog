@@ -38,6 +38,8 @@ export interface VariablesLogicProps {
     sourceQuery?: VisualizationNode
     setQuery?: (query: VisualizationNode) => void
     onUpdate?: (query: VisualizationNode) => void
+    selectedVariables?: HogQLVariable[]
+    onSelectionChange?: (variables: HogQLVariable[]) => void
 }
 
 const convertValueToCorrectType = (value: unknown, type: VariableType): unknown => {
@@ -214,7 +216,7 @@ export const variablesLogic = kea<variablesLogicType>([
         setSearchTerm: (search: string) => ({ search }),
         clickVariable: (variable: Variable & { selected: boolean }) => ({ variable }),
     })),
-    propsChanged(({ props, actions, values }) => {
+    propsChanged(({ props, actions, values }, oldProps) => {
         if (props.sourceQuery) {
             const variables = Object.values(props.sourceQuery?.source?.variables ?? {})
 
@@ -233,10 +235,14 @@ export const variablesLogic = kea<variablesLogicType>([
                 }
             })
         }
+        if (props.selectedVariables !== oldProps.selectedVariables && props.selectedVariables) {
+            actions.addVariables(props.selectedVariables)
+            actions.updateSourceQuery()
+        }
     }),
-    reducers({
+    reducers(({ props }) => ({
         internalSelectedVariables: [
-            [] as HogQLVariable[],
+            props.selectedVariables ?? ([] as HogQLVariable[]),
             {
                 addVariable: (state, { variable }) => {
                     if (state.find((n) => variable.variableId === n.variableId)) {
@@ -321,7 +327,7 @@ export const variablesLogic = kea<variablesLogicType>([
                 setSearchTerm: (_, { search }) => search,
             },
         ],
-    }),
+    })),
     selectors({
         queryVariableCodeNames: [
             (s) => [s.editorQuery, (_, props) => props.sourceQuery?.source?.query],
@@ -476,6 +482,7 @@ export const variablesLogic = kea<variablesLogicType>([
             actions.updateSourceQuery()
         },
         updateSourceQuery: () => {
+            props.onSelectionChange?.(values.internalSelectedVariables)
             if (!props.sourceQuery?.source) {
                 return
             }
