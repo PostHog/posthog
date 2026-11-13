@@ -22,7 +22,7 @@ export function IssueTagFilter(): JSX.Element | null {
                 data-attr="error-tracking-issue-tag-filter-reload"
                 onClick={() => loadIssueTagDefinitions()}
             >
-                Reload tags
+                Reload labels
             </LemonButton>
         ) : null
     }

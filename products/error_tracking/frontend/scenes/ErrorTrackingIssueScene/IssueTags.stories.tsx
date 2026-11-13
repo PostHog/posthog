@@ -11,21 +11,19 @@ export default meta
 
 type Story = StoryObj<typeof IssueTags>
 
-export const AnsweredByAIAndManually: Story = {
+export const AppliedByAIAndManually: Story = {
     args: {
         tags: [
             {
                 key: 'cause_in_trace',
                 label: 'Cause in stack trace',
                 description: 'The stack trace shows the line that caused the error.',
-                value: true,
                 source: 'jev',
             },
             {
                 key: 'user_facing',
                 label: 'Seen by users',
                 description: 'People using the app saw this error.',
-                value: true,
                 source: 'manual',
             },
         ],

@@ -338,7 +338,7 @@ const RightHandColumn = ({
     isOpen: boolean
     onClose: () => void
 }): JSX.Element | null => {
-    const { issue, issueId, issueLoading, selectedEvent, initialEvent, initialEventLoading, summary, yesTags } =
+    const { issue, issueId, issueLoading, selectedEvent, initialEvent, initialEventLoading, summary } =
         useValues(errorTrackingIssueSceneLogic)
     const { setOnlyWithRecording } = useActions(issueRecordingFilterLogic({ issueId }))
     const hasIssueTags = useFeatureFlag('ERROR_TRACKING_ISSUE_TAGS')
@@ -365,7 +365,7 @@ const RightHandColumn = ({
                 </div>
             )}
             <PostHogSDKIssueBanner event={detailEvent} />
-            {hasIssueTags && <IssueTags tags={yesTags} />}
+            {hasIssueTags && <IssueTags tags={issue?.tags ?? []} />}
             <IssueSummary />
             <LinkedReports />
             <div className="flex-1 min-h-0 flex flex-col">

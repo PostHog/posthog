@@ -9,7 +9,6 @@ import { Params } from 'scenes/sceneTypes'
 import {
     ErrorTrackingIssue,
     ErrorTrackingIssueTagFilter,
-    ErrorTrackingIssueTagFilterValue,
     ErrorTrackingQuery,
     ErrorTrackingQueryIssueSeverity,
 } from '~/queries/schema/schema-general'
@@ -100,20 +99,14 @@ export function isValidSeverity(severity: unknown): severity is ErrorTrackingQue
     return typeof severity === 'string' && Object.hasOwn(VALID_SEVERITIES, severity)
 }
 
-export const ISSUE_TAG_ANSWER_LABELS: Record<ErrorTrackingIssueTagFilterValue, string> = {
-    yes: 'Yes',
-    no: 'No',
-    unknown: 'Unknown',
-}
-
 // Like sanitizeAssignee: the query schema forbids unknown keys, so keep only the two fields it accepts.
 export function sanitizeIssueTag(issueTag: unknown): ErrorTrackingIssueTagFilter | null {
     if (!issueTag || typeof issueTag !== 'object') {
         return DEFAULT_ISSUE_TAG
     }
-    const { key, value } = issueTag as Partial<ErrorTrackingIssueTagFilter>
-    if (typeof key === 'string' && key && typeof value === 'string' && Object.hasOwn(ISSUE_TAG_ANSWER_LABELS, value)) {
-        return { key, value }
+    const { key, applied } = issueTag as Partial<ErrorTrackingIssueTagFilter>
+    if (typeof key === 'string' && key && typeof applied === 'boolean') {
+        return { key, applied }
     }
     return DEFAULT_ISSUE_TAG
 }

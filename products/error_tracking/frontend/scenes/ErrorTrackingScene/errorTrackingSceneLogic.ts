@@ -294,7 +294,7 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                 severity: values.severity,
                 has_assignee: !!values.assignee,
                 issue_tag_key: values.activeIssueTag?.key ?? null,
-                issue_tag_value: values.activeIssueTag?.value ?? null,
+                issue_tag_applied: values.activeIssueTag?.applied ?? null,
             })
         },
     })),

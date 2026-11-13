@@ -24,7 +24,7 @@ describe('errorTrackingSceneLogic', () => {
     // nothing on screen to clear it.
     it.each([
         [false, undefined],
-        [true, { key: 'cause_in_trace', value: 'yes' }],
+        [true, { key: 'cause_in_trace', applied: true }],
     ])('with issue tags on %p, sends the tag filter %p', (issueTagsOn, expected) => {
         initKeaTests()
         featureFlagLogic.mount()
@@ -34,7 +34,7 @@ describe('errorTrackingSceneLogic', () => {
 
         issueQueryOptionsLogic({ logicKey: ERROR_TRACKING_SCENE_LOGIC_KEY }).actions.setIssueTag({
             key: 'cause_in_trace',
-            value: 'yes',
+            applied: true,
         })
 
         expect((logic.values.query.source as ErrorTrackingQuery).issueTag).toEqual(expected)
