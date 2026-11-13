@@ -210,8 +210,9 @@ export const QuillDateFilterMenu = forwardRef<HTMLButtonElement, QuillDateFilter
                         <DropdownMenuRadioGroup value={selectedValue}>
                             <ScrollArea
                                 hideScrollbars
-                                scrollShadows={false}
-                                viewportClassName="max-h-80 scroll-mask-y-4 scroll-py-4"
+                                // Bleeds into the menu padding so the scroll shadows span the full width
+                                className="-mx-2 -mt-2"
+                                viewportClassName="max-h-80 px-2 pt-2 scroll-py-4"
                             >
                                 {visibleOptions.map(({ key: optionKey, values }) => (
                                     <DropdownMenuRadioItem
