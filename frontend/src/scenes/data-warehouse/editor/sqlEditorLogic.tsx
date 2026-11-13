@@ -2828,7 +2828,16 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 })
 
                 const response = logic.values.response
-                const types = response && 'types' in response ? (response.types ?? []) : []
+                const types =
+                    values.isSourceQueryLastRun &&
+                    queryToSave.query.trim() ===
+                        (values.lastRunQuery?.source.query ?? values.sourceQuery.source.query).trim() &&
+                    !logic.values.responseLoading &&
+                    !logic.values.responseError &&
+                    response &&
+                    'types' in response
+                        ? (response.types ?? [])
+                        : []
                 // "Partial save" means the user is saving something smaller than the full editor
                 // text — either because of multi-query splitting or a specific text selection. In
                 // that case the current tab shouldn't be rebound to the new view, because its
@@ -3514,11 +3523,19 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     return
                 }
                 // The data node is bound inside the editor, so the response is read from the mounted instance.
-                const response = dataNodeLogic.findMounted({ key: values.dataLogicKey })?.values.response
+                const dataNode = dataNodeLogic.findMounted({ key: values.dataLogicKey })
+                const response = dataNode?.values.response
                 actions.reviewViewUpdate({
                     id: view.id,
                     query: { ...values.sourceQuery.source, query: values.queryInput ?? '' },
-                    types: response && 'types' in response ? (response.types ?? []) : [],
+                    types:
+                        values.isSourceQueryLastRun &&
+                        !dataNode?.values.responseLoading &&
+                        !dataNode?.values.responseError &&
+                        response &&
+                        'types' in response
+                            ? (response.types ?? [])
+                            : [],
                     shouldRematerialize: view.is_materialized === true,
                     edited_history_id: values.inProgressViewEdits[view.id],
                 })
@@ -3947,10 +3964,16 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 sourceQuery: DataVisualizationNode,
                 splitRanges: QueryRange[]
             ) => {
+                const normalizeParameters = (source: HogQLQuery): Record<string, unknown> =>
+                    removeUndefinedAndNull({
+                        ...normalizeRawQuerySource(source),
+                        query: undefined,
+                        executionTarget: source.executionTarget ?? 'default',
+                        filters: normalizeFiltersForUrl(source.filters),
+                    })
                 if (
                     lastRunQuery &&
-                    (lastRunQuery.source.executionTarget ?? 'default') !==
-                        (sourceQuery.source.executionTarget ?? 'default')
+                    !equal(normalizeParameters(lastRunQuery.source), normalizeParameters(sourceQuery.source))
                 ) {
                     return false
                 }

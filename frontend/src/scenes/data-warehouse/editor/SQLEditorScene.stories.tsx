@@ -474,34 +474,49 @@ export const EditedView: Story = {
         msw: { mocks: discardMocks },
     },
     play: async ({ canvasElement }) => {
+        await waitForEditor(canvasElement)
         const canvas = within(canvasElement)
-        const discard = await canvas.findByRole('button', { name: 'Discard changes' }, { timeout: 15000 })
+        const body = within(canvasElement.ownerDocument.body)
+        const logic = sqlEditorLogic({ tabId: 'default' })
+        await canvas.findByRole('button', { name: 'Update view' })
+        const update = (): HTMLElement => canvas.getByRole('button', { name: 'Update view' })
+        await waitFor(() => expect(update()).toHaveAttribute('aria-disabled', 'false'))
+        await userEvent.click(update())
+        await waitFor(() => expect(body.getByRole('dialog', { name: 'Save query without running' })).toBeVisible())
+        await userEvent.click(body.getByText('Run latest', { exact: true }))
         await waitFor(() =>
-            expect(canvas.getByRole('button', { name: 'Discard changes' })).toHaveAttribute('aria-disabled', 'false')
+            expect(body.queryByRole('dialog', { name: 'Save query without running' })).not.toBeInTheDocument()
         )
-        await expect(canvas.getByText('Edited')).toBeVisible()
-        await expect(canvas.getByRole('button', { name: 'Update view' })).toHaveAttribute('aria-disabled', 'true')
-        await userEvent.click(discard)
+        await waitFor(() => expect(logic.values.lastRunQuery?.source.query).toBe('SELECT 2'))
+        await waitFor(() => expect(update().querySelector('[data-attr="sql-editor-save-warning"]')).toBeNull())
+        logic.actions.setQueryInput('SELECT 3')
+        await waitFor(() => expect(update().querySelector('[data-attr="sql-editor-save-warning"]')).toBeVisible())
+        await userEvent.click(update())
+        await waitFor(() => expect(body.getByRole('dialog', { name: 'Save query without running' })).toBeVisible())
+        await userEvent.click(body.getByText('Save anyway', { exact: true }))
         await waitFor(() =>
-            expect(canvas.getByRole('button', { name: 'Discard changes' })).toHaveAttribute('aria-disabled', 'true')
+            expect(body.queryByRole('dialog', { name: 'Save query without running' })).not.toBeInTheDocument()
         )
-        await expect(canvas.queryByText('Edited')).not.toBeInTheDocument()
-        await expect(canvas.getByRole('button', { name: 'Update view' })).toHaveAttribute('aria-disabled', 'true')
-        sqlEditorLogic({ tabId: 'default' }).actions.setQueryInput('SELECT 2')
-        await waitFor(() =>
-            expect(canvas.getByRole('button', { name: 'Discard changes' })).toHaveAttribute('aria-disabled', 'false')
-        )
-        await userEvent.click(canvas.getByRole('button', { name: 'Run' }))
-        await waitFor(
-            () => expect(canvas.getByRole('button', { name: 'Update view' })).toHaveAttribute('aria-disabled', 'false'),
-            {
-                timeout: 15000,
-            }
-        )
-        sqlEditorLogic({ tabId: 'default' }).actions.setQueryInput('SELECT 3')
-        await waitFor(() =>
-            expect(canvas.getByRole('button', { name: 'Update view' })).toHaveAttribute('aria-disabled', 'true')
-        )
+        await waitFor(() => expect(logic.values.suggestionPayload?.suggestedValue).toBe('SELECT 3'))
+        logic.actions.onRejectSuggestedQueryInput()
+        await userEvent.click(canvas.getByRole('button', { name: 'Discard changes' }))
+        await waitFor(() => expect(canvas.queryByText('Edited')).not.toBeInTheDocument())
+        await expect(update()).toHaveAttribute('aria-disabled', 'true')
+        logic.actions.setSourceQuery({
+            ...logic.values.sourceQuery,
+            source: { ...logic.values.sourceQuery.source, filters: { dateRange: { date_from: '-30d' } } },
+        })
+        await waitFor(() => expect(canvas.getByText('Edited')).toBeVisible())
+        await expect(update()).toHaveAttribute('aria-disabled', 'false')
+    },
+}
+
+export const EditedViewQuill: Story = {
+    ...EditedView,
+    parameters: {
+        ...EditedView.parameters,
+        featureFlags: [FEATURE_FLAGS.TODAY_RAIL_NAV],
+        testOptions: { snapshotBrowsers: [] },
     },
 }
 
@@ -529,16 +544,10 @@ export const EditedInsight: Story = {
         ).toHaveAttribute('aria-disabled', 'false')
         await expect(
             canvasElement.ownerDocument.querySelector('[data-attr="sql-editor-save-view-button"]')
-        ).toHaveAttribute('aria-disabled', 'true')
+        ).toHaveAttribute('aria-disabled', 'false')
         await expect(
             canvasElement.ownerDocument.querySelector('[data-attr="sql-editor-save-as-endpoint"]')
-        ).toHaveAttribute('aria-disabled', 'true')
-        // The popover fades in, so wait for it instead of asserting visibility on the first frame.
-        await waitFor(() =>
-            expect(
-                menu.getByText('Run the current query successfully to check which columns the endpoint will return')
-            ).toBeVisible()
-        )
+        ).toHaveAttribute('aria-disabled', 'false')
         await userEvent.keyboard('{Escape}')
         await waitFor(() => expect(menu.queryByText('Save query as')).not.toBeInTheDocument())
         await userEvent.click(canvas.getByRole('button', { name: 'Stop editing insight' }))
@@ -584,11 +593,11 @@ export const EditedInsightLegacySaveMenu: Story = {
         )
         await expect(menu.getByRole('menuitem', { name: 'Save as new view...' })).toHaveAttribute(
             'aria-disabled',
-            'true'
+            'false'
         )
         await expect(menu.getByRole('menuitem', { name: 'Save as endpoint...' })).toHaveAttribute(
             'aria-disabled',
-            'true'
+            'false'
         )
         await expect(menu.queryByText('Save query as')).not.toBeInTheDocument()
     },
