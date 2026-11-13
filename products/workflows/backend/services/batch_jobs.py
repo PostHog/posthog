@@ -1,9 +1,7 @@
 from collections.abc import Collection
-from datetime import timedelta
 from typing import Any
 from uuid import UUID
 
-from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.db.models import Exists, OuterRef, Q, QuerySet, Subquery
@@ -13,7 +11,7 @@ import structlog
 from prometheus_client import Counter
 
 from posthog.exceptions_capture import capture_exception
-from posthog.plugins.plugin_server_api import resume_hog_flow_batch_job
+from posthog.plugins.plugin_server_api import get_hog_flow_in_flight_count, resume_hog_flow_batch_job
 
 from products.cohorts.backend.models.cohort import Cohort
 from products.workflows.backend.facade.contracts import WorkflowBatchJob, WorkflowBatchJobNotFound
@@ -65,22 +63,22 @@ def create_batch_job(
 def rate_limit_change_unpaces_batch(*, team_id: int, hog_flow_id: UUID, current: object, new: object) -> bool:
     """Whether replacing a workflow's sending rate limit could leave a batch run's raised audience unpaced.
     The worker paces each send with the live rate limit, so the rate a raised cap relied on must hold
-    until the run's sends can have drained."""
+    until the run's sends have left the queue."""
     if new == current:
         return False
-    # The resolver completes a run once it enqueues the audience, so age, not status, bounds the drain.
-    # The extra day covers a run that waits for its realtime cohort before it sends.
-    since = timezone.now() - timedelta(days=settings.WORKFLOWS_RATE_LIMITED_BATCH_MAX_DAYS + 1)
-    return (
-        HogFlowBatchJob.objects.filter(
-            team_id=team_id,
-            hog_flow_id=hog_flow_id,
-            created_at__gte=since,
-            max_audience_size__gt=resolve_batch_audience_limit(team_id).limit,
-        )
-        .exclude(status__in=[HogFlowBatchJobState.CANCELLED, HogFlowBatchJobState.FAILED])
-        .exists()
-    )
+    if not HogFlowBatchJob.objects.filter(
+        team_id=team_id, hog_flow_id=hog_flow_id, max_audience_size__gt=resolve_batch_audience_limit(team_id).limit
+    ).exists():
+        return False
+    # The resolver completes a run once it enqueues the audience, and sends can wait behind delays, so only an
+    # empty queue ends the lock. An unknown count fails closed.
+    try:
+        response = get_hog_flow_in_flight_count(team_id=team_id, hog_flow_id=str(hog_flow_id))
+        response.raise_for_status()
+        return response.json().get("count") != 0
+    except Exception:
+        logger.warning("rate_limit_lock_in_flight_count_failed", hog_flow_id=str(hog_flow_id), exc_info=True)
+        return True
 
 
 def list_batch_jobs(*, team_id: int, hog_flow_id: UUID) -> list[WorkflowBatchJob]:

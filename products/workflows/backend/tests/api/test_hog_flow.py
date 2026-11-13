@@ -366,10 +366,14 @@ class TestHogFlowAPI(APIBaseTest):
         WORKFLOWS_RATE_LIMITED_BATCH_MAX_DAYS=7,
         HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS=set(),
     )
+    @patch("products.workflows.backend.services.batch_jobs.get_hog_flow_in_flight_count")
     @patch(
         "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
     )
-    def test_email_sending_rate_limit_is_locked_while_a_raised_batch_may_be_sending(self, _mock_dispatch):
+    def test_email_sending_rate_limit_is_locked_while_a_raised_batch_may_be_sending(
+        self, _mock_dispatch, mock_in_flight_count
+    ):
+        mock_in_flight_count.return_value = MagicMock(status_code=200, json=lambda: {"count": 3})
         TeamWorkflowsConfig.objects.update_or_create(team=self.team, defaults={"email_sending_tier": 2})
         flow_id = self._create_simple_flow()
         flow = HogFlow.objects.get(id=flow_id)
@@ -416,7 +420,14 @@ class TestHogFlowAPI(APIBaseTest):
         )
         assert response.status_code == 400, response.json()
 
-        HogFlowBatchJob.objects.filter(id=batch_job.id).update(status=HogFlowBatchJob.State.CANCELLED)
+        # Sends parked behind a long delay keep the lock past any fixed window.
+        HogFlowBatchJob.objects.filter(id=batch_job.id).update(created_at=batch_job.created_at - timedelta(days=30))
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"email_sending_rate_limit": None}, format="json"
+        )
+        assert response.status_code == 400, response.json()
+
+        mock_in_flight_count.return_value = MagicMock(status_code=200, json=lambda: {"count": 0})
         response = self.client.patch(
             f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"email_sending_rate_limit": None}, format="json"
         )

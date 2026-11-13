@@ -4011,8 +4011,8 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             raise serializers.ValidationError(
                 {
                     "email_sending_rate_limit": (
-                        "A broadcast sent at this rate limit may still be sending. You can change the rate "
-                        f"limit {settings.WORKFLOWS_RATE_LIMITED_BATCH_MAX_DAYS + 1} days after it started."
+                        "A broadcast sent at this rate limit is still sending. You can change the rate limit "
+                        "once its sends finish."
                     )
                 }
             )
