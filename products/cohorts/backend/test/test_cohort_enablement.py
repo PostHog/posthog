@@ -73,7 +73,7 @@ class TestCohortEnablement(BaseTest):
             mock.patch("posthog.tasks.calculate_cohort.trigger_cohort_backfill_run_task.apply_async"),
             self.captureOnCommitCallbacks(execute=True),
         ):
-            turned_on = turn_realtime_on(self.team.id, cohort.id)
+            turned_on = turn_realtime_on(self.team.id, cohort.id, can_edit=lambda _: True)
 
         cohorts = list(Cohort.objects.filter(id__in=[nested.id, cohort.id]).order_by("id"))
         assert sorted(turned_on) == [nested.id, cohort.id]
@@ -100,7 +100,7 @@ class TestCohortEnablement(BaseTest):
             RealtimeCohortTeamAccess.objects.filter(team=self.team).update(level=RealtimeCohortLevel.OFF)
 
         with self.assertRaises(RealtimeTurnOnRefused):
-            turn_realtime_on(self.team.id, cohort.id)
+            turn_realtime_on(self.team.id, cohort.id, can_edit=lambda _: True)
 
         assert not Cohort.objects.filter(team=self.team, realtime_enabled_at__isnull=False).exists()
 

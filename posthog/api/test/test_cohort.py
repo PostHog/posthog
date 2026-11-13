@@ -9190,19 +9190,61 @@ class TestCohortRealtimeSwitch(APIBaseTest):
         assert response.json()["realtime_enabled"] is turned_on
         assert Cohort.objects.get(id=response.json()["id"]).realtime_enabled is turned_on
 
-    def test_an_update_cannot_change_the_switch(self) -> None:
-        cohort = self._cohort(_REALTIME_PAGEVIEW_LEAF)
+    @parameterized.expand(
+        [
+            ("sent_in_a_patch", False, "patch", {"realtime_enabled": True}, "json", 400, "realtime_enabled_read_only"),
+            # DRF reads a boolean left out of form data as false.
+            ("left_out_of_a_multipart_put", True, "put", {"name": "Renamed"}, "multipart", 200, None),
+        ]
+    )
+    def test_an_update_cannot_change_the_switch(
+        self, _name: str, enabled: bool, method: str, data: dict, data_format: str, status: int, code: str | None
+    ) -> None:
+        cohort = self._cohort(_REALTIME_PAGEVIEW_LEAF, enabled=enabled)
 
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/cohorts/{cohort.id}/", {"realtime_enabled": True}, format="json"
+        response = getattr(self.client, method)(
+            f"/api/projects/{self.team.id}/cohorts/{cohort.id}/", data, format=data_format
         )
 
         cohort.refresh_from_db()
-        assert (response.status_code, response.json()["code"], cohort.realtime_enabled) == (
-            400,
-            "realtime_enabled_read_only",
-            False,
+        assert (response.status_code, response.json().get("code"), cohort.realtime_enabled) == (status, code, enabled)
+
+    def _restrict(self, cohort: Cohort, access_level: str) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+        AccessControl.objects.create(
+            team=self.team,
+            resource="cohort",
+            resource_id=str(cohort.id),
+            access_level=access_level,
+            organization_member=self.organization_membership,
         )
+
+    def test_turning_on_is_refused_when_an_included_cohort_is_not_editable(self) -> None:
+        included = self._cohort(_REALTIME_PAGEVIEW_LEAF)
+        cohort = self._cohort(_REALTIME_PAGEVIEW_LEAF, {"type": "cohort", "key": "id", "value": included.id})
+        self._restrict(included, "viewer")
+
+        response = self._switch(cohort, True)
+
+        assert (response.status_code, response.json()["code"]) == (400, "realtime_refused")
+        assert not Cohort.objects.filter(team=self.team, realtime_enabled_at__isnull=False).exists()
+
+    def test_turning_off_hides_names_of_parents_the_member_cannot_view(self) -> None:
+        cohort = self._cohort(_REALTIME_PAGEVIEW_LEAF, enabled=True)
+        reference = {"key": "id", "type": "cohort", "value": cohort.id}
+        hidden = self._cohort(reference, enabled=True)
+        Cohort.objects.filter(id=hidden.id).update(name="Hidden parent")
+        self._restrict(hidden, "none")
+        self._cohort(reference, enabled=True)
+
+        response = self._switch(cohort, False)
+
+        assert response.status_code == 400
+        assert "2 cohort(s) that include this cohort as criteria: Realtime and 1 more." in response.json()["detail"]
+        assert "Hidden parent" not in response.json()["detail"]
 
     def test_the_project_says_whether_realtime_cohorts_are_served(self) -> None:
         served = self.client.get(f"/api/projects/{self.team.id}/").json()["realtime_cohorts"]
