@@ -3,7 +3,7 @@
 import copy
 import uuid
 from datetime import timedelta
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, TypedDict, cast
 
 from django.conf import settings
 from django.db import transaction
@@ -15,9 +15,11 @@ from rest_framework import exceptions, serializers
 
 from posthog.schema import ExecutionTarget, HogQLQuery
 
+from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import (
     MODELS_NAMESPACE_QUERY_ERROR,
+    Database,
     is_reserved_models_name,
     models_namespace_chain,
 )
@@ -27,6 +29,7 @@ from posthog.hogql.metadata import get_table_names
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import FindPlaceholders
 from posthog.hogql.printer import prepare_and_print_ast
+from posthog.hogql.resolver import resolve_types
 
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
@@ -70,6 +73,30 @@ logger = structlog.get_logger(__name__)
 GENERIC_LINEAGE_SYNC_ERROR = (
     "Could not build this view's lineage. Check the query's tables and columns, then save again."
 )
+BREAKING_COLUMN_CHANGE_CODE = "breaking_column_change"
+MAX_NAMED_AFFECTED_VIEWS = 3
+
+
+class BreakingColumnChange(TypedDict):
+    removed_columns: tuple[str, ...]
+    affected_view_names: tuple[str, ...]
+    visible_affected_view_count: int
+    total_affected_view_count: int
+    has_hidden_affected_views: bool
+
+
+class BreakingColumnChangeError(serializers.ValidationError):
+    def __init__(self, change: BreakingColumnChange) -> None:
+        super().__init__(
+            "This change removes columns that downstream views use. Save again to confirm the change.",
+            code=BREAKING_COLUMN_CHANGE_CODE,
+        )
+        self.extra = {
+            "removed_columns": change["removed_columns"],
+            "affected_views": change["affected_view_names"][:MAX_NAMED_AFFECTED_VIEWS],
+            "affected_view_count": change["visible_affected_view_count"],
+            "has_hidden_affected_views": change["has_hidden_affected_views"],
+        }
 
 
 def _lineage_sync_error_detail(error: Exception) -> str:
@@ -266,6 +293,13 @@ class DataWarehouseSavedQuerySerializer(
         help_text="If true, skip column inference and external table discovery. On update, also skip the query "
         "revision conflict check. Query validation and revision updates still run.",
     )
+    acknowledge_breaking_changes = serializers.BooleanField(
+        write_only=True,
+        required=False,
+        default=False,
+        help_text="Confirm an update that removes columns used by downstream views. The first request is refused "
+        "with code 'breaking_column_change' and names the affected views that the caller can access.",
+    )
     description = view_description.ViewDescriptionField(
         required=False, allow_blank=True, allow_null=True, help_text=view_description.VIEW_DESCRIPTION_HELP_TEXT
     )
@@ -286,7 +320,6 @@ class DataWarehouseSavedQuerySerializer(
         help_text="Whether incremental settings participated in any materialization run."
     )
     engine = view_state.ViewEngineSerializer(read_only=True, help_text=view_state.VIEW_ENGINE_HELP_TEXT)
-    is_raw_managed_trino = serializers.SerializerMethodField(help_text=view_state.IS_RAW_MANAGED_TRINO_HELP_TEXT)
 
     class Meta:
         model = DataWarehouseSavedQuery
@@ -314,6 +347,7 @@ class DataWarehouseSavedQuerySerializer(
             "edited_history_id",
             "latest_history_id",
             "soft_update",
+            "acknowledge_breaking_changes",
             "is_materialized",
             "origin",
             "is_test",
@@ -321,7 +355,6 @@ class DataWarehouseSavedQuerySerializer(
             "user_access_level",
             "suspended",
             "engine",
-            "is_raw_managed_trino",
         ]
         read_only_fields = [
             "id",
@@ -451,6 +484,94 @@ class DataWarehouseSavedQuerySerializer(
             _capture_unless_user_error(error)
             raise _view_types_validation_error(error)
 
+    @staticmethod
+    def _resolved_output_columns(view: DataWarehouseSavedQuery, database: Database) -> set[str] | None:
+        context = HogQLContext(
+            team=view.team,
+            team_id=view.team_id,
+            enable_select_queries=True,
+            database=database,
+            # This internal comparison must inspect every dependent. Names are filtered by access control below.
+            bypass_warehouse_access_control=True,
+        )
+        try:
+            resolved = resolve_types(parse_select(view.sql), context, dialect="clickhouse")
+        except Exception:
+            return None
+        if not isinstance(resolved.type, (ast.SelectQueryType, ast.SelectSetQueryType)):
+            return set()
+        return set(resolved.type.columns)
+
+    def _breaking_column_change(
+        self,
+        instance: DataWarehouseSavedQuery,
+        pending_query: dict[str, Any],
+        inferred_columns: dict[str, dict[str, Any]],
+    ) -> BreakingColumnChange | None:
+        removed_columns = tuple(sorted(set(instance.columns or {}) - set(inferred_columns)))
+        if not removed_columns:
+            return None
+
+        dependent_ids = modeling_api.dependent_saved_query_ids(instance.team_id, [instance.id]).get(
+            instance.id, frozenset()
+        )
+        if not dependent_ids:
+            return None
+
+        dependents = list(
+            DataWarehouseSavedQuery.objects.filter(team_id=instance.team_id, id__in=dependent_ids)
+            .exclude(deleted=True)
+            .order_by("name", "id")
+        )
+        # Dependency validation must not depend on which downstream views the editor can open.
+        database = Database.create_for(team=instance.team, bypass_warehouse_access_control=True)
+        current_outputs = {
+            dependent.id: output
+            for dependent in dependents
+            if (output := self._resolved_output_columns(dependent, database)) is not None
+        }
+
+        pending = copy.copy(instance)
+        pending.query = pending_query
+        pending.set_columns(inferred_columns)
+        table_node = database.get_table_node(instance.name_chain)
+        current_table = table_node.table
+        table_node.table = pending.hogql_definition()
+        try:
+            affected = [
+                dependent
+                for dependent in dependents
+                if dependent.id in current_outputs
+                and (
+                    (pending_output := self._resolved_output_columns(dependent, database)) is None
+                    or bool(current_outputs[dependent.id] - pending_output)
+                )
+            ]
+        finally:
+            table_node.table = current_table
+
+        if not affected:
+            return None
+
+        affected_ids = [dependent.id for dependent in affected]
+        visible_ids = (
+            modeling_api.allowed_saved_query_ids(
+                instance.team_id,
+                self.user_access_control,
+                ids=affected_ids,
+            )
+            if self.user_access_control is not None
+            else frozenset()
+        )
+        visible_names = tuple(dependent.name for dependent in affected if dependent.id in visible_ids)
+        return BreakingColumnChange(
+            removed_columns=removed_columns,
+            affected_view_names=visible_names,
+            visible_affected_view_count=len(visible_names),
+            total_affected_view_count=len(affected),
+            has_hidden_affected_views=len(visible_names) < len(affected),
+        )
+
     def create(self, validated_data):
         validated_data["team_id"] = self.context["team_id"]
         validated_data["created_by"] = self.context["request"].user
@@ -460,6 +581,7 @@ class DataWarehouseSavedQuerySerializer(
         description = validated_data.pop("description", None)
         sync_frequency = validated_data.pop("sync_frequency", None)
         validated_data.pop("edited_history_id", None)
+        validated_data.pop("acknowledge_breaking_changes", None)
         view = DataWarehouseSavedQuery(**validated_data)
         engine = view.engine
 
@@ -571,6 +693,7 @@ class DataWarehouseSavedQuerySerializer(
         frequency_changed = frequency_given and (engine.has_lineage.available or sync_frequency in (None, "never"))
 
         soft_update = validated_data.pop("soft_update", False)
+        acknowledge_breaking_changes = validated_data.pop("acknowledge_breaking_changes", False)
         edited_history_id = self.context["request"].data.get("edited_history_id", None)
         check_conflict = (
             "query" in validated_data
@@ -621,6 +744,12 @@ class DataWarehouseSavedQuerySerializer(
                 _capture_unless_user_error(e)
                 logger.exception("Failed to retrieve types for view %s", probe.name)
                 raise _view_types_validation_error(e)
+
+        breaking_column_change = None
+        if inferred_columns is not None and "query" in validated_data:
+            breaking_column_change = self._breaking_column_change(instance, validated_data["query"], inferred_columns)
+            if breaking_column_change is not None and not acknowledge_breaking_changes:
+                raise BreakingColumnChangeError(breaking_column_change)
 
         with transaction.atomic():
             try:
@@ -728,6 +857,15 @@ class DataWarehouseSavedQuerySerializer(
                 "description_changed": has_description,
                 "sync_frequency": sync_frequency if frequency_changed else None,
                 "soft_update": soft_update,
+                "breaking_column_change_acknowledged": bool(
+                    breaking_column_change is not None and acknowledge_breaking_changes
+                ),
+                "removed_column_count": (
+                    len(breaking_column_change["removed_columns"]) if breaking_column_change is not None else 0
+                ),
+                "affected_downstream_view_count": (
+                    breaking_column_change["total_affected_view_count"] if breaking_column_change is not None else 0
+                ),
             },
             team,
         )

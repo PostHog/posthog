@@ -134,6 +134,10 @@ _MAX_AT_CAPACITY_TEAMS = 2
 _TEAM_LOADED_TTL = datetime.timedelta(days=1)
 # The most due rows that one plan reads. Far more than the picks of one tick.
 _MAX_DUE_ROWS = 5000
+# The refresh keeps the due time that a never-scored row got when it joined the list, so never-scored rows are
+# mostly the oldest due rows. They get at most this many of the rows that one plan reads. Without this limit, a train
+# backlog larger than the read fills every plan, and no scored row reaches the score pass.
+_MAX_NEVER_SCORED_DUE_ROWS = _MAX_DUE_ROWS // 2
 # The score pass keeps one in this many of its slots for stale models, so ready picks cannot take every slot.
 _STALE_SCORE_SHARE = 4
 # The scorer rejects these, so selection leaves them out instead of picking them on every tick.
@@ -467,14 +471,18 @@ def parse_watermarks(value: Any) -> dict[str, datetime.datetime]:
 
 
 def load_due_list(team_ids: Collection[int], intervals: tuple[IntervalType, ...], now: datetime.datetime) -> DueList:
-    """The due rows of the teams, longest overdue first, in a fixed number of queries."""
+    """The due rows of the teams, longest overdue first, in a fixed number of queries.
+
+    Never-scored rows and scored rows are read apart, so that the train backlog cannot crowd out the score pass.
+    """
     scope = AnomalyScoringDueInsight.all_teams.filter(team_id__in=list(team_ids))
     summary = scope.aggregate(rows=Count("id"), oldest_refresh=Min("refreshed_at"))
-    rows = list(
-        scope.filter(next_due_at__lte=now, interval__in=[interval.value for interval in intervals]).order_by(
-            "next_due_at", "insight_id"
-        )[:_MAX_DUE_ROWS]
+    due = scope.filter(next_due_at__lte=now, interval__in=[interval.value for interval in intervals]).order_by(
+        "next_due_at", "insight_id"
     )
+    never_scored = list(due.filter(series_scored_through={})[:_MAX_NEVER_SCORED_DUE_ROWS])
+    scored = list(due.exclude(series_scored_through={})[: _MAX_DUE_ROWS - len(never_scored)])
+    rows = sorted([*never_scored, *scored], key=lambda row: (row.next_due_at, row.insight_id))
     oldest_refresh = summary["oldest_refresh"]
     return DueList(
         insights=[

@@ -1,8 +1,9 @@
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from uuid import UUID
 
 import time_machine
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
 from parameterized import parameterized
@@ -20,8 +21,8 @@ from products.alerts_platform.backend.facade.contracts import Grouping, Platform
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
-from products.logs.backend.models import LogsAlertConfiguration
-from products.logs.backend.platform_cutover import NATIVE_CREATE_FLAG
+from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
+from products.logs.backend.platform_cutover import NATIVE_CREATE_FLAG, cut_over_team
 from products.logs.backend.platform_source_config import logs_source_config
 
 _NOW = datetime(2026, 11, 6, 12, 0, tzinfo=UTC)
@@ -302,6 +303,32 @@ class TestLogsAlertWithNoLogsRow(APIBaseTest):
         read = self._read(created.json()["id"])
         assert (read["snooze_until"], read["state"]) == ("2026-11-06T13:00:00Z", "snoozed")
 
+    def test_an_alert_with_no_logs_row_keeps_its_labels_and_annotations(self, *_: object) -> None:
+        self.native_create = True
+
+        created = self.client.post(
+            self.base_url,
+            {
+                "name": "High error rate",
+                "threshold_count": 10,
+                "filters": _FILTERS,
+                "labels": {"team": "checkout"},
+                "annotations": {"summary": "Checkout errors"},
+            },
+            format="json",
+        )
+        assert created.status_code == status.HTTP_201_CREATED, created.json()
+        url = f"{self.base_url}{created.json()['id']}/"
+        unrelated = self.client.patch(url, {"threshold_count": 20}, format="json")
+        relabelled = self.client.patch(url, {"labels": {"team": "billing"}}, format="json")
+
+        assert (created.json()["labels"], unrelated.json()["labels"], relabelled.json()["labels"]) == (
+            {"team": "checkout"},
+            {"team": "checkout"},
+            {"team": "billing"},
+        )
+        assert relabelled.json()["annotations"] == {"summary": "Checkout errors"}
+
     def test_a_team_whose_alerts_stay_with_logs_keeps_the_logs_row_with_the_flag_on(self, *_: object) -> None:
         LogsAlertConfiguration.objects.create(team=self.team, name="Kept on logs", enabled=False)
         self.native_create = True
@@ -321,3 +348,118 @@ class TestLogsAlertWithNoLogsRow(APIBaseTest):
 
         assert refused.status_code == status.HTTP_400_BAD_REQUEST, refused.json()
         assert [alert["name"] for alert in self.client.get(self.base_url).json()["results"]] == ["High error rate"]
+
+
+_CONTROL_STEPS: list[tuple[str, dict[str, Any] | None, tuple[str, str, str]]] = [
+    ("patch", {"enabled": False}, ("disable", "not_firing", "not_firing")),
+    ("patch", {"enabled": True}, ("enable", "not_firing", "not_firing")),
+    ("patch", {"snooze_until": (_NOW + timedelta(hours=1)).isoformat()}, ("snooze", "not_firing", "snoozed")),
+    ("patch", {"snooze_until": None}, ("unsnooze", "snoozed", "not_firing")),
+    ("patch", {"threshold_count": 20}, ("threshold_change", "not_firing", "not_firing")),
+    ("reset", None, ("reset", "broken", "not_firing")),
+]
+
+
+@time_machine.travel(_NOW, tick=False)
+class TestLogsAlertControlPlaneHistory(ClickhouseTestMixin, APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.base_url = f"/api/projects/{self.team.pk}/logs/alerts/"
+        patcher = patch("posthoganalytics.feature_enabled", return_value=True)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def _create_copy(self) -> tuple[str, str]:
+        alert = LogsAlertConfiguration.objects.create(
+            team=self.team,
+            name="High error rate",
+            filters=_FILTERS,
+            threshold_count=10,
+            enabled=True,
+            next_check_at=_NOW + timedelta(minutes=3),
+        )
+        # Written by the logs API before the platform recorded any change of this alert.
+        older = LogsAlertEvent.objects.create(
+            alert=alert,
+            kind=LogsAlertEvent.Kind.ENABLE,
+            threshold_breached=False,
+            state_before="broken",
+            state_after="not_firing",
+        )
+        LogsAlertEvent.objects.filter(pk=older.pk).update(created_at=_NOW - timedelta(hours=1))
+        [cutover] = cut_over_team(self.team.id, now=_NOW)
+        assert cutover.skipped is None
+        with team_scope(self.team.id):
+            return str(alert.id), str(platform_testing.copy_of(alert.id).id)
+
+    def _create_without_logs_row(self) -> str:
+        with team_scope(self.team.id):
+            created = platform_testing.create_configuration(
+                team_id=self.team.id,
+                name="High error rate",
+                enabled=True,
+                source_kind=SourceKind.LOGS.value,
+                source_config=logs_source_config(
+                    _FILTERS, {"threshold_count": 10, "threshold_operator": "above", "window_minutes": 5}
+                ),
+                check_interval_minutes=5,
+                next_check_at=_NOW,
+                owner=PlatformAlertOwner.PLATFORM,
+                created_by=self.user,
+                first_enabled_at=_NOW,
+            )
+        return str(created.id)
+
+    def _take_steps(self, alert_id: str, configuration_id: str) -> None:
+        for minute, (action, body, _) in enumerate(_CONTROL_STEPS, start=1):
+            with (
+                # A running clock, so the logs row and the platform row of one edit get different times.
+                time_machine.travel(_NOW + timedelta(minutes=minute), tick=True),
+                self.captureOnCommitCallbacks(execute=True),
+            ):
+                if action == "reset":
+                    with team_scope(self.team.id):
+                        platform_testing.set_check_status(UUID(configuration_id), "broken")
+                    response = self.client.post(f"{self.base_url}{alert_id}/reset/")
+                else:
+                    response = self.client.patch(f"{self.base_url}{alert_id}/", body, format="json")
+            assert response.status_code == status.HTTP_200_OK, response.json()
+
+    def _events(self, alert_id: str, query: str = "") -> list[tuple[str, str, str]]:
+        response = self.client.get(f"{self.base_url}{alert_id}/events/{query}")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        rows = [(e["kind"], e["state_before"], e["state_after"]) for e in response.json()["results"]]
+        assert response.json()["count"] == len(rows)
+        return rows
+
+    @parameterized.expand([("no_logs_row", False), ("copy", True)])
+    def test_each_control_plane_change_shows_once_in_the_events_and_the_state_timeline(
+        self, _name: str, has_logs_row: bool
+    ) -> None:
+        if has_logs_row:
+            alert_id, configuration_id = self._create_copy()
+        else:
+            alert_id = configuration_id = self._create_without_logs_row()
+        older = [("enable", "broken", "not_firing")] if has_logs_row else []
+        older_interval = [("2026-11-06T11:00", "not_firing", True)] if has_logs_row else []
+
+        self._take_steps(alert_id, configuration_id)
+
+        assert self._events(alert_id) == [row for _, _, row in reversed(_CONTROL_STEPS)] + older
+        assert self._events(alert_id, "?kind=enable") == [("enable", "not_firing", "not_firing"), *older]
+        with time_machine.travel(_NOW + timedelta(minutes=10), tick=False):
+            retrieved = self.client.get(f"{self.base_url}{alert_id}/").json()
+            [listed] = self.client.get(self.base_url).json()["results"]
+        assert retrieved["last_checked_at"] is None
+        assert listed["state_timeline"] == retrieved["state_timeline"]
+        first, *rest = retrieved["state_timeline"]
+        assert ((first["state"], first["enabled"]), [(i["start"][:16], i["state"], i["enabled"]) for i in rest]) == (
+            ("not_firing", not has_logs_row),
+            [
+                *older_interval,
+                ("2026-11-06T12:01", "not_firing", False),
+                ("2026-11-06T12:02", "not_firing", True),
+                ("2026-11-06T12:03", "snoozed", True),
+                ("2026-11-06T12:04", "not_firing", True),
+            ],
+        )

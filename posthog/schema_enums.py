@@ -30,6 +30,12 @@ class AccessControlLevel(StrEnum):
     MANAGER = "manager"
 
 
+class AccountActivityMatrixEmptyReason(StrEnum):
+    NO_EXTERNAL_ID = "no_external_id"
+    NO_GROUP_TYPE = "no_group_type"
+    NO_METRICS = "no_metrics"
+
+
 class AccountsTableAccountField(StrEnum):
     NAME = "name"
     EXTERNAL_ID = "external_id"
@@ -142,7 +148,6 @@ class AgentMode(StrEnum):
     FLAGS = "flags"
     LLM_ANALYTICS = "llm_analytics"
     SANDBOX = "sandbox"
-    USER_INTERVIEW = "user_interview"
     CUSTOMER_ANALYTICS = "customer_analytics"
 
 
@@ -596,6 +601,7 @@ class AssistantTool(StrEnum):
     ESTIMATE_REPLAY_VISION_SCANNER = "estimate_replay_vision_scanner"
     LABEL_REPLAY_VISION_OBSERVATION = "label_replay_vision_observation"
     ANALYZE_REPLAY_VISION_IMPACT = "analyze_replay_vision_impact"
+    GET_REPLAY_VISION_OBSERVATION_STATS = "get_replay_vision_observation_stats"
     UPSERT_ACCOUNT = "upsert_account"
     UPSERT_ACCOUNT_NOTEBOOK = "upsert_account_notebook"
     OPEN_ACCOUNT = "open_account"
@@ -806,6 +812,17 @@ class BingAdsDefaultSources(StrEnum):
     MICROSOFT = "microsoft"
     MSADS = "msads"
     BING_VIDEO = "bing_video"
+
+
+class BookActivityInterval(StrEnum):
+    DAY = "day"
+    WEEK = "week"
+    MONTH = "month"
+
+
+class BookActivityMatrixEmptyReason(StrEnum):
+    NO_GROUP_TYPE = "no_group_type"
+    EMPTY_BOOK = "empty_book"
 
 
 class BreakdownAttributionType(StrEnum):
@@ -1557,6 +1574,14 @@ class ExperimentMetricType(StrEnum):
     QUANTILE = "quantile"
 
 
+class ExperimentMetricValueFormatType(StrEnum):
+    CURRENCY = "currency"
+    DURATION = "duration"
+    DURATION_MS = "duration_ms"
+    PERCENTAGE = "percentage"
+    PERCENTAGE_SCALED = "percentage_scaled"
+
+
 class PrecomputationMode(StrEnum):
     PRECOMPUTED = "precomputed"
     DIRECT = "direct"
@@ -1982,6 +2007,7 @@ class IntegrationKind(StrEnum):
     STRIPE = "stripe"
     INTERCOM = "intercom"
     EMAIL = "email"
+    EMAIL_SANDBOX = "email_sandbox"
     TWILIO = "twilio"
     LINEAR = "linear"
     GITHUB = "github"
@@ -2195,6 +2221,10 @@ class MarketingAnalyticsRecommendationCpaBenchmarkSource(StrEnum):
     TARGET_CPA = "target_cpa"
     CAMPAIGN = "campaign"
     ACCOUNT = "account"
+
+
+class MarketingAnalyticsRecommendationIdentitySourceType(StrEnum):
+    GOOGLE_ADS = "google_ads"
 
 
 class MarketingAnalyticsRecommendationImpactDirection(StrEnum):
@@ -2569,6 +2599,10 @@ class NodeKind(StrEnum):
     ACCOUNTS_QUERY = "AccountsQuery"
     ACCOUNTS_TABLE_QUERY = "AccountsTableQuery"
     ACCOUNT_USERS_QUERY = "AccountUsersQuery"
+    ACCOUNT_ACTIVITY_MATRIX_QUERY = "AccountActivityMatrixQuery"
+    BOOK_ACTIVITY_MATRIX_QUERY = "BookActivityMatrixQuery"
+    BOOK_ACTIVITY_PEOPLE_QUERY = "BookActivityPeopleQuery"
+    BOOK_ACTIVITY_FIRSTS_QUERY = "BookActivityFirstsQuery"
     ENDPOINTS_USAGE_OVERVIEW_QUERY = "EndpointsUsageOverviewQuery"
     ENDPOINTS_USAGE_TABLE_QUERY = "EndpointsUsageTableQuery"
     ENDPOINTS_USAGE_TRENDS_QUERY = "EndpointsUsageTrendsQuery"
@@ -3377,6 +3411,11 @@ class UsageMetricDisplay(StrEnum):
 class UsageMetricFormat(StrEnum):
     NUMERIC = "numeric"
     CURRENCY = "currency"
+
+
+class WarehouseSuggestionNoteKind(StrEnum):
+    MATERIALIZE = "materialize"
+    UNMATERIALIZE = "unmaterialize"
 
 
 class WebAgentAnalyticsQueryType(StrEnum):

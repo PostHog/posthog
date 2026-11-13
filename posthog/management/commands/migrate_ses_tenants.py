@@ -4,13 +4,12 @@ from dataclasses import dataclass
 
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
-from django.core.paginator import Paginator
-from django.db.models import Q
 
 import boto3
 from botocore.exceptions import BotoCoreError, ClientError
 
-from posthog.models.integration import Integration
+from posthog.integrations import CrossTeamFilter, IntegrationManager
+from posthog.management.commands.flag_legacy_oauth_integrations import paged_rows
 
 logger = logging.getLogger(__name__)
 
@@ -47,38 +46,32 @@ def migrate_ses_tenants(team_ids: list[int], domains: list[str], dry_run: bool =
         print("Please provide either team_ids or domains, not both")  # noqa: T201
         return counts
 
-    query = (
-        Integration.objects.filter(kind="email")
-        .filter(Q(config__provider="ses") | Q(config__provider__isnull=True))
-        .order_by("id")
-    )
-
     if team_ids:
         print("Setting up SES tenants for teams:", team_ids)  # noqa: T201
-        query = query.filter(team_id__in=team_ids)
     elif domains:
         print("Setting up SES tenants for domains:", domains)  # noqa: T201
-        # Domains are stored in Integration.config["domain"]
-        query = query.filter(config__domain__in=domains)
     else:
         print("Setting up SES tenants for all SES email identities")  # noqa: T201
+    integrations = paged_rows(
+        IntegrationManager.email.any,
+        CrossTeamFilter(
+            team_ids=tuple(team_ids) if team_ids else None, where_in={"domain": tuple(domains)} if domains else {}
+        ),
+    )
 
     # Collect unique (team_id, domain) pairs to avoid duplicate work per domain
     pairs: list[tuple[int, str]] = []
-    paginator = Paginator(query, 200)
-
-    for page_num in paginator.page_range:
-        page = paginator.page(page_num)
-        for integration in page.object_list:
-            domain = integration.config.get("domain")
-            if not domain:
-                continue
-            provider = integration.config.get("provider", "mailjet")
-            if provider != "ses":
-                continue
-            pair = (integration.team_id, domain)
-            if pair not in pairs:
-                pairs.append(pair)
+    for integration in integrations:
+        # Domains are stored in the integration config under "domain"
+        domain = integration.config.get("domain")
+        if not domain:
+            continue
+        provider = integration.config.get("provider", "mailjet")
+        if provider != "ses":
+            continue
+        pair = (integration.team_id, domain)
+        if pair not in pairs:
+            pairs.append(pair)
 
     if not pairs:
         print("No SES email identities found to migrate.")  # noqa: T201

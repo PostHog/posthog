@@ -36,6 +36,7 @@ from products.signals.backend.report_assignments import (
 from products.signals.backend.report_claims import get_active_claim, get_active_claims, responsible_users
 from products.signals.backend.report_monitoring_attempts import complete_implementation
 from products.signals.backend.suggested_reviewer_index import sync_suggested_reviewer_index
+from products.signals.backend.task_run_artefacts import record_implementation_task
 
 
 class TestPrimaryPullRequest(SimpleTestCase):
@@ -700,6 +701,34 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
         assert note.status_code == status.HTTP_201_CREATED
         assert note.json()["claim_id"] == claim_id
         assert release.status_code == status.HTTP_409_CONFLICT
+
+    # The task id is caller-supplied, so a task works under its creator's agent claim only when task creation
+    # associated it with that claim.
+    @parameterized.expand(
+        [("associated_task", True, status.HTTP_200_OK), ("named_task", False, status.HTTP_409_CONFLICT)]
+    )
+    def test_task_header_resumes_an_agent_claim_only_through_its_association(
+        self, _name: str, associated: bool, expected_status: int
+    ) -> None:
+        Task = apps.get_model("tasks", "Task")
+        report = self._create_report()
+        claim_id = self.client.post(
+            self._claim_url(report), data={}, format="json", headers=self._agent_headers("codex")
+        ).json()["assignee"]["claim_id"]
+        task = Task.objects.create(
+            team=self.team, created_by=self.user, title="Signal task", origin_product=Task.OriginProduct.SIGNAL_REPORT
+        )
+        if associated:
+            record_implementation_task(team_id=self.team.id, report_id=str(report.id), task_id=str(task.id))
+
+        resumed = self.client.post(
+            self._claim_url(report),
+            data={"claim_id": claim_id},
+            format="json",
+            headers={"X-PostHog-Task-Id": str(task.id)},
+        )
+
+        assert resumed.status_code == expected_status
 
     @parameterized.expand(
         [

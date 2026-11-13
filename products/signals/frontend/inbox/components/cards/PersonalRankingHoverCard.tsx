@@ -1,10 +1,13 @@
 import { INBOX_PERSONAL_TIERS, INBOX_RANKING_SCORES } from '../../filterOptions'
 import { SignalReport } from '../../types'
+import { RankingModelHeader } from './RankingModelHeader'
+import { RankingScaleNote } from './RankingScaleNote'
 import { RankingScoreRows } from './RankingScoreRows'
 
 /**
  * The score details on the Personalized sort. It leads with where the report sits on the user's own
- * list, then shows the ranking model's scores, which are the same for everyone on the team.
+ * list, then shows the same model section as the Recommended card, because the scores are the same
+ * for everyone on the team.
  */
 export function PersonalRankingHoverCard({
     report,
@@ -33,10 +36,13 @@ export function PersonalRankingHoverCard({
             ) : (
                 <div>Not on your list. This report comes after your list, in Recommended order.</div>
             )}
-            <div className="border-t border-primary pt-2 font-semibold">Ranking model, for everyone on the team</div>
+            <div className="border-t border-primary pt-2">
+                <RankingModelHeader note="Same for everyone on the team." />
+            </div>
             <RankingScoreRows ranking={ranking} scores={INBOX_RANKING_SCORES} active={null} isStaff={isStaff} />
+            <RankingScaleNote />
             <div className="opacity-70">
-                Your list is built with your recent activity in PostHog and these scores. It refreshes every few hours.
+                Your list is built from your recent activity in PostHog and these scores. It refreshes every few hours.
             </div>
             {isStaff && ranking.model && (
                 <div className="border-t border-primary pt-1 font-mono opacity-70">{ranking.model}</div>

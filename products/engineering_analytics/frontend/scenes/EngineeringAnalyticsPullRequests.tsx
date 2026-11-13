@@ -73,8 +73,8 @@ export function EngineeringAnalyticsPullRequests(): JSX.Element {
                       'Median created-to-merged time, bots and drafts excluded. Coarse: draft and ready time are fused.',
               }
 
-    // A 400 means no GitHub source — prompt to connect. A non-400 failure of this scene's data (cards or
-    // the PR list) shows a retryable error, never the misleading "connect" state.
+    // A 400 means no GitHub source, so prompt to connect. Any other failure of this scene's data shows a
+    // retryable error, never the "connect" state.
     if (notConnected) {
         return <ConnectGitHubSource />
     }

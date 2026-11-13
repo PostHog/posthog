@@ -412,5 +412,21 @@ describe('AIObservabilityTracesScene', () => {
         it('renders the trace name as plain text when the row has no id', () => {
             expect(renderCell('traceName', { traceName: 'my trace' })).toBe('my trace')
         })
+
+        it.each([
+            [
+                'the top-level error message and how many more there are',
+                { id: 'trace-1', errorCount: 2, events: [{ properties: { $ai_error: 'RateLimitError' } }] },
+                'RateLimitError+1',
+            ],
+            ['only the count when the error sits on a nested span', { id: 'trace-1', errorCount: 2 }, '2 errors'],
+        ])('renders %s in the redesigned errors cell', (_name, record, expected) => {
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.AI_OBSERVABILITY_TRACES_USERS_REDESIGN], {
+                [FEATURE_FLAGS.AI_OBSERVABILITY_TRACES_USERS_REDESIGN]: true,
+            })
+
+            expect(renderCell('errorCount', record)).toBe(expected)
+        })
     })
 })

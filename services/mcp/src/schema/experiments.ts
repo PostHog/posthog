@@ -1,5 +1,7 @@
 import { z } from 'zod'
 
+import type { Schemas } from '@/api/generated'
+
 const ExperimentType = ['web', 'product'] as const
 
 const ExperimentConclusion = ['won', 'lost', 'inconclusive', 'stopped_early', 'invalid'] as const
@@ -170,7 +172,35 @@ export const ExperimentExposureQueryResponseSchema = z.object({
     }),
 })
 
-export type ExperimentExposureQueryResponse = z.infer<typeof ExperimentExposureQueryResponseSchema>
+export type ExperimentExposureQueryResponse = z.infer<typeof ExperimentExposureQueryResponseSchema> &
+    Pick<Schemas.ExperimentExposureQueryResponse, 'health_findings' | 'health_checks'>
+
+type HealthFinding = Schemas.ExperimentHealthFinding | Schemas.ExperimentExposureHealthFinding
+type HealthCheck = Schemas.ExperimentHealthCheckResult | Schemas.ExperimentExposureHealthCheck
+
+/** The health checks of both sources: the configuration checks of `/health/` and the checks of the exposure query. */
+export type ExperimentHealthDetails = {
+    findings: HealthFinding[]
+    checks: HealthCheck[]
+    not_run: string[]
+}
+
+type ExposureCounts = Omit<ExperimentExposureQueryResponse, 'health_findings' | 'health_checks'>
+
+export type ExperimentHealthOverview = {
+    summary: string
+    findings: Pick<HealthFinding, 'severity' | 'code' | 'title'>[]
+    details: string
+}
+
+export type ExperimentHealthSummary = {
+    experiment_id: number
+    summary: string
+    findings: HealthFinding[]
+    checks: HealthCheck[]
+    setup?: Schemas.ExperimentHealthSetup
+    exposures?: ExposureCounts
+}
 
 export type MetricSummary = {
     uuid: string | null
@@ -195,6 +225,7 @@ export type ExperimentMetricResultRow = {
 }
 
 export interface ExperimentResultsSummary {
+    health: ExperimentHealthOverview
     experiment: {
         id: number
         name: string
@@ -212,7 +243,7 @@ export interface ExperimentResultsSummary {
             rollout_percentage?: number | null | undefined
         }>
     }
-    exposures: ExperimentExposureQueryResponse
+    exposures: ExposureCounts
     metrics: {
         primary: {
             count: number
@@ -398,6 +429,76 @@ function stripBulkFields(data: unknown): unknown {
     }
 }
 
+const SEVERITIES: HealthFinding['severity'][] = ['critical', 'warning', 'info']
+const CHECK_STATUSES: HealthCheck['status'][] = ['passed', 'finding', 'not_applicable', 'not_checked']
+
+export function collectHealth(
+    sources: { findings?: HealthFinding[] | null; checks?: HealthCheck[] | null }[],
+    notRun: string[] = []
+): ExperimentHealthDetails {
+    const findings = sources.flatMap((source) => source.findings ?? [])
+    return {
+        findings: [...findings].sort((a, b) => SEVERITIES.indexOf(a.severity) - SEVERITIES.indexOf(b.severity)),
+        checks: sources.flatMap((source) => source.checks ?? []),
+        not_run: notRun,
+    }
+}
+
+function countsText<T extends string>(order: T[], values: T[]): string {
+    return order
+        .map((value) => [value, values.filter((v) => v === value).length] as const)
+        .filter(([, count]) => count > 0)
+        .map(([value, count]) => `${count} ${value}`)
+        .join(', ')
+}
+
+function summaryText({ findings, checks, not_run }: ExperimentHealthDetails): string {
+    const findingCounts = countsText(
+        SEVERITIES,
+        findings.map((finding) => finding.severity)
+    )
+    const checkCounts = countsText(
+        CHECK_STATUSES,
+        checks.map((check) => check.status)
+    )
+    return [`Findings: ${findingCounts || 'none'}.`, `Checks: ${checkCounts || 'none ran'}.`, ...not_run].join(' ')
+}
+
+// MCP clients shorten a long tool result by cutting its middle or its end. The overview stays short so that the
+// results keep their room, and the agent reads each finding in full from experiment-health-get.
+export function overviewHealth(details: ExperimentHealthDetails): ExperimentHealthOverview {
+    return {
+        summary: summaryText(details),
+        findings: details.findings.map(({ severity, code, title }) => ({ severity, code, title })),
+        details:
+            'Call experiment-health-get with the same id for the evidence and the fix of each finding, and for the status and reason of every check.',
+    }
+}
+
+function exposureCounts({
+    health_findings: _findings,
+    health_checks: _checks,
+    ...counts
+}: ExperimentExposureQueryResponse): ExposureCounts {
+    return counts
+}
+
+export function transformExperimentHealth(
+    experimentId: number,
+    details: ExperimentHealthDetails,
+    setup: Schemas.ExperimentHealthSetup | null,
+    exposures: ExperimentExposureQueryResponse | null
+): ExperimentHealthSummary {
+    return {
+        experiment_id: experimentId,
+        summary: summaryText(details),
+        findings: details.findings,
+        checks: details.checks,
+        ...(setup ? { setup } : {}),
+        ...(exposures ? { exposures: exposureCounts(exposures) } : {}),
+    }
+}
+
 export function transformExperimentResults(input: {
     experiment: Experiment
     exposures: ExperimentExposureQueryResponse
@@ -405,6 +506,8 @@ export function transformExperimentResults(input: {
     secondaryMetricEntries: ResolvedMetricEntry[]
     primaryMetricsResults: unknown[]
     secondaryMetricsResults: unknown[]
+    /** Defaults to the exposure checks alone. */
+    health?: ExperimentHealthDetails
 }): ExperimentResultsSummary {
     const {
         experiment,
@@ -413,6 +516,7 @@ export function transformExperimentResults(input: {
         secondaryMetricEntries,
         primaryMetricsResults,
         secondaryMetricsResults,
+        health,
     } = input
 
     const transformedExperiment = {
@@ -458,9 +562,13 @@ export function transformExperimentResults(input: {
         }
     }
 
+    // The health overview comes first so that it survives a client that cuts the end of a long result.
     return {
+        health: overviewHealth(
+            health ?? collectHealth([{ findings: exposures.health_findings, checks: exposures.health_checks }])
+        ),
         experiment: transformedExperiment,
-        exposures,
+        exposures: exposureCounts(exposures),
         metrics: {
             primary: buildRows(primaryMetricsResults, primaryMetricEntries),
             secondary: buildRows(secondaryMetricsResults, secondaryMetricEntries),

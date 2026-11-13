@@ -1110,6 +1110,9 @@ class EndpointExecutionService(PydanticModelMixin):
         if isinstance(result, BaseModel):
             result = result.model_dump(by_alias=True)
 
+        if isinstance(result, dict):
+            result.pop("warehouse_suggestions", None)
+
         if isinstance(result, dict) and extra_result_fields:
             result.update(extra_result_fields)
 

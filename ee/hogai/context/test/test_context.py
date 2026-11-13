@@ -47,7 +47,7 @@ from products.product_analytics.backend.facade.models import Insight
 
 from ee.hogai.context import AssistantContextManager
 from ee.hogai.context.context import DASHBOARD_CONTEXT_CHAR_BUDGET
-from ee.hogai.context.notebook.prompts import LEGACY_CELL_GUIDANCE, SQL_V2_CELL_GUIDANCE
+from ee.hogai.context.notebook.prompts import SQL_V2_CELL_GUIDANCE
 from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.base import AssistantMessageUnion
 
@@ -420,15 +420,7 @@ class TestAssistantContextManager(BaseTest):
         self.assertIn("outside triple-backtick code fences", result)
         mock_from_short_id.assert_not_called()
 
-    @parameterized.expand(
-        [
-            ("sql_v2", True, SQL_V2_CELL_GUIDANCE, LEGACY_CELL_GUIDANCE),
-            ("legacy_sql", False, LEGACY_CELL_GUIDANCE, SQL_V2_CELL_GUIDANCE),
-        ]
-    )
-    async def test_markdown_notebook_context_offers_only_runnable_cell_tags(
-        self, _name: str, sql_v2_enabled: bool, expected: str, unexpected: str
-    ) -> None:
+    async def test_markdown_notebook_context_offers_only_runnable_cell_tags(self) -> None:
         ui_context = MaxUIContext(
             notebooks=[
                 MaxNotebookContext(
@@ -442,7 +434,6 @@ class TestAssistantContextManager(BaseTest):
         )
 
         with (
-            patch("products.notebooks.backend.facade.api.is_sql_v2_enabled", return_value=sql_v2_enabled),
             patch(
                 "ee.hogai.context.context.reusable_widget_catalog_context", return_value="Saved widget catalog"
             ) as catalog,
@@ -450,8 +441,8 @@ class TestAssistantContextManager(BaseTest):
             result = await self.context_manager._format_ui_context(ui_context)
 
         assert result is not None
-        self.assertIn(expected, result)
-        self.assertNotIn(unexpected, result)
+        self.assertIn(SQL_V2_CELL_GUIDANCE, result)
+        self.assertNotIn("Do not add `<SQLV2 />`", result)
         self.assertIn('<Widget title="', result)
         self.assertIn("Saved widget catalog", result)
         catalog.assert_called_once()

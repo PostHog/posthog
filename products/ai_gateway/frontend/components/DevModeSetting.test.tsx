@@ -21,6 +21,7 @@ const USAGE: DevTokenUsageApi = {
     daily_cap_usd: '50.00',
     used_usd: '25.00',
     token_cap_usd: '25.00',
+    token_cap_min_usd: '5.00',
     ttl_seconds: 28800,
     tokens: [],
 }
@@ -44,6 +45,17 @@ describe('<DevModeSetting />', () => {
     afterEach(() => {
         cleanup()
         devModeLogic.unmount()
+    })
+
+    it.each([
+        ['more than a full token cap is left', '20.00', true],
+        ['less than a token cap is left', '40.00', true],
+        ['exactly the minimum is left', '45.00', true],
+        ['less than the minimum is left', '45.50', false],
+    ])('allows minting when %s', (_name, usedUsd, canMint) => {
+        devModeLogic.actions.loadUsageSuccess({ ...USAGE, used_usd: usedUsd })
+
+        expect(devModeLogic.values.canMint).toBe(canMint)
     })
 
     it('hides the minted token from session replay and autocapture', () => {

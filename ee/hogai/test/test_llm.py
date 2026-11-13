@@ -1360,6 +1360,33 @@ class TestMaxChatOpenAIAIGateway(BaseTest):
             if responses_api:
                 self.assertIn("You are currently in project", json.loads(last.content)["instructions"])
 
+    def test_pulse_routes_without_a_runner_config(self):
+        requests: list[httpx.Request] = []
+
+        def respond(request: httpx.Request) -> httpx.Response:
+            requests.append(request)
+            return httpx.Response(200, json=_openai_body("gateway", False))
+
+        model = self._model(self.gateway, posthog_properties={"ai_product": "pulse", "ai_feature": "brief_synthesis"})
+        model.root_client = model.root_client.with_options(
+            http_client=httpx.Client(transport=httpx.MockTransport(respond)), max_retries=0
+        )
+        model.client = model.root_client.chat.completions
+
+        result = model.generate([[HumanMessage(content="hello")]])
+
+        self.assertTrue(is_ai_gateway_served(result))
+        self.assertEqual([request.url.host for request in requests], ["ai-gateway.test"])
+        headers = requests[0].headers
+        self.assertEqual(headers["x-posthog-product"], "pulse")
+        self.assertEqual(headers["x-posthog-distinct-id"], self.user.distinct_id)
+        self.assertEqual(headers["x-posthog-privacy-mode"], "true")
+        self.assertNotIn("x-posthog-billable", headers)
+        self.assertEqual(
+            json.loads(headers["x-posthog-properties"]),
+            {"ai_product": "pulse", "ai_feature": "brief_synthesis", "team_id": str(self.team.id)},
+        )
+
     async def test_gateway_denial_raises_without_fallback(self):
         requests: list[httpx.Request] = []
 

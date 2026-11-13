@@ -24,6 +24,7 @@ from posthog.dataclasses import frozen
 if TYPE_CHECKING:
     from clickhouse_connect.driver import Client as HttpClient
 
+from posthog.clickhouse.client.deferred_setup import clickhouse_test_setup
 from posthog.clickhouse.workload import Workload
 from posthog.settings import data_stores
 from posthog.utils import patchable
@@ -439,6 +440,7 @@ def _clickhouse_http_pool_mgr():
 def get_http_client(**overrides):
     from clickhouse_connect import get_client  # noqa: PLC0415
 
+    clickhouse_test_setup.run()
     kwargs = {
         "host": settings.CLICKHOUSE_HOST,
         "database": settings.CLICKHOUSE_DATABASE,
@@ -517,6 +519,53 @@ def _pinned_cluster_kwargs(workload: Workload) -> dict[str, Any] | None:
     return None
 
 
+def _events_cluster_workload(workload: Workload, team_id: int | None) -> Workload | None:
+    if team_id is None:
+        return None
+    if workload == Workload.DEFAULT:
+        workload = _default_workload
+    configured_hosts = {
+        Workload.ONLINE: settings.CLICKHOUSE_EVENTS_ONLINE_HOST,
+        Workload.OFFLINE: settings.CLICKHOUSE_EVENTS_OFFLINE_HOST,
+    }
+    # The schema switch can read Postgres, so a deployment without events hosts never resolves it.
+    if not configured_hosts.get(workload):
+        return None
+    # Deferred: importing it loads the posthog.models package, which imports this module.
+    from posthog.models.event.new_events_schema import use_new_events_schema  # noqa: PLC0415
+
+    return workload if use_new_events_schema(team_id) else None
+
+
+def events_cluster_host(workload: Workload, team_id: int | None) -> str | None:
+    """The events cluster host for a project's query, or None to keep the workload's own host.
+
+    The same switch picks the events table, so a project that reads events_json connects to the cluster that
+    stores it. A query with no team_id keeps its own host.
+    """
+    match _events_cluster_workload(workload, team_id):
+        case Workload.ONLINE:
+            return settings.CLICKHOUSE_EVENTS_ONLINE_HOST
+        case Workload.OFFLINE:
+            return settings.CLICKHOUSE_EVENTS_OFFLINE_HOST
+    return None
+
+
+def events_cluster_http_url(workload: Workload, team_id: int | None) -> str | None:
+    """The HTTP URL of events_cluster_host, for callers that build their own HTTP client."""
+    match _events_cluster_workload(workload, team_id):
+        case Workload.ONLINE:
+            return settings.CLICKHOUSE_EVENTS_ONLINE_HTTP_URL
+        case Workload.OFFLINE:
+            return settings.CLICKHOUSE_EVENTS_OFFLINE_HTTP_URL
+    return None
+
+
+def query_cluster_name(workload: Workload, team_id: int | None) -> str:
+    """The cluster a project's query runs on, for lookups across its nodes such as system.processes or KILL."""
+    return settings.CLICKHOUSE_EVENTS_CLUSTER if events_cluster_host(workload, team_id) else settings.CLICKHOUSE_CLUSTER
+
+
 def get_kwargs_for_client(
     workload: Workload = Workload.DEFAULT,
     team_id=None,
@@ -546,6 +595,9 @@ def get_kwargs_for_client(
             "user": settings.READONLY_CLICKHOUSE_USER,
             "password": settings.READONLY_CLICKHOUSE_PASSWORD,
         }
+
+    if events_host := events_cluster_host(workload, team_id):
+        return {**base_kwargs, "host": events_host}
 
     if (
         workload == Workload.OFFLINE or workload == Workload.DEFAULT and _default_workload == Workload.OFFLINE
@@ -590,18 +642,28 @@ def get_client_from_pool(
     team_id=None,
     readonly=False,
     ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
+    send_receive_timeout: int | None = None,
 ):
     """
     Returns the client for a given workload.
 
-    The connection pool for HTTP is managed by a library.
+    The connection pool for HTTP is managed by a library. send_receive_timeout bounds each socket read
+    and write on either transport; None keeps each transport's default.
     """
 
     if settings.CLICKHOUSE_USE_HTTP or team_id in settings.CLICKHOUSE_USE_HTTP_PER_TEAM:
         kwargs = get_http_kwargs(workload=workload, team_id=team_id, readonly=readonly, ch_user=ch_user)
+        if send_receive_timeout is not None:
+            kwargs["send_receive_timeout"] = send_receive_timeout
         return get_http_client(**kwargs)
 
-    return get_pool(workload=workload, team_id=team_id, readonly=readonly, ch_user=ch_user).get_client()
+    return get_pool(
+        workload=workload,
+        team_id=team_id,
+        readonly=readonly,
+        ch_user=ch_user,
+        send_receive_timeout=send_receive_timeout,
+    ).get_client()
 
 
 def get_pool(
@@ -650,6 +712,7 @@ def default_client(
     user and password override these, for example with a dedicated user's resolved file-backed token.
     send_receive_timeout bounds each socket read and write; None keeps the driver default.
     """
+    clickhouse_test_setup.run()
     if user is None and password is None:
         user = settings.CLICKHOUSE_USER
         password = ClickHouseCredentials(
@@ -685,6 +748,10 @@ class ClickHouseChPool(ChPool):
         else:
             self._pool.append(client)
         return client
+
+    def pull(self, key: str | None = None) -> SyncClient:
+        clickhouse_test_setup.run()
+        return super().pull(key)
 
 
 class RefreshingChPool(ClickHouseChPool):

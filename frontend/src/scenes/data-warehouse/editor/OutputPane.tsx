@@ -399,7 +399,11 @@ function SplitOutputToggle({ splitView, onClick }: SplitOutputToggleProps): JSX.
             size="small"
             icon={splitView ? <IconScreen /> : <IconColumns />}
             onClick={onClick}
-            tooltip={splitView ? 'Show one output at a time' : 'Show results and visualization side by side'}
+            tooltip={
+                splitView
+                    ? 'Exit split view and show only the results'
+                    : 'Split view: show the results and the visualization side by side'
+            }
             data-attr="sql-editor-output-split-toggle"
         />
     )
@@ -695,14 +699,7 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
                 width: 30,
                 renderCell: ({ row }: { row: any }) => (
                     <div className="hover-actions-cell flex justify-center items-center">
-                        <LemonButton
-                            size="xsmall"
-                            icon={<IconExpand45 />}
-                            onClick={(e) => {
-                                e.stopPropagation()
-                                setSelectedRow(row)
-                            }}
-                        />
+                        <LemonButton size="xsmall" icon={<IconExpand45 />} onClick={() => setSelectedRow(row)} />
                     </div>
                 ),
             },
@@ -1287,6 +1284,7 @@ const Content = ({
                 closeCopyMenu() // Not a copyable data cell — close any open menu and fall back to the native one
                 return
             }
+            args.selectCell()
             event.preventGridDefault()
             event.preventDefault()
             openCopyMenu(event.currentTarget, text)

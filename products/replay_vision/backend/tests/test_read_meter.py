@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
+from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 from products.replay_vision.backend.temporal.activities.meter_scanner_reads import meter_scanner_read_bytes_activity
 from products.replay_vision.backend.temporal.constants import (
     DEEP_SPEND_WINDOW_DAYS,
@@ -167,3 +168,19 @@ class TestMeterScannerReadsActivity:
             fresh_hour.isoformat(): 70,
             current_hour.isoformat(): 40,
         }
+
+    def test_stores_the_throttle_factor_the_reconciler_schedules_by(self) -> None:
+        from products.replay_vision.backend.tests.test_sweep import _make_scanner
+
+        metered = _make_scanner()
+        idle = _make_scanner(name="idle-scanner", team=metered.team)
+        ReplayScanner.objects.filter(pk=idle.pk).update(sweep_throttle_factor=5)
+        hour = dt.datetime.now(dt.UTC).replace(minute=0, second=0, microsecond=0)
+        with patch(
+            "products.replay_vision.backend.temporal.activities.meter_scanner_reads.sync_execute",
+            return_value=[(str(metered.id), hour.replace(tzinfo=None), 0, 0, 3 * SWEEP_READ_BUDGET_BYTES_24H)],
+        ):
+            meter_scanner_read_bytes_activity()
+
+        assert ReplayScanner.objects.get(pk=metered.pk).sweep_throttle_factor == 3
+        assert ReplayScanner.objects.get(pk=idle.pk).sweep_throttle_factor == 1

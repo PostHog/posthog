@@ -89,7 +89,7 @@ describe('NotebookCodeCellRunButton', () => {
     beforeEach(() => {
         localStorage.clear()
         initKeaTests()
-        jest.spyOn(api.notebooks, 'collabStream').mockResolvedValue(undefined as any)
+        jest.spyOn(api, 'stream').mockResolvedValue(undefined as any)
         runSpy = jest.spyOn(api.notebooks, 'sqlV2Run').mockResolvedValue({ run_id: 'r1' })
         jest.spyOn(api.notebooks, 'sqlV2RunResult').mockResolvedValue({ status: 'running', result: null, error: null })
         ;(sqlEditorLogic.findMounted as jest.Mock).mockReturnValue(null)

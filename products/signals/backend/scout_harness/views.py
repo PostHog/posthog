@@ -100,6 +100,7 @@ from products.signals.backend.presentation.scout_permissions import ScoutCanonic
 from products.signals.backend.report_access import may_read_reports, may_write_reports
 from products.signals.backend.report_charts import ChartSize
 from products.signals.backend.report_check_final_agents import MonitoringScoutResult, submit_monitoring_scout_result
+from products.signals.backend.report_discussions import list_report_discussions
 from products.signals.backend.report_generation.resolve_reviewers import MAX_PROJECT_MEMBERS, list_project_members
 from products.signals.backend.report_monitoring_results import InvalidMonitoringResult, MonitoringResultConflict
 from products.signals.backend.report_scout_notes import leave_report_note
@@ -171,6 +172,8 @@ from products.signals.backend.scout_harness.serializers import (
     ScoutNoteSerializer,
     ScoutNotesQuerySerializer,
     ScoutOrigin,
+    ScoutReportDiscussionSerializer,
+    ScoutReportDiscussionsQuerySerializer,
     ScoutRunIdsBatchRequestSerializer,
     ScoutToolCatalogueSerializer,
     ScratchpadEntrySerializer,
@@ -1392,7 +1395,8 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "the report's inbox status. `tags` replaces the report's slug tags, and an omitted `tags` keeps them. "
             "Title/summary edits are best-effort: the pipeline may later re-research them. "
             "Set `supersedes_implementation` alongside a rewrite when the fix changed. Verified automated "
-            "predecessor PRs close only after the replacement completes with verified open PRs."
+            "predecessor PRs close only after the replacement completes with verified open PRs. "
+            "Set `pull_requests` to link a fix that already exists, so the report resolves when it merges."
         ),
         operation_id="signals_scout_edit_report",
     )
@@ -1443,6 +1447,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 priority_explanation=data.get("priority_explanation"),
                 tags=data.get("tags"),
                 source_issues=_to_source_issue_urls(data.get("source_issues")),
+                pull_requests=data.get("pull_requests"),
             )
         except (InvalidScoutReportError, ReviewerWriteError, ValueError) as exc:
             raise exceptions.ValidationError({"detail": str(exc)})
@@ -1455,6 +1460,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     "evidence_appended": result.evidence_appended,
                     "links_appended": result.links_appended,
                     "source_issues_appended": result.source_issues_appended,
+                    "pull_requests_linked": result.pull_requests_linked,
                     "reviewers_set": result.reviewers_set,
                     "repository_set": result.repository_set,
                     "repository": result.repository,
@@ -2706,6 +2712,71 @@ class SignalScoutMembersViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
                 activity = activities.get(row["user_uuid"])
                 row["activity"] = dataclasses.asdict(activity) if activity is not None else None
         return Response(ScoutMemberSerializer(rows, many=True).data)
+
+
+class SignalScoutReportDiscussionsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    """Discussions people opened on the calling scout's reports — sandbox-only.
+
+    `signal_scout_internal` keeps this off every user-grantable credential, like
+    `SignalScoutMembersViewSet`. The scout is never a parameter: it is the skill of the run the
+    sandbox token is bound to, so a run reads discussions on its own scout's reports and no other.
+    A token bound to no scout run (a report-pipeline stage) is refused. A private trial run reads
+    nothing, because its reports live in trial state rather than on the live fleet's rows, and so
+    does a run whose credential fails the reports read gate (`_may_read_reports`).
+    See `report_discussions.py` for the scope and visibility rules.
+    """
+
+    serializer_class = ScoutReportDiscussionSerializer
+    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
+    permission_classes = [IsAuthenticated, APIScopePermission, ScoutCanonicalTeamAccessPermission]
+    scope_object = "signal_scout_internal"
+    # No row of this model is read; the mixin needs a queryset. Mirrors `SignalScoutMembersViewSet`.
+    queryset = SignalScoutConfig.objects.unscoped()
+    pagination_class = None
+
+    @validated_request(
+        query_serializer=ScoutReportDiscussionsQuerySerializer,
+        responses={
+            200: OpenApiResponse(
+                response=ScoutReportDiscussionSerializer(many=True),
+                description="Discussions on reports the calling scout emitted or edited, newest first.",
+            ),
+            403: OpenApiResponse(description="The caller is not a scout run."),
+        },
+        summary="List discussions on your scout's reports",
+        description=(
+            "Return the discussions people opened with Ask AI on inbox reports your scout emitted or edited, "
+            "newest first, each with the latest summary of the conversation and its outcome. Callable only from "
+            "a scout run, which is read from the run's credential."
+        ),
+        operation_id="signals_scout_report_discussions_list",
+    )
+    def list(self, request: Request, *args, **kwargs) -> Response:
+        validated = getattr(request, "validated_query_data", {}) or {}
+        canonical_team = self.team.parent_team or self.team
+        run_id = run_id_for_sandbox_task(task_id=_sandbox_bound_task_id(request), team_id=canonical_team.id)
+        if run_id is None:
+            raise exceptions.PermissionDenied("Only a scout run can list discussions on its reports.")
+        if trial_run_for_request(request, canonical_team.id) is not None:
+            return Response([])
+        # Rows quote report titles and discussion outcomes, which the notes list withholds from a
+        # caller failing the same reports read gate.
+        if not _may_read_reports(request, self, canonical_team):
+            return Response([])
+        skill_name = (
+            SignalScoutRun.objects.for_team(canonical_team.id).values_list("skill_name", flat=True).get(id=run_id)
+        )
+        report_id = validated.get("report_id")
+        discussions = list_report_discussions(
+            team=canonical_team,
+            skill_name=skill_name,
+            report_id=str(report_id) if report_id is not None else None,
+            since=validated.get("since"),
+            limit=validated["limit"],
+        )
+        return Response(
+            ScoutReportDiscussionSerializer([dataclasses.asdict(row) for row in discussions], many=True).data
+        )
 
 
 def _member_activities(team: Team, user_uuids: list[str]) -> dict[str, MemberActivity]:

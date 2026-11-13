@@ -153,6 +153,14 @@ class TestHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert len(response.json()["results"]) == 0
 
+    @parameterized.expand([("template_id",), ("type",), ("types",)])
+    def test_public_list_rejects_null_character_in_filter(self, param: str):
+        self.client.logout()
+        response = self.client.get("/api/public_hog_function_templates/", {param: "template-slack\x00"})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert response.json()["attr"] == param
+
     def test_list_with_template_id_filter_excludes_deprecated(self):
         response = self.client.get(
             f"/api/projects/@current/hog_function_templates/?template_id={self.deprecated_template.template_id}"

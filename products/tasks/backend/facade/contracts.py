@@ -298,6 +298,15 @@ class TaskArtifactSlackUnfurlDTO:
 
 
 @dataclass(frozen=True)
+class TaskRepositoryState:
+    repository: str | None
+    repositories: list[str]
+    github_integration: int | None
+    github_user_integration: UUID | None
+    repository_integration: int | None
+
+
+@dataclass(frozen=True)
 class TaskDetailDTO:
     """The HTTP detail representation of a task.
 
@@ -341,6 +350,7 @@ class TaskDetailDTO:
     client_provenance: str | None = None
     last_client: str | None = None
     last_client_at: datetime | None = None
+    repository_integration: int | None = None
 
 
 @dataclass(frozen=True)
@@ -1100,6 +1110,13 @@ class WarmTaskDTO:
 
 
 @dataclass(frozen=True)
+class TaskStatusMismatchRow:
+    stored_status: str
+    derived_status: str
+    count: int
+
+
+@dataclass(frozen=True)
 class TaskRunGaugeRow:
     """One metric value keyed by (status, environment, origin_product)."""
 
@@ -1174,3 +1191,11 @@ class RunPlan:
 
     plan_name: str
     owner_user_id: int | None
+
+
+@dataclass(frozen=True)
+class TaskRunLogLink:
+    """A short-lived download link for a run's log, or why there is none."""
+
+    url: str | None
+    unavailable_reason: str | None = None

@@ -1,12 +1,10 @@
 import { createHash, randomUUID } from 'node:crypto'
 
+import { MAX_SKILL_ARCHIVE_BYTES, PRODUCT_SKILL_ARCHIVE_URL } from '@/skills/skill-catalog'
+
 import type { RedisLike } from './RedisCache'
 import { hashBytes, SharedBlobCache, type SharedBlobCacheOptions, type SharedBlobVersion } from './SharedBlobCache'
 
-export const DEFAULT_SKILL_ARCHIVE_URL =
-    'https://github.com/PostHog/posthog/releases/download/agent-skills-latest/skills.zip'
-
-const MAX_ARCHIVE_BYTES = 32 * 1024 * 1024
 const ARCHIVE_DOWNLOAD_TIMEOUT_MS = 15_000
 const NAMESPACE = 'product-skills'
 // Revalidation keeps the current generation alive; superseded blobs expire naturally.
@@ -57,9 +55,9 @@ export class SkillArchiveCache extends SharedBlobCache {
     private readonly validateArchive: (bytes: Uint8Array) => void
 
     constructor(redis: RedisLike, opts: SkillArchiveCacheOptions = {}) {
-        const archiveUrl = opts.archiveUrl ?? DEFAULT_SKILL_ARCHIVE_URL
+        const archiveUrl = opts.archiveUrl ?? PRODUCT_SKILL_ARCHIVE_URL
         const urlNamespace =
-            archiveUrl === DEFAULT_SKILL_ARCHIVE_URL
+            archiveUrl === PRODUCT_SKILL_ARCHIVE_URL
                 ? NAMESPACE
                 : `${NAMESPACE}:${createHash('sha256').update(archiveUrl).digest('hex').slice(0, 16)}`
         const namespace = opts.expectedArchiveSha ? `${urlNamespace}:${opts.expectedArchiveSha}` : urlNamespace
@@ -165,7 +163,7 @@ export class SkillArchiveCache extends SharedBlobCache {
     private async fetchArchiveChecked(etag?: string): Promise<SkillArchiveFetchResult> {
         const result = await this.fetchArchive(this.archiveUrl, etag)
         if (result.status === 'downloaded') {
-            if (result.bytes.length === 0 || result.bytes.length > MAX_ARCHIVE_BYTES) {
+            if (result.bytes.length === 0 || result.bytes.length > MAX_SKILL_ARCHIVE_BYTES) {
                 throw new Error(`Invalid skill archive size: ${result.bytes.length} bytes`)
             }
             this.validateArchive(result.bytes)
@@ -187,7 +185,7 @@ async function downloadArchive(url: string, etag?: string): Promise<SkillArchive
         throw new Error(`Failed to download skill archive: HTTP ${response.status}`)
     }
     const contentLength = Number(response.headers.get('content-length'))
-    if (Number.isFinite(contentLength) && contentLength > MAX_ARCHIVE_BYTES) {
+    if (Number.isFinite(contentLength) && contentLength > MAX_SKILL_ARCHIVE_BYTES) {
         throw new Error(`Skill archive is too large: ${contentLength} bytes`)
     }
     const bytes = new Uint8Array(await response.arrayBuffer())

@@ -1,8 +1,8 @@
 import { LemonCard, LemonTag } from '@posthog/lemon-ui'
 
+import { BrandMark } from 'lib/components/BrandMark/BrandMark'
 import { TZLabel } from 'lib/components/TZLabel'
 
-import { BrandMark } from '../components/BrandMark'
 import { harnessMark } from '../dashboard/harnessRegistry'
 import type { MCPActivityRecentCallApi } from '../generated/api.schemas'
 import { formatDuration } from '../sessions/utils'

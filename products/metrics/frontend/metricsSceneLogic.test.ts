@@ -16,14 +16,20 @@ import {
     UniversalFiltersGroup,
 } from '~/types'
 
-import { metricsNamesRetrieve, metricsQueryCreate } from 'products/metrics/frontend/generated/api'
+import {
+    metricsHasMetricsRetrieve,
+    metricsNamesRetrieve,
+    metricsQueryCreate,
+} from 'products/metrics/frontend/generated/api'
 
 import { metricNamePickerLogic } from './components/metricNamePickerLogic'
 import { metricsViewerLogic } from './components/metricsViewerLogic'
+import { metricsSetupLogic } from './emptyState/metricsSetupLogic'
 import { metricsSceneLogic } from './metricsSceneLogic'
 
 jest.mock('products/metrics/frontend/generated/api', () => ({
     ...jest.requireActual('products/metrics/frontend/generated/api'),
+    metricsHasMetricsRetrieve: jest.fn(),
     metricsNamesRetrieve: jest.fn(),
     metricsQueryCreate: jest.fn(),
 }))
@@ -411,6 +417,45 @@ describe('metricsSceneLogic', () => {
 
             expect(router.values.location.pathname).toContain('/logs')
             expect(router.values.searchParams).not.toHaveProperty('metricName')
+        })
+    })
+
+    describe('landing tab', () => {
+        afterEach(() => {
+            metricsSetupLogic.unmount()
+        })
+
+        // The overview reads only ingested metrics, so a team with only derived series would land on zero counts.
+        it.each([
+            [
+                'derived series only',
+                { hasMetrics: false, hasDerivedSources: true, hasDerivedMetrics: true },
+                {},
+                'viewer',
+            ],
+            [
+                'ingested metrics',
+                { hasMetrics: true, hasDerivedSources: true, hasDerivedMetrics: true },
+                {},
+                'overview',
+            ],
+            [
+                'derived series only, overview linked',
+                { hasMetrics: false, hasDerivedSources: true, hasDerivedMetrics: true },
+                { activeTab: 'overview' },
+                'overview',
+            ],
+        ])('%s lands on %s', async (_name, response, params, expected) => {
+            jest.mocked(metricsHasMetricsRetrieve).mockResolvedValue(response)
+            router.actions.push('/metrics', params)
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(metricsSetupLogic, () => {
+                metricsSetupLogic.mount()
+            }).toDispatchActions(['detectStatusSuccess'])
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.activeTab).toEqual(expected)
         })
     })
 })

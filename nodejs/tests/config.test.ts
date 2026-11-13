@@ -30,6 +30,18 @@ describe('config', () => {
         expect(config.TASK_TIMEOUT).toEqual(3008.12)
     })
 
+    test.each([
+        ['true', true],
+        ['1', false],
+        ['yes', false],
+        ['TRUE', false],
+        [undefined, false],
+    ])('turns sandbox email sending on only for exactly "true" (got %s)', (value, expected) => {
+        const config = overrideWithEnv(getDefaultConfig(), { WORKFLOWS_SANDBOX_SENDER_ENABLED: value })
+
+        expect(config.WORKFLOWS_SANDBOX_SENDER_ENABLED).toBe(expected)
+    })
+
     describe('DATABASE_URL', () => {
         test('Error only when Postgres is opened if DATABASE_URL is not set AND POSTHOG_DB_NAME is not set', () => {
             const env = {

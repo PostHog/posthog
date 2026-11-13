@@ -105,7 +105,7 @@ dependencies = [
     "paramiko~=3.5.1",
     "pillow==12.3.0",
     "protobuf~=6.33.6",
-    "posthoganalytics==7.86.6",
+    "posthoganalytics==7.87.2",
     "polars==1.44.2",
     "psycopg2-binary==2.9.13",
     "psycopg[binary]==3.2.13",
@@ -169,6 +169,7 @@ dependencies = [
     "zstd==1.5.7.2",
     "zxcvbn==4.5.0",
     "pyyaml~=6.0.3",
+    "ruamel.yaml~=0.18.12",
     "chdb==4.4.0",
     # chdb allows any chdb-core>=26.7.0, and engines before 26.9.0 accept a TLS certificate issued for another host.
     "chdb-core==26.9.0",
@@ -820,13 +821,36 @@ ignore_imports = [
     "products.access_control.backend.presentation.access_control_settings -> products.access_control.backend.models.access_control",
     "products.access_control.backend.presentation.access_control_settings -> products.access_control.backend.models.role",
     "products.access_control.backend.presentation.role -> products.access_control.backend.models.role",
-    # TODO: actions presentation wave — the moved ActionViewSet is still a ModelViewSet over the Action model
-    # (tags, object access levels, folder placement), and its reference counts read cdp and cohorts rows
-    # directly. Thin it to parse -> facade -> serialize and delete each entry.
+    # TODO: dashboards presentation wave — the moved dashboard and template viewsets are still
+    # ModelViewSets over the dashboards models, and they reach the widget, customization, access and
+    # run-output modules directly. The dashboard viewset also reads alerts rows and builds default
+    # templates from ai_observability and mcp_analytics internals, and the tile serializer that
+    # insight payloads nest is a ModelSerializer over DashboardTile. Thin each viewset to
+    # parse -> facade -> serialize and delete each entry.
     # backend:contract-check stays off until this list is empty.
-    "products.actions.backend.presentation.views.action -> products.actions.backend.models.action",
-    "products.actions.backend.presentation.views.action -> products.cdp.backend.models.hog_functions.hog_function",
-    "products.actions.backend.presentation.views.action -> products.cohorts.backend.models.cohort",
+    "products.dashboards.backend.presentation.serializers -> products.dashboards.backend.models.dashboard_tile",
+    "products.dashboards.backend.presentation.views.dashboard -> products.ai_observability.backend.dashboard_templates",
+    "products.dashboards.backend.presentation.views.dashboard -> products.alerts.backend.models.alert",
+    "products.dashboards.backend.presentation.views.dashboard -> products.dashboards.backend.access",
+    "products.dashboards.backend.presentation.views.dashboard -> products.dashboards.backend.constants",
+    "products.dashboards.backend.presentation.views.dashboard -> products.dashboards.backend.customization",
+    "products.dashboards.backend.presentation.views.dashboard -> products.dashboards.backend.models",
+    "products.dashboards.backend.presentation.views.dashboard -> products.dashboards.backend.models.dashboard",
+    "products.dashboards.backend.presentation.views.dashboard -> products.dashboards.backend.models.dashboard_tile",
+    "products.dashboards.backend.presentation.views.dashboard -> products.dashboards.backend.models.dashboard_widget",
+    "products.dashboards.backend.presentation.views.dashboard -> products.dashboards.backend.run_insights_output",
+    "products.dashboards.backend.presentation.views.dashboard -> products.dashboards.backend.widget_access",
+    "products.dashboards.backend.presentation.views.dashboard -> products.dashboards.backend.widget_availability",
+    "products.dashboards.backend.presentation.views.dashboard -> products.dashboards.backend.widget_catalog",
+    "products.dashboards.backend.presentation.views.dashboard -> products.dashboards.backend.widget_create",
+    "products.dashboards.backend.presentation.views.dashboard -> products.dashboards.backend.widget_layouts",
+    "products.dashboards.backend.presentation.views.dashboard -> products.dashboards.backend.widget_query_throttle",
+    "products.dashboards.backend.presentation.views.dashboard -> products.dashboards.backend.widget_registry",
+    "products.dashboards.backend.presentation.views.dashboard -> products.dashboards.backend.widget_specs.configs",
+    "products.dashboards.backend.presentation.views.dashboard -> products.mcp_analytics.backend.dashboard_templates",
+    "products.dashboards.backend.presentation.views.dashboard_templates -> products.dashboards.backend.customization",
+    "products.dashboards.backend.presentation.views.dashboard_templates -> products.dashboards.backend.models.dashboard_templates",
+    "products.dashboards.backend.presentation.widget_openapi_serializers -> products.dashboards.backend.widget_specs.openapi",
 ]
 
 # routes.py is the one module core reads to assemble a product's API router, so it is the
@@ -856,8 +880,6 @@ ignore_imports = [
     "products.cdp.backend.routes -> products.cdp.backend.api.plugin_log_entry",
     "products.cohorts.backend.routes -> products.cohorts.backend.api.staff_tools",
     "products.conversations.backend.routes -> products.conversations.backend.api",
-    "products.dashboards.backend.routes -> products.dashboards.backend.api.dashboard",
-    "products.dashboards.backend.routes -> products.dashboards.backend.api.dashboard_templates",
     "products.early_access_features.backend.routes -> products.early_access_features.backend.api",
     "products.exports.backend.routes -> products.exports.backend.api.exports",
     "products.feature_flags.backend.routes -> products.feature_flags.backend.api.feature_flag",
@@ -934,7 +956,6 @@ ignore_imports = [
     "products.managed_warehouse.backend.facade.api -> products.managed_warehouse.backend.presentation.views",
     "products.tasks.backend.facade.api -> products.tasks.backend.presentation.serializers",
     "products.billing_alerts.backend.facade.api -> rest_framework",
-    "products.dashboards.backend.facade.api -> rest_framework",
     "products.feature_flags.backend.facade.api -> rest_framework",
     "products.tasks.backend.facade.api -> rest_framework",
     "products.tasks.backend.facade.client_provenance -> rest_framework",

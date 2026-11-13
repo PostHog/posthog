@@ -119,7 +119,8 @@ describe('handleToolError recovery hints', () => {
         const result = handleToolError(error, 'insight-get')
         const [content] = result.content as Array<{ type: string; text: string }>
 
-        expect(content?.text).toContain('Path: GET /api/projects/2/insights/?limit=1')
+        expect(content?.text).toContain('Path: GET /api/projects/2/insights/')
+        expect(content?.text).not.toContain('limit=1')
         expect(content?.text).not.toContain('internal.example.com')
     })
 

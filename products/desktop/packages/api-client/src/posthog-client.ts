@@ -2436,6 +2436,21 @@ export class PostHogAPIClient {
     });
   }
 
+  async getGitlabProjects(
+    integrationId: number,
+    search?: string,
+  ): Promise<Schemas.GitLabProjectsResponse> {
+    const teamId = await this.getTeamId();
+    const trimmedSearch = search?.trim();
+    return await this.api.get(
+      "/api/projects/{project_id}/integrations/{id}/gitlab_projects/",
+      {
+        path: { project_id: teamId.toString(), id: integrationId },
+        query: trimmedSearch ? { search: trimmedSearch } : {},
+      },
+    );
+  }
+
   /** Emails the project's admins asking them to connect an integration; members only. */
   async requestIntegrationAccess(
     projectId: number,
@@ -3568,6 +3583,7 @@ export class PostHogAPIClient {
       > & {
         github_integration?: number | null;
         github_user_integration?: string | null;
+        repository_integration?: number | null;
         signal_report_task_relationship?: string;
         signal_report_discussion_question?: string;
         branch?: string | null;
@@ -6147,6 +6163,36 @@ export class PostHogAPIClient {
       throw new Error(errorText || "Failed to update signal report state");
     }
 
+    return (await response.json()) as SignalReport;
+  }
+
+  /**
+   * Take over the claim another person holds on a report. `claimId` names the
+   * claim the user confirmed, so the server refuses when a newer claim replaced
+   * it, and it notifies the person who held it.
+   */
+  async takeOverSignalReportClaim(
+    reportId: string,
+    claimId: string | null,
+  ): Promise<SignalReport> {
+    const teamId = await this.getTeamId();
+    const path = `/api/projects/${teamId}/signals/reports/${reportId}/claim/`;
+    const response = await this.api.fetcher.fetch({
+      method: "post",
+      url: new URL(`${this.api.baseUrl}${path}`),
+      path,
+      overrides: {
+        body: JSON.stringify(
+          claimId
+            ? { takeover: true, takeover_claim_id: claimId }
+            : { takeover: true },
+        ),
+      },
+    });
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(errorText || "Failed to take over the report");
+    }
     return (await response.json()) as SignalReport;
   }
 

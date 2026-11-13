@@ -111,6 +111,10 @@ async def _emit_embeddings(
 @activity.defn
 @track_activity(side_effect="embed")
 async def embed_observation_activity(inputs: EmbedObservationInputs) -> None:
+    return await embed_observation(inputs)
+
+
+async def embed_observation(inputs: EmbedObservationInputs) -> None:
     """Emit an embedding for the observation's explanation text when it is non-empty."""
     metadata = {
         "session_id": inputs.session_id,

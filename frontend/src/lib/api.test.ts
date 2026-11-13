@@ -576,6 +576,30 @@ describe('API helper', () => {
         })
     })
 
+    describe('client build header', () => {
+        const existingAppContext = window.POSTHOG_APP_CONTEXT
+
+        beforeEach(() => {
+            window.POSTHOG_APP_CONTEXT = { ...existingAppContext, commit_sha: 'abc123def0' } as any
+        })
+
+        afterEach(() => {
+            window.POSTHOG_APP_CONTEXT = existingAppContext
+        })
+
+        it('sends the frontend build with same-origin requests', async () => {
+            await api.get('/api/projects/2/insights/')
+            const [, options] = fakeFetch.mock.calls[0]
+            expect(options.headers['X-PostHog-Client-Build']).toEqual('abc123def0')
+        })
+
+        it('omits the frontend build on cross-origin requests, whose CORS allowlists do not include it', async () => {
+            await api.get('https://agent-proxy.example.com/v1/runs/1/stream')
+            const [, options] = fakeFetch.mock.calls[0]
+            expect(options.headers['X-PostHog-Client-Build']).toBeUndefined()
+        })
+    })
+
     describe('successful response body parsing', () => {
         const fakeResponse = ({ status = 200, text }: { status?: number; text: () => Promise<string> }): any => ({
             ok: true,

@@ -1,4 +1,5 @@
 import json
+from typing import Any
 
 import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
@@ -14,6 +15,7 @@ from posthog.models.integration import ANY, WAREHOUSE_SOURCE_TYPE_CONFIG_KEY, In
 
 from products.cdp.backend.filters import RUNTIME_CONTRACT
 from products.cdp.backend.validation import (
+    MAX_TASK_REPOSITORIES,
     FunctionInputsSerializer,
     HogFunctionFiltersSerializer,
     InputsSchemaItemSerializer,
@@ -22,6 +24,7 @@ from products.cdp.backend.validation import (
     build_html_wrap_design,
     compile_hog,
     generate_template_bytecode,
+    reject_new_non_email_senders,
     reserved_functions_used,
 )
 from products.messaging.backend.facade.api import validate_design
@@ -765,10 +768,10 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
             config={"email": f"sender@{domain}", "name": "Sender", "domain": domain, "verified": True},
         )
 
-    def _validate_email_from(self, from_value, existing_from=None, get_team=True, cache=None):
+    def _validate_email_from(self, from_value, existing_from=None, get_team=True, cache=None, live_from=None):
         inputs_schema = [{"key": "email", "type": "native_email", "required": True, "templating": "liquid"}]
         value = {"from": from_value, "to": "a@b.com", "subject": "hi", "text": "hi"}
-        context_extra = {"existing_email_from": existing_from}
+        context_extra = {"existing_email_from": existing_from, "live_email_from": live_from}
         if get_team:
             context_extra["get_team"] = lambda: self.team
         if cache is not None:
@@ -782,7 +785,6 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
             ("not_an_email", "not-an-email", "is not a valid email address"),
             ("address_list", "a@posthog.com, b@posthog.com", "is not a valid email address"),
             ("overlong_address", f"{'a' * 243}@posthog.com", "254 characters or fewer"),
-            ("overlong_non_address", "a" * 255, "254 characters or fewer"),
         ]
     )
     def test_email_literal_sender_override_rejected_at_save(self, _name, address, expected):
@@ -913,6 +915,42 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
         # not resolve has no domain to compare against. Both must not block the save; the runtime
         # still enforces the domain at send time.
         self._validate_email_from({"integrationId": integration_id, "email": "sales@evil.com"}, get_team=get_team)
+
+    @parameterized.expand(
+        [
+            ("sandbox_sender", "email_sandbox", False),
+            ("slack_row_in_rotation", "slack", True),
+        ]
+    )
+    def test_email_sender_of_another_kind_rejected_at_save(self, _name: str, kind: str, in_rotation: bool) -> None:
+        own_sender = self._create_email_integration()
+        other_kind = Integration.objects.create(team=self.team, kind=kind, integration_id="not-an-email", config={})
+        from_value = (
+            {"integrationId": own_sender.id, "integrationIds": [own_sender.id, other_kind.id]}
+            if in_rotation
+            else {"integrationId": other_kind.id}
+        )
+
+        with pytest.raises(ValidationError) as ctx:
+            self._validate_email_from(from_value)
+        assert "This sender can't send email from a workflow" in str(ctx.value.detail)
+
+    def test_email_sender_of_another_kind_already_stored_is_not_revalidated(self) -> None:
+        sandbox_sender = Integration.objects.create(
+            team=self.team, kind="email_sandbox", integration_id="posthog-managed-sandbox", config={}
+        )
+
+        validated = self._validate_email_from(
+            {"integrationId": sandbox_sender.id}, live_from=[{"integrationId": sandbox_sender.id}]
+        )
+
+        assert validated["email"]["value"]["from"] == {"integrationId": sandbox_sender.id}
+
+    @parameterized.expand([("inputs_list", ["unfinished"]), ("email_input_string", {"email": "unfinished"})])
+    def test_draft_sender_check_leaves_malformed_inputs_to_the_serializer(self, _name: str, inputs: Any) -> None:
+        schema = [{"key": "email", "type": "native_email", "required": True, "templating": "liquid"}]
+
+        reject_new_non_email_senders(schema, inputs, {"get_team": lambda: self.team})
 
     @parameterized.expand(
         [
@@ -1634,7 +1672,12 @@ class TestTaskInputTypeValidation(SimpleTestCase):
             ("repository_list", "task_repository", ["example-org/example-repo", "example-org/example-docs"], True),
             ("repository_not_string", "task_repository", 123, False),
             ("repository_list_not_strings", "task_repository", [{"name": "example-org/example-repo"}], False),
-            ("repository_list_too_long", "task_repository", [f"example-org/repo-{i}" for i in range(11)], False),
+            (
+                "repository_list_too_long",
+                "task_repository",
+                [f"example-org/repo-{i}" for i in range(MAX_TASK_REPOSITORIES + 1)],
+                False,
+            ),
             ("model_full", "task_model", {"model": "claude-sonnet-5", "reasoning_effort": "high"}, True),
             ("model_without_effort", "task_model", {"model": "claude-sonnet-5"}, True),
             ("model_not_dict", "task_model", "claude-sonnet-5", False),

@@ -135,6 +135,9 @@ export const SettingsEnvironmentMarketingAnalytics: Story = {
     args: { sectionId: 'environment-marketing-analytics' },
     parameters: {
         featureFlags: [...STORYBOOK_FEATURE_FLAGS, 'advance-marketing-analytics-settings'],
+        msw: {
+            mocks: { post: { '/api/environments/:team_id/query/DatabaseSchemaQuery/': { tables: {}, joins: [] } } },
+        },
     },
 }
 
