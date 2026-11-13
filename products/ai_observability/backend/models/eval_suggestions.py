@@ -115,8 +115,17 @@ class EvalSuggestion(UUIDModel):
     decided_at = models.DateTimeField(null=True, blank=True)
     # A staff label for tuning what the pipeline shows. Customers never see it.
     review_verdict = models.CharField(max_length=8, choices=EvalSuggestionReviewVerdict.choices, null=True, blank=True)
-    review_note = models.TextField(blank=True, default="")
+    review_note = models.TextField(blank=True, default="", db_default="")
     reviewed_at = models.DateTimeField(null=True, blank=True)
+    reviewed_by = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        db_constraint=False,
+        db_index=False,
+        related_name="+",
+    )
     created_evaluation = models.ForeignKey(
         "ai_observability.Evaluation", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
     )
