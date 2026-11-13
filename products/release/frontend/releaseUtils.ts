@@ -51,14 +51,7 @@ export interface ReleaseFlagAudience {
     variants: { key: string; percent: number }[]
 }
 
-export type ReleaseEventKind =
-    | 'release'
-    | 'flag'
-    | 'experiment'
-    | 'early_access'
-    | 'schedule'
-    | 'broadcast'
-    | 'survey'
+export type ReleaseEventKind = 'release' | 'flag' | 'experiment' | 'early_access' | 'schedule' | 'broadcast' | 'survey'
 
 export const CALENDAR_DAYS_BEFORE = 17
 export const CALENDAR_DAYS_AFTER = 60

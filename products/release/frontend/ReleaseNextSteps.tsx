@@ -69,6 +69,7 @@ function SuggestionRow({
     label,
     to,
     onClick,
+    disabled,
     dataAttr,
 }: {
     avatar: AvatarKind
@@ -77,6 +78,7 @@ function SuggestionRow({
     label: string
     to?: string
     onClick?: () => void
+    disabled?: boolean
     dataAttr: string
 }): JSX.Element {
     return (
@@ -92,6 +94,7 @@ function SuggestionRow({
                 size="xs"
                 variant="link-muted"
                 className="shrink-0"
+                disabled={disabled}
                 {...(onClick ? { onClick } : { nativeButton: false, render: <LinkPrimitive to={to ?? ''} /> })}
             >
                 {label}
@@ -103,13 +106,15 @@ function SuggestionRow({
 export function ReleaseNextSteps({ row }: { row: ReleaseRow }): JSX.Element {
     const { canEditReleases } = useValues(releaseLogic)
     const { openSchedule } = useActions(releaseLogic)
-    const { relatedSuggestions } = useValues(releaseRelatedLogic)
+    const { relatedSuggestions, creatingSurvey } = useValues(releaseRelatedLogic)
     const { createReleaseSurvey } = useActions(releaseRelatedLogic)
     const step = row.nextStep
     const surveyFound =
         relatedSuggestions?.releaseId === row.id &&
         relatedSuggestions.items.some((item) => item.kind === 'survey' && item.detected)
-    const suggestions = row.suggestions.filter((suggestion) => !(suggestion.key === 'survey' && surveyFound))
+    const suggestions = row.suggestions.filter(
+        (suggestion) => !(suggestion.key === 'survey' && (surveyFound || !canEditReleases))
+    )
     const [showAll, setShowAll] = useState(false)
     const hidden = suggestions.length - 1
 
@@ -186,7 +191,7 @@ export function ReleaseNextSteps({ row }: { row: ReleaseRow }): JSX.Element {
                             label={suggestion.label}
                             dataAttr={`release-suggestion-${suggestion.key}`}
                             {...(suggestion.key === 'survey'
-                                ? { onClick: () => createReleaseSurvey(row) }
+                                ? { onClick: () => createReleaseSurvey(row), disabled: creatingSurvey }
                                 : { to: suggestion.to })}
                         />
                     ))}

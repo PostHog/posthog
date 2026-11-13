@@ -47,10 +47,7 @@ export function ReleaseTrackLabel({
                 {iconForType(LANE_ICON[lane.kind] as never)}
             </span>
             <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                <LinkPrimitive
-                    to={lane.href}
-                    className="truncate text-xs text-foreground hover:underline"
-                >
+                <LinkPrimitive to={lane.href} className="truncate text-xs text-foreground hover:underline">
                     {lane.title}
                 </LinkPrimitive>
                 {detail && (

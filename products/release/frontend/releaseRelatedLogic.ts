@@ -54,9 +54,12 @@ export interface RelatedSuggestions {
 export interface RelatedSearch {
     surveys: RelatedSurvey[]
     insights: RelatedInsight[]
+    failed: boolean
 }
 
-const NO_SEARCH: RelatedSearch = { surveys: [], insights: [] }
+const NO_SEARCH: RelatedSearch = { surveys: [], insights: [], failed: false }
+
+const LOOKUP_BATCH = 100
 
 interface ReleaseRelatedLogicValues {
     currentProjectId: number | null
@@ -70,6 +73,8 @@ interface ReleaseRelatedLogicValues {
     relatedSearch: RelatedSearch
     relatedSearchLoading: boolean
     dismissed: Record<string, true>
+    creatingSurvey: boolean
+    lastRelatedSearch: string
     surveysById: Record<string, RelatedSurvey>
     insightsById: Record<number, RelatedInsight>
     relatedByRelease: Record<string, TrackRelated>
@@ -91,7 +96,11 @@ interface ReleaseRelatedLogicActions {
         relatedSuggestions: RelatedSuggestions | null
     }
     loadRelatedSuggestionsFailure: (error: string) => { error: string }
-    linkRelated: (releaseId: string, kind: RelatedKind, id: string) => { releaseId: string; kind: RelatedKind; id: string }
+    linkRelated: (
+        releaseId: string,
+        kind: RelatedKind,
+        id: string
+    ) => { releaseId: string; kind: RelatedKind; id: string }
     unlinkRelated: (
         releaseId: string,
         kind: RelatedKind,
@@ -102,6 +111,11 @@ interface ReleaseRelatedLogicActions {
     searchRelatedFailure: (error: string) => { error: string }
     dismissSuggestion: (key: string) => { key: string }
     createReleaseSurvey: (row: ReleaseRow) => { row: ReleaseRow }
+    createReleaseSurveyDone: () => { done: true }
+    rememberLinked: (
+        surveys: RelatedSurvey[],
+        insights: RelatedInsight[]
+    ) => { surveys: RelatedSurvey[]; insights: RelatedInsight[] }
     reloadReleases: () => void
 }
 
@@ -126,6 +140,14 @@ function toInsight(row: unknown[]): RelatedInsight {
     return { id, shortId, name: name || 'Untitled insight', createdAt, lastModifiedAt }
 }
 
+function batches<T>(items: T[]): T[][] {
+    const result: T[][] = []
+    for (let start = 0; start < items.length; start += LOOKUP_BATCH) {
+        result.push(items.slice(start, start + LOOKUP_BATCH))
+    }
+    return result
+}
+
 async function queryInsights(query: ReturnType<typeof hogql>): Promise<RelatedInsight[]> {
     const response = await api.queryHogQL(query, { scene: 'Releases', productKey: 'feature_flags' })
     return (response.results ?? []).map(toInsight)
@@ -142,6 +164,8 @@ export const releaseRelatedLogic = kea<releaseRelatedLogicType>([
         unlinkRelated: (releaseId: string, kind: RelatedKind, id: string) => ({ releaseId, kind, id }),
         dismissSuggestion: (key: string) => ({ key }),
         createReleaseSurvey: (row: ReleaseRow) => ({ row }),
+        createReleaseSurveyDone: () => ({ done: true as const }),
+        rememberLinked: (surveys: RelatedSurvey[], insights: RelatedInsight[]) => ({ surveys, insights }),
     }),
     loaders(({ values }) => ({
         linkedSurveys: [
@@ -152,8 +176,14 @@ export const releaseRelatedLogic = kea<releaseRelatedLogicType>([
                     if (!ids.length) {
                         return {}
                     }
-                    const page = await surveysList(String(values.currentProjectId), { ids, limit: ids.length })
-                    return Object.fromEntries(page.results.map((survey) => [survey.id, toSurvey(survey)]))
+                    const pages = await Promise.all(
+                        batches(ids).map((batch) =>
+                            surveysList(String(values.currentProjectId), { ids: batch, limit: batch.length })
+                        )
+                    )
+                    return Object.fromEntries(
+                        pages.flatMap((page) => page.results).map((survey) => [survey.id, toSurvey(survey)])
+                    )
                 },
             },
         ],
@@ -165,10 +195,15 @@ export const releaseRelatedLogic = kea<releaseRelatedLogicType>([
                     if (!ids.length) {
                         return {}
                     }
-                    const insights = await queryInsights(
-                        hogql`SELECT id, short_id, name, created_at, last_modified_at FROM system.insights WHERE deleted = 0 AND id IN ${ids}`
+                    const pages = await Promise.all(
+                        batches(ids).map((batch) =>
+                            queryInsights(
+                                hogql`SELECT id, short_id, name, created_at, last_modified_at FROM system.insights
+                                WHERE deleted = 0 AND id IN ${batch} LIMIT ${LOOKUP_BATCH}`
+                            )
+                        )
                     )
-                    return Object.fromEntries(insights.map((insight) => [insight.id, insight]))
+                    return Object.fromEntries(pages.flat().map((insight) => [insight.id, insight]))
                 },
             },
         ],
@@ -179,18 +214,25 @@ export const releaseRelatedLogic = kea<releaseRelatedLogicType>([
                     await breakpoint(250)
                     const projectId = String(values.currentProjectId)
                     const term = query.trim()
+                    let failed = false
                     const [surveys, insights] = await Promise.all([
                         surveysList(projectId, { search: term || undefined, archived: false, limit: 8 })
                             .then((page) => page.results.map(toSurvey))
-                            .catch(() => [] as RelatedSurvey[]),
+                            .catch(() => {
+                                failed = true
+                                return [] as RelatedSurvey[]
+                            }),
                         queryInsights(
                             hogql`SELECT id, short_id, name, created_at, last_modified_at FROM system.insights
                             WHERE deleted = 0 AND saved = 1 AND positionCaseInsensitive(coalesce(name, ''), ${term}) > 0
                             ORDER BY last_modified_at DESC LIMIT 8`
-                        ).catch(() => [] as RelatedInsight[]),
+                        ).catch(() => {
+                            failed = true
+                            return [] as RelatedInsight[]
+                        }),
                     ])
                     breakpoint()
-                    return { surveys, insights }
+                    return { surveys, insights, failed }
                 },
             },
         ],
@@ -203,6 +245,7 @@ export const releaseRelatedLogic = kea<releaseRelatedLogicType>([
                     const linkedSurveys = new Set(release?.survey_ids ?? [])
                     const linkedInsights = new Set(release?.insight_ids ?? [])
                     const flagKeys = row.flags.map((flag) => flag.key)
+                    const firstFlagCreated = row.flags.map((flag) => flag.created_at).sort()[0] ?? row.createdAt
                     const tokens = nameTokens(row.name).slice(0, 4)
                     const [flagSurveys, nameSurveys, flagInsights, nameInsights] = await Promise.all([
                         Promise.all(
@@ -223,6 +266,7 @@ export const releaseRelatedLogic = kea<releaseRelatedLogicType>([
                             ? queryInsights(
                                   hogql`SELECT id, short_id, name, created_at, last_modified_at FROM system.insights
                                   WHERE deleted = 0 AND saved = 1
+                                  AND last_modified_at >= toDateTime(${firstFlagCreated})
                                   AND multiSearchAny(concat(toString(query), toString(filters)), ${flagKeys.map((key) => `$feature/${key}`)})
                                   ORDER BY last_modified_at DESC LIMIT 20`
                               ).catch(() => [] as RelatedInsight[])
@@ -309,9 +353,33 @@ export const releaseRelatedLogic = kea<releaseRelatedLogicType>([
             {} as Record<string, true>,
             {
                 dismissSuggestion: (state, { key }) => ({ ...state, [key]: true as const }),
-                linkRelated: (state, { kind, id }) => ({ ...state, [`${kind}:${id}`]: true as const }),
             },
         ],
+        creatingSurvey: [
+            false,
+            {
+                createReleaseSurvey: () => true,
+                createReleaseSurveyDone: () => false,
+            },
+        ],
+        lastRelatedSearch: [
+            '',
+            {
+                searchRelated: (_, query) => query,
+            },
+        ],
+        linkedSurveys: {
+            rememberLinked: (state, { surveys }) => ({
+                ...state,
+                ...Object.fromEntries(surveys.map((survey) => [survey.id, survey])),
+            }),
+        },
+        linkedInsights: {
+            rememberLinked: (state, { insights }) => ({
+                ...state,
+                ...Object.fromEntries(insights.map((insight) => [insight.id, insight])),
+            }),
+        },
     }),
     selectors({
         surveysById: [
@@ -348,20 +416,42 @@ export const releaseRelatedLogic = kea<releaseRelatedLogicType>([
                 ),
         ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
         createReleaseSurvey: async ({ row }) => {
+            if (cache.creatingSurvey) {
+                return
+            }
+            cache.creatingSurvey = true
             const flag = row.flags[0]
+            const name = `${row.name} feedback`
             try {
                 const survey = await surveysCreate(String(values.currentProjectId), {
-                    name: `${row.name} feedback`,
+                    name,
                     type: 'popover',
                     linked_flag_id: flag?.id ?? null,
                     questions: [{ type: 'open', question: `What do you think of ${row.name}?` }],
                 } as never)
+                actions.rememberLinked(
+                    [
+                        {
+                            id: survey.id,
+                            name,
+                            createdAt: new Date().toISOString(),
+                            startDate: null,
+                            endDate: null,
+                            linkedFlagId: flag?.id ?? null,
+                            archived: false,
+                        },
+                    ],
+                    []
+                )
                 actions.linkRelated(row.id, 'survey', survey.id)
                 router.actions.push(urls.survey(survey.id))
             } catch {
                 lemonToast.error('Could not create the survey. Try again.')
+            } finally {
+                cache.creatingSurvey = false
+                actions.createReleaseSurveyDone()
             }
         },
         reloadReleases: () => {
@@ -379,6 +469,9 @@ export const releaseRelatedLogic = kea<releaseRelatedLogicType>([
             if (current.includes(value)) {
                 return
             }
+            const survey = kind === 'survey' ? values.surveysById[id] : undefined
+            const insight = kind === 'insight' ? values.insightsById[Number(id)] : undefined
+            actions.rememberLinked(survey ? [survey] : [], insight ? [insight] : [])
             releaseLogic.actions.updateRelease(
                 releaseId,
                 { [field]: [...current, value] },

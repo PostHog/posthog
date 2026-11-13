@@ -147,26 +147,75 @@ class TestReleaseAPI(APIBaseTest):
         )
         assert restricted.status_code == status.HTTP_200_OK, restricted.json()
 
+    def _linked_object(self, kind: str, name: str) -> tuple[str | int, str]:
+        if kind == "broadcast":
+            workflow_id = create_workflow_for_test(team_id=self.team.id, name=name).id
+            return str(workflow_id), f"hog_flows/{workflow_id}"
+        if kind == "survey":
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/surveys/",
+                {"name": name, "type": "popover", "questions": [{"type": "open", "question": "How is it?"}]},
+                format="json",
+            )
+            assert response.status_code == status.HTTP_201_CREATED, response.json()
+            return response.json()["id"], f"surveys/{response.json()['id']}"
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/insights/",
+            {
+                "name": name,
+                "query": {
+                    "kind": "InsightVizNode",
+                    "source": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+                },
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        return response.json()["id"], f"insights/{response.json()['id']}"
+
     @parameterized.expand(
         [
-            ("existing", "existing", status.HTTP_201_CREATED),
-            ("unknown", "unknown", status.HTTP_400_BAD_REQUEST),
-            ("hidden_from_the_caller", "hidden", status.HTTP_400_BAD_REQUEST),
+            (f"{kind}_{case}", kind, case, expected)
+            for kind in ("broadcast", "survey", "insight")
+            for case, expected in (
+                ("existing", status.HTTP_201_CREATED),
+                ("unknown", status.HTTP_400_BAD_REQUEST),
+                ("hidden", status.HTTP_400_BAD_REQUEST),
+            )
         ]
     )
-    def test_linked_broadcasts_must_exist_and_be_visible(self, _name: str, broadcast: str, expected: int) -> None:
-        broadcast_id = "00000000-0000-0000-0000-000000000001"
-        if broadcast != "unknown":
-            broadcast_id = create_workflow_for_test(team_id=self.team.id, name="Launch email").id
-        if broadcast == "hidden":
-            self._restrict_as_admin(f"hog_flows/{broadcast_id}")
+    def test_linked_objects_must_exist_and_be_visible(self, _name: str, kind: str, case: str, expected: int) -> None:
+        field = f"{kind}_ids"
+        linked_id: str | int = 999999 if kind == "insight" else "00000000-0000-0000-0000-000000000001"
+        if case != "unknown":
+            linked_id, resource_path = self._linked_object(kind, "Launch")
+        if case == "hidden":
+            self._restrict_as_admin(resource_path)
             self.client.force_login(self._create_user("member@example.com"))
 
-        response = self.client.post(self._url(), {"name": "Dark mode", "broadcast_ids": [broadcast_id]}, format="json")
+        response = self.client.post(self._url(), {"name": "Dark mode", field: [linked_id]}, format="json")
 
         assert response.status_code == expected, response.json()
         if expected == status.HTTP_201_CREATED:
-            assert response.json()["broadcast_ids"] == [broadcast_id]
+            assert response.json()[field] == [linked_id]
+
+    @parameterized.expand([("survey",), ("insight",)])
+    def test_hidden_surveys_and_insights_are_omitted_and_kept_on_update(self, kind: str) -> None:
+        field = f"{kind}_ids"
+        visible_id, _ = self._linked_object(kind, "Visible")
+        hidden_id, hidden_path = self._linked_object(kind, "Hidden")
+        release_id = self.client.post(
+            self._url(), {"name": "Dark mode", field: [visible_id, hidden_id]}, format="json"
+        ).json()["id"]
+        self._restrict_as_admin(hidden_path)
+        self.client.force_login(self._create_user("member@example.com"))
+
+        member_view = self.client.get(self._url()).json()["results"][0]
+        self.client.patch(self._url(f"{release_id}/"), {field: []}, format="json")
+        stored = getattr(Release.objects.unscoped().get(id=release_id), field)
+
+        assert member_view[field] == [visible_id]
+        assert [str(item) for item in stored] == [str(hidden_id)]
 
     def test_hidden_broadcasts_are_omitted_and_kept_on_update(self) -> None:
         visible_id, hidden_id = (

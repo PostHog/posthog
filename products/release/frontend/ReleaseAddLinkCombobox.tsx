@@ -52,8 +52,13 @@ export function ReleaseAddLinkCombobox({ row }: { row: ReleaseRow }): JSX.Elemen
         lastLinkSearch,
     } = useValues(releaseLogic)
     const { searchLinks, addLink } = useActions(releaseLogic)
-    const { relatedSearch, relatedSearchLoading, relatedByRelease } = useValues(releaseRelatedLogic)
+    const { relatedSearch, relatedSearchLoading, relatedByRelease, lastRelatedSearch } = useValues(releaseRelatedLogic)
     const { searchRelated, linkRelated } = useActions(releaseRelatedLogic)
+    const retry = (): void => {
+        searchLinks(lastLinkSearch)
+        searchRelated(lastRelatedSearch)
+    }
+    const searching = linkSearchResultsLoading || relatedSearchLoading
     const related = relatedByRelease[row.id]
     const linkSuggestions = linkSuggestionsFor === linkSuggestionsKey(row) ? loadedSuggestions : []
     const linkSearchResults = linkSearchFailed ? [] : loadedResults
@@ -72,7 +77,12 @@ export function ReleaseAddLinkCombobox({ row }: { row: ReleaseRow }): JSX.Elemen
     for (const survey of relatedSearch.surveys) {
         const key = `survey:${survey.id}`
         if (!linked.has(key)) {
-            candidates.set(key, { key, kind: 'survey', label: survey.name, add: () => linkRelated(row.id, 'survey', survey.id) })
+            candidates.set(key, {
+                key,
+                kind: 'survey',
+                label: survey.name,
+                add: () => linkRelated(row.id, 'survey', survey.id),
+            })
         }
     }
     for (const insight of relatedSearch.insights) {
@@ -131,24 +141,19 @@ export function ReleaseAddLinkCombobox({ row }: { row: ReleaseRow }): JSX.Elemen
                 <ComboboxEmpty>
                     {linkSearchResultsLoading || relatedSearchLoading ? (
                         <Spinner />
-                    ) : linkSearchFailed ? null : (
+                    ) : linkSearchFailed || relatedSearch.failed ? null : (
                         'Nothing matches that name.'
                     )}
                 </ComboboxEmpty>
-                {linkSearchFailed && !linkSearchResultsLoading && (
+                {linkSearchFailed && !searching && (
                     <div className="flex flex-col items-center gap-2 px-2 py-2">
                         <Text size="xs">Search could not load. Check your connection, then try again.</Text>
-                        <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => searchLinks(lastLinkSearch)}
-                            data-attr="release-add-link-retry"
-                        >
+                        <Button size="sm" variant="outline" onClick={retry} data-attr="release-add-link-retry">
                             Try again
                         </Button>
                     </div>
                 )}
-                {linkSearchIncomplete && !linkSearchResultsLoading && (
+                {(linkSearchIncomplete || (relatedSearch.failed && !linkSearchFailed)) && !searching && (
                     <div className="flex items-center justify-between gap-2 px-2 py-1">
                         <Text size="xs" variant="muted">
                             Some results could not load.
@@ -156,7 +161,7 @@ export function ReleaseAddLinkCombobox({ row }: { row: ReleaseRow }): JSX.Elemen
                         <Button
                             size="xs"
                             variant="link-muted"
-                            onClick={() => searchLinks(lastLinkSearch)}
+                            onClick={retry}
                             data-attr="release-add-link-retry-partial"
                         >
                             Try again

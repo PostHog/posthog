@@ -54,6 +54,40 @@ class BroadcastVisibility:
         return self.existing - self.visible
 
 
+class UnknownSurveysError(Exception):
+    def __init__(self, survey_ids: list[UUID]) -> None:
+        super().__init__(survey_ids)
+        self.survey_ids = survey_ids
+
+
+class UnknownInsightsError(Exception):
+    def __init__(self, insight_ids: list[int]) -> None:
+        super().__init__(insight_ids)
+        self.insight_ids = insight_ids
+
+
+@dataclass(frozen=True)
+class SurveyVisibility:
+    existing: frozenset[UUID]
+    visible: frozenset[UUID]
+    linkable: frozenset[UUID]
+
+    @property
+    def hidden(self) -> frozenset[UUID]:
+        return self.existing - self.visible
+
+
+@dataclass(frozen=True)
+class InsightVisibility:
+    existing: frozenset[int]
+    visible: frozenset[int]
+    linkable: frozenset[int]
+
+    @property
+    def hidden(self) -> frozenset[int]:
+        return self.existing - self.visible
+
+
 @dataclass(frozen=True)
 class FlagVisibility:
     existing: frozenset[int]

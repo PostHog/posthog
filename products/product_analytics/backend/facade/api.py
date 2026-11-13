@@ -227,6 +227,22 @@ def insights_including_soft_deleted_for_team(*, team_id: int, insight_ids: Colle
     return logic.insights_including_soft_deleted_for_team(team_id=team_id, insight_ids=insight_ids)
 
 
+def existing_insight_ids(
+    insight_ids: Collection[int],
+    *,
+    team_id: int,
+    access_control: UserAccessControl | None = None,
+    include_deleted: bool = False,
+) -> set[int]:
+    manager = Insight.objects_including_soft_deleted if include_deleted else Insight.objects
+    queryset = manager.filter(team_id=team_id, id__in=list(insight_ids))
+    if not include_deleted:
+        queryset = queryset.filter(deleted=False)
+    if access_control is not None:
+        queryset = access_control.filter_queryset_by_access_level(queryset, include_all_if_admin=True)
+    return set(queryset.values_list("id", flat=True))
+
+
 def saved_trends_insights(
     *,
     team_ids: Collection[int],

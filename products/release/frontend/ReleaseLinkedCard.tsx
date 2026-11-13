@@ -132,7 +132,11 @@ export function ReleaseLinkedCard({ row }: { row: ReleaseRow }): JSX.Element {
             title: survey.name,
             meta: 'Survey',
             badge: survey.endDate ? 'Complete' : survey.startDate ? 'Running' : 'Draft',
-            badgeVariant: (survey.endDate ? 'default' : survey.startDate ? 'success' : 'default') as ReleaseBadgeVariant,
+            badgeVariant: (survey.endDate
+                ? 'default'
+                : survey.startDate
+                  ? 'success'
+                  : 'default') as ReleaseBadgeVariant,
             to: urls.survey(survey.id),
             onRemove: canEditReleases ? () => unlinkRelated(row.id, 'survey', survey.id) : undefined,
         })),

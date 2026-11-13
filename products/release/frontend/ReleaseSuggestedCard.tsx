@@ -95,9 +95,12 @@ export function ReleaseSuggestedCard({ row }: { row: ReleaseRow }): JSX.Element 
 
     const flagKeys = row.flags.map((flag) => flag.key).join(',')
     useEffect(() => {
+        if (!canEditReleases) {
+            return
+        }
         loadLinkSuggestions(row.id)
         loadRelatedSuggestions(row)
-    }, [row.id, row.name, flagKeys])
+    }, [row.id, row.name, flagKeys, canEditReleases])
 
     if (!canEditReleases) {
         return null
@@ -129,20 +132,16 @@ export function ReleaseSuggestedCard({ row }: { row: ReleaseRow }): JSX.Element 
                   add: () => linkRelated(row.id, item.kind, item.id),
               }))
             : []
-    const linkItems: Suggestion[] = (linkSuggestionsFor === linkSuggestionsKey(row) ? loaded : []).map(
-        (candidate) => ({
-            key: candidate.key,
-            icon: candidate.kind === 'flag' ? 'feature_flag' : 'broadcasts',
-            label: candidate.label,
-            reason: 'Name matches this release',
-            add: () => addLink(row.id, candidate),
-        })
-    )
+    const linkItems: Suggestion[] = (linkSuggestionsFor === linkSuggestionsKey(row) ? loaded : []).map((candidate) => ({
+        key: candidate.key,
+        icon: candidate.kind === 'flag' ? 'feature_flag' : 'broadcasts',
+        label: candidate.label,
+        reason: 'Name matches this release',
+        add: () => addLink(row.id, candidate),
+    }))
 
     const found = relatedItems.filter((item) => item.detected && visible(item.key))
-    const maybe = [...linkItems, ...relatedItems.filter((item) => !item.detected)].filter((item) =>
-        visible(item.key)
-    )
+    const maybe = [...linkItems, ...relatedItems.filter((item) => !item.detected)].filter((item) => visible(item.key))
     const loading = relatedSuggestionsLoading && relatedSuggestions?.releaseId !== row.id
 
     if (!loading && !found.length && !maybe.length) {

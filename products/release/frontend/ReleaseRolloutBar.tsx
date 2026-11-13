@@ -60,7 +60,12 @@ export function ReleaseRolloutBar({
         ...upcoming.map((step, index) => {
             const left = x(step.from, scale)
             const next = upcoming[index + 1]
-            return { step, left, right: next ? x(next.from, scale) : Math.min(left + Math.max(3 * scale.day, 108), end), projected: false }
+            return {
+                step,
+                left,
+                right: next ? x(next.from, scale) : Math.min(left + Math.max(3 * scale.day, 108), end),
+                projected: false,
+            }
         }),
     ]
     const segments = raw

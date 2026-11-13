@@ -20,15 +20,7 @@ import { ReleaseTrackGrid } from './ReleaseTrackGrid'
 import { ReleaseTrackLabel } from './ReleaseTrackLabel'
 import { ReleaseTrackLane } from './ReleaseTrackLane'
 import { ReleaseTrackMarkers } from './ReleaseTrackMarkers'
-import {
-    CALENDAR_SCALE,
-    LANE,
-    SPAN_LOOK,
-    Track,
-    TrackRelated,
-    buildTrack,
-    mergeOverlapping,
-} from './releaseTracks'
+import { CALENDAR_SCALE, LANE, SPAN_LOOK, Track, TrackRelated, buildTrack, mergeOverlapping } from './releaseTracks'
 import { ReleaseTrackSpan } from './ReleaseTrackSpan'
 import { CALENDAR_DAYS_AFTER, ReleaseRow, STAGE_COLOR, STAGE_COLOR_VARS } from './releaseUtils'
 import { useRefreshChangedFlagHistory } from './useRefreshChangedFlagHistory'
@@ -87,7 +79,13 @@ function TrackLanesContent({ track, open }: { track: Track; open: boolean }): JS
             <ReleaseTrackGrid scale={scale} />
             <div className="relative" style={{ height: open ? SUMMARY_OPEN : SUMMARY }}>
                 {steps.length > 0 && !open && (
-                    <ReleaseRolloutBar steps={steps} scale={scale} color={STAGE_COLOR[row.stage]} top={26} height={20} />
+                    <ReleaseRolloutBar
+                        steps={steps}
+                        scale={scale}
+                        color={STAGE_COLOR[row.stage]}
+                        top={26}
+                        height={20}
+                    />
                 )}
                 {summarySpans.map((span) =>
                     span.kind === 'early_access' && hasExperiment ? (
@@ -121,6 +119,8 @@ function TrackLanesContent({ track, open }: { track: Track; open: boolean }): JS
     )
 }
 
+const laneKeys = (track: Track): string => track.lanes.map((lane) => `${lane.key}:${lane.title}`).join('|')
+
 const laneSteps = (track: Track): (RolloutStep[] | undefined)[] =>
     track.lanes.map((lane) => (lane.kind === 'flag' ? lane.steps : undefined))
 
@@ -130,6 +130,7 @@ const TrackLanes = memo(
         previous.open === next.open &&
         previous.track.row === next.track.row &&
         previous.track.steps === next.track.steps &&
+        laneKeys(previous.track) === laneKeys(next.track) &&
         laneSteps(previous.track).every((steps, index) => steps === laneSteps(next.track)[index])
 )
 
@@ -143,12 +144,22 @@ const CalendarStateContext = createContext<CalendarState>({ expanded: {}, stepsB
 
 function ReleaseCell({ row }: CellContext<ReleaseRow, unknown>): JSX.Element {
     const { expanded, stepsByFlag, related } = useContext(CalendarStateContext)
-    return <TrackHeader track={buildTrack(row.original, stepsByFlag, related[row.original.id])} open={!!expanded[row.original.id]} />
+    return (
+        <TrackHeader
+            track={buildTrack(row.original, stepsByFlag, related[row.original.id])}
+            open={!!expanded[row.original.id]}
+        />
+    )
 }
 
 function TimelineCell({ row }: CellContext<ReleaseRow, unknown>): JSX.Element {
     const { expanded, stepsByFlag, related } = useContext(CalendarStateContext)
-    return <TrackLanes track={buildTrack(row.original, stepsByFlag, related[row.original.id])} open={!!expanded[row.original.id]} />
+    return (
+        <TrackLanes
+            track={buildTrack(row.original, stepsByFlag, related[row.original.id])}
+            open={!!expanded[row.original.id]}
+        />
+    )
 }
 
 function TimelineHeader(): JSX.Element {
