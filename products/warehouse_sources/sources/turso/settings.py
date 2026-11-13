@@ -95,4 +95,47 @@ ENDPOINTS: dict[str, TursoEndpointConfig] = {
             parent_field_renames={"DbId": "database_id", "Name": "database_name"},
         ),
     ),
+    "database_instances": TursoEndpointConfig(
+        name="database_instances",
+        path="/v1/organizations/{organization}/databases/{database_name}/instances",
+        data_selector="instances",
+        primary_keys=["database_id", "uuid"],
+        description="Primary and replica instances of each database, with their regions and hostnames.",
+        fanout=DependentEndpointConfig(
+            parent_name="databases",
+            resolve_param="database_name",
+            resolve_field="encoded_name",
+            include_from_parent=["DbId", "Name"],
+            parent_field_renames={"DbId": "database_id", "Name": "database_name"},
+        ),
+    ),
+    "database_stats": TursoEndpointConfig(
+        name="database_stats",
+        path="/v1/organizations/{organization}/databases/{database_name}/stats",
+        data_selector="top_queries",
+        # Turso returns one aggregate per distinct statement and gives the rows no other identifier.
+        primary_keys=["database_id", "query"],
+        description="Top queries of each database, with the rows they read and wrote.",
+        fanout=DependentEndpointConfig(
+            parent_name="databases",
+            resolve_param="database_name",
+            resolve_field="encoded_name",
+            include_from_parent=["DbId", "Name"],
+            parent_field_renames={"DbId": "database_id", "Name": "database_name"},
+        ),
+    ),
+    "organization_usage": TursoEndpointConfig(
+        name="organization_usage",
+        path="/v1/organizations/{organization}/usage",
+        data_selector="organization",
+        primary_keys=["uuid"],
+        description="Current billing cycle usage totals for the organization and each database.",
+    ),
+    "locations": TursoEndpointConfig(
+        name="locations",
+        path="/v1/locations",
+        data_selector="locations",
+        primary_keys=["code"],
+        description="Location codes where databases can be created or replicated, with their names.",
+    ),
 }

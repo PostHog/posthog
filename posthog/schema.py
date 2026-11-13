@@ -207,6 +207,7 @@ from posthog.schema_enums import (
     MarketingAnalyticsRecommendationImpactDirection as MarketingAnalyticsRecommendationImpactDirection,
     MarketingAnalyticsRecommendationImpactType as MarketingAnalyticsRecommendationImpactType,
     MarketingAnalyticsRecommendationLevel as MarketingAnalyticsRecommendationLevel,
+    MarketingAnalyticsRecommendationResolutionState as MarketingAnalyticsRecommendationResolutionState,
     MarketingAnalyticsRecommendationRule as MarketingAnalyticsRecommendationRule,
     MarketingAnalyticsRecommendationsDataGapKind as MarketingAnalyticsRecommendationsDataGapKind,
     MarketingAnalyticsRecommendationsSourceType as MarketingAnalyticsRecommendationsSourceType,
@@ -7282,6 +7283,23 @@ class MarketingAnalyticsRecommendationIdentity(BaseModel):
         description=(
             "The search term, or the budget id for a budget recommendation. Empty when"
             " the campaign id names the subject."
+        ),
+    )
+
+
+class MarketingAnalyticsRecommendationResolution(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: str = Field(
+        ...,
+        description=("The resolution id. Delete it through the resolutions API to show the recommendation again."),
+    )
+    resolution: MarketingAnalyticsRecommendationResolutionState
+    resolved_at: str = Field(
+        ...,
+        description=(
+            "When someone last dismissed the recommendation or marked it as applied, as an ISO 8601 timestamp."
         ),
     )
 
@@ -22346,6 +22364,13 @@ class MarketingAnalyticsRecommendation(BaseModel):
     )
     level: MarketingAnalyticsRecommendationLevel
     reason: str
+    resolution: MarketingAnalyticsRecommendationResolution | None = Field(
+        default=None,
+        description=(
+            "Set only when the query includes resolved recommendations and someone"
+            " dismissed this one or marked it as applied."
+        ),
+    )
     rule: MarketingAnalyticsRecommendationRule
     steps: list[MarketingAnalyticsRecommendationStep] | None = Field(
         default=None,
@@ -34197,6 +34222,13 @@ class MarketingAnalyticsRecommendationsQuery(BaseModel):
         ),
     )
     dateRange: DateRange | None = None
+    includeResolved: bool | None = Field(
+        default=False,
+        description=(
+            "Also return recommendations that someone in the project dismissed or"
+            " marked as applied, with their `resolution`."
+        ),
+    )
     kind: Literal["MarketingAnalyticsRecommendationsQuery"] = "MarketingAnalyticsRecommendationsQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     response: MarketingAnalyticsRecommendationsQueryResponse | None = None

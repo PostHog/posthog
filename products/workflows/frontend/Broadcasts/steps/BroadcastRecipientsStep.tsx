@@ -21,8 +21,9 @@ import { RealtimeCohortAudienceNotice } from '../../Workflows/hogflows/steps/com
 import { BroadcastAudienceCohorts } from '../audience/BroadcastAudienceCohorts'
 import { broadcastAudienceListLogic } from '../audience/broadcastAudienceListLogic'
 import { BroadcastAudienceListModal } from '../audience/BroadcastAudienceListModal'
-import { broadcastWizardLogic } from '../broadcastWizardLogic'
+import { broadcastWizardLogic, rateLimitedReachSentence } from '../broadcastWizardLogic'
 import { BroadcastChannelPicker } from './BroadcastChannelPicker'
+import { BroadcastRateLimitSuggestion } from './BroadcastRateLimitSuggestion'
 
 function AudienceSizeErrorDetails({ reason }: { reason: string | null }): JSX.Element | null {
     if (!reason) {
@@ -32,7 +33,17 @@ function AudienceSizeErrorDetails({ reason }: { reason: string | null }): JSX.El
 }
 
 function AudienceSizePreview(): JSX.Element | null {
-    const { blastRadius, blastRadiusLoading, blastRadiusError, channel, channelReach } = useValues(broadcastWizardLogic)
+    const {
+        blastRadius,
+        blastRadiusLoading,
+        blastRadiusError,
+        channel,
+        channelReach,
+        emailRateLimit,
+        rateLimitNeeded,
+        rateLimitedSendDuration,
+        audienceLimit,
+    } = useValues(broadcastWizardLogic)
 
     if (blastRadiusLoading) {
         return <Spinner className="mt-1" />
@@ -51,11 +62,11 @@ function AudienceSizePreview(): JSX.Element | null {
     }
 
     const { affected, total, limit } = blastRadius
-    const exceeded = limit != null && affected > limit
+    const exceeded = audienceLimit != null && affected > audienceLimit
 
     return (
         <div className="text-muted">
-            <span className={exceeded ? 'text-danger font-semibold' : undefined}>
+            <span className={exceeded && !rateLimitNeeded ? 'text-danger font-semibold' : undefined}>
                 approximately {humanFriendlyNumber(affected)} of {humanFriendlyNumber(total)} people.
             </span>
             {channelReach?.channel === channel ? (
@@ -72,11 +83,15 @@ function AudienceSizePreview(): JSX.Element | null {
                     Only people with push turned on in your app get the notification.
                 </div>
             ) : null}
-            {exceeded && (
+            {rateLimitNeeded ? (
+                <BroadcastRateLimitSuggestion />
+            ) : exceeded ? (
                 <div className="text-danger text-xs" data-attr="broadcast-audience-over-limit">
                     This project can send a broadcast to up to {humanFriendlyNumber(limit)} people right now.
                     {channel === 'email'
-                        ? " The project's workflows share one daily email allowance, and a larger broadcast would use it up for days, even with a slower sending rate. The limit rises as the project keeps sending with low bounce and spam complaint rates."
+                        ? " The project's workflows share one daily email allowance, so a larger broadcast would hold the others up for days." +
+                          rateLimitedReachSentence(blastRadius.rate_limited) +
+                          ' The limit rises as the project keeps sending with low bounce and spam complaint rates.'
                         : ''}{' '}
                     Add filters to narrow the audience, or{' '}
                     <Link
@@ -88,7 +103,12 @@ function AudienceSizePreview(): JSX.Element | null {
                     </Link>
                     .
                 </div>
-            )}
+            ) : channel === 'email' && emailRateLimit && rateLimitedSendDuration ? (
+                <div className="text-xs" data-attr="broadcast-audience-rate-limited-duration">
+                    Sends at most {humanFriendlyNumber(emailRateLimit.count)} emails per {emailRateLimit.period}, so
+                    about {rateLimitedSendDuration} to reach everyone.
+                </div>
+            ) : null}
         </div>
     )
 }
