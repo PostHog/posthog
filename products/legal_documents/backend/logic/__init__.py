@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable
 from datetime import timedelta
+from typing import IO
 from uuid import UUID
 
 from django.conf import settings
@@ -169,6 +170,42 @@ def create_document(
         company_address=company_address,
         representative_email=representative_email,
     )
+
+
+class SignedPdfUploadFailed(Exception):
+    pass
+
+
+def create_signed_document_from_upload(
+    organization_id: UUID,
+    created_by_id: int,
+    document_type: str,
+    company_name: str,
+    company_address: str,
+    representative_email: str,
+    pdf: IO[bytes],
+) -> LegalDocument:
+    # The row and the PDF commit together, so a row never points at a missing PDF and a PDF never
+    # sits in storage without a row. The PDF is written here, so the row is stored from the start.
+    with transaction.atomic():
+        document = LegalDocument.objects.create(
+            organization_id=organization_id,
+            created_by_id=created_by_id,
+            document_type=document_type,
+            company_name=company_name,
+            company_address=company_address,
+            representative_email=representative_email,
+            status=LegalDocument.Status.SIGNED,
+            signed_pdf_stored=True,
+        )
+        try:
+            object_storage.write_stream(
+                signed_pdf_storage_key(document), pdf, extras={"ContentType": "application/pdf"}
+            )
+        except Exception as exc:
+            logger.exception("legal_document_staff_upload_failed", document_id=str(document.id))
+            raise SignedPdfUploadFailed from exc
+    return document
 
 
 def try_mark_signed_if_pending(document: LegalDocument) -> bool:
@@ -378,9 +415,9 @@ def delete_document(document: LegalDocument, *, strict_pandadoc: bool = False) -
     document.delete()
 
 
-# Customer.io template name for the email sent to org owners when we auto opt
+# Template name of the email sent to org owners when we auto opt
 # them out of AI data processing because they signed a BAA. Wired through
-# CUSTOMER_IO_TEMPLATE_ID_MAP in posthog/email.py.
+# WORKFLOWS_TEMPLATE_ID_MAP in posthog/email.py.
 BAA_SIGNED_AI_DISABLED_TEMPLATE = "baa_signed_ai_disabled"
 
 

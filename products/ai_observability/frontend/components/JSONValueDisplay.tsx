@@ -41,19 +41,11 @@ export function getJsonContainerForDisplay(value: unknown, options?: JSONDisplay
     return null
 }
 
-export function JSONValueDisplay({
-    value,
-    collapsed = 5,
-    searchQuery,
-}: {
-    value: unknown
-    collapsed?: number
-    searchQuery?: string
-}): JSX.Element {
+export function JSONValueDisplay({ value, collapsed = 5 }: { value: unknown; collapsed?: number }): JSX.Element {
     const parsedValue = getJsonContainerForDisplay(value)
 
     if (parsedValue) {
-        return <HighlightedJSONViewer src={parsedValue} name={null} collapsed={collapsed} searchQuery={searchQuery} />
+        return <HighlightedJSONViewer src={parsedValue} name={null} collapsed={collapsed} />
     }
 
     return <span className="font-mono">{safeStringify(value ?? null)}</span>

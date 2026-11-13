@@ -1,0 +1,19 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "enabled": {
+            "description": "Whether this source feeds revenue analytics. Changing it updates the project's managed revenue analytics views. The synced warehouse tables are not changed.",
+            "type": "boolean"
+        },
+        "id": {
+            "description": "A UUID string identifying this external data source.",
+            "type": "string"
+        },
+        "include_invoiceless_charges": {
+            "description": "Whether charges that have no invoice count as revenue. Turn it off to count only revenue that comes from invoices.",
+            "type": "boolean"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

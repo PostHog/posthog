@@ -25,7 +25,7 @@ export interface AccountViewComponentInstance {
 }
 
 export function createAccountViewComponentInstance(kind: AccountViewComponentKind): AccountViewComponentInstance {
-    return { nodeId: uuidv4(), kind, span: 12 }
+    return { nodeId: uuidv4(), kind, span: 12, ...(kind === 'dot_matrix' ? { config: { source: null } } : {}) }
 }
 
 export function parseAccountViewContent(content: AccountViewContentApi): AccountViewComponentInstance[] {
