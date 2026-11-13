@@ -38,10 +38,37 @@ export interface SidebarConfiguration {
     restore: (projectId: string, layout: CustomizationApi['layout'], signal: AbortSignal) => Promise<CustomizationApi>
 }
 
+/** A row the person opened in the sidebar, for `sidebar item opened`. */
+export interface SidebarItemOpened {
+    section: string
+    /** The list the row came from, or `link` for a link the layout names. */
+    source: string
+    /** The row's place in its list, counted after a search filters it. Links have none. */
+    position?: number
+    fromSearch: boolean
+    properties?: Record<string, string>
+}
+
 export interface SidebarCustomizationProps {
     configuration: SidebarConfiguration
     projectId: string
     userId: string
+}
+
+// The search a person stopped on, reported once: when it settles, or when they open a row before that.
+function reportPendingSearch(cache: Record<string, any>, sidebar: string, customized: boolean): void {
+    const search: { queryLength: number; resultCount: number } | undefined = cache.pendingSearch
+    cache.pendingSearch = undefined
+    if (search && search.queryLength > 0) {
+        // pinned: analytics event name and properties. Renaming them breaks dashboards.
+        posthog.capture('sidebar search used', {
+            sidebar,
+            query_length: search.queryLength,
+            result_count: search.resultCount,
+            zero_results: search.resultCount === 0,
+            customized,
+        })
+    }
 }
 
 const SIDEBAR_REFRESH_INTERVAL_MS = 30_000
@@ -80,16 +107,8 @@ export interface sidebarCustomizationLogicActions {
     invalidateSession: () => {
         value: true
     }
-    itemOpened: (
-        section: string,
-        source: string,
-        position: number | undefined,
-        fromSearch: boolean
-    ) => {
-        fromSearch: boolean
-        position: number | undefined
-        section: string
-        source: string
+    itemOpened: (opened: SidebarItemOpened) => {
+        opened: SidebarItemOpened
     }
     loadSidebar: () => {
         value: true
@@ -199,12 +218,7 @@ export const sidebarCustomizationLogic: LogicWrapper<sidebarCustomizationLogicTy
             requestFinished: true,
             invalidateSession: true,
             searchTyped: (queryLength: number, resultCount: number) => ({ queryLength, resultCount }),
-            itemOpened: (section: string, source: string, position: number | undefined, fromSearch: boolean) => ({
-                section,
-                source,
-                position,
-                fromSearch,
-            }),
+            itemOpened: (opened: SidebarItemOpened) => ({ opened }),
         }),
         reducers(({ props }) => ({
             savedSidebar: [
@@ -258,26 +272,23 @@ export const sidebarCustomizationLogic: LogicWrapper<sidebarCustomizationLogicTy
             [userLogic.actionTypes.logout]: () => actions.invalidateSession(),
             // Every keystroke arrives here, and only the query the person stops on is reported. The query text stays
             // out of the event, because it can hold the name of an item.
-            searchTyped: async ({ queryLength, resultCount }, breakpoint) => {
+            searchTyped: async (search, breakpoint) => {
+                cache.pendingSearch = search
                 await breakpoint(SEARCH_SETTLE_MS)
-                if (queryLength > 0) {
-                    // pinned: analytics event name and properties. Renaming them breaks dashboards.
-                    posthog.capture('sidebar search used', {
-                        sidebar: props.configuration.context,
-                        query_length: queryLength,
-                        result_count: resultCount,
-                        zero_results: resultCount === 0,
-                    })
-                }
+                reportPendingSearch(cache, props.configuration.context, values.sidebarCustomized)
             },
-            itemOpened: ({ section, source, position, fromSearch }) => {
+            itemOpened: ({ opened }) => {
+                // A row opened before the search settled still follows its search, so a search-to-open funnel holds.
+                reportPendingSearch(cache, props.configuration.context, values.sidebarCustomized)
                 // pinned: analytics event name and properties. Renaming them breaks dashboards.
                 posthog.capture('sidebar item opened', {
+                    ...opened.properties,
                     sidebar: props.configuration.context,
-                    section,
-                    source,
-                    position,
-                    from_search: fromSearch,
+                    section: opened.section,
+                    source: opened.source,
+                    position: opened.position,
+                    from_search: opened.fromSearch,
+                    customized: values.sidebarCustomized,
                 })
             },
             // PostHog AI can save while its conversation is closed or the person is on another tab, and then no tool

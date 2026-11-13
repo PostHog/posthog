@@ -509,7 +509,13 @@ describe('sidebarCustomizationLogic', () => {
         expect(searches()).toEqual([
             [
                 'sidebar search used',
-                { sidebar: 'analytics_sidebar', query_length: 2, result_count: 0, zero_results: true },
+                {
+                    sidebar: 'analytics_sidebar',
+                    query_length: 2,
+                    result_count: 0,
+                    zero_results: true,
+                    customized: true,
+                },
             ],
         ])
 

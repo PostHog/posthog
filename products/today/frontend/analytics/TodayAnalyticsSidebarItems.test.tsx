@@ -10,9 +10,10 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { SidebarSearchList } from '~/layout/today/sidebar/SidebarSearchList'
 import { useMocks } from '~/mocks/jest'
-import { CurrencyCode } from '~/queries/schema/schema-general'
+import { CurrencyCode, FileSystemEntry } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { SidePanelTab } from '~/types'
 
@@ -63,24 +64,42 @@ describe('Analytics sidebar options', () => {
         expect(SidebarAgentListener).not.toHaveBeenCalled()
     })
 
-    it('reports a result the person opens, and whether a search brought them to it', async () => {
+    it('reports a result the person opens, what it is, and whether a search brought them to it', async () => {
         jest.useFakeTimers()
         const capture = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
         try {
+            // Two pins, so Pinned draws as the sortable list.
+            projectTreeDataLogic.mount()
+            projectTreeDataLogic.actions.loadShortcutsSuccess([
+                { id: 'sc-1', type: 'insight/trends', path: 'Signups', ref: 'abc123', href: '/insights/abc123' },
+                { id: 'sc-2', type: 'dashboard', path: 'KPIs', ref: '7', href: '/dashboard/7' },
+            ] as FileSystemEntry[])
             const { container } = render(<TodayAnalyticsSidebar />)
-            const opened = (): unknown[][] => capture.mock.calls.filter(([name]) => name === 'sidebar item opened')
+            const events = (): string[] =>
+                capture.mock.calls.map(([name]) => name).filter((name) => name.startsWith('sidebar '))
+            const opened = (): unknown[] =>
+                capture.mock.calls
+                    .filter(([name]) => name === 'sidebar item opened')
+                    .map(([, properties]) => properties)
 
+            fireEvent.click(container.querySelectorAll('[data-attr="analytics-sidebar-pinned"]')[1])
             fireEvent.click(container.querySelector('[data-attr="analytics-sidebar-browse"]')!)
             expect(opened()).toEqual([
-                [
-                    'sidebar item opened',
-                    expect.objectContaining({
-                        sidebar: 'analytics_sidebar',
-                        section: 'browse',
-                        source: 'link',
-                        from_search: false,
-                    }),
-                ],
+                expect.objectContaining({
+                    sidebar: 'analytics_sidebar',
+                    section: 'pinned',
+                    source: 'pinned',
+                    position: 1,
+                    object_type: 'dashboard',
+                    from_search: false,
+                    customized: false,
+                }),
+                expect.objectContaining({
+                    section: 'browse',
+                    source: 'link',
+                    page: 'analytics_all',
+                    from_search: false,
+                }),
             ])
 
             fireEvent.change(container.querySelector('[data-attr="analytics-sidebar-search"]')!, {
@@ -88,23 +107,25 @@ describe('Analytics sidebar options', () => {
             })
             const resultCount = container.querySelectorAll('[role="option"]').length
             expect(resultCount).toBeGreaterThan(0)
+            // Opened before the search settles, so the search must still come first.
+            fireEvent.click(container.querySelector('[data-attr="analytics-sidebar-browse"]')!)
             await act(async () => {
                 await jest.advanceTimersByTimeAsync(800)
             })
+            expect(events().slice(2)).toEqual(['sidebar search used', 'sidebar item opened'])
             expect(capture).toHaveBeenCalledWith('sidebar search used', {
                 sidebar: 'analytics_sidebar',
                 query_length: 11,
                 result_count: resultCount,
                 zero_results: false,
+                customized: false,
             })
-
-            fireEvent.click(container.querySelector('[data-attr="analytics-sidebar-browse"]')!)
-            expect(opened()[1][1]).toMatchObject({ section: 'browse', from_search: true })
+            expect(opened()[2]).toMatchObject({ section: 'browse', page: 'collections', from_search: true })
 
             const input = container.querySelector('[data-attr="analytics-sidebar-search"]')!
             fireEvent.keyDown(input, { key: 'ArrowDown' })
             fireEvent.keyDown(input, { key: 'Enter' })
-            expect(opened()).toHaveLength(3)
+            expect(opened()).toHaveLength(4)
         } finally {
             jest.useRealTimers()
             capture.mockRestore()

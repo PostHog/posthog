@@ -39,6 +39,8 @@ export interface SidebarNavigationItem {
     action?: JSX.Element
     dataAttr?: string
     wrap?: (row: JSX.Element) => JSX.Element
+    /** Sent with `sidebar item opened`, so the event says what kind of thing the row opens. */
+    eventProperties?: Record<string, string>
 }
 
 export interface CustomizedSidebarProps {
@@ -85,22 +87,29 @@ export function CustomizedSidebar(props: CustomizedSidebarProps): JSX.Element {
         const value = `${section.id}:${index}`
         if (item.type === 'list') {
             const rows = props.navigation.lists[item.source] ?? []
+            const renderListRow = (row: SidebarNavigationItem, position: number): JSX.Element =>
+                renderRow(row, () =>
+                    itemOpened({
+                        section: section.id,
+                        source: item.source,
+                        position,
+                        fromSearch,
+                        properties: row.eventProperties,
+                    })
+                )
             const onReorder = props.navigation.reorder?.[item.source]
-            const opened = (position: number): void => itemOpened(section.id, item.source, position, fromSearch)
             // A filtered list hides rows, so a drop there has no clear place in the full order.
             if (onReorder && rows.length > 1 && !fromSearch) {
                 return [
                     <SortableSidebarList
                         key={value}
                         rows={rows}
-                        renderRow={(row) => renderRow(row, () => opened(rows.indexOf(row)))}
+                        renderRow={(row) => renderListRow(row, rows.indexOf(row))}
                         onReorder={onReorder}
                     />,
                 ]
             }
-            return rows
-                .filter((row) => matches(row.label))
-                .map((row, position) => renderRow(row, () => opened(position)))
+            return rows.filter((row) => matches(row.label)).map(renderListRow)
         }
         if (item.type === 'metric') {
             return matches(item.label) ? [<Fragment key={value}>{props.navigation.metric(item, value)}</Fragment>] : []
@@ -125,10 +134,16 @@ export function CustomizedSidebar(props: CustomizedSidebarProps): JSX.Element {
         }
         return [
             renderRow({ ...target, value, dataAttr: `${props.dataAttrPrefix}-${section.id}` }, () =>
-                itemOpened(section.id, 'link', undefined, fromSearch)
+                itemOpened({
+                    section: section.id,
+                    source: 'link',
+                    fromSearch,
+                    properties: item.to.kind === 'page' ? { page: item.to.page } : { object_type: item.to.kind },
+                })
             ),
         ]
     }
+    // Only a search counts results, and a search never shows the sortable list, so each row is one element here.
     const resultCountFor = (query: string): number =>
         sidebarLayout.sections.reduce(
             (total, section) =>
