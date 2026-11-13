@@ -154,7 +154,7 @@ def bind_data_modeling_log_context(team_id: int, saved_query_id: UUID | str) -> 
 
     The v2 workflow types aren't mapped in `resolve_log_source` (their workflow ids carry a node
     id, not the saved query id the UI queries by), so without this event-level override every
-    produced line lands with a NULL log_source and the run-history modal shows no logs.
+    produced line lands under `temporal_workflow` and the run-history modal shows no logs.
     """
     bind_contextvars(team_id=team_id, log_source="data_modeling_run", log_source_id=str(saved_query_id))
 
