@@ -59,6 +59,12 @@ def clickhouse_idle_minutes() -> int:
         return DEFAULT_CLICKHOUSE_IDLE_MINUTES
 
 
+@dataclass(frozen=True, kw_only=True, slots=True)
+class Container:
+    id: str
+    state: str
+
+
 class ComposeService:
     """One service of the shared dev compose project, found by its compose labels."""
 
@@ -66,7 +72,7 @@ class ComposeService:
         self.service = service
         self.project = _compose_project_name()
 
-    def _container(self) -> tuple[str, str] | None:
+    def _container(self) -> Container | None:
         result = _run(
             [
                 "docker",
@@ -84,30 +90,30 @@ class ComposeService:
         if result is None or result.returncode != 0 or not result.stdout.strip():
             return None
         container_id, state = result.stdout.strip().splitlines()[0].split(" ", 1)
-        return container_id, state
+        return Container(id=container_id, state=state)
 
     def exists(self) -> bool:
         return self._container() is not None
 
     def is_running(self) -> bool:
         container = self._container()
-        return container is not None and container[1] == "running"
+        return container is not None and container.state == "running"
 
     def start(self) -> bool:
         container = self._container()
         if container is None:
             return False
-        if container[1] == "running":
+        if container.state == "running":
             return True
-        result = _run(["docker", "start", container[0]], timeout=60)
+        result = _run(["docker", "start", container.id], timeout=60)
         return result is not None and result.returncode == 0
 
     def stop(self) -> bool:
         container = self._container()
-        if container is None or container[1] != "running":
+        if container is None or container.state != "running":
             return True
         result = _run(
-            ["docker", "stop", "-t", str(_STOP_GRACE_SECONDS), container[0]], timeout=_STOP_GRACE_SECONDS + 30
+            ["docker", "stop", "-t", str(_STOP_GRACE_SECONDS), container.id], timeout=_STOP_GRACE_SECONDS + 30
         )
         return result is not None and result.returncode == 0
 
