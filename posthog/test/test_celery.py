@@ -146,6 +146,7 @@ class TestCeleryProcessLogging(TestCase):
     def test_drops_task_enqueued_info_line_but_keeps_warnings(self) -> None:
         receivers_logger = logging.getLogger("django_structlog.celery.receivers")
         self.addCleanup(receivers_logger.setLevel, receivers_logger.level)
+        receivers_logger.setLevel(logging.DEBUG)
 
         with patch("logging.config.dictConfig"):
             receiver_setup_logging(loglevel=None, logfile=None, format=None, colorize=False)

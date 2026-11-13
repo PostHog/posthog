@@ -178,7 +178,9 @@ def receiver_setup_logging(loglevel, logfile, format, colorize, **kwargs) -> Non
     # django-structlog logs task_enqueued at INFO for each task this process publishes. Only a web
     # request gives that line context to link to, and Django applies LOGGING to web processes too,
     # so the level is raised here and not in LOGGING. This must run after dictConfig, because
-    # dictConfig disables every existing logger that LOGGING does not name.
+    # dictConfig disables every existing logger that LOGGING does not name. The level also drops
+    # task_started and task_succeeded, which this logger emits at INFO when django-structlog's
+    # worker signals are connected.
     logging.getLogger("django_structlog.celery.receivers").setLevel(logging.WARNING)
 
 
