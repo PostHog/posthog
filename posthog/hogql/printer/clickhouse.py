@@ -179,6 +179,7 @@ class ClickHousePrinter(BasePrinter):
     DIALECT_NAME: ClassVar[HogQLDialect] = "clickhouse"
     _reads_native_events_table: bool = False
     _unmasked_blob_type: ast.FieldType | None = None
+    _inside_json_function_argument: bool = False
 
     def visit_cte(self, node: ast.CTE):
         if node.materialized is False:
@@ -688,7 +689,7 @@ class ClickHousePrinter(BasePrinter):
         return resolved_field
 
     def _serialize_events_json_field(self, type: ast.FieldType, field_sql: str) -> str | None:
-        if getattr(self, "_json_function_argument_depth", 0) > 0:
+        if self._inside_json_function_argument:
             return None
         resolved_field = self._events_json_document_field(type)
         if resolved_field is None:
@@ -737,16 +738,26 @@ class ClickHousePrinter(BasePrinter):
         return self._maybe_apply_json_drop_keys(arg_type, serialized)
 
     def _visit_json_function_argument(self, node: ast.Expr) -> str:
-        depth = getattr(self, "_json_function_argument_depth", 0)
-        self._json_function_argument_depth = depth + 1
-        try:
+        with self._json_function_argument(True):
             return self.visit(node)
+
+    @contextmanager
+    def _json_function_argument(self, inside: bool) -> Iterator[None]:
+        previous = self._inside_json_function_argument
+        self._inside_json_function_argument = inside
+        try:
+            yield
         finally:
-            self._json_function_argument_depth = depth
+            self._inside_json_function_argument = previous
 
     def visit_property_access(self, node: ast.PropertyAccess) -> str:
         first_key = node.keys[0] if node.keys else None
-        with self._without_json_drop_keys(self._unmasked_key_read_type(node.expr, first_key)):
+        # A key is read from the rebuilt document, also under toJSONString. The stored column holds an object as a
+        # string, and JSONDropKeysPool cannot drop a restricted key inside a string.
+        with (
+            self._without_json_drop_keys(self._unmasked_key_read_type(node.expr, first_key)),
+            self._json_function_argument(False),
+        ):
             return super().visit_property_access(node)
 
     def _unmasked_key_read_type(self, document: ast.Expr, first_key: object) -> ast.FieldType | None:

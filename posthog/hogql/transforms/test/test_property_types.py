@@ -1163,7 +1163,8 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
                 properties.email,
                 JSONHas(properties, '$set', 'email'),
                 JSONHas(properties, '$set', 'user.email'),
-                JSONExtractString(properties, '$set_once', 'email')
+                JSONExtractString(properties, '$set_once', 'email'),
+                toJSONString(tuple(properties.$set))
             FROM events"""
         )
         with patch("posthog.hogql.printer.utils.build_property_swapper"):
@@ -1194,7 +1195,19 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
             },
         )
         # `email` as an event property is a different property and stays readable.
-        assert row == ('{"name":"visible"}', None, None, "visible", None, None, "event-level", 0, 0, "")
+        assert row == (
+            '{"name":"visible"}',
+            None,
+            None,
+            "visible",
+            None,
+            None,
+            "event-level",
+            0,
+            0,
+            "",
+            '["{\\"name\\":\\"visible\\"}"]',
+        )
 
     def test_person_restriction_masks_set_containers_on_legacy_events(self) -> None:
         context = self._context(use_new_events_schema=False)
