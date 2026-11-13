@@ -1,9 +1,9 @@
-import type { ColumnDef } from '@tanstack/react-table'
+import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
 import { IconCheck, IconPlus } from '@posthog/icons'
-import { Badge, Button, Card, DataTable, Skeleton, Text, cn } from '@posthog/quill'
+import { Badge, Button, Card, DataTable, Text, cn } from '@posthog/quill'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { AnalyticsOwner } from 'scenes/analytics/AnalyticsOwner'
@@ -17,9 +17,19 @@ import { InsightIcon } from './InsightIcon'
 import { QuillSavedInsightsEmptyState } from './QuillSavedInsightsEmptyState'
 import { QuillSavedInsightsFilterMenu } from './QuillSavedInsightsFilterMenu'
 import { QuillSavedInsightsPagination } from './QuillSavedInsightsPagination'
+import { QuillSavedInsightsTableSkeleton } from './QuillSavedInsightsTableSkeleton'
+import { SavedInsightFilters } from './savedInsightsLogic'
 import { SavedInsightsTableProps } from './SavedInsightsTable'
 
 const VISIBLE_TAGS = 2
+
+function usesNonSearchFilters(filters: SavedInsightFilters): boolean {
+    return (
+        (filters.insightType !== undefined && filters.insightType !== 'All types') ||
+        (filters.createdBy !== undefined && filters.createdBy !== 'All users') ||
+        (filters.tags?.length ?? 0) > 0
+    )
+}
 
 export function QuillSavedInsightsTable({
     isSelected,
@@ -41,10 +51,7 @@ export function QuillSavedInsightsTable({
     const { setModalPage, setModalFilters } = useActions(addSavedInsightsModalLogic)
     const summarizeInsight = useSummarizeInsight()
 
-    const hasNonSearchFilters =
-        (filters.insightType !== undefined && filters.insightType !== 'All types') ||
-        (filters.createdBy !== undefined && filters.createdBy !== 'All users') ||
-        (filters.tags?.length ?? 0) > 0
+    const hasNonSearchFilters = usesNonSearchFilters(filters)
     const clearFilters = (): void => setModalFilters({ insightType: 'All types', createdBy: 'All users', tags: [] })
 
     const columns = useMemo<ColumnDef<InsightModel>[]>(
@@ -156,29 +163,30 @@ export function QuillSavedInsightsTable({
     )
 
     const rows = filterFn ? insights.results.filter(filterFn) : insights.results
+    const searchString = filters.search || null
+    const usingFilters = !!searchString || hasNonSearchFilters
+    const canClearSearch = hasFilteredUI && !!searchString
+    const canClearFilters = hasFilteredUI && hasNonSearchFilters
+    const toggleRow = (insight: InsightModel): void => {
+        if (!isToggling?.(insight)) {
+            onToggle?.(insight)
+        }
+    }
+    const tableSorting = sorting ? [{ id: sorting.columnKey, desc: sorting.order === -1 }] : []
+    const onSortingChange = ([sort]: SortingState): void =>
+        setModalFilters({ order: sort ? `${sort.desc ? '-' : ''}${sort.id}` : undefined })
 
     const renderBody = (): JSX.Element => {
         if (!hasLoadedInsights) {
-            return (
-                <div aria-busy aria-label="Loading insights" className="flex flex-col gap-3 p-3">
-                    {Array.from({ length: 6 }, (_, index) => (
-                        <div key={index} className="flex items-center gap-3">
-                            <Skeleton className="size-4 shrink-0" />
-                            <Skeleton className={index % 2 === 0 ? 'h-3 w-56' : 'h-3 w-40'} />
-                            <Skeleton className="ml-auto h-3 w-20" />
-                        </div>
-                    ))}
-                </div>
-            )
+            return <QuillSavedInsightsTableSkeleton />
         }
         if (!insightsLoading && insights.count < 1) {
-            const searchString = filters.search || null
             return (
                 <QuillSavedInsightsEmptyState
                     searchString={searchString}
-                    usingFilters={!!searchString || hasNonSearchFilters}
-                    onClearSearch={hasFilteredUI && searchString ? () => setModalFilters({ search: '' }) : undefined}
-                    onClearFilters={hasFilteredUI && hasNonSearchFilters ? clearFilters : undefined}
+                    usingFilters={usingFilters}
+                    onClearSearch={canClearSearch ? () => setModalFilters({ search: '' }) : undefined}
+                    onClearFilters={canClearFilters ? clearFilters : undefined}
                 />
             )
         }
@@ -191,19 +199,9 @@ export function QuillSavedInsightsTable({
                         fullWidth
                         size="sm"
                         getRowId={(insight) => String(insight.id)}
-                        onRowClick={
-                            onToggle
-                                ? (insight) => {
-                                      if (!isToggling?.(insight)) {
-                                          onToggle(insight)
-                                      }
-                                  }
-                                : undefined
-                        }
-                        sorting={sorting ? [{ id: sorting.columnKey, desc: sorting.order === -1 }] : []}
-                        onSortingChange={([sort]) =>
-                            setModalFilters({ order: sort ? `${sort.desc ? '-' : ''}${sort.id}` : undefined })
-                        }
+                        onRowClick={onToggle ? toggleRow : undefined}
+                        sorting={tableSorting}
+                        onSortingChange={onSortingChange}
                     />
                 </div>
                 {count > insightsPerPage && (
