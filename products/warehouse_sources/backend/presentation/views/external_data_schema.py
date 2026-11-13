@@ -2970,7 +2970,17 @@ class ExternalDataSchemaCompactSerializer(ExternalDataSchemaSummarySerializer):
     """The compact row of the schemas list: the summary row plus the source it belongs to and its sync type."""
 
     class Meta(ExternalDataSchemaSummarySerializer.Meta):
-        fields = ["id", "name", "source_id", "should_sync", "sync_type", "status", "last_synced_at", "latest_error"]
+        fields = [
+            "id",
+            "name",
+            "source_id",
+            "should_sync",
+            "live_query_enabled",
+            "sync_type",
+            "status",
+            "last_synced_at",
+            "latest_error",
+        ]
         read_only_fields = fields
 
 

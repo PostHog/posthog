@@ -334,8 +334,7 @@ function DetailsSection({
                         <div className="flex flex-col">
                             <span>Live query</span>
                             <span className="text-xs text-muted max-w-md">
-                                Query this table straight from your database without syncing it. Synced tables can
-                                always be queried live.
+                                Query this table straight from your database without syncing it.
                             </span>
                         </div>
                         <SchemaEditorAction schema={schema}>

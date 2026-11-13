@@ -5833,6 +5833,7 @@ class TestExternalDataSchemaRetrieveSource(APIBaseTest):
                 "name",
                 "source_id",
                 "should_sync",
+                "live_query_enabled",
                 "sync_type",
                 "status",
                 "last_synced_at",
