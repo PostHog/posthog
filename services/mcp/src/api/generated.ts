@@ -83157,6 +83157,11 @@ export namespace Schemas {
          */
       readonly intercom_conversation_id: string | null;
       /**
+         * Pylon issue id when the ticket was imported from Pylon. Null otherwise.
+         * @nullable
+         */
+      readonly pylon_issue_id: string | null;
+      /**
          * Customer's PostHog organization group key, resolved at ticket creation. Null when unknown.
          * @nullable
          */
@@ -101993,6 +101998,77 @@ export namespace Schemas {
       failed: PushTokenImportFailure[];
       /** Distinct IDs with at least one device that was not stored. Prefer `failed`, which says why. */
       failed_distinct_ids: string[];
+    }
+
+    export interface PylonImportError {
+      /** Human-readable error message. */
+      detail: string;
+    }
+
+    export type PylonImportJobRegionEnum = typeof PylonImportJobRegionEnum[keyof typeof PylonImportJobRegionEnum];
+
+
+    export const PylonImportJobRegionEnum = {
+      Us: 'us',
+      Eu: 'eu',
+    } as const;
+
+    export interface PylonImportJob {
+      /** Unique identifier for the import job. */
+      readonly id: string;
+      /** Current job state: pending, running, completed, or failed.
+       *
+       * * `pending` - Pending
+       * * `running` - Running
+       * * `completed` - Completed
+       * * `failed` - Failed */
+      readonly status: ZendeskImportJobStatusEnum;
+      /** Pylon region the API token belongs to: us or eu. */
+      readonly region: PylonImportJobRegionEnum | null;
+      /** Whether a stored Pylon API token exists for this job (the token is never returned). */
+      readonly has_credentials: boolean;
+      /** Total number of issues discovered for import. */
+      readonly total_issues: number;
+      /** Number of issues processed so far. */
+      readonly processed_issues: number;
+      /** Number of issues imported as tickets. */
+      readonly imported_issues: number;
+      /** Number of issues skipped because they were already imported. */
+      readonly skipped_issues: number;
+      /** Number of issues that failed to import. */
+      readonly failed_issues: number;
+      /**
+         * When the import started running.
+         * @nullable
+         */
+      readonly started_at: string | null;
+      /**
+         * When the import reached a terminal state.
+         * @nullable
+         */
+      readonly finished_at: string | null;
+      /**
+         * Generic, user-safe error message when the job failed.
+         * @nullable
+         */
+      readonly latest_error: string | null;
+      /** When the import job was created. */
+      readonly created_at: string;
+      /** When the import job was last updated. */
+      readonly updated_at: string;
+    }
+
+    export interface PylonImportStart {
+      /**
+         * Pylon API token whose role can read issues, messages, and contacts. The region (US or EU) is detected from the token.
+         * @maxLength 500
+         */
+      api_token: string;
+      /**
+         * Optional support email channel to attach imported tickets to, so agents can reply by email. Omit or null to import tickets without an email channel.
+         * @nullable
+         */
+      default_email_channel_id?: string | null;
     }
 
     export interface PylonTicketSignalExtra {
