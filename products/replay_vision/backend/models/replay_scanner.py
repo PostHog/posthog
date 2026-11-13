@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Any
 
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models, transaction
+from django.db.models.fields.json import KeyTransform
 from django.utils import timezone
 from django.utils.functional import Promise
 
@@ -329,6 +330,14 @@ class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
         help_text="The experiment this scanner's targeting watches, if any.",
     )
 
+    # Nullable only until a backfill gives every row an explicit kind; after that a null scope is never a valid
+    # stored state, because "every session" is itself a kind and must be stated.
+    scope = models.JSONField(
+        null=True,
+        blank=True,
+        help_text='Which sessions the scanner watches and the label it gives each one, as `{"kind": ...}`.',
+    )
+
     estimated_monthly_observations = models.PositiveIntegerField(
         null=True,
         blank=True,
@@ -482,6 +491,12 @@ class ReplayScanner(Taggable, ModelActivityMixin, UUIDModel):
                 fields=["created_at"],
                 name="rl_inline_created_idx",
                 condition=models.Q(origin=ScannerOrigin.INLINE),
+            ),
+            # Serves "which scanners watch experiment N" for the experiment page and the launch receiver.
+            models.Index(
+                KeyTransform("experiment_id", "scope"),
+                name="rl_scope_experiment_idx",
+                condition=models.Q(scope__kind="experiment"),
             ),
         ]
 

@@ -33,6 +33,7 @@ class ScannerSnapshot(BaseModel, frozen=True):
     # as "nothing changed". Optional so older rows decode as not recorded rather than as unchanged.
     query: dict[str, Any] | None = None
     experiment_targeting: dict[str, Any] | None = None
+    scope: dict[str, Any] | None = None
     sampling_rate: float | None = None
     sampling_mode: str | None = None
     # The balanced per-variant rates the dispatching tick sampled at, so even per-variant counts
@@ -63,6 +64,7 @@ class ScannerSnapshot(BaseModel, frozen=True):
             scanner_config=scanner.scanner_config,
             query=scanner.query,
             experiment_targeting=scanner.experiment_targeting,
+            scope=scanner.scope,
             sampling_rate=scanner.sampling_rate,
             sampling_mode=scanner.sampling_mode,
         )
