@@ -1053,9 +1053,9 @@ jobs:
                   output-env-credentials: false
                   output-credentials: true
 
-            # A listing proves the manifest is missing: S3 answers a missing key with 403, not 404, to a
-            # role that may list only under hog/. Any failed read stops the job, so nothing is promoted
-            # on a guess.
+            # A listing proves the manifest is missing. A read can't: S3 answers a missing key with 403
+            # unless the role may list the whole bucket, and this role may list only under hog/. Any
+            # failed call stops the job, so nothing is promoted on a guess.
             - name: Check whether this is the latest release
               id: latest
               working-directory: hog
