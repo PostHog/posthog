@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 from django.test import override_settings
 
 import posthoganalytics
+from celery.bootsteps import CLOSE, RUN
 from celery.exceptions import WorkerShutdown
 from celery.platforms import EX_FAILURE
 from parameterized import parameterized
@@ -106,14 +107,16 @@ class TestWorkerStopsWhenEmbeddedSchedulerExits(TestCase):
     @parameterized.expand(
         [
             # A scheduler that waits for the RedBeat lock is alive, so its worker must keep running.
-            ("scheduler_alive", True, False),
-            ("scheduler_exited", False, True),
+            ("scheduler_alive", True, RUN, False),
+            ("scheduler_exited", False, RUN, True),
+            # A worker that stops ends its own scheduler, which is not a failure to report.
+            ("scheduler_ended_by_stopping_worker", False, CLOSE, False),
         ]
     )
     def test_stops_the_worker_only_when_its_scheduler_exited(
-        self, _name: str, scheduler_alive: bool, expect_shutdown: bool
+        self, _name: str, scheduler_alive: bool, worker_state: int, expect_shutdown: bool
     ) -> None:
-        worker = MagicMock(**{"beat.is_alive.return_value": scheduler_alive})
+        worker = MagicMock(**{"beat.is_alive.return_value": scheduler_alive, "blueprint.state": worker_state})
         stop_worker_when_embedded_scheduler_exits(sender=MagicMock(controller=worker))
         _interval, check = worker.timer.call_repeatedly.call_args.args
 

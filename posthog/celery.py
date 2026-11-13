@@ -10,6 +10,7 @@ from django.dispatch import receiver
 
 import structlog
 from celery import Celery
+from celery.bootsteps import RUN
 from celery.exceptions import WorkerShutdown
 from celery.platforms import EX_FAILURE
 from celery.signals import (
@@ -294,7 +295,11 @@ def stop_worker_when_embedded_scheduler_exits(sender: "Consumer", **kwargs: obje
         return
 
     def stop_worker_if_scheduler_exited() -> None:
-        if scheduler.is_alive():
+        # A worker that stops ends its scheduler first, and then Celery fires this timer from a
+        # helper thread while the pool finishes its tasks. An exception raised there ends that
+        # thread, and the task time limits stop with it.
+        worker_is_stopping = worker.blueprint.state != RUN
+        if worker_is_stopping or scheduler.is_alive():
             return
         logger.error("embedded_scheduler_exited", exitcode=scheduler.exitcode)
         raise WorkerShutdown(EX_FAILURE)
