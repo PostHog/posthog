@@ -45,6 +45,9 @@ from posthog.utils import get_instance_region
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.commands.backend.facade import api as commands_api
+from products.security.backend.facade.api import access_refused as security_access_refused
+from products.security.backend.facade.contracts import SubjectInput as SecuritySubject
+from products.security.backend.facade.enums import Surface as SecuritySurface
 from products.slack_app.backend import inbox_channel
 from products.slack_app.backend.analytics import capture_slack_event, slack_session_id
 from products.slack_app.backend.discussion_replies import try_ingest_discussion_reply
@@ -6107,10 +6110,17 @@ def _handle_signals_report_state_click(payload: dict) -> HttpResponse:
         )
         return HttpResponse(status=200)
 
-    # The same bar as the inbox API: project access, plus editor on `task`, which governs the inbox.
-    if not _can_access_team(org_member, integration) or not UserAccessControl(
-        org_member, team=integration.team
-    ).check_access_level_for_resource("task", "editor"):
+    # The same bar as the inbox API: no enforced account block, project access, and editor on `task`,
+    # which governs the inbox. The block check leaves the IP out, since the request comes from Slack.
+    if (
+        security_access_refused(
+            SecuritySubject(email=org_member.email, user_uuid=str(org_member.uuid)),
+            SecuritySurface.APP,
+            call_site="slack_inbox_report_action",
+        )
+        or not _can_access_team(org_member, integration)
+        or not UserAccessControl(org_member, team=integration.team).check_access_level_for_resource("task", "editor")
+    ):
         logger.info("signals_report_state_no_access", integration_id=integration.id, slack_user_id=slack_user_id)
         inbox_interactivity.post_response_url(
             payload.get("response_url", ""),
@@ -6131,21 +6141,22 @@ def _handle_signals_report_state_click(payload: dict) -> HttpResponse:
     apply_state = resolve_report_from_slack if resolving else dismiss_report_from_slack
     outcome = apply_state(report_team_id, str(report_id), slack_user_id=slack_user_id, user_id=org_member.id)
 
-    if outcome == "unchanged":
-        # Someone else got there first. Replacing the message would credit this clicker instead of them.
+    if outcome != "changed":
+        # Only the clicker hears about it. Replacing the shared message would credit them for someone
+        # else's change, or take the other buttons away from everyone after a refusal.
+        verb = "resolved" if resolving else "dismissed"
+        text = (
+            f"This report is already {verb}."
+            if outcome == "unchanged"
+            else f"This report couldn't be {verb} from Slack. Open it in PostHog to check its status."
+        )
         inbox_interactivity.post_response_url(
             payload.get("response_url", ""),
-            {
-                "response_type": "ephemeral",
-                "replace_original": False,
-                "text": f"This report is already {'resolved' if resolving else 'dismissed'}.",
-            },
+            {"response_type": "ephemeral", "replace_original": False, "text": text},
         )
         return HttpResponse(status=200)
 
-    _post_signals_report_state_feedback(
-        payload, resolving=resolving, changed=outcome == "changed", slack_user_id=slack_user_id
-    )
+    _post_signals_report_state_feedback(payload, resolving=resolving, slack_user_id=slack_user_id)
     return HttpResponse(status=200)
 
 
@@ -6186,14 +6197,11 @@ def _replace_message_stripping_actions(
     inbox_interactivity.post_response_url(response_url, response)
 
 
-def _post_signals_report_state_feedback(payload: dict, *, resolving: bool, changed: bool, slack_user_id: str) -> None:
+def _post_signals_report_state_feedback(payload: dict, *, resolving: bool, slack_user_id: str) -> None:
     """Best-effort: replace the follow-up message so it reads as resolved or dismissed."""
     verb = "Resolved" if resolving else "Dismissed"
-    if changed:
-        actor = f"<@{slack_user_id}>" if slack_user_id else "a reviewer"
-        text = f"✅ {verb} by {actor}"
-    else:
-        text = f"This report couldn't be {verb.lower()} from Slack. Open it in PostHog to check its status."
+    actor = f"<@{slack_user_id}>" if slack_user_id else "a reviewer"
+    text = f"✅ {verb} by {actor}"
 
     # keep_link_buttons=False: messages posted before the follow-up carried "Review PR"/"Open in
     # PostHog" link buttons in the same actions block as Dismiss, so dropping the whole block here
