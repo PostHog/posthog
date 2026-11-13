@@ -22,6 +22,7 @@
          AND "posthog_filesystem"."type" = 'session_recording_playlist'
          AND NOT ("posthog_filesystem"."shortcut"
                   AND "posthog_filesystem"."shortcut" IS NOT NULL))
+  ORDER BY "posthog_filesystem"."id" ASC
   '''
 # ---
 # name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.1
@@ -47,6 +48,7 @@
          AND "posthog_filesystem"."type" = 'session_recording_playlist'
          AND NOT ("posthog_filesystem"."shortcut"
                   AND "posthog_filesystem"."shortcut" IS NOT NULL))
+  ORDER BY "posthog_filesystem"."id" ASC
   '''
 # ---
 # name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.10
@@ -569,8 +571,7 @@
                                                                       5 /* ... */)
          AND NOT ("posthog_sessionrecordingplaylistitem"."deleted"
                   AND "posthog_sessionrecordingplaylistitem"."deleted" IS NOT NULL)
-         AND NOT ("posthog_sessionrecording"."start_time" < '2024-12-02 12:00:00+00:00'::timestamptz
-                  AND "posthog_sessionrecording"."start_time" IS NOT NULL))
+         AND NOT ((COALESCE("posthog_sessionrecording"."start_time", "posthog_sessionrecordingplaylistitem"."created_at") + (COALESCE("posthog_sessionrecording"."retention_period_days", 30) * '1 day 0:00:00'::interval)) < '2025-01-01 12:00:00+00:00'::timestamptz))
   GROUP BY 1
   '''
 # ---
@@ -589,8 +590,7 @@
                                                                       5 /* ... */)
          AND NOT ("posthog_sessionrecordingplaylistitem"."deleted"
                   AND "posthog_sessionrecordingplaylistitem"."deleted" IS NOT NULL)
-         AND NOT ("posthog_sessionrecording"."start_time" < '2024-12-02 12:00:00+00:00'::timestamptz
-                  AND "posthog_sessionrecording"."start_time" IS NOT NULL))
+         AND NOT ((COALESCE("posthog_sessionrecording"."start_time", "posthog_sessionrecordingplaylistitem"."created_at") + (COALESCE("posthog_sessionrecording"."retention_period_days", 30) * '1 day 0:00:00'::interval)) < '2025-01-01 12:00:00+00:00'::timestamptz))
   '''
 # ---
 # name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.17
@@ -645,6 +645,7 @@
          AND "posthog_filesystem"."type" = 'session_recording_playlist'
          AND NOT ("posthog_filesystem"."shortcut"
                   AND "posthog_filesystem"."shortcut" IS NOT NULL))
+  ORDER BY "posthog_filesystem"."id" ASC
   '''
 # ---
 # name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.20
@@ -1506,8 +1507,7 @@
                                                                       5 /* ... */)
          AND NOT ("posthog_sessionrecordingplaylistitem"."deleted"
                   AND "posthog_sessionrecordingplaylistitem"."deleted" IS NOT NULL)
-         AND NOT ("posthog_sessionrecording"."start_time" < '2024-12-02 12:00:00+00:00'::timestamptz
-                  AND "posthog_sessionrecording"."start_time" IS NOT NULL))
+         AND NOT ((COALESCE("posthog_sessionrecording"."start_time", "posthog_sessionrecordingplaylistitem"."created_at") + (COALESCE("posthog_sessionrecording"."retention_period_days", 30) * '1 day 0:00:00'::interval)) < '2025-01-01 12:00:00+00:00'::timestamptz))
   GROUP BY 1
   '''
 # ---
@@ -1526,8 +1526,7 @@
                                                                       5 /* ... */)
          AND NOT ("posthog_sessionrecordingplaylistitem"."deleted"
                   AND "posthog_sessionrecordingplaylistitem"."deleted" IS NOT NULL)
-         AND NOT ("posthog_sessionrecording"."start_time" < '2024-12-02 12:00:00+00:00'::timestamptz
-                  AND "posthog_sessionrecording"."start_time" IS NOT NULL))
+         AND NOT ((COALESCE("posthog_sessionrecording"."start_time", "posthog_sessionrecordingplaylistitem"."created_at") + (COALESCE("posthog_sessionrecording"."retention_period_days", 30) * '1 day 0:00:00'::interval)) < '2025-01-01 12:00:00+00:00'::timestamptz))
   '''
 # ---
 # name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.38
@@ -2019,8 +2018,7 @@
                                                                       5 /* ... */)
          AND NOT ("posthog_sessionrecordingplaylistitem"."deleted"
                   AND "posthog_sessionrecordingplaylistitem"."deleted" IS NOT NULL)
-         AND NOT ("posthog_sessionrecording"."start_time" < '2024-12-02 12:00:00+00:00'::timestamptz
-                  AND "posthog_sessionrecording"."start_time" IS NOT NULL))
+         AND NOT ((COALESCE("posthog_sessionrecording"."start_time", "posthog_sessionrecordingplaylistitem"."created_at") + (COALESCE("posthog_sessionrecording"."retention_period_days", 30) * '1 day 0:00:00'::interval)) < '2025-01-01 12:00:00+00:00'::timestamptz))
   GROUP BY 1
   '''
 # ---
@@ -2039,7 +2037,6 @@
                                                                       5 /* ... */)
          AND NOT ("posthog_sessionrecordingplaylistitem"."deleted"
                   AND "posthog_sessionrecordingplaylistitem"."deleted" IS NOT NULL)
-         AND NOT ("posthog_sessionrecording"."start_time" < '2024-12-02 12:00:00+00:00'::timestamptz
-                  AND "posthog_sessionrecording"."start_time" IS NOT NULL))
+         AND NOT ((COALESCE("posthog_sessionrecording"."start_time", "posthog_sessionrecordingplaylistitem"."created_at") + (COALESCE("posthog_sessionrecording"."retention_period_days", 30) * '1 day 0:00:00'::interval)) < '2025-01-01 12:00:00+00:00'::timestamptz))
   '''
 # ---

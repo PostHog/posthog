@@ -191,7 +191,11 @@ def _identity_addresses(identities: list[dict[str, Any]]) -> dict[str, str]:
 
 def _segment_info(segments: list[dict[str, Any]]) -> dict[str, ImportSegment]:
     return {
-        str(segment["id"]): ImportSegment(name=str(segment.get("name") or ""), type=str(segment.get("type") or ""))
+        str(segment["id"]): ImportSegment(
+            name=str(segment.get("name") or ""),
+            type=str(segment.get("type") or ""),
+            conditions=segment["conditions"] if isinstance(segment.get("conditions"), dict) else None,
+        )
         for segment in segments
         if isinstance(segment, dict) and segment.get("id") is not None
     }

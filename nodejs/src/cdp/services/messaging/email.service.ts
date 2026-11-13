@@ -7,6 +7,7 @@ import { Counter, Histogram } from 'prom-client'
 import { CyclotronInvocationQueueParametersEmailType, EmailAttachmentMetadata } from '~/cdp/schema/cyclotron'
 import { HogFlowEmailSendingRateLimit, HogFlowEmailSendingRateLimitSchema } from '~/cdp/schema/hogflow'
 import {
+    CyclotronJobInvocation,
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
     HogFunctionType,
@@ -19,7 +20,7 @@ import { buildIntegerMatcher } from '~/common/config/matchers'
 import { logger } from '~/common/utils/logger'
 import type { ValueMatcher } from '~/types'
 
-import { TRANSACTIONAL_EMAIL_EVENT } from '../hogflows/hogflow-sensitivity'
+import { TRANSACTIONAL_EMAIL_EVENT, isSensitiveMessage } from '../hogflows/hogflow-sensitivity'
 import { IntegrationManagerService } from '../managers/integration-manager.service'
 import { RecipientManagerRecipient, RecipientsManagerService } from '../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
@@ -34,7 +35,13 @@ import {
 } from './attachment-store'
 import { getEmailQueuePriorityClass } from './email-priority'
 import { selectEmailSenderIntegrationId } from './email-sender-selection'
-import { EmailStatusReason, EmailStatusService, isTransactionalEmailSend } from './email-status.service'
+import {
+    EmailStatusReason,
+    EmailStatusService,
+    isKeyedMessageId,
+    isTransactionalEmailSend,
+    messageCreatedAtOf,
+} from './email-status.service'
 import { EmailSuppressionService, SuppressionCheckOptions, SuppressionLookupError } from './email-suppression.service'
 import {
     addTrackingToEmail,
@@ -50,9 +57,13 @@ import {
     removeSuppressedRecipients,
     unquoteMailbox,
 } from './helpers/suppressed-recipients'
-import { EmailTrackingCodeSigner, TRACKING_CODE_HEADER_NAME } from './helpers/tracking-code'
+import {
+    EmailTrackingCodeSigner,
+    MESSAGE_CREATED_HEADER_NAME,
+    TRACKING_CODE_HEADER_NAME,
+} from './helpers/tracking-code'
 import { transactionalEmailIdentity, transactionalEmailIdentityTags } from './helpers/transactional-email-identity'
-import { callsSettledBefore, declaredFileBytes, exceedsLargestSend } from './in-flight-registry'
+import { callsSettledBefore, declaredFileBytes, exceedsLargestSend, settledBeforeAbort } from './in-flight-registry'
 import { MessageAssetsService } from './message-assets.service'
 import { MESSAGE_MAX_BYTES, estimateMessageBytes } from './message-estimate'
 import {
@@ -133,6 +144,12 @@ const sesSendResultsTotal = new Counter({
     labelNames: ['result'],
 })
 
+const emailSendsStoppedForJobOwnershipTotal = new Counter({
+    name: 'cdp_email_sends_stopped_for_job_ownership_total',
+    help: 'Emails a worker did not send right before the send, by reason: lost_job (a janitor reset gave the job to another worker, which sends it) or check_failed (the ownership read failed or did not answer in time, so the send waits for a retry).',
+    labelNames: ['reason'],
+})
+
 const sesSendDurationMs = new Histogram({
     name: 'cdp_ses_send_duration_ms',
     help: 'Duration of the SES SendEmail call in milliseconds, by whether SES accepted the email (success or error).',
@@ -186,7 +203,9 @@ const EMAIL_ATTACHMENTS_MISSING = 'attachments_missing'
 const EMAIL_ATTACHMENT_UNAVAILABLE = 'attachment_unavailable'
 const EMAIL_MESSAGE_TOO_LARGE = 'message_too_large'
 const MAX_ATTACHMENT_LOAD_RETRIES = 10
+const MAX_OWNERSHIP_CHECK_RETRIES = 5
 export const ATTACHMENT_SEND_DEADLINE_MS = 17_000
+const OWNERSHIP_CHECK_TIMEOUT_MS = 5_000
 
 class EmailSendDeadlineError extends Error {
     constructor(cause: unknown) {
@@ -194,6 +213,8 @@ class EmailSendDeadlineError extends Error {
         this.name = 'EmailSendDeadlineError'
     }
 }
+
+export type JobOwnershipCheck = (invocation: CyclotronJobInvocation) => Promise<boolean>
 
 class MessageTooLargeError extends Error {
     constructor() {
@@ -472,6 +493,7 @@ export interface EmailServiceConfig {
     workflowRunLinkTagTeams?: string
     templateTagsTeams?: string
     attachmentSendDeadlineMs?: number
+    ownershipCheckTimeoutMs?: number
 }
 
 /**
@@ -555,6 +577,7 @@ export class EmailService {
 
     private recipientTokensService: RecipientTokensService
     private workflowRunLinkTagTeams: ValueMatcher<number>
+    private stillOwnsJob: JobOwnershipCheck = () => Promise.resolve(true)
     private templateTagsTeams: ValueMatcher<number>
 
     constructor(
@@ -586,6 +609,26 @@ export class EmailService {
         this.templateTagsTeams = buildIntegerMatcher(this.sesConfig.templateTagsTeams, true)
     }
 
+    public checkJobOwnershipBeforeSend(stillOwnsJob: JobOwnershipCheck): void {
+        this.stillOwnsJob = stillOwnsJob
+    }
+
+    private async jobOwnershipBeforeSend(
+        invocation: CyclotronJobInvocation,
+        deadline: AbortSignal
+    ): Promise<'owner' | 'lost_job' | 'check_failed'> {
+        try {
+            const owns = await settledBeforeAbort(deadline, this.stillOwnsJob(invocation))
+            return owns ? 'owner' : 'lost_job'
+        } catch (error) {
+            logger.warn('Could not check job ownership before an email send', {
+                invocationId: invocation.id,
+                error: String(error),
+            })
+            return 'check_failed'
+        }
+    }
+
     private utmTaggingFor(
         invocation: CyclotronJobInvocationHogFunction,
         addLog: ReturnType<typeof createAddLogFunction>
@@ -607,7 +650,7 @@ export class EmailService {
         trackingEnabled: boolean,
         isTest: boolean
     ): boolean {
-        const sensitive = invocation.hogFunction?.metadata?.sensitive === true
+        const sensitive = isSensitiveMessage(invocation)
         return trackingEnabled && !isTest && !sensitive && this.workflowRunLinkTagTeams(invocation.teamId)
     }
 
@@ -829,7 +872,11 @@ export class EmailService {
             // limiter's Valkey is down claimUpTo returns 0, so sends wait (never drop) until it
             // recovers — same fail-closed stance as the global SES gate.
             const workflowRateLimit = parseWorkflowEmailRateLimit(invocation.hogFunction.metadata)
-            if (workflowRateLimit && this.workflowEmailRateLimiter && !isTest) {
+            const sendStep = invocation.state.actionId
+                ? `${invocation.state.actionId}:${invocation.state.actionStepCount ?? 0}`
+                : invocation.id
+            let workflowRateClaimed = invocation.queueMetadata?.workflowRateClaimed === sendStep
+            if (workflowRateLimit && this.workflowEmailRateLimiter && !isTest && !workflowRateClaimed) {
                 const periodSeconds = workflowRateLimit.period === 'minute' ? 60 : 3600
                 const refillPerSecond = workflowRateLimit.count / periodSeconds
                 // Burst capacity is about one second of budget, not the full count: a bucket that
@@ -866,6 +913,7 @@ export class EmailService {
                     )
                     return result
                 }
+                workflowRateClaimed = true
             }
 
             // Project-wide pacing from the team's trust tier. Sits next to the per-workflow limit
@@ -918,10 +966,44 @@ export class EmailService {
                   }
                 : paramsWithReplyTo
 
-            const deadline = params.attachments?.length
-                ? AbortSignal.timeout(this.sesConfig.attachmentSendDeadlineMs ?? ATTACHMENT_SEND_DEADLINE_MS)
-                : undefined
+            const sendDeadlineMs = this.sesConfig.attachmentSendDeadlineMs ?? ATTACHMENT_SEND_DEADLINE_MS
+            const sendDeadlineAt = Date.now() + sendDeadlineMs
+            const deadline = params.attachments?.length ? AbortSignal.timeout(sendDeadlineMs) : undefined
             const files = deadline ? await this.loadAttachments(invocation.teamId, params.attachments!, deadline) : []
+            const ownershipCheckRetries: number = invocation.queueMetadata?.ownershipCheckRetries ?? 0
+            const ownershipCheckTimeoutMs = this.sesConfig.ownershipCheckTimeoutMs ?? OWNERSHIP_CHECK_TIMEOUT_MS
+            const halfTheSendTimeLeftMs = Math.max(0, Math.floor((sendDeadlineAt - Date.now()) / 2))
+            const ownership = isTest
+                ? 'owner'
+                : await this.jobOwnershipBeforeSend(
+                      invocation,
+                      AbortSignal.timeout(
+                          deadline ? Math.min(ownershipCheckTimeoutMs, halfTheSendTimeLeftMs) : ownershipCheckTimeoutMs
+                      )
+                  )
+            const sendsAfterFailedChecks =
+                ownership === 'check_failed' && ownershipCheckRetries >= MAX_OWNERSHIP_CHECK_RETRIES
+            if (ownership !== 'owner' && !sendsAfterFailedChecks) {
+                const retries = ownershipCheckRetries + 1
+                emailSendsStoppedForJobOwnershipTotal.inc({ reason: ownership })
+                logger.warn('Stopped an email send right before it because this worker may not hold its job', {
+                    invocationId: invocation.id,
+                    teamId: invocation.teamId,
+                    reason: ownership,
+                })
+                result.finished = false
+                result.invocation.queueParameters = params
+                result.invocation.queueMetadata = {
+                    ...invocation.queueMetadata,
+                    ownershipCheckRetries: retries,
+                    ...(teamBudgetCharged ? { teamBudgetClaimed: true } : {}),
+                    ...(workflowRateClaimed ? { workflowRateClaimed: sendStep } : {}),
+                }
+                result.invocation.queueScheduledAt = DateTime.utc().plus({
+                    milliseconds: pickAttachmentLoadRetryDelayMs(retries),
+                })
+                return result
+            }
 
             if (provider === 'maildev') {
                 await this.sendEmailWithMaildev(result, sendParams, from, trackingEnabled, isTest, files)
@@ -1075,6 +1157,7 @@ export class EmailService {
                     status: success ? 'sent' : 'failed',
                     reason: success ? undefined : failureReason,
                     sendingDomain,
+                    messageCreatedAt: messageCreatedAtOf(invocation.state.globals.event),
                 })
             }
         }
@@ -1101,7 +1184,7 @@ export class EmailService {
                         : {}),
                     $email_to: params.to.email,
                     // A sensitive template's subject can carry a login code, so its events leave it out.
-                    ...(invocation.hogFunction?.metadata?.sensitive === true ? {} : { $email_subject: params.subject }),
+                    ...(isSensitiveMessage(invocation) ? {} : { $email_subject: params.subject }),
                     // Always set, never conditional: an untracked send can never produce a
                     // `$workflows_email_opened` or `$workflows_email_link_clicked`, so without this
                     // dimension on the send there is no way to build an open rate in an insight that
@@ -1235,8 +1318,8 @@ export class EmailService {
 
     // Per-send tracking decision, combining two independent controls:
     // 1. Message-level: `tracking_enabled` on the email step's config (via `hogFunction.metadata`,
-    //    same as `message_category_type`). False is a hard off regardless of consent. Absent means
-    //    tracked, so email destination hog functions (which have no such config) keep tracking.
+    //    same as `message_category_type`), or a code send's `tracking.opens`. False is a hard off regardless
+    //    of consent. Absent means tracked, so email destination hog functions without that config keep tracking.
     // 2. Recipient-level consent (marketing only; transactional exempt per CNIL): the team's
     //    consent mode combined with the recipient's stored $email_tracking preference.
     // Consent lookup failures resolve to untracked (fail closed): tracking without verifiable
@@ -1245,7 +1328,10 @@ export class EmailService {
         invocation: CyclotronJobInvocationHogFunction,
         params: CyclotronInvocationQueueParametersEmailType
     ): Promise<boolean> {
-        if (invocation.hogFunction?.metadata?.tracking_enabled === false) {
+        if (
+            invocation.hogFunction?.metadata?.tracking_enabled === false ||
+            invocation.state?.send?.tracking.opens === false
+        ) {
             return false
         }
         if (invocation.hogFunction?.metadata?.message_category_type === 'transactional') {
@@ -1469,6 +1555,9 @@ export class EmailService {
             { ...result.invocation, distinctId, workflowVersion },
             isTest
         )
+        const messageCreatedAt = isKeyedMessageId(result.invocation.id)
+            ? messageCreatedAtOf(result.invocation.state.globals.event)
+            : undefined
         const shortTrackingCode = this.trackingCodeSigner.generateShort(result.invocation)
 
         const html = params.html
@@ -1514,9 +1603,7 @@ export class EmailService {
             // environments where the configuration set isn't yet emitting original headers.
             EmailTags: [
                 { Name: 'ph_id', Value: shortTrackingCode },
-                ...(result.invocation.hogFunction?.metadata?.sensitive === true
-                    ? [{ Name: SES_SENSITIVE_TAG, Value: 'true' }]
-                    : []),
+                ...(isSensitiveMessage(result.invocation) ? [{ Name: SES_SENSITIVE_TAG, Value: 'true' }] : []),
                 ...(!isTest && isTransactionalEmailSend(result.invocation)
                     ? [
                           { Name: SES_EMAIL_STATUS_TAG, Value: 'true' },
@@ -1548,6 +1635,17 @@ export class EmailService {
         // (with distinct_id). The configuration set's event destination needs
         // `IncludeOriginalHeaders: true` for the webhook to surface this header.
         const trackingHeader: MessageHeader = { Name: TRACKING_CODE_HEADER_NAME, Value: trackingCode }
+        const messageCreatedHeaders: MessageHeader[] = messageCreatedAt
+            ? [
+                  {
+                      Name: MESSAGE_CREATED_HEADER_NAME,
+                      Value: this.trackingCodeSigner.messageCreatedHeaderValue(
+                          result.invocation.id,
+                          messageCreatedAt.getTime()
+                      ),
+                  },
+              ]
+            : []
 
         const isTransactionalEmail = result.invocation.hogFunction?.metadata?.message_category_type === 'transactional'
         if (sendEmailParams.Content?.Simple) {
@@ -1557,7 +1655,12 @@ export class EmailService {
                       preferencesTokenSourceForInvocation(result.invocation)
                   )
                 : []
-            sendEmailParams.Content.Simple.Headers = [...unsubscribeHeaders, trackingHeader, AUTO_SUBMITTED_HEADER]
+            sendEmailParams.Content.Simple.Headers = [
+                ...unsubscribeHeaders,
+                trackingHeader,
+                ...messageCreatedHeaders,
+                AUTO_SUBMITTED_HEADER,
+            ]
             if (files.length) {
                 sendEmailParams.Content.Simple.Attachments = files.map(({ file, bytes }) => ({
                     RawContent: bytes,

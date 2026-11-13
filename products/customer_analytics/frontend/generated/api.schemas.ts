@@ -2089,6 +2089,29 @@ export interface AccountPersonsQueryRequestApi {
     variables_override?: AccountPersonsQueryRequestApiVariablesOverride
 }
 
+export interface AccountPersonMembershipsRequestApi {
+    /**
+     * Loaded person IDs to enrich, up to 500.
+     * @minItems 1
+     * @maxItems 500
+     */
+    person_ids: string[]
+}
+
+export interface PersonAccountApi {
+    /** Accessible account ID. */
+    id: string
+    /** Account display name. */
+    name: string
+}
+
+export interface AccountPersonMembershipsApi {
+    /** Current person ID from the requested account. */
+    person_id: string
+    /** Accessible accounts this person belongs to. */
+    accounts: PersonAccountApi[]
+}
+
 /**
  * Typed account properties: website_domain, external system identifiers (stripe_customer_id, hubspot_deal_id, billing_id, sfdc_id, zendesk_id, slack_channel_id, usage_dashboard_link, metabase_link), and touchpoint matching lists: email_domains (the company's email domains) and known_emails (individual addresses pinned to the account). Defaults to an empty object. Unknown keys are rejected. User assignments live on account relationships, not here.
  * @nullable

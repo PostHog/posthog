@@ -45,6 +45,15 @@ export const CyclotronV2JobInitSchema = z.object({
 
 export type CyclotronV2JobInit = z.infer<typeof CyclotronV2JobInitSchema>
 
+export type CyclotronV2IdempotentJobInit = {
+    job: CyclotronV2JobInit & { id: string }
+    fingerprint: string
+}
+
+export type CyclotronV2IdempotentOutcome = 'created' | 'replayed' | 'mismatch'
+
+export type CyclotronV2IdempotentClaim = { outcome: CyclotronV2IdempotentOutcome; storedFingerprint?: string }
+
 export const CyclotronV2RescheduleOptionsSchema = z.object({
     scheduledAt: z.date().optional(),
     state: z.instanceof(Buffer).nullish(),
@@ -82,6 +91,7 @@ export interface CyclotronV2BulkCreateAndCheckInInput {
 
 export interface CyclotronV2DequeuedJob {
     readonly id: string
+    readonly lockId: string
     readonly teamId: number
     readonly functionId: string | null
     readonly queueName: string
@@ -105,6 +115,7 @@ export interface CyclotronV2DequeuedJob {
     defer(options: { scheduledAt: Date; state?: Buffer }): Promise<void>
     cancel(): Promise<void>
     heartbeat(): Promise<void>
+    stillOwned(): Promise<boolean>
     // `cancelRequested: true` means the check-in was refused: a cancel flag landed on this
     // job (CyclotronV2Manager.cancelJobs) before the transaction took its row lock, so
     // nothing was inserted and the job is STILL HELD — the caller must dispose of it
@@ -121,6 +132,8 @@ export type CyclotronV2ManagerConfig = {
     pool: CyclotronV2PoolConfig
     depthLimit?: number
     depthCheckIntervalMs?: number
+    backgroundDepthCheck?: boolean
+    idempotencyKeyLookupTimeoutMs?: number
     // Knobs for rescheduleParkedJobs — see that method for semantics.
     rescheduleFloorSeconds?: number
     rescheduleWakeRatePerSecond?: number
@@ -239,6 +252,7 @@ export type CyclotronV2WorkerConfig = {
     releaseWriteHeartbeatLimitMs?: number
     includeEmptyBatches?: boolean
     boundedPolls?: boolean
+    ownershipReadTimeoutMs?: number
     boundedFairDequeue?: boolean
 }
 

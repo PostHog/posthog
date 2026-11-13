@@ -23,6 +23,7 @@ posthog/hogql_queries
 posthog/session_recordings/queries
 posthog/clickhouse/test
 ee/clickhouse
+ee/hogai/tools/execute_sql/test
 products/ai_observability/backend/tests/logic/evaluations
 products/ai_observability/backend/tests/logic/traces
 products/ai_observability/backend/tests/test_facade_api.py
@@ -92,5 +93,6 @@ products/ai_observability/backend/api/test/test_evaluations.py
 products/ai_observability/backend/api/test/test_personal_spend.py
 products/revenue_analytics/backend/views/test/test_mrr_views.py
 products/surveys/backend/api/test/test_survey.py
+products/dashboards/backend/tests/api/test_query_sharing.py
 products/surveys/backend/responses/test_linked.py
 products/web_analytics/backend/test/test_heatmaps_api.py

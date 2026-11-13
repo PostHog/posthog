@@ -42,6 +42,12 @@ _fetch_page_unwrapped = ubidots._fetch_page.__wrapped__  # type: ignore[attr-def
 
 DEVICES_FIRST_URL = f"{DEFAULT_UBIDOTS_API_BASE_URL}/api/v2.0/devices/?page_size=200"
 VARIABLES_FIRST_URL = f"{DEFAULT_UBIDOTS_API_BASE_URL}/api/v2.0/variables/?page_size=200"
+EVENTS_FIRST_URL = f"{DEFAULT_UBIDOTS_API_BASE_URL}/api/v2.0/events/?page_size=200"
+
+
+def _event_logs_url(event_id: str, page: int = 1) -> str:
+    url = f"{DEFAULT_UBIDOTS_API_BASE_URL}/api/v2.0/events/{event_id}/logs/"
+    return f"{url}?page={page}&page_size=200" if page > 1 else f"{url}?page_size=200"
 
 
 def _values_url(variable_id: str, start: Optional[int] = None) -> str:
@@ -203,6 +209,71 @@ class TestGetValuesRows:
         assert {request.origin for request in result.requests} == {DEFAULT_UBIDOTS_API_BASE_URL}
 
 
+class TestGetFanOutRows:
+    def test_walks_every_parent_and_page_and_injects_parent_id(self) -> None:
+        events_page2 = f"{DEFAULT_UBIDOTS_API_BASE_URL}/api/v2.0/events/?page=2&page_size=200"
+        pages: dict[str, tuple[list[dict], Optional[str]]] = {
+            EVENTS_FIRST_URL: ([{"id": "ev1"}, {"id": "ev2"}], events_page2),
+            events_page2: ([{"id": "ev3"}], None),
+            _event_logs_url("ev1"): ([{"id": 1}], _event_logs_url("ev1", page=2)),
+            _event_logs_url("ev1", page=2): ([{"id": 2}], None),
+            _event_logs_url("ev2"): ([], None),
+            _event_logs_url("ev3"): ([{"id": 1, "event": "ev3"}], None),
+        }
+        result = _run("event_logs", _serve_pages(pages))
+        assert result.raised is None
+        # Log ids are only documented per event, so the parent id must ride on every row.
+        assert result.rows == [
+            {"id": 1, "event": "ev1"},
+            {"id": 2, "event": "ev1"},
+            {"id": 1, "event": "ev3"},
+        ]
+        assert result.response is not None and result.response.primary_keys == ["event", "id"]
+        # A clean run leaves every parent, also the last one, marked complete in storage.
+        assert result.final_state.completed_parent_ids == ["ev1", "ev2", "ev3"]
+
+    def test_resume_skips_completed_and_continues_current_parent(self) -> None:
+        pages: dict[str, tuple[list[dict], Optional[str]]] = {
+            EVENTS_FIRST_URL: ([{"id": "ev1"}, {"id": "ev2"}, {"id": "ev3"}], None),
+            # ev1 is complete and ev2 resumes mid-pagination, so their first-page URLs must never
+            # be fetched again.
+            _event_logs_url("ev2", page=2): ([{"id": 2}], None),
+            _event_logs_url("ev3"): ([{"id": 3}], None),
+        }
+        result = _run(
+            "event_logs",
+            _serve_pages(pages),
+            resume_state=UbidotsResumeConfig(
+                next_url=_event_logs_url("ev2", page=2), current_parent_id="ev2", completed_parent_ids=["ev1"]
+            ),
+        )
+        assert result.raised is None
+        assert result.rows == [{"id": 2, "event": "ev2"}, {"id": 3, "event": "ev3"}]
+
+    def test_mid_parent_cursor_points_at_the_next_page(self) -> None:
+        pages: dict[str, tuple[list[dict], Optional[str]]] = {
+            EVENTS_FIRST_URL: ([{"id": "ev1"}], None),
+            _event_logs_url("ev1"): ([{"id": 1}], _event_logs_url("ev1", page=2)),
+            _event_logs_url("ev1", page=2): ([{"id": 2}], None),
+        }
+        result = _run("event_logs", _serve_pages(pages))
+        mid = result.committed_states[0]
+        assert (mid.next_url, mid.current_parent_id, mid.completed_parent_ids) == (
+            _event_logs_url("ev1", page=2),
+            "ev1",
+            [],
+        )
+
+    def test_poisoned_next_link_is_rejected(self) -> None:
+        pages: dict[str, tuple[list[dict], Optional[str]]] = {
+            EVENTS_FIRST_URL: ([{"id": "ev1"}], None),
+            _event_logs_url("ev1"): ([{"id": 1}], "https://evil.example.com/next"),
+        }
+        result = _run("event_logs", _serve_pages(pages))
+        assert isinstance(result.raised, ValueError)
+        assert {request.origin for request in result.requests} == {DEFAULT_UBIDOTS_API_BASE_URL}
+
+
 class TestFetchPage:
     def _session_returning(self, status_code: int, body: Any = None) -> MagicMock:
         response = MagicMock()
@@ -332,6 +403,9 @@ class TestUbidotsSourceResponse:
             assert response.primary_keys == ["variable", "timestamp"]
             # Values return newest first, so the watermark must only commit at sync end.
             assert response.sort_mode == "desc"
+        elif endpoint == "event_logs":
+            assert response.primary_keys == ["event", "id"]
+            assert response.sort_mode is None
         else:
             assert response.primary_keys == ["id"]
             assert response.sort_mode is None
