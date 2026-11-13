@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.uuidt import UUIDT
 
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
@@ -150,6 +151,9 @@ class TestHogFlowCancelBatchJob(APIBaseTest):
         )
         batch_job.refresh_from_db()
         assert batch_job.status == "cancelled"
+        entry = ActivityLog.objects.get(scope="HogFlow", item_id=str(self.hog_flow.id), activity="batch_run_stopped")
+        assert entry.user == self.user
+        assert entry.detail["context"] == {"batch_job_id": str(batch_job.id), "filters": None}
 
     @parameterized.expand([("completed",), ("cancelled",), ("failed",)])
     def test_cancel_terminal_batch_job_is_a_no_op(self, terminal_status):
@@ -178,6 +182,7 @@ class TestHogFlowCancelBatchJob(APIBaseTest):
         assert response.json()["status"] == "completed"
         batch_job.refresh_from_db()
         assert batch_job.status == "completed"
+        assert not ActivityLog.objects.filter(scope="HogFlow", activity="batch_run_stopped").exists()
 
     def test_cancel_not_done_after_sweep_cap_leaves_status_untouched(self):
         # A pathological backlog can outlast the bounded sweeps. The run must not read
@@ -192,6 +197,7 @@ class TestHogFlowCancelBatchJob(APIBaseTest):
         assert mock_cancel.call_count == 5
         batch_job.refresh_from_db()
         assert batch_job.status == "active"
+        assert not ActivityLog.objects.filter(scope="HogFlow", activity="batch_run_stopped").exists()
 
     @parameterized.expand(
         [

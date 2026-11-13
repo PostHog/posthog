@@ -388,6 +388,23 @@ export function workflowActivityDescriber(logItem: ActivityLogItem, asNotificati
         }
     }
 
+    if (logItem.activity == 'batch_run_started' || logItem.activity == 'batch_run_stopped') {
+        const verb = logItem.activity == 'batch_run_started' ? 'started' : 'stopped'
+        return {
+            summary: activityLogSummary(
+                logItem,
+                `${verb == 'started' ? 'Started' : 'Stopped'} a batch run`,
+                nameOrLinkToWorkflow(logItem.item_id, logItem.detail.name)
+            ),
+            description: (
+                <>
+                    <ActivityLogUserName logItem={logItem} /> {verb} a batch run of the {objectNoun}:{' '}
+                    {nameOrLinkToWorkflow(logItem?.item_id, logItem?.detail.name)}
+                </>
+            ),
+        }
+    }
+
     if (logItem.activity == 'updated' || logItem.activity == 'published') {
         return describeWorkflowUpdate(logItem)
     }

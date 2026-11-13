@@ -70,6 +70,15 @@ describe('workflowActivityDescriber', () => {
         expect(text).toContain(expected)
     })
 
+    it.each([
+        ['batch_run_started', 'started a batch run of the workflow: Welcome email'],
+        ['batch_run_stopped', 'stopped a batch run of the workflow: Welcome email'],
+    ])('describes a %s entry', (activity, expected) => {
+        const text = getTextContent(workflowActivityDescriber({ ...workflowLogItem([]), activity }))
+
+        expect(text).toContain(expected)
+    })
+
     it('still diffs individual items when both sides really are arrays', () => {
         const text = getTextContent(
             workflowActivityDescriber(
