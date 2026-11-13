@@ -5,7 +5,7 @@ import { initKeaTests } from '~/test/init'
 
 import { DEFAULT_STATE, ONE_TIME_RRULE, parseRRuleToState } from './hogflows/steps/components/rrule-helpers'
 import { HogFlowSchedule } from './hogflows/types'
-import { workflowLogic } from './workflowLogic'
+import { NEW_WORKFLOW, workflowLogic } from './workflowLogic'
 
 const WEEKLY_MONDAY_RRULE = 'FREQ=WEEKLY;INTERVAL=1;BYDAY=MO'
 const STARTS_AT = '2026-04-10T09:00:00.000Z'
@@ -522,20 +522,24 @@ describe('workflowLogic schedule reducers', () => {
             expect(logic.values.pendingSchedule).toBe(false)
         })
 
-        it('asks for no schedules while the workflow is still unsaved', async () => {
+        it.each([
+            { case: 'a blank new workflow', props: { id: 'new' } },
+            { case: 'a template being edited', props: { id: 'new', editTemplateId: 'template-1' } },
+        ])('asks for no schedules while $case is still unsaved', async ({ props }) => {
             const scheduleRequests: string[] = []
-            const notFound = (req: any): [number, Record<string, string>] => {
-                scheduleRequests.push(req.params.id as string)
+            const notFound = (req: { params: { id?: unknown } }): [number, Record<string, string>] => {
+                scheduleRequests.push(String(req.params.id))
                 return [404, { detail: 'Not found.' }]
             }
             useMocks({
                 get: {
                     '/api/projects/:team_id/hog_flows/:id/schedules/': notFound,
+                    '/api/projects/:team_id/hog_flow_templates/:id/': { ...NEW_WORKFLOW, id: 'template-1' },
                     '/api/projects/:team_id/hog_function_templates/': { results: [], count: 0 },
                 },
             })
             logic.unmount()
-            logic = workflowLogic({ id: 'new' })
+            logic = workflowLogic(props)
             logic.mount()
 
             await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess']).toFinishAllListeners()
