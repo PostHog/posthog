@@ -296,7 +296,11 @@ describe('cloud controller', () => {
 
         expect(cloud.objects.size).toBe(0)
         const [left] = [...cloud.schedules.keys()]
-        expect(err.join('\n')).toContain(`schedule ${left}`)
+        const leftLine = err
+            .join('\n')
+            .split('\n')
+            .find((line) => line.startsWith(`- schedule ${left}`))
+        expect(leftLine).toContain('DeleteSchedule operation')
         expect(err.join('\n')).toContain(left.replace(/^scn-(.+)-expiry$/, '$1'))
     })
 

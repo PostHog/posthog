@@ -163,7 +163,7 @@ async function removePartialLease(
 ): Promise<string[]> {
     const remaining: string[] = []
     const attempt = async (item: string, removal: () => Promise<unknown>): Promise<void> => {
-        await removal().catch(() => remaining.push(item))
+        await removal().catch((error: Error) => remaining.push(`${item} (${error.message})`))
     }
     for (const name of manifest.schedules) {
         await attempt(`schedule ${name}`, () =>
@@ -171,8 +171,8 @@ async function removePartialLease(
         )
     }
     const prefix = keyOf(manifest.runId, '')
-    const keys = await bucket.keys(prefix).catch(() => {
-        remaining.push(`s3://${bucket.name}/${prefix}`)
+    const keys = await bucket.keys(prefix).catch((error: Error) => {
+        remaining.push(`s3://${bucket.name}/${prefix} (${error.message})`)
         return []
     })
     for (const key of keys) {
