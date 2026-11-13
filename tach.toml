@@ -1622,7 +1622,15 @@ from = [
 
 [[modules]]
 path = "products.wizard"
-depends_on = ["posthog", "products.event_definitions", "products.security", "products.tasks", "products.warehouse_sources"]
+depends_on = [
+    "posthog",
+    "products.event_definitions",
+    "products.security",
+    "products.tasks",
+    # Facade-only: wizard declares its Today highlight sources against the Today facade contract.
+    "products.today",
+    "products.warehouse_sources",
+]
 layer = "modules"
 
 [[interfaces]]
