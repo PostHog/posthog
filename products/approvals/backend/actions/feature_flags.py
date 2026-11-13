@@ -15,6 +15,7 @@ from posthog.models.activity_logging.activity_log import Trigger
 
 from products.approvals.backend.actions.base import BaseAction
 from products.approvals.backend.exceptions import ApplyFailed, PreconditionFailed
+from products.approvals.backend.flag_payloads import withhold_encrypted_payloads
 from products.approvals.backend.ownership import OWNER_KIND_UNOWNED, owner_in_scope, owner_kind_changed
 from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer, flag_version_conflict_message
 from products.feature_flags.backend.api.filters_schema import FEATURE_FLAG_OPERATOR_ALIASES
@@ -520,28 +521,34 @@ class FeatureFlagActionBase(BaseAction):
 
         if flag is None:
             # Create: no row yet — baseline is a disabled flag and the payload is the create body.
-            return {
-                "flag_id": None,
-                "flag_key": change.get("key"),
-                "current_state": {"active": False},
+            return withhold_encrypted_payloads(
+                {
+                    "flag_id": None,
+                    "flag_key": change.get("key"),
+                    "current_state": {"active": False},
+                    "gated_changes": gated_changes,
+                    "full_request_data": dict(change),
+                    "preconditions": {"version": None, "updated_at": None},
+                    "skip_opportunistic_filter_cleanup": skip_cleanup,
+                },
+                None,
+            )
+
+        return withhold_encrypted_payloads(
+            {
+                "flag_id": flag.id,
+                "flag_key": flag.key,
+                "current_state": {"active": flag.active},
                 "gated_changes": gated_changes,
                 "full_request_data": dict(change),
-                "preconditions": {"version": None, "updated_at": None},
+                "preconditions": {
+                    "version": flag.version,
+                    "updated_at": flag.updated_at.isoformat() if flag.updated_at else None,
+                },
                 "skip_opportunistic_filter_cleanup": skip_cleanup,
-            }
-
-        return {
-            "flag_id": flag.id,
-            "flag_key": flag.key,
-            "current_state": {"active": flag.active},
-            "gated_changes": gated_changes,
-            "full_request_data": dict(change),
-            "preconditions": {
-                "version": flag.version,
-                "updated_at": flag.updated_at.isoformat() if flag.updated_at else None,
             },
-            "skip_opportunistic_filter_cleanup": skip_cleanup,
-        }
+            flag,
+        )
 
     @classmethod
     def apply(cls, validated_intent: dict[str, Any], user, context: Optional[dict[str, Any]] = None) -> FeatureFlag:
@@ -831,7 +838,7 @@ class UpdateFeatureFlagAction(BaseAction):
         # approved rollout writes the filters back without `super_groups` and `holdout_groups`.
         skip_cleanup = bool(getattr(request, "skip_opportunistic_filter_cleanup", False))
 
-        return {
+        intent = {
             "flag_id": flag.id if flag is not None else None,
             "flag_key": flag.key if flag is not None else change.get("key"),
             "current_state": values.before,
@@ -847,6 +854,7 @@ class UpdateFeatureFlagAction(BaseAction):
             # replay loads a fresh row. Without this the audit entry loses what made the change.
             "activity_trigger": _activity_trigger_of(flag),
         }
+        return withhold_encrypted_payloads(intent, flag)
 
     @classmethod
     def refuse_change_request(cls, request, intent_data: dict[str, Any]) -> Optional[APIException]:
