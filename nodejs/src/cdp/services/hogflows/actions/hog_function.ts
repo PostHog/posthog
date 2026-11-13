@@ -471,10 +471,7 @@ export class HogFunctionHandler implements ActionHandler {
             frequencyCapHold?: FrequencyCapHold
         }
     > {
-        const action =
-            invocation.hogFlow.trigger?.type === 'api'
-                ? emailStepForApiSend(savedAction, invocation.state.messageCategory)
-                : savedAction
+        const action = emailStepForApiSend(savedAction, invocation.state.messageCategory)
         const hogFunction = await instrumentFn(
             { key: 'hogFlow.action.hogFunction.buildHogFunction', sendException: false },
             () => this.hogFlowFunctionsService.buildHogFunction(invocation.hogFlow, action.config, action.name)
@@ -495,9 +492,7 @@ export class HogFunctionHandler implements ActionHandler {
                 })
         )
 
-        const copiesRefusal =
-            invocation.hogFlow.trigger?.type === 'api' &&
-            marketingCopiesRefusal(action, invocation.state.send, invocation.state.messageCategory)
+        const copiesRefusal = marketingCopiesRefusal(action, invocation.state.send, invocation.state.messageCategory)
         if (copiesRefusal) {
             const message = 'Skipping send: a marketing email cannot have cc or bcc recipients.'
             this.recordSkippedEmail(hogFunctionInvocation, action, copiesRefusal, hogExecutorOptions)

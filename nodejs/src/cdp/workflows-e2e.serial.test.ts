@@ -4009,6 +4009,15 @@ describe('Workflows E2E (email queue)', () => {
                 scheduled: false,
                 sent: true,
             },
+            {
+                name: 'skips a code send to a recipient who opted out of its marketing category, whose workflow then stops being triggered by the API,',
+                step: 'transactional',
+                category: newsletter,
+                triggerChanged: true,
+                optedOutOf: newsletterId,
+                scheduled: false,
+                sent: false,
+            },
         ] as const)('$name after the API accepted it', async (row) => {
             const { step, category, optedOutOf, scheduled, sent } = row
             const categoryOutsideSend = 'categoryOutsideSend' in row
@@ -4034,6 +4043,17 @@ describe('Workflows E2E (email queue)', () => {
             })
             expect(res.status).toEqual(202)
             await optOut(to, optedOutOf)
+            if ('triggerChanged' in row) {
+                await hub.postgres.query(
+                    PostgresUse.COMMON_WRITE,
+                    `UPDATE posthog_hogflow SET trigger = $1 WHERE id = $2`,
+                    [
+                        JSON.stringify({ type: 'event', filters: { events: [{ id: '$pageview', type: 'events' }] } }),
+                        flow.id,
+                    ],
+                    'test-change-hog-flow-trigger'
+                )
+            }
             if (scheduled) {
                 await sendNow(res.body.invocation_id)
             }
