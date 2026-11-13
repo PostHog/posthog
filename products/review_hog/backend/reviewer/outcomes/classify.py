@@ -452,6 +452,20 @@ async def _emit_and_mark(
     )
 
 
+def _comment_signals(pf: _PublishedFinding, inputs: _ReportInputs, app_login: str | None) -> _CommentSignals | None:
+    if pf.comment is None:
+        return None
+    return _CommentSignals(
+        reaction_sentiment=reaction_sentiment(
+            reactions=inputs.reactions_by_comment.get(pf.comment["id"], []), app_login=app_login
+        ),
+        reply_excerpt=first_reply_excerpt(
+            comment=pf.comment, review_comments=inputs.review_comments, app_login=app_login
+        ),
+        outdated=comment_outdated(pf.comment),
+    )
+
+
 async def classify_report(
     *, team_id: int, report: ReviewReport, final_head: str, capture: Capture, flush: Flush | None = None
 ) -> int:
@@ -468,19 +482,6 @@ async def classify_report(
     compared_by_head = {head: parse_compare_files(files) for head, files in inputs.compares.items()}
     outcomes: list[_ClassifiedOutcome] = []
 
-    def _signals(pf: _PublishedFinding) -> _CommentSignals | None:
-        if pf.comment is None:
-            return None
-        return _CommentSignals(
-            reaction_sentiment=reaction_sentiment(
-                reactions=inputs.reactions_by_comment.get(pf.comment["id"], []), app_login=app_login
-            ),
-            reply_excerpt=first_reply_excerpt(
-                comment=pf.comment, review_comments=inputs.review_comments, app_login=app_login
-            ),
-            outdated=comment_outdated(pf.comment),
-        )
-
     def _decided(
         pf: _PublishedFinding, outcome: str, method: str, judge_reasoning: str | None = None
     ) -> _ClassifiedOutcome:
@@ -494,7 +495,7 @@ async def classify_report(
             # The judge is free text, so cap what goes into the durable record; the ruling is meant
             # to be a sentence or two and only a malfunctioning one would need trimming.
             judge_reasoning=judge_reasoning[:OUTCOME_JUDGE_REASONING_MAX_CHARS] if judge_reasoning else None,
-            signals=_signals(pf),
+            signals=_comment_signals(pf, inputs, app_login),
         )
 
     # Settle everything the cheap signals answer first, so only the findings that genuinely need the
