@@ -122,7 +122,7 @@ class ReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def _insight_visibility(self, insight_ids: list[int]) -> contracts.InsightVisibility:
         if not insight_ids:
             return contracts.InsightVisibility(existing=frozenset(), visible=frozenset(), linkable=frozenset())
-        existing = frozenset(existing_insight_ids(insight_ids, team_id=self.team_id, include_deleted=True))
+        existing = frozenset(existing_insight_ids(insight_ids, project_id=self.team.project_id, include_deleted=True))
         if not self._holds_scope("insight:read"):
             return contracts.InsightVisibility(existing=existing, visible=frozenset(), linkable=frozenset())
         access_control = self.user_access_control
@@ -130,10 +130,12 @@ class ReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             existing=existing,
             visible=frozenset(
                 existing_insight_ids(
-                    insight_ids, team_id=self.team_id, access_control=access_control, include_deleted=True
+                    insight_ids, project_id=self.team.project_id, access_control=access_control, include_deleted=True
                 )
             ),
-            linkable=frozenset(existing_insight_ids(insight_ids, team_id=self.team_id, access_control=access_control)),
+            linkable=frozenset(
+                existing_insight_ids(insight_ids, project_id=self.team.project_id, access_control=access_control)
+            ),
         )
 
     def _holds_scope(self, scope: str) -> bool:

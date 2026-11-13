@@ -46,6 +46,7 @@ export interface RelatedSuggestion {
 
 export interface RelatedSuggestions {
     releaseId: string
+    failed: boolean
     items: RelatedSuggestion[]
     surveys: RelatedSurvey[]
     insights: RelatedInsight[]
@@ -119,6 +120,7 @@ interface ReleaseRelatedLogicActions {
     ) => { surveys: RelatedSurvey[]; insights: RelatedInsight[] }
     reloadReleases: () => void
     reloadLinked: () => { reload: true }
+    setLinkedLookupFailed: (failed: boolean) => { failed: boolean }
 }
 
 type releaseRelatedLogicType = MakeLogicType<ReleaseRelatedLogicValues, ReleaseRelatedLogicActions>
@@ -155,6 +157,26 @@ function batches<T>(items: T[]): T[][] {
     return result
 }
 
+async function inBatches<T, R>(
+    items: T[],
+    load: (batch: T[]) => Promise<R[]>
+): Promise<{ results: R[]; failed: boolean }> {
+    const results: R[] = []
+    let failed = false
+    for (const batch of batches(items)) {
+        try {
+            results.push(...(await load(batch)))
+        } catch {
+            try {
+                results.push(...(await load(batch)))
+            } catch {
+                failed = true
+            }
+        }
+    }
+    return { results, failed }
+}
+
 async function queryInsights(query: ReturnType<typeof hogql>): Promise<RelatedInsight[]> {
     const response = await api.queryHogQL(query, { scene: 'Releases', productKey: 'feature_flags' })
     return (response.results ?? []).map(toInsight)
@@ -174,8 +196,9 @@ export const releaseRelatedLogic = kea<releaseRelatedLogicType>([
         createReleaseSurveyDone: () => ({ done: true as const }),
         rememberLinked: (surveys: RelatedSurvey[], insights: RelatedInsight[]) => ({ surveys, insights }),
         reloadLinked: () => ({ reload: true as const }),
+        setLinkedLookupFailed: (failed: boolean) => ({ failed }),
     }),
-    loaders(({ values }) => ({
+    loaders(({ values, actions }) => ({
         linkedSurveys: [
             {} as Record<string, RelatedSurvey>,
             {
@@ -184,14 +207,15 @@ export const releaseRelatedLogic = kea<releaseRelatedLogicType>([
                     if (!ids.length) {
                         return {}
                     }
-                    const pages = await Promise.all(
-                        batches(ids).map((batch) =>
-                            surveysList(String(values.currentProjectId), { ids: batch, limit: batch.length })
+                    const { results, failed } = await inBatches(ids, (batch) =>
+                        surveysList(String(values.currentProjectId), { ids: batch, limit: batch.length }).then(
+                            (page) => page.results
                         )
                     )
-                    return Object.fromEntries(
-                        pages.flatMap((page) => page.results).map((survey) => [survey.id, toSurvey(survey)])
-                    )
+                    if (failed) {
+                        actions.setLinkedLookupFailed(true)
+                    }
+                    return Object.fromEntries(results.map((survey) => [survey.id, toSurvey(survey)]))
                 },
             },
         ],
@@ -203,15 +227,16 @@ export const releaseRelatedLogic = kea<releaseRelatedLogicType>([
                     if (!ids.length) {
                         return {}
                     }
-                    const pages = await Promise.all(
-                        batches(ids).map((batch) =>
-                            queryInsights(
-                                hogql`SELECT id, short_id, name, created_at, last_modified_at FROM system.insights
-                                WHERE deleted = 0 AND id IN ${batch} LIMIT ${LOOKUP_BATCH}`
-                            )
+                    const { results, failed } = await inBatches(ids, (batch) =>
+                        queryInsights(
+                            hogql`SELECT id, short_id, name, created_at, last_modified_at FROM system.insights
+                            WHERE deleted = 0 AND id IN ${batch} LIMIT ${LOOKUP_BATCH}`
                         )
                     )
-                    return Object.fromEntries(pages.flat().map((insight) => [insight.id, insight]))
+                    if (failed) {
+                        actions.setLinkedLookupFailed(true)
+                    }
+                    return Object.fromEntries(results.map((insight) => [insight.id, insight]))
                 },
             },
         ],
@@ -255,19 +280,24 @@ export const releaseRelatedLogic = kea<releaseRelatedLogicType>([
                     const flagKeys = row.flags.map((flag) => flag.key)
                     const firstFlagCreated = row.flags.map((flag) => flag.created_at).sort()[0] ?? row.createdAt
                     const tokens = nameTokens(row.name).slice(0, 4)
+                    let failed = false
+                    const fail = <T>(): T[] => {
+                        failed = true
+                        return []
+                    }
                     const [flagSurveys, nameSurveys, flagInsights, nameInsights] = await Promise.all([
                         Promise.all(
                             row.flags.slice(0, 10).map((flag) =>
                                 surveysList(projectId, { linked_flag_id: flag.id, archived: false, limit: 10 })
                                     .then((page) => page.results)
-                                    .catch(() => [] as SurveyApi[])
+                                    .catch(() => fail<SurveyApi>())
                             )
                         ).then((pages) => pages.flat()),
                         Promise.all(
                             tokens.map((token) =>
                                 surveysList(projectId, { search: token, archived: false, limit: 10 })
                                     .then((page) => page.results)
-                                    .catch(() => [] as SurveyApi[])
+                                    .catch(() => fail<SurveyApi>())
                             )
                         ).then((pages) => pages.flat()),
                         flagKeys.length
@@ -277,14 +307,14 @@ export const releaseRelatedLogic = kea<releaseRelatedLogicType>([
                                   AND last_modified_at >= toDateTime(${firstFlagCreated})
                                   AND match(concat(toString(query), toString(filters)), ${flagKeysPattern(flagKeys)})
                                   ORDER BY last_modified_at DESC LIMIT 20`
-                              ).catch(() => [] as RelatedInsight[])
+                              ).catch(() => fail<RelatedInsight>())
                             : Promise.resolve([] as RelatedInsight[]),
                         tokens.length
                             ? queryInsights(
                                   hogql`SELECT id, short_id, name, created_at, last_modified_at FROM system.insights
                                   WHERE deleted = 0 AND saved = 1 AND multiSearchAnyCaseInsensitive(name, ${tokens})
                                   ORDER BY last_modified_at DESC LIMIT 20`
-                              ).catch(() => [] as RelatedInsight[])
+                              ).catch(() => fail<RelatedInsight>())
                             : Promise.resolve([] as RelatedInsight[]),
                     ])
                     breakpoint()
@@ -348,6 +378,7 @@ export const releaseRelatedLogic = kea<releaseRelatedLogicType>([
                     }
                     return {
                         releaseId: row.id,
+                        failed,
                         items: [...items.values()],
                         surveys: [...flagSurveys, ...nameSurveys].map(toSurvey),
                         insights: [...flagInsights, ...nameInsights],
@@ -366,8 +397,8 @@ export const releaseRelatedLogic = kea<releaseRelatedLogicType>([
         linkedLookupFailed: [
             false,
             {
-                loadLinkedSurveys: () => false,
-                loadLinkedInsights: () => false,
+                reloadLinked: () => false,
+                setLinkedLookupFailed: (state, { failed }) => state || failed,
                 loadLinkedSurveysFailure: () => true,
                 loadLinkedInsightsFailure: () => true,
             },

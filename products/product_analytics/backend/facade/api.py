@@ -230,12 +230,12 @@ def insights_including_soft_deleted_for_team(*, team_id: int, insight_ids: Colle
 def existing_insight_ids(
     insight_ids: Collection[int],
     *,
-    team_id: int,
+    project_id: int,
     access_control: UserAccessControl | None = None,
     include_deleted: bool = False,
 ) -> set[int]:
     manager = Insight.objects_including_soft_deleted if include_deleted else Insight.objects
-    queryset = manager.filter(team_id=team_id, id__in=list(insight_ids))
+    queryset = manager.filter(team__project_id=project_id, id__in=list(insight_ids))
     if not include_deleted:
         queryset = queryset.filter(deleted=False)
     if access_control is not None:

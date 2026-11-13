@@ -144,7 +144,9 @@ export function ReleaseSuggestedCard({ row }: { row: ReleaseRow }): JSX.Element 
     const maybe = [...linkItems, ...relatedItems.filter((item) => !item.detected)].filter((item) => visible(item.key))
     const loading = relatedSuggestionsLoading && relatedSuggestions?.releaseId !== row.id
 
-    if (!loading && !found.length && !maybe.length) {
+    const failed = relatedSuggestions?.releaseId === row.id && relatedSuggestions.failed
+
+    if (!loading && !found.length && !maybe.length && !failed) {
         return null
     }
 
@@ -164,6 +166,24 @@ export function ReleaseSuggestedCard({ row }: { row: ReleaseRow }): JSX.Element 
                     <>
                         <Group title="Uses this release's flags" items={found} onDismiss={dismissSuggestion} />
                         <Group title="Similar name" items={maybe} onDismiss={dismissSuggestion} />
+                        {failed && (
+                            <div
+                                className="flex items-center justify-between gap-2 px-2"
+                                data-attr="release-suggested-failed"
+                            >
+                                <Text size="xs" variant="muted">
+                                    Some suggestions could not load.
+                                </Text>
+                                <Button
+                                    size="xs"
+                                    variant="link-muted"
+                                    onClick={() => loadRelatedSuggestions(row)}
+                                    data-attr="release-suggested-retry"
+                                >
+                                    Try again
+                                </Button>
+                            </div>
+                        )}
                     </>
                 )}
             </CardContent>
