@@ -6159,6 +6159,7 @@ dependencies = [
     { name = "protobuf" },
     { name = "psycopg", extra = ["binary"] },
     { name = "psycopg2-binary" },
+    { name = "pwned-passwords-django" },
     { name = "pyarrow" },
     { name = "pydantic" },
     { name = "pydantic-avro" },
@@ -6463,6 +6464,7 @@ requires-dist = [
     { name = "protobuf", specifier = "~=6.33.6" },
     { name = "psycopg", extras = ["binary"], specifier = "==3.2.13" },
     { name = "psycopg2-binary", specifier = "==2.9.13" },
+    { name = "pwned-passwords-django", specifier = "==5.2.0" },
     { name = "pyarrow", specifier = "==23.0.1" },
     { name = "pydantic", specifier = "~=2.14.2" },
     { name = "pydantic-avro", specifier = "~=0.9.3" },
@@ -6835,6 +6837,19 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/cd/05/0a34433a064256a578f1783a10da6df098ceaa4a57bbeaa96a6c0352786b/pure_eval-0.2.3.tar.gz", hash = "sha256:5f4e983f40564c576c7c8635ae88db5956bb2229d7e9237d03b3c0b0190eaf42", size = 19752, upload-time = "2024-07-21T12:58:21.801Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/8e/37/efad0257dc6e593a18957422533ff0f87ede7c9c6ea010a2177d738fb82f/pure_eval-0.2.3-py3-none-any.whl", hash = "sha256:1db8e35b67b3d218d818ae653e27f06c3aa420901fa7b081ca98cbedc874e0d0", size = 11842, upload-time = "2024-07-21T12:58:20.04Z" },
+]
+
+[[package]]
+name = "pwned-passwords-django"
+version = "5.2.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "django" },
+    { name = "httpx" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/ae/f5/242f5ceb391832d284c815135f99872ad2f109aaa8b398bcf9cbe3665bd6/pwned_passwords_django-5.2.0.tar.gz", hash = "sha256:dfa7c4fc8879396b8304759260c5fb8b6055c07ed9241010e5bc319f195d5197", size = 43089, upload-time = "2025-04-06T07:58:17.973Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/0d/9b/dbbeb3e72501190584847e5d6b119b5e4f1e15b11a804c4e2ccbca438f2f/pwned_passwords_django-5.2.0-py3-none-any.whl", hash = "sha256:a8666fb427479796ee9940e92df834a188ca7246905e4b9dc7be6248415ff5df", size = 11712, upload-time = "2025-04-06T07:58:16.599Z" },
 ]
 
 [[package]]

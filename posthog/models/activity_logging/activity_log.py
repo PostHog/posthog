@@ -155,6 +155,7 @@ ActivityScope = Literal[
     "ReviewRepository",
     "ReviewProjectSettings",
     "ReviewInstallationClaim",
+    "RecommendationResolution",
 ]
 ChangeAction = Literal[
     "changed", "created", "deleted", "merged", "split", "exported", "revoked", "logged_in", "logged_out", "copied"
@@ -504,6 +505,7 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
     },
     "ExternalDataSchema": {
         "should_sync": "enabled",
+        "live_query_enabled": "live queries",
         "masked_columns": "masked columns",
         "full_refresh_interval_days": "full refresh interval (days)",
         "full_refresh_time_of_day": "full refresh time (UTC)",
@@ -786,6 +788,8 @@ activity_visibility_restrictions: list[dict[str, Any]] = [
 
 field_exclusions: dict[AuditableScope, list[str]] = {
     "AccountView": ["version"],
+    # These fields copy warehouse data, and the activity log does not check warehouse access.
+    "RecommendationResolution": ["subject", "subject_hash", "customer_id", "campaign_id", "resolved_at"],
     "TicketMacro": ["usage_count", "last_used_at"],
     # Tiles are edited through their own endpoint, so diffing the reverse relation only reads every tile row.
     "CrossProjectDashboard": ["tiles", "organization"],

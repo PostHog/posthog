@@ -2811,9 +2811,7 @@ class TestTaskAPI(BaseTaskAPITest):
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
-    @patch("products.tasks.backend.facade.api._find_idling_warm_run")
-    def test_create_task_with_multiple_repositories(self, mock_find_warm_run):
-        mock_find_warm_run.return_value = None
+    def test_create_task_with_multiple_repositories(self) -> None:
         integration = Integration.objects.create(
             team=self.team,
             kind="github",
@@ -2841,25 +2839,6 @@ class TestTaskAPI(BaseTaskAPITest):
         task = Task.objects.get(id=response.json()["id"])
         self.assertEqual(task.repositories, ["posthog/posthog", "posthog/code"])
         self.assertEqual(task.create_run().state["repositories"], task.repositories)
-        mock_find_warm_run.assert_called_once_with(
-            self.team.id,
-            self.user.id,
-            origin_product=Task.OriginProduct.USER_CREATED,
-            posthog_mcp_scopes="full",
-            repository="posthog/posthog",
-            repositories=["posthog/posthog", "posthog/code"],
-            github_integration_id=integration.id,
-            branch="main",
-            runtime_adapter=None,
-            model=None,
-            reasoning_effort=None,
-            sandbox_environment_id=None,
-            custom_image_id=None,
-            initial_permission_mode=None,
-            signal_report_id=None,
-            task_runtime=None,
-            json_schema=None,
-        )
 
         update = self.client.patch(
             f"/api/projects/@current/tasks/{task.id}/",

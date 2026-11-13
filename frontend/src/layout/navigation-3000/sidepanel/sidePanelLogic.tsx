@@ -186,11 +186,10 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                 isAccessControlSettings: boolean
             ) => {
                 if (sceneSidePanelContext.canvas_id && currentTeam) {
-                    // Support stays openable from the help menu, but the canvas tabs take the bar.
+                    // Support stays openable from the help menu, but the canvas tabs take the bar. The web app
+                    // only views canvases, so the authoring tabs (chat and blocks) are left out.
                     return [
-                        ...CANVAS_SIDE_PANEL_TABS.filter(
-                            (tab) => tab !== SidePanelTab.CanvasBlocks || sceneSidePanelContext.canvas_blocks
-                        ),
+                        SidePanelTab.CanvasTimeline,
                         SidePanelTab.Exports,
                         ...(isCloudOrDev ? [SidePanelTab.Support] : []),
                     ]
