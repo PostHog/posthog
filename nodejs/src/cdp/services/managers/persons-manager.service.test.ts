@@ -35,6 +35,7 @@ type TestPerson = {
     distinctIds: string[]
     // What a strong read answers when it differs from the replica.
     leader?: Record<string, any> | ConnectError
+    strongReads?: number
 }
 
 function makeProtoPerson(p: TestPerson) {
@@ -105,7 +106,11 @@ function createTestPersonHogPersonReadRepository(persons: TestPerson[]): PersonH
                     throw new ConnectError('person not found', Code.NotFound)
                 }
                 // Only a strong read reaches the leader.
-                const leader = req.readOptions?.consistency === ConsistencyLevel.STRONG ? match.leader : undefined
+                const strong = req.readOptions?.consistency === ConsistencyLevel.STRONG
+                if (strong) {
+                    match.strongReads = (match.strongReads ?? 0) + 1
+                }
+                const leader = strong ? match.leader : undefined
                 if (leader instanceof ConnectError) {
                     throw leader
                 }
@@ -316,13 +321,14 @@ describe('PersonsManagerService', () => {
             distinctIds: ['new_user'],
         }
 
-        const consistentManager = (
-            replica: Record<string, any>,
-            leader: Record<string, any> | ConnectError
-        ): PersonsManagerService => {
-            const consistentRepo = createTestPersonHogPersonReadRepository([
-                { ...NEW_USER, properties: replica, leader },
-            ])
+        const newUser = (replica: Record<string, any>, leader: Record<string, any> | ConnectError): TestPerson => ({
+            ...NEW_USER,
+            properties: replica,
+            leader,
+        })
+
+        const consistentManager = (person: TestPerson): PersonsManagerService => {
+            const consistentRepo = createTestPersonHogPersonReadRepository([person])
             return new PersonsManagerService(mockTeamManager, consistentRepo, 'http://localhost:8000', consistentRepo)
         }
 
@@ -332,6 +338,7 @@ describe('PersonsManagerService', () => {
             leader: Record<string, any> | ConnectError
             kind: 'distinct_id' | 'person_id'
             forceFresh?: boolean
+            requiredProperties?: string[]
             expected: Record<string, any>
         }
 
@@ -373,12 +380,28 @@ describe('PersonsManagerService', () => {
                 forceFresh: true,
                 expected: { plan: 'free' },
             },
-        ])('$name', async ({ replica, leader, kind, forceFresh, expected }) => {
-            const person = await consistentManager(replica, leader).getCyclotronPerson(
+            {
+                name: 'reads a required property the replica does not have from the leader',
+                replica: { plan: 'free' },
+                leader: { plan: 'free', email: 'new@example.com' },
+                kind: 'distinct_id',
+                requiredProperties: ['email'],
+                expected: { plan: 'free', email: 'new@example.com' },
+            },
+            {
+                name: 'keeps the replica properties when it has every required property',
+                replica: { plan: 'free' },
+                leader: { plan: 'paid' },
+                kind: 'distinct_id',
+                requiredProperties: ['plan'],
+                expected: { plan: 'free' },
+            },
+        ])('$name', async ({ replica, leader, kind, forceFresh, requiredProperties, expected }) => {
+            const person = await consistentManager(newUser(replica, leader)).getCyclotronPerson(
                 TEAM_1,
                 kind === 'distinct_id' ? 'new_user' : NEW_USER.uuid,
                 kind,
-                { forceFresh }
+                { forceFresh, requiredProperties }
             )
 
             expect(person?.id).toEqual(NEW_USER.uuid)
@@ -388,12 +411,40 @@ describe('PersonsManagerService', () => {
         it('keeps the leader properties for a later lookup that does not ask for forceFresh', async () => {
             // A wait step reads with forceFresh and the steps after it do not. A step that went back
             // to the replica row would branch on a value older than the one that ended the wait.
-            const manager = consistentManager({ plan: 'free' }, { plan: 'paid' })
+            const manager = consistentManager(newUser({ plan: 'free' }, { plan: 'paid' }))
 
             await manager.getCyclotronPerson(TEAM_1, 'new_user', 'distinct_id', { forceFresh: true })
             const later = await manager.getCyclotronPerson(TEAM_1, 'new_user', 'distinct_id')
 
             expect(later?.properties).toEqual({ plan: 'paid' })
+        })
+
+        it('asks the leader once for each required property the person does not have', async () => {
+            // A template can reference a property most persons never get. Each step that renders it
+            // must not send another read to the leader.
+            const person = newUser({ plan: 'free' }, { plan: 'free' })
+            const manager = consistentManager(person)
+            const lookup = (key: string): ReturnType<PersonsManagerService['getCyclotronPerson']> =>
+                manager.getCyclotronPerson(TEAM_1, 'new_user', 'distinct_id', { requiredProperties: [key] })
+
+            await lookup('email')
+            await lookup('email')
+            expect(person.strongReads).toBe(1)
+
+            await lookup('phone')
+            expect(person.strongReads).toBe(2)
+        })
+
+        it('reads a stub from the leader again after the leader had nothing for it', async () => {
+            // The first step of a run can reach the leader before the person's first properties do.
+            const person = newUser({}, {})
+            const manager = consistentManager(person)
+
+            await manager.getCyclotronPerson(TEAM_1, 'new_user', 'distinct_id')
+            person.leader = { email: 'new@example.com' }
+            const later = await manager.getCyclotronPerson(TEAM_1, 'new_user', 'distinct_id')
+
+            expect(later?.properties).toEqual({ email: 'new@example.com' })
         })
     })
 

@@ -489,6 +489,10 @@ export type CyclotronJobInvocationHogFlow = CyclotronJobInvocation & {
     // wait step calls it before its first evaluation, where a stale person parks the run for good.
     // It returns the values rather than mutating, so it stays correct on a cloned invocation.
     refreshPerson?: () => Promise<{ person?: CyclotronPerson; filterGlobals: HogFunctionFilterGlobals }>
+    // Set only where a consistent read can return a property that the dequeue's read lacks.
+    loadPersonProperties?: (
+        keys: string[]
+    ) => Promise<{ person?: CyclotronPerson; filterGlobals: HogFunctionFilterGlobals }>
 }
 
 export type MessageOptOutRecord = {

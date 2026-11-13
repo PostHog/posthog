@@ -1,5 +1,6 @@
 import { HogFlow } from '~/cdp/schema/hogflow'
 import {
+    HogFlowPersonLookup,
     hogFlowPersonLookup,
     loadHogFlowPerson,
     resolvesByRepointedPerson,
@@ -147,11 +148,8 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                 }
 
                 if (personLookup) {
-                    loaded.refreshPerson = async () => {
-                        const fresh = await loadHogFlowPerson(this.personsManager, hogFlow, {
-                            ...personLookup,
-                            forceFresh: true,
-                        })
+                    const reloadPerson = async (lookup: HogFlowPersonLookup) => {
+                        const fresh = await loadHogFlowPerson(this.personsManager, hogFlow, lookup)
                         return {
                             person: fresh,
                             filterGlobals: convertToHogFunctionFilterGlobal({
@@ -161,6 +159,12 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                                 variables: hogFlowInvocationState.variables || {},
                             }),
                         }
+                    }
+                    loaded.refreshPerson = () => reloadPerson({ ...personLookup, forceFresh: true })
+                    // The templates of an api-triggered flow never see person properties.
+                    if (this.personsManager.hasConsistentReads && hogFlow.trigger?.type !== 'api') {
+                        loaded.loadPersonProperties = (keys) =>
+                            reloadPerson({ ...personLookup, forceFresh: false, requiredProperties: keys })
                     }
                 }
 

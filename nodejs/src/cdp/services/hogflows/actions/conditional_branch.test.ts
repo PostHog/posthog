@@ -5,7 +5,8 @@ import { HOG_FILTERS_EXAMPLES } from '~/cdp/_tests/examples'
 import { createExampleHogFlowInvocation } from '~/cdp/_tests/fixtures-hogflows'
 import { HogFlow, HogFlowAction } from '~/cdp/schema/hogflow'
 import { CohortMembershipRepository, StoredCohortMembership } from '~/cdp/services/cohorts/cohort-membership-repository'
-import { CyclotronJobInvocationHogFlow } from '~/cdp/types'
+import { CyclotronJobInvocationHogFlow, CyclotronJobInvocationResult } from '~/cdp/types'
+import { convertToHogFunctionFilterGlobal } from '~/cdp/utils/hog-function-filtering'
 import { createInvocationResult } from '~/cdp/utils/invocation-utils'
 
 import { findActionById, findActionByType } from '../hogflow-utils'
@@ -329,6 +330,70 @@ describe('action.conditional_branch', () => {
 
             await expect(executeWithRepository(repository, 'inCohort')).rejects.toThrow('lookup timed out')
             expect(invocation.state.currentAction!.cohortLookupFailed).toBe(true)
+        })
+    })
+
+    describe('person property the dequeue read does not have', () => {
+        const CHROME = { id: 'person_id', name: 'John Doe', url: '', properties: { $browser: 'Chrome' } }
+        let stepResult: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>
+
+        const execute = async (
+            loadPersonProperties: CyclotronJobInvocationHogFlow['loadPersonProperties']
+        ): Promise<HogFlowAction | undefined> => {
+            action.config.conditions = [
+                {
+                    filters: {
+                        bytecode: ['_H', 1, 32, 'Chrome', 32, '$browser', 32, 'properties', 32, 'person', 1, 3, 11],
+                        properties: [{ key: '$browser', type: 'person', value: 'Chrome', operator: 'exact' }],
+                    },
+                },
+                { filters: HOG_FILTERS_EXAMPLES.no_filters.filters },
+            ]
+            invocation.loadPersonProperties = loadPersonProperties
+            const handler = new ConditionalBranchHandler({
+                getMemberCohortIds: () => Promise.resolve([]),
+                getCohortMembership: () => Promise.resolve(null),
+            })
+
+            stepResult = createInvocationResult(invocation)
+            const result = await handler.execute({ invocation, action, result: stepResult })
+            return result.nextAction
+        }
+
+        const loaded = (
+            person: typeof CHROME
+        ): Awaited<ReturnType<NonNullable<CyclotronJobInvocationHogFlow['loadPersonProperties']>>> => ({
+            person,
+            filterGlobals: convertToHogFunctionFilterGlobal({
+                event: invocation.state.event,
+                person,
+                groups: {},
+                variables: {},
+            }),
+        })
+
+        it('routes on the property once it is loaded', async () => {
+            const nextAction = await execute(() => Promise.resolve(loaded(CHROME)))
+
+            expect(nextAction).toEqual(findActionById(invocation.hogFlow, 'condition_1'))
+            // The executor runs the next step from the result, so it needs the loaded person too.
+            expect(stepResult.invocation.person).toEqual(CHROME)
+        })
+
+        it('routes on the person it has when that person already has the property', async () => {
+            const safari = { ...CHROME, properties: { $browser: 'Safari' } }
+            invocation.person = safari
+            invocation.filterGlobals = loaded(safari).filterGlobals
+
+            const nextAction = await execute(() => Promise.resolve(loaded(CHROME)))
+
+            expect(nextAction).toEqual(findActionById(invocation.hogFlow, 'condition_2'))
+        })
+
+        it('routes on the person it has when the load fails', async () => {
+            const nextAction = await execute(() => Promise.reject(new Error('person read failed')))
+
+            expect(nextAction).toEqual(findActionById(invocation.hogFlow, 'condition_2'))
         })
     })
 

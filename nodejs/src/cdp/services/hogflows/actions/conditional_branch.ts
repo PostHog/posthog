@@ -6,6 +6,7 @@ import { CohortMembershipRepository } from '~/cdp/services/cohorts/cohort-member
 import { CyclotronJobInvocationHogFlow, CyclotronJobInvocationResult, HogFunctionFilters } from '~/cdp/types'
 import { filterFunctionInstrumented } from '~/cdp/utils/hog-function-filtering'
 
+import { loadMissingPersonProperties, personPropertiesInBytecode } from '../hogflow-person-property-usage'
 import { findContinueAction, findNextAction, isEvaluableCondition } from '../hogflow-utils'
 import { ActionHandler, ActionHandlerOptions, ActionHandlerResult } from './action.interface'
 import { calculatedScheduledAt } from './delay'
@@ -138,6 +139,15 @@ export class ConditionalBranchHandler implements ActionHandler {
                 result.invocation.person = refreshed.person
                 result.invocation.filterGlobals = refreshed.filterGlobals
             }
+        }
+
+        // A wait re-reads the person above.
+        if (action.type === 'conditional_branch') {
+            await loadMissingPersonProperties(invocation, result, () =>
+                action.config.conditions.flatMap((condition) =>
+                    personPropertiesInBytecode((condition.filters as HogFunctionFilters | null | undefined)?.bytecode)
+                )
+            )
         }
 
         const conditionalAction: Extract<HogFlowAction, { type: 'conditional_branch' }> =

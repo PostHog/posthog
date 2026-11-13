@@ -35,6 +35,8 @@ export type PersonManagerPerson = {
     id: string
     // The bigint row id, where `id` is the uuid.
     int_id: string
+    // Required properties that the leader did not have either, so each is asked for once per entry.
+    absent_on_leader?: Set<string>
     properties: Record<string, any>
     team_id: number
     // Populated by fetchPersonsByPersonIds when the person has at least one distinct_id
@@ -43,6 +45,28 @@ export type PersonManagerPerson = {
 
 export type PersonManagerPersonWithDistinctId = PersonManagerPerson & {
     distinct_id: string
+}
+
+export type PersonLookupOptions = {
+    forceFresh?: boolean
+    // Properties the caller is about to read. One that the replica lacks is read from the leader.
+    requiredProperties?: string[]
+}
+
+function consistentReadReason(
+    person: PersonManagerPerson,
+    options: PersonLookupOptions | undefined
+): 'force_fresh' | 'stub' | 'missing_property' | undefined {
+    if (options?.forceFresh) {
+        return 'force_fresh'
+    }
+    if (Object.keys(person.properties).length === 0) {
+        return 'stub'
+    }
+    const missing = options?.requiredProperties?.some(
+        (key) => !(key in person.properties) && !person.absent_on_leader?.has(key)
+    )
+    return missing ? 'missing_property' : undefined
 }
 
 export class PersonsManagerService {
@@ -72,11 +96,15 @@ export class PersonsManagerService {
         this.lazyLoaderByDistinctId.clear()
     }
 
+    public get hasConsistentReads(): boolean {
+        return this.consistentPersonReader !== undefined
+    }
+
     public async getCyclotronPerson(
         teamId: number,
         id: string,
         kind: 'distinct_id' | 'person_id',
-        options?: { forceFresh?: boolean }
+        options?: PersonLookupOptions
     ): Promise<CyclotronPerson | null> {
         const key = toKey({ teamId, id })
 
@@ -98,7 +126,7 @@ export class PersonsManagerService {
             return null
         }
 
-        await this.refreshPropertiesFromLeader(dbPerson, options?.forceFresh ?? false)
+        await this.refreshPropertiesFromLeader(dbPerson, options)
 
         return {
             id: dbPerson.id,
@@ -110,13 +138,18 @@ export class PersonsManagerService {
     }
 
     /** A new person is an empty stub on the replica until the writer applies its first properties. */
-    private async refreshPropertiesFromLeader(person: PersonManagerPerson, forceFresh: boolean): Promise<void> {
-        const isStub = Object.keys(person.properties).length === 0
-        if (!this.consistentPersonReader || (!forceFresh && !isStub)) {
+    private async refreshPropertiesFromLeader(
+        person: PersonManagerPerson,
+        options: PersonLookupOptions | undefined
+    ): Promise<void> {
+        if (!this.consistentPersonReader) {
+            return
+        }
+        const reason = consistentReadReason(person, options)
+        if (!reason) {
             return
         }
 
-        const reason = forceFresh ? 'force_fresh' : 'stub'
         try {
             const consistent = await this.consistentPersonReader.fetchPersonById(
                 person.team_id,
@@ -127,6 +160,11 @@ export class PersonsManagerService {
             if (consistent) {
                 // `person` is the cached entry, so a later lookup does not go back to older properties.
                 person.properties = consistent.properties
+            }
+            for (const key of options?.requiredProperties ?? []) {
+                if (!(key in person.properties)) {
+                    ;(person.absent_on_leader ??= new Set()).add(key)
+                }
             }
         } catch (error) {
             // A failed consistent read must not fail the lookup.

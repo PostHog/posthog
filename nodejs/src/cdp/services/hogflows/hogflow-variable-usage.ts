@@ -28,6 +28,7 @@ const histogramVariableScanDuration = new Histogram({
 const DOT_REFERENCE_REGEX = /\bvariables\.([A-Za-z_$][A-Za-z0-9_$]*)/g
 // Whitespace allowed around the brackets and quotes - liquid accepts `variables[ 'x' ]`
 const BRACKET_REFERENCE_REGEX = /\bvariables\s*\[\s*['"]([^'"\]]+)['"]\s*\]/g
+const VARIABLE_REFERENCE_REGEXES = [DOT_REFERENCE_REGEX, BRACKET_REFERENCE_REGEX]
 
 // Compiled hog output carried alongside the template strings. Never scanned: it's by far the
 // bulkiest part of a config (hundreds of elements per input), references in it are stored as
@@ -36,9 +37,9 @@ const BRACKET_REFERENCE_REGEX = /\bvariables\s*\[\s*['"]([^'"\]]+)['"]\s*\]/g
 // template, not from that constant.
 const SKIPPED_KEYS = new Set(['bytecode', 'transpiled'])
 
-const collectReferences = (value: unknown, into: Set<string>): void => {
+export const collectTemplateReferences = (value: unknown, regexes: RegExp[], into: Set<string>): void => {
     if (typeof value === 'string') {
-        for (const regex of [DOT_REFERENCE_REGEX, BRACKET_REFERENCE_REGEX]) {
+        for (const regex of regexes) {
             for (const match of value.matchAll(regex)) {
                 into.add(match[1])
             }
@@ -46,13 +47,13 @@ const collectReferences = (value: unknown, into: Set<string>): void => {
         return
     }
     if (Array.isArray(value)) {
-        value.forEach((item) => collectReferences(item, into))
+        value.forEach((item) => collectTemplateReferences(item, regexes, into))
         return
     }
     if (value && typeof value === 'object') {
         Object.entries(value).forEach(([key, item]) => {
             if (!SKIPPED_KEYS.has(key)) {
-                collectReferences(item, into)
+                collectTemplateReferences(item, regexes, into)
             }
         })
     }
@@ -70,8 +71,8 @@ export function findMissingVariableReferences(
     variables: Record<string, any> | undefined
 ): string[] {
     const referenced = new Set<string>()
-    collectReferences(config.inputs, referenced)
-    collectReferences(config.mappings, referenced)
+    collectTemplateReferences(config.inputs, VARIABLE_REFERENCE_REGEXES, referenced)
+    collectTemplateReferences(config.mappings, VARIABLE_REFERENCE_REGEXES, referenced)
 
     const available = variables ?? {}
     return [...referenced].filter((name) => !(name in available)).sort()
