@@ -10,9 +10,10 @@ API_VERSION_2 = "2"
 # X rejects a `start_time` before this instant, so it is the floor for a first incremental run.
 EARLIEST_START_TIME = "2010-11-06T00:00:00Z"
 
-# Recent search only accepts a `start_time` inside its 7-day window. The margin keeps a floor computed
-# here from falling outside the window by the time X reads the request.
-RECENT_SEARCH_WINDOW = timedelta(days=7) - timedelta(minutes=1)
+# Recent search refuses a `start_time` older than 7 days. The bound is computed once per run and reused
+# on every page and retry, so a watermark older than this is not sent and X returns its whole window.
+# The day of margin keeps a sent bound valid through long paging runs and rate-limit waits.
+RECENT_SEARCH_MAX_START_AGE = timedelta(days=6)
 
 # The usage endpoint reports at most this many days back.
 USAGE_MAX_DAYS = 90
@@ -91,7 +92,7 @@ class TwitterEndpointConfig:
     paginated: bool = True
     # True when the request filters on the source's search query rather than on the account.
     needs_search_query: bool = False
-    # The oldest `start_time` the endpoint accepts, relative to now. None means no limit.
+    # The oldest watermark sent as `start_time`, relative to now. None means no limit.
     max_start_age: timedelta | None = None
     primary_keys: tuple[str, ...] = ("id",)
     partition_key: str | None = None
@@ -168,7 +169,7 @@ TWITTER_ENDPOINTS: dict[str, TwitterEndpointConfig] = {
         needs_search_query=True,
         partition_key="created_at",
         start_time_param="start_time",
-        max_start_age=RECENT_SEARCH_WINDOW,
+        max_start_age=RECENT_SEARCH_MAX_START_AGE,
         sort_mode="desc",
     ),
     # One response holds every day in the requested range. `days` is the only time filter, so an
@@ -197,3 +198,6 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     },
     "ApiUsage": [incremental_field("date")],
 }
+
+# Each incremental usage run reads the watermark day again, so append would keep a copy per run.
+MERGE_ONLY_ENDPOINTS = ("ApiUsage",)

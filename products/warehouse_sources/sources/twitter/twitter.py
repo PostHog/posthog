@@ -1,15 +1,17 @@
 import re
 from collections.abc import Callable, Iterator
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Any, Optional
 
 from requests import Session
 
 from products.warehouse_sources.sources.sdk import (
+    BearerTokenAuth,
     Endpoint,
     EndpointResource,
     JSONResponseCursorPaginator,
     RESTAPIConfig,
+    RESTClient,
     ResumableSourceManager,
     SinglePagePaginator,
     SourceResponse,
@@ -100,16 +102,10 @@ def to_rfc3339(value: Any) -> str:
     return _to_utc(value).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def _start_time_converter(max_start_age: timedelta | None) -> Callable[[Any], str]:
-    if max_start_age is None:
-        return to_rfc3339
-
-    def convert(value: Any) -> str:
-        # X rejects the whole request when `start_time` is older than the endpoint allows, so an
-        # old watermark (or the first run's floor) is raised to the oldest instant it accepts.
-        return to_rfc3339(max(_to_utc(value), datetime.now(UTC) - max_start_age))
-
-    return convert
+def _sends_start_time(endpoint_config: TwitterEndpointConfig, last_value: Optional[Any]) -> bool:
+    if endpoint_config.max_start_age is None:
+        return True
+    return last_value is not None and _to_utc(last_value) > datetime.now(UTC) - endpoint_config.max_start_age
 
 
 def usage_days(last_value: Any) -> int:
@@ -270,6 +266,7 @@ def get_resource(
     user_id: str | None,
     should_use_incremental_field: bool,
     search_query: str | None = None,
+    db_incremental_field_last_value: Optional[Any] = None,
 ) -> EndpointResource:
     path = endpoint_config.path.format(user_id=user_id) if endpoint_config.needs_user_id else endpoint_config.path
 
@@ -291,12 +288,16 @@ def get_resource(
         else SinglePagePaginator(),
     }
 
-    if should_use_incremental_field and endpoint_config.start_time_param:
+    if (
+        should_use_incremental_field
+        and endpoint_config.start_time_param
+        and _sends_start_time(endpoint_config, db_incremental_field_last_value)
+    ):
         endpoint["incremental"] = {
             "cursor_path": "created_at",
             "start_param": endpoint_config.start_time_param,
             "initial_value": EARLIEST_START_TIME,
-            "convert": _start_time_converter(endpoint_config.max_start_age),
+            "convert": to_rfc3339,
         }
 
     return {
@@ -341,7 +342,16 @@ def _iter_pages(
             "retry_after_max_seconds": _RETRY_AFTER_MAX_SECONDS,
             "retry_budget_seconds": _RETRY_BUDGET_SECONDS,
         },
-        "resources": [get_resource(endpoint_config, username, user_id, should_use_incremental_field, search_query)],
+        "resources": [
+            get_resource(
+                endpoint_config,
+                username,
+                user_id,
+                should_use_incremental_field,
+                search_query,
+                db_incremental_field_last_value,
+            )
+        ],
     }
 
     initial_paginator_state: Optional[dict[str, Any]] = None
@@ -371,17 +381,25 @@ def _iter_usage(
     should_use_incremental_field: bool,
 ) -> Iterator[list[dict[str, Any]]]:
     days = usage_days(db_incremental_field_last_value) if should_use_incremental_field else USAGE_MAX_DAYS
-    response = _session(bearer_token).get(
-        f"{BASE_URL}{endpoint_config.path}",
-        params={**endpoint_config.extra_params, "days": days},
-        timeout=_REQUEST_TIMEOUT,
+    # The shared client honors X's `x-rate-limit-reset` and the raised retry limits, which a bare
+    # tracked session does not.
+    client = RESTClient(
+        base_url=BASE_URL,
+        auth=BearerTokenAuth(token=bearer_token),
+        paginator=SinglePagePaginator(),
+        allowed_hosts=[],
         allow_redirects=False,
+        request_timeout=_REQUEST_TIMEOUT,
+        retry_after_max_seconds=_RETRY_AFTER_MAX_SECONDS,
+        retry_budget_seconds=_RETRY_BUDGET_SECONDS,
     )
-    response.raise_for_status()
-
-    rows = usage_rows(response.json().get("data") or {})
-    if rows:
-        yield rows
+    for page in client.paginate(
+        endpoint_config.path, params={**endpoint_config.extra_params, "days": days}, data_selector="data"
+    ):
+        for report in page:
+            rows = usage_rows(report)
+            if rows:
+                yield rows
 
 
 def twitter_source(

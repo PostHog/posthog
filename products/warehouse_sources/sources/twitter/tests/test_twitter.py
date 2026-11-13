@@ -297,49 +297,40 @@ class TestTwitterSourceRequests:
         assert "start_time" not in requests[0].query
 
     @pytest.mark.parametrize(
-        ("should_use_incremental_field", "last_value", "expected_start"),
+        ("should_use_incremental_field", "watermark_age", "sends_start_time"),
         [
-            (False, None, None),
-            # Recent search refuses a `start_time` outside its 7-day window, so the API floor and an
-            # old watermark are both raised into the window.
-            (True, None, "clamped"),
-            (True, datetime(2024, 3, 1, tzinfo=UTC), "clamped"),
+            (False, None, False),
+            # With no usable watermark, no bound is sent and X returns its whole 7-day window. A
+            # bound near the window's edge would expire during long paging or rate-limit waits.
+            (True, None, False),
+            (True, timedelta(days=400), False),
+            (True, timedelta(days=6, hours=12), False),
+            (True, timedelta(days=2), True),
         ],
     )
-    def test_search_sends_the_query_and_a_start_time_inside_the_window(
-        self, should_use_incremental_field: bool, last_value: Any, expected_start: str | None
+    def test_search_sends_the_query_and_only_a_start_time_x_will_accept(
+        self, should_use_incremental_field: bool, watermark_age: timedelta | None, sends_start_time: bool
     ) -> None:
+        watermark = None if watermark_age is None else (datetime.now(UTC) - watermark_age).replace(microsecond=0)
+
         requests, result = self._drive(
             "SearchedPosts",
-            [_json_response({"data": [{"id": "1"}], "meta": {}})],
+            [
+                _json_response({"data": [{"id": "1"}], "meta": {"next_token": "page2"}}),
+                _json_response({"data": [{"id": "2"}], "meta": {}}),
+            ],
             should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=last_value,
+            db_incremental_field_last_value=watermark,
             search_query=" posthog -from:posthog ",
         )
 
-        assert [request.path for request in result.requests] == ["/2/tweets/search/recent"]
-        assert requests[0].param("query") == "posthog -from:posthog"
-        assert requests[0].param("sort_order") == "recency"
-        start_time = requests[0].param("start_time")
-        if expected_start is None:
-            assert start_time is None
-        else:
-            assert start_time is not None
-            sent = datetime.fromisoformat(start_time.replace("Z", "+00:00"))
-            assert datetime.now(UTC) - timedelta(days=7) < sent < datetime.now(UTC)
-
-    def test_search_keeps_a_watermark_inside_the_window(self) -> None:
-        watermark = (datetime.now(UTC) - timedelta(days=2)).replace(microsecond=0)
-
-        requests, _ = self._drive(
-            "SearchedPosts",
-            [_json_response({"data": [{"id": "1"}], "meta": {}})],
-            should_use_incremental_field=True,
-            db_incremental_field_last_value=watermark,
-            search_query="posthog",
-        )
-
-        assert requests[0].param("start_time") == to_rfc3339(watermark)
+        assert [request.path for request in result.requests] == ["/2/tweets/search/recent"] * 2
+        assert requests[1].param("pagination_token") == "page2"
+        for request in requests:
+            assert request.param("query") == "posthog -from:posthog"
+            assert request.param("sort_order") == "recency"
+            expected = to_rfc3339(watermark) if sends_start_time else None
+            assert request.param("start_time") == expected
 
     @pytest.mark.parametrize("search_query", [None, "", "   "])
     def test_search_without_a_query_fails_before_any_request(self, search_query: str | None) -> None:

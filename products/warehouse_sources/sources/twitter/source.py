@@ -19,7 +19,12 @@ from products.warehouse_sources.sources.sdk import (
     detect,
 )
 from products.warehouse_sources.sources.twitter._config import TwitterSourceConfig
-from products.warehouse_sources.sources.twitter.settings import API_VERSION_2, ENDPOINTS, INCREMENTAL_FIELDS
+from products.warehouse_sources.sources.twitter.settings import (
+    API_VERSION_2,
+    ENDPOINTS,
+    INCREMENTAL_FIELDS,
+    MERGE_ONLY_ENDPOINTS,
+)
 from products.warehouse_sources.sources.twitter.twitter import (
     TwitterResumeConfig,
     endpoint_permissions,
@@ -71,7 +76,7 @@ class TwitterSource(ResumableSource[TwitterSourceConfig, TwitterResumeConfig]):
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only=MERGE_ONLY_ENDPOINTS)
 
     def validate_credentials(
         self,
