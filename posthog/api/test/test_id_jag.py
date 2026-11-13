@@ -48,6 +48,7 @@ from posthog.models.linked_identity_provider_config import LinkedIdentityProvide
 from posthog.models.oauth import OAuthApplication
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
+from posthog.models.organization_invite import OrganizationInvite
 from posthog.models.user import User as UserModel
 from posthog.permissions import get_authenticator_client
 from posthog.settings.utils import generate_rsa_private_key_pem
@@ -1358,6 +1359,8 @@ class TestIDJagAccessTokenAuthentication(APIBaseTest):
         self.user.current_team = other_team
         self.user.current_organization = other_organization
         self.user.save()
+        inviting_organization = Organization.objects.create(name="Inviting")
+        OrganizationInvite.objects.create(organization=inviting_organization, target_email=self.user.email)
 
         token = self._mint_access_token(scope="user:read")
         resp = self.client.get("/api/users/@me/", HTTP_AUTHORIZATION=f"Bearer {token}")
@@ -1367,6 +1370,7 @@ class TestIDJagAccessTokenAuthentication(APIBaseTest):
         self.assertIsNone(body["team"])
         self.assertIsNone(body["organization"])
         self.assertEqual([organization["id"] for organization in body["organizations"]], [str(self.organization.id)])
+        self.assertEqual(body["pending_invites"], [])
 
     @parameterized.expand([("set_current_team",), ("set_current_organization",)])
     def test_me_refuses_to_switch_outside_the_tokens_organization(self, field: str) -> None:

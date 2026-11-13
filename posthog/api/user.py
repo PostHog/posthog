@@ -135,6 +135,7 @@ from posthog.permissions import (
     credential_admits_organization,
     credential_admits_team,
     get_authenticator_scoped_team_ids,
+    get_request_reachable_organization_ids,
 )
 from posthog.rate_limit import (
     OnboardingSkipThrottle,
@@ -686,15 +687,14 @@ class UserSerializer(serializers.ModelSerializer):
         # would otherwise ship a huge payload on every hit.
         PENDING_INVITES_MAX = 25
 
-        invites = (
-            OrganizationInvite.objects.filter(
-                target_email__iexact=normalized_email,
-                created_at__gt=django_timezone.now() - timedelta(days=INVITE_DAYS_VALIDITY),
-            )
-            .exclude(organization_id__in=existing_org_ids)
-            .select_related("organization")
-            .order_by("-created_at")[:PENDING_INVITES_MAX]
-        )
+        invites = OrganizationInvite.objects.filter(
+            target_email__iexact=normalized_email,
+            created_at__gt=django_timezone.now() - timedelta(days=INVITE_DAYS_VALIDITY),
+        ).exclude(organization_id__in=existing_org_ids)
+        reachable_organizations = get_request_reachable_organization_ids(self.context.get("request"))
+        if reachable_organizations is not None:
+            invites = invites.filter(organization_id__in=reachable_organizations)
+        invites = invites.select_related("organization").order_by("-created_at")[:PENDING_INVITES_MAX]
 
         return [
             {
@@ -952,6 +952,13 @@ class UserSerializer(serializers.ModelSerializer):
             request, data["organization"]["id"]
         ):
             data["organization"] = None
+        scoped_teams = get_authenticator_scoped_team_ids(getattr(request, "successful_authenticator", None))
+        if scoped_teams and (organization := data.get("organization")) is not None:
+            organization["teams"] = [team for team in organization.get("teams") or [] if team["id"] in scoped_teams]
+            scoped_projects = {team["project_id"] for team in organization["teams"]}
+            organization["projects"] = [
+                project for project in organization.get("projects") or [] if project["id"] in scoped_projects
+            ]
         if data.get("organizations") is not None:
             data["organizations"] = [
                 organization

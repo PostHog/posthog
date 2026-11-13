@@ -61,7 +61,7 @@ from posthog.permissions import (
     OrganizationMemberPermissions,
     TimeSensitiveActionPermission,
     extract_organization,
-    get_request_reachable_organization_ids,
+    get_authenticator_scoped_organization_ids,
 )
 from posthog.rate_limit import PostHogAIAccessRequestIPThrottle, PostHogAIAccessRequestUserThrottle
 from posthog.rbac.migrations.rbac_feature_flag_migration import rbac_feature_flag_role_access_migration
@@ -795,8 +795,10 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # The serializer reads `ip_restrictions` for every organization in a list response. Load the
         # config up front so each row does not add its own reverse one-to-one query.
         queryset = user.organizations.all().select_related("ip_restrictions_config")
-        if (reachable_organizations := get_request_reachable_organization_ids(self.request)) is not None:
-            queryset = queryset.filter(id__in=reachable_organizations)
+        # Organization scopes only: these endpoints refuse a team-scoped credential outright in
+        # `APIScopePermission`, so narrowing by its teams' organizations would only turn that 403 into a 404.
+        if scoped_organizations := get_authenticator_scoped_organization_ids(self.request.successful_authenticator):
+            queryset = queryset.filter(id__in=scoped_organizations)
 
         return annotate_signed_baa(queryset)
 

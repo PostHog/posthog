@@ -474,6 +474,7 @@ class TestUserAPI(APIBaseTest):
         assert switch.status_code == 400, switch.content
         assert me.status_code == 200, me.content
         assert me.json()["team"] is None
+        assert [team["id"] for team in me.json()["organization"]["teams"]] == [self.team.id]
 
     def test_switching_organization_with_a_team_scoped_key_picks_a_scoped_project(self) -> None:
         other_organization, _, first_team = Organization.objects.bootstrap(self.user)
@@ -497,8 +498,10 @@ class TestUserAPI(APIBaseTest):
 
         other = self.client.get(f"/api/users/{other_user.uuid}/")
         listed = self.client.get("/api/users/")
+        integrations = self.client.get(f"/api/users/{other_user.uuid}/integrations/")
 
         assert other.status_code == 403, other.content
+        assert integrations.status_code == 403, integrations.content
         assert listed.status_code == 200, listed.content
         assert [user["uuid"] for user in listed.json()["results"]] == [str(self.user.uuid)]
 
