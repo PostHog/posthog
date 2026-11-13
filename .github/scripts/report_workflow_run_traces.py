@@ -67,7 +67,7 @@ from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import ReadableSpan, TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor, SpanExporter, SpanExportResult
 from opentelemetry.sdk.trace.id_generator import IdGenerator
-from opentelemetry.trace import Status, StatusCode
+from opentelemetry.trace import SpanKind, Status, StatusCode
 
 logger = logging.getLogger("report_workflow_run_traces")
 
@@ -751,7 +751,7 @@ class _FailureRecordingExporter(SpanExporter):
         self.inner.shutdown()
 
 
-def emit_trace(run: WorkflowRun, endpoint: str, token: str, exporter: Any = None, *, include_steps: bool = True) -> int:
+def emit_trace(run: WorkflowRun, endpoint: str, token: str, exporter: Any = None, *, entry_jobs: bool = False) -> int:
     """Emit the run's whole span tree over OTLP HTTP. Returns the span count."""
     id_generator = _FixedIdGenerator()
     provider = TracerProvider(
@@ -768,7 +768,7 @@ def emit_trace(run: WorkflowRun, endpoint: str, token: str, exporter: Any = None
     id_generator.trace_id = deterministic_trace_id(run.id, run.attempt)
 
     try:
-        span_count = _emit_run_span(tracer, id_generator, run, include_steps=include_steps)
+        span_count = _emit_run_span(tracer, id_generator, run, entry_jobs=entry_jobs)
     finally:
         # Drains the queue, so a rejected batch is recorded by the time this returns.
         provider.shutdown()
@@ -777,7 +777,7 @@ def emit_trace(run: WorkflowRun, endpoint: str, token: str, exporter: Any = None
     return span_count
 
 
-def _emit_run_span(tracer: trace.Tracer, ids: _FixedIdGenerator, run: WorkflowRun, *, include_steps: bool) -> int:
+def _emit_run_span(tracer: trace.Tracer, ids: _FixedIdGenerator, run: WorkflowRun, *, entry_jobs: bool) -> int:
     ids.next_span_id = deterministic_span_id(run.id, run.attempt, "run")
     root = tracer.start_span(run.name or run.path, start_time=_to_ns(run.start))
     failed = sum(1 for job in run.jobs if job.is_error)
@@ -803,16 +803,18 @@ def _emit_run_span(tracer: trace.Tracer, ids: _FixedIdGenerator, run: WorkflowRu
     span_count = 1
     with trace.use_span(root, end_on_exit=False):
         for job in run.jobs:
-            span_count += _emit_job_span(tracer, ids, run, job, include_steps=include_steps)
+            span_count += _emit_job_span(tracer, ids, run, job, entry_jobs=entry_jobs)
     root.end(end_time=_to_ns(run.end))
     return span_count
 
 
 def _emit_job_span(
-    tracer: trace.Tracer, ids: _FixedIdGenerator, run: WorkflowRun, job: Job, *, include_steps: bool
+    tracer: trace.Tracer, ids: _FixedIdGenerator, run: WorkflowRun, job: Job, *, entry_jobs: bool
 ) -> int:
     ids.next_span_id = deterministic_span_id(run.id, run.attempt, "job", job.id)
-    span = tracer.start_span(job.name, start_time=_to_ns(job.start))
+    # Traces alerts measure entry spans only (root, server, consumer), so an alertable job is a consumer.
+    kind = SpanKind.CONSUMER if entry_jobs else SpanKind.INTERNAL
+    span = tracer.start_span(job.name, kind=kind, start_time=_to_ns(job.start))
     for key, value in (
         ("ci.job.id", job.id),
         ("ci.job.name", job.name),
@@ -848,7 +850,7 @@ def _emit_job_span(
             queued.set_attribute("ci.job.id", job.id)
             queued.end(end_time=_to_ns(job.start))
             span_count += 1
-        for step in job.steps if include_steps else ():
+        for step in () if entry_jobs else job.steps:
             ids.next_span_id = deterministic_span_id(run.id, run.attempt, "step", job.id, step.number)
             step_span = tracer.start_span(step.name, start_time=_to_ns(step.start))
             step_span.set_attribute("ci.step.number", step.number)
@@ -906,9 +908,9 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     )
     parser.add_argument("--dry-run", action="store_true", help="print the span tree without emitting")
     parser.add_argument(
-        "--skip-steps",
+        "--entry-jobs",
         action="store_true",
-        help="emit run and job spans only; a failed step otherwise adds a second error span, often under the job's own name",
+        help="emit each job as an entry span with no step children, so a traces alert counts each failed job once",
     )
     return parser.parse_args(argv)
 
@@ -1001,7 +1003,7 @@ def main(argv: list[str] | None = None) -> int:
         for run in collection.runs:
             # Per-run isolation: one malformed run must not cost the rest of the batch.
             try:
-                emitted += emit_trace(run, args.otlp_endpoint, token, include_steps=not args.skip_steps)
+                emitted += emit_trace(run, args.otlp_endpoint, token, entry_jobs=args.entry_jobs)
             except Exception:
                 logger.exception("failed to emit trace for run %s attempt %s", run.id, run.attempt)
                 complete = False

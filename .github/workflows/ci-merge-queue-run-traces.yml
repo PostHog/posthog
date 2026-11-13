@@ -59,8 +59,8 @@ jobs:
               with:
                   enable-cache: false
 
-            # Steps are skipped: a failed step is often named like its job, and an alert that
-            # groups error spans by name would count each failed job twice.
+            # Traces alerts count entry spans only, so jobs go out as consumer spans. Steps are
+            # dropped: a failed step is often named like its job and would count twice.
             - name: Emit merge queue run trace
               env:
                   GITHUB_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
@@ -72,4 +72,4 @@ jobs:
                   POSTHOG_OTLP_TRACES_ENDPOINT: ${{ vars.POSTHOG_OTLP_TRACES_ENDPOINT || 'https://us.i.posthog.com/i/v1/traces' }}
               run: >-
                   uv run --script .github/scripts/report_workflow_run_traces.py
-                  --run-id "$RUN_ID" --run-attempt "$RUN_ATTEMPT" --skip-steps
+                  --run-id "$RUN_ID" --run-attempt "$RUN_ATTEMPT" --entry-jobs

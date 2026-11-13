@@ -13,6 +13,7 @@ import pytest
 
 from opentelemetry.sdk.trace.export import SpanExporter, SpanExportResult
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+from opentelemetry.trace import SpanKind
 
 SCRIPT_PATH = Path(__file__).with_name("report_workflow_run_traces.py")
 SPEC = importlib.util.spec_from_file_location("report_workflow_run_traces", SCRIPT_PATH)
@@ -776,18 +777,19 @@ class TestSpanTree:
         assert statuses["build"] == "ERROR"
         assert statuses["Container Images CD"] == "ERROR"
 
-    def test_skip_steps_leaves_one_error_span_per_failed_job(self) -> None:
-        # A step named like its job would otherwise count twice in an error_count alert grouped by name.
+    def test_entry_jobs_leave_one_alertable_error_span_per_failed_job(self) -> None:
+        # A traces alert counts entry spans by name, and a step named like its job would count twice.
         run = reporter.parse_run(
             _raw_run(conclusion="cancelled"),
             [_raw_job(name="build", conclusion="failure", steps=[_raw_step(name="build", conclusion="failure")])],
         )
         assert run is not None
         exporter = InMemorySpanExporter()
-        reported = reporter.emit_trace(run, "http://unused", "token", exporter=exporter, include_steps=False)
+        reported = reporter.emit_trace(run, "http://unused", "token", exporter=exporter, entry_jobs=True)
         spans = exporter.get_finished_spans()
         assert reported == len(spans)
-        assert [span.name for span in spans if span.status.status_code.name == "ERROR"] == ["build"]
+        alertable = [s for s in spans if s.parent is None or s.kind in (SpanKind.SERVER, SpanKind.CONSUMER)]
+        assert [s.name for s in alertable if s.status.status_code.name == "ERROR"] == ["build"]
 
     def test_reusable_job_records_caller_and_callee(self) -> None:
         run = reporter.parse_run(_raw_run(), [_raw_job(name="build-images / build cymbal", steps=[])])
