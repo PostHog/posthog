@@ -20,6 +20,8 @@ describe('buildEventNameGate', () => {
             true,
         ],
         ['any event when the filter lists all events', { events: named('$pageview', null) }, 'signed_up', true],
+        ['any event when an entry has no id', { events: [{ type: 'events' }] as any }, 'signed_up', true],
+        ['any event when an entry is an action', { events: [{ id: 7, type: 'actions' }] as any }, 'signed_up', true],
         ['any event when the filter names no event', { events: [], bytecode: ['_h', 29] }, 'signed_up', true],
         ['any event when the function has no filters', null, 'signed_up', true],
         [

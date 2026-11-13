@@ -1831,10 +1831,17 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
                 expectedPairs: [[1], ['user-1'], [1], ['person-uuid-1']],
             },
             {
-                name: 'nothing for a flow change the last refresh already saw',
+                name: 'an hour after a flow change the last refresh already saw',
                 liveWatchers: [],
                 flows: [],
                 flowsChanged: 'before refresh',
+                expectedPairs: [[1], ['user-1'], [1], ['person-uuid-1']],
+            },
+            {
+                name: 'nothing once that hour has passed',
+                liveWatchers: [],
+                flows: [],
+                flowsChanged: 'over an hour before refresh',
                 expectedPairs: null,
             },
             {
@@ -1880,10 +1887,15 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
                 expectedPairs: [[1], ['user-1'], [1], ['person-uuid-1']],
             },
         ])('looks up watchers for $name', async ({ liveWatchers, flows, flowsChanged, eventName, expectedPairs }) => {
-            if (flowsChanged === 'before refresh') {
+            if (flowsChanged === 'before refresh' || flowsChanged === 'over an hour before refresh') {
                 matcher.pubSubHandlers['reload-hog-flows']({ teamId: 1, hogFlowIds: ['goal-flow-1'] })
             }
+            const now = jest.spyOn(Date, 'now')
+            if (flowsChanged === 'over an hour before refresh') {
+                now.mockReturnValue(Date.now() + hours(2))
+            }
             await (matcher as any).refreshTeamsWithLiveWatchers()
+            now.mockRestore()
             if (flowsChanged === 'after refresh') {
                 matcher.pubSubHandlers['reload-hog-flows']({ teamId: 1, hogFlowIds: ['goal-flow-1'] })
             }

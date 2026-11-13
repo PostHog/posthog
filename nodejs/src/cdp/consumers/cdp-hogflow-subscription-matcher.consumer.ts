@@ -271,14 +271,14 @@ export class CdpHogflowSubscriptionMatcherConsumer<
     // before consuming, so the gate is never consulted against an unpopulated set.
     // Team -> workflow id -> when its oldest unexpired watcher was created.
     private liveWatcherFlowsByTeam: Map<number, Map<string, number>> = new Map()
-    // A watcher written just before its flow was paused stays unseen until a refresh that starts after the change.
-    private teamsWithChangedFlows: Map<number, number> = new Map()
+    // A worker still running the old version can write a watcher for some time after the change.
+    private teamsWithChangedFlows: Map<number, { refreshNumber: number; at: number }> = new Map()
     private watcherRefreshNumber = 0
 
     constructor(config: TConfig, deps: CdpConsumerBaseDeps) {
         super(config, deps)
         deps.pubSub.on<{ teamId: number }>('reload-hog-flows', ({ teamId }) => {
-            this.teamsWithChangedFlows.set(teamId, this.watcherRefreshNumber)
+            this.teamsWithChangedFlows.set(teamId, { refreshNumber: this.watcherRefreshNumber, at: Date.now() })
         })
         this.kafkaConsumer = createKafkaConsumer(
             {
@@ -923,8 +923,8 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             flows.set(row.function_id, new Date(row.oldest_created_at).getTime())
         }
         this.liveWatcherFlowsByTeam = liveWatcherFlowsByTeam
-        for (const [teamId, changedAt] of this.teamsWithChangedFlows) {
-            if (changedAt < refreshNumber) {
+        for (const [teamId, change] of this.teamsWithChangedFlows) {
+            if (change.refreshNumber < refreshNumber && Date.now() - change.at > PINNED_GOAL_CACHE_LAG_MS) {
                 this.teamsWithChangedFlows.delete(teamId)
             }
         }
