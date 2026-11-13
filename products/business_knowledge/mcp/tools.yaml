@@ -44,10 +44,10 @@ tools:
             search and file read. Omit library_id to search every ready source.
         param_overrides:
             rerank:
-                default: true
                 description: >
                     Rerank results with an LLM pass for better relevance. Defaults to true. Falls back to fused rank
                     order when the rerank fails. Pass false for a faster search.
+                default: true
         feature_flag: product-business-knowledge
     business-knowledge-libraries-create:
         operation: business_knowledge_libraries_create
