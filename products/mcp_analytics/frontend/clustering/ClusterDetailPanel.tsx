@@ -116,11 +116,16 @@ function ClusterDetailHeader({
 }
 
 function IntentsSection({ cluster }: { cluster: MCPIntentClusterApi }): JSX.Element {
+    const { intentTextRedacted } = useValues(mcpClusteringLogic)
     return (
         <section className="flex flex-col gap-2">
             <SectionLabel>What agents said they were doing</SectionLabel>
             {cluster.sample_intents.length === 0 ? (
-                <div className="text-sm text-muted">No representative intents recorded.</div>
+                <div className="text-sm text-muted">
+                    {intentTextRedacted
+                        ? 'Intent text is hidden by access control.'
+                        : 'No representative intents recorded.'}
+                </div>
             ) : (
                 <div className="flex flex-col gap-2">
                     {cluster.sample_intents.map((intent, idx) => (
