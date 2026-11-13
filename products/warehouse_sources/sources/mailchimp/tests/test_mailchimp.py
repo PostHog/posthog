@@ -673,6 +673,28 @@ class TestGenericEndpointIterator:
         assert result.paths == ["/3.0/reports", "/3.0/reports/c2/sent-to"]
         assert result.requests[-1].param("offset") == "1000"
 
+    def test_segment_members_walk_excludes_fuzzy_segments(self) -> None:
+        # A "fuzzy" (similar-subscribers) segment is computed on demand with no stored membership,
+        # so Mailchimp 400s when asked to list its members. The segment-listing hop filters it out
+        # server-side instead of walking into a segment that can never answer.
+        result = _driver().run(
+            "list_segment_members",
+            route(
+                {
+                    "/lists": [ScriptedResponse(json={"lists": [{"id": "l1"}], "total_items": 1})],
+                    "/lists/l1/segments": [ScriptedResponse(json={"segments": [{"id": "s1"}], "total_items": 1})],
+                    "/lists/l1/segments/s1/members": [
+                        ScriptedResponse(json={"members": [{"id": "m1"}], "total_items": 1})
+                    ],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        segment_list_request = next(r for r in result.requests if r.path == "/3.0/lists/l1/segments")
+        assert segment_list_request.param("exclude_type") == "fuzzy"
+        assert result.rows == [{"list_id": "l1", "segment_id": "s1", "id": "m1"}]
+
 
 class TestSourceResponseForNewEndpoints:
     def test_fan_out_endpoint_is_routed_away_from_the_rest_path(self) -> None:

@@ -27,7 +27,7 @@ import {
 } from './smartPinDisplay'
 import type { RefreshList } from './useViewRefresh'
 import { useViewsContext } from './useViewsContext'
-import { getSnapshot, viewsKeys } from './viewsCache'
+import { getSnapshot, useSnapshot, viewsKeys } from './viewsCache'
 
 const NO_DISPLAYS: PinDisplayPrefs = {}
 
@@ -157,6 +157,23 @@ export async function discoverPinDisplays(
     }
 }
 
+function candidatesSignature(candidates: readonly PinView[]): string {
+    return stableStringify(candidates.map((pin) => [pin.shortcutId, pin.kind, pin.ref]))
+}
+
+/** The automatic displays the Views list last chose for these pins, from the cache alone. Mounting it sends nothing. */
+export function useCachedSmartPinDisplays(
+    pins: readonly PinView[] | undefined,
+    displayPrefs: PinDisplayPrefs
+): PinDisplayPrefs {
+    const { scope } = useViewsContext()
+    const candidates = automaticPinCandidates(pins ?? [], displayPrefs)
+    const cached = useSnapshot<PinDisplayPrefs>(
+        candidates.length > 0 ? viewsKeys.smartPinDisplays(scope, candidatesSignature(candidates)) : null
+    )
+    return cached ?? NO_DISPLAYS
+}
+
 export function useSmartPinDisplays(
     pins: readonly PinView[] | undefined,
     displayPrefs: PinDisplayPrefs
@@ -164,7 +181,7 @@ export function useSmartPinDisplays(
     const context = useViewsContext()
     const focused = useIsFocused()
     const candidates = useMemo(() => automaticPinCandidates(pins ?? [], displayPrefs), [pins, displayPrefs])
-    const signature = stableStringify(candidates.map((pin) => [pin.shortcutId, pin.kind, pin.ref]))
+    const signature = candidatesSignature(candidates)
     const queryKey = useMemo(() => viewsKeys.smartPinDisplays(context.scope, signature), [context.scope, signature])
     const group = `${context.dataScope}|smart-pin-displays:${signature}`
     const enabled = context.ready && focused && candidates.length > 0

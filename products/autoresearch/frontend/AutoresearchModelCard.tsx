@@ -227,7 +227,7 @@ function TrainingBody({ liveRun }: { liveRun: AutoresearchLiveTrainingRunApi | n
 
 function DraftBody({ pipeline }: { pipeline: AutoresearchPipelineApi }): JSX.Element {
     const { mutatingPipelineIds } = useValues(autoresearchLogic)
-    const { startTraining } = useActions(autoresearchLogic)
+    const { requestTraining } = useActions(autoresearchLogic)
     const mutating = !!mutatingPipelineIds[pipeline.id]
     return (
         <div className="flex items-center justify-between gap-2">
@@ -237,7 +237,7 @@ function DraftBody({ pipeline }: { pipeline: AutoresearchPipelineApi }): JSX.Ele
                 size="small"
                 loading={mutating}
                 disabledReason={mutating ? 'Another change is still saving' : undefined}
-                onClick={() => startTraining(pipeline)}
+                onClick={() => requestTraining(pipeline)}
                 data-attr="autoresearch-model-card-train"
             >
                 Start training
