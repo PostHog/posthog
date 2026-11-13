@@ -667,7 +667,7 @@ def _start_enrichment_workflow(team_id: int, saved_query_id: str) -> None:
     """Start the enrichment workflow on the metadata queue. Never breaks the caller's save."""
     # Deferred: the activities module imports the facade, which imports this module — a module-level
     # import would be circular.
-    from posthog.temporal.data_modeling.activities import EnrichViewSemanticsInputs  # noqa: PLC0415
+    from products.data_modeling.backend.temporal.activities import EnrichViewSemanticsInputs  # noqa: PLC0415
 
     try:
         temporal: Client = sync_connect()

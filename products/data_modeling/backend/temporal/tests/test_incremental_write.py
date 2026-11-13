@@ -20,7 +20,7 @@ from django.test import override_settings
 
 import pyarrow as pa
 
-from posthog.temporal.data_modeling.activities.incremental_write import (
+from products.data_modeling.backend.temporal.activities.incremental_write import (
     MAX_UNIQUE_KEY_CHECK_BYTES,
     MAX_UNIQUE_KEY_SPILL_BYTES,
     IncrementalWriteError,
@@ -29,7 +29,7 @@ from posthog.temporal.data_modeling.activities.incremental_write import (
     upsert_batch,
 )
 
-_MODULE = "posthog.temporal.data_modeling.activities.incremental_write"
+_MODULE = "products.data_modeling.backend.temporal.activities.incremental_write"
 
 _spill_modes = pytest.mark.parametrize("max_bytes", [1, MAX_UNIQUE_KEY_CHECK_BYTES], ids=["disk", "memory"])
 
@@ -89,7 +89,7 @@ def test_single_column_violations_are_detected(batches: list[tuple], match: str,
 def test_a_duplicate_split_across_slices_of_one_batch_is_detected() -> None:
     tracker = UniqueKeyTracker(("id",))
 
-    with patch("posthog.temporal.data_modeling.activities.incremental_write.UNIQUE_KEY_CHECK_SLICE_ROWS", 2):
+    with patch("products.data_modeling.backend.temporal.activities.incremental_write.UNIQUE_KEY_CHECK_SLICE_ROWS", 2):
         with pytest.raises(IncrementalWriteError, match="appears 2 times"):
             tracker.check(_batch([1, 2, 3, 1], ["a", "b", "c", "d"]))
 

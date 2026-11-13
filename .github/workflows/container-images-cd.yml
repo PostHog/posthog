@@ -774,7 +774,7 @@ jobs:
                       dataWarehouseCdpProducer:
                         - 'posthog/hogql*/**'
                         - 'products/warehouse_sources_queue/**'
-                        - 'posthog/temporal/data_modeling/**'
+                        - 'products/data_modeling/backend/temporal/**'
                         - 'products/customer_analytics/backend/**'
                         - 'products/warehouse_sources/backend/temporal/data_imports/**'
                         - '!products/warehouse_sources/backend/temporal/data_imports/sources/!(common)/*'
@@ -825,7 +825,7 @@ jobs:
                         - 'products/managed_warehouse/backend/**'
                         - '!products/managed_warehouse/backend/temporal/**'
                         - '!products/managed_warehouse/backend/tests/temporal/**'
-                        - 'posthog/temporal/data_modeling/**'
+                        - 'products/data_modeling/backend/temporal/**'
                         - 'posthog/temporal/data_warehouse/**'
                         - 'posthog/temporal/common/**'
                         - 'posthog/warehouse/**'

@@ -6,13 +6,13 @@ import unittest.mock
 
 from posthog.models import User
 from posthog.sync import database_sync_to_async
-from posthog.temporal.data_modeling.activities import (
+
+from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobEngine, DataWarehouseSavedQuery
+from products.data_modeling.backend.temporal.activities import (
     NotifyDAGMaterializationFailuresInputs,
     notify_dag_materialization_failures_activity,
 )
-from posthog.temporal.data_modeling.activities.notify_materialization_failure import _FailedView, _failure_copy
-
-from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobEngine, DataWarehouseSavedQuery
+from products.data_modeling.backend.temporal.activities.notify_materialization_failure import _FailedView, _failure_copy
 from products.notifications.backend.facade.api import Priority, TargetType
 
 RUN_STARTED_AT = "2026-08-12T10:00:00+00:00"
@@ -80,11 +80,11 @@ class TestNotifyDAGMaterializationFailures:
 
         with (
             unittest.mock.patch(
-                "posthog.temporal.data_modeling.activities.notify_materialization_failure.UserAccessControl",
+                "products.data_modeling.backend.temporal.activities.notify_materialization_failure.UserAccessControl",
                 _access_allowing({name: {member.id} for name in names}),
             ),
             unittest.mock.patch(
-                "posthog.temporal.data_modeling.activities.notify_materialization_failure.create_notification"
+                "products.data_modeling.backend.temporal.activities.notify_materialization_failure.create_notification"
             ) as mock_create,
         ):
             sent = await activity_environment.run(notify_dag_materialization_failures_activity, _inputs(ateam, adag))
@@ -109,11 +109,11 @@ class TestNotifyDAGMaterializationFailures:
 
         with (
             unittest.mock.patch(
-                "posthog.temporal.data_modeling.activities.notify_materialization_failure.UserAccessControl",
+                "products.data_modeling.backend.temporal.activities.notify_materialization_failure.UserAccessControl",
                 _access_allowing({"yesterday": {member.id}, "today": {member.id}}),
             ),
             unittest.mock.patch(
-                "posthog.temporal.data_modeling.activities.notify_materialization_failure.create_notification"
+                "products.data_modeling.backend.temporal.activities.notify_materialization_failure.create_notification"
             ) as mock_create,
         ):
             await activity_environment.run(notify_dag_materialization_failures_activity, _inputs(ateam, adag))
@@ -134,11 +134,11 @@ class TestNotifyDAGMaterializationFailures:
 
         with (
             unittest.mock.patch(
-                "posthog.temporal.data_modeling.activities.notify_materialization_failure.UserAccessControl",
+                "products.data_modeling.backend.temporal.activities.notify_materialization_failure.UserAccessControl",
                 _access_allowing({"already_failing": {member.id}, "just_broke": {member.id}}),
             ),
             unittest.mock.patch(
-                "posthog.temporal.data_modeling.activities.notify_materialization_failure.create_notification"
+                "products.data_modeling.backend.temporal.activities.notify_materialization_failure.create_notification"
             ) as mock_create,
         ):
             await activity_environment.run(notify_dag_materialization_failures_activity, _inputs(ateam, adag))
@@ -156,11 +156,11 @@ class TestNotifyDAGMaterializationFailures:
 
         with (
             unittest.mock.patch(
-                "posthog.temporal.data_modeling.activities.notify_materialization_failure.UserAccessControl",
+                "products.data_modeling.backend.temporal.activities.notify_materialization_failure.UserAccessControl",
                 _access_allowing({"alpha": {member.id}}),
             ),
             unittest.mock.patch(
-                "posthog.temporal.data_modeling.activities.notify_materialization_failure.create_notification"
+                "products.data_modeling.backend.temporal.activities.notify_materialization_failure.create_notification"
             ) as mock_create,
         ):
             await activity_environment.run(notify_dag_materialization_failures_activity, _inputs(ateam, adag))
@@ -182,11 +182,11 @@ class TestNotifyDAGMaterializationFailures:
 
         with (
             unittest.mock.patch(
-                "posthog.temporal.data_modeling.activities.notify_materialization_failure.UserAccessControl",
+                "products.data_modeling.backend.temporal.activities.notify_materialization_failure.UserAccessControl",
                 _access_allowing({name: {member.id} for name in ("alpha", "beta", "gamma")}),
             ),
             unittest.mock.patch(
-                "posthog.temporal.data_modeling.activities.notify_materialization_failure.create_notification"
+                "products.data_modeling.backend.temporal.activities.notify_materialization_failure.create_notification"
             ) as mock_create,
         ):
             await activity_environment.run(notify_dag_materialization_failures_activity, _inputs(ateam, adag))
@@ -211,13 +211,13 @@ class TestNotifyDAGMaterializationFailures:
 
         with (
             unittest.mock.patch(
-                "posthog.temporal.data_modeling.activities.notify_materialization_failure.UserAccessControl",
+                "products.data_modeling.backend.temporal.activities.notify_materialization_failure.UserAccessControl",
                 _access_allowing(
                     {"salaries": {finance.id}, "pageviews": {finance.id, everyone_else.id}},
                 ),
             ),
             unittest.mock.patch(
-                "posthog.temporal.data_modeling.activities.notify_materialization_failure.create_notification"
+                "products.data_modeling.backend.temporal.activities.notify_materialization_failure.create_notification"
             ) as mock_create,
         ):
             sent = await activity_environment.run(notify_dag_materialization_failures_activity, _inputs(ateam, adag))
@@ -251,14 +251,14 @@ class TestNotifyDAGMaterializationFailures:
 
         with (
             unittest.mock.patch(
-                "posthog.temporal.data_modeling.activities.notify_materialization_failure.UserAccessControl",
+                "products.data_modeling.backend.temporal.activities.notify_materialization_failure.UserAccessControl",
                 _access_allowing({"salaries": {allowed.id, unchecked.id}}, raising_for=frozenset({unchecked.id})),
             ),
             unittest.mock.patch(
-                "posthog.temporal.data_modeling.activities.notify_materialization_failure.capture_exception"
+                "products.data_modeling.backend.temporal.activities.notify_materialization_failure.capture_exception"
             ) as mock_capture,
             unittest.mock.patch(
-                "posthog.temporal.data_modeling.activities.notify_materialization_failure.create_notification"
+                "products.data_modeling.backend.temporal.activities.notify_materialization_failure.create_notification"
             ) as mock_create,
         ):
             sent = await activity_environment.run(notify_dag_materialization_failures_activity, _inputs(ateam, adag))

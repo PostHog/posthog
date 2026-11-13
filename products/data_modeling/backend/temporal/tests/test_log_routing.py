@@ -16,7 +16,8 @@ import pytest_asyncio
 import temporalio.testing
 
 from posthog.temporal.common.logger import BACKGROUND_LOGGER_TASKS, configure_logger, get_logger
-from posthog.temporal.data_modeling.activities import (
+
+from products.data_modeling.backend.temporal.activities import (
     CreateDataModelingJobInputs,
     FailMaterializationInputs,
     MaterializeViewInputs,
@@ -217,13 +218,13 @@ async def test_each_failed_materialize_attempt_is_written_to_the_run_log(
             DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
         ),
         unittest.mock.patch(
-            "posthog.temporal.data_modeling.activities.materialize_view.hogql_table", failing_hogql_table
+            "products.data_modeling.backend.temporal.activities.materialize_view.hogql_table", failing_hogql_table
         ),
         # An earlier test in the run may have cached the module logger against the default
         # configuration, which never reaches the captured queue.
         unittest.mock.patch(
-            "posthog.temporal.data_modeling.activities.materialize_view.LOGGER",
-            get_logger("posthog.temporal.data_modeling.activities.materialize_view"),
+            "products.data_modeling.backend.temporal.activities.materialize_view.LOGGER",
+            get_logger("products.data_modeling.backend.temporal.activities.materialize_view"),
         ),
         pytest.raises(ValueError),
     ):

@@ -17,6 +17,20 @@ import pytest_asyncio
 import posthog.api.advanced_activity_logs  # noqa: F401, E402 — warm import; see comment above
 from posthog.sync import database_sync_to_async
 
+# pytest finds fixtures in a conftest by name, so importing them is what registers them for this directory.
+from posthog.temporal.tests.conftest import (  # noqa: F401
+    _ignore_sigpipe,
+    activity_environment,
+    aorganization,
+    ateam,
+    auser,
+    clickhouse_client,
+    configure_logger_auto,
+    organization,
+    team,
+    temporal_client,
+)
+
 from products.data_modeling.backend.facade.models import DAG, DataModelingJob, DataWarehouseSavedQuery, Node, NodeType
 
 TEST_ROOT_BUCKET = "test-data-modeling"
@@ -48,7 +62,7 @@ async def minio_client(bucket_name):
 
 
 @pytest_asyncio.fixture
-async def asaved_query(ateam, auser):
+async def asaved_query(ateam, auser):  # noqa: F811
     query = await database_sync_to_async(DataWarehouseSavedQuery.objects.create)(
         team=ateam,
         name="test_model",
@@ -60,14 +74,14 @@ async def asaved_query(ateam, auser):
 
 
 @pytest_asyncio.fixture
-async def adag(ateam):
+async def adag(ateam):  # noqa: F811
     dag = await database_sync_to_async(DAG.objects.create)(team=ateam, name="test-dag")
     yield dag
     await database_sync_to_async(dag.delete)()
 
 
 @pytest_asyncio.fixture
-async def anode(ateam, asaved_query, adag):
+async def anode(ateam, asaved_query, adag):  # noqa: F811
     node = await database_sync_to_async(Node.objects.create)(
         team=ateam,
         saved_query=asaved_query,
@@ -80,7 +94,7 @@ async def anode(ateam, asaved_query, adag):
 
 
 @pytest_asyncio.fixture
-async def ajob(ateam, asaved_query):
+async def ajob(ateam, asaved_query):  # noqa: F811
     job = await database_sync_to_async(DataModelingJob.objects.create)(
         team=ateam,
         saved_query=asaved_query,

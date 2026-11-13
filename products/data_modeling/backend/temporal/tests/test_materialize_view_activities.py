@@ -34,42 +34,6 @@ from posthog.temporal.common.clickhouse import (
     ClickHouseTooManySimultaneousQueriesError,
 )
 from posthog.temporal.common.errors import NonReportableError
-from posthog.temporal.data_modeling.activities import (
-    CreateDataModelingJobInputs,
-    FailMaterializationInputs,
-    GetDAGStructureInputs,
-    MaterializeViewInputs,
-    PrepareQueryableTableInputs,
-    QualityBlockMaterializationInputs,
-    SucceedMaterializationInputs,
-    create_data_modeling_job_activity,
-    fail_materialization_activity,
-    get_dag_structure_activity,
-    materialize_view_activity,
-    prepare_queryable_table_activity,
-    quality_block_materialization_activity,
-    succeed_materialization_activity,
-)
-from posthog.temporal.data_modeling.activities.materialize_view import (
-    LOGGER,
-    DuplicateOutputColumnError,
-    EmptyHogQLResponseColumnsError,
-    InvalidNodeTypeException,
-    _adaptive_retry_delay,
-    _describe_columns,
-    _recent_capacity_errors,
-    _RecentCapacityErrors,
-    get_aws_storage_options,
-    get_s3_client,
-    hogql_table,
-)
-from posthog.temporal.data_modeling.activities.materialize_view_managed_warehouse import (
-    ManagedWarehouseShadowEligibilityInputs,
-    ManagedWarehouseShadowInputs,
-    check_managed_warehouse_shadow_eligibility_activity,
-    materialize_view_managed_warehouse_activity,
-)
-from posthog.temporal.data_modeling.activities.notify_materialization_failure import _SavedQueryViewers
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 
 from products.customer_analytics.backend.facade.temporal import stage_warehouse_account_property_files_activity
@@ -93,6 +57,42 @@ from products.data_modeling.backend.facade.models import (
     Node,
     NodeType,
 )
+from products.data_modeling.backend.temporal.activities import (
+    CreateDataModelingJobInputs,
+    FailMaterializationInputs,
+    GetDAGStructureInputs,
+    MaterializeViewInputs,
+    PrepareQueryableTableInputs,
+    QualityBlockMaterializationInputs,
+    SucceedMaterializationInputs,
+    create_data_modeling_job_activity,
+    fail_materialization_activity,
+    get_dag_structure_activity,
+    materialize_view_activity,
+    prepare_queryable_table_activity,
+    quality_block_materialization_activity,
+    succeed_materialization_activity,
+)
+from products.data_modeling.backend.temporal.activities.materialize_view import (
+    LOGGER,
+    DuplicateOutputColumnError,
+    EmptyHogQLResponseColumnsError,
+    InvalidNodeTypeException,
+    _adaptive_retry_delay,
+    _describe_columns,
+    _recent_capacity_errors,
+    _RecentCapacityErrors,
+    get_aws_storage_options,
+    get_s3_client,
+    hogql_table,
+)
+from products.data_modeling.backend.temporal.activities.materialize_view_managed_warehouse import (
+    ManagedWarehouseShadowEligibilityInputs,
+    ManagedWarehouseShadowInputs,
+    check_managed_warehouse_shadow_eligibility_activity,
+    materialize_view_managed_warehouse_activity,
+)
+from products.data_modeling.backend.temporal.activities.notify_materialization_failure import _SavedQueryViewers
 from products.data_quality.backend.facade.enums import (
     CheckRunStatus,
     CheckSeverity,
@@ -153,11 +153,11 @@ class TestMaterializeViewManagedWarehouseActivity:
         )
         with (
             unittest.mock.patch(
-                "posthog.temporal.data_modeling.activities.materialize_view_managed_warehouse._is_managed_warehouse_shadow_flag_enabled",
+                "products.data_modeling.backend.temporal.activities.materialize_view_managed_warehouse._is_managed_warehouse_shadow_flag_enabled",
                 return_value=flag_enabled,
             ),
             unittest.mock.patch(
-                "posthog.temporal.data_modeling.activities.materialize_view_managed_warehouse.is_data_modeling_shadow_ready",
+                "products.data_modeling.backend.temporal.activities.materialize_view_managed_warehouse.is_data_modeling_shadow_ready",
                 return_value=target_ready,
             ) as is_ready,
         ):
@@ -260,15 +260,15 @@ class TestMaterializeViewManagedWarehouseActivity:
                 "products.managed_warehouse.backend.facade.client.execute_ducklake_create_table"
             ) as legacy_execute,
             unittest.mock.patch(
-                "posthog.temporal.data_modeling.activities.materialize_view_managed_warehouse.prepare_executable_query",
+                "products.data_modeling.backend.temporal.activities.materialize_view_managed_warehouse.prepare_executable_query",
                 side_effect=lambda saved_query: setattr(saved_query, "query", executable_query),
             ),
             unittest.mock.patch(
-                "posthog.temporal.data_modeling.activities.materialize_view_managed_warehouse.unbuilt_upstream_saved_query_ids",
+                "products.data_modeling.backend.temporal.activities.materialize_view_managed_warehouse.unbuilt_upstream_saved_query_ids",
                 return_value=frozenset({uuid4()}) if upstream_unbuilt else frozenset(),
             ),
             unittest.mock.patch(
-                "posthog.temporal.data_modeling.activities.materialize_view_managed_warehouse.capture_exception"
+                "products.data_modeling.backend.temporal.activities.materialize_view_managed_warehouse.capture_exception"
             ) as capture,
         ):
             result = await activity_environment.run(materialize_view_managed_warehouse_activity, inputs)
@@ -364,7 +364,7 @@ class TestMaterializeViewManagedWarehouseActivity:
                 side_effect=RuntimeError("materialization failed"),
             ),
             unittest.mock.patch(
-                "posthog.temporal.data_modeling.activities.materialize_view_managed_warehouse.maybe_suspend_node_for_engine",
+                "products.data_modeling.backend.temporal.activities.materialize_view_managed_warehouse.maybe_suspend_node_for_engine",
                 new_callable=unittest.mock.AsyncMock,
                 return_value=False,
             ) as mock_maybe_suspend,
@@ -503,7 +503,7 @@ class TestFailMaterializationActivity:
         )
 
         with unittest.mock.patch(
-            "posthog.temporal.data_modeling.activities.notify_materialization_failure.send_matview_failure_immediate_email"
+            "products.data_modeling.backend.temporal.activities.notify_materialization_failure.send_matview_failure_immediate_email"
         ):
             await activity_environment.run(fail_materialization_activity, inputs)
 
@@ -530,7 +530,7 @@ class TestFailMaterializationActivity:
     async def test_suspends_node_after_consecutive_failures(
         self, activity_environment, ateam, anode, asaved_query, adag, previous_error, error
     ):
-        from posthog.temporal.data_modeling.activities.utils import is_node_suspended
+        from products.data_modeling.backend.temporal.activities.utils import is_node_suspended
 
         for _ in range(4):
             await _make_job(ateam, asaved_query, DataModelingJob.Status.FAILED, error=previous_error)
@@ -545,10 +545,10 @@ class TestFailMaterializationActivity:
         )
         with (
             unittest.mock.patch(
-                "posthog.temporal.data_modeling.activities.notify_materialization_failure.create_notification"
+                "products.data_modeling.backend.temporal.activities.notify_materialization_failure.create_notification"
             ) as mock_create,
             unittest.mock.patch(
-                "posthog.temporal.data_modeling.activities.notify_materialization_failure.send_matview_failure_immediate_email"
+                "products.data_modeling.backend.temporal.activities.notify_materialization_failure.send_matview_failure_immediate_email"
             ) as mock_email,
         ):
             # The first attempt saves the marker, but the in-app notice never lands.
@@ -632,10 +632,10 @@ class TestFailMaterializationActivity:
         )
         with (
             unittest.mock.patch(
-                "posthog.temporal.data_modeling.activities.notify_materialization_failure.create_notification"
+                "products.data_modeling.backend.temporal.activities.notify_materialization_failure.create_notification"
             ) as mock_create,
             unittest.mock.patch(
-                "posthog.temporal.data_modeling.activities.notify_materialization_failure.send_matview_failure_immediate_email"
+                "products.data_modeling.backend.temporal.activities.notify_materialization_failure.send_matview_failure_immediate_email"
             ) as mock_email,
         ):
             await activity_environment.run(fail_materialization_activity, inputs)
@@ -673,7 +673,7 @@ class TestFailMaterializationActivity:
             error="Some non-timeout error",
         )
         with unittest.mock.patch(
-            "posthog.temporal.data_modeling.activities.notify_materialization_failure.send_matview_failure_immediate_email"
+            "products.data_modeling.backend.temporal.activities.notify_materialization_failure.send_matview_failure_immediate_email"
         ) as mock_email:
             await activity_environment.run(fail_materialization_activity, inputs)
 
@@ -691,11 +691,11 @@ class TestFailMaterializationActivity:
         )
         with (
             unittest.mock.patch(
-                "posthog.temporal.data_modeling.activities.fail_materialization.maybe_suspend_node_for_engine",
+                "products.data_modeling.backend.temporal.activities.fail_materialization.maybe_suspend_node_for_engine",
                 side_effect=Exception("suspension blew up"),
             ),
             unittest.mock.patch(
-                "posthog.temporal.data_modeling.activities.notify_materialization_failure.create_notification"
+                "products.data_modeling.backend.temporal.activities.notify_materialization_failure.create_notification"
             ) as mock_create,
         ):
             await activity_environment.run(fail_materialization_activity, inputs)
@@ -714,7 +714,7 @@ class TestFailMaterializationActivity:
             cancelled=True,
         )
         with unittest.mock.patch(
-            "posthog.temporal.data_modeling.activities.notify_materialization_failure.create_notification"
+            "products.data_modeling.backend.temporal.activities.notify_materialization_failure.create_notification"
         ) as mock_create:
             await activity_environment.run(fail_materialization_activity, inputs)
 
@@ -741,7 +741,8 @@ class TestFailMaterializationActivity:
                 return self._user.id == allowed.id
 
         with unittest.mock.patch(
-            "posthog.temporal.data_modeling.activities.notify_materialization_failure.UserAccessControl", FakeAccess
+            "products.data_modeling.backend.temporal.activities.notify_materialization_failure.UserAccessControl",
+            FakeAccess,
         ):
             resolved = await database_sync_to_async(_SavedQueryViewers(asaved_query).resolve)(
                 TargetType.TEAM, str(ateam.pk), ateam.pk
@@ -771,7 +772,8 @@ class TestFailMaterializationActivity:
                 return True
 
         with unittest.mock.patch(
-            "posthog.temporal.data_modeling.activities.notify_materialization_failure.UserAccessControl", FakeAccess
+            "products.data_modeling.backend.temporal.activities.notify_materialization_failure.UserAccessControl",
+            FakeAccess,
         ):
             resolve = database_sync_to_async(_SavedQueryViewers(asaved_query).resolve)
             kept = await resolve(TargetType.USER, str(member.pk), ateam.pk)
@@ -796,10 +798,10 @@ class TestFailMaterializationActivity:
 
         with (
             unittest.mock.patch(
-                "posthog.temporal.data_modeling.activities.notify_materialization_failure.create_notification"
+                "products.data_modeling.backend.temporal.activities.notify_materialization_failure.create_notification"
             ) as mock_create,
             unittest.mock.patch(
-                "posthog.temporal.data_modeling.activities.notify_materialization_failure.send_matview_failure_immediate_email"
+                "products.data_modeling.backend.temporal.activities.notify_materialization_failure.send_matview_failure_immediate_email"
             ) as mock_email,
         ):
             await activity_environment.run(fail_materialization_activity, inputs)
@@ -820,7 +822,7 @@ class TestFailMaterializationActivity:
         )
 
         with unittest.mock.patch(
-            "posthog.temporal.data_modeling.activities.notify_materialization_failure.create_notification"
+            "products.data_modeling.backend.temporal.activities.notify_materialization_failure.create_notification"
         ) as mock_create:
             await activity_environment.run(fail_materialization_activity, inputs)
 
@@ -843,7 +845,7 @@ class TestQualityBlockMaterializationActivity:
         )
 
         with unittest.mock.patch(
-            "posthog.temporal.data_modeling.activities.quality_block_materialization.data_quality_facade.materialization_failure_summary",
+            "products.data_modeling.backend.temporal.activities.quality_block_materialization.data_quality_facade.materialization_failure_summary",
             side_effect=RuntimeError("summary unavailable"),
         ):
             await activity_environment.run(quality_block_materialization_activity, inputs)
@@ -931,7 +933,7 @@ class TestQualityBlockMaterializationActivity:
 
 class TestNodeSuspension:
     async def test_suspends_for_engine_after_consecutive_failures(self, ateam, anode, asaved_query, adag):
-        from posthog.temporal.data_modeling.activities.utils import (
+        from products.data_modeling.backend.temporal.activities.utils import (
             CONSECUTIVE_FAILURES_TO_SUSPEND,
             is_node_suspended,
             maybe_suspend_node_for_engine,
@@ -989,7 +991,7 @@ class TestNodeSuspension:
         ],
     )
     async def test_externally_aborted_failures_do_not_suspend(self, ateam, anode, asaved_query, adag, aborted_error):
-        from posthog.temporal.data_modeling.activities.utils import (
+        from products.data_modeling.backend.temporal.activities.utils import (
             CONSECUTIVE_FAILURES_TO_SUSPEND,
             is_node_suspended,
             maybe_suspend_node_for_engine,
@@ -1045,7 +1047,7 @@ class TestNodeSuspension:
     async def test_suspends_when_a_customer_identifier_spells_an_abort_marker(
         self, ateam, anode, asaved_query, adag, error
     ):
-        from posthog.temporal.data_modeling.activities.utils import (
+        from products.data_modeling.backend.temporal.activities.utils import (
             CONSECUTIVE_FAILURES_TO_SUSPEND,
             is_node_suspended,
             maybe_suspend_node_for_engine,
@@ -1085,7 +1087,7 @@ class TestNodeSuspension:
         ],
     )
     async def test_suspends_when_the_query_itself_fails(self, ateam, anode, asaved_query, adag, query_error):
-        from posthog.temporal.data_modeling.activities.utils import (
+        from products.data_modeling.backend.temporal.activities.utils import (
             CONSECUTIVE_FAILURES_TO_SUSPEND,
             is_node_suspended,
             maybe_suspend_node_for_engine,
@@ -1115,7 +1117,10 @@ class TestNodeSuspension:
             await database_sync_to_async(job.delete)()
 
     async def test_infrastructure_failure_breaks_a_customer_streak(self, ateam, anode, asaved_query, adag):
-        from posthog.temporal.data_modeling.activities.utils import is_node_suspended, maybe_suspend_node_for_engine
+        from products.data_modeling.backend.temporal.activities.utils import (
+            is_node_suspended,
+            maybe_suspend_node_for_engine,
+        )
 
         jobs = [await _make_job(ateam, asaved_query, DataModelingJob.Status.FAILED, error="boom") for _ in range(4)]
         jobs.append(
@@ -1145,7 +1150,10 @@ class TestNodeSuspension:
             await database_sync_to_async(j.delete)()
 
     async def test_does_not_suspend_when_latest_run_succeeded(self, ateam, anode, asaved_query, adag):
-        from posthog.temporal.data_modeling.activities.utils import is_node_suspended, maybe_suspend_node_for_engine
+        from products.data_modeling.backend.temporal.activities.utils import (
+            is_node_suspended,
+            maybe_suspend_node_for_engine,
+        )
 
         jobs = [await _make_job(ateam, asaved_query, DataModelingJob.Status.FAILED, error="boom") for _ in range(4)]
         jobs.append(await _make_job(ateam, asaved_query, DataModelingJob.Status.COMPLETED))
@@ -1171,7 +1179,7 @@ class TestNodeSuspension:
             await database_sync_to_async(job.delete)()
 
     async def test_does_not_restamp_when_already_suspended(self, ateam, anode, asaved_query, adag):
-        from posthog.temporal.data_modeling.activities.utils import maybe_suspend_node_for_engine
+        from products.data_modeling.backend.temporal.activities.utils import maybe_suspend_node_for_engine
 
         jobs = [await _make_job(ateam, asaved_query, DataModelingJob.Status.FAILED, error="boom") for _ in range(5)]
         first_job = await _make_job(ateam, asaved_query, DataModelingJob.Status.FAILED, error="boom")
@@ -1207,7 +1215,7 @@ class TestNodeSuspension:
             await database_sync_to_async(job.delete)()
 
     async def test_skipped_runs_do_not_break_the_failure_streak(self, ateam, anode, asaved_query, adag):
-        from posthog.temporal.data_modeling.activities.utils import (
+        from products.data_modeling.backend.temporal.activities.utils import (
             CONSECUTIVE_FAILURES_TO_SUSPEND,
             is_node_suspended,
             maybe_suspend_node_for_engine,
@@ -1241,9 +1249,11 @@ class TestNodeSuspension:
             await database_sync_to_async(j.delete)()
 
     async def test_does_not_resuspend_on_failures_from_before_a_resume(self, ateam, anode, asaved_query, adag):
-        from posthog.temporal.data_modeling.activities.utils import is_node_suspended, maybe_suspend_node_for_engine
-
         from products.data_modeling.backend.facade.api import unsuspend_nodes
+        from products.data_modeling.backend.temporal.activities.utils import (
+            is_node_suspended,
+            maybe_suspend_node_for_engine,
+        )
 
         jobs = [await _make_job(ateam, asaved_query, DataModelingJob.Status.FAILED, error="boom") for _ in range(5)]
         first_job = await _make_job(ateam, asaved_query, DataModelingJob.Status.FAILED, error="boom")
@@ -1282,7 +1292,10 @@ class TestNodeSuspension:
             await database_sync_to_async(job.delete)()
 
     async def test_engine_suspension_is_independent(self, ateam, anode, asaved_query, adag):
-        from posthog.temporal.data_modeling.activities.utils import is_node_suspended, maybe_suspend_node_for_engine
+        from products.data_modeling.backend.temporal.activities.utils import (
+            is_node_suspended,
+            maybe_suspend_node_for_engine,
+        )
 
         jobs = [
             await _make_job(
@@ -1326,7 +1339,7 @@ class TestNodeSuspension:
             await database_sync_to_async(j.delete)()
 
     async def test_clear_suspension_only_affects_one_engine(self, ateam, anode, adag):
-        from posthog.temporal.data_modeling.activities.utils import (
+        from products.data_modeling.backend.temporal.activities.utils import (
             clear_node_suspension_for_engine,
             is_node_suspended,
             mark_node_suspended,
@@ -1401,7 +1414,7 @@ class TestSucceedMaterializationActivity:
         assert system_props.get("last_run_error") is None
 
     async def test_clears_clickhouse_suspension_on_success(self, activity_environment, ateam, anode, ajob, adag):
-        from posthog.temporal.data_modeling.activities.utils import is_node_suspended, mark_node_suspended
+        from products.data_modeling.backend.temporal.activities.utils import is_node_suspended, mark_node_suspended
 
         mark_node_suspended(anode, engine=DataModelingJobEngine.CLICKHOUSE, reason="x", job_id="old")
         mark_node_suspended(anode, engine=DataModelingJobEngine.MANAGED_WAREHOUSE, reason="y", job_id="old")
@@ -1516,10 +1529,10 @@ class TestPrepareQueryableTableActivity:
         )
         with (
             unittest.mock.patch(
-                "posthog.temporal.data_modeling.activities.prepare_queryable_table.prepare_s3_files_for_querying"
+                "products.data_modeling.backend.temporal.activities.prepare_queryable_table.prepare_s3_files_for_querying"
             ) as mock_prepare,
             unittest.mock.patch(
-                "posthog.temporal.data_modeling.activities.prepare_queryable_table.create_table_from_saved_query"
+                "products.data_modeling.backend.temporal.activities.prepare_queryable_table.create_table_from_saved_query"
             ) as mock_create_table,
         ):
             mock_prepare.return_value = "test-bucket/queryable_folder"
@@ -1557,17 +1570,17 @@ class TestPrepareQueryableTableActivity:
         mock_delta_table.file_uris.return_value = refreshed_file_uris
         with (
             unittest.mock.patch(
-                "posthog.temporal.data_modeling.activities.prepare_queryable_table.prepare_s3_files_for_querying"
+                "products.data_modeling.backend.temporal.activities.prepare_queryable_table.prepare_s3_files_for_querying"
             ) as mock_prepare,
             unittest.mock.patch(
-                "posthog.temporal.data_modeling.activities.prepare_queryable_table.create_table_from_saved_query"
+                "products.data_modeling.backend.temporal.activities.prepare_queryable_table.create_table_from_saved_query"
             ) as mock_create_table,
             unittest.mock.patch(
-                "posthog.temporal.data_modeling.activities.prepare_queryable_table.get_aws_storage_options",
+                "products.data_modeling.backend.temporal.activities.prepare_queryable_table.get_aws_storage_options",
                 return_value={},
             ),
             unittest.mock.patch(
-                "posthog.temporal.data_modeling.activities.prepare_queryable_table.deltalake.DeltaTable",
+                "products.data_modeling.backend.temporal.activities.prepare_queryable_table.deltalake.DeltaTable",
                 return_value=mock_delta_table,
             ) as mock_delta_table_cls,
         ):
@@ -1600,10 +1613,10 @@ class TestPrepareQueryableTableActivity:
         )
         with (
             unittest.mock.patch(
-                "posthog.temporal.data_modeling.activities.prepare_queryable_table.prepare_s3_files_for_querying"
+                "products.data_modeling.backend.temporal.activities.prepare_queryable_table.prepare_s3_files_for_querying"
             ) as mock_prepare,
             unittest.mock.patch(
-                "posthog.temporal.data_modeling.activities.prepare_queryable_table.create_table_from_saved_query"
+                "products.data_modeling.backend.temporal.activities.prepare_queryable_table.create_table_from_saved_query"
             ) as mock_create_table,
         ):
             mock_prepare.return_value = "test-bucket/queryable_folder"
@@ -1663,10 +1676,10 @@ class TestPrepareQueryableTableActivity:
 
         with (
             unittest.mock.patch(
-                "posthog.temporal.data_modeling.activities.prepare_queryable_table.prepare_s3_files_for_querying"
+                "products.data_modeling.backend.temporal.activities.prepare_queryable_table.prepare_s3_files_for_querying"
             ) as mock_prepare,
             unittest.mock.patch(
-                "posthog.temporal.data_modeling.activities.prepare_queryable_table.create_table_from_saved_query",
+                "products.data_modeling.backend.temporal.activities.prepare_queryable_table.create_table_from_saved_query",
                 side_effect=publish_while_the_query_changes,
             ),
         ):
@@ -1710,15 +1723,15 @@ class TestPrepareQueryableTableActivity:
 
         with (
             unittest.mock.patch(
-                "posthog.temporal.data_modeling.activities.prepare_queryable_table.prepare_s3_files_for_querying",
+                "products.data_modeling.backend.temporal.activities.prepare_queryable_table.prepare_s3_files_for_querying",
                 return_value="test-bucket/queryable_folder",
             ),
             unittest.mock.patch(
-                "posthog.temporal.data_modeling.activities.prepare_queryable_table.create_table_from_saved_query",
+                "products.data_modeling.backend.temporal.activities.prepare_queryable_table.create_table_from_saved_query",
                 return_value=CreateTableResult(table=warehouse_table, storage_delta_mib=None, total_storage_mib=None),
             ),
             unittest.mock.patch(
-                "posthog.temporal.data_modeling.activities.prepare_queryable_table.link_table_if_materializing",
+                "products.data_modeling.backend.temporal.activities.prepare_queryable_table.link_table_if_materializing",
                 side_effect=link_then_revert,
             ),
             unittest.mock.patch(
@@ -1779,7 +1792,7 @@ class TestMaterializeViewActivity:
                 DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
             ),
             unittest.mock.patch(
-                "posthog.temporal.data_modeling.activities.materialize_view.hogql_table", mock_hogql_table
+                "products.data_modeling.backend.temporal.activities.materialize_view.hogql_table", mock_hogql_table
             ),
         ):
             inputs = MaterializeViewInputs(
@@ -1819,7 +1832,7 @@ class TestMaterializeViewActivity:
                 DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
             ),
             unittest.mock.patch(
-                "posthog.temporal.data_modeling.activities.materialize_view.hogql_table", mock_hogql_table
+                "products.data_modeling.backend.temporal.activities.materialize_view.hogql_table", mock_hogql_table
             ),
         ):
             inputs = MaterializeViewInputs(
@@ -1872,7 +1885,7 @@ class TestMaterializeViewActivity:
                 DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
             ),
             unittest.mock.patch(
-                "posthog.temporal.data_modeling.activities.materialize_view.hogql_table", mock_hogql_table
+                "products.data_modeling.backend.temporal.activities.materialize_view.hogql_table", mock_hogql_table
             ),
         ):
             inputs = MaterializeViewInputs(
@@ -1927,7 +1940,7 @@ class TestMaterializeViewActivity:
                 DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
             ),
             unittest.mock.patch(
-                "posthog.temporal.data_modeling.activities.materialize_view.hogql_table", mock_hogql_table
+                "products.data_modeling.backend.temporal.activities.materialize_view.hogql_table", mock_hogql_table
             ),
         ):
             inputs = MaterializeViewInputs(
@@ -1975,7 +1988,7 @@ class TestMaterializeViewActivity:
                 DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
             ),
             unittest.mock.patch(
-                "posthog.temporal.data_modeling.activities.materialize_view.hogql_table", mock_hogql_table
+                "products.data_modeling.backend.temporal.activities.materialize_view.hogql_table", mock_hogql_table
             ),
         ):
             inputs = MaterializeViewInputs(
@@ -2030,7 +2043,7 @@ class TestMaterializeViewActivity:
                 DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
             ),
             unittest.mock.patch(
-                "posthog.temporal.data_modeling.activities.materialize_view.hogql_table", mock_hogql_table
+                "products.data_modeling.backend.temporal.activities.materialize_view.hogql_table", mock_hogql_table
             ),
             unittest.mock.patch("deltalake.write_deltalake", side_effect=raising_write),
         ):
@@ -2109,7 +2122,7 @@ class TestMaterializeViewActivity:
                 DATAWAREHOUSE_LOCAL_BUCKET_REGION="us-east-1",
             ),
             unittest.mock.patch(
-                "posthog.temporal.data_modeling.activities.materialize_view.hogql_table", mock_hogql_table
+                "products.data_modeling.backend.temporal.activities.materialize_view.hogql_table", mock_hogql_table
             ),
         ):
             inputs = MaterializeViewInputs(
@@ -2150,7 +2163,7 @@ class TestAdaptiveRetryDelay:
         self, base, attempt, recent_errors, jitter, expected_delay
     ):
         with unittest.mock.patch(
-            "posthog.temporal.data_modeling.activities.materialize_view.random.uniform", return_value=jitter
+            "products.data_modeling.backend.temporal.activities.materialize_view.random.uniform", return_value=jitter
         ):
             assert _adaptive_retry_delay(base, attempt, recent_errors) == expected_delay
 
@@ -2253,7 +2266,7 @@ class TestHogqlTableModifiers:
             FROM events
         """
         with unittest.mock.patch(
-            "posthog.temporal.data_modeling.activities.materialize_view.get_clickhouse_client", get_test_client
+            "products.data_modeling.backend.temporal.activities.materialize_view.get_clickhouse_client", get_test_client
         ):
             batches = [batch async for batch in hogql_table(query, ateam, LOGGER.bind())]
 
@@ -2288,7 +2301,7 @@ class TestHogqlTableModifiers:
             yield client
 
         with unittest.mock.patch(
-            "posthog.temporal.data_modeling.activities.materialize_view.get_clickhouse_client", fake_get_client
+            "products.data_modeling.backend.temporal.activities.materialize_view.get_clickhouse_client", fake_get_client
         ):
             _ = [batch async for batch in hogql_table("SELECT [] AS person_ids", ateam, LOGGER.bind())]
 
@@ -2364,10 +2377,11 @@ class TestHogqlTableModifiers:
 
         with (
             unittest.mock.patch(
-                "posthog.temporal.data_modeling.activities.materialize_view.get_clickhouse_client", fake_get_client
+                "products.data_modeling.backend.temporal.activities.materialize_view.get_clickhouse_client",
+                fake_get_client,
             ),
             unittest.mock.patch(
-                "posthog.temporal.data_modeling.activities.materialize_view.resolve_kill_switch_level",
+                "products.data_modeling.backend.temporal.activities.materialize_view.resolve_kill_switch_level",
                 lambda _team_id: kill_switch_level,
             ),
         ):
@@ -2400,7 +2414,7 @@ class TestHogqlTableModifiers:
             FROM system.accounts
         """
         with unittest.mock.patch(
-            "posthog.temporal.data_modeling.activities.materialize_view.get_clickhouse_client", fake_get_client
+            "products.data_modeling.backend.temporal.activities.materialize_view.get_clickhouse_client", fake_get_client
         ):
             batches = [batch async for batch in hogql_table(query, ateam, LOGGER.bind())]
 
@@ -2432,7 +2446,8 @@ class TestHogqlTableModifiers:
 
         with (
             unittest.mock.patch(
-                "posthog.temporal.data_modeling.activities.materialize_view._describe_columns", describe_columns
+                "products.data_modeling.backend.temporal.activities.materialize_view._describe_columns",
+                describe_columns,
             ),
             unittest.mock.patch(
                 "posthog.temporal.common.clickhouse.ClickHouseClient.astream_query_as_arrow",
@@ -2537,7 +2552,7 @@ class TestHogqlTableEmptyResults:
             yield client
 
         with unittest.mock.patch(
-            "posthog.temporal.data_modeling.activities.materialize_view.get_clickhouse_client", fake_get_client
+            "products.data_modeling.backend.temporal.activities.materialize_view.get_clickhouse_client", fake_get_client
         ):
             batches = [batch async for batch in hogql_table("SELECT 1", ateam, LOGGER.bind())]
 
@@ -2567,7 +2582,7 @@ class TestHogqlTableDescribeSettings:
             yield client
 
         with unittest.mock.patch(
-            "posthog.temporal.data_modeling.activities.materialize_view.get_clickhouse_client", fake_get_client
+            "products.data_modeling.backend.temporal.activities.materialize_view.get_clickhouse_client", fake_get_client
         ):
             _ = [batch async for batch in hogql_table(query, ateam, LOGGER.bind())]
 
@@ -2601,7 +2616,7 @@ class TestHogqlTableDescribeSettings:
             yield client
 
         with unittest.mock.patch(
-            "posthog.temporal.data_modeling.activities.materialize_view.get_clickhouse_client", fake_get_client
+            "products.data_modeling.backend.temporal.activities.materialize_view.get_clickhouse_client", fake_get_client
         ):
             if should_fallback:
                 batches = [batch async for batch in hogql_table(query, ateam, LOGGER.bind())]
@@ -2628,7 +2643,7 @@ class TestHogqlTableDescribeSettings:
             yield client
 
         with unittest.mock.patch(
-            "posthog.temporal.data_modeling.activities.materialize_view.get_clickhouse_client", fake_get_client
+            "products.data_modeling.backend.temporal.activities.materialize_view.get_clickhouse_client", fake_get_client
         ):
             with pytest.raises(ClickHouseError) as error:
                 _ = [batch async for batch in hogql_table("SELECT distinct_id FROM events", ateam, LOGGER.bind())]
@@ -2661,7 +2676,8 @@ class TestHogqlTableDuplicateOutputColumns:
         # allows through where an explicit `x AS a, y AS a` is refused as a redefined alias
         with (
             unittest.mock.patch(
-                "posthog.temporal.data_modeling.activities.materialize_view.get_clickhouse_client", fake_get_client
+                "products.data_modeling.backend.temporal.activities.materialize_view.get_clickhouse_client",
+                fake_get_client,
             ),
             pytest.raises(DuplicateOutputColumnError) as error,
         ):
@@ -2723,10 +2739,11 @@ class TestHogqlTableResolutionDeadline:
 
         with (
             unittest.mock.patch(
-                "posthog.temporal.data_modeling.activities.materialize_view.get_clickhouse_client", fake_get_client
+                "products.data_modeling.backend.temporal.activities.materialize_view.get_clickhouse_client",
+                fake_get_client,
             ),
             unittest.mock.patch(
-                "posthog.temporal.data_modeling.activities.materialize_view.bounded_resolver_factory_for_view",
+                "products.data_modeling.backend.temporal.activities.materialize_view.bounded_resolver_factory_for_view",
                 short_deadline_factory,
             ),
         ):
@@ -2765,7 +2782,7 @@ class TestMaterializeViewStagesPersonPropertyRows:
                 USE_LOCAL_SETUP=True,
             ),
             unittest.mock.patch(
-                "posthog.temporal.data_modeling.activities.materialize_view.hogql_table", self._hogql_table
+                "products.data_modeling.backend.temporal.activities.materialize_view.hogql_table", self._hogql_table
             ),
             unittest.mock.patch(
                 "products.warehouse_sources.backend.temporal.data_imports."
@@ -2855,7 +2872,7 @@ class TestMaterializeViewStagesAccountPropertyRows:
                 USE_LOCAL_SETUP=True,
             ),
             unittest.mock.patch(
-                "posthog.temporal.data_modeling.activities.materialize_view.hogql_table",
+                "products.data_modeling.backend.temporal.activities.materialize_view.hogql_table",
                 self._hogql_table,
             ),
             unittest.mock.patch(
@@ -2909,7 +2926,7 @@ class TestAwsStorageOptions:
     )
     def test_deployed_options_keep_warehouse_bucket_traffic_off_the_egress_proxy(self) -> None:
         with (
-            unittest.mock.patch("posthog.temporal.data_modeling.activities.materialize_view.TEST", False),
+            unittest.mock.patch("products.data_modeling.backend.temporal.activities.materialize_view.TEST", False),
             unittest.mock.patch.dict(
                 "os.environ", {"HTTPS_PROXY": "http://egress-proxy.svc.cluster.local:4750/", "NO_PROXY": ""}
             ),
