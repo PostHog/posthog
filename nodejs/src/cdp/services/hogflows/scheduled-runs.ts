@@ -16,6 +16,8 @@ import { createHogFlowInvocation } from './hogflow-executor.service'
 import type { HogFlowManagerService } from './hogflow-manager.service'
 import { shouldBlockHogFlowDueToQuota } from './hogflow-quota-limiting'
 
+export const SCHEDULED_RUNS_PER_BATCH = 100
+
 export const ScheduledRunsRequestSchema = z.object({
     runs: z.array(
         z.object({

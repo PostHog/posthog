@@ -2185,25 +2185,27 @@ describe('CDP API', () => {
         })
 
         it.each([100, 20])(
-            'refuses a batch larger than one queue insert of %i runs and queues nothing',
+            'queues a batch of 100 runs and refuses 101 whatever the queue insert size (%i)',
             async (insertBatchSize) => {
                 const hogflowQueue = createInMemoryJobQueue()
                 api['hogflowQueue'] = hogflowQueue
                 const defaultInsertBatchSize = hub.CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE
                 hub.CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE = insertBatchSize
-                try {
-                    const res = await supertest(app)
+                const post = (length: number) =>
+                    supertest(app)
                         .post('/api/hog_flows/scheduled_invocations')
                         .set({ Authorization: `Bearer ${mintScheduledRunsToken([team.id])}` })
                         .send({
-                            runs: Array.from({ length: insertBatchSize + 1 }, () => ({
-                                team_id: team.id,
-                                hog_flow_id: scheduleHogFlow.id,
-                            })),
+                            runs: Array.from({ length }, () => ({ team_id: team.id, hog_flow_id: scheduleHogFlow.id })),
                         })
-
-                    expect(res.status).toEqual(400)
+                try {
+                    const refused = await post(101)
+                    expect(refused.status).toEqual(400)
                     expect(hogflowQueue.queued).toEqual([])
+
+                    const accepted = await post(100)
+                    expect(accepted.status).toEqual(200)
+                    expect(hogflowQueue.queued).toHaveLength(100)
                 } finally {
                     hub.CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE = defaultInsertBatchSize
                 }

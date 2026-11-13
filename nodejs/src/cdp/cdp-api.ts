@@ -56,6 +56,7 @@ import { HOG_FLOW_QUOTA_LIMITED_MESSAGE } from './services/hogflows/hogflow-quot
 import { matchesWaitUntilCondition } from './services/hogflows/hogflow-utils'
 import { IdempotencyKeys } from './services/hogflows/idempotency-keys'
 import {
+    SCHEDULED_RUNS_PER_BATCH,
     ScheduledRuns,
     ScheduledRunsNotQueuedError,
     ScheduledRunsRequestSchema,
@@ -1216,9 +1217,8 @@ export class CdpApi {
         if (parsed.data.runs.some((run) => !allowedTeamIds.has(run.team_id))) {
             return res.status(401).json({ error: 'Unauthorized: Invalid scheduled runs token' })
         }
-        const maxRuns = this.config.CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE
-        if (parsed.data.runs.length > maxRuns) {
-            return res.status(400).json({ error: `A batch holds at most ${maxRuns} runs, one queue insert` })
+        if (parsed.data.runs.length > SCHEDULED_RUNS_PER_BATCH) {
+            return res.status(400).json({ error: `A batch holds at most ${SCHEDULED_RUNS_PER_BATCH} runs` })
         }
         try {
             const outcomes = await this.scheduledRuns().queue(
