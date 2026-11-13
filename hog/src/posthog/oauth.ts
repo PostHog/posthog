@@ -3,7 +3,7 @@ import { z } from 'zod'
 
 import type { ApiKeyAccess } from '@posthog/mcp/src/cli/library-types'
 
-import { HogError } from '@/core/errors'
+import { EXIT_NEEDS_PERSON, HogError } from '@/core/errors'
 import { withFileLock } from '@/core/file-lock'
 import type { Runtime } from '@/core/runtime'
 import { parseOrThrow } from '@/core/schema'
@@ -176,7 +176,8 @@ export class OAuthLogin implements AccessKey {
                 throw new HogError(
                     'not_authenticated',
                     'You logged out of hog.',
-                    'Run `hog auth login` to log in again.'
+                    'Run `hog auth login` to log in again.',
+                    EXIT_NEEDS_PERSON
                 )
             }
             // A new login to this project replaced this one. It can have other scopes than the ones
@@ -233,7 +234,8 @@ export class OAuthLogin implements AccessKey {
             throw new HogError(
                 'session_expired',
                 'Your hog login expired or was revoked.',
-                'Run `hog auth login` to log in again.'
+                'Run `hog auth login` to log in again.',
+                EXIT_NEEDS_PERSON
             )
         }
         throw new HogError(

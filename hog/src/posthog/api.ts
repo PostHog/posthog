@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-import { HogError } from '@/core/errors'
+import { EXIT_FAILURE, EXIT_NEEDS_PERSON, HogError } from '@/core/errors'
 import { parseLosslessJson } from '@/core/json'
 import type { RuntimeFetch } from '@/core/runtime'
 import { parseOrThrow, type Schema } from '@/core/schema'
@@ -89,13 +89,23 @@ export class ApiError extends HogError {
         message: string,
         hint?: string,
         details?: Readonly<Record<string, unknown>>,
-        serverDetail?: string
+        serverDetail?: string,
+        exitCode = EXIT_FAILURE
     ) {
-        super(code, message, hint, undefined, details, serverDetail)
+        super(code, message, hint, exitCode, details, serverDetail)
     }
 
     override withHint(hint: string): ApiError {
-        return new ApiError(this.status, this.type, this.code, this.message, hint, this.details, this.serverDetail)
+        return new ApiError(
+            this.status,
+            this.type,
+            this.code,
+            this.message,
+            hint,
+            this.details,
+            this.serverDetail,
+            this.exitCode
+        )
     }
 }
 
@@ -114,7 +124,9 @@ export function stepUpRequired(
         'step_up_required',
         message,
         `Run \`${command}\` to add the scopes to your login, then run the command again.`,
-        { scopes: named, command }
+        { scopes: named, command },
+        undefined,
+        EXIT_NEEDS_PERSON
     )
 }
 
@@ -194,7 +206,10 @@ export class PostHogApi {
                 undefined,
                 'missing_scopes',
                 `The job's token needs ${missing.join(', ')} for this.`,
-                workloadScopesHint(missing)
+                workloadScopesHint(missing),
+                undefined,
+                undefined,
+                EXIT_NEEDS_PERSON
             )
         }
         if (missing) {

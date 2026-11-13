@@ -18,9 +18,10 @@ import {
 } from '@/core/command'
 import { findConfig, loadConfig } from '@/core/config'
 import { Context } from '@/core/context'
-import { EXIT_FAILURE, EXIT_USAGE, HogError } from '@/core/errors'
+import { EXIT_FAILURE, EXIT_NEEDS_PERSON, EXIT_PENDING, EXIT_USAGE, HogError } from '@/core/errors'
 import { DRY_RUN_ENV, envFlag, GLOBAL_OPTIONS, networkRuntime, optOutFlag, resolveGlobals } from '@/core/globals'
 import { parseJsonOrUndefined } from '@/core/json'
+import { EXIT_CODES } from '@/core/manifest'
 import { Output } from '@/core/output'
 import type { Runtime } from '@/core/runtime'
 import { Telemetry } from '@/core/telemetry'
@@ -33,7 +34,15 @@ import { VERSION } from '@/version'
 const ROOT_HELP = `
 hog prints JSON when an agent such as Claude Code or Codex runs it, or when stdout is not a terminal.
 Run \`hog auth login\` to log in, and \`hog commands -o json\` to list every command, its arguments and its options.
-HOG_DRY_RUN=1 turns on --dry-run for every command that has one, and fails the commands that would change something without it.`
+HOG_DRY_RUN=1 turns on --dry-run for every command that has one, and fails the commands that would change something without it.
+
+Exit codes:
+${EXIT_CODES.map(({ code, meaning }) => `  ${code}  ${meaning}`).join('\n')}
+--no-fail turns 1, 3 and 4 into 0.`
+
+// --no-fail turns these codes into 0, so a build never breaks on hog. A usage error and Ctrl-C keep
+// their codes, because the command never ran as written.
+const UNFINISHED_CODES: ReadonlySet<number> = new Set([EXIT_FAILURE, EXIT_NEEDS_PERSON, EXIT_PENDING])
 
 const LEGACY_HELP_GROUP = 'Not ported yet (each one prints the posthog-cli command to run):'
 
@@ -232,7 +241,8 @@ function createProgram(runtime: Runtime, mode: Mode, state: RunState, telemetry:
                 throw new HogError(
                     'not_in_ci',
                     `\`hog ${path}\` ${node.refusesCI.reason}, so it does not run in CI.`,
-                    node.refusesCI.hint
+                    node.refusesCI.hint,
+                    EXIT_NEEDS_PERSON
                 )
             }
             let result: unknown
@@ -554,26 +564,27 @@ export async function run(argv: readonly string[], runtime: Runtime): Promise<nu
         }
         await program.parseAsync(args, { from: 'user' })
         // --no-fail also covers a result that reports a problem, like a failed push or a stale SDK.
-        exitCode = state.noFail && state.exitCode === EXIT_FAILURE ? 0 : state.exitCode
+        exitCode = state.noFail && UNFINISHED_CODES.has(state.exitCode) ? 0 : state.exitCode
     } catch (caught) {
         if (caught instanceof CommanderError && caught.exitCode === 0) {
             return 0
         }
         failure = toHogError(caught)
         new Output(runtime, mode).error(failure)
-        if (failure.exitCode === EXIT_FAILURE && failure.code !== 'not_ported') {
+        if (UNFINISHED_CODES.has(failure.exitCode) && failure.code !== 'not_ported') {
             captureFailure(telemetry, state.command, failure, caught)
         }
         const ignore = state.noFail ?? (noFail || safeEnvFlag(runtime.env, GLOBAL_OPTIONS.noFail.env))
-        exitCode = ignore && failure.exitCode === EXIT_FAILURE ? 0 : failure.exitCode
+        exitCode = ignore && UNFINISHED_CODES.has(failure.exitCode) ? 0 : failure.exitCode
     }
 
     // posthog-cli's usage event, so one dashboard covers both CLIs. Option names only, never values.
     telemetry.capture('posthog cli command run', {
         command_path: state.command ?? null,
         exit_code: exitCode,
-        // Before --no-fail, so a push that reports failures still counts as one.
-        success: failure === undefined && state.exitCode === 0,
+        // Before --no-fail, so a push that reports failures still counts as one. A result that stops for
+        // a person or leaves work running did what was asked, so it counts as a success.
+        success: failure === undefined && state.exitCode !== EXIT_FAILURE,
         error_code: failure?.code ?? null,
         duration_ms: runtime.now() - started,
         options: state.options ?? [],

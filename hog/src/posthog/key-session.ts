@@ -1,4 +1,4 @@
-import { HogError } from '@/core/errors'
+import { EXIT_NEEDS_PERSON, HogError } from '@/core/errors'
 import type { Runtime } from '@/core/runtime'
 
 import type { AccessKey, AccessKeyStorage } from './access-key'
@@ -54,7 +54,12 @@ export class KeySession {
     async reload(): Promise<void> {
         const latest = await this.storage?.reread()
         if (!latest) {
-            throw new HogError('not_authenticated', 'You logged out of hog.', 'Run `hog auth login` to log in again.')
+            throw new HogError(
+                'not_authenticated',
+                'You logged out of hog.',
+                'Run `hog auth login` to log in again.',
+                EXIT_NEEDS_PERSON
+            )
         }
         if (latest.loginKey !== this.key.loginKey) {
             throw new HogError(

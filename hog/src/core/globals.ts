@@ -59,7 +59,8 @@ export const GLOBAL_OPTIONS = {
         type: 'boolean',
         env: ['HOG_NO_FAIL'],
         config: 'cli.noFail',
-        description: 'Exit with code 0 when the command fails or reports a problem, for builds that must not break',
+        description:
+            'Exit with code 0 when the command fails, reports a problem, needs a person or is still running, for builds that must not break. Usage errors still exit with code 2',
     },
     skipSslVerification: {
         type: 'boolean',

@@ -1,4 +1,4 @@
-import { printPending, resumeApproval, waitIdentity } from '@/core/approval'
+import { approvalExitCode, printPending, resumeApproval, waitIdentity } from '@/core/approval'
 import { defineCommand } from '@/core/command'
 import { EXIT_USAGE, HogError } from '@/core/errors'
 import { escapeControls } from '@/core/output'
@@ -80,4 +80,5 @@ export default defineCommand({
     },
 
     telemetry: ({ result }) => ({ step_up_status: result.status }),
+    exitCode: (result) => approvalExitCode(result),
 })
