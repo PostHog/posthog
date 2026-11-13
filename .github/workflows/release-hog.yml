@@ -576,18 +576,20 @@ jobs:
                   message: ${{ steps.check-rejection.outputs.message }}
                   emoji_reaction: 'no_entry_sign'
 
-    # A merged release pull request deletes the consumed changesets, which starts this workflow
-    # again. Only that release commit may continue to publishing.
+    # A merged release pull request deletes the consumed changesets, or moves them to
+    # hog/.sampo/prerelease/, which starts this workflow again. Only that release commit continues to
+    # publishing. Changesets that merged while the release pull request waited stay on master, and
+    # prepare-release starts the next release from them in the same run.
     release:
         name: Identify merged hog release
         needs: check-changesets
-        if: needs.check-changesets.outputs.has-changesets == 'false'
         runs-on: ubuntu-24.04
         timeout-minutes: 5
         permissions:
             contents: read
             pull-requests: read
         outputs:
+            is-release: ${{ steps.release-metadata.outputs.is-release }}
             version: ${{ steps.release-metadata.outputs.version }}
             release-tag: ${{ steps.release-metadata.outputs.release-tag }}
             release-commit: ${{ steps.release-metadata.outputs.release-commit }}
@@ -612,15 +614,21 @@ jobs:
               run: |
                   set -euo pipefail
 
-                  if [ -z "$RELEASER_LOGIN" ]; then
-                      echo "::error::Set the GH_APP_POSTHOG_HOG_RELEASER_LOGIN variable to the hog releaser App's bot login, like hog-releaser[bot]"
+                  release_prs=$(gh api --paginate "repos/$REPOSITORY/commits/$RELEASE_COMMIT/pulls" \
+                      --jq ".[] | select(.merged_at != null and .base.ref == \"master\" and .head.ref == \"$RELEASE_BRANCH\") | .number")
+                  release_count=$(printf '%s\n' "$release_prs" | sed '/^$/d' | wc -l)
+                  if [ "$release_count" -eq 0 ]; then
+                      echo "is-release=false" >> "$GITHUB_OUTPUT"
+                      echo "$RELEASE_COMMIT isn't a hog release commit, so nothing publishes"
+                      exit 0
+                  fi
+                  if [ "$release_count" -ne 1 ]; then
+                      echo "::error::Expected one merged hog release pull request for $RELEASE_COMMIT"
                       exit 1
                   fi
 
-                  release_prs=$(gh api --paginate "repos/$REPOSITORY/commits/$RELEASE_COMMIT/pulls" \
-                      --jq ".[] | select(.merged_at != null and .base.ref == \"master\" and .head.ref == \"$RELEASE_BRANCH\") | .number")
-                  if [ "$(printf '%s\n' "$release_prs" | sed '/^$/d' | wc -l)" -ne 1 ]; then
-                      echo "::error::Expected one merged hog release pull request for $RELEASE_COMMIT"
+                  if [ -z "$RELEASER_LOGIN" ]; then
+                      echo "::error::Set the GH_APP_POSTHOG_HOG_RELEASER_LOGIN variable to the hog releaser App's bot login, like hog-releaser[bot]"
                       exit 1
                   fi
                   release_pr=$(printf '%s\n' "$release_prs" | sed -n '1p')
@@ -638,16 +646,24 @@ jobs:
                       exit 1
                   fi
 
-                  files=$(gh api --paginate "repos/$REPOSITORY/pulls/$release_pr/files" --jq '.[].filename')
+                  # A rename has an old path too, and both must be release files.
+                  files=$(gh api --paginate "repos/$REPOSITORY/pulls/$release_pr/files" --jq '.[] | .filename, (.previous_filename // empty)')
                   unexpected=$(printf '%s\n' "$files" | grep -Ev '^hog/(package\.json|CHANGELOG\.md|\.sampo/(changesets|prerelease)/[^/]+\.md)$' || true)
                   if [ -n "$unexpected" ]; then
                       echo "::error::Unexpected files in the hog release pull request:"
                       echo "$unexpected"
                       exit 1
                   fi
-                  removed=$(gh api --paginate "repos/$REPOSITORY/pulls/$release_pr/files" \
-                      --jq '.[] | select(.status == "removed" and (.filename | test("^hog/\\.sampo/changesets/[^/]+\\.md$"))) | .filename')
-                  if [ -z "$removed" ]; then
+                  # sampo deletes the changesets of a stable release, and moves those of a prerelease to
+                  # hog/.sampo/prerelease/ unchanged, which GitHub reports as a rename.
+                  consumed=$(gh api --paginate "repos/$REPOSITORY/pulls/$release_pr/files" --jq '
+                      .[] | select(
+                          (.status == "removed" and (.filename | test("^hog/\\.sampo/changesets/[^/]+\\.md$")))
+                          or (.status == "renamed"
+                              and ((.previous_filename // "") | test("^hog/\\.sampo/changesets/[^/]+\\.md$"))
+                              and (.filename | test("^hog/\\.sampo/prerelease/[^/]+\\.md$")))
+                      ) | .filename')
+                  if [ -z "$consumed" ]; then
                       echo "::error::The hog release pull request did not consume a changeset"
                       exit 1
                   fi
@@ -667,6 +683,7 @@ jobs:
                   slack_ts=$(printf '%s' "$pr_data" | jq -r '.body // ""' | sed -n 's/.*hog-release-slack-thread: \([0-9.]*\).*/\1/p' | head -n 1)
 
                   {
+                      echo "is-release=true"
                       echo "version=$version"
                       echo "release-tag=$release_tag"
                       echo "release-commit=$RELEASE_COMMIT"
@@ -688,6 +705,7 @@ jobs:
     build:
         name: Test and compile
         needs: release
+        if: needs.release.outputs.is-release == 'true'
         runs-on: ubuntu-24.04
         timeout-minutes: 30
         steps:

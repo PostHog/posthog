@@ -415,6 +415,7 @@ A release takes two merges, the changeset and then the release pull request, and
 
 - Re-run the failed jobs to finish a release that stopped. Files under a version never change: once a version's upload is complete, a rerun reuses its files instead of signing again. An upload that stopped halfway starts over. GitHub, npm and the formula skip what they already have.
 - Every release is the latest, prereleases included. A rerun of an older version never moves `hog/latest/manifest.json`, npm's `latest` tag or the formula back.
+- Changesets that merge while a release pull request waits start the next release when it merges.
 - To retire a broken release, set `minimumVersion` in `release/minimum-version.json`. The next release carries it in its manifest.
 - Don't run `sampo publish` or push `hog/v*` tags by hand. The one exception comes before the first release: the approval check starts at the tag of the version in `hog/package.json`, so a maintainer tags the commit where the first release's check starts as `hog/v0.1.0-alpha.0`.
 
