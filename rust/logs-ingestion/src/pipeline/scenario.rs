@@ -673,6 +673,7 @@ pub fn scenario_parts(
         key_root: KeyRoot::Test,
         clock,
         source_offset_header: false,
+        unknown_tokens: None,
     };
     let config = match get(scenario, "config") {
         Some(JsValue::Object(o)) => o.clone(),

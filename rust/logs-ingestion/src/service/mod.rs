@@ -30,6 +30,7 @@ use crate::pipeline::{
     DependencyRetry, LogsConsumerIdentity, LogsIngestionConsumer, LogsIngestionConsumerDeps,
 };
 use crate::rate_limiter::{system_clock, KeyRoot, RedisTokenBucket};
+use crate::unknown_tokens::UnknownTokenRecorder;
 
 use config::{ConsumerKind, RunMode, ServiceConfig};
 use consumer_loop::run_consumer_loop;
@@ -51,6 +52,7 @@ pub fn shadow_deps(mut deps: LogsIngestionConsumerDeps) -> LogsIngestionConsumer
     deps.logs_transformer = None;
     deps.key_root = KeyRoot::Shadow;
     deps.source_offset_header = true;
+    deps.unknown_tokens = None;
     deps
 }
 
@@ -177,12 +179,15 @@ pub fn build_deps(
             .then(|| Arc::new(postgres::PgTracingConfig::new(reader.clone())) as _),
         dependency_retry: DependencyRetry::default(),
         internal_source_policies: None,
-        token_bucket_redis: Arc::new(RedisTokenBucket::new(logs_redis)),
+        token_bucket_redis: Arc::new(RedisTokenBucket::new(logs_redis.clone())),
         key_root: if config.node_env == NodeEnv::Test {
             KeyRoot::Test
         } else {
             KeyRoot::Production
         },
+        // Built in primary mode only, so a shadow never writes the set in production Redis.
+        unknown_tokens: (config.mode == RunMode::Primary)
+            .then(|| Arc::new(UnknownTokenRecorder::new(logs_redis, clock.clone())) as _),
         clock,
         source_offset_header: false,
     };

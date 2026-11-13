@@ -44,6 +44,9 @@ async fn parse(
     };
     let Some(team) = team else {
         tracing::warn!(token_with_no_team = %token, "team_not_found");
+        if let Some(unknown_tokens) = &context.deps.unknown_tokens {
+            unknown_tokens.record(&token);
+        }
         count_dropped("team_not_found");
         return Ok(drop("team_not_found"));
     };
