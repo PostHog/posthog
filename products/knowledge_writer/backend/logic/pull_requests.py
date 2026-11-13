@@ -418,6 +418,8 @@ def comparison_with_default_branch(github: GitHubIntegration, docs_repository: s
 
 PAGE_CHANGING_STATUSES = frozenset({"added", "removed", "renamed"})
 MIN_DOCS_INDEX_PAGE_LINKS = 10
+MAX_COMPANION_FILES = 3
+MAX_COMPANION_PATCH_CHARACTERS = 16_384
 
 
 def changed_paths(changed_file: dict) -> list[str]:
@@ -458,6 +460,8 @@ def publication_refusal(
     ]
     if not companion_files:
         return None
+    if len(companion_files) > MAX_COMPANION_FILES:
+        return "changed_paths_outside_docs"
     page_keys = changed_page_keys(changed_files, docs_folders)
     if not all(is_companion_edit(changed_file, page_keys) for changed_file in companion_files):
         return "changed_paths_outside_docs"
@@ -492,6 +496,8 @@ def is_companion_edit(changed_file: dict, page_keys: frozenset[str]) -> bool:
     patch = changed_file.get("patch")
     if changed_file.get("status") != "modified" or not isinstance(patch, str) or not page_keys:
         return False
+    if len(patch) > MAX_COMPANION_PATCH_CHARACTERS:
+        return False
     hunks = changed_lines_by_hunk(patch)
     return bool(hunks) and all(not page_keys.isdisjoint(linked_page_paths("\n".join(hunk))) for hunk in hunks)
 
@@ -516,22 +522,34 @@ def is_docs_index(file_text: str | None, existing_page_keys: frozenset[str]) -> 
 def docs_page_keys_at(
     github: GitHubIntegration, docs_repository: str, docs_folders: tuple[str, ...], commit_sha: str
 ) -> frozenset[str]:
+    return frozenset(
+        page_key
+        for docs_folder in docs_folders
+        for page_key in folder_page_keys(github, docs_repository, docs_folder, commit_sha)
+    )
+
+
+def folder_page_keys(
+    github: GitHubIntegration, docs_repository: str, docs_folder: str, commit_sha: str
+) -> frozenset[str]:
     response = github.api_request(
         "GET",
-        f"/repos/{docs_repository}/git/trees/{commit_sha}",
+        f"/repos/{docs_repository}/git/trees/{commit_sha}:{quote(docs_folder)}",
         endpoint="/repos/{owner}/{repo}/git/trees/{tree_sha}",
         params={"recursive": 1},
     )
+    if response.status_code == 404:
+        return frozenset()
     if response.status_code != 200:
         raise WriterPullRequestFailed(f"knowledge writer could not read the docs tree: {response.status_code}")
     tree = response.json()
-    entries = tree.get("tree") if isinstance(tree, dict) else None
+    if not isinstance(tree, dict) or tree.get("truncated"):
+        raise WriterPullRequestFailed("knowledge writer read a truncated docs tree")
     return frozenset(
         page_key
-        for entry in entries or []
+        for entry in tree.get("tree") or []
         if isinstance(entry, dict) and entry.get("type") == "blob" and isinstance(entry.get("path"), str)
-        for docs_folder in docs_folders
-        if (page_key := docs_page_key(entry["path"], docs_folder)) is not None
+        if (page_key := docs_page_key(f"{docs_folder}/{entry['path']}", docs_folder)) is not None
     )
 
 

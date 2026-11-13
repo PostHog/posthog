@@ -1,6 +1,7 @@
 import os
 import dataclasses
 from collections.abc import Callable
+from urllib.parse import unquote
 
 import pytest
 import time_machine
@@ -132,13 +133,29 @@ def _open_on_github(
     return respond
 
 
-def _changed_on_branch(*changed_files: str | dict[str, str], status_code: int = 200) -> Callable[..., MagicMock]:
+def _docs_tree_under(folder: str, *, is_truncated: bool = False) -> dict:
+    return {
+        "truncated": is_truncated,
+        "tree": [
+            {"type": "blob", "path": path.removeprefix(f"{folder}/")}
+            for path in (DOCS_PAGE_PATH, *LINKED_PAGE_PATHS)
+            if path.startswith(f"{folder}/")
+        ],
+    }
+
+
+def _changed_on_branch(
+    *changed_files: str | dict[str, str], status_code: int = 200, is_docs_tree_truncated: bool = False
+) -> Callable[..., MagicMock]:
     listed = [changed if isinstance(changed, dict) else {"filename": changed} for changed in changed_files]
-    docs_tree = {"tree": [{"type": "blob", "path": path} for path in (DOCS_PAGE_PATH, *LINKED_PAGE_PATHS)]}
 
     def respond(method, path, **kwargs):
         if "/git/trees/" in path:
-            return MagicMock(status_code=200, json=MagicMock(return_value=docs_tree))
+            folder = unquote(path.split(":", 1)[1])
+            return MagicMock(
+                status_code=200,
+                json=MagicMock(return_value=_docs_tree_under(folder, is_truncated=is_docs_tree_truncated)),
+            )
         if "/contents/" in path:
             base_text = BASE_TEXT_BY_PATH.get(path.split("/contents/", 1)[1])
             return MagicMock(status_code=200 if base_text is not None else 404, text=base_text)
@@ -211,10 +228,13 @@ def _finish_run(
     pushed_branches: tuple[str, ...] | None = None,
     changed_files: tuple[str | dict[str, str], ...] = (DOCS_PAGE_PATH,),
     compare_status_code: int = 200,
+    is_docs_tree_truncated: bool = False,
 ) -> list[str]:
     run = TaskRun.objects.get(task_id=task_id)
     branches = pushed_branches or (_issued_branch(task_id),)
-    compared = _changed_on_branch(*changed_files, status_code=compare_status_code)
+    compared = _changed_on_branch(
+        *changed_files, status_code=compare_status_code, is_docs_tree_truncated=is_docs_tree_truncated
+    )
     with (
         patch(LIST_PULL_REQUESTS, side_effect=compared) as github_request,
         django_capture_on_commit_callbacks(execute=True),
@@ -344,6 +364,14 @@ def test_a_finished_writer_run_opens_one_linked_docs_pull_request_and_a_same_sec
     with patch(CREATE_PULL_REQUEST) as create_after_failed_compare:
         _finish_run(started.task_id, django_capture_on_commit_callbacks, compare_status_code=500)
     create_after_failed_compare.assert_not_called()
+    with patch(CREATE_PULL_REQUEST) as create_after_truncated_tree:
+        _finish_run(
+            started.task_id,
+            django_capture_on_commit_callbacks,
+            changed_files=({"filename": NEW_PAGE_PATH, "status": "added"}, NAV_ENTRY_FOR_NEW_PAGE),
+            is_docs_tree_truncated=True,
+        )
+    create_after_truncated_tree.assert_not_called()
     for changed_files, refusal in (
         ((DOCS_PAGE_PATH, WORKFLOW_PATH), "changed_paths_outside_docs"),
         (({"filename": DOCS_PAGE_PATH, "previous_filename": WORKFLOW_PATH},), "changed_paths_outside_docs"),
@@ -361,6 +389,17 @@ def test_a_finished_writer_run_opens_one_linked_docs_pull_request_and_a_same_sec
             (
                 {"filename": NEW_PAGE_PATH, "status": "added"},
                 {"filename": WORKFLOW_PATH, "status": "modified", "patch": COMMENTED_WORKFLOW_HUNK},
+            ),
+            "changed_paths_outside_docs",
+        ),
+        (
+            ({"filename": NEW_PAGE_PATH, "status": "added"},) + (NAV_ENTRY_FOR_NEW_PAGE,) * 4,
+            "changed_paths_outside_docs",
+        ),
+        (
+            (
+                {"filename": NEW_PAGE_PATH, "status": "added"},
+                {**NAV_ENTRY_FOR_NEW_PAGE, "patch": f"{NAV_ENTRY_HUNK}\n+{'a/' * 9_000}"},
             ),
             "changed_paths_outside_docs",
         ),
